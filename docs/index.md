@@ -1,23 +1,20 @@
-# WeOS  Microservice
+# WeOS  Content Service
 
+You can use the Content Service to manage content in an application. You can have a fully functional API by simply modeling your data in an Open API specification.
 
-## Quickstart 
+## Quick Start
+1. Define content types in the API spec file.
+2. Define the endpoints for interacting with content types
+3. Run the API
 
-APIs can be run on a local machine or deployed to a remote server. 
+### Define Content Types
 
-* Download the release appropriate for your platform
-* Update api.yaml with the database configuration (by default the api will use sqlite)
-* Run binary (you can run specify which port to use using the `-port` switch on the command line)
+For any WeOS service, you can define schemas for data used in the service. The Content Service uses those schema definitions (Content Types) to set up CRUD functionality and essential data stores.  WeOS also provides extensions for everyday data modeling tasks like setting relationships between Content Types, setting data types not offered by the OAS 3.0 specification, etc. Visit the Content Types documentation to learn more about modeling data in the Content Service.
 
-## Project layout
-    api.yaml    # API Configuration File
-    .env.dist   # Copy this file to create an environment variable file (.env)
-    src/
-        api.go  # API Handlers 
-        dtos.go # Data transfer structs that map to the components in the api spec
-    
-    projections/ # Projections package
-        projections.go # Projection interface that all projections must impelment
-        gorm.go # GORM projection implementation
-    
-    ...       # Other test files and project files
+### Define Endpoints
+
+You can create endpoints that sort, filter, and paginate the content returned. You can set up the endpoints to create, delete, list, or view content. The Content Service automatically associates functionality to those endpoints based on the HTTP method and parameters applied.
+
+### Deploy
+
+You can run the API by executing a command on the Content Service and referencing the API specification you create. One binary, one API spec, that's all you need. Deploy your content service to WeOS and get a secure, easy to maintain API that is ready to use

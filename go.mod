@@ -1,4 +1,4 @@
-module github.com/wepala/weos-api-template
+module github.com/wepala/weos-content-service
 
 go 1.16
 
