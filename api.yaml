@@ -1,0 +1,35 @@
+openapi: 3.0.2
+info:
+  title: WeOS REST API
+  version: 0.0.1
+  description: REST API for passing information into WeOS
+
+servers:
+  - url: https://weos.cloud/crm
+    description: Hosted WeOS CRM
+  - url: http://localhost
+    description: Local development
+
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  middleware:
+    - RequestID
+    - Recover
+
+paths:
+  /health:
+    summary: Health Check
+    get:
+      x-weos-config:
+        handler: HealthCheck
+      responses:
+        200:
+          description: Health Response
+        500:
+          description: API Internal Error
