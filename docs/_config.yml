@@ -41,7 +41,7 @@ heading_anchors: true
 
 # Aux links for the upper right navigation
 aux_links:
-  "WeOS Authentication API on GitHub":
+  "WeOS Content Service on GitHub":
     - "//github.com/wepala/weos-content-service"
 
 # Makes Aux links open in a new tab. Default is false
@@ -58,7 +58,7 @@ nav_sort: case_sensitive # Capital letters sorted before lowercase
 back_to_top: true
 back_to_top_text: "Back to top"
 
-footer_content: "Copyright &copy; 2021 Wepala LTD. Distributed by an <a href=\"https://github.com/wepala/weos-content-service/tree/master/LICENSE.txt\">Apache license.</a>"
+footer_content: "Copyright &copy; 2021 Wepala LLC."
 
 # Footer last edited timestamp
 last_edit_timestamp: true # show or hide edit time - page must have `last_modified_date` defined in the frontmatter
