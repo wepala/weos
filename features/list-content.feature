@@ -89,30 +89,58 @@ Feature: Create content
                 application/json:
                   schema:
                     $ref: "#/components/schemas/ErrorResponse"
+      /posts:
+        parameters:
+          - in: query
+            name: page
+            schema:
+              type: integer
+          - in: query
+            name: limit
+            schema:
+              type: integer
+          - in: query
+            name: sort
+            schema:
+              type: array
+              items:
+                type: string
+          - in: query
+            name: blog_id
+            schema:
+              type: string
+          - in: query
+            name: category
+            schema:
+              type: string
+        get:
+          operationId: List Posts
+          responses:
+            200:
+              description: List of Posts
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Post"
     """
 
 
-    Scenario: Create a basic item
-      
-      Given "Sojourner" is on the "Blog" create screen
-      And "Sojourner" enters "Some Blog" in the "title" field
-      And "Sojourner" enters "Some Description" in the "description" field
-      When the "Blog" is submitted
-      Then the "Blog" is created
-        | title          | description                       |
-        | Some Blog      | Some Description                  |
-      And the "Blog" should have an id
+  Scenario: Get a list of items
 
-    Scenario: Create an item that has an invalid type
+  Scenario: Filter a list of items
 
-      Given "Sojourner" is on the "Blog" create screen
-      And "Sojourner" enters "Some Description" in the "publishedDate" field
-      When the "Blog" is submitted
-      Then an error should be returned
-
-    Scenario: Create an item that violates uniqueness requirement
-
-    Scenario: Create an item using an endpoint that does not definne the response 
+  Scenario: Sort a list of items
 
 
 
