@@ -15,11 +15,17 @@ You can use the Content Service to manage content in an application. You can hav
 
 ### Define Content Types
 
-For any WeOS service, you can define schemas for data used in the service. The Content Service uses those schema definitions (Content Types) to set up CRUD functionality and essential data stores.  WeOS also provides extensions for everyday data modeling tasks like setting relationships between Content Types, setting data types not offered by the OAS 3.0 specification, etc. Visit the Content Types documentation to learn more about modeling data in the Content Service.
+For any WeOS service, you can define schemas for data used in the service. The Content Service uses those schema definitions (Content Types) to set up CRUD functionality and essential data stores.
+
+These schema definitions are standard [OpenAPI objects](https://swagger.io/docs/specification/data-models/data-types/#object) that use [OpenAPI data types](https://swagger.io/docs/specification/data-models/data-types). Developers can create relationships between Content Types using arrays and the "$ref" tag to reference other Content Types defined in the schema.
+
+Learn more about modeling APIs with Content Types in the feature section
 
 ### Define Endpoints
 
-You can create endpoints that sort, filter, and paginate the content returned. You can set up the endpoints to create, delete, list, or view content. The Content Service automatically associates functionality to those endpoints based on the HTTP method and parameters applied.
+You can create endpoints that sort, filter, and paginate the content returned. You can set up the endpoints to create, delete, list, or view content.
+
+Endpoints are created by creating [OpenAPI paths](https://swagger.io/docs/specification/paths-and-operations/) that reference the Content Types created in the specification schema. The operation and request body help determine the functionality associated with the endpoint.  You can also explicitly indicate a handler for a specific path.
 
 ### Deploy
 
