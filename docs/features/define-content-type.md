@@ -260,7 +260,7 @@ erDiagram
   }
 ```
 
-### User format to set granular types
+### Use format to set granular types
 
 
 Developers can use the `format` attribute to set the format of a property. This should be used to validate content
@@ -325,6 +325,8 @@ erDiagram
     string id
     string title
     string description
+    string email
+    datetime publishedDate
   }
 ```
 
@@ -393,6 +395,117 @@ erDiagram
     string id
     string title
     string description
+    string email
+    datetime publishedDate
+    integer views
+  }
+```
+
+### Setup a content type with an enumeration
+
+
+A property can be defined with a list of possible options.
+
+**Given** "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification  
+
+```
+Post:
+  type: object
+  properties:
+    id:
+      type: string
+      format: ksuid
+    title:
+      type: string
+    description:
+      type: string
+    status:
+      type: string
+      enum:
+        - unpublished
+        - published
+```
+**When** the "OpenAPI 3.0" specification is parsed  
+**Then** a model "Post" should be added to the projection  
+
+| Field       | Comment | Type         | Null  | Key | Default     |
+|:------------|:--------|:-------------|:------|:----|:------------|
+| id          |         | varchar(512) | false | PK  | NULL        |
+| title       |         | varchar(512) | true  |     | NULL        |
+| description |         | varchar(512) | true  |     | NULL        |
+| status      |         | varchar(512) | false |     | unpublished |
+
+**And** a "Post" entity configuration should be setup  
+
+```
+erDiagram
+  Blog ||--o{ Post : contains
+  Blog {
+    string id
+    string title
+    string description
+  }
+  Category ||--o{ Post : contains
+  Post {
+    string id
+    string title
+    string description
+    string status
+  }
+```
+
+### Setup a content type with an enumeration that is nullable
+
+
+A property with a list of options can have a null option though it needs to be explicitly identified
+
+**Given** "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification  
+
+```
+Post:
+  type: object
+  properties:
+    id:
+      type: string
+      format: ksuid
+    title:
+      type: string
+    description:
+      type: string
+    status:
+      type: string
+      nullable: true
+      enum:
+        - null
+        - unpublished
+        - published
+```
+**When** the "OpenAPI 3.0" specification is parsed  
+**Then** a model "Post" should be added to the projection  
+
+| Field       | Comment | Type         | Null  | Key | Default |
+|:------------|:--------|:-------------|:------|:----|:--------|
+| id          |         | varchar(512) | false | PK  | NULL    |
+| title       |         | varchar(512) | true  |     | NULL    |
+| description |         | varchar(512) | true  |     | NULL    |
+| status      |         | varchar(512) | true  |     | NULL    |
+
+**And** a "Post" entity configuration should be setup  
+
+```
+erDiagram
+  Blog ||--o{ Post : contains
+  Blog {
+    string id
+    string title
+    string description
+  }
+  Category ||--o{ Post : contains
+  Post {
+    string id
+    string title
+    string description
+    string status
   }
 ```
 

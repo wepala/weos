@@ -5,7 +5,7 @@ parent: Features
 ---
 # Create content endpoint
 
-A developer can create an endpoint that should be used to create content of a specific type. The HTTP method and the
+As developer you can create an endpoint that should be used to create content of a specific type. The HTTP method and the
   content type specified is used to infer the middleware that should be used.
 
 ## Background
