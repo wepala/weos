@@ -3,9 +3,10 @@ package controllers
 import (
 	"context"
 	"database/sql"
-	"github.com/wepala/weos-api-template/projections"
 	"net/http"
 	"time"
+
+	"github.com/wepala/weos-content-service/projections"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"

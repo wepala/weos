@@ -7,8 +7,10 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/labstack/echo/v4 v4.5.0
 	github.com/labstack/gommon v0.3.0
-	github.com/wepala/weos v1.0.0-alpha
-	github.com/wepala/weos-controller v0.0.0-20210803134759-0d2787eddc1c
+	github.com/ory/dockertest/v3 v3.6.0
+	github.com/wepala/weos v1.0.1-alpha
+	github.com/wepala/weos-controller v0.0.1-alpha.0.20211125063637-15b23090f893
+	golang.org/x/net v0.0.0-20210726213435-c6fcb2dbf985
 	golang.org/x/sys v0.0.0-20210611083646-a4fc73990273 // indirect
 	gorm.io/gorm v1.21.15
 )

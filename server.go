@@ -1,14 +1,15 @@
 // +build server
 
-package service
+package main
 
 import (
 	"flag"
+	api "github.com/wepala/weos-content-service/controllers"
 )
 
 var port = flag.String("port", "8681", "-port=8681")
 
 func main() {
 	flag.Parse()
-	//TODO: import api and run the New function with port as argument
+	api.New(port, "./api.yaml")
 }

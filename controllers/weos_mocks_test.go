@@ -18,49 +18,55 @@ var _ weos.EventRepository = &EventRepositoryMock{}
 
 // EventRepositoryMock is a mock implementation of weos.EventRepository.
 //
-// 	func TestSomethingThatUsesEventRepository(t *testing.T) {
+//     func TestSomethingThatUsesEventRepository(t *testing.T) {
 //
-// 		// make and configure a mocked weos.EventRepository
-// 		mockedEventRepository := &EventRepositoryMock{
-// 			AddSubscriberFunc: func(handler weos.EventHandler)  {
-// 				panic("mock out the AddSubscriber method")
-// 			},
-// 			FlushFunc: func() error {
-// 				panic("mock out the Flush method")
-// 			},
-// 			GetByAggregateFunc: func(ID string) ([]*weos.Event, error) {
-// 				panic("mock out the GetByAggregate method")
-// 			},
-// 			GetByAggregateAndSequenceRangeFunc: func(ID string, start int64, end int64) ([]*weos.Event, error) {
-// 				panic("mock out the GetByAggregateAndSequenceRange method")
-// 			},
-// 			GetByAggregateAndTypeFunc: func(ID string, entityType string) ([]*weos.Event, error) {
-// 				panic("mock out the GetByAggregateAndType method")
-// 			},
-// 			GetByEntityAndAggregateFunc: func(entityID string, entityType string, rootID string) ([]*weos.Event, error) {
-// 				panic("mock out the GetByEntityAndAggregate method")
-// 			},
-// 			GetSubscribersFunc: func() ([]weos.EventHandler, error) {
-// 				panic("mock out the GetSubscribers method")
-// 			},
-// 			MigrateFunc: func(ctx context.Context) error {
-// 				panic("mock out the Migrate method")
-// 			},
-// 			PersistFunc: func(ctxt context.Context, entity weos.AggregateInterface) error {
-// 				panic("mock out the Persist method")
-// 			},
-// 		}
+//         // make and configure a mocked weos.EventRepository
+//         mockedEventRepository := &EventRepositoryMock{
+//             AddSubscriberFunc: func(handler weos.EventHandler)  {
+// 	               panic("mock out the AddSubscriber method")
+//             },
+//             FlushFunc: func() error {
+// 	               panic("mock out the Flush method")
+//             },
+//             GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+// 	               panic("mock out the GetAggregateSequenceNumber method")
+//             },
+//             GetByAggregateFunc: func(ID string) ([]*weos.Event, error) {
+// 	               panic("mock out the GetByAggregate method")
+//             },
+//             GetByAggregateAndSequenceRangeFunc: func(ID string, start int64, end int64) ([]*weos.Event, error) {
+// 	               panic("mock out the GetByAggregateAndSequenceRange method")
+//             },
+//             GetByAggregateAndTypeFunc: func(ID string, entityType string) ([]*weos.Event, error) {
+// 	               panic("mock out the GetByAggregateAndType method")
+//             },
+//             GetByEntityAndAggregateFunc: func(entityID string, entityType string, rootID string) ([]*weos.Event, error) {
+// 	               panic("mock out the GetByEntityAndAggregate method")
+//             },
+//             GetSubscribersFunc: func() ([]weos.EventHandler, error) {
+// 	               panic("mock out the GetSubscribers method")
+//             },
+//             MigrateFunc: func(ctx context.Context) error {
+// 	               panic("mock out the Migrate method")
+//             },
+//             PersistFunc: func(ctxt context.Context, entity weos.AggregateInterface) error {
+// 	               panic("mock out the Persist method")
+//             },
+//         }
 //
-// 		// use mockedEventRepository in code that requires weos.EventRepository
-// 		// and then make assertions.
+//         // use mockedEventRepository in code that requires weos.EventRepository
+//         // and then make assertions.
 //
-// 	}
+//     }
 type EventRepositoryMock struct {
 	// AddSubscriberFunc mocks the AddSubscriber method.
 	AddSubscriberFunc func(handler weos.EventHandler)
 
 	// FlushFunc mocks the Flush method.
 	FlushFunc func() error
+
+	// GetAggregateSequenceNumberFunc mocks the GetAggregateSequenceNumber method.
+	GetAggregateSequenceNumberFunc func(ID string) (int64, error)
 
 	// GetByAggregateFunc mocks the GetByAggregate method.
 	GetByAggregateFunc func(ID string) ([]*weos.Event, error)
@@ -92,6 +98,11 @@ type EventRepositoryMock struct {
 		}
 		// Flush holds details about calls to the Flush method.
 		Flush []struct {
+		}
+		// GetAggregateSequenceNumber holds details about calls to the GetAggregateSequenceNumber method.
+		GetAggregateSequenceNumber []struct {
+			// ID is the ID argument value.
+			ID string
 		}
 		// GetByAggregate holds details about calls to the GetByAggregate method.
 		GetByAggregate []struct {
@@ -141,6 +152,7 @@ type EventRepositoryMock struct {
 	}
 	lockAddSubscriber                  sync.RWMutex
 	lockFlush                          sync.RWMutex
+	lockGetAggregateSequenceNumber     sync.RWMutex
 	lockGetByAggregate                 sync.RWMutex
 	lockGetByAggregateAndSequenceRange sync.RWMutex
 	lockGetByAggregateAndType          sync.RWMutex
@@ -204,6 +216,37 @@ func (mock *EventRepositoryMock) FlushCalls() []struct {
 	mock.lockFlush.RLock()
 	calls = mock.calls.Flush
 	mock.lockFlush.RUnlock()
+	return calls
+}
+
+// GetAggregateSequenceNumber calls GetAggregateSequenceNumberFunc.
+func (mock *EventRepositoryMock) GetAggregateSequenceNumber(ID string) (int64, error) {
+	if mock.GetAggregateSequenceNumberFunc == nil {
+		panic("EventRepositoryMock.GetAggregateSequenceNumberFunc: method is nil but EventRepository.GetAggregateSequenceNumber was just called")
+	}
+	callInfo := struct {
+		ID string
+	}{
+		ID: ID,
+	}
+	mock.lockGetAggregateSequenceNumber.Lock()
+	mock.calls.GetAggregateSequenceNumber = append(mock.calls.GetAggregateSequenceNumber, callInfo)
+	mock.lockGetAggregateSequenceNumber.Unlock()
+	return mock.GetAggregateSequenceNumberFunc(ID)
+}
+
+// GetAggregateSequenceNumberCalls gets all the calls that were made to GetAggregateSequenceNumber.
+// Check the length with:
+//     len(mockedEventRepository.GetAggregateSequenceNumberCalls())
+func (mock *EventRepositoryMock) GetAggregateSequenceNumberCalls() []struct {
+	ID string
+} {
+	var calls []struct {
+		ID string
+	}
+	mock.lockGetAggregateSequenceNumber.RLock()
+	calls = mock.calls.GetAggregateSequenceNumber
+	mock.lockGetAggregateSequenceNumber.RUnlock()
 	return calls
 }
 
@@ -449,52 +492,52 @@ var _ weos.Log = &LogMock{}
 
 // LogMock is a mock implementation of weos.Log.
 //
-// 	func TestSomethingThatUsesLog(t *testing.T) {
+//     func TestSomethingThatUsesLog(t *testing.T) {
 //
-// 		// make and configure a mocked weos.Log
-// 		mockedLog := &LogMock{
-// 			DebugFunc: func(args ...interface{})  {
-// 				panic("mock out the Debug method")
-// 			},
-// 			DebugfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Debugf method")
-// 			},
-// 			ErrorFunc: func(args ...interface{})  {
-// 				panic("mock out the Error method")
-// 			},
-// 			ErrorfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Errorf method")
-// 			},
-// 			FatalFunc: func(args ...interface{})  {
-// 				panic("mock out the Fatal method")
-// 			},
-// 			FatalfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Fatalf method")
-// 			},
-// 			InfoFunc: func(args ...interface{})  {
-// 				panic("mock out the Info method")
-// 			},
-// 			InfofFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Infof method")
-// 			},
-// 			PanicFunc: func(args ...interface{})  {
-// 				panic("mock out the Panic method")
-// 			},
-// 			PanicfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Panicf method")
-// 			},
-// 			PrintFunc: func(args ...interface{})  {
-// 				panic("mock out the Print method")
-// 			},
-// 			PrintfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Printf method")
-// 			},
-// 		}
+//         // make and configure a mocked weos.Log
+//         mockedLog := &LogMock{
+//             DebugFunc: func(args ...interface{})  {
+// 	               panic("mock out the Debug method")
+//             },
+//             DebugfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Debugf method")
+//             },
+//             ErrorFunc: func(args ...interface{})  {
+// 	               panic("mock out the Error method")
+//             },
+//             ErrorfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Errorf method")
+//             },
+//             FatalFunc: func(args ...interface{})  {
+// 	               panic("mock out the Fatal method")
+//             },
+//             FatalfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Fatalf method")
+//             },
+//             InfoFunc: func(args ...interface{})  {
+// 	               panic("mock out the Info method")
+//             },
+//             InfofFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Infof method")
+//             },
+//             PanicFunc: func(args ...interface{})  {
+// 	               panic("mock out the Panic method")
+//             },
+//             PanicfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Panicf method")
+//             },
+//             PrintFunc: func(args ...interface{})  {
+// 	               panic("mock out the Print method")
+//             },
+//             PrintfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Printf method")
+//             },
+//         }
 //
-// 		// use mockedLog in code that requires weos.Log
-// 		// and then make assertions.
+//         // use mockedLog in code that requires weos.Log
+//         // and then make assertions.
 //
-// 	}
+//     }
 type LogMock struct {
 	// DebugFunc mocks the Debug method.
 	DebugFunc func(args ...interface{})
@@ -1023,25 +1066,25 @@ var _ weos.Dispatcher = &DispatcherMock{}
 
 // DispatcherMock is a mock implementation of weos.Dispatcher.
 //
-// 	func TestSomethingThatUsesDispatcher(t *testing.T) {
+//     func TestSomethingThatUsesDispatcher(t *testing.T) {
 //
-// 		// make and configure a mocked weos.Dispatcher
-// 		mockedDispatcher := &DispatcherMock{
-// 			AddSubscriberFunc: func(command *weos.Command, handler weos.CommandHandler) map[string][]weos.CommandHandler {
-// 				panic("mock out the AddSubscriber method")
-// 			},
-// 			DispatchFunc: func(ctx context.Context, command *weos.Command) error {
-// 				panic("mock out the Dispatch method")
-// 			},
-// 			GetSubscribersFunc: func() map[string][]weos.CommandHandler {
-// 				panic("mock out the GetSubscribers method")
-// 			},
-// 		}
+//         // make and configure a mocked weos.Dispatcher
+//         mockedDispatcher := &DispatcherMock{
+//             AddSubscriberFunc: func(command *weos.Command, handler weos.CommandHandler) map[string][]weos.CommandHandler {
+// 	               panic("mock out the AddSubscriber method")
+//             },
+//             DispatchFunc: func(ctx context.Context, command *weos.Command) error {
+// 	               panic("mock out the Dispatch method")
+//             },
+//             GetSubscribersFunc: func() map[string][]weos.CommandHandler {
+// 	               panic("mock out the GetSubscribers method")
+//             },
+//         }
 //
-// 		// use mockedDispatcher in code that requires weos.Dispatcher
-// 		// and then make assertions.
+//         // use mockedDispatcher in code that requires weos.Dispatcher
+//         // and then make assertions.
 //
-// 	}
+//     }
 type DispatcherMock struct {
 	// AddSubscriberFunc mocks the AddSubscriber method.
 	AddSubscriberFunc func(command *weos.Command, handler weos.CommandHandler) map[string][]weos.CommandHandler
@@ -1179,52 +1222,52 @@ var _ weos.Application = &ApplicationMock{}
 
 // ApplicationMock is a mock implementation of weos.Application.
 //
-// 	func TestSomethingThatUsesApplication(t *testing.T) {
+//     func TestSomethingThatUsesApplication(t *testing.T) {
 //
-// 		// make and configure a mocked weos.Application
-// 		mockedApplication := &ApplicationMock{
-// 			AddProjectionFunc: func(projection weos.Projection) error {
-// 				panic("mock out the AddProjection method")
-// 			},
-// 			ConfigFunc: func() *weos.ApplicationConfig {
-// 				panic("mock out the Config method")
-// 			},
-// 			DBFunc: func() *gorm.DB {
-// 				panic("mock out the DB method")
-// 			},
-// 			DBConnectionFunc: func() *sql.DB {
-// 				panic("mock out the DBConnection method")
-// 			},
-// 			DispatcherFunc: func() weos.Dispatcher {
-// 				panic("mock out the Dispatcher method")
-// 			},
-// 			EventRepositoryFunc: func() weos.EventRepository {
-// 				panic("mock out the EventRepository method")
-// 			},
-// 			HTTPClientFunc: func() *http.Client {
-// 				panic("mock out the HTTPClient method")
-// 			},
-// 			IDFunc: func() string {
-// 				panic("mock out the ID method")
-// 			},
-// 			LoggerFunc: func() weos.Log {
-// 				panic("mock out the Logger method")
-// 			},
-// 			MigrateFunc: func(ctx context.Context) error {
-// 				panic("mock out the Migrate method")
-// 			},
-// 			ProjectionsFunc: func() []weos.Projection {
-// 				panic("mock out the Projections method")
-// 			},
-// 			TitleFunc: func() string {
-// 				panic("mock out the Title method")
-// 			},
-// 		}
+//         // make and configure a mocked weos.Application
+//         mockedApplication := &ApplicationMock{
+//             AddProjectionFunc: func(projection weos.Projection) error {
+// 	               panic("mock out the AddProjection method")
+//             },
+//             ConfigFunc: func() *weos.ApplicationConfig {
+// 	               panic("mock out the Config method")
+//             },
+//             DBFunc: func() *gorm.DB {
+// 	               panic("mock out the DB method")
+//             },
+//             DBConnectionFunc: func() *sql.DB {
+// 	               panic("mock out the DBConnection method")
+//             },
+//             DispatcherFunc: func() weos.Dispatcher {
+// 	               panic("mock out the Dispatcher method")
+//             },
+//             EventRepositoryFunc: func() weos.EventRepository {
+// 	               panic("mock out the EventRepository method")
+//             },
+//             HTTPClientFunc: func() *http.Client {
+// 	               panic("mock out the HTTPClient method")
+//             },
+//             IDFunc: func() string {
+// 	               panic("mock out the ID method")
+//             },
+//             LoggerFunc: func() weos.Log {
+// 	               panic("mock out the Logger method")
+//             },
+//             MigrateFunc: func(ctx context.Context) error {
+// 	               panic("mock out the Migrate method")
+//             },
+//             ProjectionsFunc: func() []weos.Projection {
+// 	               panic("mock out the Projections method")
+//             },
+//             TitleFunc: func() string {
+// 	               panic("mock out the Title method")
+//             },
+//         }
 //
-// 		// use mockedApplication in code that requires weos.Application
-// 		// and then make assertions.
+//         // use mockedApplication in code that requires weos.Application
+//         // and then make assertions.
 //
-// 	}
+//     }
 type ApplicationMock struct {
 	// AddProjectionFunc mocks the AddProjection method.
 	AddProjectionFunc func(projection weos.Projection) error

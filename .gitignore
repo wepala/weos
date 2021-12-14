@@ -17,3 +17,7 @@
 /.idea
 .DS_Store
 server
+.vscode
+
+__debug_bin
+.env
