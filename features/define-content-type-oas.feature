@@ -1,4 +1,4 @@
-Feature: Model API content types
+Feature: Create Content Types
 
   As a developer you can define content types for your API. Content Types have properties that can be formatted and
   validated on submission. Relationships between content types can also be setup

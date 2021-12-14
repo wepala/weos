@@ -1,4 +1,4 @@
-Feature: Create content endpoint
+Feature: Create content endpoints
 
   As developer you can create an endpoint that should be used to create content of a specific type. The HTTP method and the
   content type specified is used to infer the middleware that should be used.
