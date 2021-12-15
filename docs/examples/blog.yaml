@@ -62,6 +62,13 @@ components:
           type: string
         description:
           type: string
+        status:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - unpublished
+            - published
         image:
           type: string
           format: byte

@@ -1,3 +1,4 @@
+@WEOS-1164
 Feature: Create content endpoints
 
   As developer you can create an endpoint that should be used to create content of a specific type. The HTTP method and the
