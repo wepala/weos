@@ -16,13 +16,12 @@ type Service struct {
 }
 
 //ToDo: Saving the structs to a map and making them entities to save events
-func (s *Service) CreateSchema(ctx context.Context, schemas map[string]*openapi3.SchemaRef) (map[string]ds.Builder, error) {
-	structs := make(map[string]ds.Builder)
+func (s *Service) CreateSchema(ctx context.Context, schemas map[string]*openapi3.SchemaRef) (map[string]interface{}, error) {
+	structs := make(map[string]interface{})
 	relations := make(map[string]map[string]string)
 
 	for name, scheme := range schemas {
-
-		var instance ds.Builder
+		var instance interface{}
 		instance, relations[name] = updateSchema(scheme.Value)
 
 		structs[name] = instance
@@ -33,10 +32,11 @@ func (s *Service) CreateSchema(ctx context.Context, schemas map[string]*openapi3
 	return structs, nil
 }
 
-func updateSchema(ref *openapi3.Schema) (ds.Builder, map[string]string) {
+func updateSchema(ref *openapi3.Schema) (interface{}, map[string]string) {
 	instance := ds.NewStruct()
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
+		name = strings.Title(name)
 		if p.Ref != "" {
 			relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
 		} else {
@@ -81,5 +81,6 @@ func updateSchema(ref *openapi3.Schema) (ds.Builder, map[string]string) {
 			}
 		}
 	}
-	return instance, relations
+
+	return instance.Build().New(), relations
 }

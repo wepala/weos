@@ -1,6 +1,7 @@
 package projections
 
 import (
+	"github.com/stoewer/go-strcase"
 	"github.com/wepala/weos"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
@@ -11,6 +12,7 @@ type GORMProjection struct {
 	db              *gorm.DB
 	logger          weos.Log
 	migrationFolder string
+	Schema          map[string]interface{}
 }
 
 //Persist save entity information in database
@@ -24,18 +26,39 @@ func (p *GORMProjection) Remove(entities []weos.Entity) error {
 }
 
 func (p *GORMProjection) Migrate(ctx context.Context) error {
-	panic("implement me")
+
+	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
+	for name, s := range p.Schema {
+		//can't automigrate the whole array.  would cause errors.  We may need to think through how this is done as the create table does not autmomigrate
+		err := p.db.Migrator().CreateTable(s)
+		if err != nil {
+			return err
+		}
+
+		err = p.db.Migrator().RenameTable("", strcase.SnakeCase(name))
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
 }
 
 func (p *GORMProjection) GetEventHandler() weos.EventHandler {
-	panic("implement me")
+	return nil
 }
 
 //NewProjection creates an instance of the projection
-func NewProjection(application weos.Application) (*GORMProjection, error) {
+func NewProjection(structs map[string]interface{}, application weos.Application) (*GORMProjection, error) {
+	dbStructs := make(map[string]interface{})
+
+	for name, s := range structs {
+		dbStructs[name] = s
+	}
 	projection := &GORMProjection{
 		db:     application.DB(),
 		logger: application.Logger(),
+		Schema: dbStructs,
 	}
 	application.AddProjection(projection)
 	return projection, nil

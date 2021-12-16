@@ -72,10 +72,10 @@ func (a *RESTAPI) Initialize() error {
 	}
 
 	//setup projections
-	// a.projection, err = projections.NewProjection(a.Application)
-	// if err != nil {
-	// 	return err
-	// }
+	a.projection, err = projections.NewProjection(structs, a.Application)
+	if err != nil {
+		return err
+	}
 	//run fixtures
 	err = a.Application.Migrate(context.Background())
 	if err != nil {
