@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -62,7 +63,14 @@ func (a *RESTAPI) Initialize() error {
 	// }
 
 	s := module.Service{}
-	s.CreateSchema(context.Background(), a.Schemas)
+	structs, err := s.CreateSchema(context.Background(), a.Schemas)
+	if err != nil {
+		return err
+	}
+	for name, s := range structs {
+		fmt.Printf("struct %s: %s", name, s)
+	}
+
 	//setup projections
 	// a.projection, err = projections.NewProjection(a.Application)
 	// if err != nil {
