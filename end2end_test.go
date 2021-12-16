@@ -1,26 +1,31 @@
 package service_test
 
 import (
+	"context"
 	"os"
 	"testing"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
-	weoscontroller "github.com/wepala/weos-controller"
+	api "github.com/wepala/weos-content-service/controllers"
 )
 
 var e *echo.Echo
-var API weoscontroller.APIInterface
+var API api.RESTAPI
 
-func reset(*godog.Scenario) {
+func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	os.Remove("test.db")
+	return ctx, nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
-	e = echo.New()
-	weoscontroller.Initialize(e, API, "../api.yaml")
+	ctx.Before(reset)
 
-	ctx.BeforeScenario(reset)
+	//add context steps
+}
+func InitializeSuite(ctx *godog.TestSuiteContext) {
+	e = echo.New()
+	api.Initialize(e, &API, "../api.yaml")
 }
 
 func TestBDD(t *testing.T) {
