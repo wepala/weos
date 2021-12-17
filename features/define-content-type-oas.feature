@@ -8,6 +8,7 @@ Feature: Create Content Types
     Given a developer "Sojourner"
     And "Sojourner" has an account with id "1234"
     And "OpenAPI 3.0" is used to model the service
+    And all fields are nullable by default
     And a content type "Category" modeled in the "OpenAPI 3.0" specification
     """
       Category:
@@ -158,6 +159,58 @@ Feature: Create Content Types
       | title       |              | varchar(512)   | false    |          | NULL        |
       | description |              | varchar(512)   | true     |          | NULL        |
       | blog        |              | varchar(512)   | true     | FK       | NULL        |
+    And a "Blog" entity configuration should be setup
+
+  Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
+
+    A content type could be associated with another content type that has an identifier that has multiple parts. Though
+    it's one field that is mapped, the data store would need to accommodate the parts of the identifier for the mapped
+    content type
+
+    Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
+    """
+    Blog:
+      type: object
+      properties:
+        guid:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+      x-identifier:
+        - guid
+        - title
+    """
+    And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
+    Post:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        blog:
+          $ref: "#/components/schemas/Blog"
+        publishedDate:
+          type: string
+        views:
+          type: integer
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Blog" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | varchar(512)   | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+    And a model "Post" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | varchar(512)   | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+      | blog_guid   |              | varchar(512)   | true     | FK       | NULL        |
+      | blog_title  |              | varchar(512)   | true     | FK       | NULL        |
     And a "Blog" entity configuration should be setup
 
   Scenario: Declare content type that has a many to many relationship to another content type
@@ -342,7 +395,8 @@ Feature: Create Content Types
   @WEOS-1116
   Scenario: Setup a content type with an enumeration
 
-    A property can be defined with a list of possible options.
+    A property can be defined with a list of possible options. Null is added by default since in WeOS properties are nullable
+    by default
 
     Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
@@ -368,56 +422,7 @@ Feature: Create Content Types
       | id            |              | varchar(512)   | false    | PK       | NULL        |
       | title         |              | varchar(512)   | true     |          | NULL        |
       | description   |              | varchar(512)   | true     |          | NULL        |
-      | status        |              | varchar(512)   | false    |          | unpublished |
-    And a "Post" entity configuration should be setup
-    """
-    erDiagram
-      Blog ||--o{ Post : contains
-      Blog {
-        string id
-        string title
-        string description
-      }
-      Category ||--o{ Post : contains
-      Post {
-        string id
-        string title
-        string description
-        string status
-      }
-    """
-  @WEOS-1116
-  Scenario: Setup a content type with an enumeration that is nullable
-
-    A property with a list of options can have a null option though it needs to be explicitly identified
-
-    Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-    """
-    Post:
-      type: object
-      properties:
-        id:
-          type: string
-          format: ksuid
-        title:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-          nullable: true
-          enum:
-            - null
-            - unpublished
-            - published
-    """
-    When the "OpenAPI 3.0" specification is parsed
-    Then a model "Post" should be added to the projection
-      | Field         | Comment      | Type           | Null     | Key      | Default     |
-      | id            |              | varchar(512)   | false    | PK       | NULL        |
-      | title         |              | varchar(512)   | true     |          | NULL        |
-      | description   |              | varchar(512)   | true     |          | NULL        |
-      | status        |              | varchar(512)   | true     |          | NULL        |
+      | status        |              | ENUM(null,unpublished,published)   | false    |          | unpublished |
     And a "Post" entity configuration should be setup
     """
     erDiagram

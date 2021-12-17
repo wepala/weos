@@ -40,6 +40,9 @@ components:
     Author:
       type: object
       properties:
+        id:
+          type: string
+          format: ksuid
         firstName:
           type: string
         lastName:
@@ -51,6 +54,7 @@ components:
         - firstName
         - lastName
       x-identifier:
+        - id
         - email
     Blog:
       type: object
