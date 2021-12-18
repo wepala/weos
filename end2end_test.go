@@ -126,9 +126,10 @@ func aMiddlewareShouldBeAddedToTheRoute(arg1 string) error {
 
 func aModelShouldBeAddedToTheProjection(arg1 string, arg2 *godog.Table) error {
 	//use gorm connection to get table
-	if !API.Application.DB().Migrator().HasTable("blogs") {
+	if !API.Application.DB().Migrator().HasTable("blog") {
 		return fmt.Errorf("blog table does not exist")
 	}
+	//TODO check that the table has the expected columns
 	return nil
 }
 
@@ -142,7 +143,6 @@ func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet
 
 func addsASchemaToTheSpecification(arg1, arg2, arg3 string, arg4 *godog.DocString) error {
 	openAPI = openAPI + arg4.Content
-	fmt.Print(openAPI)
 	return nil
 }
 

@@ -68,7 +68,7 @@ func (a *RESTAPI) Initialize() error {
 		return err
 	}
 	for name, s := range structs {
-		fmt.Printf("struct %s: %s", name, s)
+		fmt.Printf("struct %s: %v", name, s)
 	}
 
 	//setup projections
