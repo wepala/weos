@@ -374,7 +374,7 @@ Feature: Create Content Types
       | post_id     |              | varchar(512)   | false    | PK       | NULL        |
       | category_id |              | varchar(512)   | false    | PK       | NULL        |
     And a "Post" entity configuration should be setup
-    """
+    """ mermaid
     erDiagram
       Blog ||--o{ Post : contains
       Blog {

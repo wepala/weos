@@ -164,7 +164,7 @@ Feature: Create content endpoints
 
   Scenario: Setup path where the request body does not reference schema
 
-  In order to use the create handler a schema is needed so that validation etc could be setup.
+    In order to use the create handler a schema is needed so that validation etc could be setup.
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """

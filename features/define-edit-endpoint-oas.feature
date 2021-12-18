@@ -59,7 +59,7 @@ Feature: Edit content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blog/{id}:
+    /blogs/{id}:
       put:
         operationId: Edit Blog
         parameters:
@@ -107,7 +107,7 @@ Feature: Edit content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blog/{id}:
+    /blogs/{id}:
       put:
         operationId: Edit Blog
         parameters:
@@ -140,7 +140,7 @@ Feature: Edit content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blog/{id}:
+    /blogs/{id}:
       put:
         operationId: Add Blog
         parameters:

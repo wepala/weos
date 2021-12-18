@@ -3,7 +3,7 @@ package controllers
 import (
 	"context"
 	"database/sql"
-	"github.com/wepala/weos-api-template/projections"
+	"github.com/wepala/weos-content-service/projections"
 	"net/http"
 	"time"
 

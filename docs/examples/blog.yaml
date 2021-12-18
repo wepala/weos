@@ -132,11 +132,34 @@ paths:
       summary: Get List of Blogs
       parameters:
         - in: query
-          name: q
+          name: filters
           schema:
-            type: string
+            type: array
+            items:
+
           required: false
           description: query string
+      x-context:
+        filters:
+          - field: status
+            operator: eq
+            values:
+              - Active
+          - field: lastUpdated
+            operator: between
+            values:
+              - 2021-12-17 15:46:00
+              - 2021-12-18 15:46:00
+          - field: categories
+            operator: in
+            values:
+              - Technology
+              - Javascript
+        sorts:
+          - field: title
+            order: asc
+        page: 1
+        limit: 10
       responses:
         200:
           description: List of blogs
@@ -160,6 +183,7 @@ paths:
             type: string
           required: true
           description: blog id
+          x-property: Blog.id
       summary: Get Blog by id
       operationId: Get Blog
       responses:
