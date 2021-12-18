@@ -40,9 +40,6 @@ components:
     Author:
       type: object
       properties:
-        id:
-          type: string
-          format: ksuid
         firstName:
           type: string
         lastName:
@@ -54,7 +51,6 @@ components:
         - firstName
         - lastName
       x-identifier:
-        - id
         - email
     Blog:
       type: object
@@ -66,13 +62,6 @@ components:
           type: string
         description:
           type: string
-        status:
-          type: string
-          nullable: true
-          enum:
-            - null
-            - unpublished
-            - published
         image:
           type: string
           format: byte
@@ -132,34 +121,11 @@ paths:
       summary: Get List of Blogs
       parameters:
         - in: query
-          name: filters
+          name: q
           schema:
-            type: array
-            items:
-
+            type: string
           required: false
           description: query string
-      x-context:
-        filters:
-          - field: status
-            operator: eq
-            values:
-              - Active
-          - field: lastUpdated
-            operator: between
-            values:
-              - 2021-12-17 15:46:00
-              - 2021-12-18 15:46:00
-          - field: categories
-            operator: in
-            values:
-              - Technology
-              - Javascript
-        sorts:
-          - field: title
-            order: asc
-        page: 1
-        limit: 10
       responses:
         200:
           description: List of blogs
@@ -183,7 +149,6 @@ paths:
             type: string
           required: true
           description: blog id
-          x-property: Blog.id
       summary: Get Blog by id
       operationId: Get Blog
       responses:
@@ -230,8 +195,15 @@ paths:
         200:
           description: Blog Deleted
 
-  /posts/:
+  /blogs/{id}/posts/:
     post:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
       operationId: Create Blog Post
       summary: Create Blog Post
       requestBody:
@@ -252,6 +224,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/Post"
     put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
       operationId: Import Blog Posts
       summary: Import Blog Posts
       requestBody:
@@ -275,6 +254,11 @@ paths:
       operationId: Get Posts
       summary: Get a blog's list of posts
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
         - in: query
           name: q
           schema:
@@ -296,9 +280,15 @@ paths:
                   items:
                     $ref: "#/components/schemas/Post"
 
-  /posts/{postId}:
+  /blogs/{id}/posts/{postId}:
     get:
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
         - in: path
           name: postId
           schema:
@@ -314,6 +304,12 @@ paths:
                 $ref: "#/components/schemas/Post"
     put:
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
         - in: path
           name: postId
           schema:
@@ -336,6 +332,12 @@ paths:
     delete:
       parameters:
         - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+        - in: path
           name: postId
           schema:
             type: string
@@ -346,8 +348,15 @@ paths:
           description: Delete post
 
 
-  /categories/:
+  /blogs/{id}/categories/:
     post:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
       operationId: Create Blog Category
       summary: Create Blog Category
       requestBody:
@@ -371,6 +380,11 @@ paths:
       operationId: Get Categories
       summary: Get a blog's list of categories
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
         - in: query
           name: q
           schema:
@@ -392,9 +406,15 @@ paths:
                   items:
                     $ref: "#/components/schemas/Category"
 
-  /categories/{categoryId}:
+  /blogs/{id}/categories/{categoryId}:
     get:
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
         - in: path
           name: categoryId
           schema:
@@ -410,6 +430,12 @@ paths:
                 $ref: "#/components/schemas/Category"
     put:
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
         - in: path
           name: categoryId
           schema:
@@ -432,6 +458,12 @@ paths:
     delete:
       parameters:
         - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+        - in: path
           name: categoryId
           schema:
             type: string
@@ -441,8 +473,15 @@ paths:
         200:
           description: Delete category
 
-  /authors/:
+  /blogs/{id}/authors/:
     post:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
       operationId: Create Blog Author
       summary: Create Blog Author
       requestBody:
@@ -466,6 +505,11 @@ paths:
       operationId: Get Authors
       summary: Get a blog's list of authors
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
         - in: query
           name: q
           schema:
@@ -487,9 +531,15 @@ paths:
                   items:
                     $ref: "#/components/schemas/Author"
 
-  /authors/{authorId}:
+  /blogs/{id}/authors/{authorId}:
     get:
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
         - in: path
           name: authorId
           schema:
@@ -505,6 +555,12 @@ paths:
                 $ref: "#/components/schemas/Author"
     put:
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
         - in: path
           name: authorId
           schema:
@@ -526,6 +582,12 @@ paths:
                 $ref: "#/components/schemas/Author"
     delete:
       parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
         - in: path
           name: authorId
           schema:

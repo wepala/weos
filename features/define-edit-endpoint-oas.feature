@@ -1,7 +1,7 @@
-@WEOS-1164
-Feature: Create content endpoints
+@WEOS-1177
+Feature: Edit content endpoints
 
-  As developer you can create an endpoint that should be used to create content of a specific type. The HTTP method and the
+  As developer you can create an endpoint that should be used to edit content of a specific type. The HTTP method and the
   content type specified is used to infer the middleware that should be used.
 
   Background:
@@ -49,15 +49,26 @@ Feature: Create content endpoints
             items:
               $ref: "#/components/schemas/Category"
     """
+    And blogs in the api
+    | id    | title        | description    |
+    | 1234  | Blog 1       | Some Blog      |
+    | 4567  | Blog 2       | Some Blog 2    |
 
 
-  Scenario: Create a basic create endpoint
+  Scenario: Create a basic edit endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blog:
-      post:
-        operationId: Add Blog
+    /blogs/{id}:
+      put:
+        operationId: Edit Blog
+        parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: blog id
         requestBody:
           description: Blog info that is submitted
           required: true
@@ -73,7 +84,7 @@ Feature: Create content endpoints
                 $ref: "#/components/schemas/Blog"
         responses:
           201:
-            description: Add Blog to Aggregator
+            description: Update blog
             content:
               application/json:
                 schema:
@@ -86,54 +97,8 @@ Feature: Create content endpoints
                   $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
-    Then a "POST" route should be added to the api
-    And a "create" middleware should be added to the route
-
-  Scenario: Create a batch of items
-
-    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
-    """
-    /blog:
-      post:
-        operationId: Add Blogs
-        requestBody:
-          description: List of blogs to add
-          required: true
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                type: array
-                items:
-                  type: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                type: array
-                items:
-                  type: "#/components/schemas/Blog"
-        responses:
-          201:
-            description: Added Blogs to Aggregator
-            content:
-              application/json:
-                schema:
-                  type: array
-                  items:
-                    type: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
-    """
-    When the "OpenAPI 3.0" specification is parsed
-    Then a "POST" route should be added to the api
-    And a "CreateBatch" middleware should be added to the route
+    Then a "PUT" route should be added to the api
+    And a "edit" middleware should be added to the route
 
   Scenario: Setup path without content type
 
@@ -142,9 +107,16 @@ Feature: Create content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blog:
-      post:
-        operationId: Add Blog
+    /blogs/{id}:
+      put:
+        operationId: Edit Blog
+        parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: blog id
         responses:
           201:
             description: Add Blog to Aggregator
@@ -164,13 +136,20 @@ Feature: Create content endpoints
 
   Scenario: Setup path where the request body does not reference schema
 
-    In order to use the create handler a schema is needed so that validation etc could be setup.
+  In order to use the create handler a schema is needed so that validation etc could be setup.
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blog:
-      post:
+    /blogs/{id}:
+      put:
         operationId: Add Blog
+        parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: blog id
         requestBody:
           description: Blog to add
           required: true
@@ -201,6 +180,3 @@ Feature: Create content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
-
-
-

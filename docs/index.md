@@ -30,3 +30,6 @@ Endpoints are created by creating [OpenAPI paths](https://swagger.io/docs/specif
 ### Deploy
 
 You can run the API by executing a command on the Content Service and referencing the API specification you create. One binary, one API spec, that's all you need. Deploy your content service to WeOS and get a secure, easy to maintain API that is ready to use
+
+## Whats Next
+1. Passing Parameters
