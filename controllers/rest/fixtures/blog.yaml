@@ -112,6 +112,15 @@ paths:
         name: someHeader
         schema:
           type: string
+      - in: header
+        name: someOtherHeader
+        schema:
+          type: string
+        x-context-name: soh
+      - in: query
+        name: q
+        schema:
+          type: string
     post:
       operationId: Add Blog
       summary: Create Blog

@@ -4,7 +4,7 @@ title: Home
 nav_order: 1
 has_children: false
 ---
-# WeOS  Content Service
+# WeOS Service
 
 You can use the Content Service to manage content in an application. You can have a fully functional API by simply modeling your data in an Open API specification.
 
