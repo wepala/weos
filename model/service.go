@@ -7,12 +7,11 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/stoewer/go-strcase"
-	"github.com/wepala/weos"
 )
 
 type Service struct {
-	weos.Repository
-	eventRepository weos.EventRepository
+	Repository
+	eventRepository EventRepository
 }
 
 //ToDo: Saving the structs to a map and making them entities to save events

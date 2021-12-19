@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/labstack/gommon/log"
 	"github.com/ory/dockertest/v3"
-	"github.com/wepala/weos"
+	weos "github.com/wepala/weos-content-service/model"
 	"os"
 	"strconv"
 	"strings"

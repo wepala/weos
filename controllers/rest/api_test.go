@@ -1,8 +1,8 @@
-package controllers_test
+package rest_test
 
 import (
 	"github.com/labstack/echo/v4"
-	api "github.com/wepala/weos-content-service/controllers"
+	api "github.com/wepala/weos-content-service/controllers/rest"
 	"testing"
 )
 

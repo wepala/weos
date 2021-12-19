@@ -3,12 +3,12 @@ package main_test
 import (
 	"context"
 	"fmt"
+	api "github.com/wepala/weos-content-service/controllers/rest"
 	"os"
 	"testing"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
-	api "github.com/wepala/weos-content-service/controllers"
 )
 
 var e *echo.Echo

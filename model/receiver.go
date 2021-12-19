@@ -1,13 +1,11 @@
 package model
 
-import "github.com/wepala/weos"
-
 type Receiver struct {
-	application weos.Application
+	application Application
 }
 
 //Initialize sets up the command handlers
-func Initialize(application weos.Application) error {
+func Initialize(application Application) error {
 	//TODO Initialize receiver
 	//receiver := &Receiver{application: application}
 	//TODO add command handlers to the application's command dispatcher

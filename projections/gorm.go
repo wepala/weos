@@ -2,7 +2,7 @@ package projections
 
 import (
 	"github.com/stoewer/go-strcase"
-	"github.com/wepala/weos"
+	weos "github.com/wepala/weos-content-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 )

@@ -1,7 +1,7 @@
 package projections
 
 import (
-	"github.com/wepala/weos"
+	weos "github.com/wepala/weos-content-service/model"
 )
 
 //Projection interface that all projections should implement

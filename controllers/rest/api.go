@@ -1,4 +1,4 @@
-package controllers
+package rest
 
 import (
 	"context"
@@ -14,24 +14,24 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	module "github.com/wepala/weos-content-service/model"
+	weos "github.com/wepala/weos-content-service/model"
 	"github.com/wepala/weos-content-service/projections"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
-	"github.com/wepala/weos"
-	weoscontroller "github.com/wepala/weos-controller"
 )
 
 //RESTAPI is used to manage the API
 type RESTAPI struct {
-	weoscontroller.API
 	Application weos.Application
 	Log         weos.Log
 	DB          *sql.DB
 	Client      *http.Client
 	projection  *projections.GORMProjection
+	Config      *APIConfig
+	e           *echo.Echo
+	PathConfigs map[string]*PathConfig
 	Schemas     map[string]*openapi3.SchemaRef
 }
 
@@ -42,16 +42,46 @@ type schema struct {
 	Properties []schema
 }
 
+//define an interface that all plugins must implement
+type APIInterface interface {
+	AddPathConfig(path string, config *PathConfig) error
+	AddConfig(config *APIConfig) error
+	Initialize() error
+	EchoInstance() *echo.Echo
+	SetEchoInstance(e *echo.Echo)
+}
+
+func (p *RESTAPI) AddConfig(config *APIConfig) error {
+	p.Config = config
+	return nil
+}
+
+func (p *RESTAPI) AddPathConfig(path string, config *PathConfig) error {
+	if p.PathConfigs == nil {
+		p.PathConfigs = make(map[string]*PathConfig)
+	}
+	p.PathConfigs[path] = config
+	return nil
+}
+
+func (p *RESTAPI) EchoInstance() *echo.Echo {
+	return p.e
+}
+
+func (p *RESTAPI) SetEchoInstance(e *echo.Echo) {
+	p.e = e
+}
+
 //Initialize and setup configurations for RESTAPI
-func (a *RESTAPI) Initialize() error {
+func (p *RESTAPI) Initialize() error {
 	var err error
 	//initialize app
-	if a.Client == nil {
-		a.Client = &http.Client{
+	if p.Client == nil {
+		p.Client = &http.Client{
 			Timeout: time.Second * 10,
 		}
 	}
-	a.Application, err = weos.NewApplicationFromConfig(a.Config.ApplicationConfig, a.Log, a.DB, a.Client, nil)
+	p.Application, err = weos.NewApplicationFromConfig(p.Config.ApplicationConfig, p.Log, p.DB, p.Client, nil)
 	if err != nil {
 		return err
 	}
@@ -62,8 +92,8 @@ func (a *RESTAPI) Initialize() error {
 	// 	return err
 	// }
 
-	s := module.Service{}
-	structs, err := s.CreateSchema(context.Background(), a.Schemas)
+	s := weos.Service{}
+	structs, err := s.CreateSchema(context.Background(), p.Schemas)
 	if err != nil {
 		return err
 	}
@@ -72,17 +102,17 @@ func (a *RESTAPI) Initialize() error {
 	}
 
 	//setup projections
-	a.projection, err = projections.NewProjection(structs, a.Application)
+	p.projection, err = projections.NewProjection(structs, p.Application)
 	if err != nil {
 		return err
 	}
 	//run fixtures
-	err = a.Application.Migrate(context.Background())
+	err = p.Application.Migrate(context.Background())
 	if err != nil {
 		return err
 	}
 	//set log level to debug
-	a.EchoInstance().Logger.SetLevel(log.DEBUG)
+	p.EchoInstance().Logger.SetLevel(log.DEBUG)
 	return nil
 }
 
@@ -130,7 +160,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 	api.Schemas = swagger.Components.Schemas
 
 	//parse the main config
-	var config *weoscontroller.APIConfig
+	var config *APIConfig
 	if swagger.ExtensionProps.Extensions["x-weos-config"] != nil {
 
 		data, err := swagger.ExtensionProps.Extensions["x-weos-config"].(json.RawMessage).MarshalJSON()
@@ -153,7 +183,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 
 		//setup global pre middleware
 		var preMiddlewares []echo.MiddlewareFunc
-		for _, middlewareName := range config.PreMiddleware {
+		for _, middlewareName := range config.Rest.PreMiddleware {
 			t := reflect.ValueOf(api)
 			m := t.MethodByName(middlewareName)
 			if !m.IsValid() {
@@ -167,8 +197,8 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		//setup global middleware
 		var middlewares []echo.MiddlewareFunc
 		//prepend Context middleware
-		config.Middleware = append([]string{"Context"}, config.Middleware...)
-		for _, middlewareName := range config.Middleware {
+		config.Rest.Middleware = append([]string{"Context"}, config.Rest.Middleware...)
+		for _, middlewareName := range config.Rest.Middleware {
 			if middlewareName == "Context" {
 				t := reflect.ValueOf(api)
 				m := t.MethodByName(middlewareName)
@@ -202,7 +232,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		allowedOrigins := []string{"*"}
 		allowedHeaders := []string{"*"}
 
-		var pathConfig *weoscontroller.PathConfig
+		var pathConfig *PathConfig
 		pathConfigData := pathData.ExtensionProps.Extensions["x-weos-config"]
 		if pathConfigData != nil {
 			bytes, err := pathConfigData.(json.RawMessage).MarshalJSON()
@@ -229,7 +259,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 
 		var methodsFound []string
 		for _, method := range knownActions {
-			var operationConfig *weoscontroller.PathConfig
+			var operationConfig *PathConfig
 			//get the handler using reflection. This should be fine because this is only on startup
 			if pathData.GetOperation(strings.ToUpper(method)) != nil {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
