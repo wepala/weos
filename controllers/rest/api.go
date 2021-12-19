@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	weos "github.com/wepala/weos-content-service/model"
-	"github.com/wepala/weos-content-service/projections"
+	weos "github.com/wepala/weos-service/model"
+	"github.com/wepala/weos-service/projections"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"

@@ -3,7 +3,7 @@ package main_test
 import (
 	"context"
 	"fmt"
-	api "github.com/wepala/weos-content-service/controllers/rest"
+	api "github.com/wepala/weos-service/controllers/rest"
 	"os"
 	"testing"
 

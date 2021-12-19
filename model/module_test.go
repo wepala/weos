@@ -3,7 +3,7 @@ package model_test
 import (
 	"database/sql"
 	_ "github.com/proullon/ramsql/driver"
-	weos "github.com/wepala/weos-content-service/model"
+	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"os"
 	"testing"

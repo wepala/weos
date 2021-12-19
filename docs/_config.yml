@@ -1,7 +1,7 @@
 
 title: WeOS Content Service
 description: Microservice for managing content
-baseurl: "/weos-content-service"
+baseurl: "/weos-service"
 url: "https://wepala.github.io"
 remote_theme: "pmarsceill/just-the-docs"
 permalink: pretty
@@ -42,7 +42,7 @@ heading_anchors: true
 # Aux links for the upper right navigation
 aux_links:
   "WeOS Content Service on GitHub":
-    - "//github.com/wepala/weos-content-service"
+    - "//github.com/wepala/weos-service"
 
 # Makes Aux links open in a new tab. Default is false
 aux_links_new_tab: false

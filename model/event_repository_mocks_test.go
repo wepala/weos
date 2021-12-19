@@ -6,7 +6,7 @@ package model_test
 import (
 	"context"
 	"database/sql"
-	weos "github.com/wepala/weos-content-service/model"
+	weos "github.com/wepala/weos-service/model"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"

@@ -2,7 +2,7 @@ package model_test
 
 import (
 	"errors"
-	weos "github.com/wepala/weos-content-service/model"
+	weos "github.com/wepala/weos-service/model"
 	"testing"
 )
 

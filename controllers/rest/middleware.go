@@ -3,7 +3,7 @@ package rest
 import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos-content-service/context"
+	"github.com/wepala/weos-service/context"
 	"net/textproto"
 	"strings"
 )

@@ -2,7 +2,7 @@ package rest_test
 
 import (
 	"github.com/labstack/echo/v4"
-	api "github.com/wepala/weos-content-service/controllers/rest"
+	api "github.com/wepala/weos-service/controllers/rest"
 	"testing"
 )
 

@@ -3,7 +3,7 @@ package model
 import (
 	"encoding/json"
 	"github.com/segmentio/ksuid"
-	context2 "github.com/wepala/weos-content-service/context"
+	context2 "github.com/wepala/weos-service/context"
 	"golang.org/x/net/context"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"

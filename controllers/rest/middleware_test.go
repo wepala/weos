@@ -3,8 +3,8 @@ package rest_test
 import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos-content-service/context"
-	"github.com/wepala/weos-content-service/controllers/rest"
+	"github.com/wepala/weos-service/context"
+	"github.com/wepala/weos-service/controllers/rest"
 	"net/http"
 	"net/http/httptest"
 	"testing"

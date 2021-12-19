@@ -2,7 +2,7 @@ package rest
 
 import (
 	"encoding/json"
-	weos "github.com/wepala/weos-content-service/model"
+	weos "github.com/wepala/weos-service/model"
 )
 
 type APIConfig struct {
