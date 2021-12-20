@@ -11,7 +11,8 @@ type StandardControllers struct {
 
 func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(context echo.Context) error {
-
+		//TODO get the entity information based on the Content Type associated with this operation
+		//TODO Get entity id from context
 		return nil
 	}
 }

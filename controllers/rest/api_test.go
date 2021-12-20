@@ -62,4 +62,7 @@ components:
 			t.Errorf("expected categories table to exist")
 		}
 	})
+	t.Run("create controller is added to POST endpoints that don't have a controller adn is configured correctly", func(t *testing.T) {
+
+	})
 }

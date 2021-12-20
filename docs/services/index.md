@@ -9,7 +9,7 @@ has_children: false
 Services are the foundation of WeOS. Services are Application Programming Interfaces (APIs) that provide pre-built
 functionality for developers to use. We created "WeOS Service" to make APIs easier to build and maintain. WeOS Service
 is a Go application paired with an [OpenAPI specification](https://spec.openapis.org/oas/latest.html) to get a fully
-functional API in minutes. You can also
+functional API in minutes quickly. You can also
 use WeOS Service to make complex APIs that are easy to scale and maintain.
 
 ## Quick Start

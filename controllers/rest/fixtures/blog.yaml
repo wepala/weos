@@ -117,6 +117,11 @@ paths:
         schema:
           type: string
         x-context-name: soh
+      - in: header
+        name: X-Account-Id
+        schema:
+          type: string
+        x-context-name: AccountID
       - in: query
         name: q
         schema:
@@ -207,7 +212,7 @@ paths:
             type: string
           required: true
           description: blog id
-          x-parameter: Blog.id
+          x-context-name: Blog.id
       summary: Get Blog by id
       operationId: Get Blog
       responses:
