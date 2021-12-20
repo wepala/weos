@@ -21,3 +21,4 @@ server
 
 __debug_bin
 .env
+/controllers/rest/test.db

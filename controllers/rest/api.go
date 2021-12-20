@@ -24,7 +24,8 @@ import (
 
 //RESTAPI is used to manage the API
 type RESTAPI struct {
-	*StandardMiddleware
+	*StandardMiddlewares
+	*StandardControllers
 	Application model.Service
 	Log         model.Log
 	DB          *sql.DB
@@ -93,6 +94,22 @@ func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 
 	if tmiddleware, ok := p.middlewares[name]; ok {
 		return tmiddleware, nil
+	}
+
+	return nil, fmt.Errorf("middleware '%s' not found", name)
+}
+
+func (p *RESTAPI) GetController(name string) (Controller, error) {
+	//use reflection to check if the middleware is already on the API
+	t := reflect.ValueOf(p)
+	tcontroller := t.MethodByName(name)
+	//only show error if handler was set
+	if tcontroller.IsValid() {
+		return tcontroller.Interface().(func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.HandlerFunc), nil
+	}
+
+	if tcontroller, ok := p.controllers[name]; ok {
+		return tcontroller, nil
 	}
 
 	return nil, fmt.Errorf("middleware '%s' not found", name)
@@ -278,65 +295,43 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 					middlewares = append(middlewares, tmiddleware(api.Application, swagger, pathData, operationData))
 				}
 
-				operationConfigData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[WeOSConfigExtension]
-				if operationConfigData != nil {
-					bytes, err := operationConfigData.(json.RawMessage).MarshalJSON()
+				controllerData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[ControllerExtension]
+				err = json.Unmarshal(controllerData.(json.RawMessage), &operationConfig.Handler)
+				if err != nil {
+					e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
+				}
+				if operationConfig.Handler != "" {
+					controller, err := api.GetController(operationConfig.Handler)
+					handler := controller(api.Application, swagger, pathData, operationData)
+					err = api.AddPathConfig(config.BasePath+echoPath, operationConfig)
 					if err != nil {
-						e.Logger.Fatalf("error reading model config on the path '%s' '%s'", path, err)
+						e.Logger.Fatalf("error adding path config '%s' '%s'", echoPath, err)
 					}
+					corsMiddleware := middleware.CORSWithConfig(middleware.CORSConfig{
+						AllowOrigins: allowedOrigins,
+						AllowHeaders: allowedHeaders,
+						AllowMethods: methodsFound,
+					})
+					pathMiddleware := append([]echo.MiddlewareFunc{corsMiddleware}, middlewares...)
 
-					if err = json.Unmarshal(bytes, &operationConfig); err != nil {
-						e.Logger.Fatalf("error reading model config on the path '%s' '%s'", path, err)
-						return e
-					}
+					switch method {
+					case "GET":
+						e.GET(config.BasePath+echoPath, handler, pathMiddleware...)
+					case "POST":
+						e.POST(config.BasePath+echoPath, handler, pathMiddleware...)
+					case "PUT":
+						e.PUT(config.BasePath+echoPath, handler, pathMiddleware...)
+					case "PATCH":
+						e.PATCH(config.BasePath+echoPath, handler, pathMiddleware...)
+					case "DELETE":
+						e.DELETE(config.BasePath+echoPath, handler, pathMiddleware...)
+					case "HEAD":
+						e.HEAD(config.BasePath+echoPath, handler, pathMiddleware...)
+					case "TRACE":
+						e.TRACE(config.BasePath+echoPath, handler, pathMiddleware...)
+					case "CONNECT":
+						e.CONNECT(config.BasePath+echoPath, handler, pathMiddleware...)
 
-					t := reflect.ValueOf(api)
-					handler := t.MethodByName(operationConfig.Handler)
-					//only show error if handler was set
-					if operationConfig.Handler != "" && !handler.IsValid() {
-						e.Logger.Fatalf("invalid handler set '%s'", operationConfig.Handler)
-					}
-
-					if operationConfig.Group { //TODO move this form here because it creates weird behavior
-						group := e.Group(config.BasePath + path)
-						err = api.AddPathConfig(config.BasePath+path, operationConfig)
-						if err != nil {
-							e.Logger.Fatalf("error adding path config '%s' '%s'", config.BasePath+path, err)
-						}
-						group.Use(middlewares...)
-					} else {
-						//TODO make it so that it automatically matches the paths to a group based on the prefix
-
-						err = api.AddPathConfig(config.BasePath+echoPath, operationConfig)
-						if err != nil {
-							e.Logger.Fatalf("error adding path config '%s' '%s'", echoPath, err)
-						}
-						corsMiddleware := middleware.CORSWithConfig(middleware.CORSConfig{
-							AllowOrigins: allowedOrigins,
-							AllowHeaders: allowedHeaders,
-							AllowMethods: methodsFound,
-						})
-						pathMiddleware := append([]echo.MiddlewareFunc{corsMiddleware}, middlewares...)
-
-						switch method {
-						case "GET":
-							e.GET(config.BasePath+echoPath, handler.Interface().(func(ctx echo.Context) error), pathMiddleware...)
-						case "POST":
-							e.POST(config.BasePath+echoPath, handler.Interface().(func(ctx echo.Context) error), pathMiddleware...)
-						case "PUT":
-							e.PUT(config.BasePath+echoPath, handler.Interface().(func(ctx echo.Context) error), pathMiddleware...)
-						case "PATCH":
-							e.PATCH(config.BasePath+echoPath, handler.Interface().(func(ctx echo.Context) error), pathMiddleware...)
-						case "DELETE":
-							e.DELETE(config.BasePath+echoPath, handler.Interface().(func(ctx echo.Context) error), pathMiddleware...)
-						case "HEAD":
-							e.HEAD(config.BasePath+echoPath, handler.Interface().(func(ctx echo.Context) error), pathMiddleware...)
-						case "TRACE":
-							e.TRACE(config.BasePath+echoPath, handler.Interface().(func(ctx echo.Context) error), pathMiddleware...)
-						case "CONNECT":
-							e.CONNECT(config.BasePath+echoPath, handler.Interface().(func(ctx echo.Context) error), pathMiddleware...)
-
-						}
 					}
 
 				}

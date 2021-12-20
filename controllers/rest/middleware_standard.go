@@ -10,12 +10,12 @@ import (
 	"github.com/wepala/weos-service/model"
 )
 
-//StandardMiddleware receiver for all the standard middleware that WeOS provides
-type StandardMiddleware struct {
+//StandardMiddlewares receiver for all the standard middleware that WeOS provides
+type StandardMiddlewares struct {
 }
 
 //RequestID generate request id
-func (m *StandardMiddleware) RequestID(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func (m *StandardMiddlewares) RequestID(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			cc := c.(*context.Context)
@@ -32,14 +32,14 @@ func (m *StandardMiddleware) RequestID(app model.Service, spec *openapi3.Swagger
 	}
 }
 
-func (m *StandardMiddleware) Recover(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func (m *StandardMiddlewares) Recover(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return middleware.Recover()(next)
 	}
 }
 
 //ZapLogger switch to using ZapLogger
-func (m *StandardMiddleware) ZapLogger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func (m *StandardMiddlewares) ZapLogger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			//setting the default logger in the context as zap with the default mode being error
@@ -54,7 +54,7 @@ func (m *StandardMiddleware) ZapLogger(app model.Service, spec *openapi3.Swagger
 	}
 }
 
-func (m *StandardMiddleware) Logger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func (m *StandardMiddlewares) Logger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return middleware.Logger()(next)
 	}
