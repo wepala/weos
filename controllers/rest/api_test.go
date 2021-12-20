@@ -1,9 +1,15 @@
 package rest_test
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+
 	"github.com/labstack/echo/v4"
 	api "github.com/wepala/weos-service/controllers/rest"
-	"testing"
 )
 
 func TestRESTAPI_Initialize(t *testing.T) {
@@ -61,8 +67,28 @@ components:
 		if !tapi.Application.DB().Migrator().HasTable("category") {
 			t.Errorf("expected categories table to exist")
 		}
+		defer os.Remove("test.db")
 	})
-	t.Run("create controller is added to POST endpoints that don't have a controller adn is configured correctly", func(t *testing.T) {
+	t.Run("create controller is added to POST endpoints that don't have a controller and is configured correctly", func(t *testing.T) {
 
+		e := echo.New()
+		tapi4 := api.RESTAPI{}
+		api.Initialize(e, &tapi4, "./fixtures/blog.yaml")
+		mockBlog := &Blog{
+			Title: "Test Blog",
+		}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		e.ServeHTTP(resp, req)
+		//confirm that the response is 201
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
 	})
+	defer os.Remove("test.db")
 }

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/labstack/echo/v4/middleware"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/wepala/weos-service/model"
@@ -250,7 +251,6 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		//setup global middleware
 		var middlewares []echo.MiddlewareFunc
 		//prepend Context middleware
-		config.Rest.Middleware = append([]string{"Context"}, config.Rest.Middleware...)
 		for _, middlewareName := range config.Rest.Middleware {
 			tmiddleware, err := api.GetMiddleware(middlewareName)
 			if err != nil {
@@ -281,25 +281,35 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
 				operationConfig := &PathConfig{}
 				var middlewares []echo.MiddlewareFunc
+				contextMiddleware, err := api.GetMiddleware("Context")
+				if err != nil {
+					middlewares = append(middlewares, contextMiddleware(api.Application, swagger, pathData, operationData))
+				}
+
 				//get the middleware set on the operation
 				middlewareData := operationData.ExtensionProps.Extensions[MiddlewareExtension]
-				err = json.Unmarshal(middlewareData.(json.RawMessage), &operationConfig.Middleware)
-				if err != nil {
-					e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
-				}
-				for _, middlewareName := range operationConfig.Middleware {
-					tmiddleware, err := api.GetMiddleware(middlewareName)
+				if middlewareData != nil {
+					err = json.Unmarshal(middlewareData.(json.RawMessage), &operationConfig.Middleware)
 					if err != nil {
-						e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
+						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
 					}
-					middlewares = append(middlewares, tmiddleware(api.Application, swagger, pathData, operationData))
+					for _, middlewareName := range operationConfig.Middleware {
+						tmiddleware, err := api.GetMiddleware(middlewareName)
+						if err != nil {
+							e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
+						}
+						middlewares = append(middlewares, tmiddleware(api.Application, swagger, pathData, operationData))
+					}
 				}
 
 				controllerData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[ControllerExtension]
-				err = json.Unmarshal(controllerData.(json.RawMessage), &operationConfig.Handler)
-				if err != nil {
-					e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
+				if controllerData != nil {
+					err = json.Unmarshal(controllerData.(json.RawMessage), &operationConfig.Handler)
+					if err != nil {
+						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
+					}
 				}
+
 				if operationConfig.Handler != "" {
 					controller, err := api.GetController(operationConfig.Handler)
 					handler := controller(api.Application, swagger, pathData, operationData)
