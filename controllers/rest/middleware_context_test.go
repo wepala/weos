@@ -36,7 +36,7 @@ func TestContext(t *testing.T) {
 	t.Run("check that account id is added by default", func(t *testing.T) {
 		accountID := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, path.Get, path, swagger)
+		mw := rest.Context(nil, swagger, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.(*context.Context)
@@ -58,7 +58,7 @@ func TestContext(t *testing.T) {
 		paramName := "someHeader"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, path.Post, path, swagger)
+		mw := rest.Context(nil, swagger, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.(*context.Context)
@@ -79,12 +79,12 @@ func TestContext(t *testing.T) {
 		e.ServeHTTP(resp, req)
 	})
 
-	t.Run("context name should match "+rest.CONTEXT_NAME_EXTENSION, func(t *testing.T) {
+	t.Run("context name should match "+rest.ContextNameExtension, func(t *testing.T) {
 		contextName := "soh"
 		paramName := "someOtherHeader"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, path.Post, path, swagger)
+		mw := rest.Context(nil, swagger, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.(*context.Context)
@@ -109,7 +109,7 @@ func TestContext(t *testing.T) {
 		paramName := "q"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, path.Post, path, swagger)
+		mw := rest.Context(nil, swagger, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.(*context.Context)
@@ -136,7 +136,7 @@ func TestContext(t *testing.T) {
 		if path == nil {
 			t.Fatal("could not find expected path")
 		}
-		mw := rest.Context(nil, path.Get, path, swagger)
+		mw := rest.Context(nil, swagger, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.(*context.Context)
@@ -160,7 +160,7 @@ func TestContext(t *testing.T) {
 		paramName := "Asdfsdgfsdfgypypadfasd"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, path.Post, path, swagger)
+		mw := rest.Context(nil, swagger, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.(*context.Context)

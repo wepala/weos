@@ -7,8 +7,8 @@ import (
 )
 
 type (
-	//OperationMiddleware Middleware that is bound to an OpenAPI operation
-	OperationMiddleware func(model.Application, *openapi3.Operation, *openapi3.PathItem, *openapi3.Swagger) echo.MiddlewareFunc
-	//OperationController is the handler for a specific operation
-	OperationController func(model.Application, *openapi3.Operation, *openapi3.PathItem, *openapi3.Swagger) echo.HandlerFunc
+	//Middleware that is bound to an OpenAPI operation
+	Middleware func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.MiddlewareFunc
+	//Controller is the handler for a specific operation
+	Controller func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.HandlerFunc
 )

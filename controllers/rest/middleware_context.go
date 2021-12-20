@@ -11,7 +11,7 @@ import (
 )
 
 //Context Create go context and add parameter values to context
-func Context(app model.Application, operation *openapi3.Operation, path *openapi3.PathItem, spec *openapi3.Swagger) echo.MiddlewareFunc {
+func Context(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			var err error
@@ -43,7 +43,7 @@ func parseParams(c echo.Context, cc *context.Context, parameter *openapi3.Parame
 	if parameter.Value != nil {
 		contextName := parameter.Value.Name
 		//if there is a context name specified use that instead. The value is a json.RawMessage (not a string)
-		if tcontextName, ok := parameter.Value.ExtensionProps.Extensions[CONTEXT_NAME_EXTENSION]; ok {
+		if tcontextName, ok := parameter.Value.ExtensionProps.Extensions[ContextNameExtension]; ok {
 			err := json.Unmarshal(tcontextName.(json.RawMessage), &contextName)
 			if err != nil {
 				return nil, err

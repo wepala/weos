@@ -1,11 +1,11 @@
 package model
 
 type Receiver struct {
-	application Application
+	application Service
 }
 
 //Initialize sets up the command handlers
-func Initialize(application Application) error {
+func Initialize(application Service) error {
 	//TODO Initialize receiver
 	//receiver := &Receiver{application: application}
 	//TODO add command handlers to the application's command dispatcher

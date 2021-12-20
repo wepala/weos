@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/labstack/echo/v4/middleware"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -14,18 +15,18 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	weos "github.com/wepala/weos-service/model"
+	"github.com/wepala/weos-service/model"
 	"github.com/wepala/weos-service/projections"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
 )
 
 //RESTAPI is used to manage the API
 type RESTAPI struct {
-	Application weos.Application
-	Log         weos.Log
+	*StandardMiddleware
+	Application model.Service
+	Log         model.Log
 	DB          *sql.DB
 	Client      *http.Client
 	projection  *projections.GORMProjection
@@ -33,6 +34,8 @@ type RESTAPI struct {
 	e           *echo.Echo
 	PathConfigs map[string]*PathConfig
 	Schemas     map[string]*openapi3.SchemaRef
+	middlewares map[string]Middleware
+	controllers map[string]Controller
 }
 
 type schema struct {
@@ -72,6 +75,29 @@ func (p *RESTAPI) SetEchoInstance(e *echo.Echo) {
 	p.e = e
 }
 
+func (p *RESTAPI) RegisterMiddleware(name string, middleware Middleware) {
+	if p.middlewares == nil {
+		p.middlewares = make(map[string]Middleware)
+	}
+	p.middlewares[name] = middleware
+}
+
+func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
+	//use reflection to check if the middleware is already on the API
+	t := reflect.ValueOf(p)
+	tmiddleware := t.MethodByName(name)
+	//only show error if handler was set
+	if tmiddleware.IsValid() {
+		return tmiddleware.Interface().(func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.MiddlewareFunc), nil
+	}
+
+	if tmiddleware, ok := p.middlewares[name]; ok {
+		return tmiddleware, nil
+	}
+
+	return nil, fmt.Errorf("middleware '%s' not found", name)
+}
+
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize() error {
 	var err error
@@ -81,18 +107,18 @@ func (p *RESTAPI) Initialize() error {
 			Timeout: time.Second * 10,
 		}
 	}
-	p.Application, err = weos.NewApplicationFromConfig(p.Config.ApplicationConfig, p.Log, p.DB, p.Client, nil)
+	p.Application, err = model.NewApplicationFromConfig(p.Config.ServiceConfig, p.Log, p.DB, p.Client, nil)
 	if err != nil {
 		return err
 	}
 
 	//enable module
-	// err = module.Initialize(a.Application)
+	// err = module.Initialize(a.Service)
 	// if err != nil {
 	// 	return err
 	// }
 
-	s := weos.Service{}
+	s := projections.Service{}
 	structs, err := s.CreateSchema(context.Background(), p.Schemas)
 	if err != nil {
 		return err
@@ -132,6 +158,9 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 	//set echo instance because the instance may not already be in the api that is passed in but the handlers must have access to it
 	api.SetEchoInstance(e)
 
+	//configure context middleware using the register method because the context middleware is in it's own file for code readability reasons
+	api.RegisterMiddleware("Context", Context)
+
 	var content []byte
 	var err error
 	//try load file if it's a yaml file otherwise it's the contents of a yaml file WEOS-1009
@@ -161,9 +190,9 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 
 	//parse the main config
 	var config *APIConfig
-	if swagger.ExtensionProps.Extensions["x-weos-config"] != nil {
+	if swagger.ExtensionProps.Extensions[WeOSConfigExtension] != nil {
 
-		data, err := swagger.ExtensionProps.Extensions["x-weos-config"].(json.RawMessage).MarshalJSON()
+		data, err := swagger.ExtensionProps.Extensions[WeOSConfigExtension].(json.RawMessage).MarshalJSON()
 		if err != nil {
 			e.Logger.Fatalf("error loading api config '%s", err)
 			return e
@@ -179,12 +208,19 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 			e.Logger.Fatalf("error setting up module '%s", err)
 			return e
 		}
+
+		err = api.Initialize()
+		if err != nil {
+			e.Logger.Fatalf("error initializing application '%s'", err)
+			return e
+		}
+
 		//setup middleware  - https://echo.labstack.com/middleware/
 
 		//setup global pre middleware
 		var preMiddlewares []echo.MiddlewareFunc
 		for _, middlewareName := range config.Rest.PreMiddleware {
-			t := reflect.ValueOf(api)
+			t := reflect.ValueOf(middlewareName)
 			m := t.MethodByName(middlewareName)
 			if !m.IsValid() {
 				e.Logger.Fatalf("invalid handler set '%s'", middlewareName)
@@ -199,27 +235,15 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		//prepend Context middleware
 		config.Rest.Middleware = append([]string{"Context"}, config.Rest.Middleware...)
 		for _, middlewareName := range config.Rest.Middleware {
-			if middlewareName == "Context" {
-				t := reflect.ValueOf(api)
-				m := t.MethodByName(middlewareName)
-				middlewares = append(middlewares, m.Interface().(func(handlerFunc echo.HandlerFunc) echo.HandlerFunc))
-				continue
+			tmiddleware, err := api.GetMiddleware(middlewareName)
+			if err != nil {
+				e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
 			}
-			t := reflect.ValueOf(api)
-			m := t.MethodByName(middlewareName)
-			if !m.IsValid() {
-				e.Logger.Fatalf("invalid handler set '%s'", middlewareName)
-			}
-			middlewares = append(middlewares, m.Interface().(func(handlerFunc echo.HandlerFunc) echo.HandlerFunc))
+			middlewares = append(middlewares, tmiddleware(api.Application, swagger, nil, nil))
 		}
 		//all routes setup after this will use this middleware
 		e.Use(middlewares...)
 
-		err = api.Initialize()
-		if err != nil {
-			e.Logger.Fatalf("error initializing application '%s'", err)
-			return e
-		}
 	}
 
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
@@ -232,46 +256,37 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		allowedOrigins := []string{"*"}
 		allowedHeaders := []string{"*"}
 
-		var pathConfig *PathConfig
-		pathConfigData := pathData.ExtensionProps.Extensions["x-weos-config"]
-		if pathConfigData != nil {
-			bytes, err := pathConfigData.(json.RawMessage).MarshalJSON()
-			if err != nil {
-				e.Logger.Fatalf("error reading weos config on the path '%s' '%s'", path, err)
-			}
-
-			if err = json.Unmarshal(bytes, &pathConfig); err != nil {
-				e.Logger.Fatalf("error reading weos config on the path '%s' '%s'", path, err)
-				return e
-			}
-
-			if !pathConfig.DisableCors {
-				//check what the configuration has and overwrite accordingly
-				if len(pathConfig.AllowedOrigins) > 0 {
-					allowedOrigins = pathConfig.AllowedOrigins
-				}
-
-				if len(pathConfig.AllowedHeaders) > 0 {
-					allowedHeaders = pathConfig.AllowedHeaders
-				}
-			}
-		}
-
 		var methodsFound []string
 		for _, method := range knownActions {
-			var operationConfig *PathConfig
-			//get the handler using reflection. This should be fine because this is only on startup
-			if pathData.GetOperation(strings.ToUpper(method)) != nil {
+			//get the operation data
+			operationData := pathData.GetOperation(strings.ToUpper(method))
+			if operationData != nil {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
-				operationConfigData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions["x-weos-config"]
+				operationConfig := &PathConfig{}
+				var middlewares []echo.MiddlewareFunc
+				//get the middleware set on the operation
+				middlewareData := operationData.ExtensionProps.Extensions[MiddlewareExtension]
+				err = json.Unmarshal(middlewareData.(json.RawMessage), &operationConfig.Middleware)
+				if err != nil {
+					e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
+				}
+				for _, middlewareName := range operationConfig.Middleware {
+					tmiddleware, err := api.GetMiddleware(middlewareName)
+					if err != nil {
+						e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
+					}
+					middlewares = append(middlewares, tmiddleware(api.Application, swagger, pathData, operationData))
+				}
+
+				operationConfigData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[WeOSConfigExtension]
 				if operationConfigData != nil {
 					bytes, err := operationConfigData.(json.RawMessage).MarshalJSON()
 					if err != nil {
-						e.Logger.Fatalf("error reading weos config on the path '%s' '%s'", path, err)
+						e.Logger.Fatalf("error reading model config on the path '%s' '%s'", path, err)
 					}
 
 					if err = json.Unmarshal(bytes, &operationConfig); err != nil {
-						e.Logger.Fatalf("error reading weos config on the path '%s' '%s'", path, err)
+						e.Logger.Fatalf("error reading model config on the path '%s' '%s'", path, err)
 						return e
 					}
 
@@ -280,15 +295,6 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 					//only show error if handler was set
 					if operationConfig.Handler != "" && !handler.IsValid() {
 						e.Logger.Fatalf("invalid handler set '%s'", operationConfig.Handler)
-					}
-
-					var middlewares []echo.MiddlewareFunc
-					for _, middlewareName := range operationConfig.Middleware {
-						m := t.MethodByName(middlewareName)
-						if !m.IsValid() {
-							e.Logger.Fatalf("invalid handler set '%s'", middlewareName)
-						}
-						middlewares = append(middlewares, m.Interface().(func(handlerFunc echo.HandlerFunc) echo.HandlerFunc))
 					}
 
 					if operationConfig.Group { //TODO move this form here because it creates weird behavior

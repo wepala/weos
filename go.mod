@@ -16,6 +16,7 @@ require (
 	github.com/segmentio/ksuid v1.0.3
 	github.com/sirupsen/logrus v1.7.0
 	github.com/stoewer/go-strcase v1.2.0
+	go.uber.org/zap v1.10.0
 	golang.org/x/net v0.0.0-20210726213435-c6fcb2dbf985
 	golang.org/x/sys v0.0.0-20210611083646-a4fc73990273 // indirect
 	gorm.io/datatypes v0.0.0-20200924071644-3967db6857cf

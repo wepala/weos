@@ -6,7 +6,7 @@ import (
 )
 
 type APIConfig struct {
-	*weos.ApplicationConfig
+	*weos.ServiceConfig
 	BasePath            string `json:"basePath" ,yaml:"basePath"`
 	RecordingBaseFolder string
 	Rest                *Rest           `json:"rest"`

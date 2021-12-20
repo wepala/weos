@@ -49,7 +49,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 }
 
 //NewProjection creates an instance of the projection
-func NewProjection(structs map[string]interface{}, application weos.Application) (*GORMProjection, error) {
+func NewProjection(structs map[string]interface{}, application weos.Service) (*GORMProjection, error) {
 	dbStructs := make(map[string]interface{})
 
 	for name, s := range structs {

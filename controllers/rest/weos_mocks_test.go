@@ -1216,20 +1216,20 @@ func (mock *DispatcherMock) GetSubscribersCalls() []struct {
 	return calls
 }
 
-// Ensure, that ApplicationMock does implement weos.Application.
+// Ensure, that ApplicationMock does implement weos.Service.
 // If this is not the case, regenerate this file with moq.
-var _ weos.Application = &ApplicationMock{}
+var _ weos.Service = &ApplicationMock{}
 
-// ApplicationMock is a mock implementation of weos.Application.
+// ApplicationMock is a mock implementation of weos.Service.
 //
 //     func TestSomethingThatUsesApplication(t *testing.T) {
 //
-//         // make and configure a mocked weos.Application
+//         // make and configure a mocked weos.Service
 //         mockedApplication := &ApplicationMock{
 //             AddProjectionFunc: func(projection weos.Projection) error {
 // 	               panic("mock out the AddProjection method")
 //             },
-//             ConfigFunc: func() *weos.ApplicationConfig {
+//             ConfigFunc: func() *weos.ServiceConfig {
 // 	               panic("mock out the Config method")
 //             },
 //             DBFunc: func() *gorm.DB {
@@ -1264,7 +1264,7 @@ var _ weos.Application = &ApplicationMock{}
 //             },
 //         }
 //
-//         // use mockedApplication in code that requires weos.Application
+//         // use mockedApplication in code that requires weos.Service
 //         // and then make assertions.
 //
 //     }
@@ -1273,7 +1273,7 @@ type ApplicationMock struct {
 	AddProjectionFunc func(projection weos.Projection) error
 
 	// ConfigFunc mocks the Config method.
-	ConfigFunc func() *weos.ApplicationConfig
+	ConfigFunc func() *weos.ServiceConfig
 
 	// DBFunc mocks the DB method.
 	DBFunc func() *gorm.DB
@@ -1365,7 +1365,7 @@ type ApplicationMock struct {
 // AddProjection calls AddProjectionFunc.
 func (mock *ApplicationMock) AddProjection(projection weos.Projection) error {
 	if mock.AddProjectionFunc == nil {
-		panic("ApplicationMock.AddProjectionFunc: method is nil but Application.AddProjection was just called")
+		panic("ApplicationMock.AddProjectionFunc: method is nil but Service.AddProjection was just called")
 	}
 	callInfo := struct {
 		Projection weos.Projection
@@ -1394,9 +1394,9 @@ func (mock *ApplicationMock) AddProjectionCalls() []struct {
 }
 
 // Config calls ConfigFunc.
-func (mock *ApplicationMock) Config() *weos.ApplicationConfig {
+func (mock *ApplicationMock) Config() *weos.ServiceConfig {
 	if mock.ConfigFunc == nil {
-		panic("ApplicationMock.ConfigFunc: method is nil but Application.Config was just called")
+		panic("ApplicationMock.ConfigFunc: method is nil but Service.Config was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1422,7 +1422,7 @@ func (mock *ApplicationMock) ConfigCalls() []struct {
 // DB calls DBFunc.
 func (mock *ApplicationMock) DB() *gorm.DB {
 	if mock.DBFunc == nil {
-		panic("ApplicationMock.DBFunc: method is nil but Application.DB was just called")
+		panic("ApplicationMock.DBFunc: method is nil but Service.DB was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1448,7 +1448,7 @@ func (mock *ApplicationMock) DBCalls() []struct {
 // DBConnection calls DBConnectionFunc.
 func (mock *ApplicationMock) DBConnection() *sql.DB {
 	if mock.DBConnectionFunc == nil {
-		panic("ApplicationMock.DBConnectionFunc: method is nil but Application.DBConnection was just called")
+		panic("ApplicationMock.DBConnectionFunc: method is nil but Service.DBConnection was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1474,7 +1474,7 @@ func (mock *ApplicationMock) DBConnectionCalls() []struct {
 // Dispatcher calls DispatcherFunc.
 func (mock *ApplicationMock) Dispatcher() weos.Dispatcher {
 	if mock.DispatcherFunc == nil {
-		panic("ApplicationMock.DispatcherFunc: method is nil but Application.Dispatcher was just called")
+		panic("ApplicationMock.DispatcherFunc: method is nil but Service.Dispatcher was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1500,7 +1500,7 @@ func (mock *ApplicationMock) DispatcherCalls() []struct {
 // EventRepository calls EventRepositoryFunc.
 func (mock *ApplicationMock) EventRepository() weos.EventRepository {
 	if mock.EventRepositoryFunc == nil {
-		panic("ApplicationMock.EventRepositoryFunc: method is nil but Application.EventRepository was just called")
+		panic("ApplicationMock.EventRepositoryFunc: method is nil but Service.EventRepository was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1526,7 +1526,7 @@ func (mock *ApplicationMock) EventRepositoryCalls() []struct {
 // HTTPClient calls HTTPClientFunc.
 func (mock *ApplicationMock) HTTPClient() *http.Client {
 	if mock.HTTPClientFunc == nil {
-		panic("ApplicationMock.HTTPClientFunc: method is nil but Application.HTTPClient was just called")
+		panic("ApplicationMock.HTTPClientFunc: method is nil but Service.HTTPClient was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1552,7 +1552,7 @@ func (mock *ApplicationMock) HTTPClientCalls() []struct {
 // ID calls IDFunc.
 func (mock *ApplicationMock) ID() string {
 	if mock.IDFunc == nil {
-		panic("ApplicationMock.IDFunc: method is nil but Application.ID was just called")
+		panic("ApplicationMock.IDFunc: method is nil but Service.ID was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1578,7 +1578,7 @@ func (mock *ApplicationMock) IDCalls() []struct {
 // Logger calls LoggerFunc.
 func (mock *ApplicationMock) Logger() weos.Log {
 	if mock.LoggerFunc == nil {
-		panic("ApplicationMock.LoggerFunc: method is nil but Application.Logger was just called")
+		panic("ApplicationMock.LoggerFunc: method is nil but Service.Logger was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1604,7 +1604,7 @@ func (mock *ApplicationMock) LoggerCalls() []struct {
 // Migrate calls MigrateFunc.
 func (mock *ApplicationMock) Migrate(ctx context.Context) error {
 	if mock.MigrateFunc == nil {
-		panic("ApplicationMock.MigrateFunc: method is nil but Application.Migrate was just called")
+		panic("ApplicationMock.MigrateFunc: method is nil but Service.Migrate was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
@@ -1635,7 +1635,7 @@ func (mock *ApplicationMock) MigrateCalls() []struct {
 // Projections calls ProjectionsFunc.
 func (mock *ApplicationMock) Projections() []weos.Projection {
 	if mock.ProjectionsFunc == nil {
-		panic("ApplicationMock.ProjectionsFunc: method is nil but Application.Projections was just called")
+		panic("ApplicationMock.ProjectionsFunc: method is nil but Service.Projections was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1661,7 +1661,7 @@ func (mock *ApplicationMock) ProjectionsCalls() []struct {
 // Title calls TitleFunc.
 func (mock *ApplicationMock) Title() string {
 	if mock.TitleFunc == nil {
-		panic("ApplicationMock.TitleFunc: method is nil but Application.Title was just called")
+		panic("ApplicationMock.TitleFunc: method is nil but Service.Title was just called")
 	}
 	callInfo := struct {
 	}{}

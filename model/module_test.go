@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewApplicationFromConfig(t *testing.T) {
-	config := &weos.ApplicationConfig{
+	config := &weos.ServiceConfig{
 		ModuleID:  "1iPwGftUqaP4rkWdvFp6BBW2tOf",
 		Title:     "Test Module",
 		AccountID: "1iPwIGTgWVGyl4XfgrhCqYiiQ7d",
@@ -94,7 +94,7 @@ func TestNewApplicationFromConfig(t *testing.T) {
 
 func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 	t.Run("test setting up basic sqlite connection", func(t *testing.T) {
-		sqliteConfig := &weos.ApplicationConfig{
+		sqliteConfig := &weos.ServiceConfig{
 			ModuleID:  "1iPwGftUqaP4rkWdvFp6BBW2tOf",
 			Title:     "Test Module",
 			AccountID: "1iPwIGTgWVGyl4XfgrhCqYiiQ7d",
@@ -126,7 +126,7 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 	})
 
 	t.Run("test setting up sqlite connection in memory named database", func(t *testing.T) {
-		sqliteConfig := &weos.ApplicationConfig{
+		sqliteConfig := &weos.ServiceConfig{
 			ModuleID:  "1iPwGftUqaP4rkWdvFp6BBW2tOf",
 			Title:     "Test Module",
 			AccountID: "1iPwIGTgWVGyl4XfgrhCqYiiQ7d",
@@ -161,7 +161,7 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 	})
 
 	t.Run("test setting up sqlite connection with authentication", func(t *testing.T) {
-		sqliteConfig := &weos.ApplicationConfig{
+		sqliteConfig := &weos.ServiceConfig{
 			ModuleID:  "1iPwGftUqaP4rkWdvFp6BBW2tOf",
 			Title:     "Test Module",
 			AccountID: "1iPwIGTgWVGyl4XfgrhCqYiiQ7d",
@@ -191,7 +191,7 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 }
 
 func TestWeOSApp_AddProjection(t *testing.T) {
-	config := &weos.ApplicationConfig{
+	config := &weos.ServiceConfig{
 		ModuleID:  "1iPwGftUqaP4rkWdvFp6BBW2tOf",
 		Title:     "Test Module",
 		AccountID: "1iPwIGTgWVGyl4XfgrhCqYiiQ7d",
