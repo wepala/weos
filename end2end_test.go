@@ -3,9 +3,10 @@ package main_test
 import (
 	"context"
 	"fmt"
-	api "github.com/wepala/weos-service/controllers/rest"
 	"os"
 	"testing"
+
+	api "github.com/wepala/weos-service/controllers/rest"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -14,6 +15,13 @@ import (
 var e *echo.Echo
 var API api.RESTAPI
 var openAPI string
+var Developer *User
+var Content *ContentType
+
+type User struct {
+	Name      string
+	AccountID string
+}
 
 type Property struct {
 	Type        string
@@ -26,8 +34,9 @@ type ContentType struct {
 }
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
-	//e = echo.New()
-	//api.Initialize(e, &API, "./api.yaml")
+	Developer = &User{}
+	e = echo.New()
+	api.Initialize(e, &API, "./api.yaml")
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -67,6 +76,7 @@ components:
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	Developer = &User{}
 	os.Remove("test.db")
 	openAPI = `openapi: 3.0.3
 info:
@@ -107,12 +117,17 @@ components:
 	return ctx, nil
 }
 
-func aContentTypeModeledInTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
-	openAPI = openAPI + arg3.Content
+func aContentTypeModeledInTheSpecification(contentType, arg2 string, arg3 *godog.DocString) error {
+	Content.Type = contentType
+	openAPI = openAPI + arg2
+
+	//Handle arg3 which is the content properties
+
 	return nil
 }
 
-func aDeveloper(arg1 string) error {
+func aDeveloper(name string) error {
+	Developer.Name = name
 	return nil
 }
 
@@ -166,7 +181,8 @@ func entersInTheField(arg1, arg2, arg3 string) error {
 	return godog.ErrPending
 }
 
-func hasAnAccountWithId(arg1, arg2 string) error {
+func hasAnAccountWithId(name, accountID string) error {
+	Developer.AccountID = accountID
 	return nil
 }
 
@@ -175,6 +191,7 @@ func isOnTheCreateScreen(arg1, arg2 string) error {
 }
 
 func isUsedToModelTheService(arg1 string) error {
+	openAPI = openAPI + arg1
 	return nil
 }
 

@@ -308,6 +308,11 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 					if err != nil {
 						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
 					}
+				} else {
+					switch strings.ToUpper(method) {
+					case "POST":
+						operationConfig.Handler = "Create"
+					}
 				}
 
 				if operationConfig.Handler != "" {

@@ -7,13 +7,17 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	api "github.com/wepala/weos-service/controllers/rest"
 )
 
-func TestRESTAPI_Initialize(t *testing.T) {
+func TestRESTAPI_Initialize_Basic(t *testing.T) {
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
 	t.Run("basic schema", func(t *testing.T) {
+		defer os.Remove("test.db")
 		e := echo.New()
 		tapi := api.RESTAPI{}
 		openApi := `openapi: 3.0.3
@@ -67,13 +71,18 @@ components:
 		if !tapi.Application.DB().Migrator().HasTable("category") {
 			t.Errorf("expected categories table to exist")
 		}
-		defer os.Remove("test.db")
 	})
-	t.Run("create controller is added to POST endpoints that don't have a controller and is configured correctly", func(t *testing.T) {
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+}
 
+func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+	t.Run("create controller is added to POST endpoints that don't have a controller and is configured correctly", func(t *testing.T) {
 		e := echo.New()
-		tapi4 := api.RESTAPI{}
-		api.Initialize(e, &tapi4, "./fixtures/blog.yaml")
+		tapi := api.RESTAPI{}
+		api.Initialize(e, &tapi, "./fixtures/blog.yaml")
 		mockBlog := &Blog{
 			Title: "Test Blog",
 		}
@@ -90,5 +99,6 @@ components:
 			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
 	})
-	defer os.Remove("test.db")
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
 }

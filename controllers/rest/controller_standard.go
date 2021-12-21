@@ -7,7 +7,6 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos-service/context"
 	"github.com/wepala/weos-service/model"
 )
 
@@ -18,7 +17,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 	return func(ctxt echo.Context) error {
 		var entityType string
 		//get the entity information based on the Content Type associated with this operation
-		ctx := ctxt.(*context.Context)
+		//ctx := ctxt.(*context.Context)
 		for _, requestContent := range operation.RequestBody.Value.Content {
 			//use the first schema ref to determine the entity type
 			if requestContent.Schema.Ref != "" {
@@ -29,7 +28,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		//Get entity id from context
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 
-		app.Dispatcher().Dispatch(ctx.RequestContext(), model.Create(ctx.RequestContext(), payload, entityType))
+		app.Dispatcher().Dispatch(ctxt.Request().Context(), model.Create(ctxt.Request().Context(), payload, entityType))
 		return ctxt.JSON(http.StatusCreated, "Created")
 	}
 }
