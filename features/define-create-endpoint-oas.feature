@@ -124,7 +124,7 @@ Feature: Create content endpoints
               description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
-    Then a "POST" route should be added to the api
+    Then a "POST" route "/blog" should be added to the api
     And a "CreateBatch" middleware should be added to the route
 
   Scenario: Setup path without content type

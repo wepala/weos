@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	api "github.com/wepala/weos-service/controllers/rest"
@@ -131,8 +132,15 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 	return godog.ErrPending
 }
 
-func aMiddlewareShouldBeAddedToTheRoute(arg1 string) error {
-	return godog.ErrPending
+func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		//TODO add snakecase to middleware
+		if strings.Contains(route.Name, middleware) {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected %s middleware to be added to route got nil", middleware)
 }
 
 func aModelShouldBeAddedToTheProjection(arg1 string, arg2 *godog.Table) error {
@@ -214,6 +222,7 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 
 func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
+	os.Remove("test.db")
 	API = api.RESTAPI{}
 	api.Initialize(e, &API, openAPI)
 	return nil

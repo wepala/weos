@@ -30,15 +30,15 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	for name, s := range p.Schema {
 		//can't automigrate the whole array.  would cause errors.  We may need to think through how this is done as the create table does not autmomigrate
-		err := p.db.Migrator().CreateTable(s)
-		if err != nil {
-			return err
-		}
+		_ = p.db.Migrator().CreateTable(s)
+		//if err != nil {
+		//	return err
+		//}
 
-		err = p.db.Migrator().RenameTable("", strcase.SnakeCase(name))
-		if err != nil {
-			return err
-		}
+		_ = p.db.Migrator().RenameTable("", strcase.SnakeCase(name))
+		//if err != nil {
+		//	return err
+		//}
 
 	}
 	return nil
