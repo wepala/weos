@@ -11,43 +11,43 @@ Feature: Create content endpoints
     And "OpenAPI 3.0" is used to model the service
     And a content type "Category" modeled in the "OpenAPI 3.0" specification
     """
-      Category:
-        type: object
-        properties:
-          title:
-            type: string
-          description:
-            type: string
+        Category:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
     """
     And a content type "Blog" modeled in the "OpenAPI 3.0" specification
     """
-      Blog:
-        type: object
-        properties:
-          title:
-            type: string
-          description:
-            type: string
+        Blog:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
     """
     And a content type "Post" modeled in the "OpenAPI 3.0" specification
     """
-      Post:
-        type: object
-        properties:
-          title:
-            type: string
-          description:
-            type: string
-          blog:
-            $ref: "#/components/schemas/Blog"
-          publishedDate:
-            type: string
-          views:
-            type: integer
-          categories:
-            type: array
-            items:
-              $ref: "#/components/schemas/Category"
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            blog:
+              $ref: "#/components/schemas/Blog"
+            publishedDate:
+              type: string
+            views:
+              type: integer
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/Category"
     """
 
 
@@ -82,7 +82,7 @@ Feature: Create content endpoints
               description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
-    Then a "POST" route should be added to the api
+    Then a "POST" route "/blog" should be added to the api
     And a "create" middleware should be added to the route
 
   Scenario: Create a batch of items

@@ -172,7 +172,13 @@ func addsASchemaToTheSpecification(arg1, arg2, arg3 string, arg4 *godog.DocStrin
 }
 
 func addsAnEndpointToTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
-	return godog.ErrPending
+	//check to make sure path parameter is added to openapi
+	results := strings.Contains(openAPI, "paths:")
+	if !results {
+		openAPI += "\npaths:\n"
+	}
+	openAPI = openAPI + arg3.Content
+	return nil
 }
 
 func allFieldsAreNullableByDefault() error {
@@ -262,7 +268,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "focus",
+			Tags:   "WEOS-1164",
 		},
 	}.Run()
 	if status != 0 {
