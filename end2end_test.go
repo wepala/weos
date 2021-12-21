@@ -117,12 +117,8 @@ components:
 	return ctx, nil
 }
 
-func aContentTypeModeledInTheSpecification(contentType, arg2 string, arg3 *godog.DocString) error {
-	Content.Type = contentType
-	openAPI = openAPI + arg2
-
-	//Handle arg3 which is the content properties
-
+func aContentTypeModeledInTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
+	openAPI = openAPI + arg3.Content + "\n"
 	return nil
 }
 
@@ -148,8 +144,14 @@ func aModelShouldBeAddedToTheProjection(arg1 string, arg2 *godog.Table) error {
 	return nil
 }
 
-func aRouteShouldBeAddedToTheApi(arg1 string) error {
-	return godog.ErrPending
+func aRouteShouldBeAddedToTheApi(method, path string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if route.Method == method && route.Path == path {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
@@ -191,7 +193,6 @@ func isOnTheCreateScreen(arg1, arg2 string) error {
 }
 
 func isUsedToModelTheService(arg1 string) error {
-	openAPI = openAPI + arg1
 	return nil
 }
 
@@ -226,7 +227,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
 	ctx.Step(`^a "([^"]*)" middleware should be added to the route$`, aMiddlewareShouldBeAddedToTheRoute)
 	ctx.Step(`^a model "([^"]*)" should be added to the projection$`, aModelShouldBeAddedToTheProjection)
-	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi)
+	ctx.Step(`^a "([^"]*)" route "([^"]*)" should be added to the api$`, aRouteShouldBeAddedToTheApi)
 	ctx.Step(`^a warning should be output to logs letting the developer know that a handler needs to be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet)
 	ctx.Step(`^"([^"]*)" adds a schema "([^"]*)" to the "([^"]*)" specification$`, addsASchemaToTheSpecification)
 	ctx.Step(`^"([^"]*)" adds an endpoint to the "([^"]*)" specification$`, addsAnEndpointToTheSpecification)
