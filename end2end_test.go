@@ -135,7 +135,6 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 	yamlRoutes := e.Routes()
 	for _, route := range yamlRoutes {
-		//TODO add snakecase to middleware
 		if strings.Contains(route.Name, middleware) {
 			return nil
 		}
