@@ -308,6 +308,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 				}
 
 				controllerData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[ControllerExtension]
+				autoConfigure := false
 				if controllerData != nil {
 					err = json.Unmarshal(controllerData.(json.RawMessage), &operationConfig.Handler)
 					if err != nil {
@@ -323,12 +324,6 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 						if pathData.Post.RequestBody.Value.Content["application/json"].Schema.Ref == "" && pathData.Post.RequestBody.Value.Content["application/json"].Schema.Value.Items == nil {
 							return e, fmt.Errorf("unexpected error: expected schema reference but got nil ")
 						}
-						if pathData.Post.RequestBody.Value.Content["application/json"].Schema.Value.Type == "array" {
-							operationConfig.Handler = "CreateBatch"
-						} else {
-							operationConfig.Handler = "Create"
-						}
-
 					}
 				}
 
@@ -366,6 +361,11 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 
 					}
 
+				} else {
+					if !autoConfigure {
+						//this should not return an error it should log
+						e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+					}
 				}
 			}
 		}

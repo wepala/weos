@@ -166,6 +166,7 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
+	//TODO this should be a check on a mock logger to see if the warning was logged (it doesn't return an error since an endpoint with no handler could be deliberate)
 	if errors == nil {
 		return fmt.Errorf("expected an error got nil")
 	}
