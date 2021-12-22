@@ -127,6 +127,7 @@ Feature: Create content endpoints
     Then a "POST" route "/blog" should be added to the api
     And a "CreateBatch" middleware should be added to the route
 
+
   Scenario: Setup path without content type
 
     Specifying a content type in the path definition is necessary. If no content type is associated with the endpoint
@@ -185,6 +186,4 @@ Feature: Create content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
-
-
-
+    

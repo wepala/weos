@@ -100,3 +100,30 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
 }
+
+func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	api.Initialize(e, &tapi, "./fixtures/blog-create-batch.yaml")
+	mockBlog := &[3]Blog{
+		{Title: "Blog 1"},
+		{Title: "Blog 2"},
+		{Title: "Blog 3"},
+	}
+	reqBytes, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("error setting up request %s", err)
+	}
+	body := bytes.NewReader(reqBytes)
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 201
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+}

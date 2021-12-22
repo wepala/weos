@@ -311,8 +311,15 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 				} else {
 					switch strings.ToUpper(method) {
 					case "POST":
-						//TODO if statement to know whether its a createbatch or just a regular create based on the schema provided
-						operationConfig.Handler = "Create"
+						if pathData.Post.RequestBody == nil {
+							e.Logger.Warnf("unexpected error: expected request body but got nil")
+						} else {
+							if pathData.Post.RequestBody.Value.Content["application/json"].Schema.Value.Type == "array" {
+								operationConfig.Handler = "CreateBatch"
+							} else {
+								operationConfig.Handler = "Create"
+							}
+						}
 					}
 				}
 
