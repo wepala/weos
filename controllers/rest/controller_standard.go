@@ -17,7 +17,6 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 	return func(ctxt echo.Context) error {
 		var entityType string
 		//get the entity information based on the Content Type associated with this operation
-		//ctx := ctxt.(*context.Context)
 		for _, requestContent := range operation.RequestBody.Value.Content {
 			//use the first schema ref to determine the entity type
 			if requestContent.Schema.Ref != "" {
@@ -25,7 +24,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				break
 			}
 		}
-		//Get entity id from context
+		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 
 		app.Dispatcher().Dispatch(ctxt.Request().Context(), model.Create(ctxt.Request().Context(), payload, entityType))
@@ -36,7 +35,21 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 //TODO needs to be fleshed out
 func (c *StandardControllers) CreateBatch(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
-		return ctxt.JSON(http.StatusCreated, "Created")
+		var entityType string
+		//get the entity information based on the Content Type associated with this operation
+		for _, requestContent := range operation.RequestBody.Value.Content {
+			//use the first schema ref to determine the entity type
+			if requestContent.Schema.Ref != "" {
+				entityType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+				break
+			}
+		}
+		//reads the request body
+		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+
+		app.Dispatcher().Dispatch(ctxt.Request().Context(), model.CreateBatch(ctxt.Request().Context(), payload, entityType))
+
+		return ctxt.JSON(http.StatusCreated, "CreatedBatch")
 	}
 }
 

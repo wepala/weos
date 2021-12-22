@@ -266,6 +266,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
 
 	for path, pathData := range swagger.Paths {
+
 		//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
 		re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
 		echoPath := re.ReplaceAllString(path, `:$1`)
@@ -311,8 +312,15 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 				} else {
 					switch strings.ToUpper(method) {
 					case "POST":
-						//TODO if statement to know whether its a createbatch or just a regular create based on the schema provided
-						operationConfig.Handler = "Create"
+						if pathData.Post.RequestBody == nil {
+							e.Logger.Warnf("unexpected error: expected request body but got nil")
+						} else {
+							if pathData.Post.RequestBody.Value.Content["application/json"].Schema.Value.Type == "array" {
+								operationConfig.Handler = "CreateBatch"
+							} else {
+								operationConfig.Handler = "Create"
+							}
+						}
 					}
 				}
 
