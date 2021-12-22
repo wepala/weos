@@ -266,6 +266,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
 
 	for path, pathData := range swagger.Paths {
+
 		//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
 		re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
 		echoPath := re.ReplaceAllString(path, `:$1`)

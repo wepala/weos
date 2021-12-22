@@ -162,7 +162,8 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
-	return godog.ErrPending
+
+	return nil
 }
 
 func addsASchemaToTheSpecification(arg1, arg2, arg3 string, arg4 *godog.DocString) error {
