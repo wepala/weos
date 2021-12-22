@@ -321,8 +321,15 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 							e.Logger.Warnf("unexpected error: expected request body but got nil")
 							return e, fmt.Errorf("unexpected error: expected request body but got nil")
 						}
-						if pathData.Post.RequestBody.Value.Content["application/json"].Schema.Ref == "" && pathData.Post.RequestBody.Value.Content["application/json"].Schema.Value.Items == nil {
-							return e, fmt.Errorf("unexpected error: expected schema reference but got nil ")
+						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
+						for _, value := range pathData.Post.RequestBody.Value.Content {
+							if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+								operationConfig.Handler = "Create"
+								autoConfigure = true
+							} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Value.Type, "#/components/schemas/") {
+								operationConfig.Handler = "CreateBatch"
+								autoConfigure = true
+							}
 						}
 					}
 				}
