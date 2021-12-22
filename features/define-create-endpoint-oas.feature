@@ -83,7 +83,7 @@ Feature: Create content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "POST" route "/blog" should be added to the api
-    And a "create" middleware should be added to the route
+    And a "Create" middleware should be added to the route
 
   Scenario: Create a batch of items
 
