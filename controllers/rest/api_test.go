@@ -67,7 +67,10 @@ components:
       x-identifier:
         - title
 `
-		api.Initialize(e, &tapi, openApi)
+		_, err := api.Initialize(e, &tapi, openApi)
+		if err != nil {
+			t.Errorf("unexpected error: '%s'", err)
+		}
 		if !tapi.Application.DB().Migrator().HasTable("category") {
 			t.Errorf("expected categories table to exist")
 		}
@@ -81,7 +84,10 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	e := echo.New()
 	tapi := api.RESTAPI{}
-	api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
 	mockBlog := &Blog{
 		Title: "Test Blog",
 	}
@@ -106,7 +112,10 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	e := echo.New()
 	tapi := api.RESTAPI{}
-	api.Initialize(e, &tapi, "./fixtures/blog-create-batch.yaml")
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog-create-batch.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
 	mockBlog := &[3]Blog{
 		{Title: "Blog 1"},
 		{Title: "Blog 2"},

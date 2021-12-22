@@ -7,10 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/wepala/weos-service/controllers/rest"
-
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
+	api "github.com/wepala/weos-service/controllers/rest"
 )
 
 var e *echo.Echo
@@ -18,6 +17,7 @@ var API api.RESTAPI
 var openAPI string
 var Developer *User
 var Content *ContentType
+var errors error
 
 type User struct {
 	Name      string
@@ -37,7 +37,10 @@ type ContentType struct {
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	Developer = &User{}
 	e = echo.New()
-	api.Initialize(e, &API, "./api.yaml")
+	_, err := api.Initialize(e, &API, "./api.yaml")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -78,6 +81,7 @@ components:
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
+	errors = nil
 	os.Remove("test.db")
 	openAPI = `openapi: 3.0.3
 info:
@@ -162,7 +166,9 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
-
+	if errors == nil {
+		return fmt.Errorf("expected an error got nil")
+	}
 	return nil
 }
 
@@ -230,7 +236,10 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
 	os.Remove("test.db")
 	API = api.RESTAPI{}
-	api.Initialize(e, &API, openAPI)
+	_, err := api.Initialize(e, &API, openAPI)
+	if err != nil {
+		errors = err
+	}
 	return nil
 }
 

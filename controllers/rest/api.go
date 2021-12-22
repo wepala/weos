@@ -163,11 +163,15 @@ func (p *RESTAPI) Initialize() error {
 //New instantiates and initializes the api
 func New(port *string, apiConfig string) {
 	e := echo.New()
-	Initialize(e, &RESTAPI{}, apiConfig)
+	var err error
+	_, err = Initialize(e, &RESTAPI{}, apiConfig)
+	if err != nil {
+		e.Logger.Errorf("Unexpected error: '%s'", err)
+	}
 	e.Logger.Fatal(e.Start(":" + *port))
 }
 
-func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
+func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error) {
 	e.HideBanner = true
 	if apiConfig == "" {
 		apiConfig = "./api.yaml"
@@ -213,24 +217,24 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		data, err := swagger.ExtensionProps.Extensions[WeOSConfigExtension].(json.RawMessage).MarshalJSON()
 		if err != nil {
 			e.Logger.Fatalf("error loading api config '%s", err)
-			return e
+			return e, err
 		}
 		err = json.Unmarshal(data, &config)
 		if err != nil {
 			e.Logger.Fatalf("error loading api config '%s", err)
-			return e
+			return e, err
 		}
 
 		err = api.AddConfig(config)
 		if err != nil {
 			e.Logger.Fatalf("error setting up module '%s", err)
-			return e
+			return e, err
 		}
 
 		err = api.Initialize()
 		if err != nil {
 			e.Logger.Fatalf("error initializing application '%s'", err)
-			return e
+			return e, err
 		}
 
 		//setup middleware  - https://echo.labstack.com/middleware/
@@ -314,13 +318,17 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 					case "POST":
 						if pathData.Post.RequestBody == nil {
 							e.Logger.Warnf("unexpected error: expected request body but got nil")
-						} else {
-							if pathData.Post.RequestBody.Value.Content["application/json"].Schema.Value.Type == "array" {
-								operationConfig.Handler = "CreateBatch"
-							} else {
-								operationConfig.Handler = "Create"
-							}
+							return e, fmt.Errorf("unexpected error: expected request body but got nil")
 						}
+						if pathData.Post.RequestBody.Value.Content["application/json"].Schema.Ref == "" && pathData.Post.RequestBody.Value.Content["application/json"].Schema.Value.Items == nil {
+							return e, fmt.Errorf("unexpected error: expected schema reference but got nil ")
+						}
+						if pathData.Post.RequestBody.Value.Content["application/json"].Schema.Value.Type == "array" {
+							operationConfig.Handler = "CreateBatch"
+						} else {
+							operationConfig.Handler = "Create"
+						}
+
 					}
 				}
 
@@ -373,5 +381,5 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		}, corsMiddleware)
 
 	}
-	return e
+	return e, nil
 }
