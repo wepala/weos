@@ -201,6 +201,41 @@ Feature: Delete content endpoints
     Then a "DELETE" route should be added to the api
     And a "Delete" middleware should be added to the route
 
+
+  Scenario: Create a basic delete endpoint with the identifier in the path and the controller manually set
+
+  Though the controller would typically automatically be set, it should use what is set in x-controller if available
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /blogs/{id}:
+      patch:
+        operationId: Delete Blog
+        parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: blog id
+        x-controller: Delete
+        requestBody:
+          description: Blog info that is submitted
+          required: false
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+        responses:
+          200:
+            description: Update blog
+          400:
+            description: Invalid blog submitted
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "PATCH" route "/blogs/:id" should be added to the api
+    And a "edit" middleware should be added to the route
+
   Scenario: Create an endpoint that does not have parameters for all parts of identifier
 
   Content types can have multiple fields as part of the identifier. If there are no parameters that map to the identifier
