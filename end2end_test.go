@@ -18,6 +18,7 @@ var openAPI string
 var Developer *User
 var Content *ContentType
 var errors error
+var buf bytes.Buffer
 
 type User struct {
 	Name      string
@@ -37,6 +38,7 @@ type ContentType struct {
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	Developer = &User{}
 	e = echo.New()
+	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, "./api.yaml")
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
@@ -167,8 +169,8 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
 	//TODO this should be a check on a mock logger to see if the warning was logged (it doesn't return an error since an endpoint with no handler could be deliberate)
-	if errors == nil {
-		return fmt.Errorf("expected an error got nil")
+	if !strings.Contains(buf.String(), "no handler set") {
+		fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
 }
