@@ -32,7 +32,6 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 	}
 }
 
-//TODO needs to be fleshed out
 func (c *StandardControllers) CreateBatch(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		var entityType string

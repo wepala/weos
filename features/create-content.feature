@@ -13,6 +13,34 @@ Feature: Create content
       title: Blog Aggregator Rest API
       version: 0.1.0
       description: REST API for interacting with the Blog Aggregator
+    servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+    x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        driver: sqlite3
+        database: test.db
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: test.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: test.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
     components:
       schemas:
         Blog:
@@ -86,10 +114,6 @@ Feature: Create content
                     $ref: "#/components/schemas/Blog"
             400:
               description: Invalid blog submitted
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/ErrorResponse"
     """
 
 

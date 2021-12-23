@@ -28,6 +28,7 @@ var payload ContentType
 var rec *httptest.ResponseRecorder
 var createScreen bool
 var db *sql.DB
+var checkContentID ContentType
 
 type User struct {
 	Name      string
@@ -93,6 +94,8 @@ components:
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
 	errors = nil
+	payload = ContentType{}
+	payload.Properties = map[string]Property{}
 	rec = httptest.NewRecorder()
 	createScreen = false
 	os.Remove("test.db")
@@ -205,7 +208,10 @@ func allFieldsAreNullableByDefault() error {
 }
 
 func anErrorShouldBeReturned() error {
-	return godog.ErrPending
+	if rec.Result().StatusCode == http.StatusCreated {
+		return fmt.Errorf("expected error but got status '%s'", rec.Result().Status)
+	}
+	return nil
 }
 
 func blogsInTheApi(arg1 *godog.Table) error {
@@ -216,6 +222,9 @@ func entersInTheField(userName, value, field string) error {
 	tempProp := Property{
 		Type:        field,
 		Description: value,
+	}
+	if payload.Properties == nil {
+		payload.Properties = map[string]Property{}
 	}
 	payload.Properties[field] = tempProp
 	return nil
@@ -236,11 +245,51 @@ func isUsedToModelTheService(arg1 string) error {
 	return nil
 }
 
-func theIsCreated(arg1 string, arg2 *godog.Table) error {
+func theIsCreated(contentType string, details *godog.Table) error {
 	if rec.Result().StatusCode != http.StatusCreated {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
-	return godog.ErrPending
+	head := details.Rows[0].Cells
+	compareContent := ContentType{
+		Type: contentType,
+	}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			switch head[n].Value {
+			case "title":
+				prop := Property{
+					Type:        head[n].Value,
+					Description: cell.Value,
+				}
+				compareContent.Properties[head[n].Value] = prop
+			case "description":
+				prop := Property{
+					Type:        head[n].Value,
+					Description: cell.Value,
+				}
+				compareContent.Properties[head[n].Value] = prop
+			}
+		}
+	}
+	contentTypes := []ContentType{}
+	found := 0
+	API.Application.DB().Find(contentTypes)
+	for _, content := range contentTypes {
+		for _, prop := range content.Properties {
+			if prop.Description == compareContent.Properties[prop.Type].Description {
+				found++
+				if found == len(compareContent.Properties) {
+					checkContentID = content
+				}
+				continue
+			}
+		}
+	}
+	if found != len(compareContent.Properties) {
+		return fmt.Errorf("unexpected error did not find %s created", contentType)
+	}
+	return nil
 }
 
 func theIsSubmitted(contentType string) error {
@@ -253,19 +302,15 @@ func theIsSubmitted(contentType string) error {
 		request.Close = true
 		rec = httptest.NewRecorder()
 		e.ServeHTTP(rec, request)
-		insertQuery := fmt.Sprintf("INSERT INTO"+contentType+"("+payload, user_id)
-		VALUES('%s', '%s')
-		", a.store.ID, a.store.UserID)
-		_, err := a.db.Exec(insertQuery)
-		if err != nil {
-			return fmt.Errorf("there was an error setting up fixtures '%s'", err)
-		}
 	}
 	return nil
 }
 
-func theShouldHaveAnId(arg1 string) error {
-	return godog.ErrPending
+func theShouldHaveAnId(contentType string) error {
+	if checkContentID.Properties["id"].Description == "" {
+		return fmt.Errorf("expected to find an id got nil for %s ", contentType)
+	}
+	return nil
 }
 
 func theSpecificationIs(arg1 *godog.DocString) error {
