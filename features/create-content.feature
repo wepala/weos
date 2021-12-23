@@ -93,6 +93,8 @@ Feature: Create content
 
 
     Scenario: Create a basic item
+
+      This is creating a basic item
       
       Given "Sojourner" is on the "Blog" create screen
       And "Sojourner" enters "Some Blog" in the "title" field
@@ -112,7 +114,9 @@ Feature: Create content
 
     Scenario: Create an item that violates uniqueness requirement
 
-    Scenario: Create an item using an endpoint that does not definne the response 
+
+
+    Scenario: Create an item using an endpoint that does not define the response
 
 
 
