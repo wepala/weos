@@ -3,7 +3,9 @@ package main_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -20,6 +22,7 @@ var Developer *User
 var Content *ContentType
 var errors error
 var buf bytes.Buffer
+var payload ContentType
 
 type User struct {
 	Name      string
@@ -169,7 +172,6 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
-	//TODO this should be a check on a mock logger to see if the warning was logged (it doesn't return an error since an endpoint with no handler could be deliberate)
 	if !strings.Contains(buf.String(), "no handler set") {
 		fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
@@ -203,8 +205,13 @@ func blogsInTheApi(arg1 *godog.Table) error {
 	return godog.ErrPending
 }
 
-func entersInTheField(arg1, arg2, arg3 string) error {
-	return godog.ErrPending
+func entersInTheField(userName, value, field string) error {
+	tempProp := Property{
+		Type:        field,
+		Description: value,
+	}
+	payload.Properties[field] = tempProp
+	return nil
 }
 
 func hasAnAccountWithId(name, accountID string) error {
@@ -212,8 +219,9 @@ func hasAnAccountWithId(name, accountID string) error {
 	return nil
 }
 
-func isOnTheCreateScreen(arg1, arg2 string) error {
-	return godog.ErrPending
+func isOnTheCreateScreen(userName, contentType string) error {
+	payload.Type = contentType
+	return nil
 }
 
 func isUsedToModelTheService(arg1 string) error {
@@ -224,7 +232,16 @@ func theIsCreated(arg1 string, arg2 *godog.Table) error {
 	return godog.ErrPending
 }
 
-func theIsSubmitted(arg1 string) error {
+func theIsSubmitted(contentType string) error {
+	reqBytes, _ := json.Marshal(payload)
+	body := bytes.NewReader(reqBytes)
+	request := httptest.NewRequest("POST", "", body)
+	request = request.WithContext(context.TODO())
+	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Close = true
+	rec = httptest.NewRecorder()
+	//read the example request
+	e.ServeHTTP(rec, request)
 	return godog.ErrPending
 }
 
@@ -233,7 +250,8 @@ func theShouldHaveAnId(arg1 string) error {
 }
 
 func theSpecificationIs(arg1 *godog.DocString) error {
-	return godog.ErrPending
+	openAPI = arg1.Content
+	return nil
 }
 
 func theSpecificationIsParsed(arg1 string) error {
@@ -281,7 +299,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1164",
+			Tags:   "WEOS-1130",
 		},
 	}.Run()
 	if status != 0 {
