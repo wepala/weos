@@ -3,8 +3,10 @@ package main_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -91,6 +93,8 @@ components:
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
 	errors = nil
+	rec = httptest.NewRecorder()
+	createScreen = false
 	os.Remove("test.db")
 	openAPI = `openapi: 3.0.3
 info:
@@ -223,6 +227,7 @@ func hasAnAccountWithId(name, accountID string) error {
 }
 
 func isOnTheCreateScreen(userName, contentType string) error {
+	createScreen = true
 	payload.Type = contentType
 	return nil
 }
@@ -232,20 +237,31 @@ func isUsedToModelTheService(arg1 string) error {
 }
 
 func theIsCreated(arg1 string, arg2 *godog.Table) error {
+	if rec.Result().StatusCode != http.StatusCreated {
+		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
+	}
 	return godog.ErrPending
 }
 
 func theIsSubmitted(contentType string) error {
-	reqBytes, _ := json.Marshal(payload)
-	body := bytes.NewReader(reqBytes)
-	request := httptest.NewRequest("POST", "", body)
-	request = request.WithContext(context.TODO())
-	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	request.Close = true
-	rec = httptest.NewRecorder()
-	//read the example request
-	e.ServeHTTP(rec, request)
-	return godog.ErrPending
+	if createScreen {
+		reqBytes, _ := json.Marshal(payload)
+		body := bytes.NewReader(reqBytes)
+		request := httptest.NewRequest("POST", "/"+contentType, body)
+		request = request.WithContext(context.TODO())
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		insertQuery := fmt.Sprintf("INSERT INTO"+contentType+"("+payload, user_id)
+		VALUES('%s', '%s')
+		", a.store.ID, a.store.UserID)
+		_, err := a.db.Exec(insertQuery)
+		if err != nil {
+			return fmt.Errorf("there was an error setting up fixtures '%s'", err)
+		}
+	}
+	return nil
 }
 
 func theShouldHaveAnId(arg1 string) error {
@@ -254,6 +270,13 @@ func theShouldHaveAnId(arg1 string) error {
 
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
+	e = echo.New()
+	os.Remove("test.db")
+	API = api.RESTAPI{}
+	_, err := api.Initialize(e, &API, openAPI)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
