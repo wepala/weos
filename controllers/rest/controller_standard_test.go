@@ -53,29 +53,40 @@ func TestStandardControllers_Create(t *testing.T) {
 
 	dispatcher := &DispatcherMock{
 		DispatchFunc: func(ctx context.Context, command *model.Command) error {
-			accountID := weoscontext.GetAccount(ctx)
+
 			//if it's a the create blog call let's check to see if the command is what we expect
-			if accountID == "Create Blog" {
-				if command == nil {
-					t.Fatal("no command sent")
-				}
-
-				if command.Type != "create" {
-					t.Errorf("expected the command to be '%s', got '%s'", "create", command.Type)
-				}
-
-				if command.Metadata.EntityType != "Blog" {
-					t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
-				}
-
-				blog := &Blog{}
-				json.Unmarshal(command.Payload, &blog)
-
-				if blog.Title != mockBlog.Title {
-					t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog.Title, blog.Title)
-				}
-
+			if command == nil {
+				t.Fatal("no command sent")
 			}
+
+			if command.Type != "create" {
+				t.Errorf("expected the command to be '%s', got '%s'", "create", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			blog := &Blog{}
+			json.Unmarshal(command.Payload, &blog)
+
+			if blog.Title != mockBlog.Title {
+				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog.Title, blog.Title)
+			}
+			//check that content type information is in the context
+			contentType := weoscontext.GetContentType(ctx)
+			if contentType == nil {
+				t.Fatal("expected a content type to be in the context")
+			}
+
+			if contentType.Name != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
+			}
+
+			if _, ok := contentType.Schema.Properties["title"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			}
+
 			return nil
 		},
 	}
