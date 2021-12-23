@@ -306,7 +306,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 						middlewares = append(middlewares, tmiddleware(api.Application, swagger, pathData, operationData))
 					}
 				}
-
+				middlewares = append(middlewares, contextMiddleware(api.Application, swagger, pathData, operationData))
 				controllerData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[ControllerExtension]
 				autoConfigure := false
 				if controllerData != nil {
