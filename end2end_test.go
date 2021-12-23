@@ -23,6 +23,9 @@ var Content *ContentType
 var errors error
 var buf bytes.Buffer
 var payload ContentType
+var rec *httptest.ResponseRecorder
+var createScreen bool
+var db *sql.DB
 
 type User struct {
 	Name      string
