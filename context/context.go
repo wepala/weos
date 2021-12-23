@@ -53,11 +53,13 @@ func GetRequestID(ctx context.Context) string {
 	return ""
 }
 
+//Deprecated: Context Use the Go context in the echo request instead
 type Context struct {
 	echo.Context
 	requestContext context.Context
 }
 
+//Deprecated: New use the context in the echo request instead
 func New(ctxt echo.Context) *Context {
 	return &Context{
 		Context:        ctxt,

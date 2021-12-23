@@ -3,17 +3,27 @@ package main_test
 import (
 	"context"
 	"fmt"
-	api "github.com/wepala/weos-service/controllers/rest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
+	api "github.com/wepala/weos-service/controllers/rest"
 )
 
 var e *echo.Echo
 var API api.RESTAPI
 var openAPI string
+var Developer *User
+var Content *ContentType
+var errors error
+var buf bytes.Buffer
+
+type User struct {
+	Name      string
+	AccountID string
+}
 
 type Property struct {
 	Type        string
@@ -26,8 +36,13 @@ type ContentType struct {
 }
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
-	//e = echo.New()
-	//api.Initialize(e, &API, "./api.yaml")
+	Developer = &User{}
+	e = echo.New()
+	e.Logger.SetOutput(&buf)
+	_, err := api.Initialize(e, &API, "./api.yaml")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -67,6 +82,8 @@ components:
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	Developer = &User{}
+	errors = nil
 	os.Remove("test.db")
 	openAPI = `openapi: 3.0.3
 info:
@@ -108,11 +125,12 @@ components:
 }
 
 func aContentTypeModeledInTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
-	openAPI = openAPI + arg3.Content
+	openAPI = openAPI + arg3.Content + "\n"
 	return nil
 }
 
-func aDeveloper(arg1 string) error {
+func aDeveloper(name string) error {
+	Developer.Name = name
 	return nil
 }
 
@@ -120,8 +138,14 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 	return godog.ErrPending
 }
 
-func aMiddlewareShouldBeAddedToTheRoute(arg1 string) error {
-	return godog.ErrPending
+func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if strings.Contains(route.Name, middleware) {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected %s middleware to be added to route got nil", middleware)
 }
 
 func aModelShouldBeAddedToTheProjection(arg1 string, arg2 *godog.Table) error {
@@ -133,12 +157,22 @@ func aModelShouldBeAddedToTheProjection(arg1 string, arg2 *godog.Table) error {
 	return nil
 }
 
-func aRouteShouldBeAddedToTheApi(arg1 string) error {
-	return godog.ErrPending
+func aRouteShouldBeAddedToTheApi(method, path string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if route.Method == method && route.Path == path {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
-	return godog.ErrPending
+	//TODO this should be a check on a mock logger to see if the warning was logged (it doesn't return an error since an endpoint with no handler could be deliberate)
+	if !strings.Contains(buf.String(), "no handler set") {
+		fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
 }
 
 func addsASchemaToTheSpecification(arg1, arg2, arg3 string, arg4 *godog.DocString) error {
@@ -147,7 +181,13 @@ func addsASchemaToTheSpecification(arg1, arg2, arg3 string, arg4 *godog.DocStrin
 }
 
 func addsAnEndpointToTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
-	return godog.ErrPending
+	//check to make sure path parameter is added to openapi
+	results := strings.Contains(openAPI, "paths:")
+	if !results {
+		openAPI += "\npaths:\n"
+	}
+	openAPI = openAPI + arg3.Content
+	return nil
 }
 
 func allFieldsAreNullableByDefault() error {
@@ -166,7 +206,8 @@ func entersInTheField(arg1, arg2, arg3 string) error {
 	return godog.ErrPending
 }
 
-func hasAnAccountWithId(arg1, arg2 string) error {
+func hasAnAccountWithId(name, accountID string) error {
+	Developer.AccountID = accountID
 	return nil
 }
 
@@ -196,8 +237,12 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 
 func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
+	os.Remove("test.db")
 	API = api.RESTAPI{}
-	api.Initialize(e, &API, openAPI)
+	_, err := api.Initialize(e, &API, openAPI)
+	if err != nil {
+		errors = err
+	}
 	return nil
 }
 
@@ -209,7 +254,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
 	ctx.Step(`^a "([^"]*)" middleware should be added to the route$`, aMiddlewareShouldBeAddedToTheRoute)
 	ctx.Step(`^a model "([^"]*)" should be added to the projection$`, aModelShouldBeAddedToTheProjection)
-	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi)
+	ctx.Step(`^a "([^"]*)" route "([^"]*)" should be added to the api$`, aRouteShouldBeAddedToTheApi)
 	ctx.Step(`^a warning should be output to logs letting the developer know that a handler needs to be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet)
 	ctx.Step(`^"([^"]*)" adds a schema "([^"]*)" to the "([^"]*)" specification$`, addsASchemaToTheSpecification)
 	ctx.Step(`^"([^"]*)" adds an endpoint to the "([^"]*)" specification$`, addsAnEndpointToTheSpecification)
@@ -235,7 +280,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "focus",
+			Tags:   "WEOS-1164",
 		},
 	}.Run()
 	if status != 0 {

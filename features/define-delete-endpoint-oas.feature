@@ -1,7 +1,7 @@
-@WEOS-1177
-Feature: Edit content endpoints
+@WEOS-1178
+Feature: Delete content endpoints
 
-  As developer you can create an endpoint that should be used to edit content of a specific type. The HTTP method and the
+  As developer you can create an endpoint that should be used to delete content of a specific type. The HTTP method and the
   content type specified is used to infer the controller that should be used.
 
   Background:
@@ -55,18 +55,21 @@ Feature: Edit content endpoints
               - title
     """
     And blogs in the api
-    | id    | title        | description    |
-    | 1234  | Blog 1       | Some Blog      |
-    | 4567  | Blog 2       | Some Blog 2    |
+      | id    | title        | description    |
+      | 1234  | Blog 1       | Some Blog      |
+      | 4567  | Blog 2       | Some Blog 2    |
 
 
-  Scenario: Create a basic edit endpoint with the identifier in the path
+  Scenario: Create a basic delete endpoint with the identifier in the path
+
+    The delete endpoint would used the requestBody to associate the handler automatically BUT the request body is marked
+    optional because there is no need to send the blog info (the id is enough)
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
     /blogs/{id}:
-      put:
-        operationId: Edit Blog
+      delete:
+        operationId: Delete Blog
         parameters:
           - in: path
             name: id
@@ -76,19 +79,13 @@ Feature: Edit content endpoints
             description: blog id
         requestBody:
           description: Blog info that is submitted
-          required: true
+          required: false
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                $ref: "#/components/schemas/Blog"
         responses:
-          201:
+          200:
             description: Update blog
             content:
               application/json:
@@ -96,22 +93,50 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "DELETE" route should be added to the api
+    And a "Delete" middleware should be added to the route
+
+  Scenario: Create a basic delete endpoint with the entity explicitly declared
+
+    A developer should be able to declare what the entity type is explicitly (as an alternative to using the requestBody
+    to indicate what it is)
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /blogs/{id}:
+      delete:
+        operationId: Delete Blog
+        parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: blog id
+        x-content-type: Blog
+        responses:
+          200:
+            description: Update blog
             content:
               application/json:
                 schema:
-                  $ref: "#/components/schemas/ErrorResponse"
+                  $ref: "#/components/schemas/Blog"
+          400:
+            description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
-    Then a "PUT" route "/blogs/:id" should be added to the api
-    And a "edit" middleware should be added to the route
+    Then a "DELETE" route should be added to the api
+    And a "Delete" middleware should be added to the route
 
-  Scenario: Create a basic edit endpoint with the identifier in the query string
+  Scenario: Create a basic delete endpoint with the identifier in the query string
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
     /blogs:
-      put:
-        operationId: Edit Blog
+      delete:
+        operationId: Delete Blog
         parameters:
           - in: query
             name: id
@@ -121,19 +146,13 @@ Feature: Edit content endpoints
             description: blog id
         requestBody:
           description: Blog info that is submitted
-          required: true
+          required: false
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                $ref: "#/components/schemas/Blog"
         responses:
-          201:
+          200:
             description: Update blog
             content:
               application/json:
@@ -141,22 +160,18 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
-    Then a "PUT" route "/blogs" should be added to the api
-    And a "edit" middleware should be added to the route
+    Then a "DELETE" route should be added to the api
+    And a "Delete" middleware should be added to the route
 
-  Scenario: Create a basic edit endpoint with the identifier in the header with an alias
+  Scenario: Create a basic delete endpoint with the identifier in the header with an alias
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
     /blogs:
-      put:
-        operationId: Edit Blog
+      delete:
+        operationId: Delete Blog
         parameters:
           - in: header
             name: X-Item-Id
@@ -166,20 +181,14 @@ Feature: Edit content endpoints
             description: blog id
             x-context-name: id
         requestBody:
-          description: Blog info that is submitted
-          required: true
+          description: Blog info to be deleted
+          required: false
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                $ref: "#/components/schemas/Blog"
         responses:
-          201:
+          200:
             description: Update blog
             content:
               application/json:
@@ -187,24 +196,21 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
-    Then a "PUT" route "/blogs" should be added to the api
-    And a "edit" middleware should be added to the route
+    Then a "DELETE" route should be added to the api
+    And a "Delete" middleware should be added to the route
 
-  Scenario: Create a basic edit endpoint with the identifier in the path and the controller manually set
 
-    Though the controller would typically automatically be set, it should use what is set in x-controller if available
+  Scenario: Create a basic delete endpoint with the identifier in the path and the controller manually set
+
+  Though the controller would typically automatically be set, it should use what is set in x-controller if available
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
     /blogs/{id}:
       patch:
-        operationId: Edit Blog
+        operationId: Delete Blog
         parameters:
           - in: path
             name: id
@@ -212,27 +218,17 @@ Feature: Edit content endpoints
               type: string
             required: true
             description: blog id
-        x-controller: Edit
+        x-controller: Delete
         requestBody:
           description: Blog info that is submitted
-          required: true
+          required: false
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                $ref: "#/components/schemas/Blog"
         responses:
-          201:
+          200:
             description: Update blog
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
     """
@@ -242,14 +238,14 @@ Feature: Edit content endpoints
 
   Scenario: Create an endpoint that does not have parameters for all parts of identifier
 
-    Content types can have multiple fields as part of the identifier. If there are no parameters that map to the identifier
-    then the item cannot be retrieved
+  Content types can have multiple fields as part of the identifier. If there are no parameters that map to the identifier
+  then the item cannot be retrieved
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
     /posts/{id}:
-      put:
-        operationId: Edit Post
+      delete:
+        operationId: Delete Post
         parameters:
           - in: path
             name: id
@@ -257,6 +253,7 @@ Feature: Edit content endpoints
               type: string
             required: true
             description: post id
+        x-content-type: Post
         responses:
           201:
             description: Add Blog to Aggregator
@@ -266,6 +263,10 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Post"
           400:
             description: Invalid blog submitted
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set
@@ -278,8 +279,8 @@ Feature: Edit content endpoints
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
     /blogs/{id}:
-      put:
-        operationId: Edit Blog
+      delete:
+        operationId: Delete Blog
         parameters:
           - in: path
             name: id
@@ -296,18 +297,23 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
 
   Scenario: Setup path where the request body does not reference schema
 
-  In order to use the create handler a schema is needed so that validation etc could be setup.
+    In order to use the delete handler a schema is needed so that validation etc could be setup or use the x-content-type
+    extension to specify the content type 
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
     /blogs/{id}:
-      put:
+      delete:
         operationId: Add Blog
         parameters:
           - in: path
@@ -339,6 +345,10 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
