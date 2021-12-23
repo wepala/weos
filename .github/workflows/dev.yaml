@@ -83,9 +83,7 @@ jobs:
           cp api.yaml build/win32/api.yaml
           cp README.md build/win32/README.md
           cp build/weos-windows-4.0-386.exe build/win32/weos.exe
-          cp dll/x86/* build/win32
           chmod +x build/win32/weos.exe
-          chmod +x build/win32/*.dll
           cd build/win32
           zip -r  ../../weos-win32.zip .
           cd ../../
@@ -95,9 +93,7 @@ jobs:
           cp api.yaml build/win64/api.yaml
           cp README.md build/win64/README.md
           cp build/weos-windows-4.0-amd64.exe build/win64/weos.exe
-          cp dll/x64/* build/win64
           chmod +x build/win64/weos.exe
-          chmod +x build/win64/*.dll
           cd build/win64
           zip -r  ../../weos-win64.zip .
 
