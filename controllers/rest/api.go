@@ -288,7 +288,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 				var middlewares []echo.MiddlewareFunc
 				contextMiddleware, err := api.GetMiddleware("Context")
 				if err != nil {
-					middlewares = append(middlewares, contextMiddleware(api.Application, swagger, pathData, operationData))
+					return nil, fmt.Errorf("unable to initialize context middleware; confirm that it is registered")
 				}
 
 				//get the middleware set on the operation
