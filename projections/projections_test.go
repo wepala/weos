@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/labstack/gommon/log"
 	"github.com/ory/dockertest/v3"
-	"github.com/wepala/weos"
+	weos "github.com/wepala/weos-service/model"
 	"os"
 	"strconv"
 	"strings"
@@ -22,7 +22,7 @@ var port = flag.Int("port", 49179, "database port")
 var maxOpen = flag.Int("open", 4, "database maximum open connections")
 var maxIdle = flag.Int("idle", 1, "database maximum idle connections")
 var database = flag.String("database", "", "database name")
-var app weos.Application
+var app weos.Service
 
 type dbConfig struct {
 	Host     string `json:"host"`
@@ -118,7 +118,7 @@ func TestMain(t *testing.M) {
 		}
 	}
 	defer db.Close()
-	appConfig := &weos.ApplicationConfig{
+	appConfig := &weos.ServiceConfig{
 		ModuleID: "123",
 		Title:    "Test App",
 		Database: &weos.DBConfig{

@@ -1,4 +1,4 @@
-package controllers_test
+package rest_test
 
 import (
 	"os"

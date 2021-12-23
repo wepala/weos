@@ -4,26 +4,29 @@ Feature: Create content
 
     Given a developer "Sojourner"
     And "Sojourner" has an account with id "1234"
-    And "Open API 3.0" is used to model the service
-    And the specification is
+    And "OpenAPI 3.0" is used to model the service
+    And a content type "Category" modeled in the "OpenAPI 3.0" specification
     """
-    openapi: 3.0.3
-    info:
-      title: Blog Aggregator Rest API
-      version: 0.1.0
-      description: REST API for interacting with the Blog Aggregator
-    components:
-      schemas:
+        Category:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+    """
+    And a content type "Blog" modeled in the "OpenAPI 3.0" specification
+    """
         Blog:
           type: object
           properties:
             title:
               type: string
-              description: blog title
             description:
               type: string
-          required:
-            - title
+    """
+    And a content type "Post" modeled in the "OpenAPI 3.0" specification
+    """
         Post:
           type: object
           properties:
@@ -35,108 +38,46 @@ Feature: Create content
               $ref: "#/components/schemas/Blog"
             publishedDate:
               type: string
-              format: date-time
             views:
               type: integer
             categories:
               type: array
               items:
-                $ref: "#/components/schemas/Post"
-          required:
-            - title
-        Category:
-          type: object
-          properties:
-            title:
-              type: string
-            description:
-              type: string
-          required:
-            - title
-    paths:
-      /:
-        get:
-          operationId: Homepage
-          responses:
-            200:
-              description: Application Homepage
-      /blog:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog info that is submitted
-            required: true
+                $ref: "#/components/schemas/Category"
+    """
+    And blogs in the api
+      | id    | title        | description    |
+      | 1234  | Blog 1       | Some Blog      |
+      | 4567  | Blog 2       | Some Blog 2    |
+
+
+  Scenario: Setup list endpoint as an
+
+    For "GET" requests the response schema is used to infer the content type to use
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /blogs:
+      get:
+        operationId: Get Blogs
+        responses:
+          200:
+            description: Update blog
             content:
               application/json:
                 schema:
                   $ref: "#/components/schemas/Blog"
-              application/x-www-form-urlencoded:
+          400:
+            description: Invalid blog submitted
+            content:
+              application/json:
                 schema:
-                  $ref: "#/components/schemas/Blog"
-              application/xml:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          responses:
-            201:
-              description: Add Blog to Aggregator
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/ErrorResponse"
-      /posts:
-        parameters:
-          - in: query
-            name: page
-            schema:
-              type: integer
-          - in: query
-            name: limit
-            schema:
-              type: integer
-          - in: query
-            name: sort
-            schema:
-              type: array
-              items:
-                type: string
-          - in: query
-            name: blog_id
-            schema:
-              type: string
-          - in: query
-            name: category
-            schema:
-              type: string
-        get:
-          operationId: List Posts
-          responses:
-            200:
-              description: List of Posts
-              content:
-                application/json:
-                  schema:
-                    type: object
-                    properties:
-                      total:
-                        type: integer
-                      page:
-                        type: integer
-                      limit:
-                        type: integer
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/Post"
+                  $ref: "#/components/schemas/ErrorResponse"
     """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "PUT" route should be added to the api
+    And a "edit" middleware should be added to the route
 
-
-  Scenario: Get a list of items
 
   Scenario: Filter a list of items
 

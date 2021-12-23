@@ -1,3 +1,4 @@
+@WEOS-1110
 Feature: Create Content Types
 
   As a developer you can define content types for your API. Content Types have properties that can be formatted and
@@ -8,17 +9,19 @@ Feature: Create Content Types
     Given a developer "Sojourner"
     And "Sojourner" has an account with id "1234"
     And "OpenAPI 3.0" is used to model the service
+    And all fields are nullable by default
     And a content type "Category" modeled in the "OpenAPI 3.0" specification
     """
-      Category:
-        type: object
-        properties:
-          title:
-            type: string
-          description:
-            type: string
-    """
+        Category:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
 
+    """
+  @focus
   Scenario: Declare basic content type
 
     A simple content type is one where the properties are primitive types. If there is no identifier specified one will
@@ -26,14 +29,14 @@ Feature: Create Content Types
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
-    Blog:
-      type: object
-      properties:
-        title:
-          type: string
-          description: blog title
-        description:
-          type: string
+        Blog:
+          type: object
+          properties:
+            title:
+              type: string
+              description: blog title
+            description:
+              type: string
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
@@ -58,18 +61,18 @@ Feature: Create Content Types
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
-    Blog:
-      type: object
-      properties:
-        guid:
-          type: string
-        title:
-          type: string
-        description:
-          type: string
-      x-identifier:
-        - guid
-        - title
+        Blog:
+          type: object
+          properties:
+            guid:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+          x-identifier:
+            - guid
+            - title
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
@@ -95,17 +98,17 @@ Feature: Create Content Types
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
-    Blog:
-      type: object
-      properties:
-        id:
-          type: string
-        title:
-          type: string
-        description:
-          type: string
-      required:
-        - title
+        Blog:
+          type: object
+          properties:
+            id:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+          required:
+            - title
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
@@ -122,29 +125,29 @@ Feature: Create Content Types
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
-    Blog:
-      type: object
-      properties:
-        title:
-          type: string
-        description:
-          type: string
+        Blog:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
     """
     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
-    Post:
-      type: object
-      properties:
-        title:
-          type: string
-        description:
-          type: string
-        blog:
-          $ref: "#/components/schemas/Blog"
-        publishedDate:
-          type: string
-        views:
-          type: integer
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            blog:
+              $ref: "#/components/schemas/Blog"
+            publishedDate:
+              type: string
+            views:
+              type: integer
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
@@ -160,35 +163,87 @@ Feature: Create Content Types
       | blog        |              | varchar(512)   | true     | FK       | NULL        |
     And a "Blog" entity configuration should be setup
 
+  Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
+
+    A content type could be associated with another content type that has an identifier that has multiple parts. Though
+    it's one field that is mapped, the data store would need to accommodate the parts of the identifier for the mapped
+    content type
+
+    Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
+    """
+        Blog:
+          type: object
+          properties:
+            guid:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+          x-identifier:
+            - guid
+            - title
+    """
+    And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            blog:
+              $ref: "#/components/schemas/Blog"
+            publishedDate:
+              type: string
+            views:
+              type: integer
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Blog" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | varchar(512)   | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+    And a model "Post" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | varchar(512)   | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+      | blog_guid   |              | varchar(512)   | true     | FK       | NULL        |
+      | blog_title  |              | varchar(512)   | true     | FK       | NULL        |
+    And a "Blog" entity configuration should be setup
+
   Scenario: Declare content type that has a many to many relationship to another content type
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
-    Blog:
-      type: object
-      properties:
-        title:
-          type: string
-        description:
-          type: string
+        Blog:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
     """
     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
-    Post:
-      type: object
-      properties:
-        title:
-          type: string
-        description:
-          type: string
-        publishedDate:
-          type: string
-        views:
-          type: integer
-        categories:
-          type: array
-          items:
-            $ref: "#/components/schemas/Category"
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            publishedDate:
+              type: string
+            views:
+              type: integer
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/Category"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Post" should be added to the projection
@@ -224,28 +279,28 @@ Feature: Create Content Types
 
     Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
-    Post:
-      type: object
-      properties:
-        id:
-          type: string
-          format: ksuid
-        title:
-          type: string
-        description:
-          type: string
-        email:
-          type: string
-          format: email
-        publishedDate:
-          type: string
-          format: date-time
-        views:
-          type: integer
-        categories:
-          type: array
-          items:
-            $ref: "#/components/schemas/Category"
+        Post:
+          type: object
+          properties:
+            id:
+              type: string
+              format: ksuid
+            title:
+              type: string
+            description:
+              type: string
+            email:
+              type: string
+              format: email
+            publishedDate:
+              type: string
+              format: date-time
+            views:
+              type: integer
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/Category"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Post" should be added to the projection
@@ -284,28 +339,28 @@ Feature: Create Content Types
 
     Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
-    Post:
-      type: object
-      properties:
-        id:
-          type: string
-          format: ksuid
-        title:
-          type: string
-        description:
-          type: string
-        email:
-          type: string
-          pattern: '^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
-        publishedDate:
-          type: string
-          format: date-time
-        views:
-          type: integer
-        categories:
-          type: array
-          items:
-            $ref: "#/components/schemas/Category"
+        Post:
+          type: object
+          properties:
+            id:
+              type: string
+              format: ksuid
+            title:
+              type: string
+            description:
+              type: string
+            email:
+              type: string
+              pattern: '^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
+            publishedDate:
+              type: string
+              format: date-time
+            views:
+              type: integer
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/Category"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Post" should be added to the projection
@@ -321,7 +376,7 @@ Feature: Create Content Types
       | post_id     |              | varchar(512)   | false    | PK       | NULL        |
       | category_id |              | varchar(512)   | false    | PK       | NULL        |
     And a "Post" entity configuration should be setup
-    """
+    """ mermaid
     erDiagram
       Blog ||--o{ Post : contains
       Blog {
@@ -342,25 +397,26 @@ Feature: Create Content Types
   @WEOS-1116
   Scenario: Setup a content type with an enumeration
 
-    A property can be defined with a list of possible options.
+    A property can be defined with a list of possible options. Null is added by default since in WeOS properties are nullable
+    by default
 
     Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
-    Post:
-      type: object
-      properties:
-        id:
-          type: string
-          format: ksuid
-        title:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-          enum:
-            - unpublished
-            - published
+        Post:
+          type: object
+          properties:
+            id:
+              type: string
+              format: ksuid
+            title:
+              type: string
+            description:
+              type: string
+            status:
+              type: string
+              enum:
+                - unpublished
+                - published
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Post" should be added to the projection
@@ -368,56 +424,7 @@ Feature: Create Content Types
       | id            |              | varchar(512)   | false    | PK       | NULL        |
       | title         |              | varchar(512)   | true     |          | NULL        |
       | description   |              | varchar(512)   | true     |          | NULL        |
-      | status        |              | varchar(512)   | false    |          | unpublished |
-    And a "Post" entity configuration should be setup
-    """
-    erDiagram
-      Blog ||--o{ Post : contains
-      Blog {
-        string id
-        string title
-        string description
-      }
-      Category ||--o{ Post : contains
-      Post {
-        string id
-        string title
-        string description
-        string status
-      }
-    """
-  @WEOS-1116
-  Scenario: Setup a content type with an enumeration that is nullable
-
-    A property with a list of options can have a null option though it needs to be explicitly identified
-
-    Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-    """
-    Post:
-      type: object
-      properties:
-        id:
-          type: string
-          format: ksuid
-        title:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-          nullable: true
-          enum:
-            - null
-            - unpublished
-            - published
-    """
-    When the "OpenAPI 3.0" specification is parsed
-    Then a model "Post" should be added to the projection
-      | Field         | Comment      | Type           | Null     | Key      | Default     |
-      | id            |              | varchar(512)   | false    | PK       | NULL        |
-      | title         |              | varchar(512)   | true     |          | NULL        |
-      | description   |              | varchar(512)   | true     |          | NULL        |
-      | status        |              | varchar(512)   | true     |          | NULL        |
+      | status        |              | ENUM(null,unpublished,published)   | false    |          | unpublished |
     And a "Post" entity configuration should be setup
     """
     erDiagram
@@ -440,13 +447,13 @@ Feature: Create Content Types
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
-    Category:
-        type: object
-        properties:
-          title:
-            type: string
-          summary:
-            type: string
+        Category:
+            type: object
+            properties:
+              title:
+                type: string
+              summary:
+                type: string
     """
     When the "OpenAPI 3.0" specification is parsed
     Then an error should be returned

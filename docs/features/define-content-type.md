@@ -56,7 +56,7 @@ Blog:
 
 **And** a "Blog" entity configuration should be setup  
 
-```
+```mermaid
 erDiagram
   Blog
   Blog {
@@ -98,7 +98,7 @@ Blog:
 
 **And** a "Blog" entity configuration should be setup  
 
-```
+```mermaid
 erDiagram
   Blog
   Blog {
