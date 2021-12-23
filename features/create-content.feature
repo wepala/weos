@@ -42,7 +42,7 @@ Feature: Create content
             categories:
               type: array
               items:
-                $ref: "#/components/schemas/Post"
+                $ref: "#/components/schemas/Category"
           required:
             - title
         Category:
@@ -108,12 +108,22 @@ Feature: Create content
 
     Scenario: Create an item that has an invalid type
 
+      The string format in the spec should be used to validate the field
+
       Given "Sojourner" is on the "Blog" create screen
       And "Sojourner" enters "Some Description" in the "publishedDate" field
       When the "Blog" is submitted
       Then an error should be returned
 
-    Scenario: Create an item that violates uniqueness requirement
+    Scenario: Create an item that is missing a required field
+
+      Fields marked as required should be passed through
+
+      Given "Sojourner" is on the "Blog" create screen
+      And "Sojourner" enters "Some Description" in the "description" field
+      When the "Blog" is submitted
+      Then an error should be returned
+
 
 
 
