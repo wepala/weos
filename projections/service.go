@@ -2,7 +2,8 @@ package projections
 
 import (
 	"context"
-	"github.com/wepala/weos-service/model"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -10,19 +11,14 @@ import (
 	"github.com/stoewer/go-strcase"
 )
 
-type Service struct {
-	model.Repository
-	eventRepository model.EventRepository
-}
-
 //ToDo: Saving the structs to a map and making them entities to save events
-func (s *Service) CreateSchema(ctx context.Context, schemas map[string]*openapi3.SchemaRef) (map[string]interface{}, error) {
+func CreateSchema(ctx context.Context, schemas map[string]*openapi3.SchemaRef) (map[string]interface{}, error) {
 	structs := make(map[string]interface{})
 	relations := make(map[string]map[string]string)
 
 	for name, scheme := range schemas {
 		var instance interface{}
-		instance, relations[name] = updateSchema(scheme.Value)
+		instance, relations[name] = updateSchema(scheme.Value, name)
 
 		structs[name] = instance
 	}
@@ -32,8 +28,8 @@ func (s *Service) CreateSchema(ctx context.Context, schemas map[string]*openapi3
 	return structs, nil
 }
 
-func updateSchema(ref *openapi3.Schema) (interface{}, map[string]string) {
-	instance := ds.NewStruct()
+func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]string) {
+	instance := ds.ExtendStruct(&DefaultProjection{})
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
 		name = strings.Title(name)
@@ -46,13 +42,13 @@ func updateSchema(ref *openapi3.Schema) (interface{}, map[string]string) {
 				if t2 != "object" {
 					if t2 == "string" {
 						//format types to be added
-						instance.AddField(name, []string{}, strcase.SnakeCase(name))
+						instance.AddField(name, []string{}, `json:"`+strcase.SnakeCase(name)+`"`)
 					} else if t2 == "number" {
-						instance.AddField(name, []float64{}, strcase.SnakeCase(name))
+						instance.AddField(name, []float64{}, `json:"`+strcase.SnakeCase(name)+`"`)
 					} else if t == "integer" {
-						instance.AddField(name, []int{}, strcase.SnakeCase(name))
+						instance.AddField(name, []int{}, `json:"`+strcase.SnakeCase(name)+`"`)
 					} else if t == "boolean" {
-						instance.AddField(name, []bool{}, strcase.SnakeCase(name))
+						instance.AddField(name, []bool{}, `json:"`+strcase.SnakeCase(name)+`"`)
 					}
 				} else {
 					if p.Value.Items.Ref == "" {
@@ -70,17 +66,28 @@ func updateSchema(ref *openapi3.Schema) (interface{}, map[string]string) {
 			} else {
 				if t == "string" {
 					//format types to be added
-					instance.AddField(name, "", strcase.SnakeCase(name))
+					instance.AddField(name, "", `json:"`+strcase.SnakeCase(name)+`"`)
 				} else if t == "number" {
-					instance.AddField(name, 0.0, strcase.SnakeCase(name))
+					instance.AddField(name, 0.0, `json:"`+strcase.SnakeCase(name)+`"`)
 				} else if t == "integer" {
-					instance.AddField(name, 0, strcase.SnakeCase(name))
+					instance.AddField(name, 0, `json:"`+strcase.SnakeCase(name)+`"`)
 				} else if t == "boolean" {
-					instance.AddField(name, false, strcase.SnakeCase(name))
+					instance.AddField(name, false, `json:"`+strcase.SnakeCase(name)+`"`)
 				}
 			}
 		}
 	}
 
-	return instance.Build().New(), relations
+	inst := instance.Build().New()
+
+	json.Unmarshal([]byte(`
+		{
+			"table_alias": "`+tableName+`",
+			"type": "`+tableName+`"
+		}
+	`), &inst)
+
+	bytes, _ := json.Marshal(inst)
+	fmt.Println("structure from service: ", string(bytes))
+	return inst, relations
 }

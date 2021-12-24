@@ -136,17 +136,8 @@ func (p *RESTAPI) Initialize() error {
 	// 	return err
 	// }
 
-	s := projections.Service{}
-	structs, err := s.CreateSchema(context.Background(), p.Schemas)
-	if err != nil {
-		return err
-	}
-	for name, s := range structs {
-		fmt.Printf("struct %s: %v", name, s)
-	}
-
 	//setup projections
-	p.projection, err = projections.NewProjection(structs, p.Application)
+	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
 	if err != nil {
 		return err
 	}

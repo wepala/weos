@@ -8,3 +8,12 @@ import (
 type Projection interface {
 	weos.Projection
 }
+
+type DefaultProjection struct {
+	TableAlias string `json:"table_alias" gorm:"->"`
+	Type       string `json:"type"`
+}
+
+func (d DefaultProjection) TableName() string {
+	return d.TableAlias
+}

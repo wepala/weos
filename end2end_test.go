@@ -281,7 +281,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1164",
+			Tags:   "WEOS-1110",
 		},
 	}.Run()
 	if status != 0 {
