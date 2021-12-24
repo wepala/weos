@@ -74,6 +74,10 @@ Feature: Edit content endpoints
               type: string
             required: true
             description: blog id
+          - in: header
+            name: If-Match
+            schema:
+              type: string
         requestBody:
           description: Blog info that is submitted
           required: true
@@ -90,16 +94,20 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Update blog
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
+          412:
+            description: Pre condition failed
+
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs/:id" should be added to the api
@@ -135,6 +143,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Update blog
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -181,6 +194,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Update blog
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -229,6 +247,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Update blog
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -260,6 +283,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Add Blog to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
