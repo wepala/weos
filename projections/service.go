@@ -3,7 +3,6 @@ package projections
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -33,7 +32,6 @@ func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[stri
 	primaryKeys := []string{}
 	json.Unmarshal(pks, &primaryKeys)
 
-	fmt.Printf("Primary Key: ", primaryKeys)
 	if len(primaryKeys) == 0 {
 		primaryKeys = append(primaryKeys, "id")
 	}
@@ -105,7 +103,5 @@ func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[stri
 		}
 	`), &inst)
 
-	bytes, _ := json.Marshal(inst)
-	fmt.Println("structure from service: ", string(bytes))
 	return inst, relations
 }

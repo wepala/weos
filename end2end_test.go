@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
 	api "github.com/wepala/weos-service/controllers/rest"
+	"gorm.io/gorm"
 )
 
 var e *echo.Echo
@@ -146,10 +148,45 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 	return fmt.Errorf("Expected %s middleware to be added to route got nil", middleware)
 }
 
-func aModelShouldBeAddedToTheProjection(arg1 string, arg2 *godog.Table) error {
+func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
 	//use gorm connection to get table
-	if !API.Application.DB().Migrator().HasTable(arg1) {
+	gormDB := API.Application.DB()
+
+	if !gormDB.Migrator().HasTable(arg1) {
 		return fmt.Errorf("%s table does not exist", arg1)
+	}
+
+	head := details.Rows[0].Cells
+	columns, _ := gormDB.Migrator().ColumnTypes(arg1)
+	var column gorm.ColumnType
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			switch head[n].Value {
+			case "Field":
+				columnName := cell.Value
+				for _, c := range columns {
+					if strings.EqualFold(c.Name(), columnName) {
+						column = c
+						break
+					}
+				}
+			case "Type":
+				if cell.Value == "varchar(512)" {
+					cell.Value = "text"
+				}
+				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
+					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+
+				}
+			case "Null":
+				nullable, _ := column.Nullable()
+				boolVal, _ := strconv.ParseBool(cell.Value)
+				if nullable != boolVal {
+					return fmt.Errorf("expected the type to be nullable '%v' got  nullable '%v'", boolVal, nullable)
+				}
+			}
+		}
 	}
 	//TODO check that the table has the expected columns
 	return nil
@@ -271,9 +308,29 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 		if !reader.HasField(strings.Title(fields[1])) {
 			return fmt.Errorf("did not find field '%s'", fields[1])
 		}
+
+		field := reader.GetField(strings.Title(fields[1]))
+		switch fields[0] {
+		case "string":
+			if field.Interface() != "" {
+				return fmt.Errorf("expected a string, got '%v'", field.Interface())
+			}
+
+		case "integer":
+			if field.Interface() != 0 {
+				return fmt.Errorf("expected an integer, got '%v'", field.Interface())
+			}
+		case "uint":
+			if field.Interface() != uint(0) {
+				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
+			}
+		default:
+			return fmt.Errorf("got an unexpected field type: %s", fields[0])
+		}
+
 	}
 
-	return godog.ErrPending
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {

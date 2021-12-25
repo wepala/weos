@@ -1,16 +1,20 @@
 package projections_test
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
-	"github.com/labstack/gommon/log"
-	"github.com/ory/dockertest/v3"
-	weos "github.com/wepala/weos-service/model"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/gommon/log"
+	"github.com/ory/dockertest/v3"
+	weos "github.com/wepala/weos-service/model"
+	"github.com/wepala/weos-service/projections"
 )
 
 var db *sql.DB
@@ -151,7 +155,74 @@ func TestMain(t *testing.M) {
 
 	os.Remove("test.db")
 	os.Remove("projection.db")
-	os.Remove("publicRS.txt")
 
 	os.Exit(code)
+}
+
+func TestProjections_InitilizeBasicTable(t *testing.T) {
+	os.Remove("projection.db")
+
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+`
+
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = projections.NewProjection(context.Background(), app, swagger.Components.Schemas)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gormDB := app.DB()
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Fatal("expected to get a table 'Blog'")
+	}
+}
+
+func TestProjections_InitializeCompositeKeyTable(t *testing.T) {
 }
