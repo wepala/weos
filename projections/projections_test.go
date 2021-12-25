@@ -249,7 +249,16 @@ components:
 			t.Fatal("not all fields found")
 		}
 
+		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		result := []map[string]interface{}{}
+		gormDB.Table("Blog").Find(&result)
+
 		gormDB.Migrator().DropTable("Blog")
+
+		//check for auto id
+		if result[0]["id"].(int64) != 1 {
+			t.Fatalf("expected an automatic id of '%d' to be set, got '%d'", 1, result[0]["id"])
+		}
 	})
 
 	t.Run("Create basic table with speecified primary key", func(t *testing.T) {
@@ -342,6 +351,14 @@ components:
 
 		if !found1 || !found2 || !found {
 			t.Fatal("not all fields found")
+		}
+
+		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+
+		result := []map[string]interface{}{}
+		gormDB.Table("Blog").Find(&result)
+		if len(result) != 0 {
+			t.Fatal("expectedd no blogs to be created with a missing id field")
 		}
 
 		gormDB.Migrator().DropTable("Blog")

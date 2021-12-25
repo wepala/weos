@@ -42,7 +42,7 @@ func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[stri
 	for name, p := range ref.Properties {
 		tagString := `json:"` + strcase.SnakeCase(name) + `"`
 		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(name)) {
-			tagString += ` gorm:"primaryKey;size:512`
+			tagString += ` gorm:"primaryKey;size:512;NOT NULL"`
 		}
 		name = strings.Title(name)
 		if p.Ref != "" {
@@ -90,8 +90,8 @@ func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[stri
 		}
 	}
 
-	if strings.Contains(strings.Join(primaryKeys, " "), "id") && !instance.HasField("Id") {
-		instance.AddField("Id", uint(0), `json:"id" gorm:"primaryKey"`)
+	if primaryKeys[0] == "id" && !instance.HasField("Id") {
+		instance.AddField("Id", uint(0), `json:"id" gorm:"primaryKey;size:512"`)
 	}
 
 	inst := instance.Build().New()
@@ -99,7 +99,6 @@ func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[stri
 	json.Unmarshal([]byte(`
 		{
 			"table_alias": "`+tableName+`",
-			"type": "`+tableName+`"
 		}
 	`), &inst)
 
