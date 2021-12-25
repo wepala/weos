@@ -71,7 +71,7 @@ components:
 		if err != nil {
 			t.Errorf("unexpected error: '%s'", err)
 		}
-		if !tapi.Application.DB().Migrator().HasTable("category") {
+		if !tapi.Application.DB().Migrator().HasTable("Category") {
 			t.Errorf("expected categories table to exist")
 		}
 	})
