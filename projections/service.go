@@ -7,7 +7,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/stoewer/go-strcase"
+	"github.com/wepala/weos-service/utils"
 )
 
 //ToDo: Saving the structs to a map and making them entities to save events
@@ -40,7 +40,7 @@ func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[stri
 
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
-		tagString := `json:"` + strcase.SnakeCase(name) + `"`
+		tagString := `json:"` + utils.SnakeCase(name) + `"`
 		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(name)) {
 			tagString += ` gorm:"primaryKey;size:512;NOT NULL"`
 		}
