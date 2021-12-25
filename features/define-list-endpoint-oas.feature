@@ -74,7 +74,44 @@ Feature: Setup List endpoint
                     page:
                       type: integer
                     items:
-                      $ref: "#/components/schemas/Blog"
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Blog"
+          400:
+            description: Invalid blog submitted
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "GET" route should be added to the api
+    And a "List" middleware should be added to the route
+
+  Scenario: Setup list endpoint the uses a custom response fields
+
+    By default the total results are turned with the result array as total and page. The developer can also specify the
+    field in the response to use for that data
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /blogs:
+      get:
+        operationId: Get Blogs
+        responses:
+          200:
+            description: List of blogs
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    t:
+                      type: integer
+                      x-alias: total
+                    p:
+                      type: integer
+                      x-alias: page
+                    items:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
     """
@@ -103,7 +140,9 @@ Feature: Setup List endpoint
                     page:
                       type: integer
                     items:
-                      $ref: "#/components/schemas/Blog"
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
     """
@@ -176,7 +215,9 @@ Feature: Setup List endpoint
                     page:
                       type: integer
                     items:
-                      $ref: "#/components/schemas/Blog"
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Blog"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
@@ -261,7 +302,9 @@ Feature: Setup List endpoint
                     page:
                       type: integer
                     items:
-                      $ref: "#/components/schemas/Blog"
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Blog"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
