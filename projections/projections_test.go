@@ -160,9 +160,9 @@ func TestMain(t *testing.M) {
 }
 
 func TestProjections_InitilizeBasicTable(t *testing.T) {
-	os.Remove("projection.db")
 
-	openAPI := `openapi: 3.0.3
+	t.Run("Create basic table with no speecified primary key", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
 info:
   title: Blog
   description: Blog example
@@ -207,21 +207,145 @@ components:
          type: string
 `
 
-	loader := openapi3.NewSwaggerLoader()
-	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
-	if err != nil {
-		t.Fatal(err)
-	}
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	_, err = projections.NewProjection(context.Background(), app, swagger.Components.Schemas)
-	if err != nil {
-		t.Fatal(err)
-	}
+		p, err := projections.NewProjection(context.Background(), app, swagger.Components.Schemas)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	gormDB := app.DB()
-	if !gormDB.Migrator().HasTable("Blog") {
-		t.Fatal("expected to get a table 'Blog'")
-	}
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		gormDB.Migrator().DropTable("Blog")
+	})
+
+	t.Run("Create basic table with speecified primary key", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       guid:
+         type: string
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     x-identifier:
+       - guid
+`
+
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		p, err := projections.NewProjection(context.Background(), app, swagger.Components.Schemas)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "guid" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		gormDB.Migrator().DropTable("Blog")
+	})
 }
 
 func TestProjections_InitializeCompositeKeyTable(t *testing.T) {
