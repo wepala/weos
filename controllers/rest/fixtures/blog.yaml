@@ -15,6 +15,9 @@ x-weos-config:
     - title: event
       driver: sqlite3
       database: test.db
+  database:
+    driver: sqlite3
+    database: test.db
   databases:
     - title: default
       driver: sqlite3
@@ -212,7 +215,6 @@ paths:
             type: string
           required: true
           description: blog id
-          x-context-name: Blog.id
       summary: Get Blog by id
       operationId: Get Blog
       responses:

@@ -11,43 +11,43 @@ Feature: Create content endpoints
     And "OpenAPI 3.0" is used to model the service
     And a content type "Category" modeled in the "OpenAPI 3.0" specification
     """
-      Category:
-        type: object
-        properties:
-          title:
-            type: string
-          description:
-            type: string
+        Category:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
     """
     And a content type "Blog" modeled in the "OpenAPI 3.0" specification
     """
-      Blog:
-        type: object
-        properties:
-          title:
-            type: string
-          description:
-            type: string
+        Blog:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
     """
     And a content type "Post" modeled in the "OpenAPI 3.0" specification
     """
-      Post:
-        type: object
-        properties:
-          title:
-            type: string
-          description:
-            type: string
-          blog:
-            $ref: "#/components/schemas/Blog"
-          publishedDate:
-            type: string
-          views:
-            type: integer
-          categories:
-            type: array
-            items:
-              $ref: "#/components/schemas/Category"
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            blog:
+              $ref: "#/components/schemas/Blog"
+            publishedDate:
+              type: string
+            views:
+              type: integer
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/Category"
     """
 
 
@@ -83,16 +83,25 @@ Feature: Create content endpoints
               application/json:
                 schema:
                   $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
-            content:
-              application/json:
+              application/x-www-form-urlencoded:
                 schema:
-                  $ref: "#/components/schemas/ErrorResponse"
+                  $ref: "#/components/schemas/Blog"
+              application/xml:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          responses:
+            201:
+              description: Add Blog to Aggregator
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
-    Then a "POST" route should be added to the api
-    And a "create" middleware should be added to the route
+    Then a "POST" route "/blog" should be added to the api
+    And a "Create" middleware should be added to the route
 
   Scenario: Create a batch of items
 
@@ -134,16 +143,32 @@ Feature: Create content endpoints
                   type: array
                   items:
                     type: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
-            content:
-              application/json:
+              application/x-www-form-urlencoded:
                 schema:
-                  $ref: "#/components/schemas/ErrorResponse"
+                  type: array
+                  items:
+                    type: "#/components/schemas/Blog"
+              application/xml:
+                schema:
+                  type: array
+                  items:
+                    type: "#/components/schemas/Blog"
+          responses:
+            201:
+              description: Added Blogs to Aggregator
+              content:
+                application/json:
+                  schema:
+                    type: array
+                    items:
+                      type: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
-    Then a "POST" route should be added to the api
+    Then a "POST" route "/blog" should be added to the api
     And a "CreateBatch" middleware should be added to the route
+
 
   Scenario: Setup path without content type
 
@@ -211,16 +236,24 @@ Feature: Create content endpoints
             content:
               application/json:
                 schema:
-                  $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      description: blog id
+                    title:
+                      type: string
+                      description: blog description
+          responses:
+            201:
+              description: Add Blog to Aggregator
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
-
-
-
+    

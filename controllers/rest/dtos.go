@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+
 	weos "github.com/wepala/weos-service/model"
 )
 
@@ -39,7 +40,7 @@ type JWTConfig struct {
 }
 
 type Rest struct {
-	Middleware    []string `json:"middleware"`
+	Middleware    []string `json:"x-middleware"`
 	PreMiddleware []string `json:"pre-middleware"`
 }
 

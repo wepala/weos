@@ -1,10 +1,6 @@
 package rest_test
 
 import (
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos-service/context"
-	"github.com/wepala/weos-service/controllers/rest"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +8,11 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
+	"github.com/wepala/weos-service/context"
+	"github.com/wepala/weos-service/controllers/rest"
 )
 
 func TestContext(t *testing.T) {
@@ -173,6 +174,20 @@ func TestContext(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", nil)
 		req.Header.Set(paramName, paramValue)
+		e.POST("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
+
+	t.Run("if no middleware is defined it should work", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(nil, swagger, path, path.Post)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", nil)
 		e.POST("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
