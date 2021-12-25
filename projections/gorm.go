@@ -32,23 +32,20 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	var err error
-	var schemes []interface{}
-	for _, s := range p.Schema {
-		schemes = append(schemes, s)
+	for name, s := range p.Schema {
 		fmt.Print(reflect.TypeOf(s))
-		// if !p.db.Migrator().HasTable(name) {
-		// 	err = p.db.Migrator().CreateTable(s)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// 	err = p.db.Migrator().RenameTable("", name)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// }
+		if !p.db.Migrator().HasTable(name) {
+			err = p.db.Migrator().CreateTable(s)
+			if err != nil {
+				return err
+			}
+			err = p.db.Migrator().RenameTable("", name)
+			if err != nil {
+				return err
+			}
+		}
 
 	}
-	p.db.AutoMigrate(schemes...)
 	return err
 }
 

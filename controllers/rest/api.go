@@ -116,6 +116,10 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	return nil, fmt.Errorf("middleware '%s' not found", name)
 }
 
+func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
+	return p.projection.Schema, nil
+}
+
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize() error {
 	var err error

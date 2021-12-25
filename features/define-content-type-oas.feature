@@ -116,7 +116,8 @@ Feature: Create Content Types
       | id          |              | varchar(512)   | false    | PK       | NULL        |
       | title       | blog title   | varchar(512)   | false    |          | NULL        |
       | description |              | varchar(512)   | true     |          | NULL        |
-    And a "Blog" entity configuration should be setup
+    # And a "Blog" entity configuration should be setup
+    
 
   Scenario: Declare content type that has a many to one relationship to another content type
 
@@ -132,6 +133,7 @@ Feature: Create Content Types
               type: string
             description:
               type: string
+  
     """
     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
@@ -161,7 +163,7 @@ Feature: Create Content Types
       | title       |              | varchar(512)   | false    |          | NULL        |
       | description |              | varchar(512)   | true     |          | NULL        |
       | blog        |              | varchar(512)   | true     | FK       | NULL        |
-    And a "Blog" entity configuration should be setup
+    # And a "Blog" entity configuration should be setup
 
   Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
 
@@ -183,6 +185,7 @@ Feature: Create Content Types
           x-identifier:
             - guid
             - title
+
     """
     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
@@ -213,7 +216,7 @@ Feature: Create Content Types
       | description |              | varchar(512)   | true     |          | NULL        |
       | blog_guid   |              | varchar(512)   | true     | FK       | NULL        |
       | blog_title  |              | varchar(512)   | true     | FK       | NULL        |
-    And a "Blog" entity configuration should be setup
+    # And a "Blog" entity configuration should be setup
 
   Scenario: Declare content type that has a many to many relationship to another content type
 
@@ -226,6 +229,7 @@ Feature: Create Content Types
               type: string
             description:
               type: string
+
     """
     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
@@ -351,7 +355,7 @@ Feature: Create Content Types
               type: string
             email:
               type: string
-              pattern: '^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
+              pattern: '^[a-zA-Z0-9.!#$%&*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
             publishedDate:
               type: string
               format: date-time
@@ -376,7 +380,7 @@ Feature: Create Content Types
       | post_id     |              | varchar(512)   | false    | PK       | NULL        |
       | category_id |              | varchar(512)   | false    | PK       | NULL        |
     And a "Post" entity configuration should be setup
-    """ mermaid
+    """ 
     erDiagram
       Blog ||--o{ Post : contains
       Blog {
@@ -442,7 +446,7 @@ Feature: Create Content Types
         string status
       }
     """
-
+#this error would not be returned since openapi would only allow one mapping of an entity.
   Scenario: Create a content type that already exists
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification

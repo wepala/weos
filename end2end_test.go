@@ -10,6 +10,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
 	api "github.com/wepala/weos-service/controllers/rest"
 )
 
@@ -135,10 +136,6 @@ func aDeveloper(name string) error {
 	return nil
 }
 
-func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	return godog.ErrPending
-}
-
 func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 	yamlRoutes := e.Routes()
 	for _, route := range yamlRoutes {
@@ -151,8 +148,8 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 
 func aModelShouldBeAddedToTheProjection(arg1 string, arg2 *godog.Table) error {
 	//use gorm connection to get table
-	if !API.Application.DB().Migrator().HasTable("blog") {
-		return fmt.Errorf("blog table does not exist")
+	if !API.Application.DB().Migrator().HasTable(arg1) {
+		return fmt.Errorf("%s table does not exist", arg1)
 	}
 	//TODO check that the table has the expected columns
 	return nil
@@ -196,7 +193,10 @@ func allFieldsAreNullableByDefault() error {
 }
 
 func anErrorShouldBeReturned() error {
-	return godog.ErrPending
+	if errors == nil {
+		return fmt.Errorf("expected an error.  got none.")
+	}
+	return nil
 }
 
 func blogsInTheApi(arg1 *godog.Table) error {
@@ -233,7 +233,8 @@ func theShouldHaveAnId(arg1 string) error {
 }
 
 func theSpecificationIs(arg1 *godog.DocString) error {
-	return godog.ErrPending
+	openAPI = arg1.Content
+	return nil
 }
 
 func theSpecificationIsParsed(arg1 string) error {
@@ -247,12 +248,39 @@ func theSpecificationIsParsed(arg1 string) error {
 	return nil
 }
 
+func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
+	schema, err := API.GetSchemas()
+	if err != nil {
+		return err
+	}
+
+	if _, ok := schema[arg1]; !ok {
+		return fmt.Errorf("no entity named '%s'", arg1)
+	}
+
+	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
+	reader := ds.NewReader(schema[arg1])
+
+	s := strings.TrimRight(entityString[1], "}")
+	s = strings.TrimSpace(s)
+	entityFields := strings.Split(s, "\n")
+
+	for _, f := range entityFields {
+		f = strings.TrimSpace(f)
+		fields := strings.Split(f, " ")
+		if !reader.HasField(strings.Title(fields[1])) {
+			return fmt.Errorf("did not find field '%s'", fields[1])
+		}
+	}
+
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
 	ctx.Step(`^a content type "([^"]*)" modeled in the "([^"]*)" specification$`, aContentTypeModeledInTheSpecification)
 	ctx.Step(`^a developer "([^"]*)"$`, aDeveloper)
-	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
 	ctx.Step(`^a "([^"]*)" middleware should be added to the route$`, aMiddlewareShouldBeAddedToTheRoute)
 	ctx.Step(`^a model "([^"]*)" should be added to the projection$`, aModelShouldBeAddedToTheProjection)
 	ctx.Step(`^a "([^"]*)" route "([^"]*)" should be added to the api$`, aRouteShouldBeAddedToTheApi)
@@ -271,6 +299,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "([^"]*)" should have an id$`, theShouldHaveAnId)
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
+	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
 
 }
 

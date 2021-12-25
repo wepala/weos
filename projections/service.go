@@ -19,7 +19,6 @@ func CreateSchema(ctx context.Context, schemas map[string]*openapi3.SchemaRef) (
 	for name, scheme := range schemas {
 		var instance interface{}
 		instance, relations[name] = updateSchema(scheme.Value, name)
-
 		structs[name] = instance
 	}
 
@@ -29,9 +28,24 @@ func CreateSchema(ctx context.Context, schemas map[string]*openapi3.SchemaRef) (
 }
 
 func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]string) {
+	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
+
+	primaryKeys := []string{}
+	json.Unmarshal(pks, &primaryKeys)
+
+	fmt.Printf("Primary Key: ", primaryKeys)
+	if len(primaryKeys) == 0 {
+		primaryKeys = append(primaryKeys, "id")
+	}
+
 	instance := ds.ExtendStruct(&DefaultProjection{})
+
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
+		tagString := `json:"` + strcase.SnakeCase(name) + `"`
+		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(name)) {
+			tagString += ` gorm:"primaryKey;size:512`
+		}
 		name = strings.Title(name)
 		if p.Ref != "" {
 			relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
@@ -42,13 +56,13 @@ func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[stri
 				if t2 != "object" {
 					if t2 == "string" {
 						//format types to be added
-						instance.AddField(name, []string{}, `json:"`+strcase.SnakeCase(name)+`"`)
+						instance.AddField(name, []string{}, tagString)
 					} else if t2 == "number" {
-						instance.AddField(name, []float64{}, `json:"`+strcase.SnakeCase(name)+`"`)
+						instance.AddField(name, []float64{}, tagString)
 					} else if t == "integer" {
-						instance.AddField(name, []int{}, `json:"`+strcase.SnakeCase(name)+`"`)
+						instance.AddField(name, []int{}, tagString)
 					} else if t == "boolean" {
-						instance.AddField(name, []bool{}, `json:"`+strcase.SnakeCase(name)+`"`)
+						instance.AddField(name, []bool{}, tagString)
 					}
 				} else {
 					if p.Value.Items.Ref == "" {
@@ -66,16 +80,20 @@ func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[stri
 			} else {
 				if t == "string" {
 					//format types to be added
-					instance.AddField(name, "", `json:"`+strcase.SnakeCase(name)+`"`)
+					instance.AddField(name, "", tagString)
 				} else if t == "number" {
-					instance.AddField(name, 0.0, `json:"`+strcase.SnakeCase(name)+`"`)
+					instance.AddField(name, 0.0, tagString)
 				} else if t == "integer" {
-					instance.AddField(name, 0, `json:"`+strcase.SnakeCase(name)+`"`)
+					instance.AddField(name, 0, tagString)
 				} else if t == "boolean" {
-					instance.AddField(name, false, `json:"`+strcase.SnakeCase(name)+`"`)
+					instance.AddField(name, false, tagString)
 				}
 			}
 		}
+	}
+
+	if strings.Contains(strings.Join(primaryKeys, " "), "id") && !instance.HasField("Id") {
+		instance.AddField("Id", uint(0), `json:"id" gorm:"primaryKey"`)
 	}
 
 	inst := instance.Build().New()
