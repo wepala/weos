@@ -251,7 +251,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	}
 	head := details.Rows[0].Cells
 	compareContent := ContentType{
-		Type: contentType,
+		Type:       contentType,
+		Properties: map[string]Property{},
 	}
 
 	for i := 1; i < len(details.Rows); i++ {
@@ -296,7 +297,7 @@ func theIsSubmitted(contentType string) error {
 	if createScreen {
 		reqBytes, _ := json.Marshal(payload)
 		body := bytes.NewReader(reqBytes)
-		request := httptest.NewRequest("POST", "/"+contentType, body)
+		request := httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
 		request = request.WithContext(context.TODO())
 		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		request.Close = true
