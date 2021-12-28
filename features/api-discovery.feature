@@ -115,3 +115,31 @@ Feature: Get API Details
     """
     And the "OpenAPI 3.0" specification is parsed
     And a "GET" route should be added to the api
+    When the "POST" endpoint "/blog" is hit
+    Then a 201 response should be returned
+    And the swagger ui should be shown
+
+  Scenario: Get the api info as json
+
+    Developers can get the api details as a json response. This make it easier to programmatically get schema information.
+    To get the json response  the response type should be set to application/json
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /api:
+      get:
+        operationId: Get API Details
+        x-controller: APIDiscovery
+        responses:
+          200:
+            description: API Details
+            content:
+              application/json:
+                schema:
+                  type: string
+    """
+    And the "OpenAPI 3.0" specification is parsed
+    And a "GET" route should be added to the api
+    When the "POST" endpoint "/blog" is hit
+    Then a 201 response should be returned
+    And the api as json should be shown
