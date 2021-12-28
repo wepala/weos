@@ -11,10 +11,10 @@ type DomainService struct {
 	eventRepository EventRepository
 }
 
-func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, entityType string) (ContentAggregateInterface, error) {
+func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
 
 	contentType := weosContext.GetContentType(ctx)
-	entity, err := new(ContentAggregateRoot).FromSchema(ctx, contentType.Schema)
+	entity, err := new(ContentEntity).FromSchema(ctx, contentType.Schema)
 	if err != nil {
 		return nil, NewDomainError("unexpected error creating entity", entityType, "", err)
 	}
@@ -25,7 +25,7 @@ func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, ent
 	return nil, nil
 }
 
-func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage, entityType string) ([]ContentAggregateInterface, error) {
+func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage, entityType string) ([]*ContentEntity, error) {
 	//TODO take the validation rules from context
 	return nil, nil
 }

@@ -1,0 +1,56 @@
+package model_test
+
+import (
+	"encoding/json"
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/wepala/weos-service/model"
+	"golang.org/x/net/context"
+	"testing"
+)
+
+func TestContentEntity_FromSchema(t *testing.T) {
+	//load open api spec
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	item, err := new(model.ContentEntity).FromSchema(context.Background(), swagger.Components.Schemas["Blog"].Value)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+
+	if item == nil {
+		t.Fatal("expected item to be returned")
+	}
+
+	if item.GetString("title") != "" {
+		t.Errorf("expected there to be a field '%s' with value '%s', got '%s'", "title", "")
+	}
+}
+
+func TestContentEntity_IsValid(t *testing.T) {
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	mockBlog := &Blog{
+		Title:       "test 1",
+		Description: "lorem ipsum",
+	}
+	payload, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("unexpected error marshalling payload '%s'", err)
+	}
+
+	item, err := new(model.ContentEntity).FromSchemaWithValues(context.Background(), swagger.Components.Schemas["Blog"].Value, payload)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+	if item == nil {
+		t.Fatal("expected item to be returned")
+	}
+
+	if item.GetString("title") != "test 1" {
+		t.Errorf("expected the title to be '%s', got '%s'", "test 1", item.GetString("title"))
+	}
+}

@@ -48,9 +48,7 @@ func TestCreateContentType(t *testing.T) {
 			return mockEventRepository
 		},
 		ProjectionsFunc: func() []model.Projection {
-			return []model.Projection{
-				&EndToEndProjectionMock{},
-			}
+			return []model.Projection{}
 		},
 	}
 
