@@ -1,4 +1,4 @@
-Feature: Create content
+Feature: Setup List endpoint
 
   Background:
 
@@ -135,38 +135,34 @@ Feature: Create content
     Then a warning should be output because the endpoint is invalid
 
 
-  Scenario: Filter a list of items
+  Scenario: Setup filter endpoint
 
-    The list handler can filter content if the filters param is present in the context. Filters can be placed in the context
-    directly using the the x-content extension or by specifying parameters for the endpoint (parameters are placed into
-    the context)
+  The DSL for lists filters have three parts:
+  1. Field - The field to be filtered on
+  2. Operator - the operator to use for the filter (eq, ne, gt, lt, in, like)
+  3. Value (an array or possible values. Most operators will be for scalar values
 
-    """
+  """
     /blogs:
       get:
         operationId: Get Blogs
         summary: Get List of Blogs
-        x-context:
-          filters:
-            - field: status
-              operator: eq
-              values:
-                - Active
-            - field: lastUpdated
-              operator: between
-              values:
-                - 2021-12-17 15:46:00
-                - 2021-12-18 15:46:00
-            - field: categories
-              operator: in
-              values:
-                - Technology
-                - Javascript
-          sorts:
-            - field: title
-              order: asc
-          page: 1
-          limit: 10
+        parameters:
+          - in: query
+            name: filters
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  operator:
+                    type: string
+                  value:
+                    type: array
+                    items:
+                      type: string
         responses:
           200:
             description: List of blogs
@@ -185,6 +181,55 @@ Feature: Create content
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
     And a "List" middleware should be added to the route
+
+  Scenario: Setup list endpoint with some filter capability
+
+  Developers can specify which fields can be filtered and what filter options are available by setting the fields as enumerations
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /blogs:
+      get:
+        operationId: Get Blogs
+        parameters:
+          - in: post
+            name: filters
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                    enum:
+                      - title
+                      - description
+                  operator:
+                    type: string
+                    enum:
+                      - eq
+                      - ne
+                  value:
+                    type: array
+                    items:
+                      type: string
+        responses:
+          200:
+            description: Update blog
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          400:
+            description: Invalid blog submitted
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/ErrorResponse"
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "GET" route should be added to the api
+    And a "list" middleware should be added to the route
 
 
   Scenario: Specify list item with an invalid filters definition
