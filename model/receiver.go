@@ -12,19 +12,28 @@ type Receiver struct {
 
 func (r *Receiver) Create(ctx context.Context, command *Command) error {
 
-	//entity, err := r.domainService.Create(ctx, command.Payload, command.Metadata.EntityType)
-	//if err != nil {
-	//	return err
-	//}
-	//err = r.service.EventRepository().Persist(ctx, entity)
-	//if err != nil {
-	//	return err
-	//}
+	entity, err := r.domainService.Create(ctx, command.Payload, command.Metadata.EntityType)
+	if err != nil {
+		return err
+	}
+	err = r.service.EventRepository().Persist(ctx, entity)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 func (r *Receiver) CreateBatch(ctx context.Context, command *Command) error {
-
+	entities, err := r.domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
+	if err != nil {
+		return err
+	}
+	for _, entity := range entities {
+		err = r.service.EventRepository().Persist(ctx, entity)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
