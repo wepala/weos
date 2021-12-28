@@ -7,10 +7,34 @@ import (
 	"testing"
 )
 
+type Blog struct {
+	Id          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
 func TestCreateContentType(t *testing.T) {
 	commandDispatcher := &model.DefaultCommandDispatcher{}
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+			var event *model.Event
+			var ok bool
+			entities := entity.GetNewChanges()
+			if len(entities) != 1 {
+				t.Fatalf("expected %d event to be saved, got %d", 1, len(entities))
+			}
+
+			if event, ok = entities[0].(*model.Event); !ok {
+				t.Fatalf("the entity is not an event")
+			}
+
+			if event.Type != "create" {
+				t.Errorf("expected event to be '%s', got '%s'", "create", event.Type)
+			}
+			if event.Meta.EntityType == "" {
+				t.Errorf("expected event to be '%s', got '%s'", "", event.Type)
+			}
+
 			return nil
 		},
 		AddSubscriberFunc: func(handler model.EventHandler) {
@@ -24,7 +48,9 @@ func TestCreateContentType(t *testing.T) {
 			return mockEventRepository
 		},
 		ProjectionsFunc: func() []model.Projection {
-			return []model.Projection{}
+			return []model.Projection{
+				&EndToEndProjectionMock{},
+			}
 		},
 	}
 
@@ -34,25 +60,12 @@ func TestCreateContentType(t *testing.T) {
 	}
 
 	t.Run("Testing basic create entity", func(t *testing.T) {
-		input1 := model.AmorphousEntity{
-			AggregateRoot: model.AggregateRoot{
-				BasicEntity: model.BasicEntity{ID: "123"},
-			},
-			BasicEntity: &model.BasicEntity{ID: "123"},
-			Properties:  map[string]model.Property{},
+		mockBlog := &Blog{
+			Id:    "123",
+			Title: "Test Blog",
 		}
-		entityType := "Testing"
-		prop := &model.StringProperty{
-			BasicProperty: model.BasicProperty{
-				Type:       "string",
-				Label:      "title",
-				Value:      "Testing Title of 1st Property",
-				IsRequired: false,
-			},
-			Value: "Testing Title of 1st Property",
-		}
-		input1.Set(prop)
-		reqBytes, err := json.Marshal(input1)
+		entityType := "Blog"
+		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
@@ -67,43 +80,18 @@ func TestCreateContentType(t *testing.T) {
 		}
 	})
 	t.Run("Testing basic batch create", func(t *testing.T) {
-		input1 := model.AmorphousEntity{
-			AggregateRoot: model.AggregateRoot{
-				BasicEntity: model.BasicEntity{ID: "123"},
-			},
-			BasicEntity: &model.BasicEntity{ID: "123"},
-			Properties:  map[string]model.Property{},
+		mockBlog := &Blog{
+			Id:    "123",
+			Title: "Test Blog 1",
 		}
-		entityType := "Testing"
-		prop := &model.StringProperty{
-			BasicProperty: model.BasicProperty{
-				Type:       "string",
-				Label:      "title",
-				Value:      "Testing Title of 1st Property",
-				IsRequired: false,
-			},
-			Value: "Testing Title of 1st Property",
+		entityType := "Blog"
+		mockBlog2 := &Blog{
+			Id:          "1234",
+			Title:       "Test Blog 2",
+			Description: "Description 2",
 		}
-		input2 := model.AmorphousEntity{
-			AggregateRoot: model.AggregateRoot{
-				BasicEntity: model.BasicEntity{ID: "1234"},
-			},
-			BasicEntity: &model.BasicEntity{ID: "1234"},
-			Properties:  map[string]model.Property{},
-		}
-		entityType = "Testing"
-		prop = &model.StringProperty{
-			BasicProperty: model.BasicProperty{
-				Type:       "string",
-				Label:      "title",
-				Value:      "Testing Title of 1st Property of 2nd content type",
-				IsRequired: false,
-			},
-			Value: "Testing Title of 1st Property of 2nd content type",
-		}
-		input2.Set(prop)
-		payload := []model.AmorphousEntity{input1, input2}
-		reqBytes, err := json.Marshal(payload)
+		blogs := []*Blog{mockBlog, mockBlog2}
+		reqBytes, err := json.Marshal(blogs)
 		if err != nil {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
