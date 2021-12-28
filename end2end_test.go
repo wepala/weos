@@ -26,9 +26,10 @@ var errors error
 var buf bytes.Buffer
 var payload ContentType
 var rec *httptest.ResponseRecorder
-var createScreen bool
 var db *sql.DB
-var checkContentID ContentType
+var blogPayload *Blog
+var blogCreateScreen bool
+var blogHasID bool
 
 type User struct {
 	Name      string
@@ -43,6 +44,11 @@ type Property struct {
 type ContentType struct {
 	Type       string              `yaml:"type"`
 	Properties map[string]Property `yaml:"properties"`
+}
+
+type Blog struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
@@ -94,10 +100,10 @@ components:
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
 	errors = nil
-	payload = ContentType{}
-	payload.Properties = map[string]Property{}
+	blogPayload = &Blog{}
 	rec = httptest.NewRecorder()
-	createScreen = false
+	blogCreateScreen = false
+	blogHasID = false
 	os.Remove("test.db")
 	openAPI = `openapi: 3.0.3
 info:
@@ -219,14 +225,20 @@ func blogsInTheApi(arg1 *godog.Table) error {
 }
 
 func entersInTheField(userName, value, field string) error {
-	tempProp := Property{
-		Type:        field,
-		Description: value,
+
+	createScreens := []string{"blogCreateScreen"}
+	for _, screens := range createScreens {
+		switch screens {
+		case "blogCreateScreen":
+			if blogCreateScreen {
+				if field == "title" {
+					blogPayload.Title = value
+				} else if field == "description" {
+					blogPayload.Description = value
+				}
+			}
+		}
 	}
-	if payload.Properties == nil {
-		payload.Properties = map[string]Property{}
-	}
-	payload.Properties[field] = tempProp
 	return nil
 }
 
@@ -236,8 +248,10 @@ func hasAnAccountWithId(name, accountID string) error {
 }
 
 func isOnTheCreateScreen(userName, contentType string) error {
-	createScreen = true
-	payload.Type = contentType
+	switch strings.ToLower(contentType) {
+	case "blog":
+		blogCreateScreen = true
+	}
 	return nil
 }
 
@@ -250,66 +264,62 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
 	head := details.Rows[0].Cells
-	compareContent := ContentType{
-		Type:       contentType,
-		Properties: map[string]Property{},
-	}
 
-	for i := 1; i < len(details.Rows); i++ {
-		for n, cell := range details.Rows[i].Cells {
-			switch head[n].Value {
-			case "title":
-				prop := Property{
-					Type:        head[n].Value,
-					Description: cell.Value,
+	switch strings.ToLower(contentType) {
+	case "blog":
+		compareBlog := &Blog{}
+
+		for i := 1; i < len(details.Rows); i++ {
+			for n, cell := range details.Rows[i].Cells {
+				switch head[n].Value {
+				case "title":
+					compareBlog.Title = cell.Value
+				case "description":
+					compareBlog.Description = cell.Value
 				}
-				compareContent.Properties[head[n].Value] = prop
-			case "description":
-				prop := Property{
-					Type:        head[n].Value,
-					Description: cell.Value,
-				}
-				compareContent.Properties[head[n].Value] = prop
 			}
 		}
-	}
-	contentTypes := []ContentType{}
-	found := 0
-	API.Application.DB().Find(contentTypes)
-	for _, content := range contentTypes {
-		for _, prop := range content.Properties {
-			if prop.Description == compareContent.Properties[prop.Type].Description {
-				found++
-				if found == len(compareContent.Properties) {
-					checkContentID = content
-				}
-				continue
-			}
+
+		blog := &Blog{}
+		API.Application.DB().Find(blog)
+
+		if blog.Title != compareBlog.Title {
+			return fmt.Errorf("expected blog title %s, got %s", compareBlog.Title, blog.Title)
 		}
-	}
-	if found != len(compareContent.Properties) {
-		return fmt.Errorf("unexpected error did not find %s created", contentType)
+		if blog.Description != compareBlog.Description {
+			return fmt.Errorf("expected blog description %s, got %s", compareBlog.Description, blog.Description)
+		}
+
+		blogHasID = true
 	}
 	return nil
 }
 
 func theIsSubmitted(contentType string) error {
-	if createScreen {
-		reqBytes, _ := json.Marshal(payload)
-		body := bytes.NewReader(reqBytes)
-		request := httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
-		request = request.WithContext(context.TODO())
-		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		request.Close = true
-		rec = httptest.NewRecorder()
-		e.ServeHTTP(rec, request)
+
+	switch strings.ToLower(contentType) {
+	case "blog":
+		if blogCreateScreen {
+			reqBytes, _ := json.Marshal(blogPayload)
+			body := bytes.NewReader(reqBytes)
+			request := httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
+			request = request.WithContext(context.TODO())
+			request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			request.Close = true
+			rec = httptest.NewRecorder()
+			e.ServeHTTP(rec, request)
+		}
 	}
 	return nil
 }
 
 func theShouldHaveAnId(contentType string) error {
-	if checkContentID.Properties["id"].Description == "" {
-		return fmt.Errorf("expected to find an id got nil for %s ", contentType)
+
+	switch strings.ToLower(contentType) {
+	case "blog":
+		if !blogHasID {
+			return fmt.Errorf("expected the blog to have an ID")
+		}
 	}
 	return nil
 }
