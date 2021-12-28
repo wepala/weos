@@ -74,6 +74,10 @@ Feature: Edit content endpoints
               type: string
             required: true
             description: blog id
+          - in: header
+            name: If-Match
+            schema:
+              type: string
         requestBody:
           description: Blog info that is submitted
           required: true
@@ -101,10 +105,9 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
+          412:
+            description: Pre condition failed
+
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs/:id" should be added to the api

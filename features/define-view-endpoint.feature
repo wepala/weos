@@ -124,4 +124,90 @@ Feature: Setup View endpoint
     Then a "GET" route should be added to the api
     And a "View" middleware should be added to the route
 
+  Scenario: Setup view endpoint that allows for getting specific version
+
+    A developer can pass in the specific sequence no (sequence_no) to get an entity at a specific state
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /blogs/{id}:
+      get:
+        parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: blog id
+          - in: header
+            name: version
+            x-context-name: sequence_no
+            schema:
+              type: string
+        summary: Get Blog by id
+        operationId: Get Blog
+        responses:
+          200:
+            description: Blog details without any supporting collections
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          404:
+            description: Blog not found
+
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "GET" route should be added to the api
+    And a "View" middleware should be added to the route
+
+  Scenario: Setup view endpoint that can be used to check unchanged item
+
+    Check if version is the latest version https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /blogs/{id}:
+      get:
+        parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: blog id
+          - in: header
+            name: If-None-Match
+            x-context-name: etag
+            schema:
+              type: string
+        summary: Get Blog by id
+        operationId: Get Blog
+        responses:
+          200:
+            description: Blog details without any supporting collections
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          304:
+            description: Not modified
+          404:
+            description: Blog not found
+
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "GET" route should be added to the api
+    And a "View" middleware should be added to the route
+
 
