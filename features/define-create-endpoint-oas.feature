@@ -74,6 +74,11 @@ Feature: Create content endpoints
         responses:
           201:
             description: Add Blog to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -118,6 +123,11 @@ Feature: Create content endpoints
         responses:
           201:
             description: Added Blogs to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -148,6 +158,11 @@ Feature: Create content endpoints
         responses:
           201:
             description: Add Blog to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -188,6 +203,11 @@ Feature: Create content endpoints
         responses:
           201:
             description: Add Blog to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:

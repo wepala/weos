@@ -90,6 +90,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Update blog
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -135,6 +140,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Update blog
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -181,6 +191,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Update blog
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -229,6 +244,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Update blog
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -260,6 +280,11 @@ Feature: Edit content endpoints
         responses:
           201:
             description: Add Blog to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
