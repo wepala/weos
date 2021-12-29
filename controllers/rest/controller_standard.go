@@ -39,7 +39,10 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		}
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
-		app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType))
+		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType))
+		if err != nil {
+			return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
+		}
 		return ctxt.JSON(http.StatusCreated, "Created")
 	}
 }
@@ -58,8 +61,10 @@ func (c *StandardControllers) CreateBatch(app model.Service, spec *openapi3.Swag
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 
-		app.Dispatcher().Dispatch(ctxt.Request().Context(), model.CreateBatch(ctxt.Request().Context(), payload, entityType))
-
+		err := app.Dispatcher().Dispatch(ctxt.Request().Context(), model.CreateBatch(ctxt.Request().Context(), payload, entityType))
+		if err != nil {
+			return NewControllerError("unexpected error creating content type batch", err, http.StatusBadRequest)
+		}
 		return ctxt.JSON(http.StatusCreated, "CreatedBatch")
 	}
 }

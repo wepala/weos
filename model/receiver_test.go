@@ -2,13 +2,15 @@ package model_test
 
 import (
 	"encoding/json"
+	"github.com/getkin/kin-openapi/openapi3"
+	weosContext "github.com/wepala/weos-service/context"
 	"github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"testing"
 )
 
 type Blog struct {
-	Id          string `json:"id"`
+	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Url         string `json:"url"`
@@ -74,7 +76,7 @@ func TestCreateContentType(t *testing.T) {
 
 	t.Run("Testing basic create entity", func(t *testing.T) {
 		mockBlog := &Blog{
-			Id:    "123",
+			ID:    "123",
 			Title: "Test Blog",
 			Url:   "ww.testingBlog.com",
 		}
@@ -95,13 +97,13 @@ func TestCreateContentType(t *testing.T) {
 	})
 	t.Run("Testing basic batch create", func(t *testing.T) {
 		mockBlog := &Blog{
-			Id:    "123",
+			ID:    "123",
 			Title: "Test Blog 1",
 			Url:   "ww.testBlog.com",
 		}
 		entityType := "Blog"
 		mockBlog2 := &Blog{
-			Id:          "1234",
+			ID:          "1234",
 			Title:       "Test Blog 2",
 			Description: "Description 2",
 			Url:         "ww.testingBlog.com",

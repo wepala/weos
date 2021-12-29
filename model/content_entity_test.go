@@ -3,6 +3,7 @@ package model_test
 import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
+	weosContext "github.com/wepala/weos-service/context"
 	"github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"testing"
@@ -56,6 +57,7 @@ func TestContentEntity_IsValid(t *testing.T) {
 	mockBlog := &Blog{
 		Title:       "test 1",
 		Description: "lorem ipsum",
+		Url:         "www.ShaniahsBlog.com",
 	}
 	payload, err := json.Marshal(mockBlog)
 	if err != nil {
