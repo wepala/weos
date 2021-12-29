@@ -183,7 +183,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Blog"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Blog"
   /blogs/{id}:
     get:
       parameters:
@@ -193,7 +195,16 @@ paths:
             type: string
           required: true
           description: blog id
-          x-property: Blog.id
+        - in: query
+          name: sequence_no
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: use_entity_id
+          schema:
+            type: boolean
+          required: false
       summary: Get Blog by id
       operationId: Get Blog
       responses:
@@ -304,7 +315,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Post"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
 
   /posts/{postId}:
     get:
@@ -400,7 +413,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Category"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
 
   /categories/{categoryId}:
     get:
@@ -495,7 +510,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Author"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Author"
 
   /authors/{authorId}:
     get:
