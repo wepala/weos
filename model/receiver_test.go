@@ -11,9 +11,24 @@ type Blog struct {
 	Id          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	Url         string `json:"url"`
 }
 
 func TestCreateContentType(t *testing.T) {
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
 	commandDispatcher := &model.DefaultCommandDispatcher{}
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
@@ -61,6 +76,7 @@ func TestCreateContentType(t *testing.T) {
 		mockBlog := &Blog{
 			Id:    "123",
 			Title: "Test Blog",
+			Url:   "ww.testingBlog.com",
 		}
 		entityType := "Blog"
 		reqBytes, err := json.Marshal(mockBlog)
@@ -68,7 +84,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(context.TODO(), model.Create(context.TODO(), reqBytes, entityType))
+		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, entityType))
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -81,12 +97,14 @@ func TestCreateContentType(t *testing.T) {
 		mockBlog := &Blog{
 			Id:    "123",
 			Title: "Test Blog 1",
+			Url:   "ww.testBlog.com",
 		}
 		entityType := "Blog"
 		mockBlog2 := &Blog{
 			Id:          "1234",
 			Title:       "Test Blog 2",
 			Description: "Description 2",
+			Url:         "ww.testingBlog.com",
 		}
 		blogs := []*Blog{mockBlog, mockBlog2}
 		reqBytes, err := json.Marshal(blogs)
@@ -94,13 +112,13 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(context.TODO(), model.CreateBatch(context.TODO(), reqBytes, entityType))
+		err1 := commandDispatcher.Dispatch(ctx, model.CreateBatch(ctx, reqBytes, entityType))
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
 
-		if len(mockEventRepository.PersistCalls()) != 2 {
-			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 2, len(mockEventRepository.PersistCalls()))
+		if len(mockEventRepository.PersistCalls()) != 3 {
+			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 3, len(mockEventRepository.PersistCalls()))
 		}
 	})
 

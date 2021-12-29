@@ -131,10 +131,10 @@ func (p *RESTAPI) Initialize() error {
 	}
 
 	//enable module
-	// err = module.Initialize(a.Service)
-	// if err != nil {
-	// 	return err
-	// }
+	err = model.Initialize(p.Application)
+	if err != nil {
+		return err
+	}
 
 	s := projections.Service{}
 	structs, err := s.CreateSchema(context.Background(), p.Schemas)
