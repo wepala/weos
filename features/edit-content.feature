@@ -1,4 +1,4 @@
-Feature: View content
+Feature: Edit content
 
   Background:
 
@@ -154,49 +154,37 @@ Feature: View content
       | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
 
 
-  Scenario: Get blog details
+  Scenario: Edit item
 
-    The blog should be retrieved using the identifier in the projection. The `ETag` header returned is a combination of
-    the entity id and the sequence no.
+    Updating an item leads to a new sequence no. being created and returned
 
-    When the "POST" endpoint "/blog/1234" is hit
+    Given "Sojourner" is on the "Blog" edit screen with id "1234"
+    And "Sojourner" enters "Some New Title" in the "title" field
+    When the "Blog" is submitted
     Then a 200 response should be returned
-    And a blog should be returned
-      | id    | title        | description    |
-      | 1234  | Blog 1       | Some Blog      |
-    And the "ETag" header should be "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
+    And the "ETag" header should be "22xu1Xa5CS3DK1Om2tB7OBDfWAF.3"
+    And the "Blog" is updated
+      | title          | description                       |
+      | Some New Title | Some Description                  |
 
-  Scenario: Get blog details using the entity id
+  Scenario: Update item with invalid data
 
-    If the view controller gets a parameter `use_entity_id` set to true then it will use the identifier as the entity id
+    If the content type validation fails then a 422 response code should be returned (the request could have a valid
+    format but the contents are invalid)
 
-    When the "POST" endpoint "/blog/22xu4iw0bWMwxqbrUvjqEqu5dof?use_entity_id=true" is hit
-    Then a 200 response should be returned
-    And a blog should be returned
-      | id    | title        | description    |
-      | 4567  | Blog 2       | Some Blog 2     |
-    And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.1"
-
-  Scenario: Get specific version of an entity
-
-    A developer can pass in the specific sequence no (sequence_no) to get an entity at a specific state
-
-    Given Sojourner is updating "Blog" with id "4567"
-    And "Sojourner" enters "Some New Blog" in the "title" field
-    And the "Blog" is submitted
-    When the "POST" endpoint "/blog/4567" is hit
-    Then a 200 response should be returned
-    And a blog should be returned
-      | id    | title         | description    |
-      | 4567  | Some New Blog | Some Blog 2    |
-    And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.2"
-
-  Scenario: Check if new version of an item is available
-
-    Check if version is the latest version https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag
-
-    Given a header "If-None-Match" with value "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
-    When the "POST" endpoint "/blog/1234" is hit
-    Then a 304 response should be returned
+    Given "Sojourner" is on the "Blog" edit screen with id "1234"
+    And "Sojourner" enters "Some New Title" in the "lastUpdated" field
+    When the "Blog" is submitted
+    Then a 422 response should be returned
 
 
+  Scenario: Update stale item
+
+    If you try to update an item and it has already been updated since since the last time the client got an updated
+    version then an error is returned. This requires using the "If-Match" header
+
+    Given "Sojourner" is on the "Blog" edit screen with id "1234"
+    And "Sojourner" enters "Some New Title" in the "lastUpdated" field
+    And a header "If-Match" with value "22xu1Xa5CS3DK1Om2tB7OBDfWAF.1"
+    When the "Blog" is submitted
+    Then a 412 response should be returned

@@ -214,6 +214,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
+        304:
+          description: Not modified
+        400:
+          description: Item doesn't exist
+
     put:
       parameters:
         - in: path
@@ -237,6 +242,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
+        400:
+          description: Request is malformed
+        404:
+          description: Item doesn't exist
+        412:
+          description: The item is stale
+        422:
+          description: Invalid content data sent
+
     delete:
       parameters:
         - in: path
