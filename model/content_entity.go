@@ -17,26 +17,40 @@ type ContentEntity struct {
 	Property interface{}
 }
 
+//checks if the property was added
 func (w *ContentEntity) IsValid() bool {
+	isValid := true
+	if w.Property == nil {
+		return false
+	}
 	for _, req := range w.Schema.Required {
-		if req == "id" {
-			if w.ID == "" {
-				return false
-			}
-			continue
+		isValid = w.IsNull(req, w.Schema.Properties[req].Value.Type) && isValid
+	}
+	return isValid
+}
+func (w *ContentEntity) IsNull(name, contentType string) bool {
+	//reader := ds.NewReader(w.Property)
+	temp := strings.Title(name)
+	switch contentType {
+	case "string":
+		newString := w.GetString(temp)
+		if w.Schema.Properties[name].Value.Nullable && newString == "" {
+			return false
 		}
-		switch w.Schema.Properties[req].Value.Type {
-		case "string":
-			if w.GetString(strings.Title(req)) == "" {
-				return false
-			}
-		default:
+	case "number":
+		if w.Schema.Properties[name].Value.Nullable && w.GetNumber(temp) == 0 {
+			return false
+		}
+	case "integer":
+		if w.Schema.Properties[name].Value.Nullable && w.GetInteger(temp) == 0 {
 			return false
 		}
 	}
+
 	return true
 }
 
+//builds properties from the schema
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
 	w.User.ID = weosContext.GetUser(ctx)
 	w.Schema = ref
@@ -53,13 +67,33 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 				if t2 != "object" {
 					if t2 == "string" {
 						//format types to be added
-						instance.AddField(name, []string{}, strcase.SnakeCase(name))
+						if p.Value.Nullable {
+							instance.AddField(name, []*string{}, strcase.SnakeCase(name))
+						} else {
+							instance.AddField(name, []string{}, strcase.SnakeCase(name))
+						}
+
 					} else if t2 == "number" {
-						instance.AddField(name, []float64{}, strcase.SnakeCase(name))
+						if p.Value.Nullable {
+							instance.AddField(name, []*float64{}, strcase.SnakeCase(name))
+						} else {
+							instance.AddField(name, []float64{}, strcase.SnakeCase(name))
+						}
+
 					} else if t == "integer" {
-						instance.AddField(name, []int{}, strcase.SnakeCase(name))
+						if p.Value.Nullable {
+							instance.AddField(name, []*int{}, strcase.SnakeCase(name))
+						} else {
+							instance.AddField(name, []int{}, strcase.SnakeCase(name))
+						}
+
 					} else if t == "boolean" {
-						instance.AddField(name, []bool{}, strcase.SnakeCase(name))
+						if p.Value.Nullable {
+							instance.AddField(name, []*bool{}, strcase.SnakeCase(name))
+						} else {
+							instance.AddField(name, []bool{}, strcase.SnakeCase(name))
+						}
+
 					}
 				} else {
 					if p.Value.Items.Ref == "" {
@@ -93,6 +127,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 
 }
 
+//builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
 	w.FromSchema(ctx, schema)
 	err := json.Unmarshal(payload, &w.BasicEntity)
@@ -105,10 +140,6 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	err = json.Unmarshal(payload, &w.Property)
 	if err != nil {
 		return nil, err
-	}
-	validating := w.IsValid()
-	if !validating {
-		return nil, NewDomainError("payload is invalid", weosContext.GetContentType(ctx).Name, "", nil)
 	}
 	event := NewEntityEvent("create", w, w.ID, payload)
 	if err != nil {
@@ -124,7 +155,47 @@ func (w *ContentEntity) GetString(name string) string {
 		return ""
 	}
 	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return ""
+	}
 	return reader.GetField(name).String()
+}
+
+func (w *ContentEntity) GetInteger(name string) int {
+	if w.Property == nil {
+		return 0
+	}
+	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return 0
+	}
+	return reader.GetField(name).Int()
+}
+
+func (w *ContentEntity) GetBool(name string) bool {
+	if w.Property == nil {
+		return false
+	}
+	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return false
+	}
+	return reader.GetField(name).Bool()
+}
+
+func (w *ContentEntity) GetNumber(name string) float64 {
+	if w.Property == nil {
+		return 0
+	}
+	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return 0
+	}
+	return reader.GetField(name).Float64()
 }
 
 func (w *ContentEntity) ApplyChanges(changes []*Event) error {

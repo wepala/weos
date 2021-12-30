@@ -54,25 +54,50 @@ func TestContentEntity_IsValid(t *testing.T) {
 		Schema: contentTypeSchema.Value,
 	})
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
-	mockBlog := &Blog{
-		Title:       "test 1",
-		Description: "lorem ipsum",
-		Url:         "www.ShaniahsBlog.com",
-	}
-	payload, err := json.Marshal(mockBlog)
-	if err != nil {
-		t.Fatalf("unexpected error marshalling payload '%s'", err)
-	}
+	t.Run("Testing with all the required fields", func(t *testing.T) {
+		mockBlog := &Blog{
+			Title:       "test 1",
+			Description: "lorem ipsum",
+			Url:         "www.ShaniahsBlog.com",
+		}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("unexpected error marshalling payload '%s'", err)
+		}
 
-	entity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
-	if err != nil {
-		t.Fatalf("unexpected error instantiating content entity '%s'", err)
-	}
-	if entity.Property == nil {
-		t.Fatal("expected item to be returned")
-	}
+		entity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
+		if err != nil {
+			t.Fatalf("unexpected error instantiating content entity '%s'", err)
+		}
+		if entity.Property == nil {
+			t.Fatal("expected item to be returned")
+		}
 
-	if entity.GetString("Title") != "test 1" {
-		t.Errorf("expected the title to be '%s', got '%s'", "test 1", entity.GetString("Title"))
-	}
+		if entity.GetString("Title") != "test 1" {
+			t.Errorf("expected the title to be '%s', got '%s'", "test 1", entity.GetString("Title"))
+		}
+		isValid := entity.IsValid()
+		if !isValid {
+			t.Fatalf("expected entity to be invalid got valid")
+		}
+	})
+	t.Run("Testing with a missing required field that is nullable: title", func(t *testing.T) {
+		mockBlog := &Blog{
+			Description: "lorem ipsum",
+			Url:         "www.ShaniahsBlog.com",
+		}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("unexpected error marshalling payload '%s'", err)
+		}
+
+		entity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
+		if err != nil {
+			t.Fatalf("unexpected error while instantiating content entity got '%s'", err)
+		}
+		isValid := entity.IsValid()
+		if isValid {
+			t.Fatalf("expected entity to be invalid got valid")
+		}
+	})
 }
