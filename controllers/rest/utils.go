@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/labstack/echo/v4"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -168,5 +169,13 @@ func LogLevels(level string) (log.Lvl, error) {
 		return log.ERROR, nil
 	default:
 		return log.ERROR, fmt.Errorf("invalid level, expected debug, info, warn or error. got: %s", level)
+	}
+}
+
+func NewControllerError(message string, err error, code int) *echo.HTTPError {
+	return &echo.HTTPError{
+		Code:     code,
+		Message:  message,
+		Internal: err,
 	}
 }
