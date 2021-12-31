@@ -18,6 +18,9 @@ func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, ent
 	if err != nil {
 		return nil, NewDomainError("unexpected error creating entity", entityType, "", err)
 	}
+	if ok := newEntity.IsValid(); !ok {
+		return nil, NewDomainError("unexpected error entity is invalid", entityType, newEntity.ID, nil)
+	}
 	return newEntity, nil
 }
 
@@ -37,6 +40,9 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 		entity, err := new(ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, tpayload)
 		if err != nil {
 			return nil, err
+		}
+		if ok := entity.IsValid(); !ok {
+			return nil, NewDomainError("unexpected error entity is invalid", entityType, entity.ID, nil)
 		}
 		newEntityArr = append(newEntityArr, entity)
 	}

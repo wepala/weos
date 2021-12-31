@@ -92,6 +92,27 @@ func TestDomainService_Create(t *testing.T) {
 			t.Fatal("expected no blog to be returned")
 		}
 	})
+	t.Run("Testing create with an invalid payload", func(t *testing.T) {
+		mockBlog := &Blog{
+			ID:  "123",
+			Url: "ww.testBlog.com",
+		}
+		entityType := "Blog"
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting content type to bytes %s", err)
+		}
+		dService := model.NewDomainService(newContext, mockEventRepository)
+		blog, err := dService.Create(newContext, reqBytes, entityType)
+
+		if err == nil {
+			t.Fatalf("expected error creating content type '%s'", err)
+		}
+		if blog != nil {
+			t.Fatal("expected blog to be nil ")
+		}
+	})
+
 }
 
 func TestDomainService_CreateBatch(t *testing.T) {

@@ -17,7 +17,7 @@ type ContentEntity struct {
 	Property interface{}
 }
 
-//checks if the property was added
+//IsValid checks if the property is valid using the IsNull function
 func (w *ContentEntity) IsValid() bool {
 	isValid := true
 	if w.Property == nil {
@@ -28,21 +28,22 @@ func (w *ContentEntity) IsValid() bool {
 	}
 	return isValid
 }
+
+//IsNull checks if the property is nullable and if the value is null
 func (w *ContentEntity) IsNull(name, contentType string) bool {
-	//reader := ds.NewReader(w.Property)
 	temp := strings.Title(name)
 	switch contentType {
 	case "string":
 		newString := w.GetString(temp)
-		if w.Schema.Properties[name].Value.Nullable && newString == "" {
+		if !w.Schema.Properties[name].Value.Nullable && newString == "" {
 			return false
 		}
 	case "number":
-		if w.Schema.Properties[name].Value.Nullable && w.GetNumber(temp) == 0 {
+		if !w.Schema.Properties[name].Value.Nullable && w.GetNumber(temp) == 0 {
 			return false
 		}
 	case "integer":
-		if w.Schema.Properties[name].Value.Nullable && w.GetInteger(temp) == 0 {
+		if !w.Schema.Properties[name].Value.Nullable && w.GetInteger(temp) == 0 {
 			return false
 		}
 	}
@@ -50,7 +51,7 @@ func (w *ContentEntity) IsNull(name, contentType string) bool {
 	return true
 }
 
-//builds properties from the schema
+//FromSchema builds properties from the schema
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
 	w.User.ID = weosContext.GetUser(ctx)
 	w.Schema = ref
@@ -127,7 +128,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 
 }
 
-//builds properties from schema and unmarshall payload into it
+//FromSchemaWithValues builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
 	w.FromSchema(ctx, schema)
 	err := json.Unmarshal(payload, &w.BasicEntity)
@@ -136,10 +137,6 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	}
 	if w.ID == "" {
 		w.ID = ksuid.New().String()
-	}
-	err = json.Unmarshal(payload, &w.Property)
-	if err != nil {
-		return nil, err
 	}
 	event := NewEntityEvent("create", w, w.ID, payload)
 	if err != nil {
@@ -150,6 +147,7 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	return w, w.ApplyChanges([]*Event{event})
 }
 
+//GetString returns the string property value stored of a given the property name
 func (w *ContentEntity) GetString(name string) string {
 	if w.Property == nil {
 		return ""
@@ -162,6 +160,7 @@ func (w *ContentEntity) GetString(name string) string {
 	return reader.GetField(name).String()
 }
 
+//GetInteger returns the integer property value stored of a given the property name
 func (w *ContentEntity) GetInteger(name string) int {
 	if w.Property == nil {
 		return 0
@@ -174,6 +173,7 @@ func (w *ContentEntity) GetInteger(name string) int {
 	return reader.GetField(name).Int()
 }
 
+//GetBool returns the boolean property value stored of a given the property name
 func (w *ContentEntity) GetBool(name string) bool {
 	if w.Property == nil {
 		return false
@@ -186,6 +186,7 @@ func (w *ContentEntity) GetBool(name string) bool {
 	return reader.GetField(name).Bool()
 }
 
+//GetNumber returns the float64 property value stored of a given the property name
 func (w *ContentEntity) GetNumber(name string) float64 {
 	if w.Property == nil {
 		return 0
@@ -198,17 +199,13 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 	return reader.GetField(name).Float64()
 }
 
+//ApplyChanges apply the new changes from payload to the entity
 func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 	for _, change := range changes {
 		w.SequenceNo = change.Meta.SequenceNo
 		switch change.Type {
 		case "create":
-			var payload *ContentEntity
-			err := json.Unmarshal(change.Payload, w)
-			if err != nil {
-				return err
-			}
-			err = json.Unmarshal(change.Payload, &payload)
+			err := json.Unmarshal(change.Payload, w.Property)
 			if err != nil {
 				return err
 			}

@@ -123,5 +123,4 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 3, len(mockEventRepository.PersistCalls()))
 		}
 	})
-
 }
