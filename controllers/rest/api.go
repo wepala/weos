@@ -35,7 +35,7 @@ type RESTAPI struct {
 	Config      *APIConfig
 	e           *echo.Echo
 	PathConfigs map[string]*PathConfig
-	Schemas     map[string]*openapi3.SchemaRef
+	Schemas     map[string]interface{}
 	middlewares map[string]Middleware
 	controllers map[string]Controller
 }
@@ -116,6 +116,11 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	return nil, fmt.Errorf("middleware '%s' not found", name)
 }
 
+//GetSchemas gets the current database schema
+func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
+	return p.projection.Schema, nil
+}
+
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize() error {
 	var err error
@@ -136,17 +141,8 @@ func (p *RESTAPI) Initialize() error {
 		return err
 	}
 
-	s := projections.Service{}
-	structs, err := s.CreateSchema(context.Background(), p.Schemas)
-	if err != nil {
-		return err
-	}
-	for name, s := range structs {
-		fmt.Printf("struct %s: %v", name, s)
-	}
-
 	//setup projections
-	p.projection, err = projections.NewProjection(structs, p.Application)
+	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
 	if err != nil {
 		return err
 	}
@@ -208,7 +204,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 	}
 
 	//get the database schema
-	api.Schemas = swagger.Components.Schemas
+	api.Schemas = CreateSchema(context.Background(), e, swagger)
 
 	//parse the main config
 	var config *APIConfig

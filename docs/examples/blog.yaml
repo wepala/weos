@@ -183,7 +183,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Blog"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Blog"
   /blogs/{id}:
     get:
       parameters:
@@ -193,7 +195,16 @@ paths:
             type: string
           required: true
           description: blog id
-          x-property: Blog.id
+        - in: query
+          name: sequence_no
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: use_entity_id
+          schema:
+            type: boolean
+          required: false
       summary: Get Blog by id
       operationId: Get Blog
       responses:
@@ -203,6 +214,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
+        304:
+          description: Not modified
+        400:
+          description: Item doesn't exist
+
     put:
       parameters:
         - in: path
@@ -226,6 +242,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
+        400:
+          description: Request is malformed
+        404:
+          description: Item doesn't exist
+        412:
+          description: The item is stale
+        422:
+          description: Invalid content data sent
+
     delete:
       parameters:
         - in: path
@@ -304,7 +329,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Post"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
 
   /posts/{postId}:
     get:
@@ -400,7 +427,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Category"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
 
   /categories/{categoryId}:
     get:
@@ -495,7 +524,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Author"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Author"
 
   /authors/{authorId}:
     get:

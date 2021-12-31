@@ -1,6 +1,6 @@
-# Feature: Run API
+# Feature: Get API Details
 
-#   The API should be able to run across many platforms
+#   The OpenAPI details can be made available via the API
 
 #   Background:
 
@@ -94,73 +94,52 @@
 #     """
 
 
-#   Scenario: Run on mac intel
+#   Scenario: View the api via the Swagger UI
 
-#     Given that the "mac" binary is generated
-#     And the binary is run with the specification
-#     And request body
+#     Developers can see and test the api using the [Swagger UI](https://swagger.io/tools/swagger-ui/) by setting the
+#     APIDiscovery handler
+
+#     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
 #     """
-#     {
-#       "title: "Test1",
-#       "description": "Lorem Ipsum"
-#      }
+#     /api:
+#       get:
+#         operationId: Get API Details
+#         x-controller: APIDiscovery
+#         responses:
+#           200:
+#             description: API Details
+#             content:
+#               application/html:
+#                 schema:
+#                   type: string
 #     """
+#     And the "OpenAPI 3.0" specification is parsed
+#     And a "GET" route should be added to the api
 #     When the "POST" endpoint "/blog" is hit
 #     Then a 201 response should be returned
+#     And the swagger ui should be shown
 
-#   Scenario: Run on linux 32 bit
+#   Scenario: Get the api info as json
 
-#     Given that the "linux32" binary is generated
-#     And the binary is run with the specification
-#     And request body
+#     Developers can get the api details as a json response. This make it easier to programmatically get schema information.
+#     To get the json response  the response type should be set to application/json
+
+#     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
 #     """
-#     {
-#       "title: "Test1",
-#       "description": "Lorem Ipsum"
-#      }
+#     /api:
+#       get:
+#         operationId: Get API Details
+#         x-controller: APIDiscovery
+#         responses:
+#           200:
+#             description: API Details
+#             content:
+#               application/json:
+#                 schema:
+#                   type: string
 #     """
+#     And the "OpenAPI 3.0" specification is parsed
+#     And a "GET" route should be added to the api
 #     When the "POST" endpoint "/blog" is hit
 #     Then a 201 response should be returned
-
-
-#   Scenario: Run on linux 64 bit
-
-#     Given that the "linux64" binary is generated
-#     And the binary is run with the specification
-#     And request body
-#     """
-#     {
-#       "title: "Test1",
-#       "description": "Lorem Ipsum"
-#      }
-#     """
-#     When the "POST" endpoint "/blog" is hit
-#     Then a 201 response should be returned
-
-#   Scenario: Run on Windows 32 bit
-
-#     Given that the "windows32" binary is generated
-#     And the binary is run with the specification
-#     And request body
-#     """
-#     {
-#       "title: "Test1",
-#       "description": "Lorem Ipsum"
-#      }
-#     """
-#     When the "POST" endpoint "/blog" is hit
-#     Then a 201 response should be returned
-
-#   Scenario: Run on Windows 64 bit
-
-#     Given that the "widnows64" binary is generated
-#     And the binary is run with the specification
-#     And request body
-#     """
-#     {
-#       "title: "Test1",
-#       "description": "Lorem Ipsum"
-#      }
-#     """
-#     When the "POST" endpoint "/blog" is hit
-#     Then a 201 response should be returned
+#     And the api as json should be shown

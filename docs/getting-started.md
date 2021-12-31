@@ -1,16 +1,11 @@
-# WeOS Service
+---
+layout: default
+title: Getting Started
+nav_order: 2
+has_children: false
+---
+# Getting Started
 
-WeOS is an open-source system for creating APIs and applications. We've made it easy to get started with the microservice
-architecture by providing APIs that combine an [OpenAPI specification](https://spec.openapis.org/oas/latest.html) and an
-executable (no Docker required). You can also create sophisticated services using our pre-built controllers and
-middleware. No matter what you're trying to build (mobile app, web app, SaaS), our APIs can help.
-
-![Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database!](./docs/assets/images/weos-microservice-layout.png "Basic WeOS microservice layout")
-
-![GitHub branch checks state](https://img.shields.io/github/checks-status/wepala/weos/dev) ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/wepala/weos)   
-Check out the [example section](https://wepala.github.io/weos-service/examples) to get inspiration for the types of APIs and applications you can create with WeOS.
-
-## Quick Start
 1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos-service/examples))
 2. Download the WeOS binary for your platform
 3. Run the API
@@ -39,9 +34,3 @@ We're doing all we can to make it easy to get started with microservices. In add
 needed to make excellent APIs, we also offer an environment to deploy and test them in. You can create an account on the
 WeOS cloud to deploy your services. We also provide a catalog of APIs already running in the cloud so that developers
 can focus on making the user the interface for their application
-
-## What's Next
-1. How Does WeOS Work?
-2. Creating an OpenAPI Spec
-3. Advanced API building
-4. Deploying you API in WeOS.cloud
