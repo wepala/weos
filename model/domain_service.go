@@ -11,6 +11,7 @@ type DomainService struct {
 	eventRepository EventRepository
 }
 
+//Create is used for a single payload. It creates a new entity via the FromSchemaWithValue func and then returns the entity
 func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
 
 	contentType := weosContext.GetContentType(ctx)
@@ -24,6 +25,7 @@ func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, ent
 	return newEntity, nil
 }
 
+//CreateBatch is used for an array of payloads. It uses a for loop to create new entities and append it to an array.
 func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage, entityType string) ([]*ContentEntity, error) {
 	var titems []interface{}
 	err := json.Unmarshal(payload, &titems)

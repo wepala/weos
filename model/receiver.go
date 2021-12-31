@@ -10,6 +10,7 @@ type Receiver struct {
 	domainService *DomainService
 }
 
+//Create is used for a single payload. It takes in the command and context which is used to dispatch and the persist the incoming request.
 func (r *Receiver) Create(ctx context.Context, command *Command) error {
 
 	entity, err := r.domainService.Create(ctx, command.Payload, command.Metadata.EntityType)
@@ -23,6 +24,7 @@ func (r *Receiver) Create(ctx context.Context, command *Command) error {
 	return nil
 }
 
+//CreateBatch is used for an array of payloads. It takes in the command and context which is used to dispatch and the persist the incoming request.
 func (r *Receiver) CreateBatch(ctx context.Context, command *Command) error {
 	entities, err := r.domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {

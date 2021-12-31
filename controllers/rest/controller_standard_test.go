@@ -22,6 +22,7 @@ import (
 type Blog struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	Url         string `json:"url"`
 }
 
 func TestStandardControllers_Create(t *testing.T) {

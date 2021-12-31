@@ -33,7 +33,6 @@ func TestDomainService_Create(t *testing.T) {
 
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 		mockBlog := &Blog{
-			ID:          "1",
 			Title:       "First blog",
 			Description: "Description testing 1",
 			Url:         "www.TestBlog.com",
@@ -54,8 +53,8 @@ func TestDomainService_Create(t *testing.T) {
 		if blog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if blog.ID != mockBlog.ID {
-			t.Fatalf("expected blog id to be %s got %s", mockBlog.ID, blog.ID)
+		if blog.ID == "" {
+			t.Fatalf("expected there to be generated blog id: got %s", blog.ID)
 		}
 		if blog.GetString("Title") != mockBlog.Title {
 			t.Fatalf("expected blog title to be %s got %s", mockBlog.Title, blog.GetString("Title"))
@@ -70,7 +69,6 @@ func TestDomainService_Create(t *testing.T) {
 
 	t.Run("Testing with valid ID, Description but no Title (Required field)", func(t *testing.T) {
 		mockBlog := &Blog{
-			ID:          "2",
 			Title:       "",
 			Description: "Description testing 2",
 			Url:         "www.TestBlog.com",
@@ -94,7 +92,6 @@ func TestDomainService_Create(t *testing.T) {
 	})
 	t.Run("Testing create with an invalid payload", func(t *testing.T) {
 		mockBlog := &Blog{
-			ID:  "123",
 			Url: "ww.testBlog.com",
 		}
 		entityType := "Blog"
@@ -140,9 +137,9 @@ func TestDomainService_CreateBatch(t *testing.T) {
 
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 		mockBlogs := &[3]Blog{
-			{ID: "1", Title: "Blog 1", Description: "Description testing 1", Url: "www.TestBlog1.com"},
-			{ID: "2", Title: "Blog 2", Description: "Description testing 2", Url: "www.TestBlog2.com"},
-			{ID: "3", Title: "Blog 3", Description: "Description testing 3", Url: "www.TestBlog3.com"},
+			{Title: "Blog 1", Description: "Description testing 1", Url: "www.TestBlog1.com"},
+			{Title: "Blog 2", Description: "Description testing 2", Url: "www.TestBlog2.com"},
+			{Title: "Blog 3", Description: "Description testing 3", Url: "www.TestBlog3.com"},
 		}
 		entityType := "Blog"
 
@@ -162,8 +159,8 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			if blogs[i] == nil {
 				t.Fatal("expected blog to be returned")
 			}
-			if blogs[i].ID != mockBlogs[i].ID {
-				t.Fatalf("exppected blog id to be %s got %s", mockBlogs[i].ID, blogs[i].ID)
+			if blogs[i].ID == "" {
+				t.Fatalf("expected there to be generated blog id: got %s", blogs[i].ID)
 			}
 		}
 	})
