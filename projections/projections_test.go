@@ -13,6 +13,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/gommon/log"
 	"github.com/ory/dockertest/v3"
+	"github.com/wepala/weos-service/controllers/rest"
 	weos "github.com/wepala/weos-service/model"
 	"github.com/wepala/weos-service/projections"
 )
@@ -213,7 +214,8 @@ components:
 			t.Fatal(err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), app, swagger.Components.Schemas)
+		schemes := rest.CreateSchema(context.Background(), nil, swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,7 +319,8 @@ components:
 			t.Fatal(err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), app, swagger.Components.Schemas)
+		schemes := rest.CreateSchema(context.Background(), nil, swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
