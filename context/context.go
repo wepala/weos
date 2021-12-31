@@ -1,6 +1,7 @@
 package context
 
 import (
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"golang.org/x/net/context"
 )
@@ -16,10 +17,24 @@ const ACCOUNT_ID ContextKey = "ACCOUNT_ID"
 const USER_ID ContextKey = "USER_ID"
 const LOG_LEVEL ContextKey = "LOG_LEVEL"
 const REQUEST_ID ContextKey = "REQUEST_ID"
+const CONTENT_TYPE ContextKey = "_contentType"
 const FILTERS ContextKey = "_filters"
 const SORTS ContextKey = "_sorts"
 
+//ContentType this makes it easier to access the content type information in the context
+type ContentType struct {
+	Name   string           `json:"name"`
+	Schema *openapi3.Schema `json:"fields"`
+}
+
 //---- Context Getters
+
+func GetContentType(ctx context.Context) *ContentType {
+	if value, ok := ctx.Value(CONTENT_TYPE).(*ContentType); ok {
+		return value
+	}
+	return nil
+}
 
 //Get account info from context
 func GetAccount(ctx context.Context) string {

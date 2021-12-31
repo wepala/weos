@@ -115,6 +115,7 @@ func (n *NumericProperty) FromLabelAndValue(label string, value float32, isRequi
 }
 
 type AmorphousEntity struct {
+	AggregateRoot
 	*BasicEntity
 	Properties map[string]Property `json:"properties"`
 }
