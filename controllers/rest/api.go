@@ -35,7 +35,7 @@ type RESTAPI struct {
 	Config      *APIConfig
 	e           *echo.Echo
 	PathConfigs map[string]*PathConfig
-	Schemas     map[string]*openapi3.SchemaRef
+	Schemas     map[string]interface{}
 	middlewares map[string]Middleware
 	controllers map[string]Controller
 }
@@ -203,7 +203,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 	}
 
 	//get the database schema
-	api.Schemas = swagger.Components.Schemas
+	api.Schemas = CreateSchema(context.Background(), e, swagger)
 
 	//parse the main config
 	var config *APIConfig
