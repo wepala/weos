@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
@@ -54,21 +53,12 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 }
 
 //NewProjection creates an instance of the projection
-func NewProjection(ctx context.Context, application weos.Service, schemas map[string]*openapi3.SchemaRef) (*GORMProjection, error) {
+func NewProjection(ctx context.Context, application weos.Service, schemas map[string]interface{}) (*GORMProjection, error) {
 
-	structs, err := CreateSchema(ctx, schemas)
-	if err != nil {
-		return nil, err
-	}
-	dbStructs := make(map[string]interface{})
-
-	for name, s := range structs {
-		dbStructs[name] = s
-	}
 	projection := &GORMProjection{
 		db:     application.DB(),
 		logger: application.Logger(),
-		Schema: dbStructs,
+		Schema: schemas,
 	}
 	application.AddProjection(projection)
 	return projection, nil

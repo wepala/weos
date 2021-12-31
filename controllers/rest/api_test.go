@@ -71,7 +71,7 @@ components:
 		if err != nil {
 			t.Errorf("unexpected error: '%s'", err)
 		}
-		if !tapi.Application.DB().Migrator().HasTable("category") {
+		if !tapi.Application.DB().Migrator().HasTable("Category") {
 			t.Errorf("expected categories table to exist")
 		}
 	})
@@ -88,9 +88,7 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error '%s'", err)
 	}
-	mockBlog := &Blog{
-		Title: "Test Blog",
-	}
+	mockBlog := &Blog{Title: "Test Blog", Url: "www.testBlog.com"}
 	reqBytes, err := json.Marshal(mockBlog)
 	if err != nil {
 		t.Fatalf("error setting up request %s", err)
@@ -117,9 +115,9 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 		t.Fatalf("unexpected error '%s'", err)
 	}
 	mockBlog := &[3]Blog{
-		{Title: "Blog 1"},
-		{Title: "Blog 2"},
-		{Title: "Blog 3"},
+		{Title: "Blog 1", Url: "www.testBlog1.com"},
+		{Title: "Blog 2", Url: "www.testBlog2.com"},
+		{Title: "Blog 3", Url: "www.testBlog3.com"},
 	}
 	reqBytes, err := json.Marshal(mockBlog)
 	if err != nil {

@@ -35,7 +35,7 @@ type RESTAPI struct {
 	Config      *APIConfig
 	e           *echo.Echo
 	PathConfigs map[string]*PathConfig
-	Schemas     map[string]*openapi3.SchemaRef
+	Schemas     map[string]interface{}
 	middlewares map[string]Middleware
 	controllers map[string]Controller
 }
@@ -135,10 +135,10 @@ func (p *RESTAPI) Initialize() error {
 	}
 
 	//enable module
-	// err = module.Initialize(a.Service)
-	// if err != nil {
-	// 	return err
-	// }
+	err = model.Initialize(p.Application)
+	if err != nil {
+		return err
+	}
 
 	//setup projections
 	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
@@ -203,7 +203,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 	}
 
 	//get the database schema
-	api.Schemas = swagger.Components.Schemas
+	api.Schemas = CreateSchema(context.Background(), e, swagger)
 
 	//parse the main config
 	var config *APIConfig
