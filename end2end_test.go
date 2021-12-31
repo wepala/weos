@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -434,6 +435,13 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 			}
 		case "uint":
 			if field.Interface() != uint(0) {
+				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
+			}
+		case "datetime":
+			dateTime := field.Time()
+			if dateTime != *new(time.Time) {
+				fmt.Printf("date interface is '%v'", field.Interface())
+				fmt.Printf("empty date interface is '%v'", new(time.Time))
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
 			}
 		default:
