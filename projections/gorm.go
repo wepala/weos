@@ -1,9 +1,6 @@
 package projections
 
 import (
-	"fmt"
-	"reflect"
-
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
@@ -32,20 +29,47 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	var err error
-	for name, s := range p.Schema {
-		fmt.Print(reflect.TypeOf(s))
-		if !p.db.Migrator().HasTable(name) {
-			err = p.db.Migrator().CreateTable(s)
-			if err != nil {
-				return err
-			}
-			err = p.db.Migrator().RenameTable("", name)
-			if err != nil {
-				return err
-			}
-		}
+	var tables []interface{}
+	for _, s := range p.Schema {
+		tables = append(tables, s)
+		//fmt.Print(reflect.TypeOf(s))
+		//if !p.db.Migrator().HasTable(name) {
+		//	err = p.db.Migrator().CreateTable(s)
+		//	if err != nil {
+		//		return err
+		//	}
+		//	err = p.db.Migrator().RenameTable("", name)
+		//	if err != nil {
+		//		return err
+		//	}
+		//}
 
 	}
+	//p.db.Statement = &gorm.Statement{Table: "Blog", ConnPool: p.db.ConnPool, DB: p.db}
+	err = p.db.Callback().Create().Before("gorm:create").Register("table_name", func(db *gorm.DB) {
+		if db.Statement.Table == "" { // if the table name is empty then let's infer from a property on the object
+			for _, field := range db.Statement.Schema.Fields {
+				if field.Name == "table_alias" {
+					// Get value from field
+					if fieldValue, isZero := field.ValueOf(db.Statement.ReflectValue); !isZero {
+						if value, ok := fieldValue.(string); ok {
+							db.Statement.Table = value
+						}
+					}
+
+				}
+			}
+		}
+	})
+	if err != nil {
+		return err
+	}
+	//err = p.db.Migrator().CreateTable(tables[0])
+	//if err != nil {
+	//	return err
+	//}
+
+	err = p.db.AutoMigrate(tables...)
 	return err
 }
 

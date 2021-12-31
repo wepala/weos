@@ -10,7 +10,7 @@ type Projection interface {
 }
 
 type DefaultProjection struct {
-	TableAlias string `json:"table_alias" gorm:"->"`
+	TableAlias string `json:"table_alias"`
 }
 
 func (d DefaultProjection) TableName() string {
