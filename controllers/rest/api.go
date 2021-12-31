@@ -116,6 +116,10 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	return nil, fmt.Errorf("middleware '%s' not found", name)
 }
 
+func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
+	return p.projection.Schema, nil
+}
+
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize() error {
 	var err error
@@ -136,17 +140,8 @@ func (p *RESTAPI) Initialize() error {
 	// 	return err
 	// }
 
-	s := projections.Service{}
-	structs, err := s.CreateSchema(context.Background(), p.Schemas)
-	if err != nil {
-		return err
-	}
-	for name, s := range structs {
-		fmt.Printf("struct %s: %v", name, s)
-	}
-
 	//setup projections
-	p.projection, err = projections.NewProjection(structs, p.Application)
+	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
 	if err != nil {
 		return err
 	}
