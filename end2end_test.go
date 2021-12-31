@@ -3,7 +3,11 @@ package main_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -22,6 +26,12 @@ var Developer *User
 var Content *ContentType
 var errors error
 var buf bytes.Buffer
+var payload ContentType
+var rec *httptest.ResponseRecorder
+var db *sql.DB
+var requests map[string]map[string]interface{}
+var currScreen string
+var contentTypeID map[string]bool
 
 type User struct {
 	Name      string
@@ -33,12 +43,19 @@ type Property struct {
 	Description string
 }
 
+type Blog struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
 type ContentType struct {
 	Type       string              `yaml:"type"`
 	Properties map[string]Property `yaml:"properties"`
 }
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
+	requests = map[string]map[string]interface{}{}
+	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
@@ -85,8 +102,11 @@ components:
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	requests = map[string]map[string]interface{}{}
+	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	errors = nil
+	rec = httptest.NewRecorder()
 	os.Remove("test.db")
 	openAPI = `openapi: 3.0.3
 info:
@@ -200,7 +220,6 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
-	//TODO this should be a check on a mock logger to see if the warning was logged (it doesn't return an error since an endpoint with no handler could be deliberate)
 	if !strings.Contains(buf.String(), "no handler set") {
 		fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
@@ -227,8 +246,8 @@ func allFieldsAreNullableByDefault() error {
 }
 
 func anErrorShouldBeReturned() error {
-	if errors == nil {
-		return fmt.Errorf("expected an error.  got none.")
+	if rec.Result().StatusCode == http.StatusCreated && errors == nil {
+		return fmt.Errorf("expected error but got status '%s'", rec.Result().Status)
 	}
 	return nil
 }
@@ -237,8 +256,10 @@ func blogsInTheApi(arg1 *godog.Table) error {
 	return godog.ErrPending
 }
 
-func entersInTheField(arg1, arg2, arg3 string) error {
-	return godog.ErrPending
+func entersInTheField(userName, value, field string) error {
+
+	requests[currScreen][strings.ToLower(field)] = value
+	return nil
 }
 
 func hasAnAccountWithId(name, accountID string) error {
@@ -246,28 +267,122 @@ func hasAnAccountWithId(name, accountID string) error {
 	return nil
 }
 
-func isOnTheCreateScreen(arg1, arg2 string) error {
-	return godog.ErrPending
+func isOnTheCreateScreen(userName, contentType string) error {
+
+	requests[strings.ToLower(contentType+"_create")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_create")
+	return nil
 }
 
 func isUsedToModelTheService(arg1 string) error {
 	return nil
 }
 
-func theIsCreated(arg1 string, arg2 *godog.Table) error {
-	return godog.ErrPending
+func theIsCreated(contentType string, details *godog.Table) error {
+	if rec.Result().StatusCode != http.StatusCreated {
+		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
+	}
+
+	//var payloadBuilder dynamicstruct.Builder
+	//payloadBuilder = dynamicstruct.NewStruct()
+	//
+	////Add fields to the dynamic struct
+	//for key, value := range requests[currScreen] {
+	//	payloadBuilder.AddField(strings.Title(key), reflect.TypeOf(value), strcase.SnakeCase(key))
+	//}
+	////Builds the dynamic struct
+	//instance := payloadBuilder.Build().New()
+	//API.Application.DB().Find(instance)
+	//
+	////TODO: Get the table values into a "blog" dynamic struct for comparison
+	//compareStruct := payloadBuilder.Build().New()
+	//compareValues := make(map[string]interface{})
+	//head := details.Rows[0].Cells
+	//for i := 1; i < len(details.Rows); i++ {
+	//	for n, cell := range details.Rows[i].Cells {
+	//		compareValues[head[n].Value] = cell.Value
+	//	}
+	//}
+	//
+	//data, err := json.Marshal(compareValues)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//err = json.Unmarshal(data, &compareStruct)
+	//if err != nil {
+	//	return err
+	//}
+
+	//TODO: Then compare these cell values against instance values
+
+	head := details.Rows[0].Cells
+
+	switch strings.ToLower(contentType) {
+	case "blog":
+		compareBlog := &Blog{}
+
+		for i := 1; i < len(details.Rows); i++ {
+			for n, cell := range details.Rows[i].Cells {
+				switch head[n].Value {
+				case "title":
+					compareBlog.Title = cell.Value
+				case "description":
+					compareBlog.Description = cell.Value
+				}
+			}
+		}
+
+		blog := &Blog{}
+		API.Application.DB().Find(blog)
+
+		if blog.Title != compareBlog.Title {
+			return fmt.Errorf("expected blog title %s, got %s", compareBlog.Title, blog.Title)
+		}
+		if blog.Description != compareBlog.Description {
+			return fmt.Errorf("expected blog description %s, got %s", compareBlog.Description, blog.Description)
+		}
+
+		contentTypeID[strings.ToLower(contentType)] = true
+	}
+	return nil
 }
 
-func theIsSubmitted(arg1 string) error {
-	return godog.ErrPending
+func theIsSubmitted(contentType string) error {
+	//Used to store the key/value pairs passed in the scenario
+	req := make(map[string]interface{})
+	for key, value := range requests[currScreen] {
+		req[key] = value
+	}
+
+	reqBytes, _ := json.Marshal(req)
+	body := bytes.NewReader(reqBytes)
+	request := httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
+	request = request.WithContext(context.TODO())
+	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
 }
 
-func theShouldHaveAnId(arg1 string) error {
-	return godog.ErrPending
+func theShouldHaveAnId(contentType string) error {
+
+	if !contentTypeID[strings.ToLower(contentType)] {
+		return fmt.Errorf("expected the " + contentType + " to have an ID")
+	}
+	return nil
 }
 
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
+	e = echo.New()
+	os.Remove("test.db")
+	API = api.RESTAPI{}
+	_, err := api.Initialize(e, &API, openAPI)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
