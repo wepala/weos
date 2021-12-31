@@ -353,7 +353,10 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		if tresult.Error == nil {
+			t.Errorf("expected an error because the primary key was not set")
+		}
 
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
