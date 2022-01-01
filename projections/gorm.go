@@ -34,22 +34,7 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 		tables = append(tables, s)
 	}
 
-	err = p.db.Scopes(func(db *gorm.DB) *gorm.DB {
-		if db.Statement.Schema != nil {
-			for _, field := range db.Statement.Schema.Fields {
-				if field.Name == "Table" {
-					// Get value from field
-					if fieldValue, isZero := field.ValueOf(db.Statement.ReflectValue); !isZero {
-						if value, ok := fieldValue.(string); ok {
-							return db.Table(value)
-						}
-					}
-
-				}
-			}
-		}
-		return db
-	}).Migrator().AutoMigrate(tables...)
+	err = p.db.Migrator().AutoMigrate(tables...)
 	return err
 }
 

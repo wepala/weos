@@ -105,7 +105,7 @@ func newSchema(ref *openapi3.Schema, tableName string, logger echo.Logger) (inte
 			"table_alias": "`+tableName+`"
 		}`), &inst)
 	if err != nil {
-		logger.Fatalf("unable to set the table name '%s'", err)
+		logger.Errorf("unable to set the table name '%s'", err)
 	}
 
 	return inst, relations
