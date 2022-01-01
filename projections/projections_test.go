@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"github.com/labstack/echo/v4"
 	"os"
 	"strconv"
 	"strings"
@@ -214,7 +215,7 @@ components:
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), nil, swagger)
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
 		p, err := projections.NewProjection(context.Background(), app, schemes)
 		if err != nil {
 			t.Fatal(err)
@@ -255,7 +256,7 @@ components:
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
 
-		gormDB.Migrator().DropTable("Blog")
+		//gormDB.Migrator().DropTable("Blog")
 
 		//check for auto id
 		if result[0]["id"].(int64) != 1 {
@@ -367,7 +368,7 @@ components:
 			t.Fatal("expectedd no blogs to be created with a missing id field")
 		}
 
-		gormDB.Migrator().DropTable("Blog")
+		//gormDB.Migrator().DropTable("Blog")
 	})
 }
 

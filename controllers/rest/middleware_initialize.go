@@ -23,7 +23,7 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 	schemas := s.Components.Schemas
 	for name, scheme := range schemas {
 		var instance interface{}
-		instance, relations[name] = newSchema(scheme.Value, name)
+		instance, relations[name] = newSchema(scheme.Value, name, e.Logger)
 		structs[name] = instance
 	}
 	return structs
@@ -31,7 +31,7 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 }
 
 //creates a new schema interface instance
-func newSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]string) {
+func newSchema(ref *openapi3.Schema, tableName string, logger echo.Logger) (interface{}, map[string]string) {
 	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
 
 	primaryKeys := []string{}
@@ -101,11 +101,12 @@ func newSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]
 
 	inst := instance.Build().New()
 
-	json.Unmarshal([]byte(`
-		{
-			"table_alias": "`+tableName+`",
-		}
-	`), &inst)
+	err := json.Unmarshal([]byte(`{
+			"table_alias": "`+tableName+`"
+		}`), &inst)
+	if err != nil {
+		logger.Fatalf("unable to set the table name '%s'", err)
+	}
 
 	return inst, relations
 }
