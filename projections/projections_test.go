@@ -256,7 +256,7 @@ components:
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
 
-		//gormDB.Migrator().DropTable("Blog")
+		gormDB.Migrator().DropTable("Blog")
 
 		//check for auto id
 		if result[0]["id"].(int64) != 1 {
@@ -368,7 +368,7 @@ components:
 			t.Fatal("expectedd no blogs to be created with a missing id field")
 		}
 
-		//gormDB.Migrator().DropTable("Blog")
+		gormDB.Migrator().DropTable("Blog")
 	})
 }
 
