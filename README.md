@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://weos.cloud">
-    <img src="./docs/assets/images/logo.png" width="318px" alt="WeOS logo" />
+    <img src="./docs/assets/images/logo.png#gh-light-mode-only" width="318px" alt="WeOS logo" />
   </a>
 </p>
 
