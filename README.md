@@ -18,9 +18,8 @@ executable (no Docker required)</p>
 
 ## Quick Start
 1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos-service/examples))
-2. Download the WeOS binary for your platform
+2. [Download the WeOS binary](https://github.com/wepala/weos-service/releases) for your platform
 3. Run the API
-4. Deploy to WeOS Cloud (optional)
 
 ## Setup OpenAPI Specification
 OpenAPI specifications power WeOS services. For simple APIs that are basic create, read, update, delete functionality
@@ -40,12 +39,11 @@ the `--port` switch), and it will try to use a specification file named `api.yam
 `--spec` switch). We set up the example APIs to use SQLite as the data store, but this too can be changed to use
 Postgresql, MySQL, or SQLServer.
 
-## Deploy to WeOS Cloud
 We're doing all we can to make it easy to get started with microservices.In addition to making it easy to run create and 
 run APIs on your own machines; we also provide a catalog of APIs already running in the cloud so that developers can 
 focus on making the user the interface for their application
 
 ## What's Next
-1. How Does WeOS Work?
+1. [Learn more about WeOS](https://github.com/wepala/weos-service)
 2. Creating an OpenAPI Spec
 3. Advanced API building
