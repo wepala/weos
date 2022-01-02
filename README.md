@@ -9,9 +9,10 @@
 executable (no Docker required)</p>
 <p align="center"><a href="https://weos.dev/demo">See Example App</a></p>
 <br />
-
-
-![Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database!](./docs/assets/images/weos-microservice-layout.png "Basic WeOS microservice layout")
+<p align="center">
+    <img src="./docs/assets/images/weos-microservice-layout-dark.png#gh-dark-mode-only" width="603" alt="Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database" title="Basic WeOS microservice layout" />  
+    <img src="./docs/assets/images/weos-microservice-layout.png#gh-light-mode-only" width="603" alt="Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database" title="Basic WeOS microservice layout" />
+</p>
 
 ![GitHub branch checks state](https://img.shields.io/github/checks-status/wepala/weos/dev) ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/wepala/weos)   
 Check out the [example section](https://wepala.github.io/weos-service/examples) to get inspiration for the types of APIs and applications you can create with WeOS.
