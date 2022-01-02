@@ -44,6 +44,6 @@ run APIs on your own machines; we also provide a catalog of APIs already running
 focus on making the user the interface for their application
 
 ## What's Next
-1. [Learn more about WeOS](https://github.com/wepala/weos-service)
+1. [Learn more about WeOS](https://wepala.github.io/weos-service)
 2. Creating an OpenAPI Spec
 3. Advanced API building
