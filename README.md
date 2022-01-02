@@ -1,9 +1,15 @@
-# WeOS Service
+<p align="center">
+  <a href="https://weos.cloud">
+    <img src="./docs/assets/images/logo.png" width="318px" alt="WeOS logo" />
+  </a>
+</p>
 
-WeOS is an open-source system for creating APIs and applications. We've made it easy to get started with the microservice
-architecture by providing APIs that combine an [OpenAPI specification](https://spec.openapis.org/oas/latest.html) and an
-executable (no Docker required). You can also create sophisticated services using our pre-built controllers and
-middleware. No matter what you're trying to build (mobile app, web app, SaaS), our APIs can help.
+<h3 align="center">Open-Source API Platform for building Apps Quickly</h3>
+<p align="center">Get started building your app using microservices that combine an <a href="https://spec.openapis.org/oas/latest.html">OpenAPI specification</a> and an
+executable (no Docker required)</p>
+<p align="center"><a href="https://weos.dev/demo">See Example App</a></p>
+<br />
+
 
 ![Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database!](./docs/assets/images/weos-microservice-layout.png "Basic WeOS microservice layout")
 
