@@ -17,7 +17,7 @@ executable (no Docker required)</p>
 ![GitHub branch checks state](https://img.shields.io/github/checks-status/wepala/weos/dev) ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/wepala/weos)
 
 ## Quick Start
-1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos-service/examples))
+1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos/examples))
 2. [Download the WeOS binary](https://github.com/wepala/weos-service/releases) for your platform
 3. Run the API
 
@@ -44,6 +44,6 @@ run APIs on your own machines; we also provide a catalog of APIs already running
 focus on making the user the interface for their application
 
 ## What's Next
-1. [Learn more about WeOS](https://wepala.github.io/weos-service)
+1. [Learn more about WeOS](https://wepala.github.io/weos)
 2. Creating an OpenAPI Spec
 3. Advanced API building
