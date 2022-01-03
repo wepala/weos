@@ -116,6 +116,7 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	return nil, fmt.Errorf("middleware '%s' not found", name)
 }
 
+//GetSchemas gets the current database schema
 func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 	return p.projection.Schema, nil
 }
