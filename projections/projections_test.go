@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"github.com/labstack/echo/v4"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/gommon/log"
@@ -163,7 +164,7 @@ func TestMain(t *testing.M) {
 
 func TestProjections_InitilizeBasicTable(t *testing.T) {
 
-	t.Run("Create basic table with no speecified primary key", func(t *testing.T) {
+	t.Run("Create basic table with no specified primary key", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -173,30 +174,6 @@ servers:
   - url: https://prod1.weos.sh/blog/dev
     description: WeOS Dev
   - url: https://prod1.weos.sh/blog/v1
-x-weos-config:
-  logger:
-    level: warn
-    report-caller: true
-    formatter: json
-  database:
-    driver: sqlite3
-    database: test.db
-  event-source:
-    - title: default
-      driver: service
-      endpoint: https://prod1.weos.sh/events/v1
-    - title: event
-      driver: sqlite3
-      database: test.db
-  databases:
-    - title: default
-      driver: sqlite3
-      database: test.db
-  rest:
-    middleware:
-      - RequestID
-      - Recover
-      - ZapLogger
 components:
   schemas:
     Blog:
@@ -269,6 +246,7 @@ components:
 		gormDB.Table("Blog").Find(&result)
 
 		gormDB.Migrator().DropTable("Blog")
+		gormDB.Migrator().DropTable("Post")
 
 		//check for auto id
 		if result[0]["id"].(int64) != 1 {
@@ -282,34 +260,6 @@ info:
   title: Blog
   description: Blog example
   version: 1.0.0
-servers:
-  - url: https://prod1.weos.sh/blog/dev
-    description: WeOS Dev
-  - url: https://prod1.weos.sh/blog/v1
-x-weos-config:
-  logger:
-    level: warn
-    report-caller: true
-    formatter: json
-  database:
-    driver: sqlite3
-    database: test.db
-  event-source:
-    - title: default
-      driver: service
-      endpoint: https://prod1.weos.sh/events/v1
-    - title: event
-      driver: sqlite3
-      database: test.db
-  databases:
-    - title: default
-      driver: sqlite3
-      database: test.db
-  rest:
-    middleware:
-      - RequestID
-      - Recover
-      - ZapLogger
 components:
   schemas:
     Blog:
