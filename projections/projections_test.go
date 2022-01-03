@@ -207,6 +207,14 @@ components:
          description: blog title
        description:
          type: string
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
 `
 
 		loader := openapi3.NewSwaggerLoader()
@@ -229,6 +237,10 @@ components:
 		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		if !gormDB.Migrator().HasTable("Post") {
+			t.Fatal("expected to get a table 'Post'")
 		}
 
 		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
