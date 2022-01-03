@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"github.com/labstack/echo/v4"
 	"os"
 	"strconv"
 	"strings"
@@ -214,7 +215,7 @@ components:
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), nil, swagger)
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
 		p, err := projections.NewProjection(context.Background(), app, schemes)
 		if err != nil {
 			t.Fatal(err)
@@ -319,7 +320,7 @@ components:
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), nil, swagger)
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
 		p, err := projections.NewProjection(context.Background(), app, schemes)
 		if err != nil {
 			t.Fatal(err)
