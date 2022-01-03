@@ -19,13 +19,12 @@ Feature: Create Content Types
               type: string
             description:
               type: string
-
     """
-
+  
   Scenario: Declare basic content type
 
-    A simple content type is one where the properties are primitive types. If there is no identifier specified one will
-    be created by default
+  A simple content type is one where the properties are primitive types. If there is no identifier specified one will
+  be created by default
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
@@ -37,7 +36,6 @@ Feature: Create Content Types
               description: blog title
             description:
               type: string
-
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
@@ -58,7 +56,7 @@ Feature: Create Content Types
 
   Scenario: Declare a content type with the identifier explicitly declared
 
-    Identifiers are used to configure primary keys in the projection. Multiple fields can be part of the identifiers
+  Identifiers are used to configure primary keys in the projection. Multiple fields can be part of the identifiers
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
@@ -74,7 +72,6 @@ Feature: Create Content Types
           x-identifier:
             - guid
             - title
-
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
