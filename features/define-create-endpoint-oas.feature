@@ -55,12 +55,30 @@ Feature: Create content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-      /blog:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog info that is submitted
-            required: true
+    /blog:
+      post:
+        operationId: Add Blog
+        requestBody:
+          description: Blog info that is submitted
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/Blog"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/Blog"
+        responses:
+          201:
+            description: Add Blog to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -89,12 +107,36 @@ Feature: Create content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-      /blog:
-        post:
-          operationId: Add Blogs
-          requestBody:
-            description: List of blogs to add
-            required: true
+    /blog:
+      post:
+        operationId: Add Blogs
+        requestBody:
+          description: List of blogs to add
+          required: true
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: "#/components/schemas/Blog"
+            application/x-www-form-urlencoded:
+              schema:
+                type: array
+                items:
+                  type: "#/components/schemas/Blog"
+            application/xml:
+              schema:
+                type: array
+                items:
+                  type: "#/components/schemas/Blog"
+        responses:
+          201:
+            description: Added Blogs to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:
@@ -135,18 +177,27 @@ Feature: Create content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-      /blog:
-        post:
-          operationId: Add Blog
-          responses:
-            201:
-              description: Add Blog to Aggregator
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
+    /blog:
+      post:
+        operationId: Add Blog
+        responses:
+          201:
+            description: Add Blog to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          400:
+            description: Invalid blog submitted
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
@@ -157,12 +208,31 @@ Feature: Create content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-      /blog:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog to add
-            required: true
+    /blog:
+      post:
+        operationId: Add Blog
+        requestBody:
+          description: Blog to add
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: blog id
+                  title:
+                    type: string
+                    description: blog description
+        responses:
+          201:
+            description: Add Blog to Aggregator
+            headers:
+              ETag:
+                schema:
+                  type: string
+                description: specific version of item
             content:
               application/json:
                 schema:

@@ -8,3 +8,7 @@ import (
 type Projection interface {
 	weos.Projection
 }
+
+type DefaultProjection struct {
+	Table string `json:"table_alias" gorm:"-"`
+}

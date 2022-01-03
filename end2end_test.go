@@ -14,7 +14,9 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
 	api "github.com/wepala/weos-service/controllers/rest"
+	"gorm.io/gorm"
 )
 
 var e *echo.Echo
@@ -155,10 +157,6 @@ func aDeveloper(name string) error {
 	return nil
 }
 
-func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	return godog.ErrPending
-}
-
 func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 	yamlRoutes := e.Routes()
 	for _, route := range yamlRoutes {
@@ -169,10 +167,43 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 	return fmt.Errorf("Expected %s middleware to be added to route got nil", middleware)
 }
 
-func aModelShouldBeAddedToTheProjection(arg1 string, arg2 *godog.Table) error {
+func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
 	//use gorm connection to get table
-	if !API.Application.DB().Migrator().HasTable("blog") {
-		return fmt.Errorf("blog table does not exist")
+	gormDB := API.Application.DB()
+
+	if !gormDB.Migrator().HasTable(arg1) {
+		return fmt.Errorf("%s table does not exist", arg1)
+	}
+
+	head := details.Rows[0].Cells
+	columns, _ := gormDB.Migrator().ColumnTypes(arg1)
+	var column gorm.ColumnType
+
+	for i := 1; i < len(details.Rows); i++ {
+
+		for n, cell := range details.Rows[i].Cells {
+			switch head[n].Value {
+			case "Field":
+				columnName := cell.Value
+				for _, c := range columns {
+					if strings.EqualFold(c.Name(), columnName) {
+						column = c
+						break
+					}
+				}
+			case "Type":
+				if cell.Value == "varchar(512)" {
+					cell.Value = "text"
+				}
+				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
+					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+
+				}
+			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
+			case "Null", "Default":
+			case "Key":
+			}
+		}
 	}
 	//TODO check that the table has the expected columns
 	return nil
@@ -215,7 +246,7 @@ func allFieldsAreNullableByDefault() error {
 }
 
 func anErrorShouldBeReturned() error {
-	if rec.Result().StatusCode == http.StatusCreated {
+	if rec.Result().StatusCode == http.StatusCreated && errors == nil {
 		return fmt.Errorf("expected error but got status '%s'", rec.Result().Status)
 	}
 	return nil
@@ -366,12 +397,59 @@ func theSpecificationIsParsed(arg1 string) error {
 	return nil
 }
 
+func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
+	schema, err := API.GetSchemas()
+	if err != nil {
+		return err
+	}
+
+	if _, ok := schema[arg1]; !ok {
+		return fmt.Errorf("no entity named '%s'", arg1)
+	}
+
+	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
+	reader := ds.NewReader(schema[arg1])
+
+	s := strings.TrimRight(entityString[1], "}")
+	s = strings.TrimSpace(s)
+	entityFields := strings.Split(s, "\n")
+
+	for _, f := range entityFields {
+		f = strings.TrimSpace(f)
+		fields := strings.Split(f, " ")
+		if !reader.HasField(strings.Title(fields[1])) {
+			return fmt.Errorf("did not find field '%s'", fields[1])
+		}
+
+		field := reader.GetField(strings.Title(fields[1]))
+		switch fields[0] {
+		case "string":
+			if field.Interface() != "" {
+				return fmt.Errorf("expected a string, got '%v'", field.Interface())
+			}
+
+		case "integer":
+			if field.Interface() != 0 {
+				return fmt.Errorf("expected an integer, got '%v'", field.Interface())
+			}
+		case "uint":
+			if field.Interface() != uint(0) {
+				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
+			}
+		default:
+			return fmt.Errorf("got an unexpected field type: %s", fields[0])
+		}
+
+	}
+
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
 	ctx.Step(`^a content type "([^"]*)" modeled in the "([^"]*)" specification$`, aContentTypeModeledInTheSpecification)
 	ctx.Step(`^a developer "([^"]*)"$`, aDeveloper)
-	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
 	ctx.Step(`^a "([^"]*)" middleware should be added to the route$`, aMiddlewareShouldBeAddedToTheRoute)
 	ctx.Step(`^a model "([^"]*)" should be added to the projection$`, aModelShouldBeAddedToTheProjection)
 	ctx.Step(`^a "([^"]*)" route "([^"]*)" should be added to the api$`, aRouteShouldBeAddedToTheApi)
@@ -390,6 +468,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "([^"]*)" should have an id$`, theShouldHaveAnId)
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
+	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
 
 }
 
@@ -400,7 +479,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "WEOS-1130",
+			Tags:   "",
 		},
 	}.Run()
 	if status != 0 {

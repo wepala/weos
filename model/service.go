@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/wepala/weos-service/projections/dialects"
+	"gorm.io/driver/sqlite"
 	"net/http"
 	"os"
 	"strconv"
@@ -19,7 +21,6 @@ import (
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
@@ -261,9 +262,11 @@ var NewApplicationFromConfig = func(config *ServiceConfig, logger Log, db *sql.D
 			return nil, err
 		}
 	case "sqlite3":
-		gormDB, err = gorm.Open(&sqlite.Dialector{
-			Conn: db,
-		}, nil)
+		gormDB, err = gorm.Open(&dialects.SQLite{
+			sqlite.Dialector{
+				Conn: db,
+			},
+		}, &gorm.Config{PrepareStmt: false})
 		if err != nil {
 			return nil, err
 		}
