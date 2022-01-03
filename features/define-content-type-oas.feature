@@ -117,6 +117,15 @@ Feature: Create Content Types
       | title       | blog title   | varchar(512)   | false    |          | NULL        |
       | description |              | varchar(512)   | true     |          | NULL        |
     And a "Blog" entity configuration should be setup
+    """
+    erDiagram
+      Blog
+      Blog {
+        string guid
+        string title
+        string description
+      }
+    """
 
   Scenario: Declare content type that has a many to one relationship to another content type
 
@@ -162,6 +171,15 @@ Feature: Create Content Types
       | description |              | varchar(512)   | true     |          | NULL        |
       | blog        |              | varchar(512)   | true     | FK       | NULL        |
     And a "Blog" entity configuration should be setup
+    """
+    erDiagram
+      Blog
+      Blog {
+        string guid
+        string title
+        string description
+      }
+    """
 
   Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
 
@@ -214,6 +232,15 @@ Feature: Create Content Types
       | blog_guid   |              | varchar(512)   | true     | FK       | NULL        |
       | blog_title  |              | varchar(512)   | true     | FK       | NULL        |
     And a "Blog" entity configuration should be setup
+    """
+    erDiagram
+      Blog
+      Blog {
+        string guid
+        string title
+        string description
+      }
+    """
 
   Scenario: Declare content type that has a many to many relationship to another content type
 
