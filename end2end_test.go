@@ -333,14 +333,16 @@ func theIsCreated(contentType string, details *godog.Table) error {
 			}
 		}
 
-		blog := &Blog{}
-		API.Application.DB().Find(blog)
-
-		if blog.Title != compareBlog.Title {
-			return fmt.Errorf("expected blog title %s, got %s", compareBlog.Title, blog.Title)
+		blog := map[string]interface{}{}
+		result := API.Application.DB().Table("Blog").Find(&blog, "title = ? ", compareBlog.Title)
+		if result.Error != nil {
+			return fmt.Errorf("unexpected error finding content type: %s", result.Error)
 		}
-		if blog.Description != compareBlog.Description {
-			return fmt.Errorf("expected blog description %s, got %s", compareBlog.Description, blog.Description)
+		if blog["title"] != compareBlog.Title {
+			return fmt.Errorf("expected blog title %s, got %s", compareBlog.Title, blog["title"])
+		}
+		if blog["description"] != compareBlog.Description {
+			return fmt.Errorf("expected blog description %s, got %s", compareBlog.Description, blog["description"])
 		}
 
 		contentTypeID[strings.ToLower(contentType)] = true
@@ -479,7 +481,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "",
+			Tags:   "WEOS-1130",
 		},
 	}.Run()
 	if status != 0 {

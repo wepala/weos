@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/labstack/echo/v4"
 	weosContext "github.com/wepala/weos-service/context"
-	"gorm.io/gorm/clause"
 	"os"
 	"strconv"
 	"strings"
@@ -486,8 +485,8 @@ components:
 	event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
 	p.GetEventHandler()(ctxt, *event)
 
-	blog := map[string]interface{}{"title": "", "description": ""}
-	result := app.DB().Preload(clause.Associations).First(&blog, "id = ? ", contentEntity.ID)
+	blog := map[string]interface{}{}
+	result := gormDB.Table("Blog").Find(&blog, "id = ? ", contentEntity.ID)
 	if result.Error != nil {
 		t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
 	}
