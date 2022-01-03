@@ -1,15 +1,17 @@
 package dialects
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
+
 	dynamicstruct "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/migrator"
 	"gorm.io/gorm/schema"
-	"reflect"
-	"strings"
 )
 
 type Migrator struct {
@@ -203,6 +205,7 @@ func buildConstraint(constraint *schema.Constraint) (sql string, results []inter
 }
 
 // ReorderModels reorder models according to constraint dependencies
+// ReorderModels reorder models according to constraint dependencies
 func (m Migrator) ReorderModels(values []interface{}, autoAdd bool) (results []interface{}) {
 	type Dependency struct {
 		*gorm.Statement
@@ -228,6 +231,16 @@ func (m Migrator) ReorderModels(values []interface{}, autoAdd bool) (results []i
 		}
 		if _, ok := parsedSchemas[dep.Statement.Schema]; ok {
 			return
+		}
+
+		if dep.Schema.Table == "" {
+			s := map[string]interface{}{}
+			b, _ := json.Marshal(value)
+			json.Unmarshal(b, &s)
+			if tableName, ok := s["table_alias"].(string); ok {
+				dep.Schema.Table = tableName
+			}
+
 		}
 		parsedSchemas[dep.Statement.Schema] = true
 
