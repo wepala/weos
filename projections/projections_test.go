@@ -379,6 +379,7 @@ func TestProjections_InitializeCompositeKeyTable(t *testing.T) {
 }
 
 func TestProjections_Create(t *testing.T) {
+
 	openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -483,12 +484,12 @@ components:
 	})
 
 	event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
-	projection.GetEventHandler()(ctxt, *event)
+	p.GetEventHandler()(ctxt, *event)
 
 	blog := map[string]interface{}{"title": "", "description": ""}
 	result := app.DB().Preload(clause.Associations).First(&blog, "id = ? ", contentEntity.ID)
 	if result.Error != nil {
-		t.Fatalf("unexpected error retreiving created ticket '%s'", result.Error)
+		t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
 	}
 
 	if blog["title"] != payload["title"] {
