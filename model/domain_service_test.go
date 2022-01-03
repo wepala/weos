@@ -91,7 +91,7 @@ func TestDomainService_Create(t *testing.T) {
 		}
 	})
 	t.Run("Testing create with an invalid payload", func(t *testing.T) {
-		mockBlog := &Blog{
+		mockBlog := &TestBlog{
 			Url: "ww.testBlog.com",
 		}
 		entityType := "Blog"
