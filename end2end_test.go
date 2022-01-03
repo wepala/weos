@@ -58,8 +58,10 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	e = echo.New()
+	var err error
+
 	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, "./api.yaml")
+	_, err = api.Initialize(e, &API, "./api.yaml")
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
@@ -79,18 +81,18 @@ x-weos-config:
     formatter: json
   database:
     driver: sqlite3
-    database: test.db
+    database: e2e.db
   event-source:
     - title: default
       driver: service
       endpoint: https://prod1.weos.sh/events/v1
     - title: event
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   databases:
     - title: default
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   rest:
     middleware:
       - RequestID
@@ -107,7 +109,13 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
 	errors = nil
 	rec = httptest.NewRecorder()
-	os.Remove("test.db")
+	os.Remove("e2e.db")
+	var err error
+	db, err = sql.Open("sqlite3", "e2e.db")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
+	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -124,18 +132,18 @@ x-weos-config:
     formatter: json
   database:
     driver: sqlite3
-    database: test.db
+    database: e2e.db
   event-source:
     - title: default
       driver: service
       endpoint: https://prod1.weos.sh/events/v1
     - title: event
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   databases:
     - title: default
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   rest:
     middleware:
       - RequestID
@@ -202,6 +210,9 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
 			case "Key":
+				if strings.EqualFold(cell.Value, "fk") {
+
+				}
 			}
 		}
 	}
@@ -377,7 +388,7 @@ func theShouldHaveAnId(contentType string) error {
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
 	e = echo.New()
-	os.Remove("test.db")
+	os.Remove("e2e.db")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
@@ -387,8 +398,7 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	e = echo.New()
-	os.Remove("test.db")
+	os.Remove("e2e.db")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {

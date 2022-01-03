@@ -132,8 +132,15 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 	for name, relation := range relations {
 		if strings.Contains(relation, "[]") {
 			//many to many relationship
-			// instances := structs[strings.Trim(relation, "[]")].Build().NewSliceOfStructs()
-			// struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`"`)
+			// relationName := strings.Trim(relation, "[]")
+			// instances := structs[relationName].Build().NewSliceOfStructs()
+			// err := json.Unmarshal([]byte(`{
+			// 	"table_alias": "`+name+`"
+			// }`), &instances)
+			// if err != nil {
+			// 	logger.Errorf("unable to set the table name '%s'", err)
+			// }
+			// struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+` gorm:"foreignKey:`+relationName+`Refer"`)
 		} else {
 			instance := structs[relation].Build().New()
 			err := json.Unmarshal([]byte(`{
@@ -143,10 +150,12 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 				logger.Errorf("unable to set the table name '%s'", err)
 			}
 			key := keys[relation]
-
+			bytes, _ := json.Marshal(instance)
+			s := map[string]interface{}{}
+			json.Unmarshal(bytes, &s)
 			for _, k := range key {
 
-				struc.AddField(strings.Title(name)+strings.Title(k), "", `json:"`+utils.SnakeCase(name)+k+`"`)
+				struc.AddField(strings.Title(name)+strings.Title(k), s[k], `json:"`+utils.SnakeCase(name)+k+`"`)
 			}
 
 			struc.AddField(name, instance, `json:"`+utils.SnakeCase(name)+` gorm:"foreignKey:`+strings.Title(name)+"ID"+`"`)
