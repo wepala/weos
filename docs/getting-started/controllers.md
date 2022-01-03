@@ -1,7 +1,8 @@
 ---
 layout: default
-title: Parameters
-nav_order: 2
+title: Controllers
+parent: Getting Started
+nav_order: 3
 has_children: false
 ---
 # Controllers

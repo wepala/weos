@@ -1,7 +1,8 @@
 ---
 layout: default
 title: Specification
-nav_order: 2
+parent: Getting Started
+nav_order: 1
 has_children: false
 ---
 # Specification
