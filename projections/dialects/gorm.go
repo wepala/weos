@@ -1,9 +1,11 @@
 package dialects
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 
 	dynamicstruct "github.com/ompluscator/dynamic-struct"
@@ -12,6 +14,11 @@ import (
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/migrator"
 	"gorm.io/gorm/schema"
+)
+
+var (
+	regRealDataType = regexp.MustCompile(`[^\d](\d+)[^\d]?`)
+	regFullDataType = regexp.MustCompile(`[^\d]*(\d+)[^\d]?`)
 )
 
 type Migrator struct {
@@ -259,6 +266,280 @@ func (m Migrator) RenameTable(oldName, newName interface{}) error {
 	}
 
 	return m.DB.Exec("ALTER TABLE ? RENAME TO ?", oldTable, newTable).Error
+}
+
+func (m Migrator) AddColumn(value interface{}, field string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		// avoid using the same name field
+		f := stmt.Schema.LookUpField(field)
+		if f == nil {
+			return fmt.Errorf("failed to look up field with name: %s", field)
+		}
+
+		if !f.IgnoreMigration {
+			return m.DB.Exec(
+				"ALTER TABLE ? ADD ? ?",
+				m.CurrentTable(stmt), clause.Column{Name: f.DBName}, m.DB.Migrator().FullDataTypeOf(f),
+			).Error
+		}
+
+		return nil
+	})
+}
+
+func (m Migrator) DropColumn(value interface{}, name string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		if field := stmt.Schema.LookUpField(name); field != nil {
+			name = field.DBName
+		}
+
+		return m.DB.Exec(
+			"ALTER TABLE ? DROP COLUMN ?", m.CurrentTable(stmt), clause.Column{Name: name},
+		).Error
+	})
+}
+
+func (m Migrator) AlterColumn(value interface{}, field string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		if field := stmt.Schema.LookUpField(field); field != nil {
+			fileType := clause.Expr{SQL: m.DataTypeOf(field)}
+			return m.DB.Exec(
+				"ALTER TABLE ? ALTER COLUMN ? TYPE ?",
+				m.CurrentTable(stmt), clause.Column{Name: field.DBName}, fileType,
+			).Error
+
+		}
+		return fmt.Errorf("failed to look up field with name: %s", field)
+	})
+}
+
+func (m Migrator) HasColumn(value interface{}, field string) bool {
+	var count int64
+	m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		currentDatabase := m.DB.Migrator().CurrentDatabase()
+		name := field
+		if field := stmt.Schema.LookUpField(field); field != nil {
+			name = field.DBName
+		}
+
+		return m.DB.Raw(
+			"SELECT count(*) FROM INFORMATION_SCHEMA.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?",
+			currentDatabase, stmt.Table, name,
+		).Row().Scan(&count)
+	})
+
+	return count > 0
+}
+
+func (m Migrator) RenameColumn(value interface{}, oldName, newName string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		if field := stmt.Schema.LookUpField(oldName); field != nil {
+			oldName = field.DBName
+		}
+
+		if field := stmt.Schema.LookUpField(newName); field != nil {
+			newName = field.DBName
+		}
+
+		return m.DB.Exec(
+			"ALTER TABLE ? RENAME COLUMN ? TO ?",
+			m.CurrentTable(stmt), clause.Column{Name: oldName}, clause.Column{Name: newName},
+		).Error
+	})
+}
+
+func (m Migrator) MigrateColumn(value interface{}, field *schema.Field, columnType gorm.ColumnType) error {
+	// found, smart migrate
+	fullDataType := strings.ToLower(m.DB.Migrator().FullDataTypeOf(field).SQL)
+	realDataType := strings.ToLower(columnType.DatabaseTypeName())
+
+	alterColumn := false
+
+	// check size
+	if length, ok := columnType.Length(); length != int64(field.Size) {
+		if length > 0 && field.Size > 0 {
+			alterColumn = true
+		} else {
+			// has size in data type and not equal
+			// Since the following code is frequently called in the for loop, reg optimization is needed here
+			matches := regRealDataType.FindAllStringSubmatch(realDataType, -1)
+			matches2 := regFullDataType.FindAllStringSubmatch(fullDataType, -1)
+			if (len(matches) == 1 && matches[0][1] != fmt.Sprint(field.Size) || !field.PrimaryKey) &&
+				(len(matches2) == 1 && matches2[0][1] != fmt.Sprint(length) && ok) {
+				alterColumn = true
+			}
+		}
+	}
+
+	// check precision
+	if precision, _, ok := columnType.DecimalSize(); ok && int64(field.Precision) != precision {
+		if regexp.MustCompile(fmt.Sprintf("[^0-9]%d[^0-9]", field.Precision)).MatchString(m.DataTypeOf(field)) {
+			alterColumn = true
+		}
+	}
+
+	// check nullable
+	if nullable, ok := columnType.Nullable(); ok && nullable == field.NotNull {
+		// not primary key & database is nullable
+		if !field.PrimaryKey && nullable {
+			alterColumn = true
+		}
+	}
+
+	if alterColumn && !field.IgnoreMigration {
+		return m.DB.Migrator().AlterColumn(value, field.Name)
+	}
+
+	return nil
+}
+
+// ColumnTypes return columnTypes []gorm.ColumnType and execErr error
+func (m Migrator) ColumnTypes(value interface{}) ([]gorm.ColumnType, error) {
+	columnTypes := make([]gorm.ColumnType, 0)
+	execErr := m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		rows, err := m.DB.Session(&gorm.Session{}).Table(stmt.Table).Limit(1).Rows()
+		if err != nil {
+			return err
+		}
+
+		defer rows.Close()
+
+		var rawColumnTypes []*sql.ColumnType
+		rawColumnTypes, err = rows.ColumnTypes()
+		if err != nil {
+			return err
+		}
+
+		for _, c := range rawColumnTypes {
+			columnTypes = append(columnTypes, c)
+		}
+
+		return nil
+	})
+
+	return columnTypes, execErr
+}
+
+func (m Migrator) CreateConstraint(value interface{}, name string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		constraint, chk, table := m.GuessConstraintAndTable(stmt, name)
+		if chk != nil {
+			return m.DB.Exec(
+				"ALTER TABLE ? ADD CONSTRAINT ? CHECK (?)",
+				m.CurrentTable(stmt), clause.Column{Name: chk.Name}, clause.Expr{SQL: chk.Constraint},
+			).Error
+		}
+
+		if constraint != nil {
+			var vars = []interface{}{clause.Table{Name: table}}
+			if stmt.TableExpr != nil {
+				vars[0] = stmt.TableExpr
+			}
+			sql, values := buildConstraint(constraint)
+			return m.DB.Exec("ALTER TABLE ? ADD "+sql, append(vars, values...)...).Error
+		}
+
+		return nil
+	})
+}
+
+func (m Migrator) DropConstraint(value interface{}, name string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		constraint, chk, table := m.GuessConstraintAndTable(stmt, name)
+		if constraint != nil {
+			name = constraint.Name
+		} else if chk != nil {
+			name = chk.Name
+		}
+		return m.DB.Exec("ALTER TABLE ? DROP CONSTRAINT ?", clause.Table{Name: table}, clause.Column{Name: name}).Error
+	})
+}
+
+func (m Migrator) HasConstraint(value interface{}, name string) bool {
+	var count int64
+	m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		currentDatabase := m.DB.Migrator().CurrentDatabase()
+		constraint, chk, table := m.GuessConstraintAndTable(stmt, name)
+		if constraint != nil {
+			name = constraint.Name
+		} else if chk != nil {
+			name = chk.Name
+		}
+
+		return m.DB.Raw(
+			"SELECT count(*) FROM INFORMATION_SCHEMA.table_constraints WHERE constraint_schema = ? AND table_name = ? AND constraint_name = ?",
+			currentDatabase, table, name,
+		).Row().Scan(&count)
+	})
+
+	return count > 0
+}
+
+func (m Migrator) CreateIndex(value interface{}, name string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		if idx := stmt.Schema.LookIndex(name); idx != nil {
+			opts := m.DB.Migrator().(migrator.BuildIndexOptionsInterface).BuildIndexOptions(idx.Fields, stmt)
+			values := []interface{}{clause.Column{Name: idx.Name}, m.CurrentTable(stmt), opts}
+
+			createIndexSQL := "CREATE "
+			if idx.Class != "" {
+				createIndexSQL += idx.Class + " "
+			}
+			createIndexSQL += "INDEX ? ON ??"
+
+			if idx.Type != "" {
+				createIndexSQL += " USING " + idx.Type
+			}
+
+			if idx.Comment != "" {
+				createIndexSQL += fmt.Sprintf(" COMMENT '%s'", idx.Comment)
+			}
+
+			if idx.Option != "" {
+				createIndexSQL += " " + idx.Option
+			}
+
+			return m.DB.Exec(createIndexSQL, values...).Error
+		}
+
+		return fmt.Errorf("failed to create index with name %s", name)
+	})
+}
+
+func (m Migrator) DropIndex(value interface{}, name string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		if idx := stmt.Schema.LookIndex(name); idx != nil {
+			name = idx.Name
+		}
+
+		return m.DB.Exec("DROP INDEX ? ON ?", clause.Column{Name: name}, m.CurrentTable(stmt)).Error
+	})
+}
+
+func (m Migrator) HasIndex(value interface{}, name string) bool {
+	var count int64
+	m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		currentDatabase := m.DB.Migrator().CurrentDatabase()
+		if idx := stmt.Schema.LookIndex(name); idx != nil {
+			name = idx.Name
+		}
+
+		return m.DB.Raw(
+			"SELECT count(*) FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ?",
+			currentDatabase, stmt.Table, name,
+		).Row().Scan(&count)
+	})
+
+	return count > 0
+}
+
+func (m Migrator) RenameIndex(value interface{}, oldName, newName string) error {
+	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		return m.DB.Exec(
+			"ALTER TABLE ? RENAME INDEX ? TO ?",
+			m.CurrentTable(stmt), clause.Column{Name: oldName}, clause.Column{Name: newName},
+		).Error
+	})
 }
 
 func buildConstraint(constraint *schema.Constraint) (sql string, results []interface{}) {
