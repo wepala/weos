@@ -156,7 +156,7 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 			keystring := ""
 			for _, k := range key {
 
-				struc.AddField(strings.Title(name)+strings.Title(k), s[k], `json:"`+utils.SnakeCase(name)+k+`"`)
+				struc.AddField(strings.Title(name)+strings.Title(k), s[k], `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
 				if keystring != "" {
 					keystring += ","
 				}
