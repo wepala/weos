@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -65,6 +66,10 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
+	os.Remove("test.db")
+	//API.Application.DB().Migrator().DropTable("Blog")
+	//API.Application.DB().Migrator().DropTable("Post")
+	//API.Application.DB().Migrator().DropTable("gorm_events")
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -110,6 +115,11 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	errors = nil
 	rec = httptest.NewRecorder()
 	os.Remove("e2e.db")
+	os.Remove("test.db")
+	//API.Application.DB().Migrator().DropTable("Blog")
+	//API.Application.DB().Migrator().DropTable("Post")
+	//API.Application.DB().Migrator().DropTable("gorm_events")
+	time.Sleep(2 * time.Second)
 	var err error
 	db, err = sql.Open("sqlite3", "e2e.db")
 	if err != nil {
@@ -391,6 +401,10 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
 	e = echo.New()
 	os.Remove("e2e.db")
+	os.Remove("test.db")
+	//API.Application.DB().Migrator().DropTable("Blog")
+	//API.Application.DB().Migrator().DropTable("Post")
+	//API.Application.DB().Migrator().DropTable("gorm_events")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
@@ -401,6 +415,10 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 
 func theSpecificationIsParsed(arg1 string) error {
 	os.Remove("e2e.db")
+	os.Remove("test.db")
+	//API.Application.DB().Migrator().DropTable("Blog")
+	//API.Application.DB().Migrator().DropTable("Post")
+	//API.Application.DB().Migrator().DropTable("gorm_events")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
