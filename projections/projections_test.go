@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"github.com/labstack/echo/v4"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/gommon/log"
@@ -105,7 +106,7 @@ func TestMain(t *testing.M) {
 
 		// exponential backoff-retry, because the application in the container might not be ready to accept connections yet
 		if err = pool.Retry(func() error {
-			db, err = sql.Open("mysql", fmt.Sprintf("root:secret@(localhost:%s)/mysql?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=%s", resource.GetPort("3306/tcp"), strconv.FormatBool(true)))
+			db, err = sql.Open("mysql", fmt.Sprintf("root:secret@(localhost:%s)/mysql?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,STRICT_TRANS_TABLES,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=%s", resource.GetPort("3306/tcp"), strconv.FormatBool(true)))
 			if err != nil {
 				return err
 			}
@@ -155,15 +156,12 @@ func TestMain(t *testing.M) {
 		}
 	}
 
-	os.Remove("test.db")
-	os.Remove("projection.db")
-
 	os.Exit(code)
 }
 
 func TestProjections_InitilizeBasicTable(t *testing.T) {
 
-	t.Run("Create basic table with no speecified primary key", func(t *testing.T) {
+	t.Run("Create basic table with no specified primary key", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -173,30 +171,6 @@ servers:
   - url: https://prod1.weos.sh/blog/dev
     description: WeOS Dev
   - url: https://prod1.weos.sh/blog/v1
-x-weos-config:
-  logger:
-    level: warn
-    report-caller: true
-    formatter: json
-  database:
-    driver: sqlite3
-    database: test.db
-  event-source:
-    - title: default
-      driver: service
-      endpoint: https://prod1.weos.sh/events/v1
-    - title: event
-      driver: sqlite3
-      database: test.db
-  databases:
-    - title: default
-      driver: sqlite3
-      database: test.db
-  rest:
-    middleware:
-      - RequestID
-      - Recover
-      - ZapLogger
 components:
   schemas:
     Blog:
@@ -236,11 +210,11 @@ components:
 
 		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
-			t.Fatal("expected to get a table 'Blog'")
+			t.Errorf("expected to get a table 'Blog'")
 		}
 
 		if !gormDB.Migrator().HasTable("Post") {
-			t.Fatal("expected to get a table 'Post'")
+			t.Errorf("expected to get a table 'Post'")
 		}
 
 		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
@@ -268,11 +242,42 @@ components:
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
 
-		gormDB.Migrator().DropTable("Blog")
-
 		//check for auto id
-		if result[0]["id"].(int64) != 1 {
-			t.Fatalf("expected an automatic id of '%d' to be set, got '%d'", 1, result[0]["id"])
+		if *driver != "mysql" {
+			if result[0]["id"].(int64) != 1 {
+				t.Fatalf("expected an automatic id of '%d' to be set, got '%d'", 1, result[0]["id"])
+			}
+		} else {
+			if result[0]["id"].(uint64) != 1 {
+				t.Fatalf("expected an automatic id of '%d' to be set, got '%d'", 1, result[0]["id"])
+			}
+		}
+
+		//automigrate table again to ensure no issue on multiple migrates
+		for i := 0; i < 10; i++ {
+			_, err = projections.NewProjection(context.Background(), app, schemes)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			//testing number of tables would not work in mysql since it can create many auxilliary tables
+			if !gormDB.Migrator().HasTable("Blog") {
+				t.Errorf("expected to get a table 'Blog'")
+			}
+
+			if !gormDB.Migrator().HasTable("Post") {
+				t.Errorf("expected to get a table 'Post'")
+			}
+
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
 		}
 	})
 
@@ -282,34 +287,6 @@ info:
   title: Blog
   description: Blog example
   version: 1.0.0
-servers:
-  - url: https://prod1.weos.sh/blog/dev
-    description: WeOS Dev
-  - url: https://prod1.weos.sh/blog/v1
-x-weos-config:
-  logger:
-    level: warn
-    report-caller: true
-    formatter: json
-  database:
-    driver: sqlite3
-    database: test.db
-  event-source:
-    - title: default
-      driver: service
-      endpoint: https://prod1.weos.sh/events/v1
-    - title: event
-      driver: sqlite3
-      database: test.db
-  databases:
-    - title: default
-      driver: sqlite3
-      database: test.db
-  rest:
-    middleware:
-      - RequestID
-      - Recover
-      - ZapLogger
 components:
   schemas:
     Blog:
@@ -369,7 +346,7 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
 		if tresult.Error == nil {
 			t.Errorf("expected an error because the primary key was not set")
 		}
@@ -377,10 +354,17 @@ components:
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
 		if len(result) != 0 {
-			t.Fatal("expectedd no blogs to be created with a missing id field")
+			t.Fatal("expected no blogs to be created with a missing id field")
 		}
 
-		gormDB.Migrator().DropTable("Blog")
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
 	})
 }
 
