@@ -255,7 +255,7 @@ var NewApplicationFromConfig = func(config *ServiceConfig, logger Log, db *sql.D
 	var gormDB *gorm.DB
 	switch config.Database.Driver {
 	case "postgres":
-		gormDB, err = gorm.Open(postgres.New(postgres.Config{
+		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
 			Conn: db,
 		}), nil)
 		if err != nil {

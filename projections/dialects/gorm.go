@@ -18,6 +18,85 @@ type Migrator struct {
 	migrator.Migrator
 }
 
+// AutoMigrate
+func (m Migrator) AutoMigrate(values ...interface{}) error {
+	for _, value := range m.ReorderModels(values, true) {
+		tx := m.DB.Session(&gorm.Session{})
+		if !tx.Migrator().HasTable(value) {
+			if err := tx.Migrator().CreateTable(value); err != nil {
+				return err
+			}
+		} else {
+			if err := m.RunWithValue(value, func(stmt *gorm.Statement) (errr error) {
+
+				s := map[string]interface{}{}
+				b, _ := json.Marshal(value)
+				json.Unmarshal(b, &s)
+
+				if tableName, ok := s["table_alias"].(string); ok {
+					value = tableName
+				}
+
+				columnTypes, _ := m.DB.Migrator().ColumnTypes(value)
+
+				for _, field := range stmt.Schema.FieldsByDBName {
+					var foundColumn gorm.ColumnType
+
+					for _, columnType := range columnTypes {
+						if columnType.Name() == field.DBName {
+							foundColumn = columnType
+							break
+						}
+					}
+
+					if foundColumn == nil {
+						// not found, add column
+						if err := tx.Migrator().AddColumn(value, field.DBName); err != nil {
+							return err
+						}
+					} else if err := m.DB.Migrator().MigrateColumn(value, field, foundColumn); err != nil {
+						// found, smart migrate
+						return err
+					}
+				}
+
+				for _, rel := range stmt.Schema.Relationships.Relations {
+					if !m.DB.Config.DisableForeignKeyConstraintWhenMigrating {
+						if constraint := rel.ParseConstraint(); constraint != nil &&
+							constraint.Schema == stmt.Schema && !tx.Migrator().HasConstraint(value, constraint.Name) {
+							if err := tx.Migrator().CreateConstraint(value, constraint.Name); err != nil {
+								return err
+							}
+						}
+					}
+
+					for _, chk := range stmt.Schema.ParseCheckConstraints() {
+						if !tx.Migrator().HasConstraint(value, chk.Name) {
+							if err := tx.Migrator().CreateConstraint(value, chk.Name); err != nil {
+								return err
+							}
+						}
+					}
+				}
+
+				for _, idx := range stmt.Schema.ParseIndexes() {
+					if !tx.Migrator().HasIndex(value, idx.Name) {
+						if err := tx.Migrator().CreateIndex(value, idx.Name); err != nil {
+							return err
+						}
+					}
+				}
+
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func (m Migrator) RunWithValue(value interface{}, fc func(*gorm.Statement) error) error {
 	stmt := &gorm.Statement{DB: m.DB}
 	if m.DB.Statement != nil {
@@ -205,7 +284,6 @@ func buildConstraint(constraint *schema.Constraint) (sql string, results []inter
 }
 
 // ReorderModels reorder models according to constraint dependencies
-// ReorderModels reorder models according to constraint dependencies
 func (m Migrator) ReorderModels(values []interface{}, autoAdd bool) (results []interface{}) {
 	type Dependency struct {
 		*gorm.Statement
@@ -226,22 +304,25 @@ func (m Migrator) ReorderModels(values []interface{}, autoAdd bool) (results []i
 			Statement: &gorm.Statement{DB: m.DB, Dest: value},
 		}
 		beDependedOn := map[*schema.Schema]bool{}
-		if err := dep.Parse(value); err != nil {
-			m.DB.Logger.Error(context.Background(), "failed to parse value %#v, got error %v", value, err)
+
+		//This originally was using parse but we need to pass in the table name based on what we have set
+		s := map[string]interface{}{}
+		b, _ := json.Marshal(value)
+		json.Unmarshal(b, &s)
+		if tableName, ok := s["table_alias"].(string); ok {
+			if err := dep.ParseWithSpecialTableName(value, tableName); err != nil {
+				m.DB.Logger.Error(context.Background(), "failed to parse value %#v, got error %v", value, err)
+			}
+		} else {
+			if err := dep.Parse(value); err != nil {
+				m.DB.Logger.Error(context.Background(), "failed to parse value %#v, got error %v", value, err)
+			}
 		}
+
 		if _, ok := parsedSchemas[dep.Statement.Schema]; ok {
 			return
 		}
 
-		if dep.Schema.Table == "" {
-			s := map[string]interface{}{}
-			b, _ := json.Marshal(value)
-			json.Unmarshal(b, &s)
-			if tableName, ok := s["table_alias"].(string); ok {
-				dep.Schema.Table = tableName
-			}
-
-		}
 		parsedSchemas[dep.Statement.Schema] = true
 
 		for _, rel := range dep.Schema.Relationships.Relations {
@@ -309,6 +390,10 @@ func (m Migrator) ReorderModels(values []interface{}, autoAdd bool) (results []i
 
 	for _, name := range orderedModelNames {
 		results = append(results, valuesMap[name].Statement.Dest)
+	}
+
+	if len(values) != len(modelNames) {
+		fmt.Printf("expected %d models, got %d \n", len(values), len(modelNames))
 	}
 	return
 }

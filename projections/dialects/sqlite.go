@@ -34,7 +34,7 @@ type SQLiteMigrator struct {
 	Migrator
 }
 
-func (m *SQLiteMigrator) RunWithoutForeignKey(fc func() error) error {
+func (m SQLiteMigrator) RunWithoutForeignKey(fc func() error) error {
 	var enabled int
 	m.DB.Raw("PRAGMA foreign_keys").Scan(&enabled)
 	if enabled == 1 {
@@ -235,7 +235,7 @@ func (m SQLiteMigrator) BuildIndexOptions(opts []schema.IndexOption, stmt *gorm.
 	return
 }
 
-func (m Migrator) CreateIndex(value interface{}, name string) error {
+func (m SQLiteMigrator) CreateIndex(value interface{}, name string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		if idx := stmt.Schema.LookIndex(name); idx != nil {
 			opts := m.BuildIndexOptions(idx.Fields, stmt)
@@ -280,7 +280,7 @@ func (m SQLiteMigrator) HasIndex(value interface{}, name string) bool {
 	return count > 0
 }
 
-func (m Migrator) RenameIndex(value interface{}, oldName, newName string) error {
+func (m SQLiteMigrator) RenameIndex(value interface{}, oldName, newName string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		var sql string
 		m.DB.Raw("SELECT sql FROM sqlite_master WHERE type = ? AND tbl_name = ? AND name = ?", "index", stmt.Table, oldName).Row().Scan(&sql)
@@ -291,7 +291,7 @@ func (m Migrator) RenameIndex(value interface{}, oldName, newName string) error 
 	})
 }
 
-func (m Migrator) DropIndex(value interface{}, name string) error {
+func (m SQLiteMigrator) DropIndex(value interface{}, name string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		if idx := stmt.Schema.LookIndex(name); idx != nil {
 			name = idx.Name
