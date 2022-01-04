@@ -34,7 +34,9 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 				json.Unmarshal(b, &s)
 
 				if tableName, ok := s["table_alias"].(string); ok {
-					value = tableName
+					if tableName != "" {
+						value = tableName
+					}
 				}
 
 				columnTypes, _ := m.DB.Migrator().ColumnTypes(value)
