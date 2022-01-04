@@ -301,75 +301,44 @@ func isUsedToModelTheService(arg1 string) error {
 }
 
 func theIsCreated(contentType string, details *godog.Table) error {
-	return godog.ErrPending
 	if rec.Result().StatusCode != http.StatusCreated {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
 
-	//var payloadBuilder dynamicstruct.Builder
-	//payloadBuilder = dynamicstruct.NewStruct()
-	//
-	////Add fields to the dynamic struct
-	//for key, value := range requests[currScreen] {
-	//	payloadBuilder.AddField(strings.Title(key), reflect.TypeOf(value), strcase.SnakeCase(key))
-	//}
-	////Builds the dynamic struct
-	//instance := payloadBuilder.Build().New()
-	//API.Application.DB().Find(instance)
-	//
-	////TODO: Get the table values into a "blog" dynamic struct for comparison
-	//compareStruct := payloadBuilder.Build().New()
-	//compareValues := make(map[string]interface{})
-	//head := details.Rows[0].Cells
-	//for i := 1; i < len(details.Rows); i++ {
-	//	for n, cell := range details.Rows[i].Cells {
-	//		compareValues[head[n].Value] = cell.Value
-	//	}
-	//}
-	//
-	//data, err := json.Marshal(compareValues)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//err = json.Unmarshal(data, &compareStruct)
-	//if err != nil {
-	//	return err
-	//}
-
-	//TODO: Then compare these cell values against instance values
-
 	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
 
-	switch strings.ToLower(contentType) {
-	case "blog":
-		compareBlog := &Blog{}
-
-		for i := 1; i < len(details.Rows); i++ {
-			for n, cell := range details.Rows[i].Cells {
-				switch head[n].Value {
-				case "title":
-					compareBlog.Title = cell.Value
-				case "description":
-					compareBlog.Description = cell.Value
-				}
-			}
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
 		}
-
-		blog := map[string]interface{}{}
-		result := API.Application.DB().Table("Blog").Find(&blog, "title = ? ", compareBlog.Title)
-		if result.Error != nil {
-			return fmt.Errorf("unexpected error finding content type: %s", result.Error)
-		}
-		if blog["title"] != compareBlog.Title {
-			return fmt.Errorf("expected blog title %s, got %s", compareBlog.Title, blog["title"])
-		}
-		if blog["description"] != compareBlog.Description {
-			return fmt.Errorf("expected blog description %s, got %s", compareBlog.Description, blog["description"])
-		}
-
-		contentTypeID[strings.ToLower(contentType)] = true
 	}
+
+	contentEntity := map[string]interface{}{}
+	var result *gorm.DB
+	//ETag would help with this
+	for key, value := range compare {
+		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		if contentEntity != nil {
+			break
+		}
+	}
+
+	if contentEntity == nil {
+		return fmt.Errorf("unexpected error finding content type in db")
+	}
+
+	if result.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+	}
+
+	for key, value := range compare {
+		if contentEntity[key] != value {
+			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+		}
+	}
+
+	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
 
