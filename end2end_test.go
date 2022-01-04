@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -59,7 +60,8 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	Developer = &User{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, "./api.yaml")
+	os.Remove("./e2e.db")
+	_, err := api.Initialize(e, &API, "./e2e.yaml")
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
@@ -79,18 +81,18 @@ x-weos-config:
     formatter: json
   database:
     driver: sqlite3
-    database: test.db
+    database: e2e.db
   event-source:
     - title: default
       driver: service
       endpoint: https://prod1.weos.sh/events/v1
     - title: event
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   databases:
     - title: default
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   rest:
     middleware:
       - RequestID
@@ -107,7 +109,13 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
 	errors = nil
 	rec = httptest.NewRecorder()
-	os.Remove("test.db")
+	os.Remove("./e2e.db")
+	var err error
+	db, err = sql.Open("sqlite3", "e2e.db")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
+	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -124,18 +132,18 @@ x-weos-config:
     formatter: json
   database:
     driver: sqlite3
-    database: test.db
+    database: e2e.db
   event-source:
     - title: default
       driver: service
       endpoint: https://prod1.weos.sh/events/v1
     - title: event
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   databases:
     - title: default
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   rest:
     middleware:
       - RequestID
@@ -379,7 +387,7 @@ func theShouldHaveAnId(contentType string) error {
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
 	e = echo.New()
-	os.Remove("test.db")
+	os.Remove("./e2e.db")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
@@ -390,7 +398,7 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 
 func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
-	os.Remove("test.db")
+	os.Remove("./e2e.db")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
@@ -438,6 +446,13 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 			if field.Interface() != uint(0) {
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
 			}
+		case "datetime":
+			dateTime := field.Time()
+			if dateTime != *new(time.Time) {
+				fmt.Printf("date interface is '%v'", field.Interface())
+				fmt.Printf("empty date interface is '%v'", new(time.Time))
+				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
+			}
 		default:
 			return fmt.Errorf("got an unexpected field type: %s", fields[0])
 		}
@@ -481,7 +496,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "",
+			Tags:   "WEOS-1110",
 		},
 	}.Run()
 	if status != 0 {

@@ -24,7 +24,6 @@ func (p *GORMProjection) Remove(entities []weos.Entity) error {
 	return nil
 }
 
-//Migrate projections
 func (p *GORMProjection) Migrate(ctx context.Context) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
