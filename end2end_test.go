@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -58,11 +59,17 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	e = echo.New()
+	var err error
+
 	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, "./api.yaml")
+	_, err = api.Initialize(e, &API, "./api.yaml")
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
+	os.Remove("test.db")
+	//API.Application.DB().Migrator().DropTable("Blog")
+	//API.Application.DB().Migrator().DropTable("Post")
+	//API.Application.DB().Migrator().DropTable("gorm_events")
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -79,18 +86,18 @@ x-weos-config:
     formatter: json
   database:
     driver: sqlite3
-    database: test.db
+    database: e2e.db
   event-source:
     - title: default
       driver: service
       endpoint: https://prod1.weos.sh/events/v1
     - title: event
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   databases:
     - title: default
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   rest:
     middleware:
       - RequestID
@@ -107,7 +114,18 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
 	errors = nil
 	rec = httptest.NewRecorder()
+	os.Remove("e2e.db")
 	os.Remove("test.db")
+	//API.Application.DB().Migrator().DropTable("Blog")
+	//API.Application.DB().Migrator().DropTable("Post")
+	//API.Application.DB().Migrator().DropTable("gorm_events")
+	time.Sleep(2 * time.Second)
+	var err error
+	db, err = sql.Open("sqlite3", "e2e.db")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
+	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -124,18 +142,18 @@ x-weos-config:
     formatter: json
   database:
     driver: sqlite3
-    database: test.db
+    database: e2e.db
   event-source:
     - title: default
       driver: service
       endpoint: https://prod1.weos.sh/events/v1
     - title: event
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   databases:
     - title: default
       driver: sqlite3
-      database: test.db
+      database: e2e.db
   rest:
     middleware:
       - RequestID
@@ -202,6 +220,9 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
 			case "Key":
+				if strings.EqualFold(cell.Value, "fk") {
+
+				}
 			}
 		}
 	}
@@ -210,6 +231,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 }
 
 func aRouteShouldBeAddedToTheApi(method, path string) error {
+	return godog.ErrPending
 	yamlRoutes := e.Routes()
 	for _, route := range yamlRoutes {
 		if route.Method == method && route.Path == path {
@@ -283,68 +305,40 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
 
-	//var payloadBuilder dynamicstruct.Builder
-	//payloadBuilder = dynamicstruct.NewStruct()
-	//
-	////Add fields to the dynamic struct
-	//for key, value := range requests[currScreen] {
-	//	payloadBuilder.AddField(strings.Title(key), reflect.TypeOf(value), strcase.SnakeCase(key))
-	//}
-	////Builds the dynamic struct
-	//instance := payloadBuilder.Build().New()
-	//API.Application.DB().Find(instance)
-	//
-	////TODO: Get the table values into a "blog" dynamic struct for comparison
-	//compareStruct := payloadBuilder.Build().New()
-	//compareValues := make(map[string]interface{})
-	//head := details.Rows[0].Cells
-	//for i := 1; i < len(details.Rows); i++ {
-	//	for n, cell := range details.Rows[i].Cells {
-	//		compareValues[head[n].Value] = cell.Value
-	//	}
-	//}
-	//
-	//data, err := json.Marshal(compareValues)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//err = json.Unmarshal(data, &compareStruct)
-	//if err != nil {
-	//	return err
-	//}
-
-	//TODO: Then compare these cell values against instance values
-
 	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
 
-	switch strings.ToLower(contentType) {
-	case "blog":
-		compareBlog := &Blog{}
-
-		for i := 1; i < len(details.Rows); i++ {
-			for n, cell := range details.Rows[i].Cells {
-				switch head[n].Value {
-				case "title":
-					compareBlog.Title = cell.Value
-				case "description":
-					compareBlog.Description = cell.Value
-				}
-			}
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
 		}
-
-		blog := &Blog{}
-		API.Application.DB().Find(blog)
-
-		if blog.Title != compareBlog.Title {
-			return fmt.Errorf("expected blog title %s, got %s", compareBlog.Title, blog.Title)
-		}
-		if blog.Description != compareBlog.Description {
-			return fmt.Errorf("expected blog description %s, got %s", compareBlog.Description, blog.Description)
-		}
-
-		contentTypeID[strings.ToLower(contentType)] = true
 	}
+
+	contentEntity := map[string]interface{}{}
+	var result *gorm.DB
+	//ETag would help with this
+	for key, value := range compare {
+		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		if contentEntity != nil {
+			break
+		}
+	}
+
+	if contentEntity == nil {
+		return fmt.Errorf("unexpected error finding content type in db")
+	}
+
+	if result.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+	}
+
+	for key, value := range compare {
+		if contentEntity[key] != value {
+			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+		}
+	}
+
+	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
 
@@ -377,7 +371,11 @@ func theShouldHaveAnId(contentType string) error {
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
 	e = echo.New()
+	os.Remove("e2e.db")
 	os.Remove("test.db")
+	//API.Application.DB().Migrator().DropTable("Blog")
+	//API.Application.DB().Migrator().DropTable("Post")
+	//API.Application.DB().Migrator().DropTable("gorm_events")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
@@ -387,8 +385,11 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	e = echo.New()
+	os.Remove("e2e.db")
 	os.Remove("test.db")
+	//API.Application.DB().Migrator().DropTable("Blog")
+	//API.Application.DB().Migrator().DropTable("Post")
+	//API.Application.DB().Migrator().DropTable("gorm_events")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
@@ -479,7 +480,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "",
+			Tags:   "WEOS-1130",
 		},
 	}.Run()
 	if status != 0 {

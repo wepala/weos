@@ -255,7 +255,7 @@ var NewApplicationFromConfig = func(config *ServiceConfig, logger Log, db *sql.D
 	var gormDB *gorm.DB
 	switch config.Database.Driver {
 	case "postgres":
-		gormDB, err = gorm.Open(postgres.New(postgres.Config{
+		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
 			Conn: db,
 		}), nil)
 		if err != nil {
@@ -266,12 +266,12 @@ var NewApplicationFromConfig = func(config *ServiceConfig, logger Log, db *sql.D
 			sqlite.Dialector{
 				Conn: db,
 			},
-		}, &gorm.Config{PrepareStmt: false})
+		}, nil)
 		if err != nil {
 			return nil, err
 		}
 	case "mysql":
-		gormDB, err = gorm.Open(mysql.New(mysql.Config{
+		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
 			Conn: db,
 		}), nil)
 		if err != nil {

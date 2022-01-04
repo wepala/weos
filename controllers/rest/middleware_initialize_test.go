@@ -1,16 +1,17 @@
 package rest_test
 
 import (
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/labstack/echo/v4"
-	dynamicstruct "github.com/ompluscator/dynamic-struct"
-	"github.com/wepala/weos-service/controllers/rest"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
+	dynamicstruct "github.com/ompluscator/dynamic-struct"
+	"github.com/wepala/weos-service/controllers/rest"
+	"golang.org/x/net/context"
 )
 
 func TestCreateSchema(t *testing.T) {
@@ -46,6 +47,21 @@ func TestCreateSchema(t *testing.T) {
 			if reader.GetField("Table").String() != tableName {
 				t.Errorf("There was an error setting the table name, expected '%s'", tableName)
 			}
+		}
+
+		//check for foreign key on Post table to Author
+		postTable, ok := result["Post"]
+		if !ok {
+			t.Fatalf("expected to find a table Post")
+		}
+
+		reader := dynamicstruct.NewReader(postTable)
+		if !reader.HasField("AuthorId") {
+			t.Errorf("expected the struct to have field '%s'", "AuthorId")
+		}
+
+		if !reader.HasField("AuthorEmail") {
+			t.Errorf("expected the struct to have field '%s'", "AuthorEmail")
 		}
 	})
 }
