@@ -285,10 +285,15 @@ components:
 				t.Fatal(err)
 			}
 
-			tables, _ := gormDB.Migrator().GetTables()
-			if len(tables) != 2 {
-				t.Errorf("expected there to be 2 tables")
+			//testing number of tables would not work in mysql since it can create many auxilliary tables
+			if !gormDB.Migrator().HasTable("Blog") {
+				t.Errorf("expected to get a table 'Blog'")
 			}
+
+			if !gormDB.Migrator().HasTable("Post") {
+				t.Errorf("expected to get a table 'Post'")
+			}
+
 		}
 
 		err = gormDB.Migrator().DropTable("Blog")
