@@ -5,12 +5,13 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"github.com/labstack/echo/v4"
 	weosContext "github.com/wepala/weos-service/context"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/gommon/log"
@@ -30,7 +31,6 @@ var maxOpen = flag.Int("open", 4, "database maximum open connections")
 var maxIdle = flag.Int("idle", 1, "database maximum idle connections")
 var database = flag.String("database", "", "database name")
 var app weos.Service
-var projection projections.Projection
 
 type dbConfig struct {
 	Host     string `json:"host"`
@@ -165,7 +165,7 @@ func TestMain(t *testing.M) {
 
 func TestProjections_InitilizeBasicTable(t *testing.T) {
 
-	t.Run("Create basic table with no speecified primary key", func(t *testing.T) {
+	t.Run("Create basic table with no specified primary key", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -209,6 +209,14 @@ components:
          description: blog title
        description:
          type: string
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
 `
 
 		loader := openapi3.NewSwaggerLoader()
@@ -231,6 +239,10 @@ components:
 		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		if !gormDB.Migrator().HasTable("Post") {
+			t.Fatal("expected to get a table 'Post'")
 		}
 
 		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
@@ -259,6 +271,7 @@ components:
 		gormDB.Table("Blog").Find(&result)
 
 		gormDB.Migrator().DropTable("Blog")
+		gormDB.Migrator().DropTable("Post")
 
 		//check for auto id
 		if result[0]["id"].(int64) != 1 {

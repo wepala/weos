@@ -126,59 +126,60 @@ Feature: Create Content Types
   #     }
   #   """
 
-  # Scenario: Declare content type that has a many to one relationship to another content type
+  Scenario: Declare content type that has a many to one relationship to another content type
 
   # Many to one relationships is determined by what a property is referencing. If the property of a Content Type is
   # referencing a single other content type then many to one relationship is inferred.
 
-  #   Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
-  #   """
-  #       Blog:
-  #         type: object
-  #         properties:
-  #           title:
-  #             type: string
-  #           description:
-  #             type: string
-  #   """
-  #   And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-  #   """
-  #       Post:
-  #         type: object
-  #         properties:
-  #           title:
-  #             type: string
-  #           description:
-  #             type: string
-  #           blog:
-  #             $ref: "#/components/schemas/Blog"
-  #           publishedDate:
-  #             type: string
-  #           views:
-  #             type: integer
-  #   """
-  #   When the "OpenAPI 3.0" specification is parsed
-  #   Then a model "Blog" should be added to the projection
-  #     | Field       | Comment      | Type           | Null     | Key      | Default     |
-  #     | id          |              | varchar(512)   | false    | PK       | NULL        |
-  #     | title       |              | varchar(512)   | false    |          | NULL        |
-  #     | description |              | varchar(512)   | true     |          | NULL        |
-  #   And a model "Post" should be added to the projection
-  #     | Field       | Comment      | Type           | Null     | Key      | Default     |
-  #     | id          |              | varchar(512)   | false    | PK       | NULL        |
-  #     | title       |              | varchar(512)   | false    |          | NULL        |
-  #     | description |              | varchar(512)   | true     |          | NULL        |
-  #     | blog        |              | varchar(512)   | true     | FK       | NULL        |
-  #   And a "Blog" entity configuration should be setup
-  #   """
-  #   erDiagram
-  #     Blog
-  #     Blog {
-  #       string guid
-  #       string title
-  #       string description
-  #     }
-  #   """
+    Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
+    """
+        Blog:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+    """
+    And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
+
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            blog:
+              $ref: "#/components/schemas/Blog"
+            publishedDate:
+              type: string
+            views:
+              type: integer
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Blog" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | integer        | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+    And a model "Post" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | integer        | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+      | blog        |              | varchar(512)   | true     | FK       | NULL        |
+    And a "Blog" entity configuration should be setup
+    """
+    erDiagram
+      Blog
+      Blog {
+        uint id
+        string title
+        string description
+      }
+    """
 
   # Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
 

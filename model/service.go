@@ -266,12 +266,12 @@ var NewApplicationFromConfig = func(config *ServiceConfig, logger Log, db *sql.D
 			sqlite.Dialector{
 				Conn: db,
 			},
-		}, &gorm.Config{PrepareStmt: false})
+		}, nil)
 		if err != nil {
 			return nil, err
 		}
 	case "mysql":
-		gormDB, err = gorm.Open(mysql.New(mysql.Config{
+		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
 			Conn: db,
 		}), nil)
 		if err != nil {
