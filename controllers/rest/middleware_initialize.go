@@ -153,12 +153,18 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 			bytes, _ := json.Marshal(instance)
 			s := map[string]interface{}{}
 			json.Unmarshal(bytes, &s)
+			keystring := ""
 			for _, k := range key {
 
 				struc.AddField(strings.Title(name)+strings.Title(k), s[k], `json:"`+utils.SnakeCase(name)+k+`"`)
+				if keystring != "" {
+					keystring += ","
+				}
+
+				keystring += strings.Title(name) + strings.Title(k)
 			}
 
-			struc.AddField(name, instance, `json:"`+utils.SnakeCase(name)+` gorm:"foreignKey:`+strings.Title(name)+"ID"+`"`)
+			struc.AddField(name, instance, `json:"`+utils.SnakeCase(name)+`" gorm:"foreignKey:`+keystring+`"`)
 		}
 	}
 	return struc, nil
