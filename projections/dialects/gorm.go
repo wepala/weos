@@ -28,6 +28,15 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 			}
 		} else {
 			if err := m.RunWithValue(value, func(stmt *gorm.Statement) (errr error) {
+
+				s := map[string]interface{}{}
+				b, _ := json.Marshal(value)
+				json.Unmarshal(b, &s)
+
+				if tableName, ok := s["table_alias"].(string); ok {
+					value = tableName
+				}
+
 				columnTypes, _ := m.DB.Migrator().ColumnTypes(value)
 
 				for _, field := range stmt.Schema.FieldsByDBName {

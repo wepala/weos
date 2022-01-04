@@ -106,7 +106,7 @@ func TestMain(t *testing.M) {
 
 		// exponential backoff-retry, because the application in the container might not be ready to accept connections yet
 		if err = pool.Retry(func() error {
-			db, err = sql.Open("mysql", fmt.Sprintf("root:secret@(localhost:%s)/mysql?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=%s", resource.GetPort("3306/tcp"), strconv.FormatBool(true)))
+			db, err = sql.Open("mysql", fmt.Sprintf("root:secret@(localhost:%s)/mysql?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,STRICT_TRANS_TABLES,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=%s", resource.GetPort("3306/tcp"), strconv.FormatBool(true)))
 			if err != nil {
 				return err
 			}
@@ -242,6 +242,30 @@ components:
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
 
+		//check for auto id
+		if *driver != "mysql" {
+			if result[0]["id"].(int64) != 1 {
+				t.Fatalf("expected an automatic id of '%d' to be set, got '%d'", 1, result[0]["id"])
+			}
+		} else {
+			if result[0]["id"].(uint64) != 1 {
+				t.Fatalf("expected an automatic id of '%d' to be set, got '%d'", 1, result[0]["id"])
+			}
+		}
+
+		//automigrate table again to ensure no issue on multiple migrates
+		for i := 0; i < 10; i++ {
+			_, err = projections.NewProjection(context.Background(), app, schemes)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			tables, _ := gormDB.Migrator().GetTables()
+			if len(tables) != 2 {
+				t.Errorf("expected there to be 2 tables")
+			}
+		}
+
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -250,11 +274,6 @@ components:
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Post", err)
 		}
-
-		//check for auto id
-		//if result[0]["id"].(int64) != 1 {
-		//	t.Fatalf("expected an automatic id of '%d' to be set, got '%d'", 1, result[0]["id"])
-		//}
 	})
 
 	t.Run("Create basic table with speecified primary key", func(t *testing.T) {
@@ -322,7 +341,7 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
 		if tresult.Error == nil {
 			t.Errorf("expected an error because the primary key was not set")
 		}
@@ -330,7 +349,7 @@ components:
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
 		if len(result) != 0 {
-			t.Fatal("expectedd no blogs to be created with a missing id field")
+			t.Fatal("expected no blogs to be created with a missing id field")
 		}
 
 		err = gormDB.Migrator().DropTable("Blog")
