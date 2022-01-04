@@ -278,66 +278,68 @@ Feature: Create Content Types
 #       }
 #     """
 
-#   Scenario: Use format to set granular types
+  # Scenario: Use format to set granular types
 
-#     Developers can use the `format` attribute to set the format of a property. This should be used to validate content
-#     using common formats (e.g. email)
+  #   Developers can use the `format` attribute to set the format of a property. This should be used to validate content
+  #   using common formats (e.g. email)
 
-#     Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-#     """
-#         Post:
-#           type: object
-#           properties:
-#             id:
-#               type: string
-#               format: ksuid
-#             title:
-#               type: string
-#             description:
-#               type: string
-#             email:
-#               type: string
-#               format: email
-#             publishedDate:
-#               type: string
-#               format: date-time
-#             views:
-#               type: integer
-#             categories:
-#               type: array
-#               items:
-#                 $ref: "#/components/schemas/Category"
-#     """
-#     When the "OpenAPI 3.0" specification is parsed
-#     Then a model "Post" should be added to the projection
-#       | Field         | Comment      | Type           | Null     | Key      | Default     |
-#       | id            |              | varchar(512)   | false    | PK       | NULL        |
-#       | title         |              | varchar(512)   | true     |          | NULL        |
-#       | description   |              | varchar(512)   | true     |          | NULL        |
-#       | email         |              | varchar(512)   | true     |          | NULL        |
-#       | publishedDate |              | datetime       | true     |          | NULL        |
-#     And a model "PostCategory" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | post_id     |              | varchar(512)   | false    | PK       | NULL        |
-#       | category_id |              | varchar(512)   | false    | PK       | NULL        |
-#     And a "Post" entity configuration should be setup
-#     """
-#     erDiagram
-#       Blog ||--o{ Post : contains
-#       Blog {
-#         string id
-#         string title
-#         string description
-#       }
-#       Category ||--o{ Post : contains
-#       Post {
-#         string id
-#         string title
-#         string description
-#         string email
-#         datetime publishedDate
-#       }
-#     """
+  #   Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+  #   """
+  #       Post:
+  #         type: object
+  #         properties:
+  #           id:
+  #             type: string
+  #             format: ksuid
+  #           title:
+  #             type: string
+  #           description:
+  #             type: string
+  #           email:
+  #             type: string
+  #             format: email
+  #           publishedDate:
+  #             type: string
+  #             format: date-time
+  #           views:
+  #             type: integer
+  #           categories:
+  #             type: array
+  #             items:
+  #               $ref: "#/components/schemas/Category"
+  #   """
+  #   When the "OpenAPI 3.0" specification is parsed
+  #   Then a model "Post" should be added to the projection
+  #     | Field          | Comment      | Type           | Null     | Key      | Default     |
+  #     | id             |              | varchar(512)   | false    | PK       | NULL        |
+  #     | title          |              | varchar(512)   | true     |          | NULL        |
+  #     | description    |              | varchar(512)   | true     |          | NULL        |
+  #     | email          |              | varchar(512)   | true     |          | NULL        |
+  #     | published_date |              | datetime       | true     |          | NULL        |
+  #   # And a model "PostCategory" should be added to the projection
+  #   #   | Field       | Comment      | Type           | Null     | Key      | Default     |
+  #   #   | post_id     |              | varchar(512)   | false    | PK       | NULL        |
+  #   #   | category_id |              | varchar(512)   | false    | PK       | NULL        |
+  #   And a "Post" entity configuration should be setup
+  #   # """
+  #   # erDiagram
+  #   #   Blog ||--o{ Post : contains
+  #   #   Blog {
+  #   #     string id
+  #   #     string title
+  #   #     string description
+  #   #   }
+  #   """
+  #   erDiagram
+  #     Category ||--o{ Post : contains
+  #     Post {
+  #       string id
+  #       string title
+  #       string description
+  #       string email
+  #       datetime publishedDate
+  #     }
+  #   """
 
 #   Scenario: Setup validation rules for content
 
