@@ -19,36 +19,11 @@ const WEOS_SCHEMA = "WEOS-Schemas"
 //CreateSchema creates the table schemas for gorm syntax
 func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]interface{} {
 	structs := make(map[string]interface{})
-	builders := make(map[string]ds.Builder)
 	relations := make(map[string]map[string]string)
-	keys := make(map[string][]string)
 	schemas := s.Components.Schemas
 	for name, scheme := range schemas {
-		var instance ds.Builder
-		instance, relations[name], keys[name] = newSchema(scheme.Value, e.Logger)
-		builders[name] = instance
-	}
-
-	//rearrange so schemas without primary keys are first
-
-	for name, scheme := range builders {
-		if relations, ok := relations[name]; ok {
-			if len(relations) != 0 {
-				var err error
-				scheme, err = addRelations(scheme, relations, builders, keys, e.Logger)
-				if err != nil {
-					e.Logger.Fatalf("Got an error creating the application schema '%s'", err.Error())
-				}
-			}
-		}
-
-		instance := scheme.Build().New()
-		err := json.Unmarshal([]byte(`{
-			"table_alias": "`+name+`"
-		}`), &instance)
-		if err != nil {
-			e.Logger.Errorf("unable to set the table name '%s'", err)
-		}
+		var instance interface{}
+		instance, relations[name] = newSchema(scheme.Value, name, e.Logger)
 		structs[name] = instance
 	}
 	return structs
@@ -97,7 +72,7 @@ func newSchema(ref *openapi3.Schema, tableName string, logger echo.Logger) (inte
 						//add as json object
 					} else {
 						//add reference to the object to the map
-						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
+						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/") + "{}"
 
 					}
 				}
