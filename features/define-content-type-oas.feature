@@ -119,7 +119,7 @@ Feature: Create Content Types
 #       | title       | blog title   | varchar(512)   | false    |          | NULL        |
 #       | description |              | varchar(512)   | true     |          | NULL        |
 #     And a "Blog" entity configuration should be setup
-    
+
 
 #   Scenario: Declare content type that has a many to one relationship to another content type
 
@@ -135,7 +135,7 @@ Feature: Create Content Types
 #               type: string
 #             description:
 #               type: string
-  
+
 #     """
 #     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
 #     """
@@ -394,7 +394,7 @@ Feature: Create Content Types
 #       | post_id     |              | varchar(512)   | false    | PK       | NULL        |
 #       | category_id |              | varchar(512)   | false    | PK       | NULL        |
 #     And a "Post" entity configuration should be setup
-#     """ 
+#     """
 #     erDiagram
 #       Blog ||--o{ Post : contains
 #       Blog {
