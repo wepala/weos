@@ -483,4 +483,138 @@ components:
 			t.Errorf("error removing table '%s' '%s'", "Post", err)
 		}
 	})
+
+	t.Run("Create basic many to many relationship", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+       posts:
+        type: array
+        items:
+          $ref: "#/components/schemas/Post"
+`
+
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Errorf("expected to get a table 'Blog'")
+		}
+
+		if !gormDB.Migrator().HasTable("Post") {
+			t.Errorf("expected to get a table 'Post'")
+		}
+
+		if !gormDB.Migrator().HasTable("blog_posts") {
+			t.Errorf("expected to get a table 'blog_posts'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("blog_posts")
+
+		found := false
+		found1 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "post_id" {
+				found1 = true
+			}
+		}
+
+		if !found1 || !found {
+			t.Fatal("not all fields found")
+		}
+		gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs"})
+		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		result := gormDB.Table("blog_posts").Create(map[string]interface{}{
+			"id":      1,
+			"post_id": 1,
+		})
+		if result.Error != nil {
+			t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
+		}
+
+		result = gormDB.Table("blog_posts").Create(map[string]interface{}{
+			"id":      1,
+			"post_id": 5,
+		})
+		if result.Error == nil {
+			t.Errorf("expected to be unable to create a relationship without an valis post id")
+		}
+
+		//automigrate table again to ensure no issue on multiple migrates
+		for i := 0; i < 20; i++ {
+			_, err = projections.NewProjection(context.Background(), app, schemes)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			//testing number of tables would not work in mysql since it can create many auxilliary tables
+			if !gormDB.Migrator().HasTable("Blog") {
+				t.Errorf("expected to get a table 'Blog'")
+			}
+
+			if !gormDB.Migrator().HasTable("Post") {
+				t.Errorf("expected to get a table 'Post'")
+			}
+
+			if !gormDB.Migrator().HasTable("blog_posts") {
+				t.Errorf("expected to get a table 'blog_posts'")
+			}
+
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+	})
 }

@@ -10,5 +10,5 @@ type Projection interface {
 }
 
 type DefaultProjection struct {
-	Table string `json:"table_alias" gorm:"-"`
+	Table string `json:"table_alias"`
 }
