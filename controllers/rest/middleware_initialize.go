@@ -73,7 +73,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 		tagString := `json:"` + utils.SnakeCase(name) + `"`
 		for _, req := range ref.Required {
 			if strings.EqualFold(req, name) {
-				tagString = `json:"` + utils.SnakeCase(name) + " gorm:nullable=false" + `"`
+				tagString = `json:"` + utils.SnakeCase(name) + `"gorm:"NOT NULL"` + `"`
 			}
 		}
 
