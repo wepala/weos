@@ -1,62 +1,32 @@
-package rest
+package projections
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/wepala/weos-service/projections"
 	"github.com/wepala/weos-service/utils"
-	"golang.org/x/net/context"
 )
 
 //ToDo: Saving the structs to a map and making them entities to save events
-
-const WEOS_SCHEMA = "WEOS-Schemas"
-
-//CreateSchema creates the table schemas for gorm syntax
-func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]interface{} {
+func CreateSchema(ctx context.Context, schemas map[string]*openapi3.SchemaRef) (map[string]interface{}, error) {
 	structs := make(map[string]interface{})
-	builders := make(map[string]ds.Builder)
 	relations := make(map[string]map[string]string)
-	keys := make(map[string][]string)
-	schemas := s.Components.Schemas
+
 	for name, scheme := range schemas {
-		var instance ds.Builder
-		instance, relations[name], keys[name] = newSchema(scheme.Value, e.Logger)
-		builders[name] = instance
-	}
-
-	//rearrange so schemas without primary keys are first
-
-	for name, scheme := range builders {
-		if relations, ok := relations[name]; ok {
-			if len(relations) != 0 {
-				var err error
-				scheme, err = addRelations(scheme, relations, builders, keys, e.Logger)
-				if err != nil {
-					e.Logger.Fatalf("Got an error creating the application schema '%s'", err.Error())
-				}
-			}
-		}
-
-		instance := scheme.Build().New()
-		err := json.Unmarshal([]byte(`{
-			"table_alias": "`+name+`"
-		}`), &instance)
-		if err != nil {
-			e.Logger.Errorf("unable to set the table name '%s'", err)
-		}
+		var instance interface{}
+		instance, relations[name] = updateSchema(scheme.Value, name)
 		structs[name] = instance
 	}
-	return structs
 
+	//reloop through and add object relations
+
+	return structs, nil
 }
 
-//creates a new schema interface instance
-func newSchema(ref *openapi3.Schema, tableName string, logger echo.Logger) (interface{}, map[string]string) {
+func updateSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]string) {
 	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
 
 	primaryKeys := []string{}
@@ -66,7 +36,7 @@ func newSchema(ref *openapi3.Schema, tableName string, logger echo.Logger) (inte
 		primaryKeys = append(primaryKeys, "id")
 	}
 
-	instance := ds.ExtendStruct(&projections.DefaultProjection{})
+	instance := ds.ExtendStruct(&DefaultProjection{})
 
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
@@ -97,7 +67,7 @@ func newSchema(ref *openapi3.Schema, tableName string, logger echo.Logger) (inte
 						//add as json object
 					} else {
 						//add reference to the object to the map
-						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
+						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/") + "{}"
 
 					}
 				}
@@ -126,12 +96,11 @@ func newSchema(ref *openapi3.Schema, tableName string, logger echo.Logger) (inte
 
 	inst := instance.Build().New()
 
-	err := json.Unmarshal([]byte(`{
-			"table_alias": "`+tableName+`"
-		}`), &inst)
-	if err != nil {
-		logger.Errorf("unable to set the table name '%s'", err)
-	}
+	json.Unmarshal([]byte(`
+		{
+			"table_alias": "`+tableName+`",
+		}
+	`), &inst)
 
 	return inst, relations
 }
