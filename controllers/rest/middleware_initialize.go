@@ -12,10 +12,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-//ToDo: Saving the structs to a map and making them entities to save events
-
-const WEOS_SCHEMA = "WEOS-Schemas"
-
 //CreateSchema creates the table schemas for gorm syntax
 func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]interface{} {
 	structs := make(map[string]interface{})
