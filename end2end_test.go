@@ -116,6 +116,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
+	db.Exec("PRAGMA foreign_keys = ON")
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:

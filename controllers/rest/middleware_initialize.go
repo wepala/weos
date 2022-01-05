@@ -133,22 +133,16 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 		if strings.Contains(relation, "[]") {
 			//many to many relationship
 			// relationName := strings.Trim(relation, "[]")
-			// instances := structs[relationName].Build().NewSliceOfStructs()
-			// err := json.Unmarshal([]byte(`{
-			// 	"table_alias": "`+name+`"
-			// }`), &instances)
-			// if err != nil {
-			// 	logger.Errorf("unable to set the table name '%s'", err)
-			// }
+			// inst := structs[relationName]
+			// f := inst.GetField("Table")
+			// f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
+			// instances := inst.Build().NewSliceOfStructs()
 			// struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+` gorm:"foreignKey:`+relationName+`Refer"`)
 		} else {
-			instance := structs[relation].Build().New()
-			err := json.Unmarshal([]byte(`{
-			"table_alias": "`+name+`"
-		}`), &instance)
-			if err != nil {
-				logger.Errorf("unable to set the table name '%s'", err)
-			}
+			inst := structs[relation]
+			f := inst.GetField("Table")
+			f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
+			instance := inst.Build().New()
 			key := keys[relation]
 			bytes, _ := json.Marshal(instance)
 			s := map[string]interface{}{}
@@ -164,7 +158,7 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 				keystring += strings.Title(name) + strings.Title(k)
 			}
 
-			struc.AddField(name, instance, `json:"`+utils.SnakeCase(name)+`" gorm:"foreignKey:`+keystring+`"`)
+			struc.AddField(name, instance, `json:"`+utils.SnakeCase(name)+`" gorm:"foreignKey:`+keystring+`; references `+strings.Join(key, ",")+`"`)
 		}
 	}
 	return struc, nil
