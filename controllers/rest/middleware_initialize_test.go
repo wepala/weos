@@ -1,6 +1,7 @@
 package rest_test
 
 import (
+	"database/sql"
 	"io/ioutil"
 	"os"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	dynamicstruct "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos-service/controllers/rest"
+	"github.com/wepala/weos-service/projections"
 	"golang.org/x/net/context"
 )
 
@@ -66,7 +68,6 @@ func TestCreateSchema(t *testing.T) {
 	})
 }
 
-/*
 func TestCreateSchema_RequiredField(t *testing.T) {
 	t.Run("Required Field it set to not nullable", func(t *testing.T) {
 		content, err := ioutil.ReadFile("./fixtures/blog.yaml")
@@ -89,20 +90,20 @@ func TestCreateSchema_RequiredField(t *testing.T) {
 		}
 		//instantiate api
 		e := echo.New()
-
+		db, err = sql.Open("sqlite3", "test_schema.db")
+		if err != nil {
+			t.Errorf("unexpected error '%s'", err)
+		}
 		result := rest.CreateSchema(context.Background(), e, swagger)
-
+		gormProject := projections.GORMProjection{Schema: result}
 		schemas := swagger.Components.Schemas
 
 		for _, scheme := range schemas {
-			for key, value := range scheme.Value.Required {
+			for _, value := range scheme.Value.Required {
 
-				for tableName, table := range result {
-					reader := dynamicstruct.NewReader(table)
-					field := reader.GetField(value)
-					if field == nil {
-						t.Fatalf("expected a field")
-					}
+				if value == "" {
+				}
+				if result == nil {
 				}
 			}
 		}
@@ -133,4 +134,4 @@ func TestCreateSchema_RequiredField(t *testing.T) {
 		//	t.Errorf("expected the struct to have field '%s'", "AuthorEmail")
 		//}
 	})
-}*/
+}

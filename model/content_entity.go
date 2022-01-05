@@ -24,6 +24,8 @@ func (w *ContentEntity) IsValid() bool {
 	}
 	for _, req := range w.Schema.Required {
 		if w.IsNull(req) && !w.Schema.Properties[req].Value.Nullable {
+			message := "entity property " + req + " required"
+			w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 			return false
 		}
 	}
