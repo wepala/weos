@@ -3,7 +3,6 @@ package rest
 import (
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -24,7 +23,7 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 	schemas := s.Components.Schemas
 	for name, scheme := range schemas {
 		var instance interface{}
-		instance, relations[name] = newSchema(scheme.Value, name)
+		instance, relations[name] = newSchema(scheme.Value, name, e.Logger)
 		structs[name] = instance
 	}
 	return structs
@@ -32,7 +31,7 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 }
 
 //creates a new schema interface instance
-func newSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]string) {
+func newSchema(ref *openapi3.Schema, tableName string, logger echo.Logger) (interface{}, map[string]string) {
 	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
 
 	primaryKeys := []string{}
@@ -60,11 +59,7 @@ func newSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]
 				if t2 != "object" {
 					if t2 == "string" {
 						//format types to be added
-						if p.Value.Items.Value.Format == "date-time" {
-							instance.AddField(name, time.Now(), tagString)
-						} else {
-							instance.AddField(name, []string{}, tagString)
-						}
+						instance.AddField(name, []string{}, tagString)
 					} else if t2 == "number" {
 						instance.AddField(name, []float64{}, tagString)
 					} else if t == "integer" {
@@ -87,11 +82,8 @@ func newSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]
 
 			} else {
 				if t == "string" {
-					if p.Value.Format == "date-time" {
-						instance.AddField(name, time.Now(), tagString)
-					} else {
-						instance.AddField(name, "", tagString)
-					}
+					//format types to be added
+					instance.AddField(name, "", tagString)
 				} else if t == "number" {
 					instance.AddField(name, 0.0, tagString)
 				} else if t == "integer" {
@@ -109,11 +101,12 @@ func newSchema(ref *openapi3.Schema, tableName string) (interface{}, map[string]
 
 	inst := instance.Build().New()
 
-	json.Unmarshal([]byte(`
-		{
-			"table_alias": "`+tableName+`",
-		}
-	`), &inst)
+	err := json.Unmarshal([]byte(`{
+			"table_alias": "`+tableName+`"
+		}`), &inst)
+	if err != nil {
+		logger.Errorf("unable to set the table name '%s'", err)
+	}
 
 	return inst, relations
 }

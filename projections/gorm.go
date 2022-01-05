@@ -1,9 +1,6 @@
 package projections
 
 import (
-	"fmt"
-	"reflect"
-
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
@@ -31,20 +28,12 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	var err error
-	for name, s := range p.Schema {
-		fmt.Print(reflect.TypeOf(s))
-		if !p.db.Migrator().HasTable(name) {
-			err = p.db.Migrator().CreateTable(s)
-			if err != nil {
-				return err
-			}
-			err = p.db.Migrator().RenameTable("", name)
-			if err != nil {
-				return err
-			}
-		}
-
+	var tables []interface{}
+	for _, s := range p.Schema {
+		tables = append(tables, s)
 	}
+
+	err = p.db.Migrator().AutoMigrate(tables...)
 	return err
 }
 

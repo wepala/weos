@@ -27,10 +27,10 @@ jobs:
           go-version: 1.16.x
       - name: Run Sqlite3 integration tests
         run: go test -v ./...
-      # - name: Run Postgres integration tests
-      #   run: go test -v ./... -driver=postgres
-      # - name: Run Mysql integration tests
-      #   run: go test -v ./... -driver=mysql
+      - name: Run Postgres projections tests
+        run: go test -v ./projections -driver=postgres
+      - name: Run Mysql projections tests
+        run: go test -v ./projections -driver=mysql
       - name: Send release notification
         uses: rtCamp/action-slack-notify@v2
         env:
