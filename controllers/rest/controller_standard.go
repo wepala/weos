@@ -42,7 +42,11 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType))
 		if err != nil {
-			return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
+			if errr, ok := err.(*model.DomainError); ok {
+				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+			} else {
+				return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
+			}
 		}
 		return ctxt.JSON(http.StatusCreated, "Created")
 	}
