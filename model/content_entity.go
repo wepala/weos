@@ -23,7 +23,7 @@ func (w *ContentEntity) IsValid() bool {
 		return false
 	}
 	for _, req := range w.Schema.Required {
-		if w.IsNull(req, w.Schema.Properties[req].Value.Type) && !w.Schema.Properties[req].Value.Nullable {
+		if w.IsNull(req) && !w.Schema.Properties[req].Value.Nullable {
 			return false
 		}
 	}
@@ -31,12 +31,26 @@ func (w *ContentEntity) IsValid() bool {
 }
 
 //IsNull checks if the value of the property is null
-func (w *ContentEntity) IsNull(name, contentType string) bool {
+func (w *ContentEntity) IsNull(name string) bool {
 	reader := ds.NewReader(w.Property)
-	temp := reader.GetField(strings.Title(name)).PointerString()
-	if temp == nil {
-		return true
+	switch w.Schema.Properties[name].Value.Type {
+	case "string":
+		temp := reader.GetField(strings.Title(name)).PointerString()
+		if temp == nil {
+			return true
+		}
+	case "number":
+		temp := reader.GetField(strings.Title(name)).PointerFloat64()
+		if temp == nil {
+			return true
+		}
+	case "integer":
+		temp := reader.GetField(strings.Title(name)).PointerInt()
+		if temp == nil {
+			return true
+		}
 	}
+
 	return false
 }
 
