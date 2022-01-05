@@ -3,6 +3,7 @@ package rest
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -83,8 +84,11 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 				t2 := p.Value.Items.Value.Type
 				if t2 != "object" {
 					if t2 == "string" {
-						//format types to be added
-						instance.AddField(name, []string{}, tagString)
+						if p.Value.Items.Value.Format == "date-time" {
+							instance.AddField(name, time.Now(), tagString)
+						} else {
+							instance.AddField(name, []string{}, tagString)
+						}
 					} else if t2 == "number" {
 						instance.AddField(name, []float64{}, tagString)
 					} else if t == "integer" {
@@ -97,7 +101,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 						//add as json object
 					} else {
 						//add reference to the object to the map
-						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
+						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/") + "{}"
 
 					}
 				}
@@ -107,8 +111,11 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 
 			} else {
 				if t == "string" {
-					//format types to be added
-					instance.AddField(name, "", tagString)
+					if p.Value.Format == "date-time" {
+						instance.AddField(name, time.Now(), tagString)
+					} else {
+						instance.AddField(name, "", tagString)
+					}
 				} else if t == "number" {
 					instance.AddField(name, 0.0, tagString)
 				} else if t == "integer" {
