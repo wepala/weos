@@ -11,15 +11,15 @@ has_children: true
 3. Run the API
 
 ## Setup OpenAPI Specification
-OpenAPI specifications power WeOS services. For simple APIs that are basic create, read, update, delete functionality
-(CRUD), you can generate a vanilla OpenAPI specification using schemas to model your data. We also provide extensions
-for adding controllers and middleware to endpoints. See our specification documentation to get the complete list of
+[OpenAPI specifications](https://openapis.org) power WeOS services. For simple APIs that are basic create, read, update, delete functionality
+(CRUD), you can create a vanilla OpenAPI specification using schemas to model your data. We also provide extensions
+for adding controllers and middleware to endpoints. See our [specification documentation](./specification.md) to get the complete list of
 functionality available. You can also use one of our examples as a starting point.
 
 ## Download the WeOS binary
 The WeOS binary is essentially a server that uses the OpenAPI specification for configuration. We chose to build the
 server with Go because we wanted to make the server extensible, easy to deploy and maintain with no runtime required.
-You can download a binary for your environment on our release page.
+You can download a binary for your environment on [our release page](https://github.com/wepala/weos-service/releases).
 
 ## Run the API
 Now that you have a specification and the WeOS executable, you can run the API by using the `weos` command in the same

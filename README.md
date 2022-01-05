@@ -1,6 +1,7 @@
 <p align="center">
   <a href="https://weos.cloud">
     <img src="./docs/assets/images/logo.png#gh-light-mode-only" width="318px" alt="WeOS logo" />
+    <img src="./docs/assets/images/logo-white.png#gh-dark-mode-only" width="318px" alt="WeOS logo" />
   </a>
 </p>
 
@@ -43,7 +44,24 @@ We're doing all we can to make it easy to get started with microservices.In addi
 run APIs on your own machines; we also provide a catalog of APIs already running in the cloud so that developers can 
 focus on making the user the interface for their application
 
-## What's Next
-1. [Learn more about WeOS](https://wepala.github.io/weos)
-2. Creating an OpenAPI Spec
-3. Advanced API building
+## Contributing
+
+Please read our [Contributing Guide](./CONTRIBUTING.md) before submitting a Pull Request to the project.
+
+## Community support
+
+For general help using WeOS, please refer to [the official WeOS documentation](https://wepala.github.io/weos-service). For additional help, you can use one of these channels to ask a question:
+
+- [GitHub](https://github.com/wepala/weos-service) (Bug reports, Contributions)
+- [YouTube Channel](https://www.youtube.com/weos) (Learn from Video Tutorials)
+
+## Documentation
+
+- [Developer docs](https://wepala.github.io/weos-service/)
+- [User guide](https://wepala.github.io/weos-service/getting-started/)
+- [Example Specifications](https://wepala.github.io/weos-service/examples/)
+- 
+
+## License
+
+See the [LICENSE](./LICENSE) file for licensing information.
