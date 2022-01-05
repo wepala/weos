@@ -41,7 +41,9 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 				json.Unmarshal(b, &s)
 
 				if tableName, ok := s["table_alias"].(string); ok {
-					value = tableName
+					if tableName != "" {
+						value = tableName
+					}
 				}
 
 				columnTypes, _ := m.DB.Migrator().ColumnTypes(value)
@@ -591,6 +593,9 @@ func (m Migrator) ReorderModels(values []interface{}, autoAdd bool) (results []i
 		b, _ := json.Marshal(value)
 		json.Unmarshal(b, &s)
 		if tableName, ok := s["table_alias"].(string); ok {
+			if tableName == "" {
+				fmt.Errorf("no table name found for '%s'", s)
+			}
 			if err := dep.ParseWithSpecialTableName(value, tableName); err != nil {
 				m.DB.Logger.Error(context.Background(), "failed to parse value %#v, got error %v", value, err)
 			}
@@ -645,6 +650,13 @@ func (m Migrator) ReorderModels(values []interface{}, autoAdd bool) (results []i
 		if autoAdd {
 			dep := valuesMap[name]
 			for _, d := range dep.Depends {
+				if d.Table == "" {
+					for _, f := range d.Fields {
+						if f.Name == "Table" && f.DefaultValue != "" {
+							d.Table = f.DefaultValue
+						}
+					}
+				}
 				if _, ok := valuesMap[d.Table]; ok {
 					insertIntoOrderedList(d.Table)
 				} else {
