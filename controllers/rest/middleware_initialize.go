@@ -71,6 +71,12 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
 		tagString := `json:"` + utils.SnakeCase(name) + `"`
+		for _, req := range ref.Required {
+			if strings.EqualFold(req, name) {
+				tagString = `json:"` + utils.SnakeCase(name) + " gorm:nullable=false" + `"`
+			}
+		}
+
 		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(name)) {
 			tagString += ` gorm:"primaryKey;size:512;NOT NULL"`
 		}
