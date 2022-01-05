@@ -190,7 +190,8 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 	var column gorm.ColumnType
 
 	for i := 1; i < len(details.Rows); i++ {
-
+		payload := map[string]interface{}{}
+		keys := []string{}
 		for n, cell := range details.Rows[i].Cells {
 			switch head[n].Value {
 			case "Field":
@@ -204,6 +205,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			case "Type":
 				if cell.Value == "varchar(512)" {
 					cell.Value = "text"
+					payload[column.Name()] = "hugs"
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
 					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
@@ -212,9 +214,16 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
 			case "Key":
-				if strings.EqualFold(cell.Value, "fk") {
-
+				if !strings.EqualFold(column.Name(), "id") { //default id tag
+					payload[column.Name()] = nil
 				}
+				keys = append(keys, cell.Value)
+			}
+		}
+		if len(keys) != 1 && !strings.EqualFold(keys[0], "id") {
+			resultDB := gormDB.Table(arg1).Create(payload)
+			if resultDB.Error == nil {
+				return fmt.Errorf("expected a missing primary key error")
 			}
 		}
 	}
