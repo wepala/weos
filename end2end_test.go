@@ -60,8 +60,8 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	Developer = &User{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
-	os.Remove("./e2e.db")
-	_, err := api.Initialize(e, &API, "./e2e.yaml")
+	os.Remove("e2e.db")
+	_, err := api.Initialize(e, &API, "e2e.yaml")
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
@@ -109,7 +109,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
 	errors = nil
 	rec = httptest.NewRecorder()
-	os.Remove("./e2e.db")
+	os.Remove("e2e.db")
 	var err error
 	db, err = sql.Open("sqlite3", "e2e.db")
 	if err != nil {
@@ -358,7 +358,7 @@ func theShouldHaveAnId(contentType string) error {
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
 	e = echo.New()
-	os.Remove("./e2e.db")
+	os.Remove("e2e.db")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
@@ -369,7 +369,7 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 
 func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
-	os.Remove("./e2e.db")
+	os.Remove("e2e.db")
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
