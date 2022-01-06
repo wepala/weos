@@ -89,10 +89,6 @@ As developer you can create an endpoint that should be used to create content of
               $ref: "#/components/schemas/Blog"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a "POST" route should be added to the api  
@@ -136,10 +132,6 @@ As developer you can create an endpoint that should be used to create content of
                 type: "#/components/schemas/Blog"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a "POST" route should be added to the api  
@@ -166,10 +158,6 @@ Specifying a content type in the path definition is necessary. If no content typ
               $ref: "#/components/schemas/Blog"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a warning should be output to logs letting the developer know that a handler needs to be set.  
@@ -208,10 +196,6 @@ In order to use the create handler a schema is needed so that validation etc cou
               $ref: "#/components/schemas/Blog"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a warning should be output to logs letting the developer know that a handler needs to be set.  
