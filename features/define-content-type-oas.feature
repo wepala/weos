@@ -174,7 +174,7 @@ Feature: Create Content Types
         string description
       }
     """
-
+    
   Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
 
     A content type could be associated with another content type that has an identifier that has multiple parts. Though
@@ -216,12 +216,12 @@ Feature: Create Content Types
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
       | Field       | Comment      | Type           | Null     | Key      | Default     |
-      | id          |              | varchar(512)   | false    | PK       | NULL        |
+      | guid        |              | varchar(512)   | false    | PK       | NULL        |
       | title       |              | varchar(512)   | false    |          | NULL        |
       | description |              | varchar(512)   | true     |          | NULL        |
     And a model "Post" should be added to the projection
       | Field       | Comment      | Type           | Null     | Key      | Default     |
-      | id          |              | varchar(512)   | false    | PK       | NULL        |
+      | id          |              | integer        | false    | PK       | NULL        |
       | title       |              | varchar(512)   | false    |          | NULL        |
       | description |              | varchar(512)   | true     |          | NULL        |
       | blog_guid   |              | varchar(512)   | true     | FK       | NULL        |
@@ -229,12 +229,12 @@ Feature: Create Content Types
     And a "Post" entity configuration should be setup
     """
     erDiagram
-      Blog {
-        string id
+      Post {
+        uint id
         string title
         string description
-        string blog_guid
-        string blog_title
+        string blogGuid
+        string blogTitle
       }
     """
 
@@ -295,7 +295,7 @@ Feature: Create Content Types
         string description
       }
     """
-@focus
+
   Scenario: Use format to set granular types
 
     Developers can use the `format` attribute to set the format of a property. This should be used to validate content
