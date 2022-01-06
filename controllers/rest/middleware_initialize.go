@@ -69,9 +69,6 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 
 	instance := ds.ExtendStruct(&projections.DefaultProjection{})
 
-	//add field for weos id
-	instance.AddField("WeosID", "", `json:"weos_id"`)
-
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
 		tagString := `json:"` + utils.SnakeCase(name) + `"`

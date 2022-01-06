@@ -516,11 +516,11 @@ components:
 	}
 
 	t.Run("create basic item", func(t *testing.T) {
-		payload := map[string]interface{}{"title": "testBlog", "description": "This is a create projection test"}
+		payload := map[string]interface{}{"weos_id": "ehs", "title": "testBlog", "description": "This is a create projection test"}
 		contentEntity := &weos.ContentEntity{
 			AggregateRoot: weos.AggregateRoot{
 				BasicEntity: weos.BasicEntity{
-					ID: "1",
+					ID: "ehs",
 				},
 			},
 			Property: payload,
