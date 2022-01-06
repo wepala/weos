@@ -477,13 +477,14 @@ components:
 		t.Fatal(err)
 	}
 
-	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-	p, err := projections.NewProjection(context.Background(), app, schemes)
+	ctxt := context.Background()
+	schema := rest.CreateSchema(ctxt, echo.New(), swagger)
+	p, err := projections.NewProjection(ctxt, app, schema)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background())
+	err = p.Migrate(ctxt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,25 +525,31 @@ components:
 		Property: payload,
 	}
 
-	ctxt := context.Background()
-	ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-		Name: "Blog",
+		ctxt := context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   "Blog",
+			Schema: swagger.Components.Schemas["Blog"].Value,
+		})
+
+		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
+		p.GetEventHandler()(ctxt, *event)
+
+		blog := map[string]interface{}{}
+		result := gormDB.Table("Blog").Find(&blog, "weos_id = ? ", contentEntity.ID)
+		if result.RowsAffected != 1 {
+			t.Fatalf("expected %d item to be returned, got %d", 1, result.RowsAffected)
+		}
+
+		if blog["title"] != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog["title"])
+		}
+
+		if blog["description"] != payload["description"] {
+			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
+		}
 	})
 
-	event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
-	p.GetEventHandler()(ctxt, *event)
-
-	blog := map[string]interface{}{}
-	result := gormDB.Table("Blog").Find(&blog, "id = ? ", contentEntity.ID)
-	if result.Error != nil {
-		t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
-	}
-
-	if blog["title"] != payload["title"] {
-		t.Fatalf("expected title to be %s, got %s", payload["title"], blog["title"])
-	}
-
-	if blog["description"] != payload["description"] {
-		t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
-	}
+	t.Run("create without schema should fail", func(t *testing.T) {
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, schema["Blog"])
+	})
 }
