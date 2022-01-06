@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	weosContext "github.com/wepala/weos-service/context"
-
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
+	weosContext "github.com/wepala/weos-service/context"
+	"gorm.io/gorm/clause"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/gommon/log"
@@ -797,8 +797,15 @@ components:
 		if blog["description"] != payload["description"] {
 			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
 		}
-	})
 
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+	})
+}
+
+func TestProjections_GormOperations(t *testing.T) {
 	t.Run("Basic Create using schema", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
@@ -863,14 +870,11 @@ components:
 
 		json.Unmarshal(bytes, &blog)
 
-		reader := ds.NewReader(blog)
-		fmt.Print(reader.GetAllFields())
-
 		gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs"})
 
 		//create without table reference fails
 		//the dynamic struct entity is a pointer so just place it directly into the function
-		//using gormDB.Model would fail since the struct isn't recognized.  But it unmarshalls correctly which is what matters
+		//using gormDB.Model will fail since the struct isn't recognized.  But it unmarshalls correctly which is what matters
 		result := gormDB.Table("Blog").Create(blog)
 		if result.Error != nil {
 			t.Errorf("got error creating blog %s", result.Error)
@@ -880,6 +884,61 @@ components:
 		m = map[string]interface{}{"title": "hills"}
 		bytes, _ = json.Marshal(m)
 		json.Unmarshal(bytes, &post)
+		result = gormDB.Table("Post").Create(post)
+		if result.Error != nil {
+			t.Errorf("got error creating post %s", result.Error)
+		}
 
+		m = map[string]interface{}{"id": 1, "table_alias": "Blog", "title": "hugs", "posts": []map[string]interface{}{
+			{
+				"id": 1,
+			},
+			{
+				"id": 2,
+			},
+		}}
+		bytes, _ = json.Marshal(m)
+		json.Unmarshal(bytes, &blog)
+
+		result = gormDB.Table("Blog").Where("id = ?", 1).Updates(blog)
+		if result.Error != nil {
+			t.Errorf("got error updating blog %s", result.Error)
+		}
+
+		m = map[string]interface{}{"id": 1, "table_alias": "Blog", "title": "hugs"}
+		bytes, _ = json.Marshal(m)
+		json.Unmarshal(bytes, &blog)
+
+		result = gormDB.Table("Blog").Where("id = ?", 1).Updates(blog)
+		if result.Error != nil {
+			t.Errorf("got error updating blog %s", result.Error)
+		}
+
+		r := map[string]interface{}{"id": 1}
+
+		//first works only when a model struct is specified
+		gormDB.Table("Blog").Take(&r)
+		fmt.Printf("retrieved blog is %v", r)
+
+		r = map[string]interface{}{"id": 1, "table_alias": "Blog"}
+		bytes, _ = json.Marshal(r)
+		json.Unmarshal(bytes, &blog)
+
+		//not getting the association values
+		gormDB.Preload(clause.Associations).Take(blog)
+		reader := ds.NewReader(blog)
+		fmt.Printf("\nretrieved blog is %v\n", reader.GetAllFields())
+
+		gormDB.Preload(clause.Associations).Take(&r)
+		fmt.Printf("\nretrieved blog is %v\n", r)
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
 	})
 }
