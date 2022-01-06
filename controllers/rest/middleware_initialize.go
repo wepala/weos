@@ -98,7 +98,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 						//add as json object
 					} else {
 						//add reference to the object to the map
-						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/") + "{}"
+						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
 
 					}
 				}

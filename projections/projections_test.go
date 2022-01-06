@@ -3,6 +3,7 @@ package projections_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	weosContext "github.com/wepala/weos-service/context"
 
 	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/gommon/log"
@@ -675,7 +677,8 @@ components:
 
 func TestProjections_Create(t *testing.T) {
 
-	openAPI := `openapi: 3.0.3
+	t.Run("Basic Create", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
 info:
   title: Blog
   description: Blog example
@@ -720,78 +723,163 @@ components:
          type: string
 `
 
-	loader := openapi3.NewSwaggerLoader()
-	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-	p, err := projections.NewProjection(context.Background(), app, schemes)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = p.Migrate(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gormDB := app.DB()
-	if !gormDB.Migrator().HasTable("Blog") {
-		t.Fatal("expected to get a table 'Blog'")
-	}
-
-	columns, _ := gormDB.Migrator().ColumnTypes("Blog")
-
-	found := false
-	found1 := false
-	found2 := false
-	for _, c := range columns {
-		if c.Name() == "id" {
-			found = true
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
 		}
-		if c.Name() == "title" {
-			found1 = true
-		}
-		if c.Name() == "description" {
-			found2 = true
-		}
-	}
 
-	if !found1 || !found2 || !found {
-		t.Fatal("not all fields found")
-	}
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	payload := map[string]interface{}{"title": "testBlog", "description": "This is a create projection test"}
-	contentEntity := &weos.ContentEntity{
-		AggregateRoot: weos.AggregateRoot{
-			BasicEntity: weos.BasicEntity{
-				ID: "1",
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		payload := map[string]interface{}{"title": "testBlog", "description": "This is a create projection test"}
+		contentEntity := &weos.ContentEntity{
+			AggregateRoot: weos.AggregateRoot{
+				BasicEntity: weos.BasicEntity{
+					ID: "1",
+				},
 			},
-		},
-		Property: payload,
-	}
+			Property: payload,
+		}
 
-	ctxt := context.Background()
-	ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-		Name: "Blog",
+		ctxt := context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name: "Blog",
+		})
+
+		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
+		p.GetEventHandler()(ctxt, *event)
+
+		blog := map[string]interface{}{}
+		result := gormDB.Table("Blog").Find(&blog, "id = ? ", contentEntity.ID)
+		if result.Error != nil {
+			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
+		}
+
+		if blog["title"] != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog["title"])
+		}
+
+		if blog["description"] != payload["description"] {
+			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
+		}
 	})
 
-	event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
-	p.GetEventHandler()(ctxt, *event)
+	t.Run("Basic Create using schema", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+       posts:
+        type: array
+        items:
+          $ref: "#/components/schemas/Post"
+`
 
-	blog := map[string]interface{}{}
-	result := gormDB.Table("Blog").Find(&blog, "id = ? ", contentEntity.ID)
-	if result.Error != nil {
-		t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
-	}
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	if blog["title"] != payload["title"] {
-		t.Fatalf("expected title to be %s, got %s", payload["title"], blog["title"])
-	}
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	if blog["description"] != payload["description"] {
-		t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
-	}
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		gormDB := app.DB()
+
+		m := map[string]interface{}{"table_alias": "Blog", "title": "hugs", "posts": []map[string]interface{}{
+			{
+				"id": 1,
+			},
+		}}
+
+		bytes, _ := json.Marshal(m)
+
+		blog := schemes["Blog"]
+
+		json.Unmarshal(bytes, &blog)
+
+		reader := ds.NewReader(blog)
+		fmt.Print(reader.GetAllFields())
+
+		gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs"})
+
+		//create without table reference fails
+		//the dynamic struct entity is a pointer so just place it directly into the function
+		//using gormDB.Model would fail since the struct isn't recognized.  But it unmarshalls correctly which is what matters
+		result := gormDB.Table("Blog").Create(blog)
+		if result.Error != nil {
+			t.Errorf("got error creating blog %s", result.Error)
+		}
+
+		post := schemes["Post"]
+		m = map[string]interface{}{"title": "hills"}
+		bytes, _ = json.Marshal(m)
+		json.Unmarshal(bytes, &post)
+
+	})
 }
