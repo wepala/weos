@@ -13,8 +13,7 @@ middleware. No matter what you're trying to build (mobile app, web app, SaaS), o
 
 ## How It Works
 <p align="center">
-    <img src="./docs/assets/images/weos-microservice-layout-dark.png#gh-dark-mode-only" width="603" alt="Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database" title="Basic WeOS microservice layout" />  
-    <img src="./docs/assets/images/weos-microservice-layout.png#gh-light-mode-only" width="603" alt="Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database" title="Basic WeOS microservice layout" />
+    <img src="./assets/images/weos-microservice-layout-dark.png" width="603" alt="Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database" title="Basic WeOS microservice layout" />
 </p>
 We've built an executable that can process an OpenAPI specification and combine it with shared business logic to make
 APIs (WeOS Services) that you can use to create applications. We developed the executable in Go to be cross-platform,
