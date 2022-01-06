@@ -36,13 +36,15 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 		} else {
 			if err := m.RunWithValue(value, func(stmt *gorm.Statement) (errr error) {
 
-				s := map[string]interface{}{}
-				b, _ := json.Marshal(value)
-				json.Unmarshal(b, &s)
+				if value == nil {
+					s := map[string]interface{}{}
+					b, _ := json.Marshal(value)
+					json.Unmarshal(b, &s)
 
-				if tableName, ok := s["table_alias"].(string); ok {
-					if tableName != "" {
-						value = tableName
+					if tableName, ok := s["table_alias"].(string); ok {
+						if tableName != "" {
+							value = tableName
+						}
 					}
 				}
 
