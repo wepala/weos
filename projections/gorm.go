@@ -43,6 +43,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) {
 		switch event.Type {
 		case "create":
+			//TODO the event payload should be a struct based on the schema that came in the context
 			var eventPayload map[string]interface{}
 			contentType := weosContext.GetContentType(ctx)
 			err := json.Unmarshal(event.Payload, &eventPayload)
