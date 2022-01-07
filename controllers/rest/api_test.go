@@ -134,3 +134,27 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
 }
+
+func TestRESTAPI_Initialize_UpdateAddedToPut(t *testing.T) {
+	os.Remove("test.db")
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+	mockBlog := &Blog{ID: "1246dg", Title: "Test Blog", Url: "www.testBlog.com"}
+	reqBytes, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("error setting up request %s", err)
+	}
+	body := bytes.NewReader(reqBytes)
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/blogs/"+mockBlog.ID, body)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 200
+	if resp.Result().StatusCode != http.StatusOK {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+}
