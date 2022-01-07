@@ -129,6 +129,7 @@ Feature: Create content
         | title          | description                       |
         | Some Blog      | Some Description                  |
       And the "Blog" should have an id
+      And the "ETag" header should be present
 
     Scenario: Create an item that has an invalid type
 
@@ -148,10 +149,6 @@ Feature: Create content
       When the "Blog" is submitted
       Then an error should be returned
 
-
-
-
-    Scenario: Create an item using an endpoint that does not define the response
 
 
 
