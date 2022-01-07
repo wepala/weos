@@ -139,7 +139,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		{Title: "Blog 3"},
 	}
 
-	content, err := ioutil.ReadFile("./fixtures/blog-batches.yaml")
+	content, err := ioutil.ReadFile("./fixtures/blog-create-batch.yaml")
 	if err != nil {
 		t.Fatalf("error loading api specification '%s'", err)
 	}
