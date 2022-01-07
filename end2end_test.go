@@ -20,12 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cucumber/godog"
-	"github.com/labstack/echo/v4"
-	ds "github.com/ompluscator/dynamic-struct"
-	api "github.com/wepala/weos-service/controllers/rest"
 	"github.com/wepala/weos-service/utils"
-	"gorm.io/gorm"
 )
 
 var e *echo.Echo
@@ -41,6 +36,8 @@ var db *sql.DB
 var requests map[string]map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
+var dockerEndpoint string
+var reqBody string
 
 type User struct {
 	Name      string
@@ -386,13 +383,6 @@ func theShouldHaveAnId(contentType string) error {
 
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
-	e = echo.New()
-	os.Remove("e2e.db")
-	API = api.RESTAPI{}
-	_, err := api.Initialize(e, &API, openAPI)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -495,7 +485,7 @@ func thatTheBinaryIsGenerated(arg1 string) error {
 		Image:        "./fixtures/docker/" + imageName,
 		Name:         arg1,
 		ExposedPorts: []string{"9200:9200/tcp", "9300:9300/tcp"},
-		Env:          map[string]string{"discovery.type": "single-node", "WEOS-SCHEMA": openAPI},
+		Env:          map[string]string{"discovery.type": "single-node", "WEOS_SCHEMA": openAPI},
 		WaitingFor:   wait.ForLog("started"),
 	}
 	esContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -587,7 +577,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1170",
+			Tags:   "linux32",
 		},
 	}.Run()
 	if status != 0 {
