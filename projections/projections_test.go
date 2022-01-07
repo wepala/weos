@@ -974,7 +974,7 @@ components:
 		gormDB.Table("Post").Create(map[string]interface{}{"weos_id": postWeosID2, "title": "hugs"})
 		gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": blogWeosID, "title": "hugs"})
 
-		payload := map[string]interface{}{"id": 1, "title": "testBlog", "description": "This is a create projection test", "posts": []map[string]interface{}{
+		payload := map[string]interface{}{"weos_id": blogWeosID, "id": 1, "title": "testBlog", "description": "This is a create projection test", "posts": []map[string]interface{}{
 			{
 				"id": 1,
 			},
@@ -1013,22 +1013,22 @@ components:
 		blogpost := map[string]interface{}{}
 		result = gormDB.Table("blog_posts").Find(&blogpost, "id = ? ", 1)
 		if result.Error != nil {
-			t.Fatalf("unexpected error retreiving created blog post relation '%s'", result.Error)
+			t.Errorf("unexpected error retreiving created blog post relation '%s'", result.Error)
 		}
 
 		if *driver == "mysql" {
 			id := blogpost["post_id"].(uint64)
 			if id != 1 {
-				t.Fatalf("expected post id to be %d, got %v", 1, blogpost["post_id"])
+				t.Errorf("expected post id to be %d, got %v", 1, blogpost["post_id"])
 			}
 		} else {
 			if blogpost["post_id"] != int64(1) {
-				t.Fatalf("expected post id to be %d, got %v", 1, blogpost["post_id"])
+				t.Errorf("expected post id to be %d, got %v", 1, blogpost["post_id"])
 			}
 		}
 
 		//test replace associations
-		payload = map[string]interface{}{"id": 1, "title": "testBlog", "description": "This is a create projection test", "posts": []map[string]interface{}{
+		payload = map[string]interface{}{"id": 1, "weos_id": blogWeosID, "title": "testBlog", "description": "This is a create projection test", "posts": []map[string]interface{}{
 			{
 				"id": 2,
 			},
@@ -1057,7 +1057,7 @@ components:
 		}
 
 		if len(blogposts) != 1 {
-			t.Fatalf("expected there to be %d,blog posts got %v", 1, len(blogposts))
+			t.Fatalf("expected there to be %d blog posts got %v", 1, len(blogposts))
 		}
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {

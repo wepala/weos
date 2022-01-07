@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos-service/context"
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
@@ -62,6 +63,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 		case "update":
 			contentType := weosContext.GetContentType(ctx)
 			eventPayload, ok := p.Schema[strings.Title(contentType.Name)]
+			mapPayload := map[string]interface{}{}
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
@@ -69,11 +71,26 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
-				db := p.db.Table(contentType.Name).Updates(eventPayload)
-				if db.Error != nil {
-					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+
+				err = json.Unmarshal(event.Payload, &mapPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
-				db = p.db.Table(contentType.Name).Updates(eventPayload)
+				reader := ds.NewReader(eventPayload)
+
+				//replace associations
+				for key, entity := range mapPayload {
+					if _, ok := entity.([]interface{}); ok {
+						field := reader.GetField(strings.Title(key))
+						err = p.db.Debug().Model(eventPayload).Association(strings.Title(key)).Replace(field.Interface())
+						if err != nil {
+							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), contentType.Name, err)
+						}
+					}
+				}
+
+				//update database value
+				db := p.db.Table(contentType.Name).Updates(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
 				}
