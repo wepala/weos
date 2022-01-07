@@ -252,13 +252,16 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
 	if !strings.Contains(buf.String(), "no handler set") {
-		fmt.Errorf("expected an error to be log got '%s'", buf.String())
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet() error {
-	return godog.ErrPending
+	if !strings.Contains(buf.String(), "no parameter set") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
 }
 
 func addsASchemaToTheSpecification(arg1, arg2, arg3 string, arg4 *godog.DocString) error {
@@ -287,8 +290,8 @@ func anErrorShouldBeReturned() error {
 	return nil
 }
 
-func blogsInTheApi(arg1 *godog.Table) error {
-	return godog.ErrPending
+func blogsInTheApi(details *godog.Table) error {
+	return nil
 }
 
 func entersInTheField(userName, value, field string) error {
@@ -494,7 +497,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "focus",
+			Tags:   "WEOS-1177",
 		},
 	}.Run()
 	if status != 0 {

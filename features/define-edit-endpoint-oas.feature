@@ -50,15 +50,10 @@ Feature: Edit content endpoints
               type: array
               items:
                 $ref: "#/components/schemas/Category"
-            x-identifier:
-              - id
-              - title
+          x-identifier:
+            - id
+            - title
     """
-    And blogs in the api
-    | id              | title        | description    |
-    | <Generated ID>  | Blog 1       | Some Blog      |
-    | <Generated ID>  | Blog 2       | Some Blog 2    |
-
 
   Scenario: Create a basic edit endpoint with the identifier in the path
 
