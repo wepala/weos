@@ -1,7 +1,6 @@
 ---
 layout: default
 title: Parameters
-parent: Getting Started
 nav_order: 2
 has_children: false
 ---

@@ -24,18 +24,18 @@ Feature: Create content
         formatter: json
       database:
         driver: sqlite3
-        database: e2e.db
+        database: e2e.eb
       event-source:
         - title: default
           driver: service
           endpoint: https://prod1.weos.sh/events/v1
         - title: event
           driver: sqlite3
-          database: e2e.db
+          database: e2e.eb
       databases:
         - title: default
           driver: sqlite3
-          database: e2e.db
+          database: e2e.eb
       rest:
         middleware:
           - RequestID

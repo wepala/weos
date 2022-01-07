@@ -1,10 +1,3 @@
----
-layout: default
-title: Controllers
-parent: Getting Started
-nav_order: 3
-has_children: false
----
 # Controllers
 Controllers map requests to models as well as retrieves information through projections. WeOS provides standard
 controllers for everyday actions, e.g., Create, Read, Update, Delete (CRUD).

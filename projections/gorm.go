@@ -1,8 +1,6 @@
 package projections
 
 import (
-	"encoding/json"
-	weosContext "github.com/wepala/weos-service/context"
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
@@ -40,21 +38,7 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 }
 
 func (p *GORMProjection) GetEventHandler() weos.EventHandler {
-	return func(ctx context.Context, event weos.Event) {
-		switch event.Type {
-		case "create":
-			var eventPayload map[string]interface{}
-			contentType := weosContext.GetContentType(ctx)
-			err := json.Unmarshal(event.Payload, &eventPayload)
-			if err != nil {
-				p.logger.Errorf("error unmarshalling event '%s'", err)
-			}
-			db := p.db.Table(contentType.Name).Create(eventPayload)
-			if db.Error != nil {
-				p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
-			}
-		}
-	}
+	return nil
 }
 
 //NewProjection creates an instance of the projection
