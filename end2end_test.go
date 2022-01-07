@@ -110,6 +110,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	errors = nil
+	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	os.Remove("e2e.db")
 	var err error
