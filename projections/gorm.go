@@ -26,6 +26,15 @@ func (p *GORMProjection) Remove(entities []weos.Entity) error {
 	return nil
 }
 
+func (p *GORMProjection) GetByID(ctxt context.Context, contentType weosContext.ContentType, identifier []interface{}) (interface{}, error) {
+
+	return nil, nil
+}
+
+func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (interface{}, error) {
+	return nil, nil
+}
+
 func (p *GORMProjection) Migrate(ctx context.Context) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
