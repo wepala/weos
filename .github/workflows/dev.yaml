@@ -8,7 +8,7 @@ on:
 
 env:
   SLACK_CHANNEL: weos
-  SLACK_USERNAME: WeOS API
+  SLACK_USERNAME: WeOS CI
   SLACK_ICON: https://github.com/wepala.png?size=48
   SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
   SLACK_FOOTER: copyright 2021 Wepala
@@ -27,103 +27,13 @@ jobs:
           go-version: 1.16.x
       - name: Run Sqlite3 integration tests
         run: go test -v ./...
-      # - name: Run Postgres integration tests
-      #   run: go test -v ./... -driver=postgres
-      # - name: Run Mysql integration tests
-      #   run: go test -v ./... -driver=mysql
-  build-api:
-    name: Release Go Binaries
-    runs-on: ubuntu-latest
-    needs: prep
-    steps:
-      - uses: actions/checkout@v2
-      - uses: crazy-max/ghaction-xgo@v1
-        name: build linux and mac
-        with:
-          xgo_version: latest
-          go_version: 1.16.x
-          dest: build
-          prefix: weos
-          targets: linux/386,linux/amd64,darwin/amd64,windows/386,windows/amd64
-          v: true
-          x: false
-          race: false
-          ldflags: -s -w
-          buildmode: default
-          tags: server
-      - name: setup app
-        run: |
-          ls -al build/*
-
-          #setup mac build
-          mkdir -p build/mac
-          cp api.yaml build/mac/api.yaml
-          cp README.md build/mac/README.md
-          cp build/weos-darwin-10.12-amd64 build/mac/weos
-          chmod +x build/mac/weos
-          tar -czf weos-mac-amd64.tar.gz -C build/mac .
-
-          #setup linux 32 bit build
-          mkdir -p build/linux32/apps/admin
-          cp api.yaml build/linux32/api.yaml
-          cp README.md build/linux32/README.md
-          cp build/weos-linux-386 build/linux32/weos
-          chmod +x build/linux32/weos
-          tar -czf weos-linux-386.tar.gz -C build/linux32 .
-
-          #setup linux 64 bit build
-          mkdir -p build/linux64/apps/admin
-          cp api.yaml build/linux64/api.yaml
-          cp build/weos-linux-amd64 build/linux64/weos
-          chmod +x build/linux64/weos
-          tar -czf weos-linux-amd64.tar.gz -C build/linux64 .
-
-          #setup windows 32 bit build
-          mkdir -p build/win32/apps/admin
-          cp api.yaml build/win32/api.yaml
-          cp README.md build/win32/README.md
-          cp build/weos-windows-4.0-386.exe build/win32/weos.exe
-          cp dll/x86/* build/win32
-          chmod +x build/win32/weos.exe
-          chmod +x build/win32/*.dll
-          cd build/win32
-          zip -r  ../../weos-win32.zip .
-          cd ../../
-
-          #setup windows 64 bit build
-          mkdir -p build/win64/apps/admin
-          cp api.yaml build/win64/api.yaml
-          cp README.md build/win64/README.md
-          cp build/weos-windows-4.0-amd64.exe build/win64/weos.exe
-          cp dll/x64/* build/win64
-          chmod +x build/win64/weos.exe
-          chmod +x build/win64/*.dll
-          cd build/win64
-          zip -r  ../../weos-win64.zip .
-
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Mac OS
-          path: weos-mac-amd64.tar.gz
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Linux 32 Bit
-          path: weos-linux-386.tar.gz
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Linux 64 Bit
-          path: weos-linux-amd64.tar.gz
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Windows 32 Bit
-          path: weos-win32.zip
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Windows 64 bit
-          path: weos-win64.zip
+      - name: Run Postgres projections tests
+        run: go test -v ./projections -driver=postgres
+      - name: Run Mysql projections tests
+        run: go test -v ./projections -driver=mysql
       - name: Send release notification
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_COLOR: "FFFF00"
-          SLACK_MESSAGE: We were able to create a development build. Get the artifact here https://github.com/wepala/weos-api/actions/runs/${{ github.run_id }}
-          SLACK_TITLE: WeOS API Build Created
+          SLACK_MESSAGE: We were able to create a development build. Get the artifact here https://github.com/wepala/weos-service/actions/runs/${{ github.run_id }}
+          SLACK_TITLE: WeOS Build Created

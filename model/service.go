@@ -6,6 +6,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/wepala/weos-service/projections/dialects"
+	"gorm.io/driver/sqlite"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
@@ -13,14 +21,8 @@ import (
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
-	"net/http"
-	"os"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type ServiceConfig struct {
@@ -253,21 +255,23 @@ var NewApplicationFromConfig = func(config *ServiceConfig, logger Log, db *sql.D
 	var gormDB *gorm.DB
 	switch config.Database.Driver {
 	case "postgres":
-		gormDB, err = gorm.Open(postgres.New(postgres.Config{
+		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
 			Conn: db,
 		}), nil)
 		if err != nil {
 			return nil, err
 		}
 	case "sqlite3":
-		gormDB, err = gorm.Open(&sqlite.Dialector{
-			Conn: db,
+		gormDB, err = gorm.Open(&dialects.SQLite{
+			sqlite.Dialector{
+				Conn: db,
+			},
 		}, nil)
 		if err != nil {
 			return nil, err
 		}
 	case "mysql":
-		gormDB, err = gorm.Open(mysql.New(mysql.Config{
+		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
 			Conn: db,
 		}), nil)
 		if err != nil {

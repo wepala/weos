@@ -17,7 +17,7 @@ x-weos-config:
       database: events
   database:
     driver: sqlite3
-    database: test.db
+    database: e2e.db
   rest:
     middleware:
       - RequestID
@@ -67,11 +67,11 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         lastUpdated:
           type: string
           format: date-time

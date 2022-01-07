@@ -1,3 +1,4 @@
+@WEOS-1130
 Feature: Create content
 
   Background:
@@ -12,6 +13,34 @@ Feature: Create content
       title: Blog Aggregator Rest API
       version: 0.1.0
       description: REST API for interacting with the Blog Aggregator
+    servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+    x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        driver: sqlite3
+        database: e2e.db
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
     components:
       schemas:
         Blog:
@@ -41,7 +70,7 @@ Feature: Create content
             categories:
               type: array
               items:
-                $ref: "#/components/schemas/Post"
+                $ref: "#/components/schemas/Category"
           required:
             - title
         Category:
@@ -85,14 +114,12 @@ Feature: Create content
                     $ref: "#/components/schemas/Blog"
             400:
               description: Invalid blog submitted
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/ErrorResponse"
     """
 
 
     Scenario: Create a basic item
+
+      This is creating a basic item
       
       Given "Sojourner" is on the "Blog" create screen
       And "Sojourner" enters "Some Blog" in the "title" field
@@ -105,14 +132,26 @@ Feature: Create content
 
     Scenario: Create an item that has an invalid type
 
+      The string format in the spec should be used to validate the field
+
       Given "Sojourner" is on the "Blog" create screen
       And "Sojourner" enters "Some Description" in the "publishedDate" field
       When the "Blog" is submitted
       Then an error should be returned
 
-    Scenario: Create an item that violates uniqueness requirement
+    Scenario: Create an item that is missing a required field
 
-    Scenario: Create an item using an endpoint that does not definne the response 
+      Fields marked as required should be passed through
+
+      Given "Sojourner" is on the "Blog" create screen
+      And "Sojourner" enters "Some Description" in the "description" field
+      When the "Blog" is submitted
+      Then an error should be returned
+
+
+
+
+    Scenario: Create an item using an endpoint that does not define the response
 
 
 

@@ -3,9 +3,10 @@ package model
 import (
 	"encoding/json"
 	"errors"
-	"golang.org/x/net/context"
 	"sync"
 	"time"
+
+	"golang.org/x/net/context"
 )
 
 //Command is a common interface that all incoming requests should implement.
@@ -16,6 +17,7 @@ type Command struct {
 }
 
 type CommandMetadata struct {
+	EntityType    string
 	Version       int64
 	ExecutionDate *time.Time
 	UserID        string

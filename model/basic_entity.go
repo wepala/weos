@@ -2,7 +2,7 @@ package model
 
 type BasicEntity struct {
 	entityErrors []error
-	ID           string `json:"id,omitempty"`
+	ID           string `json:"weos_id,omitempty"`
 }
 
 func (b *BasicEntity) IsValid() bool {

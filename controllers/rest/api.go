@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/labstack/echo/v4/middleware"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/wepala/weos-service/model"
@@ -34,7 +35,7 @@ type RESTAPI struct {
 	Config      *APIConfig
 	e           *echo.Echo
 	PathConfigs map[string]*PathConfig
-	Schemas     map[string]*openapi3.SchemaRef
+	Schemas     map[string]interface{}
 	middlewares map[string]Middleware
 	controllers map[string]Controller
 }
@@ -115,6 +116,10 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	return nil, fmt.Errorf("middleware '%s' not found", name)
 }
 
+func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
+	return p.projection.Schema, nil
+}
+
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize() error {
 	var err error
@@ -130,22 +135,13 @@ func (p *RESTAPI) Initialize() error {
 	}
 
 	//enable module
-	// err = module.Initialize(a.Service)
-	// if err != nil {
-	// 	return err
-	// }
-
-	s := projections.Service{}
-	structs, err := s.CreateSchema(context.Background(), p.Schemas)
+	err = model.Initialize(p.Application)
 	if err != nil {
 		return err
 	}
-	for name, s := range structs {
-		fmt.Printf("struct %s: %v", name, s)
-	}
 
 	//setup projections
-	p.projection, err = projections.NewProjection(structs, p.Application)
+	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
 	if err != nil {
 		return err
 	}
@@ -162,11 +158,15 @@ func (p *RESTAPI) Initialize() error {
 //New instantiates and initializes the api
 func New(port *string, apiConfig string) {
 	e := echo.New()
-	Initialize(e, &RESTAPI{}, apiConfig)
+	var err error
+	_, err = Initialize(e, &RESTAPI{}, apiConfig)
+	if err != nil {
+		e.Logger.Errorf("Unexpected error: '%s'", err)
+	}
 	e.Logger.Fatal(e.Start(":" + *port))
 }
 
-func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
+func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error) {
 	e.HideBanner = true
 	if apiConfig == "" {
 		apiConfig = "./api.yaml"
@@ -203,7 +203,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 	}
 
 	//get the database schema
-	api.Schemas = swagger.Components.Schemas
+	api.Schemas = CreateSchema(context.Background(), e, swagger)
 
 	//parse the main config
 	var config *APIConfig
@@ -212,24 +212,24 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		data, err := swagger.ExtensionProps.Extensions[WeOSConfigExtension].(json.RawMessage).MarshalJSON()
 		if err != nil {
 			e.Logger.Fatalf("error loading api config '%s", err)
-			return e
+			return e, err
 		}
 		err = json.Unmarshal(data, &config)
 		if err != nil {
 			e.Logger.Fatalf("error loading api config '%s", err)
-			return e
+			return e, err
 		}
 
 		err = api.AddConfig(config)
 		if err != nil {
 			e.Logger.Fatalf("error setting up module '%s", err)
-			return e
+			return e, err
 		}
 
 		err = api.Initialize()
 		if err != nil {
 			e.Logger.Fatalf("error initializing application '%s'", err)
-			return e
+			return e, err
 		}
 
 		//setup middleware  - https://echo.labstack.com/middleware/
@@ -250,7 +250,6 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		//setup global middleware
 		var middlewares []echo.MiddlewareFunc
 		//prepend Context middleware
-		config.Rest.Middleware = append([]string{"Context"}, config.Rest.Middleware...)
 		for _, middlewareName := range config.Rest.Middleware {
 			tmiddleware, err := api.GetMiddleware(middlewareName)
 			if err != nil {
@@ -266,6 +265,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
 
 	for path, pathData := range swagger.Paths {
+
 		//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
 		re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
 		echoPath := re.ReplaceAllString(path, `:$1`)
@@ -281,25 +281,54 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
 				operationConfig := &PathConfig{}
 				var middlewares []echo.MiddlewareFunc
-				//get the middleware set on the operation
-				middlewareData := operationData.ExtensionProps.Extensions[MiddlewareExtension]
-				err = json.Unmarshal(middlewareData.(json.RawMessage), &operationConfig.Middleware)
+				contextMiddleware, err := api.GetMiddleware("Context")
 				if err != nil {
-					e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
-				}
-				for _, middlewareName := range operationConfig.Middleware {
-					tmiddleware, err := api.GetMiddleware(middlewareName)
-					if err != nil {
-						e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
-					}
-					middlewares = append(middlewares, tmiddleware(api.Application, swagger, pathData, operationData))
+					return nil, fmt.Errorf("unable to initialize context middleware; confirm that it is registered")
 				}
 
-				controllerData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[ControllerExtension]
-				err = json.Unmarshal(controllerData.(json.RawMessage), &operationConfig.Handler)
-				if err != nil {
-					e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
+				//get the middleware set on the operation
+				middlewareData := operationData.ExtensionProps.Extensions[MiddlewareExtension]
+				if middlewareData != nil {
+					err = json.Unmarshal(middlewareData.(json.RawMessage), &operationConfig.Middleware)
+					if err != nil {
+						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
+					}
+					for _, middlewareName := range operationConfig.Middleware {
+						tmiddleware, err := api.GetMiddleware(middlewareName)
+						if err != nil {
+							e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
+						}
+						middlewares = append(middlewares, tmiddleware(api.Application, swagger, pathData, operationData))
+					}
 				}
+				middlewares = append(middlewares, contextMiddleware(api.Application, swagger, pathData, operationData))
+				controllerData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[ControllerExtension]
+				autoConfigure := false
+				if controllerData != nil {
+					err = json.Unmarshal(controllerData.(json.RawMessage), &operationConfig.Handler)
+					if err != nil {
+						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
+					}
+				} else {
+					switch strings.ToUpper(method) {
+					case "POST":
+						if pathData.Post.RequestBody == nil {
+							e.Logger.Warnf("unexpected error: expected request body but got nil")
+							return e, fmt.Errorf("unexpected error: expected request body but got nil")
+						}
+						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
+						for _, value := range pathData.Post.RequestBody.Value.Content {
+							if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+								operationConfig.Handler = "Create"
+								autoConfigure = true
+							} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Value.Type, "#/components/schemas/") {
+								operationConfig.Handler = "CreateBatch"
+								autoConfigure = true
+							}
+						}
+					}
+				}
+
 				if operationConfig.Handler != "" {
 					controller, err := api.GetController(operationConfig.Handler)
 					handler := controller(api.Application, swagger, pathData, operationData)
@@ -334,6 +363,11 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 
 					}
 
+				} else {
+					if !autoConfigure {
+						//this should not return an error it should log
+						e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+					}
 				}
 			}
 		}
@@ -349,5 +383,5 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) *echo.Echo {
 		}, corsMiddleware)
 
 	}
-	return e
+	return e, nil
 }
