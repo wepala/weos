@@ -154,10 +154,6 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs" should be added to the api
@@ -205,10 +201,6 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs" should be added to the api

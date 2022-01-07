@@ -88,10 +88,6 @@ Feature: Run API
                      $ref: "#/components/schemas/Blog"
              400:
                description: Invalid blog submitted
-               content:
-                 application/json:
-                   schema:
-                     $ref: "#/components/schemas/ErrorResponse"
      """
 
 
