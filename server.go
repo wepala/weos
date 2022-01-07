@@ -14,5 +14,16 @@ var schema = flag.String("schema", "./api.yaml", "schema for initialization")
 
 func main() {
 	flag.Parse()
-	api.New(port, "./api.yaml")
+	apiFlag := *schema
+	var apiEnv string
+	apiEnv = os.Getenv("WEOS_SCHEMA")
+
+	if apiEnv != "" {
+		api.New(port, apiEnv)
+	} else if *schema != "" {
+		api.New(port, apiFlag)
+	}
+	//TODO check if WEOS_SCHEMA environment variable is set and use that
+	//TODO check if there is a flag schema is set and use that
+	//TODO if none of those are set default to api.yaml
 }
