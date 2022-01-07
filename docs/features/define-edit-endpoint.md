@@ -167,10 +167,6 @@ As developer you can create an endpoint that should be used to edit content of a
               $ref: "#/components/schemas/Blog"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a "PUT" route "/blogs" should be added to the api  
@@ -219,10 +215,6 @@ As developer you can create an endpoint that should be used to edit content of a
               $ref: "#/components/schemas/Blog"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a "PUT" route "/blogs" should be added to the api  
