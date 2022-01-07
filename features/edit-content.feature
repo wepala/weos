@@ -151,8 +151,8 @@ Feature: Edit content
      """
      And blogs in the api
        | id    | entity id                   | sequence no | title        | description    |
-       | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
-       | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
+       | 1234  | <Generated ID> | 2           | Blog 1       | Some Blog      |
+       | 4567  | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
 
 
    Scenario: Edit item
@@ -163,7 +163,7 @@ Feature: Edit content
      And "Sojourner" enters "Some New Title" in the "title" field
      When the "Blog" is submitted
      Then a 200 response should be returned
-     And the "ETag" header should be "22xu1Xa5CS3DK1Om2tB7OBDfWAF.3"
+     And the "ETag" header should be "<Generated ID>.3"
      And the "Blog" is updated
        | title          | description                       |
        | Some New Title | Some Description                  |
@@ -186,6 +186,6 @@ Feature: Edit content
 
      Given "Sojourner" is on the "Blog" edit screen with id "1234"
      And "Sojourner" enters "Some New Title" in the "lastUpdated" field
-     And a header "If-Match" with value "22xu1Xa5CS3DK1Om2tB7OBDfWAF.1"
+     And a header "If-Match" with value "<Generated ID>.1"
      When the "Blog" is submitted
      Then a 412 response should be returned

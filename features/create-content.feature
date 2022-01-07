@@ -129,7 +129,7 @@ Feature: Create content
         | title          | description                       |
         | Some Blog      | Some Description                  |
       And the "Blog" should have an id
-      And the "ETag" header should be present
+      And the "ETag" header should be "<Generated ID>.1"
 
     Scenario: Create an item that has an invalid type
 
