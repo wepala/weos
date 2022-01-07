@@ -2,6 +2,8 @@ package projections
 
 import (
 	"encoding/json"
+	"strings"
+
 	weosContext "github.com/wepala/weos-service/context"
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
@@ -43,15 +45,38 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) {
 		switch event.Type {
 		case "create":
-			var eventPayload map[string]interface{}
 			contentType := weosContext.GetContentType(ctx)
-			err := json.Unmarshal(event.Payload, &eventPayload)
-			if err != nil {
-				p.logger.Errorf("error unmarshalling event '%s'", err)
+			eventPayload, ok := p.Schema[strings.Title(contentType.Name)]
+			if !ok {
+				p.logger.Errorf("found no content type %s", contentType.Name)
+			} else {
+				err := json.Unmarshal(event.Payload, &eventPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+				db := p.db.Table(contentType.Name).Create(eventPayload)
+				if db.Error != nil {
+					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+				}
 			}
-			db := p.db.Table(contentType.Name).Create(eventPayload)
-			if db.Error != nil {
-				p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+		case "update":
+			contentType := weosContext.GetContentType(ctx)
+			eventPayload, ok := p.Schema[strings.Title(contentType.Name)]
+			if !ok {
+				p.logger.Errorf("found no content type %s", contentType.Name)
+			} else {
+				err := json.Unmarshal(event.Payload, &eventPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+				db := p.db.Table(contentType.Name).Updates(eventPayload)
+				if db.Error != nil {
+					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+				}
+				db = p.db.Table(contentType.Name).Updates(eventPayload)
+				if db.Error != nil {
+					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+				}
 			}
 		}
 	}
