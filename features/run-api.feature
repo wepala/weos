@@ -1,4 +1,4 @@
-@skipped
+@WEOS-1170
 Feature: Run API
 
    The API should be able to run across many platforms
@@ -105,6 +105,7 @@ Feature: Run API
      When the "POST" endpoint "/blog" is hit
      Then a 201 response should be returned
 
+   @linux32
    Scenario: Run on linux 32 bit
 
      Given that the "linux32" binary is generated

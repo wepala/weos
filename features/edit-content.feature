@@ -149,7 +149,7 @@ Feature: Edit content
        | id    | entity id                   | sequence no | title        | description    |
        | 1234  | <Generated ID> | 2           | Blog 1       | Some Blog      |
        | 4567  | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
-
+     And the service is running
 
    Scenario: Edit item
 

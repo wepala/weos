@@ -6,18 +6,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/cucumber/godog"
+	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
+	api "github.com/wepala/weos-service/controllers/rest"
+	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/cucumber/godog"
-	"github.com/labstack/echo/v4"
-	ds "github.com/ompluscator/dynamic-struct"
-	api "github.com/wepala/weos-service/controllers/rest"
-	"gorm.io/gorm"
 )
 
 var e *echo.Echo
@@ -33,6 +34,8 @@ var db *sql.DB
 var requests map[string]map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
+var dockerEndpoint string
+var reqBody string
 
 type User struct {
 	Name      string
@@ -445,6 +448,91 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 	return nil
 }
 
+func aResponseShouldBeReturned(statusCode int) error {
+	if rec.Result().StatusCode != statusCode {
+		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, rec.Result().StatusCode)
+	}
+	return nil
+}
+
+func requestBody(arg1 *godog.DocString) error {
+	reqBody = arg1.Content
+	return nil
+}
+
+func thatTheBinaryIsGenerated(arg1 string) error {
+	var imageName string
+	switch arg1 {
+	case "mac":
+		imageName = "IntelMacDockerFile"
+	case "linux32":
+		imageName = "Linux32DockerFile"
+	case "linux64":
+		imageName = "Linux64DockerFile"
+	case "windows32":
+		imageName = "Windows32DockerFile"
+	case "windows64":
+		imageName = "Windows64DockerFile"
+	}
+
+	//TODO generate the binary
+	ctx := context.Background()
+	req := testcontainers.ContainerRequest{
+		Image:        "./fixtures/docker/" + imageName,
+		Name:         arg1,
+		ExposedPorts: []string{"9200:9200/tcp", "9300:9300/tcp"},
+		Env:          map[string]string{"discovery.type": "single-node", "WEOS-SCHEMA": openAPI},
+		WaitingFor:   wait.ForLog("started"),
+	}
+	esContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		fmt.Errorf("unexpected error starting container '%s'", err)
+	}
+
+	defer esContainer.Terminate(ctx)
+
+	//get the endpoint that the container was run on
+	var endpoint string
+	endpoint, err = esContainer.Host(ctx) //didn't use the endpoint call because it returns "localhost" which the client doesn't seem to like
+	cport, err := esContainer.MappedPort(ctx, "9200")
+	if err != nil {
+		fmt.Errorf("error setting up container '%s'", err)
+	}
+	dockerEndpoint = "http://" + endpoint + ":" + cport.Port()
+	return nil
+}
+
+func theBinaryIsRunWithTheSpecification() error {
+	//TODO Maybe check for the env variable
+	return nil
+}
+
+func theEndpointIsHit(method, contentType string) error {
+	reqBytes, _ := json.Marshal(reqBody)
+	body := bytes.NewReader(reqBytes)
+	request := httptest.NewRequest(method, dockerEndpoint+contentType, body)
+	request = request.WithContext(context.TODO())
+	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theServiceIsRunning() error {
+	e = echo.New()
+	os.Remove("e2e.db")
+	API = api.RESTAPI{}
+	_, err := api.Initialize(e, &API, openAPI)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -469,6 +557,12 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
+	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
+	ctx.Step(`^request body$`, requestBody)
+	ctx.Step(`^that the "([^"]*)" binary is generated$`, thatTheBinaryIsGenerated)
+	ctx.Step(`^the binary is run with the specification$`, theBinaryIsRunWithTheSpecification)
+	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
+	ctx.Step(`^the service is running$`, theServiceIsRunning)
 
 }
 
@@ -479,7 +573,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "",
+			Tags:   "WEOS-1170",
 		},
 	}.Run()
 	if status != 0 {

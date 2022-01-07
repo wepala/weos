@@ -115,6 +115,7 @@ Feature: Create content
             400:
               description: Invalid blog submitted
     """
+      And the service is running
 
 
     Scenario: Create a basic item
