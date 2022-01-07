@@ -470,7 +470,7 @@ func thatTheBinaryIsGenerated(arg1 string) error {
 	case "mac":
 		imageName = "IntelMacDockerFile"
 	case "linux32":
-		imageName = "Linux32DockerFile"
+		imageName = "golang:alpine"
 	case "linux64":
 		imageName = "Linux64DockerFile"
 	case "windows32":
@@ -482,7 +482,7 @@ func thatTheBinaryIsGenerated(arg1 string) error {
 	//TODO generate the binary
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
-		Image:        "./fixtures/docker/" + imageName,
+		Image:        imageName,
 		Name:         arg1,
 		ExposedPorts: []string{"9200:9200/tcp", "9300:9300/tcp"},
 		Env:          map[string]string{"discovery.type": "single-node", "WEOS_SCHEMA": openAPI},
