@@ -19,6 +19,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cucumber/godog"
+	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
+	api "github.com/wepala/weos-service/controllers/rest"
+	"github.com/wepala/weos-service/utils"
+	"gorm.io/gorm"
 )
 
 var e *echo.Echo
@@ -34,8 +41,6 @@ var db *sql.DB
 var requests map[string]map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
-var dockerEndpoint string
-var reqBody string
 
 type User struct {
 	Name      string
@@ -118,6 +123,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
+	db.Exec("PRAGMA foreign_keys = ON")
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
@@ -183,7 +189,10 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 	gormDB := API.Application.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
-		return fmt.Errorf("%s table does not exist", arg1)
+		arg1 = utils.SnakeCase(arg1)
+		if !gormDB.Migrator().HasTable(arg1) {
+			return fmt.Errorf("%s table does not exist", arg1)
+		}
 	}
 
 	head := details.Rows[0].Cells
@@ -204,6 +213,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 					}
 				}
 			case "Type":
+
 				if cell.Value == "varchar(512)" {
 					cell.Value = "text"
 					payload[column.Name()] = "hugs"
@@ -215,10 +225,14 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
 			case "Key":
-				if !strings.EqualFold(column.Name(), "id") { //default id tag
-					payload[column.Name()] = nil
+				if strings.EqualFold(cell.Value, "pk") {
+					if !strings.EqualFold(column.Name(), "id") { //default id tag
+						if _, ok := payload["id"]; ok {
+							payload["id"] = nil
+						}
+					}
+					keys = append(keys, cell.Value)
 				}
-				keys = append(keys, cell.Value)
 			}
 		}
 		if len(keys) != 1 && !strings.EqualFold(keys[0], "id") {
