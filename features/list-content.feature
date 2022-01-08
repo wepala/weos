@@ -10,6 +10,8 @@ Feature: List content
   3. Value - if it's a single value
   4. Values - if it's an array of values
 
+  The filters can be applied directly to the context (the controller pulls the values from the context). They can also be defined in query and aliased to the necessary values in the context
+
   Background:
 
     Given a developer "Sojourner"
