@@ -173,6 +173,46 @@ Feature: Setup List endpoint
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output because the endpoint is invalid
 
+  Scenario: Setup list endpoint that allows for pagination
+
+    To allow for pagination in the list endpoint then the pagination parameters need to be defined
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+    /blogs:
+      get:
+        operationId: Get Blogs
+        parameters:
+          - in: query
+            name: page
+            schema:
+              type: integer
+          - in: query
+            name: limit
+            schema:
+              type: integer
+        responses:
+          200:
+            description: List of blogs
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    total:
+                      type: integer
+                    page:
+                      type: integer
+                    items:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Blog"
+          400:
+            description: Invalid blog submitted
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "GET" route should be added to the api
+    And a "List" middleware should be added to the route
 
   Scenario: Setup filter endpoint
 
