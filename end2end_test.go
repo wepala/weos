@@ -559,6 +559,43 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 	return nil
 }
 
+func theEndpointIsHit(endpoint, url string) error {
+	request := httptest.NewRequest(endpoint, url, nil)
+	request = request.WithContext(context.TODO())
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func aBlogShouldBeReturned(details *godog.Table) error {
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	contentEntity := map[string]interface{}{}
+	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
+
+	if err != nil {
+		return err
+	}
+
+	for key, value := range compare {
+		if contentEntity[key] != value {
+			return fmt.Errorf("expected %s %s %s, got %s", "Blog", key, value, contentEntity[key])
+		}
+	}
+
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -588,6 +625,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "([^"]*)" is updated$`, theIsUpdated)
 	ctx.Step(`^a header "([^"]*)" with value "([^"]*)"$`, aHeaderWithValue)
 	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
+	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
+	ctx.Step(`^a blog should be returned$`, aBlogShouldBeReturned)
 
 }
 
