@@ -285,8 +285,32 @@ func anErrorShouldBeReturned() error {
 	return nil
 }
 
-func blogsInTheApi(arg1 *godog.Table) error {
-	return godog.ErrPending
+func blogsInTheApi(details *godog.Table) error {
+
+	head := details.Rows[0].Cells
+
+	for i := 1; i < len(details.Rows); i++ {
+		req := make(map[string]interface{})
+		for n, cell := range details.Rows[i].Cells {
+			req[head[n].Value] = cell.Value
+		}
+		reqBytes, _ := json.Marshal(req)
+		body := bytes.NewReader(reqBytes)
+		var request *http.Request
+
+		request = httptest.NewRequest("POST", "/blog", body)
+
+		request = request.WithContext(context.TODO())
+		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		if rec.Code != http.StatusCreated {
+			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+		}
+	}
+	return nil
 }
 
 func entersInTheField(userName, value, field string) error {
