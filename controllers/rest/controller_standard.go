@@ -113,3 +113,11 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 		return nil
 	}
 }
+
+func (c *StandardControllers) Get(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		//TODO call GetByID
+
+		return ctxt.JSON(200, nil)
+	}
+}
