@@ -1,3 +1,4 @@
+@skipped
 @WEOS-1178
 Feature: Delete content endpoints
 
@@ -263,10 +264,6 @@ Feature: Delete content endpoints
                   $ref: "#/components/schemas/Post"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set
@@ -297,10 +294,6 @@ Feature: Delete content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
@@ -345,10 +338,6 @@ Feature: Delete content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set

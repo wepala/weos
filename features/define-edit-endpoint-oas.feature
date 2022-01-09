@@ -54,10 +54,6 @@ Feature: Edit content endpoints
               - id
               - title
     """
-    And blogs in the api
-    | id    | title        | description    |
-    | 1234  | Blog 1       | Some Blog      |
-    | 4567  | Blog 2       | Some Blog 2    |
 
 
   Scenario: Create a basic edit endpoint with the identifier in the path
@@ -154,10 +150,6 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs" should be added to the api
@@ -205,10 +197,6 @@ Feature: Edit content endpoints
                   $ref: "#/components/schemas/Blog"
           400:
             description: Invalid blog submitted
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/ErrorResponse"
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs" should be added to the api

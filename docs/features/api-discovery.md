@@ -1,9 +1,11 @@
 ---
 layout: default
-title: Create content
+title: Get API Details
 parent: Features
 ---
-# Create content
+# Get API Details
+
+The OpenAPI details can be made available via the API
 
 ## Background
 
@@ -95,29 +97,56 @@ paths:
 
 ## Scenarios
 
-### Create a basic item
-
-**Given** "Sojourner" is on the "Blog" create screen  
-**And** "Sojourner" enters "Some Blog" in the "title" field  
-**And** "Sojourner" enters "Some Description" in the "description" field  
-**When** the "Blog" is submitted  
-**Then** the "Blog" is created  
-
-| title     | description      |
-|:----------|:-----------------|
-| Some Blog | Some Description |
-
-**And** the "Blog" should have an id.  
-
-### Create an item that has an invalid type
-
-**Given** "Sojourner" is on the "Blog" create screen  
-**And** "Sojourner" enters "Some Description" in the "publishedDate" field  
-**When** the "Blog" is submitted  
-**Then** an error should be returned.  
-
-### Create an item that violates uniqueness requirement
+### View the api via the Swagger UI
 
 
-### Create an item using an endpoint that does not definne the response
+Developers can see and test the api using the [Swagger UI](https://swagger.io/tools/swagger-ui/) by setting the
+    APIDiscovery handler
 
+**Given** "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification  
+
+```
+/api:
+  get:
+    operationId: Get API Details
+    x-controller: APIDiscovery
+    responses:
+      200:
+        description: API Details
+        content:
+          application/html:
+            schema:
+              type: string
+```
+**And** the "OpenAPI 3.0" specification is parsed  
+**And** a "GET" route should be added to the api  
+**When** the "POST" endpoint "/blog" is hit  
+**Then** a 201 response should be returned  
+**And** the swagger ui should be shown.  
+
+### Get the api info as json
+
+
+Developers can get the api details as a json response. This make it easier to programmatically get schema information.
+    To get the json response  the response type should be set to application/json
+
+**Given** "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification  
+
+```
+/api:
+  get:
+    operationId: Get API Details
+    x-controller: APIDiscovery
+    responses:
+      200:
+        description: API Details
+        content:
+          application/json:
+            schema:
+              type: string
+```
+**And** the "OpenAPI 3.0" specification is parsed  
+**And** a "GET" route should be added to the api  
+**When** the "POST" endpoint "/blog" is hit  
+**Then** a 201 response should be returned  
+**And** the api as json should be shown.  
