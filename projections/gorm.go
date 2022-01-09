@@ -21,13 +21,13 @@ type GORMProjection struct {
 	Schema          map[string]interface{}
 }
 
-func (p *GORMProjection) GetByKey(contentType weosContext.ContentType, keys map[string]interface{}) error {
-	return nil
+func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifier []interface{}) (interface{}, error) {
+	return nil, nil
 }
 
-func (p *GORMProjection) GetByEntityID(contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
+func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
 	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
-		result := p.db.Table(contentType.Name).Preload(clause.Associations).Where("weos_id = ?", id).Take(scheme)
+		result := p.db.Table(contentType.Name).Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") }).Where("weos_id = ?", id).Take(scheme)
 		if result.Error != nil {
 			return nil, result.Error
 		}
@@ -39,7 +39,7 @@ func (p *GORMProjection) GetByEntityID(contentType weosContext.ContentType, id s
 		json.Unmarshal(data, &val)
 		return val, nil
 	} else {
-		return nil, weos.NewError(fmt.Sprintf("no content type '%s' exists", contentType.Name), nil)
+		return nil, fmt.Errorf("no content type '%s' exists", contentType.Name)
 	}
 }
 
@@ -51,15 +51,6 @@ func (p *GORMProjection) Persist(entities []weos.Entity) error {
 //Remove entity
 func (p *GORMProjection) Remove(entities []weos.Entity) error {
 	return nil
-}
-
-func (p *GORMProjection) GetByID(ctxt context.Context, contentType weosContext.ContentType, identifier []interface{}) (interface{}, error) {
-
-	return nil, nil
-}
-
-func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (interface{}, error) {
-	return nil, nil
 }
 
 func (p *GORMProjection) Migrate(ctx context.Context) error {

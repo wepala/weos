@@ -1157,8 +1157,8 @@ components:
 	if !found1 || !found {
 		t.Fatal("not all fields found")
 	}
-	gormDB.Table("Post").Create(map[string]interface{}{"weos_id": "1234", "title": "hugs"})
-	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "5678", "title": "hugs"})
+	gormDB.Table("Post").Create(map[string]interface{}{"weos_id": "1234", "sequence_no": 1, "title": "punches"})
+	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs"})
 	result := gormDB.Table("blog_posts").Create(map[string]interface{}{
 		"id":      1,
 		"post_id": 1,
@@ -1167,7 +1167,7 @@ components:
 		t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
 	}
 
-	r, err := p.GetByEntityID(weosContext.ContentType{Name: "Blog"}, "5678")
+	r, err := p.GetByEntityID(context.Background(), weosContext.ContentType{Name: "Blog"}, "5678")
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "Blog", err)
 	}
@@ -1176,8 +1176,26 @@ components:
 		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
 	}
 
-	if len(r["posts"].([]interface{})) != 1 {
-		t.Errorf("expected to get %d posts, got %d", 1, len(r["posts"].([]interface{})))
+	posts := r["posts"].([]interface{})
+	if len(posts) != 1 {
+		t.Errorf("expected to get %d posts, got %d", 1, len(posts))
+	}
+
+	pp := posts[0].(map[string]interface{})
+	if pp["title"] != "punches" {
+		t.Errorf("expected the post title to be %s got %v", "punches", pp["title"])
+	}
+
+	if id, ok := pp["weos_id"]; ok {
+		if id != "" {
+			t.Errorf("there should be no weos_id value")
+		}
+	}
+
+	if no, ok := pp["sequence_no"]; ok {
+		if no != 0 {
+			t.Errorf("there should be no sequence number value")
+		}
 	}
 
 	err = gormDB.Migrator().DropTable("Blog")
