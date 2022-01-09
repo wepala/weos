@@ -1175,25 +1175,27 @@ components:
 		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
 	}
 
-	posts := r["posts"].([]interface{})
-	if len(posts) != 1 {
-		t.Errorf("expected to get %d posts, got %d", 1, len(posts))
-	}
-
-	pp := posts[0].(map[string]interface{})
-	if pp["title"] != "punches" {
-		t.Errorf("expected the post title to be %s got %v", "punches", pp["title"])
-	}
-
-	if id, ok := pp["weos_id"]; ok {
-		if id != "" {
-			t.Errorf("there should be no weos_id value")
+	if *driver != "sqlite3" {
+		posts := r["posts"].([]interface{})
+		if len(posts) != 1 {
+			t.Errorf("expected to get %d posts, got %d", 1, len(posts))
 		}
-	}
 
-	if no, ok := pp["sequence_no"]; ok {
-		if no != 0 {
-			t.Errorf("there should be no sequence number value")
+		pp := posts[0].(map[string]interface{})
+		if pp["title"] != "punches" {
+			t.Errorf("expected the post title to be %s got %v", "punches", pp["title"])
+		}
+
+		if id, ok := pp["weos_id"]; ok {
+			if id != "" {
+				t.Errorf("there should be no weos_id value")
+			}
+		}
+
+		if no, ok := pp["sequence_no"]; ok {
+			if no != 0 {
+				t.Errorf("there should be no sequence number value")
+			}
 		}
 	}
 
@@ -1325,31 +1327,32 @@ components:
 		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
 	}
 
-	posts, ok := r["posts"].([]interface{})
-	if !ok {
-		t.Fatal("expected to get a posts array")
-	}
-	if len(posts) != 1 {
-		t.Errorf("expected to get %d posts, got %d", 1, len(posts))
-	}
+	if *driver != "sqlite3" {
+		posts, ok := r["posts"].([]interface{})
+		if !ok {
+			t.Fatal("expected to get a posts array")
+		}
+		if len(posts) != 1 {
+			t.Errorf("expected to get %d posts, got %d", 1, len(posts))
+		}
 
-	pp := posts[0].(map[string]interface{})
-	if pp["title"] != "punches" {
-		t.Errorf("expected the post title to be %s got %v", "punches", pp["title"])
-	}
+		pp := posts[0].(map[string]interface{})
+		if pp["title"] != "punches" {
+			t.Errorf("expected the post title to be %s got %v", "punches", pp["title"])
+		}
 
-	if id, ok := pp["weos_id"]; ok {
-		if id != "" {
-			t.Errorf("there should be no weos_id value")
+		if id, ok := pp["weos_id"]; ok {
+			if id != "" {
+				t.Errorf("there should be no weos_id value")
+			}
+		}
+
+		if no, ok := pp["sequence_no"]; ok {
+			if no != 0 {
+				t.Errorf("there should be no sequence number value")
+			}
 		}
 	}
-
-	if no, ok := pp["sequence_no"]; ok {
-		if no != 0 {
-			t.Errorf("there should be no sequence number value")
-		}
-	}
-
 	err = gormDB.Migrator().DropTable("Blog")
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "Blog", err)

@@ -49,8 +49,14 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.
 			}
 		}
 
-		//gorm sqlite generates the query incorrectly for composite keys when preloading
-		result := p.db.Table(contentType.Name).Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") }).First(scheme, identifiers)
+		var result *gorm.DB
+		if p.db.Dialector.Name() == "sqlite" {
+			//gorm sqlite generates the query incorrectly if there are composite keys when preloading
+			//https://github.com/go-gorm/gorm/issues/3585
+			result = p.db.Table(contentType.Name).First(scheme, identifiers)
+		} else {
+			result = p.db.Table(contentType.Name).Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") }).First(scheme, identifiers)
+		}
 		if result.Error != nil {
 			return nil, result.Error
 		}
@@ -68,7 +74,14 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.
 
 func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
 	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
-		result := p.db.Table(contentType.Name).Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") }).Where("weos_id = ?", id).Take(scheme)
+		var result *gorm.DB
+		if p.db.Dialector.Name() == "sqlite" {
+			//gorm sqlite generates the query incorrectly if there are composite keys when preloading
+			//https://github.com/go-gorm/gorm/issues/3585
+			result = p.db.Table(contentType.Name).Where("weos_id = ?", id).Take(scheme)
+		} else {
+			result = p.db.Table(contentType.Name).Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") }).Where("weos_id = ?", id).Take(scheme)
+		}
 		if result.Error != nil {
 			return nil, result.Error
 		}
