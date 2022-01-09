@@ -21,8 +21,49 @@ type GORMProjection struct {
 	Schema          map[string]interface{}
 }
 
-func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifier []interface{}) (interface{}, error) {
-	return nil, nil
+func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
+		//pulling the primary keys from the schema in order to match with the keys given for searching
+		pks, _ := json.Marshal(contentType.Schema.Extensions["x-identifier"])
+		primaryKeys := []string{}
+		json.Unmarshal(pks, &primaryKeys)
+
+		if len(primaryKeys) == 0 {
+			primaryKeys = append(primaryKeys, "id")
+		}
+
+		if len(primaryKeys) != len(identifiers) {
+			return nil, fmt.Errorf("%d keys provided for %s but there should be %d keys", len(identifiers), contentType.Name, len(primaryKeys))
+		}
+
+		for _, k := range primaryKeys {
+			found := false
+			for i, _ := range identifiers {
+				if k == i {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("no value for %s %s found", contentType.Name, k)
+			}
+		}
+
+		//gorm sqlite generates the query incorrectly for composite keys when preloading
+		result := p.db.Table(contentType.Name).Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") }).First(scheme, identifiers)
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		data, err := json.Marshal(scheme)
+		if err != nil {
+			return nil, err
+		}
+		val := map[string]interface{}{}
+		json.Unmarshal(data, &val)
+		return val, nil
+	} else {
+		return nil, fmt.Errorf("no content type '%s' exists", contentType.Name)
+	}
 }
 
 func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
