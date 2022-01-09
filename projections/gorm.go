@@ -2,6 +2,7 @@ package projections
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
@@ -9,6 +10,7 @@ import (
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 //GORMProjection interface struct
@@ -17,6 +19,28 @@ type GORMProjection struct {
 	logger          weos.Log
 	migrationFolder string
 	Schema          map[string]interface{}
+}
+
+func (p *GORMProjection) GetByKey(contentType weosContext.ContentType, keys map[string]interface{}) error {
+	return nil
+}
+
+func (p *GORMProjection) GetByEntityID(contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
+	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
+		result := p.db.Table(contentType.Name).Preload(clause.Associations).Where("weos_id = ?", id).Take(scheme)
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		data, err := json.Marshal(scheme)
+		if err != nil {
+			return nil, err
+		}
+		val := map[string]interface{}{}
+		json.Unmarshal(data, &val)
+		return val, nil
+	} else {
+		return nil, weos.NewError(fmt.Sprintf("no content type '%s' exists", contentType.Name), nil)
+	}
 }
 
 //Persist save entity information in database
