@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/wepala/weos-service/utils"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +18,6 @@ import (
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
 	api "github.com/wepala/weos-service/controllers/rest"
-	"github.com/wepala/weos-service/utils"
 	"gorm.io/gorm"
 )
 
@@ -489,7 +489,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped",
+			Tags:   "WEOS-1130",
 		},
 	}.Run()
 	if status != 0 {
