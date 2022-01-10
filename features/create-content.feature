@@ -1,3 +1,4 @@
+@skipped
 @WEOS-1130
 Feature: Create content
 
