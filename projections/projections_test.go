@@ -1504,3 +1504,171 @@ components:
 		}
 	})
 }
+
+func TestProjections_ChangePrimaryKey(t *testing.T) {
+
+	t.Run("Create basic many to one relationship", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+      blog:
+         $ref: "#/components/schemas/Blog"
+`
+
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Errorf("expected to get a table 'Blog'")
+		}
+
+		if !gormDB.Migrator().HasTable("Post") {
+			t.Errorf("expected to get a table 'Post'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Post")
+
+		found := false
+		found1 := false
+		found2 := false
+		found3 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+			if c.Name() == "blog_id" {
+				found3 = true
+			}
+		}
+
+		if !found1 || !found2 || !found || !found3 {
+			t.Fatal("not all fields found")
+		}
+
+		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		result := gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs", "blog_id": 1})
+		if result.Error != nil {
+			t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
+		}
+
+		result = gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs"})
+		if result.Error != nil {
+			t.Errorf("expected to create a post without relationship, got err '%s'", result.Error)
+		}
+
+		result = gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs", "blog_id": 5})
+		if result.Error == nil {
+			t.Errorf("expected to be unable to create post with invalid reference to blog")
+		}
+
+		openAPI = `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       author_id:
+         type: string
+       description:
+         type: string
+       posts:
+        type: array
+        items:
+          $ref: "#/components/schemas/Post"
+     x-identifier:
+      - title
+      - author_id
+`
+		loader = openapi3.NewSwaggerLoader()
+		swagger, err = loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		schemes = rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err = projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		//fails because can't have empty values for primary key
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+	})
+
+}
