@@ -120,6 +120,7 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 				return NewControllerError("unexpected error updating content type", err, http.StatusBadRequest)
 			}
 		}
+		ctxt.Response()
 		return ctxt.JSON(http.StatusOK, "Updated")
 	}
 }

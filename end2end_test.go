@@ -240,7 +240,6 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 }
 
 func aRouteShouldBeAddedToTheApi(method, path string) error {
-	return godog.ErrPending
 	yamlRoutes := e.Routes()
 	for _, route := range yamlRoutes {
 		if route.Method == method && route.Path == path {
@@ -258,7 +257,7 @@ func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet() error {
-	if !strings.Contains(buf.String(), "no parameter set") {
+	if !strings.Contains(buf.String(), "a parameter for each part of the identifier must be set") {
 		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
@@ -389,6 +388,8 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 	e = echo.New()
 	os.Remove("e2e.db")
 	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
 		return err
@@ -400,6 +401,8 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
 	os.Remove("e2e.db")
 	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
 		errors = err
@@ -497,7 +500,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1177",
+			Tags:   "",
 		},
 	}.Run()
 	if status != 0 {

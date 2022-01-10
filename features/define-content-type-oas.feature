@@ -1,4 +1,3 @@
-@skipped
 @WEOS-1110
 Feature: Create Content Types
 
