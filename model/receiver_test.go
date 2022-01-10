@@ -86,7 +86,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, entityType))
+		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, entityType, mockBlog.ID))
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
