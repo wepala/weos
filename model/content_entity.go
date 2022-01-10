@@ -122,13 +122,14 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	w.FromSchema(ctx, schema)
 
 	weosId := ksuid.New().String()
-
+	w.ID = weosId
 	var eventPayload map[string]interface{}
 	err := json.Unmarshal(payload, &eventPayload)
 	if err != nil {
 		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, nil)
 	}
 	eventPayload["weos_id"] = weosId
+	//TODO pass the weosID from payload into the rootID event
 	event := NewEntityEvent("create", w, w.ID, eventPayload)
 	w.NewChange(event)
 	return w, w.ApplyChanges([]*Event{event})
@@ -204,7 +205,11 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 		w.SequenceNo = change.Meta.SequenceNo
 		switch change.Type {
 		case "create":
-			err := json.Unmarshal(change.Payload, w)
+			err := json.Unmarshal(change.Payload, &w.BasicEntity)
+			if err != nil {
+				return err
+			}
+			err = json.Unmarshal(change.Payload, &w.Property)
 			if err != nil {
 				return err
 			}
