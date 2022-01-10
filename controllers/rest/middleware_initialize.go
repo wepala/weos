@@ -13,10 +13,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-//ToDo: Saving the structs to a map and making them entities to save events
-
-const WEOS_SCHEMA = "WEOS-Schemas"
-
 //CreateSchema creates the table schemas for gorm syntax
 func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]interface{} {
 	structs := make(map[string]interface{})
@@ -36,13 +32,14 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 		if relations, ok := relations[name]; ok {
 			if len(relations) != 0 {
 				var err error
-				scheme, err = addRelations(scheme, relations, builders, keys, e.Logger)
+				scheme, err = addRelations(scheme, relations, builders, name, keys, e.Logger)
 				if err != nil {
 					e.Logger.Fatalf("Got an error creating the application schema '%s'", err.Error())
 				}
 			}
 		}
-
+		f := scheme.GetField("Table")
+		f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
 		instance := scheme.Build().New()
 		err := json.Unmarshal([]byte(`{
 			"table_alias": "`+name+`"
@@ -118,7 +115,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 						//add as json object
 					} else {
 						//add reference to the object to the map
-						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/") + "{}"
+						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
 
 					}
 				}
@@ -151,28 +148,25 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 	return instance, relations, primaryKeys
 }
 
-func addRelations(struc ds.Builder, relations map[string]string, structs map[string]ds.Builder, keys map[string][]string, logger echo.Logger) (ds.Builder, error) {
+func addRelations(struc ds.Builder, relations map[string]string, structs map[string]ds.Builder, tableName string, keys map[string][]string, logger echo.Logger) (ds.Builder, error) {
 
 	for name, relation := range relations {
 		if strings.Contains(relation, "[]") {
 			//many to many relationship
-			// relationName := strings.Trim(relation, "[]")
-			// instances := structs[relationName].Build().NewSliceOfStructs()
-			// err := json.Unmarshal([]byte(`{
-			// 	"table_alias": "`+name+`"
-			// }`), &instances)
-			// if err != nil {
-			// 	logger.Errorf("unable to set the table name '%s'", err)
-			// }
-			// struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+` gorm:"foreignKey:`+relationName+`Refer"`)
+			relationName := strings.Trim(relation, "[]")
+
+			relationKeys := keys[relationName]
+			tableKeys := keys[tableName]
+			inst := structs[relationName]
+			f := inst.GetField("Table")
+			f.SetTag(`json:"table_alias" gorm:"default:` + relationName + `"`)
+			instances := inst.Build().NewSliceOfStructs()
+			struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`" gorm:"many2many:`+utils.SnakeCase(tableName)+"_"+utils.SnakeCase(name)+`;foreignKey:`+strings.Join(tableKeys, ",")+`;References:`+strings.Join(relationKeys, ",")+`"`)
 		} else {
-			instance := structs[relation].Build().New()
-			err := json.Unmarshal([]byte(`{
-			"table_alias": "`+name+`"
-		}`), &instance)
-			if err != nil {
-				logger.Errorf("unable to set the table name '%s'", err)
-			}
+			inst := structs[relation]
+			f := inst.GetField("Table")
+			f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
+			instance := inst.Build().New()
 			key := keys[relation]
 			bytes, _ := json.Marshal(instance)
 			s := map[string]interface{}{}
@@ -180,7 +174,7 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 			keystring := ""
 			for _, k := range key {
 
-				struc.AddField(strings.Title(name)+strings.Title(k), s[k], `json:"`+utils.SnakeCase(name)+k+`"`)
+				struc.AddField(strings.Title(name)+strings.Title(k), s[k], `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
 				if keystring != "" {
 					keystring += ","
 				}
@@ -188,7 +182,7 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 				keystring += strings.Title(name) + strings.Title(k)
 			}
 
-			struc.AddField(name, instance, `json:"`+utils.SnakeCase(name)+`" gorm:"foreignKey:`+keystring+`"`)
+			struc.AddField(name, instance, `json:"`+utils.SnakeCase(name)+`" gorm:"foreignKey:`+keystring+`; references `+strings.Join(key, ",")+`"`)
 		}
 	}
 	return struc, nil
