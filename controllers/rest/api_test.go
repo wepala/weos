@@ -134,3 +134,50 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
 }
+
+type TestBlog struct {
+	ID          *string `json:"id"`
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Url         *string `json:"url"`
+}
+
+func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+	t.Run("sending blog without a title and url which are required fields", func(t *testing.T) {
+		description := "testing 1st blog description"
+		mockBlog := &TestBlog{Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusBadRequest {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusBadRequest, resp.Result().StatusCode)
+		}
+	})
+	t.Run("sending blog without a description which is not a required field", func(t *testing.T) {
+		title := "blog title"
+		url := "ww.blogtest.com"
+		mockBlog := &TestBlog{Title: &title, Url: &url}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
+	})
+}

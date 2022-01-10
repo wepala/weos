@@ -79,12 +79,13 @@ func TestDomainService_Create(t *testing.T) {
 		dService := model.NewDomainService(newContext, mockEventRepository)
 		blog, err := dService.Create(newContext, reqBytes, entityType)
 
-		if err == nil {
-			t.Fatalf("expected error creating content type '%s'", err)
+		if err.Error() != "entity property title required" {
+			t.Fatalf("expected error to be %s got '%s'", "entity property title required", err.Error())
 		}
 		if blog != nil {
 			t.Fatal("expected blog to be nil ")
 		}
+
 	})
 
 }
