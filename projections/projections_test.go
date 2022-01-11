@@ -766,11 +766,11 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		payload := map[string]interface{}{"title": "testBlog", "description": "This is a create projection test"}
+		payload := map[string]interface{}{"weos_id": "123456", "title": "testBlog", "description": "This is a create projection test"}
 		contentEntity := &weos.ContentEntity{
 			AggregateRoot: weos.AggregateRoot{
 				BasicEntity: weos.BasicEntity{
-					ID: "1",
+					ID: "123456",
 				},
 			},
 			Property: payload,
@@ -782,10 +782,11 @@ components:
 		})
 
 		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
+		contentEntity.NewChange(event)
 		p.GetEventHandler()(ctxt, *event)
 
 		blog := map[string]interface{}{}
-		result := gormDB.Table("Blog").Find(&blog, "id = ? ", contentEntity.ID)
+		result := gormDB.Table("Blog").Find(&blog, "weos_id = ? ", contentEntity.ID)
 		if result.Error != nil {
 			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
 		}
@@ -939,6 +940,271 @@ components:
 		err = gormDB.Migrator().DropTable("Post")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+	})
+}
+
+func TestProjections_Create_With_Required(t *testing.T) {
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     required:
+       - title
+`
+
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+	p, err := projections.NewProjection(context.Background(), app, schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = p.Migrate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gormDB := app.DB()
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Fatal("expected to get a table 'Blog'")
+	}
+
+	columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+	found := false
+	found1 := false
+	found2 := false
+	for _, c := range columns {
+		if c.Name() == "id" {
+			found = true
+		}
+		if c.Name() == "title" {
+			found1 = true
+			nullable, _ := c.Nullable()
+			if nullable {
+				t.Errorf("expected the title field to be NOT nullable")
+			}
+		}
+		if c.Name() == "description" {
+			found2 = true
+			if gormDB.Dialector.Name() != "sqlite" { // for the nullable check to work the sql driver needs to support it
+				nullable, _ := c.Nullable()
+				if !nullable {
+					t.Errorf("expected the description field to be nullable by default")
+				}
+			}
+
+		}
+	}
+
+	if !found1 || !found2 || !found {
+		t.Fatal("not all fields found")
+	}
+
+	t.Run("can't create without required field", func(t *testing.T) {
+		mockWeOSID := "adsf123"
+		blog := map[string]interface{}{"weos_id": mockWeOSID, "description": "This is a create projection test"}
+		gormDB.Table("Blog").Create(blog)
+		var blogResult map[string]interface{}
+		result := gormDB.Table("Blog").Find(&blogResult, "weos_id = ? ", mockWeOSID)
+		if result.RowsAffected > 0 {
+			t.Errorf("expected error since the title field is required")
+		}
+	})
+
+	t.Run("create without description", func(t *testing.T) {
+		mockWeOSID := "adsf456"
+		blog := map[string]interface{}{"weos_id": mockWeOSID, "title": "This is a create projection test"}
+		gormDB.Table("Blog").Create(blog)
+		var blogResult map[string]interface{}
+		result := gormDB.Table("Blog").Find(&blogResult, "weos_id = ? ", mockWeOSID)
+		if result.RowsAffected != 1 {
+			t.Errorf("expected %d result for id '%s', got %d", 1, mockWeOSID, result.RowsAffected)
+		}
+	})
+
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Fatal("error cleaning up after test")
+	}
+
+}
+
+func TestProjections_GetContentEntity(t *testing.T) {
+
+	t.Run("Get a created entity", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+`
+
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		payload := map[string]interface{}{"weos_id": "123456", "title": "testBlog", "description": "This is a create projection test"}
+		contentEntity := &weos.ContentEntity{
+			AggregateRoot: weos.AggregateRoot{
+				BasicEntity: weos.BasicEntity{
+					ID: "123456",
+				},
+			},
+			Property: payload,
+		}
+
+		ctxt := context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name: "Blog",
+		})
+
+		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
+		contentEntity.NewChange(event)
+		p.GetEventHandler()(ctxt, *event)
+
+		blog, err := p.GetContentEntity(contentEntity.ID, "Blog")
+		if err != nil {
+			t.Errorf("Error getting content type: got %s", err)
+		}
+		result := gormDB.Table("Blog").Find(&blog, "weos_id = ? ", contentEntity.ID)
+		if result.Error != nil {
+			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
+		}
+
+		if blog["title"] != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog["title"])
+		}
+
+		if blog["description"] != payload["description"] {
+			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
 		}
 	})
 }

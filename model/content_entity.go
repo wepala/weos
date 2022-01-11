@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/segmentio/ksuid"
 	"github.com/stoewer/go-strcase"
 	weosContext "github.com/wepala/weos-service/context"
 	"golang.org/x/net/context"
@@ -19,36 +18,41 @@ type ContentEntity struct {
 
 //IsValid checks if the property is valid using the IsNull function
 func (w *ContentEntity) IsValid() bool {
-	isValid := true
 	if w.Property == nil {
 		return false
 	}
 	for _, req := range w.Schema.Required {
-		isValid = w.IsNull(req, w.Schema.Properties[req].Value.Type) && isValid
+		if w.IsNull(req) && !w.Schema.Properties[req].Value.Nullable {
+			message := "entity property " + req + " required"
+			w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+			return false
+		}
 	}
-	return isValid
+	return true
 }
 
-//IsNull checks if the property is nullable and if the value is null
-func (w *ContentEntity) IsNull(name, contentType string) bool {
-	temp := strings.Title(name)
-	switch contentType {
+//IsNull checks if the value of the property is null
+func (w *ContentEntity) IsNull(name string) bool {
+	reader := ds.NewReader(w.Property)
+	switch w.Schema.Properties[name].Value.Type {
 	case "string":
-		newString := w.GetString(temp)
-		if !w.Schema.Properties[name].Value.Nullable && newString == "" {
-			return false
+		temp := reader.GetField(strings.Title(name)).PointerString()
+		if temp == nil {
+			return true
 		}
 	case "number":
-		if !w.Schema.Properties[name].Value.Nullable && w.GetNumber(temp) == 0 {
-			return false
+		temp := reader.GetField(strings.Title(name)).PointerFloat64()
+		if temp == nil {
+			return true
 		}
 	case "integer":
-		if !w.Schema.Properties[name].Value.Nullable && w.GetInteger(temp) == 0 {
-			return false
+		temp := reader.GetField(strings.Title(name)).PointerInt()
+		if temp == nil {
+			return true
 		}
 	}
 
-	return true
+	return false
 }
 
 //FromSchema builds properties from the schema
@@ -68,33 +72,13 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 				if t2 != "object" {
 					if t2 == "string" {
 						//format types to be added
-						if p.Value.Nullable {
-							instance.AddField(name, []*string{}, strcase.SnakeCase(name))
-						} else {
-							instance.AddField(name, []string{}, strcase.SnakeCase(name))
-						}
-
+						instance.AddField(name, []*string{}, strcase.SnakeCase(name))
 					} else if t2 == "number" {
-						if p.Value.Nullable {
-							instance.AddField(name, []*float64{}, strcase.SnakeCase(name))
-						} else {
-							instance.AddField(name, []float64{}, strcase.SnakeCase(name))
-						}
-
+						instance.AddField(name, []*float64{}, strcase.SnakeCase(name))
 					} else if t == "integer" {
-						if p.Value.Nullable {
-							instance.AddField(name, []*int{}, strcase.SnakeCase(name))
-						} else {
-							instance.AddField(name, []int{}, strcase.SnakeCase(name))
-						}
-
+						instance.AddField(name, []*int{}, strcase.SnakeCase(name))
 					} else if t == "boolean" {
-						if p.Value.Nullable {
-							instance.AddField(name, []*bool{}, strcase.SnakeCase(name))
-						} else {
-							instance.AddField(name, []bool{}, strcase.SnakeCase(name))
-						}
-
+						instance.AddField(name, []*bool{}, strcase.SnakeCase(name))
 					}
 				} else {
 					if p.Value.Items.Ref == "" {
@@ -112,13 +96,17 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 			} else {
 				if t == "string" {
 					//format types to be added
-					instance.AddField(name, "", strcase.SnakeCase(name))
+					var strings *string
+					instance.AddField(name, strings, strcase.SnakeCase(name))
 				} else if t == "number" {
-					instance.AddField(name, 0.0, strcase.SnakeCase(name))
+					var numbers *float32
+					instance.AddField(name, numbers, strcase.SnakeCase(name))
 				} else if t == "integer" {
-					instance.AddField(name, 0, strcase.SnakeCase(name))
+					var integers *int
+					instance.AddField(name, integers, strcase.SnakeCase(name))
 				} else if t == "boolean" {
-					instance.AddField(name, false, strcase.SnakeCase(name))
+					var boolean *bool
+					instance.AddField(name, boolean, strcase.SnakeCase(name))
 				}
 			}
 		}
@@ -131,19 +119,15 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 //FromSchemaWithValues builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
 	w.FromSchema(ctx, schema)
-	err := json.Unmarshal(payload, &w.BasicEntity)
-	if err != nil {
-		return nil, err
-	}
-	if w.ID == "" {
-		w.ID = ksuid.New().String()
-	}
-	event := NewEntityEvent("create", w, w.ID, payload)
-	if err != nil {
-		return nil, err
-	}
-	w.NewChange(event)
 
+	weosID, err := GetIDfromPayload(payload)
+	if err != nil {
+		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
+
+	w.ID = weosID
+	event := NewEntityEvent("create", w, w.ID, payload)
+	w.NewChange(event)
 	return w, w.ApplyChanges([]*Event{event})
 }
 
@@ -157,7 +141,10 @@ func (w *ContentEntity) GetString(name string) string {
 	if !isValid {
 		return ""
 	}
-	return reader.GetField(name).String()
+	if reader.GetField(name).PointerString() == nil {
+		return ""
+	}
+	return *reader.GetField(name).PointerString()
 }
 
 //GetInteger returns the integer property value stored of a given the property name
@@ -170,7 +157,10 @@ func (w *ContentEntity) GetInteger(name string) int {
 	if !isValid {
 		return 0
 	}
-	return reader.GetField(name).Int()
+	if reader.GetField(name).PointerInt() == nil {
+		return 0
+	}
+	return *reader.GetField(name).PointerInt()
 }
 
 //GetBool returns the boolean property value stored of a given the property name
@@ -183,7 +173,10 @@ func (w *ContentEntity) GetBool(name string) bool {
 	if !isValid {
 		return false
 	}
-	return reader.GetField(name).Bool()
+	if reader.GetField(name).PointerBool() == nil {
+		return false
+	}
+	return *reader.GetField(name).PointerBool()
 }
 
 //GetNumber returns the float64 property value stored of a given the property name
@@ -196,7 +189,10 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 	if !isValid {
 		return 0
 	}
-	return reader.GetField(name).Float64()
+	if reader.GetField(name).PointerFloat64() == nil {
+		return 0.0
+	}
+	return *reader.GetField(name).PointerFloat64()
 }
 
 //ApplyChanges apply the new changes from payload to the entity
@@ -205,11 +201,16 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 		w.SequenceNo = change.Meta.SequenceNo
 		switch change.Type {
 		case "create":
-			err := json.Unmarshal(change.Payload, w.Property)
+			err := json.Unmarshal(change.Payload, &w.BasicEntity)
+			if err != nil {
+				return err
+			}
+			err = json.Unmarshal(change.Payload, &w.Property)
 			if err != nil {
 				return err
 			}
 			w.User.BasicEntity.ID = change.Meta.User
+
 		}
 	}
 	return nil

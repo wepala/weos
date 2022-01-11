@@ -1,4 +1,4 @@
-@WEOS-1130
+
 Feature: Create content
 
   Background:
@@ -148,7 +148,3 @@ Feature: Create content
       And "Sojourner" enters "Some Description" in the "description" field
       When the "Blog" is submitted
       Then an error should be returned
-
-
-
-

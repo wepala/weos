@@ -99,5 +99,13 @@ func TestContentEntity_IsValid(t *testing.T) {
 		if isValid {
 			t.Fatalf("expected entity to be invalid got valid")
 		}
+		if len(entity.GetErrors()) == 0 {
+			t.Fatalf("expected entity have errors got none")
+		}
+		for _, err := range entity.GetErrors() {
+			if errr, ok := err.(*model.DomainError); !ok {
+				t.Fatalf("expected domain error got %s", errr)
+			}
+		}
 	})
 }

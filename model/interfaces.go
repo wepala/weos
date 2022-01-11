@@ -1,6 +1,6 @@
 package model
 
-//go:generate moq -out mocks_test.go . EventRepository WeOSEntity Entity ValueObject EventSourcedEntity Repository UnitOfWorkRepository Datastore
+//go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
 import "golang.org/x/net/context"
 
 type WeOSEntity interface {
@@ -63,4 +63,5 @@ type Datastore interface {
 type Projection interface {
 	Datastore
 	GetEventHandler() EventHandler
+	GetContentEntity(id string, contentType string) (map[string]interface{}, error)
 }
