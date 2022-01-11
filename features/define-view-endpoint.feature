@@ -1,4 +1,4 @@
-@skipped
+@WEOS-1222
 Feature: Setup View endpoint
 
    Background:
@@ -59,31 +59,31 @@ Feature: Setup View endpoint
 
      Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
      """
-     /blogs/{id}:
-       get:
-         parameters:
-           - in: path
-             name: id
-             schema:
-               type: string
-             required: true
-             description: blog id
-         summary: Get Blog by id
-         operationId: Get Blog
-         responses:
-           200:
-             description: Blog details without any supporting collections
-             headers:
-               ETag:
-                 schema:
-                   type: string
-                 description: specific version of item
-             content:
-               application/json:
-                 schema:
-                   $ref: "#/components/schemas/Blog"
-           404:
-             description: Blog not found
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+           summary: Get Blog by id
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               headers:
+                 ETag:
+                   schema:
+                     type: string
+                   description: specific version of item
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             404:
+               description: Blog not found
 
      """
      When the "OpenAPI 3.0" specification is parsed
@@ -94,32 +94,32 @@ Feature: Setup View endpoint
 
      Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
      """
-     /blogs/{id}:
-       post:
-         parameters:
-           - in: path
-             name: id
-             schema:
-               type: string
-             required: true
-             description: blog id
-         summary: Get Blog by id
-         operationId: Get Blog
-         x-controller: View
-         responses:
-           200:
-             description: Blog details without any supporting collections
-             headers:
-               ETag:
-                 schema:
-                   type: string
-                 description: specific version of item
-             content:
-               application/json:
-                 schema:
-                   $ref: "#/components/schemas/Blog"
-           404:
-             description: Blog not found
+       /blogs/{id}:
+         post:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+           summary: Get Blog by id
+           operationId: Get Blog
+           x-controller: View
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               headers:
+                 ETag:
+                   schema:
+                     type: string
+                   description: specific version of item
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             404:
+               description: Blog not found
      """
      When the "OpenAPI 3.0" specification is parsed
      Then a "GET" route should be added to the api
@@ -131,36 +131,36 @@ Feature: Setup View endpoint
 
      Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
      """
-     /blogs/{id}:
-       get:
-         parameters:
-           - in: path
-             name: id
-             schema:
-               type: string
-             required: true
-             description: blog id
-           - in: header
-             name: version
-             x-context-name: sequence_no
-             schema:
-               type: string
-         summary: Get Blog by id
-         operationId: Get Blog
-         responses:
-           200:
-             description: Blog details without any supporting collections
-             headers:
-               ETag:
-                 schema:
-                   type: string
-                 description: specific version of item
-             content:
-               application/json:
-                 schema:
-                   $ref: "#/components/schemas/Blog"
-           404:
-             description: Blog not found
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: header
+               name: version
+               x-context-name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               headers:
+                 ETag:
+                   schema:
+                     type: string
+                   description: specific version of item
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             404:
+               description: Blog not found
 
      """
      When the "OpenAPI 3.0" specification is parsed
@@ -173,38 +173,38 @@ Feature: Setup View endpoint
 
      Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
      """
-     /blogs/{id}:
-       get:
-         parameters:
-           - in: path
-             name: id
-             schema:
-               type: string
-             required: true
-             description: blog id
-           - in: header
-             name: If-None-Match
-             x-context-name: etag
-             schema:
-               type: string
-         summary: Get Blog by id
-         operationId: Get Blog
-         responses:
-           200:
-             description: Blog details without any supporting collections
-             headers:
-               ETag:
-                 schema:
-                   type: string
-                 description: specific version of item
-             content:
-               application/json:
-                 schema:
-                   $ref: "#/components/schemas/Blog"
-           304:
-             description: Not modified
-           404:
-             description: Blog not found
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: header
+               name: If-None-Match
+               x-context-name: etag
+               schema:
+                 type: string
+           summary: Get Blog by id
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               headers:
+                 ETag:
+                   schema:
+                     type: string
+                   description: specific version of item
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             304:
+               description: Not modified
+             404:
+               description: Blog not found
 
      """
      When the "OpenAPI 3.0" specification is parsed
