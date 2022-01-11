@@ -20,6 +20,7 @@ import (
 )
 
 type Blog struct {
+	ID          string `json:"weos_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Url         string `json:"url"`
@@ -29,6 +30,8 @@ func TestStandardControllers_Create(t *testing.T) {
 	mockBlog := &Blog{
 		Title: "Test Blog",
 	}
+
+	mockResult := map[string]interface{}{"weos_id": "123", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
 
 	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
 	if err != nil {
@@ -95,9 +98,18 @@ func TestStandardControllers_Create(t *testing.T) {
 		},
 	}
 
+	projections := &ProjectionMock{
+		GetContentEntityFunc: func(id string, contentType string) (map[string]interface{}, error) {
+			return mockResult, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projections}
 		},
 	}
 
@@ -126,6 +138,10 @@ func TestStandardControllers_Create(t *testing.T) {
 
 		if len(dispatcher.DispatchCalls()) == 0 {
 			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.Header.Get("Etag") == "" {
+			t.Errorf("expected a weosID, got %s", response.Header.Get("Etag"))
 		}
 
 		if response.StatusCode != 201 {

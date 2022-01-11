@@ -53,9 +53,6 @@ func TestDomainService_Create(t *testing.T) {
 		if blog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if blog.ID == "" {
-			t.Fatalf("expected there to be generated blog id: got %s", blog.ID)
-		}
 		if blog.GetString("Title") != mockBlog.Title {
 			t.Fatalf("expected blog title to be %s got %s", mockBlog.Title, blog.GetString("Title"))
 		}
@@ -137,8 +134,11 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			if blogs[i] == nil {
 				t.Fatal("expected blog to be returned")
 			}
-			if blogs[i].ID == "" {
-				t.Fatalf("expected there to be generated blog id: got %s", blogs[i].ID)
+			if blogs[i].GetString("Title") != mockBlogs[i].Title {
+				t.Fatalf("expected there to be generated blog title: %s got %s", mockBlogs[i].Title, blogs[i].GetString("Title"))
+			}
+			if blogs[i].GetString("Url") != mockBlogs[i].Url {
+				t.Fatalf("expected there to be generated blog Url: %s got %s", mockBlogs[i].Url, blogs[i].GetString("Url"))
 			}
 		}
 	})

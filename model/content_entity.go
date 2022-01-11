@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/segmentio/ksuid"
 	"github.com/stoewer/go-strcase"
 	weosContext "github.com/wepala/weos-service/context"
 	"golang.org/x/net/context"
@@ -121,16 +120,13 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
 	w.FromSchema(ctx, schema)
 
-	weosId := ksuid.New().String()
-	w.ID = weosId
-	var eventPayload map[string]interface{}
-	err := json.Unmarshal(payload, &eventPayload)
+	weosID, err := GetIDfromPayload(payload)
 	if err != nil {
-		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, nil)
+		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
 	}
-	eventPayload["weos_id"] = weosId
-	//TODO pass the weosID from payload into the rootID event
-	event := NewEntityEvent("create", w, w.ID, eventPayload)
+
+	w.ID = weosID
+	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
 	return w, w.ApplyChanges([]*Event{event})
 }
@@ -214,6 +210,7 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 				return err
 			}
 			w.User.BasicEntity.ID = change.Meta.User
+
 		}
 	}
 	return nil
