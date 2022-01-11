@@ -39,6 +39,13 @@ func TestContentEntity_FromSchema(t *testing.T) {
 	}
 }
 
+type TestBlog struct {
+	ID          string  `json:"id"`
+	Title       *string `json:"title"`
+	Description string  `json:"description"`
+	Url         string  `json:"url"`
+}
+
 func TestContentEntity_IsValid(t *testing.T) {
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
 	if err != nil {
@@ -78,11 +85,11 @@ func TestContentEntity_IsValid(t *testing.T) {
 		}
 		isValid := entity.IsValid()
 		if !isValid {
-			t.Fatalf("expected entity to be invalid got valid")
+			t.Fatalf("unexpected error expected entity to be valid got invalid")
 		}
 	})
 	t.Run("Testing with a missing required field that is nullable: title", func(t *testing.T) {
-		mockBlog := &Blog{
+		mockBlog := &TestBlog{
 			Description: "lorem ipsum",
 			Url:         "www.ShaniahsBlog.com",
 		}
