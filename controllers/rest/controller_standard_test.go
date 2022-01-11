@@ -284,6 +284,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		}
 	})
 }
+
 func TestStandardControllers_Update(t *testing.T) {
 	mockBlog := &Blog{
 		ID:          "123",
