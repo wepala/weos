@@ -1,4 +1,4 @@
-@WEOS-1170
+@WEOS-1170 @skipped
 Feature: Run API
 
    The API should be able to run across many platforms

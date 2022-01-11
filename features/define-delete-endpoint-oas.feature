@@ -1,5 +1,4 @@
-@skipped
-@WEOS-1178
+@WEOS-1178 @skipped
 Feature: Delete content endpoints
 
   As developer you can create an endpoint that should be used to delete content of a specific type. The HTTP method and the

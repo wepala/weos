@@ -21,7 +21,7 @@ Feature: Create Content Types
               type: string
 
     """
-
+  @focus
   Scenario: Declare basic content type
 
     A simple content type is one where the properties are primitive types. If there is no identifier specified one will
@@ -55,7 +55,7 @@ Feature: Create Content Types
         string description
       }
     """
-
+  @skipped
   Scenario: Declare a content type with the identifier explicitly declared
 
     Identifiers are used to configure primary keys in the projection. Multiple fields can be part of the identifiers
@@ -119,7 +119,7 @@ Feature: Create Content Types
 #       | title       | blog title   | varchar(512)   | false    |          | NULL        |
 #       | description |              | varchar(512)   | true     |          | NULL        |
 #     And a "Blog" entity configuration should be setup
-
+  @skipped
   Scenario: Declare content type that has a many to one relationship to another content type
 
 #     Many to one relationships is determined by what a property is referencing. If the property of a Content Type is
@@ -174,7 +174,7 @@ Feature: Create Content Types
         string description
       }
     """
-    
+  @skipped
   Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
 
     A content type could be associated with another content type that has an identifier that has multiple parts. Though
@@ -237,7 +237,7 @@ Feature: Create Content Types
         string blogTitle
       }
     """
-
+  @skipped
   Scenario: Declare content type that has a many to many relationship to another content type
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
@@ -295,7 +295,7 @@ Feature: Create Content Types
         string description
       }
     """
-
+  @skipped
   Scenario: Use format to set granular types
 
     Developers can use the `format` attribute to set the format of a property. This should be used to validate content

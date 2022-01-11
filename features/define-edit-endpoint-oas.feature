@@ -1,4 +1,4 @@
-@WEOS-1177
+@WEOS-1177 @skipped
 Feature: Edit content endpoints
 
   As developer you can create an endpoint that should be used to edit content of a specific type. The HTTP method and the
