@@ -154,6 +154,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
+    put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+      summary: Update blog details
+      operationId: Update Blog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
+      responses:
+        200:
+          description: Update Blog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
 
   /blogs/{id}/posts:
     get:
