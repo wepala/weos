@@ -31,6 +31,8 @@ func TestStandardControllers_Create(t *testing.T) {
 		Title: "Test Blog",
 	}
 
+	mockResult := map[string]interface{}{"weos_id": "123", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+
 	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
 	if err != nil {
 		t.Fatalf("error loading api specification '%s'", err)
@@ -96,9 +98,18 @@ func TestStandardControllers_Create(t *testing.T) {
 		},
 	}
 
+	projections := &ProjectionMock{
+		GetContentEntityFunc: func(id string, contentType string) (map[string]interface{}, error) {
+			return mockResult, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projections}
 		},
 	}
 

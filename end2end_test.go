@@ -321,7 +321,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	}
 
 	contentEntity := map[string]interface{}{}
-	result := API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", rec.Result().Header.Get("Etag"))
+	idEtag, seqNoEtag := api.SplitEtag(rec.Result().Header.Get("Etag"))
+	result := API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", idEtag, "sequence_no = ?", seqNoEtag)
 
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
@@ -360,9 +361,11 @@ func theIsSubmitted(contentType string) error {
 
 func theShouldHaveAnId(contentType string) error {
 
-	if rec.Result().Header.Get("Etag") != "" {
-		return fmt.Errorf("expected the "+contentType+" to have an ID, got %s", rec.Result().Header.Get("Etag"))
+	idEtag, _ := api.SplitEtag(rec.Result().Header.Get("Etag"))
+	if idEtag == "" {
+		return fmt.Errorf("expected the "+contentType+" to have an ID, got %s", idEtag)
 	}
+
 	return nil
 }
 
@@ -446,8 +449,16 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 
 func theHeaderShouldBe(header, value string) error {
 	//Table has no value to compare against so just checking for id existance
-	if rec.Result().Header.Get(header) != "" {
-		return fmt.Errorf("expected the Etag to be added to header, got %s", rec.Result().Header.Get(header))
+	Etag := rec.Result().Header.Get(header)
+	idEtag, seqNoEtag := api.SplitEtag(Etag)
+	if Etag == "" {
+		return fmt.Errorf("expected the Etag to be added to header, got %s", Etag)
+	}
+	if idEtag == "" {
+		return fmt.Errorf("expected the Etag to contain a weos id, got %s", idEtag)
+	}
+	if seqNoEtag == "" {
+		return fmt.Errorf("expected the Etag to contain a sequence no, got %s", seqNoEtag)
 	}
 	return nil
 }
@@ -487,7 +498,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1130",
+			Tags:   "~skipped",
 		},
 	}.Run()
 	if status != 0 {

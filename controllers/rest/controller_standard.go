@@ -52,7 +52,18 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 			}
 		}
 
-		ctxt.Response().Header().Set("Etag", weosID)
+		var Etag string
+		for _, projection := range app.Projections() {
+			if projection != nil {
+				result, err := projection.GetContentEntity(weosID, contentType)
+				if err != nil {
+					return err
+				}
+				Etag = NewEtag(result)
+			}
+		}
+
+		ctxt.Response().Header().Set("Etag", Etag)
 		return ctxt.JSON(http.StatusCreated, "Created")
 	}
 }

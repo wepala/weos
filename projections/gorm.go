@@ -6,6 +6,7 @@ import (
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
+	"strings"
 )
 
 //GORMProjection interface struct
@@ -50,12 +51,22 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			if err != nil {
 				p.logger.Errorf("error unmarshalling event '%s'", err)
 			}
+			eventPayload["sequence_no"] = event.Meta.SequenceNo
 			db := p.db.Table(contentType.Name).Create(eventPayload)
 			if db.Error != nil {
 				p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
 			}
 		}
 	}
+}
+
+func (p *GORMProjection) GetContentEntity(weosID, contentType string) (map[string]interface{}, error) {
+	output := map[string]interface{}{}
+	result := p.db.Table(strings.Title(contentType)).Find(&output, "weos_id = ? ", weosID)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retreiving created blog '%s'", result.Error)
+	}
+	return output, nil
 }
 
 //NewProjection creates an instance of the projection

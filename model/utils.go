@@ -3,7 +3,6 @@ package model
 import (
 	"encoding/json"
 	"reflect"
-	"strconv"
 )
 
 func GetType(myvar interface{}) string {
@@ -12,13 +11,6 @@ func GetType(myvar interface{}) string {
 	} else {
 		return t.Name()
 	}
-}
-
-//NewEtag: This takes in a contentEntity and concatenates the weosID and SequenceID
-func NewEtag(entity *ContentEntity) string {
-	seqNo := int(entity.SequenceNo)
-	ETag := entity.ID + "." + strconv.Itoa(seqNo)
-	return ETag
 }
 
 //AddIDToPayload: This adds the weosID to the payload

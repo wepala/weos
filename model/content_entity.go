@@ -210,6 +210,7 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 				return err
 			}
 			w.User.BasicEntity.ID = change.Meta.User
+
 		}
 	}
 	return nil
