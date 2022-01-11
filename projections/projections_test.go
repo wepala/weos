@@ -766,11 +766,11 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		payload := map[string]interface{}{"title": "testBlog", "description": "This is a create projection test"}
+		payload := map[string]interface{}{"weos_id": "123456", "title": "testBlog", "description": "This is a create projection test"}
 		contentEntity := &weos.ContentEntity{
 			AggregateRoot: weos.AggregateRoot{
 				BasicEntity: weos.BasicEntity{
-					ID: "1",
+					ID: "123456",
 				},
 			},
 			Property: payload,
@@ -785,7 +785,7 @@ components:
 		p.GetEventHandler()(ctxt, *event)
 
 		blog := map[string]interface{}{}
-		result := gormDB.Table("Blog").Find(&blog, "id = ? ", contentEntity.ID)
+		result := gormDB.Table("Blog").Find(&blog, "weos_id = ? ", contentEntity.ID)
 		if result.Error != nil {
 			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
 		}

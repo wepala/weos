@@ -33,7 +33,6 @@ var rec *httptest.ResponseRecorder
 var db *sql.DB
 var requests map[string]map[string]interface{}
 var currScreen string
-var contentTypeID map[string]bool
 
 type User struct {
 	Name      string
@@ -57,7 +56,6 @@ type ContentType struct {
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
-	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
@@ -106,7 +104,6 @@ components:
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
-	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	errors = nil
 	rec = httptest.NewRecorder()
@@ -324,14 +321,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	}
 
 	contentEntity := map[string]interface{}{}
-	var result *gorm.DB
-	//ETag would help with this
-	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
-		if contentEntity != nil {
-			break
-		}
-	}
+	result := API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", rec.Result().Header.Get("Etag"))
 
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
@@ -347,7 +337,6 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
 
@@ -371,8 +360,8 @@ func theIsSubmitted(contentType string) error {
 
 func theShouldHaveAnId(contentType string) error {
 
-	if !contentTypeID[strings.ToLower(contentType)] {
-		return fmt.Errorf("expected the " + contentType + " to have an ID")
+	if rec.Result().Header.Get("Etag") != "" {
+		return fmt.Errorf("expected the "+contentType+" to have an ID, got %s", rec.Result().Header.Get("Etag"))
 	}
 	return nil
 }
@@ -455,8 +444,12 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 	return nil
 }
 
-func theHeaderShouldBe(arg1, arg2 string) error {
-	return godog.ErrPending
+func theHeaderShouldBe(header, value string) error {
+	//Table has no value to compare against so just checking for id existance
+	if rec.Result().Header.Get(header) != "" {
+		return fmt.Errorf("expected the Etag to be added to header, got %s", rec.Result().Header.Get(header))
+	}
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {

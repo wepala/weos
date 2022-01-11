@@ -52,7 +52,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 			}
 		}
 
-		ctxt.Response().Header().Set("weos_id", weosID)
+		ctxt.Response().Header().Set("Etag", weosID)
 		return ctxt.JSON(http.StatusCreated, "Created")
 	}
 }

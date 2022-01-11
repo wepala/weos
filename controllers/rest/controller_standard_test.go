@@ -129,8 +129,8 @@ func TestStandardControllers_Create(t *testing.T) {
 			t.Error("expected create account command to be dispatched")
 		}
 
-		if response.Header.Get("weos_id") == "" {
-			t.Errorf("expected a weosID, got %s", response.Header.Get("weos_id"))
+		if response.Header.Get("Etag") == "" {
+			t.Errorf("expected a weosID, got %s", response.Header.Get("Etag"))
 		}
 
 		if response.StatusCode != 201 {
