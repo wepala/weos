@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos-service/context"
 	"gorm.io/gorm/clause"
 
@@ -805,6 +806,277 @@ components:
 	})
 }
 
+func TestProjections_Update(t *testing.T) {
+
+	t.Run("Basic Update", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+`
+
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+
+		id := ksuid.New().String()
+		gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": id, "title": "hugs"})
+
+		payload := map[string]interface{}{"id": 1, "title": "testBlog", "description": "This is a create projection test"}
+		contentEntity := &weos.ContentEntity{
+			AggregateRoot: weos.AggregateRoot{
+				BasicEntity: weos.BasicEntity{
+					ID: id,
+				},
+			},
+			Property: payload,
+		}
+
+		ctxt := context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name: "Blog",
+		})
+
+		event := weos.NewEntityEvent("update", contentEntity, contentEntity.ID, &payload)
+		p.GetEventHandler()(ctxt, *event)
+
+		blog := map[string]interface{}{}
+		result := gormDB.Table("Blog").Find(&blog, "weos_id = ? ", contentEntity.ID)
+		if result.Error != nil {
+			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
+		}
+
+		if blog["title"] != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog["title"])
+		}
+
+		if blog["description"] != payload["description"] {
+			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+	})
+
+	t.Run("Update basic many to many relationship", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+       posts:
+        type: array
+        items:
+          $ref: "#/components/schemas/Post"
+`
+
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+
+		blogWeosID := ksuid.New().String()
+		postWeosID := ksuid.New().String()
+		postWeosID2 := ksuid.New().String()
+		gormDB.Table("Post").Create(map[string]interface{}{"weos_id": postWeosID, "title": "hugs"})
+		gormDB.Table("Post").Create(map[string]interface{}{"weos_id": postWeosID2, "title": "hugs"})
+		gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": blogWeosID, "title": "hugs"})
+
+		payload := map[string]interface{}{"weos_id": blogWeosID, "id": 1, "title": "testBlog", "description": "This is a create projection test", "posts": []map[string]interface{}{
+			{
+				"id": 1,
+			},
+		}}
+		contentEntity := &weos.ContentEntity{
+			AggregateRoot: weos.AggregateRoot{
+				BasicEntity: weos.BasicEntity{
+					ID: blogWeosID,
+				},
+			},
+			Property: payload,
+		}
+
+		ctxt := context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name: "Blog",
+		})
+
+		event := weos.NewEntityEvent("update", contentEntity, contentEntity.ID, &payload)
+		p.GetEventHandler()(ctxt, *event)
+
+		blog := map[string]interface{}{}
+		result := gormDB.Table("Blog").Find(&blog, "weos_id = ? ", contentEntity.ID)
+		if result.Error != nil {
+			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
+		}
+
+		if blog["title"] != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog["title"])
+		}
+
+		if blog["description"] != payload["description"] {
+			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
+		}
+
+		blogpost := map[string]interface{}{}
+		result = gormDB.Table("blog_posts").Find(&blogpost, "id = ? ", 1)
+		if result.Error != nil {
+			t.Errorf("unexpected error retreiving created blog post relation '%s'", result.Error)
+		}
+
+		if *driver == "mysql" {
+			id := blogpost["post_id"].(uint64)
+			if id != 1 {
+				t.Errorf("expected post id to be %d, got %v", 1, blogpost["post_id"])
+			}
+		} else {
+			if blogpost["post_id"] != int64(1) {
+				t.Errorf("expected post id to be %d, got %v", 1, blogpost["post_id"])
+			}
+		}
+
+		//test replace associations
+		payload = map[string]interface{}{"id": 1, "weos_id": blogWeosID, "title": "testBlog", "description": "This is a create projection test", "posts": []map[string]interface{}{
+			{
+				"id": 2,
+			},
+		}}
+		contentEntity = &weos.ContentEntity{
+			AggregateRoot: weos.AggregateRoot{
+				BasicEntity: weos.BasicEntity{
+					ID: blogWeosID,
+				},
+			},
+			Property: payload,
+		}
+
+		ctxt = context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name: "Blog",
+		})
+
+		event = weos.NewEntityEvent("update", contentEntity, contentEntity.ID, &payload)
+		p.GetEventHandler()(ctxt, *event)
+
+		blogposts := []map[string]interface{}{}
+		result = gormDB.Table("blog_posts").Find(&blogposts, "id = ? ", 1)
+		if result.Error != nil {
+			t.Fatalf("unexpected error retreiving created blog post relation '%s'", result.Error)
+		}
+
+		if len(blogposts) != 1 {
+			t.Fatalf("expected there to be %d blog posts got %v", 1, len(blogposts))
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+
+	})
+}
+
 func TestProjections_GormOperations(t *testing.T) {
 	t.Run("Basic Create using schema", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
@@ -909,7 +1181,7 @@ components:
 		bytes, _ = json.Marshal(m)
 		json.Unmarshal(bytes, &blog)
 
-		result = gormDB.Table("Blog").Where("id = ?", 1).Updates(blog)
+		result = gormDB.Table("Blog").Updates(blog)
 		if result.Error != nil {
 			t.Errorf("got error updating blog %s", result.Error)
 		}
