@@ -20,7 +20,7 @@ import (
 )
 
 type Blog struct {
-	ID          string `json:"id"`
+	ID          string `json:"weos_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Url         string `json:"url"`
@@ -30,6 +30,8 @@ func TestStandardControllers_Create(t *testing.T) {
 	mockBlog := &Blog{
 		Title: "Test Blog",
 	}
+
+	mockResult := map[string]interface{}{"weos_id": "123", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
 
 	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
 	if err != nil {
@@ -69,11 +71,14 @@ func TestStandardControllers_Create(t *testing.T) {
 				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
 			}
 
-			blog := &Blog{}
+			blog := &TestBlog{}
 			json.Unmarshal(command.Payload, &blog)
 
-			if blog.Title != mockBlog.Title {
-				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog.Title, blog.Title)
+			if blog.Title == nil {
+				return model.NewDomainError("expected the blog title to be a title got nil", command.Metadata.EntityType, "", nil)
+			}
+			if blog.Url == nil {
+				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
 			}
 			//check that content type information is in the context
 			contentType := weoscontext.GetContentType(ctx)
@@ -93,9 +98,18 @@ func TestStandardControllers_Create(t *testing.T) {
 		},
 	}
 
+	projections := &ProjectionMock{
+		GetContentEntityFunc: func(id string, contentType string) (map[string]interface{}, error) {
+			return mockResult, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projections}
 		},
 	}
 
@@ -126,8 +140,44 @@ func TestStandardControllers_Create(t *testing.T) {
 			t.Error("expected create account command to be dispatched")
 		}
 
+		if response.Header.Get("Etag") == "" {
+			t.Errorf("expected a weosID, got %s", response.Header.Get("Etag"))
+		}
+
 		if response.StatusCode != 201 {
 			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
+		}
+	})
+	t.Run("create payload without a required field", func(t *testing.T) {
+		title := "Test Blog"
+		mockBlog1 := &TestBlog{
+			Title: &title,
+		}
+		reqBytes, err := json.Marshal(mockBlog1)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
 		}
 	})
 }

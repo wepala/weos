@@ -1,3 +1,4 @@
+@skipped
 @WEOS-1164
 Feature: Create content endpoints
 

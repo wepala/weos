@@ -12,8 +12,12 @@ type Receiver struct {
 
 //Create is used for a single payload. It takes in the command and context which is used to dispatch and the persist the incoming request.
 func (r *Receiver) Create(ctx context.Context, command *Command) error {
+	payload, err := AddIDToPayload(command.Payload, command.Metadata.EntityID)
+	if err != nil {
+		return err
+	}
 
-	entity, err := r.domainService.Create(ctx, command.Payload, command.Metadata.EntityType)
+	entity, err := r.domainService.Create(ctx, payload, command.Metadata.EntityType)
 	if err != nil {
 		return err
 	}
@@ -45,7 +49,7 @@ func Initialize(service Service) error {
 	//Initialize receiver
 	receiver := &Receiver{service: service}
 	//add command handlers to the application's command dispatcher
-	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, ""), receiver.Create)
+	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), receiver.Create)
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), receiver.CreateBatch)
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository())

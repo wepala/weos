@@ -7,7 +7,7 @@ import (
 	weoscontext "github.com/wepala/weos-service/context"
 )
 
-func Create(ctx context.Context, payload json.RawMessage, entityType string) *Command {
+func Create(ctx context.Context, payload json.RawMessage, entityType string, entityID string) *Command {
 
 	command := &Command{
 		Type:    "create",
@@ -17,6 +17,7 @@ func Create(ctx context.Context, payload json.RawMessage, entityType string) *Co
 			UserID:     weoscontext.GetUser(ctx),
 			AccountID:  weoscontext.GetAccount(ctx),
 			EntityType: entityType,
+			EntityID:   entityID,
 		},
 	}
 	return command

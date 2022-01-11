@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/wepala/weos-service/utils"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +18,6 @@ import (
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
 	api "github.com/wepala/weos-service/controllers/rest"
-	"github.com/wepala/weos-service/utils"
 	"gorm.io/gorm"
 )
 
@@ -33,7 +33,6 @@ var rec *httptest.ResponseRecorder
 var db *sql.DB
 var requests map[string]map[string]interface{}
 var currScreen string
-var contentTypeID map[string]bool
 
 type User struct {
 	Name      string
@@ -57,7 +56,6 @@ type ContentType struct {
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
-	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
@@ -106,7 +104,6 @@ components:
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
-	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	errors = nil
 	rec = httptest.NewRecorder()
@@ -324,14 +321,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	}
 
 	contentEntity := map[string]interface{}{}
-	var result *gorm.DB
-	//ETag would help with this
-	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
-		if contentEntity != nil {
-			break
-		}
-	}
+	idEtag, seqNoEtag := api.SplitEtag(rec.Result().Header.Get("Etag"))
+	result := API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", idEtag, "sequence_no = ?", seqNoEtag)
 
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
@@ -347,7 +338,6 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
 
@@ -371,9 +361,11 @@ func theIsSubmitted(contentType string) error {
 
 func theShouldHaveAnId(contentType string) error {
 
-	if !contentTypeID[strings.ToLower(contentType)] {
-		return fmt.Errorf("expected the " + contentType + " to have an ID")
+	idEtag, _ := api.SplitEtag(rec.Result().Header.Get("Etag"))
+	if idEtag == "" {
+		return fmt.Errorf("expected the "+contentType+" to have an ID, got %s", idEtag)
 	}
+
 	return nil
 }
 
@@ -455,6 +447,22 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 	return nil
 }
 
+func theHeaderShouldBe(header, value string) error {
+	//Table has no value to compare against so just checking for id existance
+	Etag := rec.Result().Header.Get(header)
+	idEtag, seqNoEtag := api.SplitEtag(Etag)
+	if Etag == "" {
+		return fmt.Errorf("expected the Etag to be added to header, got %s", Etag)
+	}
+	if idEtag == "" {
+		return fmt.Errorf("expected the Etag to contain a weos id, got %s", idEtag)
+	}
+	if seqNoEtag == "" {
+		return fmt.Errorf("expected the Etag to contain a sequence no, got %s", seqNoEtag)
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -479,6 +487,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
+	ctx.Step(`^the "([^"]*)" header should be "([^"]*)"$`, theHeaderShouldBe)
 
 }
 
