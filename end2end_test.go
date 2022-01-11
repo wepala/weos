@@ -240,6 +240,16 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
 }
 
+func aRouteShouldBeAddedToTheApi1(method string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if route.Method == method {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected route but got nil with method %s ", method)
+}
+
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
 	if !strings.Contains(buf.String(), "no handler set") {
 		fmt.Errorf("expected an error to be log got '%s'", buf.String())
@@ -469,7 +479,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
-
+	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
 }
 
 func TestBDD(t *testing.T) {
