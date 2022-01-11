@@ -30,6 +30,7 @@ var errors error
 var buf bytes.Buffer
 var payload ContentType
 var rec *httptest.ResponseRecorder
+var header http.Header
 var db *sql.DB
 var requests map[string]map[string]interface{}
 var currScreen string
@@ -109,6 +110,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	errors = nil
+	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	os.Remove("e2e.db")
 	var err error
@@ -360,9 +362,15 @@ func theIsSubmitted(contentType string) error {
 
 	reqBytes, _ := json.Marshal(req)
 	body := bytes.NewReader(reqBytes)
-	request := httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
+	var request *http.Request
+	if strings.Contains(currScreen, "create") {
+		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
+	} else if strings.Contains(currScreen, "update") {
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType), body)
+	}
 	request = request.WithContext(context.TODO())
-	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
 	request.Close = true
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, request)
@@ -455,6 +463,78 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 	return nil
 }
 
+func aHeaderWithValue(key, value string) error {
+	header.Add(key, value)
+	return godog.ErrPending
+}
+
+func aResponseShouldBeReturned(code int) error {
+	if rec.Code != code {
+		return fmt.Errorf("expected the code to be %d got %d", code, rec.Code)
+	}
+	return nil
+}
+
+func isOnTheEditScreenWithId(user, contentType, id string) error {
+	requests[strings.ToLower(contentType+"_update")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_update")
+	return nil
+}
+
+func theHeaderShouldBe(key, value string) error {
+	headers := rec.HeaderMap
+	val := headers[value]
+
+	if len(val) > 0 {
+		if strings.EqualFold(val[0], value) {
+			return nil
+		}
+	}
+	return fmt.Errorf("expected the header %s value to be %s got %v", key, value, val)
+}
+
+func theIsUpdated(contentType string, details *godog.Table) error {
+	if rec.Result().StatusCode != http.StatusOK {
+		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusOK, rec.Result().StatusCode)
+	}
+
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	contentEntity := map[string]interface{}{}
+	var result *gorm.DB
+	//ETag would help with this
+	for key, value := range compare {
+		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		if contentEntity != nil {
+			break
+		}
+	}
+
+	if contentEntity == nil {
+		return fmt.Errorf("unexpected error finding content type in db")
+	}
+
+	if result.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+	}
+
+	for key, value := range compare {
+		if contentEntity[key] != value {
+			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+		}
+	}
+
+	contentTypeID[strings.ToLower(contentType)] = true
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -478,7 +558,12 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "([^"]*)" should have an id$`, theShouldHaveAnId)
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
+	ctx.Step(`^the "([^"]*)" header should be "([^"]*)"$`, theHeaderShouldBe)
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" edit screen with id "([^"]*)"$`, isOnTheEditScreenWithId)
+	ctx.Step(`^the "([^"]*)" is updated$`, theIsUpdated)
+	ctx.Step(`^a header "([^"]*)" with value "([^"]*)"$`, aHeaderWithValue)
+	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
 
 }
 
