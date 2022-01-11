@@ -82,11 +82,11 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         lastUpdated:
           type: string
           format: date-time
@@ -108,7 +108,7 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         created:
           type: string
           format: date-time
