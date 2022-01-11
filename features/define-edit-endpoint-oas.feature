@@ -54,10 +54,6 @@ Feature: Edit content endpoints
               - id
               - title
     """
-    And blogs in the api
-    | id    | title        | description    |
-    | 1234  | Blog 1       | Some Blog      |
-    | 4567  | Blog 2       | Some Blog 2    |
 
 
   Scenario: Create a basic edit endpoint with the identifier in the path
