@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos-service/context"
 	"golang.org/x/net/context"
 	"io/ioutil"
@@ -40,7 +41,9 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		}
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
-		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType))
+		weosID := ksuid.New().String()
+
+		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -48,6 +51,8 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
 			}
 		}
+
+		ctxt.Response().Header().Set("weos_id", weosID)
 		return ctxt.JSON(http.StatusCreated, "Created")
 	}
 }

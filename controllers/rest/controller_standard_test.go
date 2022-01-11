@@ -20,6 +20,7 @@ import (
 )
 
 type Blog struct {
+	ID          string `json:"weos_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Url         string `json:"url"`
@@ -126,6 +127,10 @@ func TestStandardControllers_Create(t *testing.T) {
 
 		if len(dispatcher.DispatchCalls()) == 0 {
 			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.Header.Get("weos_id") == "" {
+			t.Errorf("expected a weosID, got %s", response.Header.Get("weos_id"))
 		}
 
 		if response.StatusCode != 201 {
