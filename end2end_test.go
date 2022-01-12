@@ -250,11 +250,19 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
 }
 
+func aRouteShouldBeAddedToTheApi1(arg1 string) error {
+	return godog.ErrPending
+}
+
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
 	if !strings.Contains(buf.String(), "no handler set") {
 		fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
+}
+
+func aWarningShouldBeOutputBecauseTheEndpointIsInvalid() error {
+	return godog.ErrPending
 }
 
 func addsASchemaToTheSpecification(arg1, arg2, arg3 string, arg4 *godog.DocString) error {
@@ -479,6 +487,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
+	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
+	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
 
 }
 
@@ -489,7 +499,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped",
+			Tags:   "WEOS-1176",
 		},
 	}.Run()
 	if status != 0 {

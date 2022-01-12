@@ -1,3 +1,4 @@
+@WEOS-1176
 Feature: Setup List endpoint
 
   Background:
@@ -58,27 +59,27 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  type: object
-                  properties:
-                    total:
-                      type: integer
-                    page:
-                      type: integer
-                    items:
-                      type: array
+      /blogs:
+        get:
+          operationId: Get Blogs
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
                       items:
-                        $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
@@ -91,29 +92,29 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  type: object
-                  properties:
-                    t:
-                      type: integer
-                      x-alias: total
-                    p:
-                      type: integer
-                      x-alias: page
-                    items:
-                      type: array
+      /blogs:
+        get:
+          operationId: Get Blogs
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      t:
+                        type: integer
+                        x-alias: total
+                      p:
+                        type: integer
+                        x-alias: page
                       items:
-                        $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
@@ -123,28 +124,28 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        x-controller: List
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  type: object
-                  properties:
-                    total:
-                      type: integer
-                    page:
-                      type: integer
-                    items:
-                      type: array
+      /blogs:
+        get:
+          operationId: Get Blogs
+          x-controller: List
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
                       items:
-                        $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
@@ -156,19 +157,19 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        x-controller: List
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+      /blogs:
+        get:
+          operationId: Get Blogs
+          x-controller: List
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output because the endpoint is invalid
@@ -229,40 +230,40 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        parameters:
-          - in: post
-            name: filters
-            schema:
-              type: array
-              items:
-                type: object
-                properties:
-                  field:
-                    type: string
-                    enum:
-                      - title
-                      - description
-                  operator:
-                    type: string
-                    enum:
-                      - eq
-                      - ne
-                  value:
-                    type: array
-                    items:
+      /blogs:
+        get:
+          operationId: Get Blogs
+          parameters:
+            - in: post
+              name: filters
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    field:
                       type: string
-        responses:
-          200:
-            description: Update blog
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                      enum:
+                        - title
+                        - description
+                    operator:
+                      type: string
+                      enum:
+                        - eq
+                        - ne
+                    value:
+                      type: array
+                      items:
+                        type: string
+          responses:
+            200:
+              description: Update blog
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
