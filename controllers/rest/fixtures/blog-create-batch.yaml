@@ -109,6 +109,15 @@ components:
           type: string
           format: date-time
 paths:
+  /health:
+    summary: Health Check
+    get:
+      x-controller: HealthCheck
+      responses:
+        200:
+          description: Health Response
+        500:
+          description: API Internal Error
   /blogs:
     post:
       operationId: Add Blogs
