@@ -329,8 +329,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 					case "PUT":
 						allParam := true
 						if pathData.Put.RequestBody == nil {
-							e.Logger.Warnf("unexpected error: expected request body but got nil")
-							return e, fmt.Errorf("unexpected error: expected request body but got nil")
+							break
 						}
 						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 						for _, value := range pathData.Put.RequestBody.Value.Content {
@@ -339,38 +338,47 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 								identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IDENTIFIEREXTENSION]
 								if identifierExtension != nil {
 									bytesId := identifierExtension.(json.RawMessage)
-									json.Unmarshal(bytesId, identifiers)
+									json.Unmarshal(bytesId, &identifiers)
 								}
+								var contextName string
+								if len(identifiers) == 0 || identifiers == nil {
+									for _, param := range pathData.Put.Parameters {
+										//check for identifiers,
+										//if there is no identifiers then id is the default identifier
+										//if there are identifiers then make sure all are listed in parameters
 
-								//check the parameters
-								for _, param := range pathData.Put.Parameters {
-									//check for identifiers,
-									//if there is no identifiers then id is the default identifier
-									//if there are identifiers then make sure all are listed in parameters
-									if len(identifiers) == 0 {
 										if "id" == param.Value.Name {
 											operationConfig.Handler = "Update"
 											autoConfigure = true
 											break
 										}
-										contextName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-										if contextName != nil && "id" == contextName.(string) {
-											operationConfig.Handler = "Update"
-											autoConfigure = true
-											break
+										interfaceContext := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+										if interfaceContext != nil {
+											bytesContext := interfaceContext.(json.RawMessage)
+											json.Unmarshal(bytesContext, &contextName)
+											if "id" == contextName {
+												operationConfig.Handler = "Update"
+												autoConfigure = true
+												break
+											}
 										}
 									}
+								} else {
 									for _, identifier := range identifiers {
-										if !(identifier == param.Value.Name) || (identifier == param.Value.ExtensionProps.Extensions[ContextNameExtension].(string)) {
-											allParam = false
-											e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-											break
+										//check the parameters
+										for _, param := range pathData.Put.Parameters {
+											cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+											if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+												allParam = false
+												e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+												break
+											}
 										}
 									}
-								}
-								if allParam {
-									operationConfig.Handler = "Update"
-									autoConfigure = true
+									if allParam {
+										operationConfig.Handler = "Update"
+										autoConfigure = true
+									}
 								}
 							}
 						}
@@ -378,8 +386,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 					case "PATCH":
 						allParam := true
 						if pathData.Patch.RequestBody == nil {
-							e.Logger.Warnf("unexpected error: expected request body but got nil")
-							return e, fmt.Errorf("unexpected error: expected request body but got nil")
+							break
 						}
 						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 						for _, value := range pathData.Patch.RequestBody.Value.Content {
@@ -388,38 +395,47 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 								identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IDENTIFIEREXTENSION]
 								if identifierExtension != nil {
 									bytesId := identifierExtension.(json.RawMessage)
-									json.Unmarshal(bytesId, identifiers)
+									json.Unmarshal(bytesId, &identifiers)
 								}
+								var contextName string
+								if len(identifiers) == 0 || identifiers == nil {
+									for _, param := range pathData.Patch.Parameters {
+										//check for identifiers,
+										//if there is no identifiers then id is the default identifier
+										//if there are identifiers then make sure all are listed in parameters
 
-								//check the parameters
-								for _, param := range pathData.Patch.Parameters {
-									//check for identifiers,
-									//if there is no identifiers then id is the default identifier
-									//if there are identifiers then make sure all are listed in parameters
-									if len(identifiers) == 0 {
 										if "id" == param.Value.Name {
 											operationConfig.Handler = "Update"
 											autoConfigure = true
 											break
 										}
-										contextName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-										if contextName != nil && "id" == contextName.(string) {
-											operationConfig.Handler = "Update"
-											autoConfigure = true
-											break
+										interfaceContext := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+										if interfaceContext != nil {
+											bytesContext := interfaceContext.(json.RawMessage)
+											json.Unmarshal(bytesContext, &contextName)
+											if "id" == contextName {
+												operationConfig.Handler = "Update"
+												autoConfigure = true
+												break
+											}
 										}
 									}
+								} else {
 									for _, identifier := range identifiers {
-										if !(identifier == param.Value.Name) || (identifier == param.Value.ExtensionProps.Extensions[ContextNameExtension].(string)) {
-											allParam = false
-											e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-											break
+										//check the parameters
+										for _, param := range pathData.Patch.Parameters {
+											cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+											if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+												allParam = false
+												e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+												break
+											}
 										}
 									}
-								}
-								if allParam {
-									operationConfig.Handler = "Update"
-									autoConfigure = true
+									if allParam {
+										operationConfig.Handler = "Update"
+										autoConfigure = true
+									}
 								}
 							}
 						}

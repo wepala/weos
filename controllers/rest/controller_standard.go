@@ -45,11 +45,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 
 		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
 		if err != nil {
-			if errr, ok := err.(*model.DomainError); ok {
-				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
-			} else {
-				return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
-			}
+			return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
 		}
 
 		var Etag string
@@ -107,39 +103,40 @@ func (c *StandardControllers) CreateBatch(app model.Service, spec *openapi3.Swag
 }
 
 func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	//get the entity information based on the Content Type associated with this operation
-	for _, requestContent := range operation.RequestBody.Value.Content {
-		//use the first schema ref to determine the entity type
-		if requestContent.Schema.Ref != "" {
-			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
-			//get the schema details from the swagger file
-			contentTypeSchema = spec.Components.Schemas[contentType]
-			break
-		}
-	}
+	//var contentType string
+	//var contentTypeSchema *openapi3.SchemaRef
+	////get the entity information based on the Content Type associated with this operation
+	//for _, requestContent := range operation.RequestBody.Value.Content {
+	//	//use the first schema ref to determine the entity type
+	//	if requestContent.Schema.Ref != "" {
+	//		contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+	//		//get the schema details from the swagger file
+	//		contentTypeSchema = spec.Components.Schemas[contentType]
+	//		break
+	//	}
+	//}
 	return func(ctxt echo.Context) error {
 		//look up the schema for the content type so that we could identify the rules
-		newContext := ctxt.Request().Context()
-		if contentType != "" && contentTypeSchema.Value != nil {
-			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
-				Name:   contentType,
-				Schema: contentTypeSchema.Value,
-			})
-		}
+		//newContext := ctxt.Request().Context()
+		//if contentType != "" && contentTypeSchema.Value != nil {
+		//	newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+		//		Name:   contentType,
+		//		Schema: contentTypeSchema.Value,
+		//	})
+		//}
+		//
+		////reads the request body
+		//payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+		//
+		//err := app.Dispatcher().Dispatch(newContext, model.Update(newContext, payload, contentType))
+		//if err != nil {
+		//	if errr, ok := err.(*model.DomainError); ok {
+		//		return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+		//	} else {
+		//		return NewControllerError("unexpected error updating content type", err, http.StatusBadRequest)
+		//	}
+		//}
 
-		//reads the request body
-		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
-
-		err := app.Dispatcher().Dispatch(newContext, model.Update(newContext, payload, contentType))
-		if err != nil {
-			if errr, ok := err.(*model.DomainError); ok {
-				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
-			} else {
-				return NewControllerError("unexpected error updating content type", err, http.StatusBadRequest)
-			}
-		}
 		return ctxt.JSON(http.StatusOK, "Updated")
 	}
 }
