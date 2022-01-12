@@ -329,23 +329,25 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 					case "GET":
 						allParam := false
 						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-						//check the parameters for id
-						for _, param := range pathData.Get.Parameters {
-							if "id" == param.Value.Name {
-								allParam = true
-								break
-							}
-							contextName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-							if contextName != nil && "id" == contextName.(string) {
-								allParam = true
-								break
-							}
-						}
-						if allParam {
-							//checks if the response refers to a schema
-							if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
-								for _, val := range pathData.Get.Responses["200"].Value.Content {
-									if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
+						//checks if the response refers to a schema
+						if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
+							for _, val := range pathData.Get.Responses["200"].Value.Content {
+								if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
+									//check the parameters for id
+									if pathData.Get.Parameters != nil && len(pathData.Get.Parameters) == 0 {
+										for _, param := range pathData.Get.Parameters {
+											if "id" == param.Value.Name {
+												allParam = true
+												break
+											}
+											contextName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+											if contextName != nil && "id" == contextName.(string) {
+												allParam = true
+												break
+											}
+										}
+									}
+									if allParam {
 										operationConfig.Handler = "View"
 										autoConfigure = true
 									}
