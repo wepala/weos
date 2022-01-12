@@ -19,6 +19,9 @@ x-weos-config:
     - title: default
       driver: sqlite3
       database: test.db
+  database:
+    driver: sqlite3
+    database: test.db
   rest:
     middleware:
       - RequestID
@@ -102,6 +105,10 @@ components:
           type: string
         author:
           $ref: "#/components/schemas/Author"
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
         created:
           type: string
           format: date-time

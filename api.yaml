@@ -13,8 +13,12 @@ x-weos-config:
       driver: service
       endpoint: https://prod1.weos.sh/events/v1
     - title: event
-      driver: dynamodb
-      database: events
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
   database:
     driver: sqlite3
     database: test.db
@@ -39,6 +43,9 @@ components:
     Author:
       type: object
       properties:
+        id:
+          type: string
+          format: ksuid
         firstName:
           type: string
         lastName:
@@ -50,6 +57,7 @@ components:
         - firstName
         - lastName
       x-identifier:
+        - id
         - email
     Blog:
       type: object
@@ -61,17 +69,24 @@ components:
           type: string
         description:
           type: string
+        status:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - unpublished
+            - published
         image:
           type: string
           format: byte
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         lastUpdated:
           type: string
           format: date-time
@@ -90,13 +105,27 @@ components:
           type: string
         author:
           $ref: "#/components/schemas/Author"
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
         created:
           type: string
           format: date-time
 paths:
+  /health:
+    summary: Health Check
+    get:
+      x-controller: HealthCheck
+      responses:
+        200:
+          description: Health Response
+        500:
+          description: API Internal Error
   /blogs:
     post:
       operationId: Add Blog
+      summary: Create Blog
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -116,13 +145,47 @@ paths:
                 $ref: "#/components/schemas/Blog"
     get:
       operationId: Get Blogs
+      summary: Get List of Blogs
       parameters:
         - in: query
-          name: q
+          name: filters
           schema:
-            type: string
+            type: array
+            items:
+              type: object
+              properties:
+                field:
+                  type: string
+                operator:
+                  type: string
+                values:
+                  type: array
+                  items:
+                    type: string
+
           required: false
           description: query string
+      x-context:
+        filters:
+          - field: status
+            operator: eq
+            values:
+              - Active
+          - field: lastUpdated
+            operator: between
+            values:
+              - 2021-12-17 15:46:00
+              - 2021-12-18 15:46:00
+          - field: categories
+            operator: in
+            values:
+              - Technology
+              - Javascript
+        sorts:
+          - field: title
+            order: asc
+        page: 1
+        limit: 10
       responses:
         200:
           description: List of blogs
@@ -136,7 +199,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Blog"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Blog"
   /blogs/{id}:
     get:
       parameters:
@@ -146,7 +211,18 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: query
+          name: sequence_no
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: use_entity_id
+          schema:
+            type: boolean
+          required: false
       summary: Get Blog by id
+      operationId: Get Blog
       responses:
         200:
           description: Blog details without any supporting collections
@@ -154,21 +230,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
+        304:
+          description: Not modified
+        400:
+          description: Item doesn't exist
 
-  /blogs/{id}/posts:
-    get:
+    put:
       parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+      summary: Update blog details
+      operationId: Update Blog
+      requestBody:
         required: true
-        description: blog id
-      summary: Get a blog's posts
-      operationId: Post List
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
       responses:
         200:
-          description: List of a blog's posts
+          description: Update Blog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+        400:
+          description: Request is malformed
+        404:
+          description: Item doesn't exist
+        412:
+          description: The item is stale
+        422:
+          description: Invalid content data sent
+
+    delete:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+      summary: Delete blog
+      operationId: Delete Blog
+      responses:
+        200:
+          description: Blog Deleted
+
+  /posts/:
+    post:
+      operationId: Create Blog Post
+      summary: Create Blog Post
+      requestBody:
+        description: Post details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Post"
+      responses:
+        201:
+          description: Post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+    put:
+      operationId: Import Blog Posts
+      summary: Import Blog Posts
+      requestBody:
+        description: List of posts to import
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Post"
+          application/x-www-form-urlencoded:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Post"
+      responses:
+        201:
+          description: Post
+    get:
+      operationId: Get Posts
+      summary: Get a blog's list of posts
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+          description: query string
+      responses:
+        200:
+          description: List of blog posts
           content:
             application/json:
               schema:
@@ -182,15 +348,10 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Post"
-  /blogs/{id}/posts/{postId}:
+
+  /posts/{postId}:
     get:
       parameters:
-        - in: path
-          name: id
-          schema:
-            type: string
-          required: true
-          description: blog id
         - in: path
           name: postId
           schema:
@@ -204,3 +365,230 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Post"
+    put:
+      parameters:
+        - in: path
+          name: postId
+          schema:
+            type: string
+          required: true
+      summary: Update post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
+      responses:
+        200:
+          description: Get blog post information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+    delete:
+      parameters:
+        - in: path
+          name: postId
+          schema:
+            type: string
+          required: true
+      summary: Delete post
+      responses:
+        200:
+          description: Delete post
+
+
+  /categories/:
+    post:
+      operationId: Create Blog Category
+      summary: Create Blog Category
+      requestBody:
+        description: Post details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Category"
+      responses:
+        201:
+          description: Post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    get:
+      operationId: Get Categories
+      summary: Get a blog's list of categories
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+          description: query string
+      responses:
+        200:
+          description: List of blog categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
+
+  /categories/{categoryId}:
+    get:
+      parameters:
+        - in: path
+          name: categoryId
+          schema:
+            type: string
+          required: true
+      summary: Get blog category by id
+      responses:
+        200:
+          description: Get blog category information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    put:
+      parameters:
+        - in: path
+          name: categoryId
+          schema:
+            type: string
+          required: true
+      summary: Update category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
+      responses:
+        200:
+          description: Get blog category information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    delete:
+      parameters:
+        - in: path
+          name: categoryId
+          schema:
+            type: string
+          required: true
+      summary: Delete category
+      responses:
+        200:
+          description: Delete category
+
+  /authors/:
+    post:
+      operationId: Create Blog Author
+      summary: Create Blog Author
+      requestBody:
+        description: Author details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Author"
+      responses:
+        201:
+          description: Post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Author"
+    get:
+      operationId: Get Authors
+      summary: Get a blog's list of authors
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+          description: query string
+      responses:
+        200:
+          description: List of blog authors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Author"
+
+  /authors/{authorId}:
+    get:
+      parameters:
+        - in: path
+          name: authorId
+          schema:
+            type: string
+          required: true
+      summary: Get Author by id
+      responses:
+        200:
+          description: Get author information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Author"
+    put:
+      parameters:
+        - in: path
+          name: authorId
+          schema:
+            type: string
+          required: true
+      summary: Update Author details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
+      responses:
+        200:
+          description: Author details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Author"
+    delete:
+      parameters:
+        - in: path
+          name: authorId
+          schema:
+            type: string
+          required: true
+      summary: Delete author
+      responses:
+        200:
+          description: Delete author
