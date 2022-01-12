@@ -28,10 +28,9 @@ type Blog struct {
 
 func TestStandardControllers_Create(t *testing.T) {
 	mockBlog := &Blog{
+		ID:    "123456",
 		Title: "Test Blog",
 	}
-
-	mockResult := map[string]interface{}{"weos_id": "123", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
 
 	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
 	if err != nil {
@@ -71,6 +70,10 @@ func TestStandardControllers_Create(t *testing.T) {
 				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
 			}
 
+			if command.Metadata.EntityID == "" {
+				t.Errorf("expected the entity ID to be generated, got '%s'", command.Metadata.EntityID)
+			}
+
 			blog := &TestBlog{}
 			json.Unmarshal(command.Payload, &blog)
 
@@ -98,9 +101,20 @@ func TestStandardControllers_Create(t *testing.T) {
 		},
 	}
 
+	mockPayload := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+	mockContentEntity := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "123456",
+			},
+			SequenceNo: 1,
+		},
+		Property: mockPayload,
+	}
+
 	projections := &ProjectionMock{
-		GetContentEntityFunc: func(id string, contentType string) (map[string]interface{}, error) {
-			return mockResult, nil
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockContentEntity, nil
 		},
 	}
 
@@ -141,7 +155,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		}
 
 		if response.Header.Get("Etag") == "" {
-			t.Errorf("expected a weosID, got %s", response.Header.Get("Etag"))
+			t.Errorf("expected an Etag, got %s", response.Header.Get("Etag"))
 		}
 
 		if response.StatusCode != 201 {

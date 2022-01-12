@@ -55,11 +55,11 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		var Etag string
 		for _, projection := range app.Projections() {
 			if projection != nil {
-				result, err := projection.GetContentEntity(weosID, contentType)
+				result, err := projection.GetContentEntity(newContext, weosID)
 				if err != nil {
 					return err
 				}
-				Etag = NewEtag(result["weos_id"].(string), result["sequence_no"].(int64))
+				Etag = NewEtag(result)
 			}
 		}
 
