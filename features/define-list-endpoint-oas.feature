@@ -46,11 +46,6 @@ Feature: Setup List endpoint
               items:
                 $ref: "#/components/schemas/Category"
     """
-    And blogs in the api
-      | id    | title        | description    |
-      | 1234  | Blog 1       | Some Blog      |
-      | 4567  | Blog 2       | Some Blog 2    |
-
 
   Scenario: Setup list endpoint by specifying it returns an array of content type
 
