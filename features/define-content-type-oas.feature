@@ -92,7 +92,7 @@ Feature: Create Content Types
         string description
       }
     """
-
+  @skipped
   Scenario: Declare a content type that has required fields
 
      Required properies should be added to the `required` parameter as per the OpenAPI specification. Properties that are
