@@ -92,38 +92,38 @@ Feature: Create Content Types
         string description
       }
     """
+  @skipped
+  Scenario: Declare a content type that has required fields
 
-#   Scenario: Declare a content type that has required fields
+     Required properies should be added to the `required` parameter as per the OpenAPI specification. Properties that are
+     marked as identifiers don't need to be marked as `required`
 
-#     Required properies should be added to the `required` parameter as per the OpenAPI specification. Properties that are
-#     marked as identifiers don't need to be marked as `required`
-
-#     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
-#     """
-#         Blog:
-#           type: object
-#           properties:
-#             id:
-#               type: string
-#             title:
-#               type: string
-#             description:
-#               type: string
-#           required:
-#             - title
-#     """
-#     When the "OpenAPI 3.0" specification is parsed
-#     Then a model "Blog" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | id          |              | varchar(512)   | false    | PK       | NULL        |
-#       | title       | blog title   | varchar(512)   | false    |          | NULL        |
-#       | description |              | varchar(512)   | true     |          | NULL        |
-#     And a "Blog" entity configuration should be setup
+     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
+     """
+         Blog:
+           type: object
+           properties:
+             id:
+               type: string
+             title:
+               type: string
+             description:
+               type: string
+           required:
+             - title
+     """
+     When the "OpenAPI 3.0" specification is parsed
+     Then a model "Blog" should be added to the projection
+       | Field       | Comment      | Type           | Null     | Key      | Default     |
+       | id          |              | varchar(512)   | false    | PK       | NULL        |
+       | title       | blog title   | varchar(512)   | false    |          | NULL        |
+       | description |              | varchar(512)   | true     |          | NULL        |
+     And a "Blog" entity configuration should be setup
 
   Scenario: Declare content type that has a many to one relationship to another content type
 
-#     Many to one relationships is determined by what a property is referencing. If the property of a Content Type is
-#     referencing a single other content type then many to one relationship is inferred.
+     Many to one relationships is determined by what a property is referencing. If the property of a Content Type is
+     referencing a single other content type then many to one relationship is inferred.
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
