@@ -182,11 +182,9 @@ func NewControllerError(message string, err error, code int) *echo.HTTPError {
 }
 
 //NewEtag: This takes in a contentEntity and concatenates the weosID and SequenceID
-func NewEtag(entity map[string]interface{}) string {
-	seqNo := entity["sequence_no"].(int64)
+func NewEtag(weosID string, seqNo int64) string {
 	strSeqNo := strconv.Itoa(int(seqNo))
-	ID := entity["weos_id"].(string)
-	return ID + "." + strSeqNo
+	return weosID + "." + strSeqNo
 }
 
 //SplitEtag: This takes an Etag and returns the weosID and sequence number

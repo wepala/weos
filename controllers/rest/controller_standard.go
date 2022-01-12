@@ -59,7 +59,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				if err != nil {
 					return err
 				}
-				Etag = NewEtag(result)
+				Etag = NewEtag(result["weos_id"].(string), result["sequence_no"].(int64))
 			}
 		}
 
