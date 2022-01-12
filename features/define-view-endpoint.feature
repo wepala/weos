@@ -91,7 +91,7 @@ Feature: Setup View endpoint
      Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
      """
        /blogs/{id}:
-         post:
+         get:
            parameters:
              - in: path
                name: id
