@@ -250,8 +250,14 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
 }
 
-func aRouteShouldBeAddedToTheApi1(arg1 string) error {
-	return godog.ErrPending
+func aRouteShouldBeAddedToTheApi1(method string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if route.Method == method {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected route but got nil with method %s", method)
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
