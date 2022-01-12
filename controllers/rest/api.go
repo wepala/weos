@@ -327,41 +327,14 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 							}
 						}
 					case "GET":
-						allParam := false
 						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-						//checks if the response refers to a schema
-						if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
-							for _, val := range pathData.Get.Responses["200"].Value.Content {
-								if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
-									//check the parameters for id
-									if pathData.Get.Parameters != nil && len(pathData.Get.Parameters) == 0 {
-										for _, param := range pathData.Get.Parameters {
-											if "id" == param.Value.Name {
-												allParam = true
-												break
-											}
-											contextName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-											if contextName != nil && "id" == contextName.(string) {
-												allParam = true
-												break
-											}
-										}
-									}
-									if allParam {
-										operationConfig.Handler = "View"
-										autoConfigure = true
-									}
-								}
-
-							}
-						}
-
 						//checks if the response refers to an array schema
 						if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
 							for _, val := range pathData.Get.Responses["200"].Value.Content {
-								if val.Schema.Value.Type == "array" && val.Schema.Value.Items != nil && strings.Contains(val.Schema.Value.Items.Value.Type, "#/components/schemas/") {
+								if val.Schema.Value.Items != nil && val.Schema.Value.Items.Value.Type == "array" && strings.Contains(val.Schema.Value.Items.Value.Items.Ref, "#/components/schemas/") {
 									operationConfig.Handler = "List"
 									autoConfigure = true
+									break
 								}
 							}
 

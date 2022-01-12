@@ -204,8 +204,9 @@ paths:
                     type: integer
                   page:
                     type: integer
+                items:
+                  type: array
                   items:
-                    type: array
                     $ref: "#/components/schemas/Blog"
   /blogs/{id}:
     get:
@@ -325,8 +326,9 @@ paths:
                     type: integer
                   page:
                     type: integer
+                items:
+                  type: array
                   items:
-                    type: array
                     $ref: "#/components/schemas/Post"
 
   /posts/{postId}:
@@ -422,8 +424,9 @@ paths:
                     type: integer
                   page:
                     type: integer
+                items:
+                  type: array
                   items:
-                    type: array
                     $ref: "#/components/schemas/Category"
 
   /categories/{categoryId}:
@@ -518,8 +521,9 @@ paths:
                     type: integer
                   page:
                     type: integer
+                items:
+                  type: array
                   items:
-                    type: array
                     $ref: "#/components/schemas/Author"
 
   /authors/{authorId}:
