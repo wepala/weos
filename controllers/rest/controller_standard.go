@@ -163,3 +163,13 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 		return nil
 	}
 }
+
+func (c *StandardControllers) HealthCheck(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		response := &HealthCheckResponse{
+			Version: spec.Info.Version,
+		}
+		return context.JSON(http.StatusOK, response)
+	}
+
+}
