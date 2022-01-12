@@ -28,7 +28,6 @@ type Blog struct {
 
 func TestStandardControllers_Create(t *testing.T) {
 	mockBlog := &Blog{
-		ID:    "123456",
 		Title: "Test Blog",
 	}
 
@@ -154,7 +153,7 @@ func TestStandardControllers_Create(t *testing.T) {
 			t.Error("expected create account command to be dispatched")
 		}
 
-		if response.Header.Get("Etag") == "" {
+		if response.Header.Get("Etag") != "123456.1" {
 			t.Errorf("expected an Etag, got %s", response.Header.Get("Etag"))
 		}
 
