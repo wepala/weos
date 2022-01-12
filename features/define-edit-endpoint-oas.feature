@@ -1,3 +1,4 @@
+@skipped
 @WEOS-1177
 Feature: Edit content endpoints
 
