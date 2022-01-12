@@ -334,7 +334,7 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 							for _, val := range pathData.Get.Responses["200"].Value.Content {
 								if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
 									//check the parameters for id
-									if pathData.Get.Parameters != nil && len(pathData.Get.Parameters) == 0 {
+									if pathData.Get.Parameters != nil && len(pathData.Get.Parameters) != 0 {
 										for _, param := range pathData.Get.Parameters {
 											if "id" == param.Value.Name {
 												allParam = true
