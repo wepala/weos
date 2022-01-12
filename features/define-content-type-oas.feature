@@ -120,163 +120,181 @@ Feature: Create Content Types
 #       | description |              | varchar(512)   | true     |          | NULL        |
 #     And a "Blog" entity configuration should be setup
 
-
-#   Scenario: Declare content type that has a many to one relationship to another content type
+  Scenario: Declare content type that has a many to one relationship to another content type
 
 #     Many to one relationships is determined by what a property is referencing. If the property of a Content Type is
 #     referencing a single other content type then many to one relationship is inferred.
 
-#     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
-#     """
-#         Blog:
-#           type: object
-#           properties:
-#             title:
-#               type: string
-#             description:
-#               type: string
+    Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
+    """
+        Blog:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+    """
+    And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
 
-#     """
-#     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-#     """
-#         Post:
-#           type: object
-#           properties:
-#             title:
-#               type: string
-#             description:
-#               type: string
-#             blog:
-#               $ref: "#/components/schemas/Blog"
-#             publishedDate:
-#               type: string
-#             views:
-#               type: integer
-#     """
-#     When the "OpenAPI 3.0" specification is parsed
-#     Then a model "Blog" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | id          |              | varchar(512)   | false    | PK       | NULL        |
-#       | title       |              | varchar(512)   | false    |          | NULL        |
-#       | description |              | varchar(512)   | true     |          | NULL        |
-#     And a model "Post" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | id          |              | varchar(512)   | false    | PK       | NULL        |
-#       | title       |              | varchar(512)   | false    |          | NULL        |
-#       | description |              | varchar(512)   | true     |          | NULL        |
-#       | blog        |              | varchar(512)   | true     | FK       | NULL        |
-#     # And a "Blog" entity configuration should be setup
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            blog:
+              $ref: "#/components/schemas/Blog"
+            publishedDate:
+              type: string
+            views:
+              type: integer
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Blog" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | integer        | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+    And a model "Post" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | integer        | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+      | blog_id     |              | integer        | true     | FK       | NULL        |
+    And a "Blog" entity configuration should be setup
+    """
+    erDiagram
+      Blog
+      Blog {
+        uint id
+        string title
+        string description
+      }
+    """
+    
+  Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
 
-#   Scenario: Declare content type that has a many to one relationship to another content type with a multipart identifier
+    A content type could be associated with another content type that has an identifier that has multiple parts. Though
+    it's one field that is mapped, the data store would need to accommodate the parts of the identifier for the mapped
+    content type
 
-#     A content type could be associated with another content type that has an identifier that has multiple parts. Though
-#     it's one field that is mapped, the data store would need to accommodate the parts of the identifier for the mapped
-#     content type
+    Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
+    """
+        Blog:
+          type: object
+          properties:
+            guid:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+          x-identifier:
+            - guid
+            - title
 
-#     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
-#     """
-#         Blog:
-#           type: object
-#           properties:
-#             guid:
-#               type: string
-#             title:
-#               type: string
-#             description:
-#               type: string
-#           x-identifier:
-#             - guid
-#             - title
+    """
+    And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            blog:
+              $ref: "#/components/schemas/Blog"
+            publishedDate:
+              type: string
+            views:
+              type: integer
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Blog" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | guid        |              | varchar(512)   | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+    And a model "Post" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | integer        | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | false    |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+      | blog_guid   |              | varchar(512)   | true     | FK       | NULL        |
+      | blog_title  |              | varchar(512)   | true     | FK       | NULL        |
+    And a "Post" entity configuration should be setup
+    """
+    erDiagram
+      Post {
+        uint id
+        string title
+        string description
+        string blogGuid
+        string blogTitle
+      }
+    """
 
-#     """
-#     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-#     """
-#         Post:
-#           type: object
-#           properties:
-#             title:
-#               type: string
-#             description:
-#               type: string
-#             blog:
-#               $ref: "#/components/schemas/Blog"
-#             publishedDate:
-#               type: string
-#             views:
-#               type: integer
-#     """
-#     When the "OpenAPI 3.0" specification is parsed
-#     Then a model "Blog" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | id          |              | varchar(512)   | false    | PK       | NULL        |
-#       | title       |              | varchar(512)   | false    |          | NULL        |
-#       | description |              | varchar(512)   | true     |          | NULL        |
-#     And a model "Post" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | id          |              | varchar(512)   | false    | PK       | NULL        |
-#       | title       |              | varchar(512)   | false    |          | NULL        |
-#       | description |              | varchar(512)   | true     |          | NULL        |
-#       | blog_guid   |              | varchar(512)   | true     | FK       | NULL        |
-#       | blog_title  |              | varchar(512)   | true     | FK       | NULL        |
-#     # And a "Blog" entity configuration should be setup
+  Scenario: Declare content type that has a many to many relationship to another content type
 
-#   Scenario: Declare content type that has a many to many relationship to another content type
+    Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
+    """
+        Blog:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
 
-#     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
-#     """
-#         Blog:
-#           type: object
-#           properties:
-#             title:
-#               type: string
-#             description:
-#               type: string
-
-#     """
-#     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-#     """
-#         Post:
-#           type: object
-#           properties:
-#             title:
-#               type: string
-#             description:
-#               type: string
-#             publishedDate:
-#               type: string
-#             views:
-#               type: integer
-#             categories:
-#               type: array
-#               items:
-#                 $ref: "#/components/schemas/Category"
-#     """
-#     When the "OpenAPI 3.0" specification is parsed
-#     Then a model "Post" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | id          |              | varchar(512)   | false    | PK       | NULL        |
-#       | title       |              | varchar(512)   | true     |          | NULL        |
-#       | description |              | varchar(512)   | true     |          | NULL        |
-#     And a model "PostCategory" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | post_id     |              | varchar(512)   | false    | PK       | NULL        |
-#       | category_id |              | varchar(512)   | false    | PK       | NULL        |
-#     And a "Post" entity configuration should be setup
-#     """
-#     erDiagram
-#       Blog ||--o{ Post : contains
-#       Blog {
-#         string id
-#         string title
-#         string description
-#       }
-#       Category ||--o{ Post : contains
-#       Post {
-#         string id
-#         string title
-#         string description
-#       }
-#     """
+    """
+    And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
+        Post:
+          type: object
+          properties:
+            title:
+              type: string
+            description:
+              type: string
+            publishedDate:
+              type: string
+            views:
+              type: integer
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/Category"
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Post" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | integer        | false    | PK       | NULL        |
+      | title       |              | varchar(512)   | true     |          | NULL        |
+      | description |              | varchar(512)   | true     |          | NULL        |
+    And a model "PostCategories" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | integer        | false    | PK       | NULL        |
+      | category_id |              | integer        | false    | PK       | NULL        |
+    And a "Post" entity configuration should be setup
+    """
+    erDiagram
+      Blog ||--o{ Post : contains
+      Blog {
+        uint id
+        string title
+        string description
+      }
+      Category ||--o{ Post : contains
+      Post {
+        uint id
+        string title
+        string description
+      }
+    """
 
   Scenario: Use format to set granular types
 
@@ -316,10 +334,10 @@ Feature: Create Content Types
       | description    |              | varchar(512)   | true     |          | NULL        |
       | email          |              | varchar(512)   | true     |          | NULL        |
       | published_date |              | datetime       | true     |          | NULL        |
-  #   # And a model "PostCategory" should be added to the projection
-  #   #   | Field       | Comment      | Type           | Null     | Key      | Default     |
-  #   #   | post_id     |              | varchar(512)   | false    | PK       | NULL        |
-  #   #   | category_id |              | varchar(512)   | false    | PK       | NULL        |
+    And a model "PostCategories" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | id          |              | varchar(512)   | false    | PK       | NULL        |
+      | category_id |              | integer        | false    | PK       | NULL        |
     And a "Post" entity configuration should be setup
     """
     erDiagram
@@ -331,25 +349,6 @@ Feature: Create Content Types
         datetime publishedDate
       }
     """
-    # """
-    # erDiagram
-  #   #   Blog ||--o{ Post : contains
-  #   #   Blog {
-  #   #     string id
-  #   #     string title
-  #   #     string description
-  #   #   }
-  #   """
-  #   erDiagram
-  #     Category ||--o{ Post : contains
-  #     Post {
-  #       string id
-  #       string title
-  #       string description
-  #       string email
-  #       datetime publishedDate
-  #     }
-  #   """
 
 #   Scenario: Setup validation rules for content
 
@@ -460,18 +459,18 @@ Feature: Create Content Types
 #         string status
 #       }
 #     """
-# #this error would not be returned since openapi would only allow one mapping of an entity.
-#   Scenario: Create a content type that already exists
 
-#     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
-#     """
-#         Category:
-#             type: object
-#             properties:
-#               title:
-#                 type: string
-#               summary:
-#                 type: string
-#     """
-#     When the "OpenAPI 3.0" specification is parsed
-#     Then an error should be returned
+  Scenario: Create a content type that already exists
+
+    Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
+    """
+        Category:
+            type: object
+            properties:
+              title:
+                type: string
+              summary:
+                type: string
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then an error should be returned

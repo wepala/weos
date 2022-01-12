@@ -1,3 +1,4 @@
+@skipped
 @WEOS-1178
 Feature: Delete content endpoints
 
