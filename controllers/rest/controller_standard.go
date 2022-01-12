@@ -101,9 +101,9 @@ func (c *StandardControllers) BulkUpdate(app model.Service, spec *openapi3.Swagg
 }
 
 func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	return func(context echo.Context) error {
+	return func(ctxt echo.Context) error {
 
-		return nil
+		return ctxt.JSON(http.StatusOK, "List Items")
 	}
 }
 

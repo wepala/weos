@@ -205,6 +205,7 @@ paths:
                   page:
                     type: integer
                   items:
+                    type: array
                     $ref: "#/components/schemas/Blog"
   /blogs/{id}:
     get:
@@ -261,7 +262,7 @@ paths:
         200:
           description: Blog Deleted
 
-  /posts/:
+  /posts:
     post:
       operationId: Create Blog Post
       summary: Create Blog Post
@@ -325,6 +326,7 @@ paths:
                   page:
                     type: integer
                   items:
+                    type: array
                     $ref: "#/components/schemas/Post"
 
   /posts/{postId}:
@@ -377,7 +379,7 @@ paths:
           description: Delete post
 
 
-  /categories/:
+  /categories:
     post:
       operationId: Create Blog Category
       summary: Create Blog Category
@@ -421,6 +423,7 @@ paths:
                   page:
                     type: integer
                   items:
+                    type: array
                     $ref: "#/components/schemas/Category"
 
   /categories/{categoryId}:
@@ -472,7 +475,7 @@ paths:
         200:
           description: Delete category
 
-  /authors/:
+  /authors:
     post:
       operationId: Create Blog Author
       summary: Create Blog Author
@@ -516,6 +519,7 @@ paths:
                   page:
                     type: integer
                   items:
+                    type: array
                     $ref: "#/components/schemas/Author"
 
   /authors/{authorId}:
