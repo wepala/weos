@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/labstack/echo/v4"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/labstack/echo/v4"
 	weoscontext "github.com/wepala/weos-service/context"
 	"github.com/wepala/weos-service/controllers/rest"
 	"github.com/wepala/weos-service/model"
