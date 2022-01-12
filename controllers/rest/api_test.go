@@ -134,3 +134,42 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
 }
+
+func TestRESTAPI_Initialize_HealthCheck(t *testing.T) {
+	//make sure healthcheck is being added
+	os.Remove("test.db")
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog-create-batch.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 200
+	if resp.Result().StatusCode != http.StatusOK {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+}
+
+func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
+	os.Remove("test.db")
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 200
+	if resp.Result().StatusCode != http.StatusOK {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+}

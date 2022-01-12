@@ -326,6 +326,19 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 								autoConfigure = true
 							}
 						}
+					case "GET":
+						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
+						//checks if the response refers to an array schema
+						if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
+							for _, val := range pathData.Get.Responses["200"].Value.Content {
+								if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+									operationConfig.Handler = "List"
+									autoConfigure = true
+									break
+								}
+							}
+
+						}
 					}
 				}
 

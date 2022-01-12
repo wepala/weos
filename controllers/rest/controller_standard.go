@@ -101,9 +101,9 @@ func (c *StandardControllers) BulkUpdate(app model.Service, spec *openapi3.Swagg
 }
 
 func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	return func(context echo.Context) error {
+	return func(ctxt echo.Context) error {
 
-		return nil
+		return ctxt.JSON(http.StatusOK, "List Items")
 	}
 }
 
@@ -112,4 +112,14 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 
 		return nil
 	}
+}
+
+func (c *StandardControllers) HealthCheck(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		response := &HealthCheckResponse{
+			Version: spec.Info.Version,
+		}
+		return context.JSON(http.StatusOK, response)
+	}
+
 }

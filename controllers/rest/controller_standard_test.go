@@ -233,3 +233,99 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		}
 	})
 }
+
+func TestStandardControllers_HealthCheck(t *testing.T) {
+
+	content, err := ioutil.ReadFile("./fixtures/blog-create-batch.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	path := swagger.Paths.Find("/health")
+	controller := restAPI.HealthCheck(restAPI.Application, swagger, path, path.Get)
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+	e.GET("/health", controller, mw)
+	e.ServeHTTP(resp, req)
+	response := resp.Result()
+	defer response.Body.Close()
+	//check response code
+	if response.StatusCode != 200 {
+		t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+	}
+
+}
+
+func TestStandardControllers_List(t *testing.T) {
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	dispatcher := &DispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+			return nil
+		},
+	}
+
+	application := &ApplicationMock{
+		DispatcherFunc: func() model.Dispatcher {
+			return dispatcher
+		},
+	}
+
+	//initialization will instantiate with application so we need to overwrite with our mock application
+	restAPI.Application = application
+
+	t.Run("Testing the generic list endpoint", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.List(restAPI.Application, swagger, path, path.Get)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+		e.GET("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+}
