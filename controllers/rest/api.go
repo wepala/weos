@@ -312,132 +312,19 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 				} else {
 					switch strings.ToUpper(method) {
 					case "POST":
-						if pathData.Post.RequestBody == nil {
-							e.Logger.Warnf("unexpected error: expected request body but got nil")
-							return e, fmt.Errorf("unexpected error: expected request body but got nil")
-						}
-						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-						for _, value := range pathData.Post.RequestBody.Value.Content {
-							if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-								operationConfig.Handler = "Create"
-								autoConfigure = true
-							} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Value.Type, "#/components/schemas/") {
-								operationConfig.Handler = "CreateBatch"
-								autoConfigure = true
-							}
+						autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
+						if err != nil {
+							return e, err
 						}
 					case "PUT":
-						allParam := true
-						if pathData.Put.RequestBody == nil {
-							break
+						autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
+						if err != nil {
+							return e, err
 						}
-						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-						for _, value := range pathData.Put.RequestBody.Value.Content {
-							if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-								var identifiers []string
-								identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IDENTIFIEREXTENSION]
-								if identifierExtension != nil {
-									bytesId := identifierExtension.(json.RawMessage)
-									json.Unmarshal(bytesId, &identifiers)
-								}
-								var contextName string
-								if len(identifiers) == 0 || identifiers == nil {
-									for _, param := range pathData.Put.Parameters {
-										//check for identifiers,
-										//if there is no identifiers then id is the default identifier
-										//if there are identifiers then make sure all are listed in parameters
-
-										if "id" == param.Value.Name {
-											operationConfig.Handler = "Update"
-											autoConfigure = true
-											break
-										}
-										interfaceContext := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-										if interfaceContext != nil {
-											bytesContext := interfaceContext.(json.RawMessage)
-											json.Unmarshal(bytesContext, &contextName)
-											if "id" == contextName {
-												operationConfig.Handler = "Update"
-												autoConfigure = true
-												break
-											}
-										}
-									}
-								} else {
-									for _, identifier := range identifiers {
-										//check the parameters
-										for _, param := range pathData.Put.Parameters {
-											cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-											if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
-												allParam = false
-												e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-												break
-											}
-										}
-									}
-									if allParam {
-										operationConfig.Handler = "Update"
-										autoConfigure = true
-									}
-								}
-							}
-						}
-
 					case "PATCH":
-						allParam := true
-						if pathData.Patch.RequestBody == nil {
-							break
-						}
-						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-						for _, value := range pathData.Patch.RequestBody.Value.Content {
-							if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-								var identifiers []string
-								identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IDENTIFIEREXTENSION]
-								if identifierExtension != nil {
-									bytesId := identifierExtension.(json.RawMessage)
-									json.Unmarshal(bytesId, &identifiers)
-								}
-								var contextName string
-								if len(identifiers) == 0 || identifiers == nil {
-									for _, param := range pathData.Patch.Parameters {
-										//check for identifiers,
-										//if there is no identifiers then id is the default identifier
-										//if there are identifiers then make sure all are listed in parameters
-
-										if "id" == param.Value.Name {
-											operationConfig.Handler = "Update"
-											autoConfigure = true
-											break
-										}
-										interfaceContext := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-										if interfaceContext != nil {
-											bytesContext := interfaceContext.(json.RawMessage)
-											json.Unmarshal(bytesContext, &contextName)
-											if "id" == contextName {
-												operationConfig.Handler = "Update"
-												autoConfigure = true
-												break
-											}
-										}
-									}
-								} else {
-									for _, identifier := range identifiers {
-										//check the parameters
-										for _, param := range pathData.Patch.Parameters {
-											cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-											if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
-												allParam = false
-												e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-												break
-											}
-										}
-									}
-									if allParam {
-										operationConfig.Handler = "Update"
-										autoConfigure = true
-									}
-								}
-							}
+						autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
+						if err != nil {
+							return e, err
 						}
 					}
 				}
