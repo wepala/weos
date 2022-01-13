@@ -333,6 +333,40 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 						if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
 							for _, val := range pathData.Get.Responses["200"].Value.Content {
 								if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
+									var identifiers []string
+									identifierExtension := swagger.Components.Schemas[strings.Replace(val.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
+									if identifierExtension != nil {
+										bytesId := identifierExtension.(json.RawMessage)
+										json.Unmarshal(bytesId, &identifiers)
+									}
+									if identifiers != nil && len(identifiers) == 0 {
+										//check the parameters for id if there are no identifiers; default is id
+										if pathData.Get.Parameters != nil && len(pathData.Get.Parameters) != 0 {
+											for _, param := range pathData.Get.Parameters {
+												if "id" == param.Value.Name {
+													allParam = true
+													break
+												}
+												contextName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+												if contextName != nil && "id" == contextName.(string) {
+													allParam = true
+													break
+												}
+											}
+										}
+									} else {
+										for _, identifier := range identifiers {
+											//check the parameters
+											for _, param := range pathData.Get.Parameters {
+												cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+												if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+													e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+													break
+												}
+											}
+										}
+									}
+
 									//check the parameters for id
 									if pathData.Get.Parameters != nil && len(pathData.Get.Parameters) != 0 {
 										for _, param := range pathData.Get.Parameters {
