@@ -1683,3 +1683,152 @@ func (mock *ApplicationMock) TitleCalls() []struct {
 	mock.lockTitle.RUnlock()
 	return calls
 }
+
+var _ weos.Projection = &ProjectionMock{}
+
+// ProjectionMock is a mock implementation of model.Projection.
+//
+// 	func TestSomethingThatUsesProjection(t *testing.T) {
+//
+// 		// make and configure a mocked model.Projection
+// 		mockedProjection := &ProjectionMock{
+// 			GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+// 				panic("mock out the GetContentEntity method")
+// 			},
+// 			GetEventHandlerFunc: func() model.EventHandler {
+// 				panic("mock out the GetEventHandler method")
+// 			},
+// 			MigrateFunc: func(ctx context.Context) error {
+// 				panic("mock out the Migrate method")
+// 			},
+// 		}
+//
+// 		// use mockedProjection in code that requires model.Projection
+// 		// and then make assertions.
+//
+// 	}
+type ProjectionMock struct {
+	// GetContentEntityFunc mocks the GetContentEntity method.
+	GetContentEntityFunc func(ctx context.Context, weosID string) (*weos.ContentEntity, error)
+
+	// GetEventHandlerFunc mocks the GetEventHandler method.
+	GetEventHandlerFunc func() weos.EventHandler
+
+	// MigrateFunc mocks the Migrate method.
+	MigrateFunc func(ctx context.Context) error
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// GetContentEntity holds details about calls to the GetContentEntity method.
+		GetContentEntity []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WeosID is the weosID argument value.
+			WeosID string
+		}
+		// GetEventHandler holds details about calls to the GetEventHandler method.
+		GetEventHandler []struct {
+		}
+		// Migrate holds details about calls to the Migrate method.
+		Migrate []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
+	}
+	lockGetContentEntity sync.RWMutex
+	lockGetEventHandler  sync.RWMutex
+	lockMigrate          sync.RWMutex
+}
+
+// GetContentEntity calls GetContentEntityFunc.
+func (mock *ProjectionMock) GetContentEntity(ctx context.Context, weosID string) (*weos.ContentEntity, error) {
+	if mock.GetContentEntityFunc == nil {
+		panic("ProjectionMock.GetContentEntityFunc: method is nil but Projection.GetContentEntity was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		WeosID string
+	}{
+		Ctx:    ctx,
+		WeosID: weosID,
+	}
+	mock.lockGetContentEntity.Lock()
+	mock.calls.GetContentEntity = append(mock.calls.GetContentEntity, callInfo)
+	mock.lockGetContentEntity.Unlock()
+	return mock.GetContentEntityFunc(ctx, weosID)
+}
+
+// GetContentEntityCalls gets all the calls that were made to GetContentEntity.
+// Check the length with:
+//     len(mockedProjection.GetContentEntityCalls())
+func (mock *ProjectionMock) GetContentEntityCalls() []struct {
+	Ctx    context.Context
+	WeosID string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		WeosID string
+	}
+	mock.lockGetContentEntity.RLock()
+	calls = mock.calls.GetContentEntity
+	mock.lockGetContentEntity.RUnlock()
+	return calls
+}
+
+// GetEventHandler calls GetEventHandlerFunc.
+func (mock *ProjectionMock) GetEventHandler() weos.EventHandler {
+	if mock.GetEventHandlerFunc == nil {
+		panic("ProjectionMock.GetEventHandlerFunc: method is nil but Projection.GetEventHandler was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockGetEventHandler.Lock()
+	mock.calls.GetEventHandler = append(mock.calls.GetEventHandler, callInfo)
+	mock.lockGetEventHandler.Unlock()
+	return mock.GetEventHandlerFunc()
+}
+
+// GetEventHandlerCalls gets all the calls that were made to GetEventHandler.
+// Check the length with:
+//     len(mockedProjection.GetEventHandlerCalls())
+func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockGetEventHandler.RLock()
+	calls = mock.calls.GetEventHandler
+	mock.lockGetEventHandler.RUnlock()
+	return calls
+}
+
+// Migrate calls MigrateFunc.
+func (mock *ProjectionMock) Migrate(ctx context.Context) error {
+	if mock.MigrateFunc == nil {
+		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockMigrate.Lock()
+	mock.calls.Migrate = append(mock.calls.Migrate, callInfo)
+	mock.lockMigrate.Unlock()
+	return mock.MigrateFunc(ctx)
+}
+
+// MigrateCalls gets all the calls that were made to Migrate.
+// Check the length with:
+//     len(mockedProjection.MigrateCalls())
+func (mock *ProjectionMock) MigrateCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockMigrate.RLock()
+	calls = mock.calls.Migrate
+	mock.lockMigrate.RUnlock()
+	return calls
+}
+
