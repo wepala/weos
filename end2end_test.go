@@ -489,7 +489,7 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 
 func aHeaderWithValue(key, value string) error {
 	header.Add(key, value)
-	return godog.ErrPending
+	return nil
 }
 
 func aResponseShouldBeReturned(code int) error {
