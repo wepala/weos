@@ -7,10 +7,26 @@ import (
 	weoscontext "github.com/wepala/weos-service/context"
 )
 
-func Create(ctx context.Context, payload json.RawMessage, entityType string) *Command {
+func Create(ctx context.Context, payload json.RawMessage, entityType string, entityID string) *Command {
 
 	command := &Command{
 		Type:    "create",
+		Payload: payload,
+		Metadata: CommandMetadata{
+			Version:    1,
+			UserID:     weoscontext.GetUser(ctx),
+			AccountID:  weoscontext.GetAccount(ctx),
+			EntityType: entityType,
+			EntityID:   entityID,
+		},
+	}
+	return command
+}
+
+func CreateBatch(ctx context.Context, payload json.RawMessage, entityType string) *Command {
+
+	command := &Command{
+		Type:    "create_batch",
 		Payload: payload,
 		Metadata: CommandMetadata{
 			Version:    1,
@@ -22,10 +38,10 @@ func Create(ctx context.Context, payload json.RawMessage, entityType string) *Co
 	return command
 }
 
-func CreateBatch(ctx context.Context, payload json.RawMessage, entityType string) *Command {
+func Update(ctx context.Context, payload json.RawMessage, entityType string) *Command {
 
 	command := &Command{
-		Type:    "create_batch",
+		Type:    "update",
 		Payload: payload,
 		Metadata: CommandMetadata{
 			Version:    1,

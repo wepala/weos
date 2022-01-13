@@ -17,6 +17,7 @@ type Command struct {
 }
 
 type CommandMetadata struct {
+	EntityID      string
 	EntityType    string
 	Version       int64
 	ExecutionDate *time.Time

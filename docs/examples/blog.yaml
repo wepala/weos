@@ -108,7 +108,7 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         created:
           type: string
           format: date-time
