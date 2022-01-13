@@ -577,8 +577,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~skipped",
-			Tags: "focus",
+			Tags:   "~skipped",
+			//Tags: "focus",
 		},
 	}.Run()
 	if status != 0 {
