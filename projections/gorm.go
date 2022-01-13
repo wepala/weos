@@ -50,13 +50,9 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.
 		}
 
 		var result *gorm.DB
-		if p.db.Dialector.Name() == "sqlite" {
-			//gorm sqlite generates the query incorrectly if there are composite keys when preloading
-			//https://github.com/go-gorm/gorm/issues/3585
-			result = p.db.Table(contentType.Name).First(scheme, identifiers)
-		} else {
-			result = p.db.Table(contentType.Name).Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") }).First(scheme, identifiers)
-		}
+
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).First(scheme, identifiers)
+
 		if result.Error != nil {
 			return nil, result.Error
 		}
@@ -75,13 +71,9 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.
 func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
 	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		var result *gorm.DB
-		if p.db.Dialector.Name() == "sqlite" {
-			//gorm sqlite generates the query incorrectly if there are composite keys when preloading
-			//https://github.com/go-gorm/gorm/issues/3585
-			result = p.db.Table(contentType.Name).Where("weos_id = ?", id).Take(scheme)
-		} else {
-			result = p.db.Table(contentType.Name).Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") }).Where("weos_id = ?", id).Take(scheme)
-		}
+
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Where("weos_id = ?", id).Take(scheme)
+
 		if result.Error != nil {
 			return nil, result.Error
 		}
@@ -209,6 +201,11 @@ func (p *GORMProjection) GetContentEntity(ctx context.Context, weosID string) (*
 	return newEntity, nil
 }
 
+//query modifier for making queries to the database
+type QueryModifier func() func(db *gorm.DB) *gorm.DB
+
+var ContentQuery QueryModifier
+
 //NewProjection creates an instance of the projection
 func NewProjection(ctx context.Context, application weos.Service, schemas map[string]interface{}) (*GORMProjection, error) {
 
@@ -218,5 +215,17 @@ func NewProjection(ctx context.Context, application weos.Service, schemas map[st
 		Schema: schemas,
 	}
 	application.AddProjection(projection)
+
+	ContentQuery = func() func(db *gorm.DB) *gorm.DB {
+		return func(db *gorm.DB) *gorm.DB {
+			if projection.db.Dialector.Name() == "sqlite" {
+				//gorm sqlite generates the query incorrectly if there are composite keys when preloading
+				//https://github.com/go-gorm/gorm/issues/3585
+				return db
+			} else {
+				return db.Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") })
+			}
+		}
+	}
 	return projection, nil
 }
