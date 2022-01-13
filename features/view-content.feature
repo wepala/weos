@@ -1,4 +1,3 @@
-@skipped
 Feature: View content
 
    Background:
@@ -13,6 +12,30 @@ Feature: View content
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        driver: sqlite3
+        database: e2e.db
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
      components:
        schemas:
          Blog:
@@ -146,7 +169,7 @@ Feature: View content
                description: Blog Deleted
      """
      And blogs in the api
-       | id    | entity id                   | sequence no | title        | description    |
+       | id    | weos_id                     | sequence_no | title        | description    |
        | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
        | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
 
@@ -156,7 +179,7 @@ Feature: View content
      The blog should be retrieved using the identifier in the projection. The `ETag` header returned is a combination of
      the entity id and the sequence no.
 
-     When the "POST" endpoint "/blog/1234" is hit
+     When the "GET" endpoint "/blog/1234" is hit
      Then a 200 response should be returned
      And a blog should be returned
        | id    | title        | description    |
@@ -167,7 +190,7 @@ Feature: View content
 
      If the view controller gets a parameter `use_entity_id` set to true then it will use the identifier as the entity id
 
-     When the "POST" endpoint "/blog/22xu4iw0bWMwxqbrUvjqEqu5dof?use_entity_id=true" is hit
+     When the "GET" endpoint "/blog/22xu4iw0bWMwxqbrUvjqEqu5dof?use_entity_id=true" is hit
      Then a 200 response should be returned
      And a blog should be returned
        | id    | title        | description    |

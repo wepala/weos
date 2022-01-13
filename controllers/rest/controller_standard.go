@@ -1,11 +1,13 @@
 package rest
 
 import (
-	context2 "github.com/wepala/weos-service/context"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/segmentio/ksuid"
+	context2 "github.com/wepala/weos-service/context"
+	"golang.org/x/net/context"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -40,7 +42,9 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		}
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
-		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType))
+		weosID := ksuid.New().String()
+
+		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -48,6 +52,19 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
 			}
 		}
+
+		var Etag string
+		for _, projection := range app.Projections() {
+			if projection != nil {
+				result, err := projection.GetContentEntity(newContext, weosID)
+				if err != nil {
+					return err
+				}
+				Etag = NewEtag(result)
+			}
+		}
+
+		ctxt.Response().Header().Set("Etag", Etag)
 		return ctxt.JSON(http.StatusCreated, "Created")
 	}
 }
@@ -112,4 +129,21 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 
 		return nil
 	}
+}
+
+func (c *StandardControllers) Get(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		//TODO call GetByID
+
+		return ctxt.JSON(200, nil)
+	}
+}
+func (c *StandardControllers) HealthCheck(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		response := &HealthCheckResponse{
+			Version: spec.Info.Version,
+		}
+		return context.JSON(http.StatusOK, response)
+	}
+
 }

@@ -13,7 +13,7 @@ type AggregateInterface interface {
 //AggregateRoot Is a base struct for WeOS applications to use. This is event sourcing ready by default
 type AggregateRoot struct {
 	BasicEntity
-	SequenceNo int64
+	SequenceNo int64 `json:"sequence_no"`
 	newEvents  []Entity
 	User       User
 }
