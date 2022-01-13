@@ -310,85 +310,10 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
 					}
 				} else {
-					switch strings.ToUpper(method) {
-					case "POST":
-						if pathData.Post.RequestBody == nil {
-							e.Logger.Warnf("unexpected error: expected request body but got nil")
-							return e, fmt.Errorf("unexpected error: expected request body but got nil")
-						}
-						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-						for _, value := range pathData.Post.RequestBody.Value.Content {
-							if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-								operationConfig.Handler = "Create"
-								autoConfigure = true
-							} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Value.Type, "#/components/schemas/") {
-								operationConfig.Handler = "CreateBatch"
-								autoConfigure = true
-							}
-						}
-					case "GET":
-						allParam := false
-						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-						//checks if the response refers to a schema
-						if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
-							for _, val := range pathData.Get.Responses["200"].Value.Content {
-								if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
-									var identifiers []string
-									identifierExtension := swagger.Components.Schemas[strings.Replace(val.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
-									if identifierExtension != nil {
-										bytesId := identifierExtension.(json.RawMessage)
-										json.Unmarshal(bytesId, &identifiers)
-									}
-									if identifiers != nil && len(identifiers) == 0 {
-										//check the parameters for id if there are no identifiers; default is id
-										if pathData.Get.Parameters != nil && len(pathData.Get.Parameters) != 0 {
-											for _, param := range pathData.Get.Parameters {
-												if "id" == param.Value.Name {
-													allParam = true
-													break
-												}
-												contextName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-												if contextName != nil && "id" == contextName.(string) {
-													allParam = true
-													break
-												}
-											}
-										}
-									} else {
-										for _, identifier := range identifiers {
-											//check the parameters
-											for _, param := range pathData.Get.Parameters {
-												cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-												if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
-													e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-													break
-												}
-											}
-										}
-									}
-
-									//check the parameters for id
-									if pathData.Get.Parameters != nil && len(pathData.Get.Parameters) != 0 {
-										for _, param := range pathData.Get.Parameters {
-											if "id" == param.Value.Name {
-												allParam = true
-												break
-											}
-											contextName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-											if contextName != nil && "id" == contextName.(string) {
-												allParam = true
-												break
-											}
-										}
-									}
-									if allParam {
-										operationConfig.Handler = "View"
-										autoConfigure = true
-									}
-								}
-
-							}
-						}
+					//Adds standard controller to path
+					autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
+					if err != nil {
+						return e, err
 					}
 				}
 
