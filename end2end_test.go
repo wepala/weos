@@ -272,7 +272,10 @@ func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPar
 }
 
 func aWarningShouldBeOutputBecauseTheEndpointIsInvalid() error {
-	return godog.ErrPending
+	if !strings.Contains(buf.String(), "no handler set") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
 }
 
 func addsASchemaToTheSpecification(arg1, arg2, arg3 string, arg4 *godog.DocString) error {
