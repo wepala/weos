@@ -20,7 +20,10 @@ func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, ent
 		return nil, NewDomainError("unexpected error creating entity", entityType, "", err)
 	}
 	if ok := newEntity.IsValid(); !ok {
-		return nil, NewDomainError("unexpected error entity is invalid", entityType, newEntity.ID, nil)
+		errors := newEntity.GetErrors()
+		if len(errors) != 0 {
+			return nil, NewDomainError(errors[0].Error(), entityType, newEntity.ID, errors[0])
+		}
 	}
 	return newEntity, nil
 }

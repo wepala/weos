@@ -490,13 +490,16 @@ func (mock *EventRepositoryMock) PersistCalls() []struct {
 // If this is not the case, regenerate this file with moq.
 var _ weos.Projection = &ProjectionMock{}
 
-// ProjectionMock is a mock implementation of weos.Projection.
+// ProjectionMock is a mock implementation of model.Projection.
 //
 // 	func TestSomethingThatUsesProjection(t *testing.T) {
 //
-// 		// make and configure a mocked weos.Projection
+// 		// make and configure a mocked model.Projection
 // 		mockedProjection := &ProjectionMock{
-// 			GetEventHandlerFunc: func() weos.EventHandler {
+// 			GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+// 				panic("mock out the GetContentEntity method")
+// 			},
+// 			GetEventHandlerFunc: func() model.EventHandler {
 // 				panic("mock out the GetEventHandler method")
 // 			},
 // 			MigrateFunc: func(ctx context.Context) error {
@@ -504,11 +507,14 @@ var _ weos.Projection = &ProjectionMock{}
 // 			},
 // 		}
 //
-// 		// use mockedProjection in code that requires weos.Projection
+// 		// use mockedProjection in code that requires model.Projection
 // 		// and then make assertions.
 //
 // 	}
 type ProjectionMock struct {
+	// GetContentEntityFunc mocks the GetContentEntity method.
+	GetContentEntityFunc func(ctx context.Context, weosID string) (*weos.ContentEntity, error)
+
 	// GetEventHandlerFunc mocks the GetEventHandler method.
 	GetEventHandlerFunc func() weos.EventHandler
 
@@ -517,6 +523,13 @@ type ProjectionMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// GetContentEntity holds details about calls to the GetContentEntity method.
+		GetContentEntity []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// WeosID is the weosID argument value.
+			WeosID string
+		}
 		// GetEventHandler holds details about calls to the GetEventHandler method.
 		GetEventHandler []struct {
 		}
@@ -526,8 +539,44 @@ type ProjectionMock struct {
 			Ctx context.Context
 		}
 	}
-	lockGetEventHandler sync.RWMutex
-	lockMigrate         sync.RWMutex
+	lockGetContentEntity sync.RWMutex
+	lockGetEventHandler  sync.RWMutex
+	lockMigrate          sync.RWMutex
+}
+
+// GetContentEntity calls GetContentEntityFunc.
+func (mock *ProjectionMock) GetContentEntity(ctx context.Context, weosID string) (*weos.ContentEntity, error) {
+	if mock.GetContentEntityFunc == nil {
+		panic("ProjectionMock.GetContentEntityFunc: method is nil but Projection.GetContentEntity was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		WeosID string
+	}{
+		Ctx:    ctx,
+		WeosID: weosID,
+	}
+	mock.lockGetContentEntity.Lock()
+	mock.calls.GetContentEntity = append(mock.calls.GetContentEntity, callInfo)
+	mock.lockGetContentEntity.Unlock()
+	return mock.GetContentEntityFunc(ctx, weosID)
+}
+
+// GetContentEntityCalls gets all the calls that were made to GetContentEntity.
+// Check the length with:
+//     len(mockedProjection.GetContentEntityCalls())
+func (mock *ProjectionMock) GetContentEntityCalls() []struct {
+	Ctx    context.Context
+	WeosID string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		WeosID string
+	}
+	mock.lockGetContentEntity.RLock()
+	calls = mock.calls.GetContentEntity
+	mock.lockGetContentEntity.RUnlock()
+	return calls
 }
 
 // GetEventHandler calls GetEventHandlerFunc.

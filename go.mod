@@ -9,6 +9,7 @@ require (
 	github.com/labstack/echo/v4 v4.5.0
 	github.com/labstack/gommon v0.3.0
 	github.com/lib/pq v1.10.2
+	github.com/matryer/moq v0.2.5 // indirect
 	github.com/mattn/go-sqlite3 v1.14.9
 	github.com/ompluscator/dynamic-struct v1.3.0
 	github.com/ory/dockertest/v3 v3.6.0
