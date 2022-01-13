@@ -6,13 +6,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/wepala/weos-service/utils"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wepala/weos-service/utils"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -508,7 +509,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped",
+			Tags:   "WEOS-1164",
 		},
 	}.Run()
 	if status != 0 {

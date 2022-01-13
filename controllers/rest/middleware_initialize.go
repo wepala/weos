@@ -2,7 +2,6 @@ package rest
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -196,7 +195,7 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 	case "POST":
 		if pathData.Post.RequestBody == nil {
 			e.Logger.Warnf("unexpected error: expected request body but got nil")
-			return false, fmt.Errorf("unexpected error: expected request body but got nil")
+			break
 		}
 		//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 		for _, value := range pathData.Post.RequestBody.Value.Content {
@@ -206,6 +205,7 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 			} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Value.Type, "#/components/schemas/") {
 				operationConfig.Handler = "CreateBatch"
 				autoConfigure = true
+
 			}
 		}
 	case "PUT":
