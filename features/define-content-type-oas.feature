@@ -132,8 +132,8 @@ Feature: Create Content Types
 
   Scenario: Declare content type that has a many to one relationship to another content type
 
-#     Many to one relationships is determined by what a property is referencing. If the property of a Content Type is
-#     referencing a single other content type then many to one relationship is inferred.
+    Many to one relationships is determined by what a property is referencing. If the property of a Content Type is
+    referencing a single other content type then many to one relationship is inferred.
 
     Given "Sojourner" adds a schema "Blog" to the "OpenAPI 3.0" specification
     """
