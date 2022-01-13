@@ -272,7 +272,7 @@ paths:
         200:
           description: Blog Deleted
 
-  /posts:
+  /posts/:
     post:
       operationId: Create Blog Post
       summary: Create Blog Post
@@ -390,7 +390,7 @@ paths:
           description: Delete post
 
 
-  /categories:
+  /categories/:
     post:
       operationId: Create Blog Category
       summary: Create Blog Category
@@ -487,7 +487,7 @@ paths:
         200:
           description: Delete category
 
-  /authors:
+  /authors/:
     post:
       operationId: Create Blog Author
       summary: Create Blog Author
