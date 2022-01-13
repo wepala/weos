@@ -56,6 +56,17 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 
 }
 
+//Update is used for a single payload. It gets an existing entity and updates it with the new payload
+//TODO Add weosID/EntityID to cmd (when 1130 -> dev)
+func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
+	//TODO Check weosID if blank
+	//TODO call getEntity with id
+	//TODO check if entity is nil
+	//TODO call entity update
+	//TODO Return entity
+	return new(ContentEntity), nil
+}
+
 func NewDomainService(ctx context.Context, eventRepository EventRepository) *DomainService {
 	return &DomainService{
 		eventRepository: eventRepository,
