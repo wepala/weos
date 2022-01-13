@@ -1,3 +1,4 @@
+@skipped
 Feature: View content
 
    Background:
