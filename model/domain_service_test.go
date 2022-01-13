@@ -143,3 +143,69 @@ func TestDomainService_CreateBatch(t *testing.T) {
 		}
 	})
 }
+
+func TestDomainService_Update(t *testing.T) {
+
+	mockEventRepository := &EventRepositoryMock{
+		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+			return nil
+		},
+	}
+	//load open api spec
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	newContext := context.Background()
+	newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+
+	//mock existing entity
+	mockPayload := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+	mockContentEntity := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "123456",
+			},
+			SequenceNo: 1,
+		},
+		Property: mockPayload,
+	}
+
+	update := &Blog{
+		Title:       "First blog",
+		Description: "Description testing 1",
+		Url:         "www.TestBlog.com",
+	}
+	entityType := "Blog"
+
+	reqBytes, err := json.Marshal(update)
+	if err != nil {
+		t.Fatalf("error converting content type to bytes %s", err)
+	}
+
+	dService := model.NewDomainService(newContext, mockEventRepository)
+	blog, err := dService.Create(newContext, reqBytes, entityType)
+
+	if err != nil {
+		t.Fatalf("unexpected error creating content type '%s'", err)
+	}
+	if blog == nil {
+		t.Fatal("expected blog to be returned")
+	}
+	if blog.GetString("Title") != mockBlog.Title {
+		t.Fatalf("expected blog title to be %s got %s", mockBlog.Title, blog.GetString("Title"))
+	}
+	if blog.GetString("Description") != mockBlog.Description {
+		t.Fatalf("expected blog description to be %s got %s", mockBlog.Description, blog.GetString("Description"))
+	}
+	if blog.GetString("Url") != mockBlog.Url {
+		t.Fatalf("expected blog url to be %s got %s", mockBlog.Url, blog.GetString("Url"))
+	}
+}
