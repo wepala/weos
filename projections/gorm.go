@@ -3,12 +3,13 @@ package projections
 import (
 	"encoding/json"
 
+	"strings"
+
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos-service/context"
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
-	"strings"
 )
 
 //GORMProjection interface struct
@@ -60,11 +61,18 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
-				err := json.Unmarshal(event.Payload, &eventPayload)
+				mapPayload := map[string]interface{}{}
+				err := json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
-				eventPayload["sequence_no"] = event.Meta.SequenceNo
+				mapPayload["sequence_no"] = event.Meta.SequenceNo
+
+				bytes, _ := json.Marshal(mapPayload)
+				err = json.Unmarshal(bytes, &eventPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
 				db := p.db.Table(contentType.Name).Create(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
@@ -105,6 +113,8 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
 				}
+			}
+
 		}
 	}
 }

@@ -506,8 +506,30 @@ func isOnTheEditScreenWithId(user, contentType, id string) error {
 }
 
 func theHeaderShouldBe(key, value string) error {
+	if key == "ETag" {
+		Etag := rec.Result().Header.Get(key)
+		idEtag, seqNoEtag := api.SplitEtag(Etag)
+		if Etag == "" {
+			return fmt.Errorf("expected the Etag to be added to header, got %s", Etag)
+		}
+		if idEtag == "" {
+			return fmt.Errorf("expected the Etag to contain a weos id, got %s", idEtag)
+		}
+		if seqNoEtag == "" {
+			return fmt.Errorf("expected the Etag to contain a sequence no, got %s", seqNoEtag)
+		}
+		return nil
+	}
+
 	headers := rec.HeaderMap
-	val := headers[value]
+	val := []string{}
+
+	for k, v := range headers {
+		if strings.EqualFold(k, key) {
+			val = v
+			break
+		}
+	}
 
 	if len(val) > 0 {
 		if strings.EqualFold(val[0], value) {
