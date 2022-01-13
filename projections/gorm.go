@@ -129,7 +129,15 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
-				err := json.Unmarshal(event.Payload, &eventPayload)
+				mapPayload := map[string]interface{}{}
+				err := json.Unmarshal(event.Payload, &mapPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+				mapPayload["sequence_no"] = event.Meta.SequenceNo
+
+				bytes, _ := json.Marshal(mapPayload)
+				err = json.Unmarshal(bytes, &eventPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
@@ -174,8 +182,31 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
 				}
 			}
+
 		}
 	}
+}
+
+func (p *GORMProjection) GetContentEntity(ctx context.Context, weosID string) (*weos.ContentEntity, error) {
+	contentType := weosContext.GetContentType(ctx)
+
+	output := map[string]interface{}{}
+	result := p.db.Table(strings.Title(strings.Title(contentType.Name))).Find(&output, "weos_id = ? ", weosID)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retreiving created blog, got: '%s'", result.Error)
+	}
+
+	payload, err := json.Marshal(output)
+	if err != nil {
+		p.logger.Errorf("unexpected error marshalling payload, got: '%s'", err)
+	}
+
+	newEntity, err := new(weos.ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, payload)
+	if err != nil {
+		p.logger.Errorf("unexpected error creating entity, got: '%s'", err)
+	}
+
+	return newEntity, nil
 }
 
 //NewProjection creates an instance of the projection

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/segmentio/ksuid"
 	"github.com/stoewer/go-strcase"
 	weosContext "github.com/wepala/weos-service/context"
 	"golang.org/x/net/context"
@@ -23,7 +22,9 @@ func (w *ContentEntity) IsValid() bool {
 		return false
 	}
 	for _, req := range w.Schema.Required {
-		if w.IsNull(req, w.Schema.Properties[req].Value.Type) && !w.Schema.Properties[req].Value.Nullable {
+		if w.IsNull(req) && !w.Schema.Properties[req].Value.Nullable {
+			message := "entity property " + req + " required"
+			w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 			return false
 		}
 	}
@@ -31,12 +32,26 @@ func (w *ContentEntity) IsValid() bool {
 }
 
 //IsNull checks if the value of the property is null
-func (w *ContentEntity) IsNull(name, contentType string) bool {
+func (w *ContentEntity) IsNull(name string) bool {
 	reader := ds.NewReader(w.Property)
-	temp := reader.GetField(strings.Title(name)).PointerString()
-	if temp == nil {
-		return true
+	switch w.Schema.Properties[name].Value.Type {
+	case "string":
+		temp := reader.GetField(strings.Title(name)).PointerString()
+		if temp == nil {
+			return true
+		}
+	case "number":
+		temp := reader.GetField(strings.Title(name)).PointerFloat64()
+		if temp == nil {
+			return true
+		}
+	case "integer":
+		temp := reader.GetField(strings.Title(name)).PointerInt()
+		if temp == nil {
+			return true
+		}
 	}
+
 	return false
 }
 
@@ -104,9 +119,13 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 //FromSchemaWithValues builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
 	w.FromSchema(ctx, schema)
-	if w.ID == "" {
-		w.ID = ksuid.New().String()
+
+	weosID, err := GetIDfromPayload(payload)
+	if err != nil {
+		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
 	}
+
+	w.ID = weosID
 	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
 	return w, w.ApplyChanges([]*Event{event})
@@ -182,11 +201,16 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 		w.SequenceNo = change.Meta.SequenceNo
 		switch change.Type {
 		case "create":
-			err := json.Unmarshal(change.Payload, w.Property)
+			err := json.Unmarshal(change.Payload, &w.BasicEntity)
+			if err != nil {
+				return err
+			}
+			err = json.Unmarshal(change.Payload, &w.Property)
 			if err != nil {
 				return err
 			}
 			w.User.BasicEntity.ID = change.Meta.User
+
 		}
 	}
 	return nil
