@@ -63,5 +63,5 @@ type Datastore interface {
 type Projection interface {
 	Datastore
 	GetEventHandler() EventHandler
-	GetContentEntity(id string, contentType string) (map[string]interface{}, error)
+	GetContentEntity(ctx context.Context, weosID string) (*ContentEntity, error)
 }

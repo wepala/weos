@@ -115,9 +115,9 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 		t.Fatalf("unexpected error '%s'", err)
 	}
 	mockBlog := &[3]Blog{
-		{ID: "1", Title: "Blog 1", Url: "www.testBlog1.com"},
-		{ID: "2", Title: "Blog 2", Url: "www.testBlog2.com"},
-		{ID: "3", Title: "Blog 3", Url: "www.testBlog3.com"},
+		{ID: "1asdas3", Title: "Blog 1", Url: "www.testBlog1.com"},
+		{ID: "2gf233", Title: "Blog 2", Url: "www.testBlog2.com"},
+		{ID: "3dgff3", Title: "Blog 3", Url: "www.testBlog3.com"},
 	}
 	reqBytes, err := json.Marshal(mockBlog)
 	if err != nil {
