@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
+	"github.com/wepala/weos-service/model"
 	"io"
 	"io/ioutil"
 	"net/http"
-
-	"github.com/labstack/gommon/log"
+	"strconv"
+	"strings"
 )
 
 //LoadHttpRequestFixture wrapper around the test helper to make it easier to use it with test table
@@ -178,4 +180,20 @@ func NewControllerError(message string, err error, code int) *echo.HTTPError {
 		Message:  message,
 		Internal: err,
 	}
+}
+
+//NewEtag: This takes in a contentEntity and concatenates the weosID and SequenceID
+func NewEtag(entity *model.ContentEntity) string {
+	weosID := entity.ID
+	SeqNo := entity.SequenceNo
+	strSeqNo := strconv.Itoa(int(SeqNo))
+	return weosID + "." + strSeqNo
+}
+
+//SplitEtag: This takes an Etag and returns the weosID and sequence number
+func SplitEtag(Etag string) (string, string) {
+	result := strings.Split(Etag, ".")
+	weosID := result[0]
+	seqNo := result[1]
+	return weosID, seqNo
 }

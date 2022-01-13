@@ -80,7 +80,6 @@ components:
           format: date-time
       required:
         - title
-        - url
     Post:
       type: object
       properties:
