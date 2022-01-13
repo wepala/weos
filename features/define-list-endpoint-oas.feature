@@ -177,6 +177,7 @@ Feature: Setup List endpoint
   2. Operator - the operator to use for the filter (eq, ne, gt, lt, in, like)
   3. Value (an array or possible values. Most operators will be for scalar values
 
+  Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
   """
     /blogs:
       get:
@@ -256,20 +257,30 @@ Feature: Setup List endpoint
               content:
                 application/json:
                   schema:
-                    $ref: "#/components/schemas/Blog"
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Blog"
             400:
               description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "list" middleware should be added to the route
+    And a "List" middleware should be added to the route
 
 
   Scenario: Specify list item with an invalid filters definition
 
     If filters are specified then it should be in the expected for the controller to be associated. If it's invalid it
     should show a warning (otherwise a controller that knows how to parse the filters should be explicitly set).
-
+   
+  Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
   """
     /blogs:
       get:
