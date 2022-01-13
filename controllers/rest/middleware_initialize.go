@@ -69,10 +69,27 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
 		tagString := `json:"` + utils.SnakeCase(name) + `"`
+		var gormParts []string
+		for _, req := range ref.Required {
+			if strings.EqualFold(req, name) {
+				gormParts = append(gormParts, "NOT NULL")
+			}
+		}
+
 		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(name)) {
-			tagString += ` gorm:"primaryKey;size:512;NOT NULL"`
+			gormParts = append(gormParts, "primaryKey", "size:512")
+			//only add NOT null if it's not already in the array to avoid issue if a user also add the field to the required array
+			if !strings.Contains(strings.Join(gormParts, ";"), "NOT NULL") {
+				gormParts = append(gormParts, "NOT NULL")
+			}
 		}
 		name = strings.Title(name)
+		//setup gorm field tag string
+		if len(gormParts) > 0 {
+			gormString := strings.Join(gormParts, ";")
+			tagString += ` gorm:"` + gormString + `"`
+		}
+
 		if p.Ref != "" {
 			relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
 		} else {

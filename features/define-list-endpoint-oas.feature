@@ -1,3 +1,4 @@
+@skipped
 Feature: Setup List endpoint
 
   Background:

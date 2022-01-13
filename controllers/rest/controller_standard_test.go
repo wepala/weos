@@ -20,6 +20,7 @@ import (
 )
 
 type Blog struct {
+	ID          string `json:"weos_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Url         string `json:"url"`
@@ -68,11 +69,18 @@ func TestStandardControllers_Create(t *testing.T) {
 				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
 			}
 
-			blog := &Blog{}
+			if command.Metadata.EntityID == "" {
+				t.Errorf("expected the entity ID to be generated, got '%s'", command.Metadata.EntityID)
+			}
+
+			blog := &TestBlog{}
 			json.Unmarshal(command.Payload, &blog)
 
-			if blog.Title != mockBlog.Title {
-				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog.Title, blog.Title)
+			if blog.Title == nil {
+				return model.NewDomainError("expected the blog title to be a title got nil", command.Metadata.EntityType, "", nil)
+			}
+			if blog.Url == nil {
+				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
 			}
 			//check that content type information is in the context
 			contentType := weoscontext.GetContentType(ctx)
@@ -92,9 +100,29 @@ func TestStandardControllers_Create(t *testing.T) {
 		},
 	}
 
+	mockPayload := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+	mockContentEntity := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "123456",
+			},
+			SequenceNo: 1,
+		},
+		Property: mockPayload,
+	}
+
+	projections := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockContentEntity, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projections}
 		},
 	}
 
@@ -125,8 +153,44 @@ func TestStandardControllers_Create(t *testing.T) {
 			t.Error("expected create account command to be dispatched")
 		}
 
+		if response.Header.Get("Etag") != "123456.1" {
+			t.Errorf("expected an Etag, got %s", response.Header.Get("Etag"))
+		}
+
 		if response.StatusCode != 201 {
 			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
+		}
+	})
+	t.Run("create payload without a required field", func(t *testing.T) {
+		title := "Test Blog"
+		mockBlog1 := &TestBlog{
+			Title: &title,
+		}
+		reqBytes, err := json.Marshal(mockBlog1)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
 		}
 	})
 }
@@ -232,4 +296,44 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
 		}
 	})
+}
+
+func TestStandardControllers_HealthCheck(t *testing.T) {
+
+	content, err := ioutil.ReadFile("./fixtures/blog-create-batch.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	path := swagger.Paths.Find("/health")
+	controller := restAPI.HealthCheck(restAPI.Application, swagger, path, path.Get)
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+	e.GET("/health", controller, mw)
+	e.ServeHTTP(resp, req)
+	response := resp.Result()
+	defer response.Body.Close()
+	//check response code
+	if response.StatusCode != 200 {
+		t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+	}
+
 }

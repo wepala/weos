@@ -2,13 +2,13 @@ package projections
 
 import (
 	"encoding/json"
-	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos-service/context"
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
+	"strings"
 )
 
 //GORMProjection interface struct
@@ -27,6 +27,15 @@ func (p *GORMProjection) Persist(entities []weos.Entity) error {
 //Remove entity
 func (p *GORMProjection) Remove(entities []weos.Entity) error {
 	return nil
+}
+
+func (p *GORMProjection) GetByID(ctxt context.Context, contentType weosContext.ContentType, identifier []interface{}) (interface{}, error) {
+
+	return nil, nil
+}
+
+func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (interface{}, error) {
+	return nil, nil
 }
 
 func (p *GORMProjection) Migrate(ctx context.Context) error {
@@ -55,6 +64,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
+				eventPayload["sequence_no"] = event.Meta.SequenceNo
 				db := p.db.Table(contentType.Name).Create(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
@@ -95,9 +105,30 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
 				}
-			}
 		}
 	}
+}
+
+func (p *GORMProjection) GetContentEntity(ctx context.Context, weosID string) (*weos.ContentEntity, error) {
+	contentType := weosContext.GetContentType(ctx)
+
+	output := map[string]interface{}{}
+	result := p.db.Table(strings.Title(strings.Title(contentType.Name))).Find(&output, "weos_id = ? ", weosID)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retreiving created blog, got: '%s'", result.Error)
+	}
+
+	payload, err := json.Marshal(output)
+	if err != nil {
+		p.logger.Errorf("unexpected error marshalling payload, got: '%s'", err)
+	}
+
+	newEntity, err := new(weos.ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, payload)
+	if err != nil {
+		p.logger.Errorf("unexpected error creating entity, got: '%s'", err)
+	}
+
+	return newEntity, nil
 }
 
 //NewProjection creates an instance of the projection
