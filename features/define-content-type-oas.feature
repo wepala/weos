@@ -93,7 +93,7 @@ Feature: Create Content Types
       }
     """
 
-  @WEOS-1219
+
   Scenario: Declare a content type that has required fields
 
   Required properies should be added to the `required` parameter as per the OpenAPI specification. Properties that are
@@ -339,14 +339,14 @@ Feature: Create Content Types
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Post" should be added to the projection
       | Field          | Comment      | Type           | Null     | Key      | Default     |
-      | id             |              | varchar(512)   | false    | PK       | NULL        |
+      | id             |              | integer        | false    | PK       | NULL        |
       | title          |              | varchar(512)   | true     |          | NULL        |
       | description    |              | varchar(512)   | true     |          | NULL        |
       | email          |              | varchar(512)   | true     |          | NULL        |
       | published_date |              | datetime       | true     |          | NULL        |
     And a model "PostCategories" should be added to the projection
       | Field       | Comment      | Type           | Null     | Key      | Default     |
-      | id          |              | varchar(512)   | false    | PK       | NULL        |
+      | id          |              | integer        | false    | PK       | NULL        |
       | category_id |              | integer        | false    | PK       | NULL        |
     And a "Post" entity configuration should be setup
     """
