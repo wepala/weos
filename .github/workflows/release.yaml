@@ -64,6 +64,8 @@ jobs:
           mkdir -p build/mac
           cp api.yaml build/mac/api.yaml
           cp README.md build/mac/README.md
+          cp LICENSE build/mac/LICENSE
+          cp NOTICE.txt build/mac/NOTICE.txt
           cp build/weos-darwin-10.16-amd64 build/mac/weos
           chmod +x build/mac/weos
           tar -czf weos-mac-amd64.tar.gz -C build/mac .
@@ -72,6 +74,8 @@ jobs:
           mkdir -p build/linux32/apps/admin
           cp api.yaml build/linux32/api.yaml
           cp README.md build/linux32/README.md
+          cp LICENSE build/linux32/LICENSE
+          cp NOTICE.txt build/linux32/NOTICE.txt
           cp build/weos-linux-386 build/linux32/weos
           chmod +x build/linux32/weos
           tar -czf weos-linux-386.tar.gz -C build/linux32 .
@@ -79,6 +83,9 @@ jobs:
           #setup linux 64 bit build
           mkdir -p build/linux64/apps/admin
           cp api.yaml build/linux64/api.yaml
+          cp README.md build/linux64/README.md
+          cp LICENSE build/linux64/LICENSE
+          cp NOTICE.txt build/linux64/NOTICE.txt
           cp build/weos-linux-amd64 build/linux64/weos
           chmod +x build/linux64/weos
           tar -czf weos-linux-amd64.tar.gz -C build/linux64 .
@@ -87,10 +94,10 @@ jobs:
           mkdir -p build/win32/apps/admin
           cp api.yaml build/win32/api.yaml
           cp README.md build/win32/README.md
+          cp LICENSE build/win32/LICENSE
+          cp NOTICE.txt build/win32/NOTICE.txt
           cp build/weos-windows-4.0-386.exe build/win32/weos.exe
-          cp dll/x86/* build/win32
           chmod +x build/win32/weos.exe
-          chmod +x build/win32/*.dll
           cd build/win32
           zip -r  ../../weos-win32.zip .
           cd ../../
@@ -99,10 +106,10 @@ jobs:
           mkdir -p build/win64/apps/admin
           cp api.yaml build/win64/api.yaml
           cp README.md build/win64/README.md
+          cp LICENSE build/win64/LICENSE
+          cp NOTICE.txt build/win64/NOTICE.txt
           cp build/weos-windows-4.0-amd64.exe build/win64/weos.exe
-          cp dll/x64/* build/win64
           chmod +x build/win64/weos.exe
-          chmod +x build/win64/*.dll
           cd build/win64
           zip -r  ../../weos-win64.zip .
 

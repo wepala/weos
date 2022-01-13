@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +30,7 @@ var API api.RESTAPI
 var openAPI string
 var Developer *User
 var Content *ContentType
-var errors error
+var errs error
 var buf bytes.Buffer
 var payload ContentType
 var rec *httptest.ResponseRecorder
@@ -38,6 +40,9 @@ var currScreen string
 var contentTypeID map[string]bool
 var dockerEndpoint string
 var reqBody string
+var imageName string
+var binary string
+var dockerFile string
 
 type User struct {
 	Name      string
@@ -112,7 +117,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
-	errors = nil
+	errs = nil
 	rec = httptest.NewRecorder()
 	os.Remove("e2e.db")
 	var err error
@@ -281,7 +286,7 @@ func allFieldsAreNullableByDefault() error {
 }
 
 func anErrorShouldBeReturned() error {
-	if rec.Result().StatusCode == http.StatusCreated && errors == nil {
+	if rec.Result().StatusCode == http.StatusCreated && errs == nil {
 		return fmt.Errorf("expected error but got status '%s'", rec.Result().Status)
 	}
 	return nil
@@ -392,7 +397,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	API = api.RESTAPI{}
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
-		errors = err
+		errs = err
 	}
 	return nil
 }
@@ -465,12 +470,13 @@ func requestBody(arg1 *godog.DocString) error {
 }
 
 func thatTheBinaryIsGenerated(arg1 string) error {
-	var imageName string
 	switch arg1 {
 	case "mac":
 		imageName = "IntelMacDockerFile"
 	case "linux32":
-		imageName = "golang:alpine"
+		imageName = "alpine"
+		binary = "weos-linux-386"
+		dockerFile = "LinuxDockerFile"
 	case "linux64":
 		imageName = "Linux64DockerFile"
 	case "windows32":
@@ -478,15 +484,40 @@ func thatTheBinaryIsGenerated(arg1 string) error {
 	case "windows64":
 		imageName = "Windows64DockerFile"
 	}
+	//check if the binary exists and if not throw an error
+	if _, err := os.Stat("./" + binary); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("weos binary not found")
+	}
+	return nil
+}
 
-	//TODO generate the binary
+func theBinaryIsRunWithTheSpecification() error {
+	//currentPath, err := filepath.Abs("./")
+	//if err != nil {
+	//	return err
+	//}
+	binaryPath, err := filepath.Abs("./" + binary)
+	if err != nil {
+		return err
+	}
+	specPath, err := filepath.Abs("./api.yaml")
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
-		Image:        imageName,
-		Name:         arg1,
-		ExposedPorts: []string{"9200:9200/tcp", "9300:9300/tcp"},
-		Env:          map[string]string{"discovery.type": "single-node", "WEOS_SCHEMA": openAPI},
-		WaitingFor:   wait.ForLog("started"),
+		Image: imageName,
+		//FromDockerfile: testcontainers.FromDockerfile{
+		//	Context:    currentPath,
+		//	Dockerfile: dockerFile,
+		//},
+		Name:         "BDDTest",
+		ExposedPorts: []string{"8681:8681/tcp"},
+		VolumeMounts: map[string]string{specPath: "api.yaml", binaryPath: "weos"},
+		//Entrypoint:   []string{"./weos"},
+		Entrypoint: []string{"tail", "-f", "/dev/null"},
+		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
+		WaitingFor: wait.ForLog("started"),
 	}
 	esContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
@@ -501,16 +532,11 @@ func thatTheBinaryIsGenerated(arg1 string) error {
 	//get the endpoint that the container was run on
 	var endpoint string
 	endpoint, err = esContainer.Host(ctx) //didn't use the endpoint call because it returns "localhost" which the client doesn't seem to like
-	cport, err := esContainer.MappedPort(ctx, "9200")
+	cport, err := esContainer.MappedPort(ctx, "8681")
 	if err != nil {
 		fmt.Errorf("error setting up container '%s'", err)
 	}
 	dockerEndpoint = "http://" + endpoint + ":" + cport.Port()
-	return nil
-}
-
-func theBinaryIsRunWithTheSpecification() error {
-	//TODO Maybe check for the env variable
 	return nil
 }
 
@@ -577,8 +603,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped",
-			//Tags: "focus",
+			//Tags:   "~skipped && ~long",
+			Tags: "linux32",
 		},
 	}.Run()
 	if status != 0 {

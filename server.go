@@ -1,6 +1,3 @@
-//go:build server
-// +build server
-
 package main
 
 import (
