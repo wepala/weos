@@ -64,7 +64,7 @@ jobs:
           mkdir -p build/mac
           cp api.yaml build/mac/api.yaml
           cp README.md build/mac/README.md
-          cp build/weos-darwin-10.12-amd64 build/mac/weos
+          cp build/weos-darwin-10.16-amd64 build/mac/weos
           chmod +x build/mac/weos
           tar -czf weos-mac-amd64.tar.gz -C build/mac .
           
