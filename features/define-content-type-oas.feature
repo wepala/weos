@@ -360,115 +360,117 @@ Feature: Create Content Types
       }
     """
 
-#   Scenario: Setup validation rules for content
+@skipped
+  Scenario: Setup validation rules for content
 
-#     Developers can also use Regex to define content validation for a field
+    Developers can also use Regex to define content validation for a field
 
-#     Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-#     """
-#         Post:
-#           type: object
-#           properties:
-#             id:
-#               type: string
-#               format: ksuid
-#             title:
-#               type: string
-#             description:
-#               type: string
-#             email:
-#               type: string
-#               pattern: '^[a-zA-Z0-9.!#$%&*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
-#             publishedDate:
-#               type: string
-#               format: date-time
-#             views:
-#               type: integer
-#             categories:
-#               type: array
-#               items:
-#                 $ref: "#/components/schemas/Category"
-#     """
-#     When the "OpenAPI 3.0" specification is parsed
-#     Then a model "Post" should be added to the projection
-#       | Field         | Comment      | Type           | Null     | Key      | Default     |
-#       | id            |              | varchar(512)   | false    | PK       | NULL        |
-#       | title         |              | varchar(512)   | true     |          | NULL        |
-#       | description   |              | varchar(512)   | true     |          | NULL        |
-#       | email         |              | varchar(512)   | true     |          | NULL        |
-#       | publishedDate |              | datetime       | true     |          | NULL        |
-#       | views         |              | int            | true     |          | NULL        |
-#     And a model "PostCategory" should be added to the projection
-#       | Field       | Comment      | Type           | Null     | Key      | Default     |
-#       | post_id     |              | varchar(512)   | false    | PK       | NULL        |
-#       | category_id |              | varchar(512)   | false    | PK       | NULL        |
-#     And a "Post" entity configuration should be setup
-#     """
-#     erDiagram
-#       Blog ||--o{ Post : contains
-#       Blog {
-#         string id
-#         string title
-#         string description
-#       }
-#       Category ||--o{ Post : contains
-#       Post {
-#         string id
-#         string title
-#         string description
-#         string email
-#         datetime publishedDate
-#         integer views
-#       }
-#     """
-#   @WEOS-1116
-#   Scenario: Setup a content type with an enumeration
+    Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
+        Post:
+          type: object
+          properties:
+            id:
+              type: string
+              format: ksuid
+            title:
+              type: string
+            description:
+              type: string
+            email:
+              type: string
+              pattern: '^[a-zA-Z0-9.!#$%&*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
+            publishedDate:
+              type: string
+              format: date-time
+            views:
+              type: integer
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/Category"
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Post" should be added to the projection
+      | Field         | Comment      | Type           | Null     | Key      | Default     |
+      | id            |              | varchar(512)   | false    | PK       | NULL        |
+      | title         |              | varchar(512)   | true     |          | NULL        |
+      | description   |              | varchar(512)   | true     |          | NULL        |
+      | email         |              | varchar(512)   | true     |          | NULL        |
+      | publishedDate |              | datetime       | true     |          | NULL        |
+      | views         |              | int            | true     |          | NULL        |
+    And a model "PostCategory" should be added to the projection
+      | Field       | Comment      | Type           | Null     | Key      | Default     |
+      | post_id     |              | varchar(512)   | false    | PK       | NULL        |
+      | category_id |              | varchar(512)   | false    | PK       | NULL        |
+    And a "Post" entity configuration should be setup
+    """
+    erDiagram
+      Blog ||--o{ Post : contains
+      Blog {
+        string id
+        string title
+        string description
+      }
+      Category ||--o{ Post : contains
+      Post {
+        string id
+        string title
+        string description
+        string email
+        datetime publishedDate
+        integer views
+      }
+    """
+  @WEOS-1116
+  @skipped
+  Scenario: Setup a content type with an enumeration
 
-#     A property can be defined with a list of possible options. Null is added by default since in WeOS properties are nullable
-#     by default
+    A property can be defined with a list of possible options. Null is added by default since in WeOS properties are nullable
+    by default
 
-#     Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
-#     """
-#         Post:
-#           type: object
-#           properties:
-#             id:
-#               type: string
-#               format: ksuid
-#             title:
-#               type: string
-#             description:
-#               type: string
-#             status:
-#               type: string
-#               enum:
-#                 - unpublished
-#                 - published
-#     """
-#     When the "OpenAPI 3.0" specification is parsed
-#     Then a model "Post" should be added to the projection
-#       | Field         | Comment      | Type           | Null     | Key      | Default     |
-#       | id            |              | varchar(512)   | false    | PK       | NULL        |
-#       | title         |              | varchar(512)   | true     |          | NULL        |
-#       | description   |              | varchar(512)   | true     |          | NULL        |
-#       | status        |              | ENUM(null,unpublished,published)   | false    |          | unpublished |
-#     And a "Post" entity configuration should be setup
-#     """
-#     erDiagram
-#       Blog ||--o{ Post : contains
-#       Blog {
-#         string id
-#         string title
-#         string description
-#       }
-#       Category ||--o{ Post : contains
-#       Post {
-#         string id
-#         string title
-#         string description
-#         string status
-#       }
-#     """
+    Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
+        Post:
+          type: object
+          properties:
+            id:
+              type: string
+              format: ksuid
+            title:
+              type: string
+            description:
+              type: string
+            status:
+              type: string
+              enum:
+                - unpublished
+                - published
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Post" should be added to the projection
+      | Field         | Comment      | Type           | Null     | Key      | Default     |
+      | id            |              | varchar(512)   | false    | PK       | NULL        |
+      | title         |              | varchar(512)   | true     |          | NULL        |
+      | description   |              | varchar(512)   | true     |          | NULL        |
+      | status        |              | ENUM(null,unpublished,published)   | false    |          | unpublished |
+    And a "Post" entity configuration should be setup
+    """
+    erDiagram
+      Blog ||--o{ Post : contains
+      Blog {
+        string id
+        string title
+        string description
+      }
+      Category ||--o{ Post : contains
+      Post {
+        string id
+        string title
+        string description
+        string status
+      }
+    """
 
   Scenario: Create a content type that already exists
 
