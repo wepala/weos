@@ -57,6 +57,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 		switch event.Type {
 		case "create":
 			contentType := weosContext.GetContentType(ctx)
+			//using the schema ensures no nested fields are left out in creation
 			eventPayload, ok := p.Schema[strings.Title(contentType.Name)]
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
@@ -85,15 +86,21 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
-				err := json.Unmarshal(event.Payload, &eventPayload)
+
+				err := json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
 
-				err = json.Unmarshal(event.Payload, &mapPayload)
+				//set sequence number
+				mapPayload["sequence_no"] = event.Meta.SequenceNo
+
+				bytes, _ := json.Marshal(mapPayload)
+				err = json.Unmarshal(bytes, &eventPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
+
 				reader := ds.NewReader(eventPayload)
 
 				//replace associations
