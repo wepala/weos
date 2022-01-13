@@ -371,6 +371,12 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 						break
 					}
 				}
+				//checks if the response refers to an array schema
+				if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+					operationConfig.Handler = "List"
+					autoConfigure = true
+					break
+				}
 
 			}
 		}
