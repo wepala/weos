@@ -1177,29 +1177,28 @@ components:
 		}
 
 		ctxt := context.Background()
-		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-			Name: "Blog",
-		})
+		for name, scheme := range swagger.Components.Schemas {
+			ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+				Name:   strings.Title(name),
+				Schema: scheme.Value,
+			})
+		}
 
 		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
 		contentEntity.NewChange(event)
 		p.GetEventHandler()(ctxt, *event)
 
-		blog, err := p.GetContentEntity(contentEntity.ID, "Blog")
+		blog, err := p.GetContentEntity(ctxt, contentEntity.ID)
 		if err != nil {
 			t.Errorf("Error getting content type: got %s", err)
 		}
-		result := gormDB.Table("Blog").Find(&blog, "weos_id = ? ", contentEntity.ID)
-		if result.Error != nil {
-			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
+
+		if blog.GetString("Title") != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog.GetString("title"))
 		}
 
-		if blog["title"] != payload["title"] {
-			t.Fatalf("expected title to be %s, got %s", payload["title"], blog["title"])
-		}
-
-		if blog["description"] != payload["description"] {
-			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog["desription"])
+		if blog.GetString("Description") != payload["description"] {
+			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog.GetString("description"))
 		}
 
 		err = gormDB.Migrator().DropTable("Blog")

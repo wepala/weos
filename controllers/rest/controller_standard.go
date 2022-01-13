@@ -55,7 +55,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		var Etag string
 		for _, projection := range app.Projections() {
 			if projection != nil {
-				result, err := projection.GetContentEntity(weosID, contentType)
+				result, err := projection.GetContentEntity(newContext, weosID)
 				if err != nil {
 					return err
 				}
@@ -128,4 +128,14 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 
 		return nil
 	}
+}
+
+func (c *StandardControllers) HealthCheck(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		response := &HealthCheckResponse{
+			Version: spec.Info.Version,
+		}
+		return context.JSON(http.StatusOK, response)
+	}
+
 }

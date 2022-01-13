@@ -60,13 +60,26 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	}
 }
 
-func (p *GORMProjection) GetContentEntity(weosID, contentType string) (map[string]interface{}, error) {
+func (p *GORMProjection) GetContentEntity(ctx context.Context, weosID string) (*weos.ContentEntity, error) {
+	contentType := weosContext.GetContentType(ctx)
+
 	output := map[string]interface{}{}
-	result := p.db.Table(strings.Title(contentType)).Find(&output, "weos_id = ? ", weosID)
+	result := p.db.Table(strings.Title(strings.Title(contentType.Name))).Find(&output, "weos_id = ? ", weosID)
 	if result.Error != nil {
-		p.logger.Errorf("unexpected error retreiving created blog '%s'", result.Error)
+		p.logger.Errorf("unexpected error retreiving created blog, got: '%s'", result.Error)
 	}
-	return output, nil
+
+	payload, err := json.Marshal(output)
+	if err != nil {
+		p.logger.Errorf("unexpected error marshalling payload, got: '%s'", err)
+	}
+
+	newEntity, err := new(weos.ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, payload)
+	if err != nil {
+		p.logger.Errorf("unexpected error creating entity, got: '%s'", err)
+	}
+
+	return newEntity, nil
 }
 
 //NewProjection creates an instance of the projection

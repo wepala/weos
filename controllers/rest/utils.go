@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
+	"github.com/wepala/weos-service/model"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -182,11 +183,11 @@ func NewControllerError(message string, err error, code int) *echo.HTTPError {
 }
 
 //NewEtag: This takes in a contentEntity and concatenates the weosID and SequenceID
-func NewEtag(entity map[string]interface{}) string {
-	seqNo := entity["sequence_no"].(int64)
-	strSeqNo := strconv.Itoa(int(seqNo))
-	ID := entity["weos_id"].(string)
-	return ID + "." + strSeqNo
+func NewEtag(entity *model.ContentEntity) string {
+	weosID := entity.ID
+	SeqNo := entity.SequenceNo
+	strSeqNo := strconv.Itoa(int(SeqNo))
+	return weosID + "." + strSeqNo
 }
 
 //SplitEtag: This takes an Etag and returns the weosID and sequence number
