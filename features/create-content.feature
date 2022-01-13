@@ -1,4 +1,4 @@
-@skipped
+
 Feature: Create content
 
   Background:

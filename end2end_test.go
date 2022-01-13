@@ -212,12 +212,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
 				}
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
-			case "Null":
-				//columnNullable, _ := column.Nullable()
-				//if !strings.EqualFold(strconv.FormatBool(columnNullable), cell.Value) {
-				// return fmt.Errorf("expected to get nullable state '%s' got '%s'", cell.Value, strconv.FormatBool(columnNullable))
-				//}
-			case "Default":
+			case "Null", "Default":
 
 			case "Key":
 				if strings.EqualFold(cell.Value, "pk") {
