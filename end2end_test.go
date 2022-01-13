@@ -232,7 +232,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 				}
 			}
 		}
-		if len(keys) != 1 && !strings.EqualFold(keys[0], "id") {
+		if len(keys) > 1 && !strings.EqualFold(keys[0], "id") {
 			resultDB := gormDB.Table(arg1).Create(payload)
 			if resultDB.Error == nil {
 				return fmt.Errorf("expected a missing primary key error")
