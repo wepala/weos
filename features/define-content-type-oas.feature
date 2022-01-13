@@ -116,7 +116,7 @@ Feature: Create Content Types
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
       | Field       | Comment      | Type           | Null     | Key      | Default     |
-      | id          |              | integer        | false    | PK       | NULL        |
+      | id          |              | varchar(512)   | false    | PK       | NULL        |
       | title       | blog title   | varchar(512)   | false    |          | NULL        |
       | description |              | varchar(512)   | true     |          | NULL        |
     And a "Blog" entity configuration should be setup
@@ -339,14 +339,14 @@ Feature: Create Content Types
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Post" should be added to the projection
       | Field          | Comment      | Type           | Null     | Key      | Default     |
-      | id             |              | integer        | false    | PK       | NULL        |
+      | id             |              | varchar(512)   | false    | PK       | NULL        |
       | title          |              | varchar(512)   | true     |          | NULL        |
       | description    |              | varchar(512)   | true     |          | NULL        |
       | email          |              | varchar(512)   | true     |          | NULL        |
       | published_date |              | datetime       | true     |          | NULL        |
     And a model "PostCategories" should be added to the projection
       | Field       | Comment      | Type           | Null     | Key      | Default     |
-      | id          |              | integer        | false    | PK       | NULL        |
+      | id          |              | varchar(512)   | false    | PK       | NULL        |
       | category_id |              | integer        | false    | PK       | NULL        |
     And a "Post" entity configuration should be setup
     """
