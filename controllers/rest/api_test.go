@@ -250,3 +250,22 @@ func TestRESTAPI_Initialize_UpdateAddedToPatch(t *testing.T) {
 	}
 	os.Remove("test.db")
 }
+
+func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
+	os.Remove("test.db")
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+	mockID := "1246dg"
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/blogs/"+mockID, nil)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 200
+	if resp.Result().StatusCode != http.StatusOK {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+}

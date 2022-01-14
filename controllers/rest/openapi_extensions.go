@@ -18,4 +18,5 @@ const RemoveExtension = "x-remove"
 //CopyExtension is used to copy a field's values into another field, ignoring those that are not of the same type
 const CopyExtension = "x-copy"
 
-const IDENTIFIEREXTENSION = "x-identifier"
+//IdentifierExtension set identifier
+const IdentifierExtension = "x-identifier"

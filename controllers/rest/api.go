@@ -310,22 +310,10 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
 					}
 				} else {
-					switch strings.ToUpper(method) {
-					case "POST":
-						autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
-						if err != nil {
-							return e, err
-						}
-					case "PUT":
-						autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
-						if err != nil {
-							return e, err
-						}
-					case "PATCH":
-						autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
-						if err != nil {
-							return e, err
-						}
+					//Adds standard controller to path
+					autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
+					if err != nil {
+						return e, err
 					}
 				}
 

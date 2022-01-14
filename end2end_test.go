@@ -6,14 +6,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/wepala/weos-service/utils"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/wepala/weos-service/utils"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -245,6 +244,16 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 		}
 	}
 	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
+}
+
+func aRouteShouldBeAddedToTheApi1(method string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if route.Method == method {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected route but got nil with method %s ", method)
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
@@ -500,6 +509,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
 	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
 	ctx.Step(`^the "([^"]*)" header should be "([^"]*)"$`, theHeaderShouldBe)
+	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
 }
 
 func TestBDD(t *testing.T) {
