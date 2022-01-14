@@ -1,4 +1,3 @@
-@skipped
 @WEOS-1177
 Feature: Edit content endpoints
 
@@ -51,157 +50,156 @@ Feature: Edit content endpoints
               type: array
               items:
                 $ref: "#/components/schemas/Category"
-            x-identifier:
-              - id
-              - title
+          x-identifier:
+            - id
+            - title
     """
-
 
   Scenario: Create a basic edit endpoint with the identifier in the path
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs/{id}:
-      put:
-        operationId: Edit Blog
-        parameters:
-          - in: path
-            name: id
-            schema:
-              type: string
+      /blogs/{id}:
+        put:
+          operationId: Edit Blog
+          parameters:
+            - in: path
+              name: id
+              schema:
+                type: string
+              required: true
+              description: blog id
+            - in: header
+              name: If-Match
+              schema:
+                type: string
+          requestBody:
+            description: Blog info that is submitted
             required: true
-            description: blog id
-          - in: header
-            name: If-Match
-            schema:
-              type: string
-        requestBody:
-          description: Blog info that is submitted
-          required: true
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        responses:
-          201:
-            description: Update blog
-            headers:
-              ETag:
-                schema:
-                  type: string
-                description: specific version of item
             content:
               application/json:
                 schema:
                   $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
-          412:
-            description: Pre condition failed
+              application/x-www-form-urlencoded:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+              application/xml:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          responses:
+            201:
+              description: Update blog
+              headers:
+                ETag:
+                  schema:
+                    type: string
+                  description: specific version of item
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
+            412:
+              description: Pre condition failed
 
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs/:id" should be added to the api
-    And a "edit" middleware should be added to the route
+    And a "Update" middleware should be added to the route
 
   Scenario: Create a basic edit endpoint with the identifier in the query string
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      put:
-        operationId: Edit Blog
-        parameters:
-          - in: query
-            name: id
-            schema:
-              type: string
+      /blogs:
+        put:
+          operationId: Edit Blog
+          parameters:
+            - in: query
+              name: id
+              schema:
+                type: string
+              required: true
+              description: blog id
+          requestBody:
+            description: Blog info that is submitted
             required: true
-            description: blog id
-        requestBody:
-          description: Blog info that is submitted
-          required: true
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        responses:
-          201:
-            description: Update blog
-            headers:
-              ETag:
-                schema:
-                  type: string
-                description: specific version of item
             content:
               application/json:
                 schema:
                   $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+              application/x-www-form-urlencoded:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+              application/xml:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          responses:
+            201:
+              description: Update blog
+              headers:
+                ETag:
+                  schema:
+                    type: string
+                  description: specific version of item
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs" should be added to the api
-    And a "edit" middleware should be added to the route
+    And a "Update" middleware should be added to the route
 
   Scenario: Create a basic edit endpoint with the identifier in the header with an alias
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      put:
-        operationId: Edit Blog
-        parameters:
-          - in: header
-            name: X-Item-Id
-            schema:
-              type: string
+      /blogs:
+        put:
+          operationId: Edit Blog
+          parameters:
+            - in: header
+              name: X-Item-Id
+              schema:
+                type: string
+              required: true
+              description: blog id
+              x-context-name: id
+          requestBody:
+            description: Blog info that is submitted
             required: true
-            description: blog id
-            x-context-name: id
-        requestBody:
-          description: Blog info that is submitted
-          required: true
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        responses:
-          201:
-            description: Update blog
-            headers:
-              ETag:
-                schema:
-                  type: string
-                description: specific version of item
             content:
               application/json:
                 schema:
                   $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+              application/x-www-form-urlencoded:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+              application/xml:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          responses:
+            201:
+              description: Update blog
+              headers:
+                ETag:
+                  schema:
+                    type: string
+                  description: specific version of item
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PUT" route "/blogs" should be added to the api
-    And a "edit" middleware should be added to the route
+    And a "Update" middleware should be added to the route
 
   Scenario: Create a basic edit endpoint with the identifier in the path and the controller manually set
 
@@ -209,48 +207,48 @@ Feature: Edit content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs/{id}:
-      patch:
-        operationId: Edit Blog
-        parameters:
-          - in: path
-            name: id
-            schema:
-              type: string
+      /blogs/{id}:
+        patch:
+          operationId: Edit Blog
+          parameters:
+            - in: path
+              name: id
+              schema:
+                type: string
+              required: true
+              description: blog id
+          x-controller: Update
+          requestBody:
+            description: Blog info that is submitted
             required: true
-            description: blog id
-        x-controller: Edit
-        requestBody:
-          description: Blog info that is submitted
-          required: true
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-            application/xml:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        responses:
-          201:
-            description: Update blog
-            headers:
-              ETag:
-                schema:
-                  type: string
-                description: specific version of item
             content:
               application/json:
                 schema:
                   $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+              application/x-www-form-urlencoded:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+              application/xml:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          responses:
+            201:
+              description: Update blog
+              headers:
+                ETag:
+                  schema:
+                    type: string
+                  description: specific version of item
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "PATCH" route "/blogs/:id" should be added to the api
-    And a "edit" middleware should be added to the route
+    And a "Update" middleware should be added to the route
 
   Scenario: Create an endpoint that does not have parameters for all parts of identifier
 
@@ -259,30 +257,37 @@ Feature: Edit content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /posts/{id}:
-      put:
-        operationId: Edit Post
-        parameters:
-          - in: path
-            name: id
-            schema:
-              type: string
+      /posts/{id}:
+        put:
+          operationId: Edit Post
+          parameters:
+            - in: path
+              name: id
+              schema:
+                type: string
+              required: true
+              description: post id
+          requestBody:
+            description: Post info that is submitted
             required: true
-            description: post id
-        responses:
-          201:
-            description: Add Blog to Aggregator
-            headers:
-              ETag:
-                schema:
-                  type: string
-                description: specific version of item
             content:
               application/json:
                 schema:
                   $ref: "#/components/schemas/Post"
-          400:
-            description: Invalid blog submitted
+          responses:
+            201:
+              description: Add Blog to Aggregator
+              headers:
+                ETag:
+                  schema:
+                    type: string
+                  description: specific version of item
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Post"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set
@@ -294,25 +299,25 @@ Feature: Edit content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs/{id}:
-      put:
-        operationId: Edit Blog
-        parameters:
-          - in: path
-            name: id
-            schema:
-              type: string
-            required: true
-            description: blog id
-        responses:
-          201:
-            description: Add Blog to Aggregator
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+      /blogs/{id}:
+        put:
+          operationId: Edit Blog
+          parameters:
+            - in: path
+              name: id
+              schema:
+                type: string
+              required: true
+              description: blog id
+          responses:
+            201:
+              description: Add Blog to Aggregator
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
@@ -323,39 +328,39 @@ Feature: Edit content endpoints
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs/{id}:
-      put:
-        operationId: Add Blog
-        parameters:
-          - in: path
-            name: id
-            schema:
-              type: string
-            required: true
-            description: blog id
-        requestBody:
-          description: Blog to add
-          required: true
-          content:
-            application/json:
+      /blogs/{id}:
+        put:
+          operationId: Add Blog
+          parameters:
+            - in: path
+              name: id
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    description: blog id
-                  title:
-                    type: string
-                    description: blog description
-        responses:
-          201:
-            description: Add Blog to Aggregator
+                type: string
+              required: true
+              description: blog id
+          requestBody:
+            description: Blog to add
+            required: true
             content:
               application/json:
                 schema:
-                  $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                      description: blog id
+                    title:
+                      type: string
+                      description: blog description
+          responses:
+            201:
+              description: Add Blog to Aggregator
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
