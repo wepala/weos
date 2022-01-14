@@ -4,15 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/gommon/log"
-	"github.com/wepala/weos-service/model"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
+	"github.com/wepala/weos-service/model"
 )
 
 //LoadHttpRequestFixture wrapper around the test helper to make it easier to use it with test table
@@ -197,22 +197,4 @@ func SplitEtag(Etag string) (string, string) {
 	weosID := result[0]
 	seqNo := result[1]
 	return weosID, seqNo
-}
-
-//CheckController checks if the controller explicitly stated and whether the endpoint is valid
-func CheckController(e *echo.Echo, pathData *openapi3.PathItem, method string, operationConfig *PathConfig) bool {
-	if strings.ToUpper(method) == "GET" {
-		if operationConfig.Handler == "List" {
-			if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
-				for _, val := range pathData.Get.Responses["200"].Value.Content {
-					//checks if the response refers to an array schema
-					if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-						return true
-					}
-				}
-			}
-		}
-	}
-	operationConfig.Handler = ""
-	return false
 }
