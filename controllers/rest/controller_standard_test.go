@@ -24,6 +24,7 @@ type Blog struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Url         string `json:"url"`
+	SequenceNo  string `json:"sequence_no"`
 }
 
 func TestStandardControllers_Create(t *testing.T) {
@@ -339,8 +340,8 @@ func TestStandardControllers_HealthCheck(t *testing.T) {
 }
 
 func TestStandardControllers_Update(t *testing.T) {
+	weosId := "123"
 	mockBlog := &Blog{
-		ID:          "123",
 		Title:       "Test Blog",
 		Description: "testing description",
 	}
@@ -389,6 +390,14 @@ func TestStandardControllers_Update(t *testing.T) {
 			if blog.Title != mockBlog.Title {
 				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog.Title, blog.Title)
 			}
+
+			if blog.ID != weosId {
+				t.Errorf("expected the blog weos id to be '%s', got '%s'", weosId, blog.ID)
+			}
+
+			if blog.SequenceNo != "1" {
+				t.Errorf("expected the blog sequence no to be '%s', got '%s'", mockBlog.SequenceNo, blog.SequenceNo)
+			}
 			//check that content type information is in the context
 			contentType := weoscontext.GetContentType(ctx)
 			if contentType == nil {
@@ -408,8 +417,13 @@ func TestStandardControllers_Update(t *testing.T) {
 			}
 
 			id := ctx.Value("id").(string)
-			if id != "123" {
-				t.Errorf("unexpected error, expected id to be %s got %s", "123", id)
+			if id != weosId {
+				t.Errorf("unexpected error, expected id to be %s got %s", weosId, id)
+			}
+
+			etag := ctx.Value("If-Match").(string)
+			if etag != "123.1" {
+				t.Errorf("unexpected error, expected etag to be %s got %s", "123.1", etag)
 			}
 
 			return nil
@@ -425,7 +439,7 @@ func TestStandardControllers_Update(t *testing.T) {
 	//initialization will instantiate with application so we need to overwrite with our mock application
 	restAPI.Application = application
 
-	t.Run("basic update based on simple content type with id parameter in path", func(t *testing.T) {
+	t.Run("basic update based on simple content type with id parameter in path and etag", func(t *testing.T) {
 		paramName := "id"
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
@@ -437,8 +451,9 @@ func TestStandardControllers_Update(t *testing.T) {
 		path := swagger.Paths.Find("/blogs/:" + paramName)
 		controller := restAPI.Update(restAPI.Application, swagger, path, path.Put)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/blogs/"+mockBlog.ID, body)
+		req := httptest.NewRequest(http.MethodPut, "/blogs/"+weosId, body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("If-Match", weosId+".1")
 		mw := rest.Context(restAPI.Application, swagger, path, path.Put)
 		e.PUT("/blogs/:"+paramName, controller, mw)
 		e.ServeHTTP(resp, req)

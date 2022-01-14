@@ -241,6 +241,10 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
       summary: Update blog details
       operationId: Update Blog
       requestBody:
