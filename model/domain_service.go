@@ -2,13 +2,14 @@ package model
 
 import (
 	"encoding/json"
+	"strconv"
 
 	weosContext "github.com/wepala/weos-service/context"
 	"golang.org/x/net/context"
 )
 
 type DomainService struct {
-	Projection //not sure if its this simple
+	Projection
 	Repository
 	eventRepository EventRepository
 }
@@ -60,31 +61,78 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 
 //Update is used for a single payload. It gets an existing entity and updates it with the new payload
 func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
-	//TODO check for the ID(pk) in the context
-	//TODO if ID, use getByKey func
-	//TODO check for weosID in payload
+	var existingEntity *ContentEntity
+	var updatedEntity *ContentEntity
+	var identifier map[string]interface{}
+	var weosID string
+	contentType := weosContext.GetContentType(ctx)
+
+	//Fetch the weosID from the payload
 	weosID, err := GetIDfromPayload(payload)
 	if err != nil {
 		return nil, NewDomainError("unexpected error unmarshalling payload to get weosID", entityType, "", err)
 	}
 
-	if weosID == "" {
-		return nil, NewDomainError("no weosID provided", entityType, "", nil)
-	}
-	//TODO if blank get other ID
-	//TODO check if seq no = payload seq no
-	existingEntity, err := s.GetContentEntity(ctx, weosID)
-	if err != nil {
-		return nil, NewDomainError("unexpected error fetching existing entity", entityType, weosID, err)
-	}
+	//If there is a weosID present use this
+	if weosID != "" {
+		seqNo, err := GetSeqfromPayload(payload)
+		if err != nil {
+			return nil, NewDomainError("unexpected error unmarshalling payload to get sequence number", entityType, "", err)
+		}
 
-	//TODO create the update func on the content entity
-	updatedEntity := existingEntity.Update(payload)
+		if seqNo == "" {
+			return nil, NewDomainError("no sequence number provided", entityType, "", nil)
+		}
+
+		existingEntity, err := s.GetContentEntity(ctx, weosID)
+		if err != nil {
+			return nil, NewDomainError("unexpected error fetching existing entity", entityType, weosID, err)
+		}
+
+		entitySeqNo := strconv.Itoa(int(existingEntity.SequenceNo))
+
+		if seqNo != entitySeqNo {
+			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
+		}
+
+		updatedEntity, err = existingEntity.Update(payload)
+		if err != nil {
+			return nil, NewDomainError("unexpected error updating existingEntity", entityType, weosID, err)
+		}
+
+		//If there is no weosID, use the id passed from the param
+	} else if weosID == "" {
+		paramID := ctx.Value("id")
+
+		if paramID == "" {
+			return nil, NewDomainError("no ID provided", entityType, "", nil)
+		}
+
+		identifier = map[string]interface{}{"id": paramID}
+		entityInterface, err := s.GetByKey(ctx, contentType, identifier)
+
+		data, err := json.Marshal(entityInterface)
+		if err != nil {
+			return nil, NewDomainError("unexpected error marshalling existingEntity interface", entityType, paramID.(string), err)
+		}
+
+		err = json.Unmarshal(data, &existingEntity)
+		if err != nil {
+			return nil, NewDomainError("unexpected error unmarshalling existingEntity", entityType, paramID.(string), err)
+		}
+
+		updatedEntity, err = existingEntity.Update(payload)
+		if err != nil {
+			return nil, NewDomainError("unexpected error updating existingEntity", entityType, paramID.(string), err)
+		}
+
+	}
 	return updatedEntity, nil
 }
 
-func NewDomainService(ctx context.Context, eventRepository EventRepository) *DomainService {
+func NewDomainService(ctx context.Context, eventRepository EventRepository, projections Projection) *DomainService {
 	return &DomainService{
 		eventRepository: eventRepository,
+		Projection:      projections,
 	}
 }

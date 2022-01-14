@@ -131,6 +131,13 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	return w, w.ApplyChanges([]*Event{event})
 }
 
+func (w *ContentEntity) Update(payload json.RawMessage) (*ContentEntity, error) {
+
+	event := NewEntityEvent("update", w, w.ID, payload)
+	w.NewChange(event)
+	return w, w.ApplyChanges([]*Event{event})
+}
+
 //GetString returns the string property value stored of a given the property name
 func (w *ContentEntity) GetString(name string) string {
 	if w.Property == nil {
@@ -206,6 +213,12 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 				return err
 			}
 			err = json.Unmarshal(change.Payload, &w.Property)
+			if err != nil {
+				return err
+			}
+			w.User.BasicEntity.ID = change.Meta.User
+		case "update":
+			err := json.Unmarshal(change.Payload, &w.Property)
 			if err != nil {
 				return err
 			}

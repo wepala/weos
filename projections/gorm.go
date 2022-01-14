@@ -21,7 +21,7 @@ type GORMProjection struct {
 	Schema          map[string]interface{}
 }
 
-func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (p *GORMProjection) GetByKey(ctxt context.Context, contentType *weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		//pulling the primary keys from the schema in order to match with the keys given for searching
 		pks, _ := json.Marshal(contentType.Schema.Extensions["x-identifier"])

@@ -1,6 +1,7 @@
 package model_test
 
 import (
+	context3 "context"
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	weosContext "github.com/wepala/weos-service/context"
@@ -166,6 +167,28 @@ func TestUpdateContentType(t *testing.T) {
 		AddSubscriberFunc: func(handler model.EventHandler) {
 		},
 	}
+
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	existingBlog := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "dsafdsdfdsf",
+			},
+			SequenceNo: int64(1),
+			//TODO Add Create Event
+		},
+		Property: existingPayload,
+	}
+
+	projectionMock := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+			return existingBlog, nil
+		},
+		GetByKeyFunc: func(ctxt context3.Context, contentType *weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return existingPayload, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return commandDispatcher
@@ -174,7 +197,7 @@ func TestUpdateContentType(t *testing.T) {
 			return mockEventRepository
 		},
 		ProjectionsFunc: func() []model.Projection {
-			return []model.Projection{}
+			return []model.Projection{projectionMock}
 		},
 	}
 
@@ -184,18 +207,14 @@ func TestUpdateContentType(t *testing.T) {
 	}
 
 	t.Run("Testing basic update entity", func(t *testing.T) {
-		mockBlog := &Blog{
-			ID:    "123",
-			Title: "Test Blog",
-			Url:   "ww.testingBlog.com",
-		}
+		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "1", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
 		entityType := "Blog"
-		reqBytes, err := json.Marshal(mockBlog)
+		reqBytes, err := json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx, model.Update(ctx, reqBytes, entityType, "123"))
+		err1 := commandDispatcher.Dispatch(ctx, model.Update(ctx, reqBytes, entityType))
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}

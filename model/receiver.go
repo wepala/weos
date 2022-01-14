@@ -67,7 +67,7 @@ func Initialize(service Service) error {
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), receiver.CreateBatch)
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), receiver.Update)
 	//initialize any services
-	receiver.domainService = NewDomainService(context.Background(), service.EventRepository())
+	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil)
 
 	if receiver.domainService == nil {
 		return NewError("no projection provided", nil)

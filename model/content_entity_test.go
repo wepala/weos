@@ -116,3 +116,62 @@ func TestContentEntity_IsValid(t *testing.T) {
 		}
 	})
 }
+
+func TestContentEntity_Update(t *testing.T) {
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
+	mockBlog := &Blog{
+		Title:       "test 1",
+		Description: "lorem ipsum",
+		Url:         "www.ShaniahsBlog.com",
+	}
+	payload, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("unexpected error marshalling payload '%s'", err)
+	}
+
+	existingEntity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+
+	if existingEntity.GetString("Title") != "test 1" {
+		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("Title"))
+	}
+
+	input := &Blog{
+		Title:       "updated title",
+		Description: "updated desc",
+	}
+
+	updatedPayload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("unexpected error marshalling update payload '%s'", err)
+	}
+
+	updatedEntity, err := existingEntity.Update(updatedPayload)
+	if err != nil {
+		t.Fatalf("unexpected error updating existing entity '%s'", err)
+	}
+
+	if updatedEntity.GetString("Title") != "updated title" {
+		t.Errorf("expected the updated title to be '%s', got '%s'", "updated title", existingEntity.GetString("Title"))
+	}
+
+	if updatedEntity.GetString("Description") != "updated desc" {
+		t.Errorf("expected the updated description to be '%s', got '%s'", "updated desc", existingEntity.GetString("Description"))
+	}
+}

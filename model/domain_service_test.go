@@ -1,6 +1,7 @@
 package model_test
 
 import (
+	context3 "context"
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	context2 "github.com/wepala/weos-service/context"
@@ -44,7 +45,7 @@ func TestDomainService_Create(t *testing.T) {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
-		dService := model.NewDomainService(newContext, mockEventRepository)
+		dService := model.NewDomainService(newContext, mockEventRepository, nil)
 		blog, err := dService.Create(newContext, reqBytes, entityType)
 
 		if err != nil {
@@ -73,7 +74,7 @@ func TestDomainService_Create(t *testing.T) {
 		if err != nil {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
-		dService := model.NewDomainService(newContext, mockEventRepository)
+		dService := model.NewDomainService(newContext, mockEventRepository, nil)
 		blog, err := dService.Create(newContext, reqBytes, entityType)
 
 		if err.Error() != "entity property title required" {
@@ -123,7 +124,7 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
-		dService := model.NewDomainService(newContext, mockEventRepository)
+		dService := model.NewDomainService(newContext, mockEventRepository, nil)
 		blogs, err := dService.CreateBatch(newContext, reqBytes, entityType)
 
 		if err != nil {
@@ -146,12 +147,6 @@ func TestDomainService_CreateBatch(t *testing.T) {
 
 func TestDomainService_Update(t *testing.T) {
 
-	mockEventRepository := &EventRepositoryMock{
-		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
-			return nil
-		},
-	}
-	
 	//load open api spec
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
 	if err != nil {
@@ -167,34 +162,50 @@ func TestDomainService_Update(t *testing.T) {
 		Schema: contentTypeSchema.Value,
 	})
 
-	//Create a blog
-	mockBlog := &Blog{
-		Title:       "First blog",
-		Description: "Description testing 1",
-		Url:         "www.TestBlog.com",
-	}
 	entityType := "Blog"
 
-	reqBytes, err := json.Marshal(mockBlog)
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	reqBytes, err := json.Marshal(existingPayload)
 	if err != nil {
-		t.Fatalf("error converting content type to bytes %s", err)
+		t.Fatalf("error converting payload to bytes %s", err)
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository)
-	blog, err := dService.Create(newContext, reqBytes, entityType)
+	mockEventRepository := &EventRepositoryMock{
+		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+			return nil
+		},
+	}
+
+	dService := model.NewDomainService(newContext, mockEventRepository, nil)
+	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
+
+	projectionMock := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+			return existingBlog, nil
+		},
+		GetByKeyFunc: func(ctxt context3.Context, contentType *context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return existingPayload, nil
+		},
+	}
+
+	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
 
 	//Update a blog - payload uses woesID and seq no from the created entity
-	updatedPayload := map[string]interface{}{"weos_id": blog.ID, "sequence_no": blog.SequenceNo, "title": "Update Blog", "description": "Description testing 2", "url": "www.TestBlog2.com"}
+	updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "1", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
+	updatedReqBytes, err := json.Marshal(updatedPayload)
+	if err != nil {
+		t.Fatalf("error converting payload to bytes %s", err)
+	}
 
 	reqBytes, err = json.Marshal(updatedPayload)
 	if err != nil {
 		t.Fatalf("error converting content type to bytes %s", err)
 	}
 
-	updatedBlog, err := dService.Update(newContext, reqBytes, entityType)
+	updatedBlog, err := dService1.Update(newContext, updatedReqBytes, entityType)
 
 	if err != nil {
-		t.Fatalf("unexpected error creating content type '%s'", err)
+		t.Fatalf("unexpected error updating content type '%s'", err)
 	}
 	if updatedBlog == nil {
 		t.Fatal("expected blog to be returned")

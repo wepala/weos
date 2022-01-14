@@ -47,3 +47,20 @@ func GetIDfromPayload(payload []byte) (string, error) {
 
 	return weosID, nil
 }
+
+//GetSeqfromPayload: This returns the sequence number from payload
+func GetSeqfromPayload(payload []byte) (string, error) {
+	var tempPayload map[string]interface{}
+	err := json.Unmarshal(payload, &tempPayload)
+	if err != nil {
+		return "", err
+	}
+
+	if tempPayload["sequence_no"] == nil {
+		tempPayload["sequence_no"] = ""
+	}
+
+	seqNo := tempPayload["sequence_no"].(string)
+
+	return seqNo, nil
+}
