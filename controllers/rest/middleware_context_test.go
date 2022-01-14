@@ -40,8 +40,8 @@ func TestContext(t *testing.T) {
 		mw := rest.Context(nil, swagger, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
-			cc := ctxt.(*context.Context)
-			tAccountID := context.GetAccount(cc.RequestContext())
+			cc := ctxt.Request().Context()
+			tAccountID := context.GetAccount(cc)
 			if tAccountID != accountID {
 				t.Errorf("expected the account id to be '%s', got '%s'", accountID, tAccountID)
 			}
@@ -62,7 +62,7 @@ func TestContext(t *testing.T) {
 		mw := rest.Context(nil, swagger, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
-			cc := ctxt.(*context.Context)
+			cc := ctxt.Request().Context()
 			if cc.Value(paramName) == nil {
 				t.Fatalf("expected a value to be returned for '%s'", paramName)
 			}
@@ -88,7 +88,7 @@ func TestContext(t *testing.T) {
 		mw := rest.Context(nil, swagger, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
-			cc := ctxt.(*context.Context)
+			cc := ctxt.Request().Context()
 			if cc.Value(contextName) == nil {
 				t.Fatalf("expected a value to be returned for '%s'", contextName)
 			}
@@ -113,7 +113,7 @@ func TestContext(t *testing.T) {
 		mw := rest.Context(nil, swagger, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
-			cc := ctxt.(*context.Context)
+			cc := ctxt.Request().Context()
 			if cc.Value(paramName) == nil {
 				t.Fatalf("expected a value to be returned for '%s'", paramName)
 			}
@@ -140,7 +140,7 @@ func TestContext(t *testing.T) {
 		mw := rest.Context(nil, swagger, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
-			cc := ctxt.(*context.Context)
+			cc := ctxt.Request().Context()
 			if cc.Value(paramName) == nil {
 				t.Fatalf("expected a value to be returned for '%s'", paramName)
 			}
@@ -164,7 +164,7 @@ func TestContext(t *testing.T) {
 		mw := rest.Context(nil, swagger, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
-			cc := ctxt.(*context.Context)
+			cc := ctxt.Request().Context()
 			if cc.Value(paramName) != nil {
 				t.Errorf("did not expect to get a value, got '%s'", cc.Value(paramName).(string))
 			}

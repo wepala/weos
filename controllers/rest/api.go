@@ -310,22 +310,10 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
 					}
 				} else {
-					switch strings.ToUpper(method) {
-					case "POST":
-						if pathData.Post.RequestBody == nil {
-							e.Logger.Warnf("unexpected error: expected request body but got nil")
-							return e, fmt.Errorf("unexpected error: expected request body but got nil")
-						}
-						//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-						for _, value := range pathData.Post.RequestBody.Value.Content {
-							if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-								operationConfig.Handler = "Create"
-								autoConfigure = true
-							} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Value.Type, "#/components/schemas/") {
-								operationConfig.Handler = "CreateBatch"
-								autoConfigure = true
-							}
-						}
+					//Adds standard controller to path
+					autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
+					if err != nil {
+						return e, err
 					}
 				}
 
