@@ -55,7 +55,6 @@ jobs:
           race: false
           ldflags: -s -w
           buildmode: default
-          tags: server
       - name: setup app
         run: |
           ls -al build/*

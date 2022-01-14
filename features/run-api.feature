@@ -15,6 +15,15 @@ Feature: Run API
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     x-weos-config:
+       database:
+         driver: sqlite3
+         database: e2e.db
+       rest:
+         middleware:
+           - RequestID
+           - Recover
+           - ZapLogger
      components:
        schemas:
          Blog:

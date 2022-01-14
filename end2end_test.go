@@ -512,10 +512,10 @@ func theBinaryIsRunWithTheSpecification() error {
 		//	Dockerfile: dockerFile,
 		//},
 		Name:         "BDDTest",
-		ExposedPorts: []string{"8681:8681/tcp"},
-		VolumeMounts: map[string]string{specPath: "api.yaml", binaryPath: "weos"},
-		//Entrypoint:   []string{"./weos"},
-		Entrypoint: []string{"tail", "-f", "/dev/null"},
+		ExposedPorts: []string{"8681/tcp"},
+		BindMounts:   map[string]string{"/api.yaml": specPath, "/weos": binaryPath},
+		Entrypoint:   []string{"/weos"},
+		//Entrypoint: []string{"tail", "-f", "/dev/null"},
 		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
 		WaitingFor: wait.ForLog("started"),
 	}
@@ -524,7 +524,7 @@ func theBinaryIsRunWithTheSpecification() error {
 		Started:          true,
 	})
 	if err != nil {
-		fmt.Errorf("unexpected error starting container '%s'", err)
+		return fmt.Errorf("unexpected error starting container '%s'", err)
 	}
 
 	defer esContainer.Terminate(ctx)
@@ -534,7 +534,7 @@ func theBinaryIsRunWithTheSpecification() error {
 	endpoint, err = esContainer.Host(ctx) //didn't use the endpoint call because it returns "localhost" which the client doesn't seem to like
 	cport, err := esContainer.MappedPort(ctx, "8681")
 	if err != nil {
-		fmt.Errorf("error setting up container '%s'", err)
+		return fmt.Errorf("error setting up container '%s'", err)
 	}
 	dockerEndpoint = "http://" + endpoint + ":" + cport.Port()
 	return nil
@@ -603,8 +603,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~skipped && ~long",
-			Tags: "linux32",
+			Tags:   "~skipped && ~long",
+			//Tags: "linux32",
 		},
 	}.Run()
 	if status != 0 {
