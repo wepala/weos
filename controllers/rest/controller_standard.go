@@ -149,6 +149,9 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 		err := app.Dispatcher().Dispatch(newContext, model.Update(newContext, payload, contentType))
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
+				if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
+					return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
+				}
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 			} else {
 				return NewControllerError("unexpected error updating content type", err, http.StatusBadRequest)
