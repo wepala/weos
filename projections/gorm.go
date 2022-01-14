@@ -2,11 +2,14 @@ package projections
 
 import (
 	"encoding/json"
+
+	"strings"
+
+	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos-service/context"
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
-	"strings"
 )
 
 //GORMProjection interface struct
@@ -53,18 +56,65 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) {
 		switch event.Type {
 		case "create":
-			//TODO the event payload should be a struct based on the schema that came in the context
-			var eventPayload map[string]interface{}
 			contentType := weosContext.GetContentType(ctx)
-			err := json.Unmarshal(event.Payload, &eventPayload)
-			if err != nil {
-				p.logger.Errorf("error unmarshalling event '%s'", err)
+			eventPayload, ok := p.Schema[strings.Title(contentType.Name)]
+			if !ok {
+				p.logger.Errorf("found no content type %s", contentType.Name)
+			} else {
+				mapPayload := map[string]interface{}{}
+				err := json.Unmarshal(event.Payload, &mapPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+				mapPayload["sequence_no"] = event.Meta.SequenceNo
+
+				bytes, _ := json.Marshal(mapPayload)
+				err = json.Unmarshal(bytes, &eventPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+				db := p.db.Table(contentType.Name).Create(eventPayload)
+				if db.Error != nil {
+					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+				}
 			}
-			eventPayload["sequence_no"] = event.Meta.SequenceNo
-			db := p.db.Table(contentType.Name).Create(eventPayload)
-			if db.Error != nil {
-				p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+		case "update":
+			contentType := weosContext.GetContentType(ctx)
+			eventPayload, ok := p.Schema[strings.Title(contentType.Name)]
+			mapPayload := map[string]interface{}{}
+			if !ok {
+				p.logger.Errorf("found no content type %s", contentType.Name)
+			} else {
+				err := json.Unmarshal(event.Payload, &eventPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+
+				err = json.Unmarshal(event.Payload, &mapPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+				reader := ds.NewReader(eventPayload)
+
+				//replace associations
+				for key, entity := range mapPayload {
+					//many to many association
+					if _, ok := entity.([]interface{}); ok {
+						field := reader.GetField(strings.Title(key))
+						err = p.db.Debug().Model(eventPayload).Association(strings.Title(key)).Replace(field.Interface())
+						if err != nil {
+							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), contentType.Name, err)
+						}
+					}
+				}
+
+				//update database value
+				db := p.db.Table(contentType.Name).Updates(eventPayload)
+				if db.Error != nil {
+					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+				}
 			}
+
 		}
 	}
 }
