@@ -237,7 +237,6 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 }
 
 func aRouteShouldBeAddedToTheApi(method, path string) error {
-	return godog.ErrPending
 	yamlRoutes := e.Routes()
 	for _, route := range yamlRoutes {
 		if route.Method == method && route.Path == path {
@@ -247,9 +246,26 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
 }
 
+func aRouteShouldBeAddedToTheApi1(method string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if route.Method == method {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected route but got nil with method %s ", method)
+}
+
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
 	if !strings.Contains(buf.String(), "no handler set") {
-		fmt.Errorf("expected an error to be log got '%s'", buf.String())
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet() error {
+	if !strings.Contains(buf.String(), "a parameter for each part of the identifier must be set") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
 }
@@ -280,8 +296,8 @@ func anErrorShouldBeReturned() error {
 	return nil
 }
 
-func blogsInTheApi(arg1 *godog.Table) error {
-	return godog.ErrPending
+func blogsInTheApi(details *godog.Table) error {
+	return nil
 }
 
 func entersInTheField(userName, value, field string) error {
@@ -374,6 +390,8 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 	e = echo.New()
 	os.Remove("e2e.db")
 	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
 		return err
@@ -385,6 +403,8 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
 	os.Remove("e2e.db")
 	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
 		errors = err
@@ -487,8 +507,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
+	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
 	ctx.Step(`^the "([^"]*)" header should be "([^"]*)"$`, theHeaderShouldBe)
-
+	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
 }
 
 func TestBDD(t *testing.T) {

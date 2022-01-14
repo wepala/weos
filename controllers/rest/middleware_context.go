@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos-service/context"
+	weosContext "github.com/wepala/weos-service/context"
 	"github.com/wepala/weos-service/model"
+	"golang.org/x/net/context"
 	"net/textproto"
 	"strings"
 )
@@ -15,11 +16,11 @@ func Context(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem,
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			var err error
-			cc := context.New(c)
+			cc := c.Request().Context()
 			//get account id using the standard header
-			accountID := c.Request().Header.Get(context.HeaderXAccountID)
+			accountID := c.Request().Header.Get(weosContext.HeaderXAccountID)
 			if accountID != "" {
-				cc = cc.WithValue(cc, context.ACCOUNT_ID, accountID)
+				cc = context.WithValue(cc, weosContext.ACCOUNT_ID, accountID)
 			}
 			//use the path information to get the parameter values and add them to the context
 			for _, parameter := range path.Parameters {
@@ -33,13 +34,15 @@ func Context(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem,
 			if err != nil {
 				c.Logger().Error(err)
 			}
-			return next(cc)
+			request := c.Request().WithContext(cc)
+			c.SetRequest(request)
+			return next(c)
 		}
 	}
 }
 
 //parseParams uses the parameter type to determine where to pull the value from
-func parseParams(c echo.Context, cc *context.Context, parameter *openapi3.ParameterRef) (*context.Context, error) {
+func parseParams(c echo.Context, cc context.Context, parameter *openapi3.ParameterRef) (context.Context, error) {
 	if parameter.Value != nil {
 		contextName := parameter.Value.Name
 		//if there is a context name specified use that instead. The value is a json.RawMessage (not a string)
@@ -54,12 +57,12 @@ func parseParams(c echo.Context, cc *context.Context, parameter *openapi3.Parame
 			//have to normalize the key name to be able to retrieve from header because of how echo setup up the headers map
 			headerName := textproto.CanonicalMIMEHeaderKey(parameter.Value.Name)
 			if value, ok := c.Request().Header[headerName]; ok {
-				cc = cc.WithValue(cc, contextName, value[0])
+				cc = context.WithValue(cc, contextName, value[0])
 			}
 		case "query":
-			cc = cc.WithValue(cc, contextName, c.QueryParam(parameter.Value.Name))
+			cc = context.WithValue(cc, contextName, c.QueryParam(parameter.Value.Name))
 		case "path":
-			cc = cc.WithValue(cc, contextName, c.Param(parameter.Value.Name))
+			cc = context.WithValue(cc, contextName, c.Param(parameter.Value.Name))
 		}
 	}
 	//TODO account for $ref tag reference
