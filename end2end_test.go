@@ -638,6 +638,10 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 	return nil
 }
 
+func sojournerIsUpdatingWithId(arg1, arg2 string) error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -669,7 +673,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
 	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
 	ctx.Step(`^a blog should be returned$`, aBlogShouldBeReturned)
-
+	ctx.Step(`^Sojourner is updating "([^"]*)" with id "([^"]*)"$`, sojournerIsUpdatingWithId)
 	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
 	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
 }
@@ -681,7 +685,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped",
+			Tags:   "WEOS-1135",
 		},
 	}.Run()
 	if status != 0 {

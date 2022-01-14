@@ -50,8 +50,7 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.
 		}
 
 		var result *gorm.DB
-
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).First(scheme, identifiers)
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme)
 
 		if result.Error != nil {
 			return nil, result.Error
@@ -72,7 +71,7 @@ func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosCon
 	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		var result *gorm.DB
 
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Where("weos_id = ?", id).Take(scheme)
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Where("weos_id = ?", id).Find(scheme)
 
 		if result.Error != nil {
 			return nil, result.Error
