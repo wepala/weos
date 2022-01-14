@@ -38,7 +38,7 @@ func CreateBatch(ctx context.Context, payload json.RawMessage, entityType string
 	return command
 }
 
-func Update(ctx context.Context, payload json.RawMessage, entityType string, entityID string) *Command {
+func Update(ctx context.Context, payload json.RawMessage, entityType string) *Command {
 
 	command := &Command{
 		Type:    "update",
@@ -48,7 +48,6 @@ func Update(ctx context.Context, payload json.RawMessage, entityType string, ent
 			UserID:     weoscontext.GetUser(ctx),
 			AccountID:  weoscontext.GetAccount(ctx),
 			EntityType: entityType,
-			EntityID:   entityID,
 		},
 	}
 	return command

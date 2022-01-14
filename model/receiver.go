@@ -45,12 +45,8 @@ func (r *Receiver) CreateBatch(ctx context.Context, command *Command) error {
 
 //Update is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
 func (r *Receiver) Update(ctx context.Context, command *Command) error {
-	payload, err := AddIDToPayload(command.Payload, command.Metadata.EntityID)
-	if err != nil {
-		return err
-	}
 
-	updatedEntity, err := r.domainService.Update(ctx, payload, command.Metadata.EntityType)
+	updatedEntity, err := r.domainService.Update(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
 		return err
 	}

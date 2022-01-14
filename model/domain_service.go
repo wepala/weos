@@ -59,8 +59,9 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 
 //Update is used for a single payload. It gets an existing entity and updates it with the new payload
 func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
-	//TODO check for the ID(pk) they know
-	//TODO check for weosID
+	//TODO check for the ID(pk) in the context
+	//TODO if ID, use getByKey func
+	//TODO check for weosID in payload
 	weosID, err := GetIDfromPayload(payload)
 	if err != nil {
 		return nil, NewDomainError("unexpected error unmarshalling payload to get weosID", entityType, "", err)
