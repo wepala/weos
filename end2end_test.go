@@ -43,6 +43,7 @@ var reqBody string
 var imageName string
 var binary string
 var dockerFile string
+var esContainer testcontainers.Container
 
 type User struct {
 	Name      string
@@ -474,7 +475,8 @@ func thatTheBinaryIsGenerated(arg1 string) error {
 	case "mac":
 		imageName = "IntelMacDockerFile"
 	case "linux32":
-		imageName = "alpine"
+		//imageName = "alpine"
+		imageName = "ubuntu:latest"
 		binary = "weos-linux-386"
 		dockerFile = "LinuxDockerFile"
 	case "linux64":
@@ -492,10 +494,6 @@ func thatTheBinaryIsGenerated(arg1 string) error {
 }
 
 func theBinaryIsRunWithTheSpecification() error {
-	//currentPath, err := filepath.Abs("./")
-	//if err != nil {
-	//	return err
-	//}
 	binaryPath, err := filepath.Abs("./" + binary)
 	if err != nil {
 		return err
@@ -506,11 +504,7 @@ func theBinaryIsRunWithTheSpecification() error {
 	}
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
-		Image: imageName,
-		//FromDockerfile: testcontainers.FromDockerfile{
-		//	Context:    currentPath,
-		//	Dockerfile: dockerFile,
-		//},
+		Image:        imageName,
 		Name:         "BDDTest",
 		ExposedPorts: []string{"8681/tcp"},
 		BindMounts:   map[string]string{"/api.yaml": specPath, "/weos": binaryPath},
@@ -519,15 +513,13 @@ func theBinaryIsRunWithTheSpecification() error {
 		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
 		WaitingFor: wait.ForLog("started"),
 	}
-	esContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	esContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
 	if err != nil {
 		return fmt.Errorf("unexpected error starting container '%s'", err)
 	}
-
-	defer esContainer.Terminate(ctx)
 
 	//get the endpoint that the container was run on
 	var endpoint string
@@ -549,6 +541,7 @@ func theEndpointIsHit(method, contentType string) error {
 	request.Close = true
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, request)
+	defer esContainer.Terminate(context.Background())
 	return nil
 }
 
@@ -603,8 +596,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
-			//Tags: "linux32",
+			//Tags:   "~skipped && ~long",
+			Tags: "linux32",
 		},
 	}.Run()
 	if status != 0 {
