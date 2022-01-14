@@ -1,12 +1,13 @@
 package rest
 
 import (
-	"github.com/segmentio/ksuid"
-	context2 "github.com/wepala/weos-service/context"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/segmentio/ksuid"
+	context2 "github.com/wepala/weos-service/context"
+	"golang.org/x/net/context"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -45,7 +46,11 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 
 		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
 		if err != nil {
-			return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
+			if errr, ok := err.(*model.DomainError); ok {
+				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+			} else {
+				return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
+			}
 		}
 
 		var Etag string
