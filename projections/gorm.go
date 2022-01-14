@@ -8,6 +8,7 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos-service/context"
 	weos "github.com/wepala/weos-service/model"
+	"github.com/wepala/weos-service/utils"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -21,9 +22,23 @@ type GORMProjection struct {
 	Schema          map[string]interface{}
 }
 
+//since the scheme struct is by default a pointer, the values in the scheme need to be cleared
+func resetScheme(scheme interface{}) interface{} {
+
+	reader := ds.NewReader(scheme)
+	instance := ds.ExtendStruct(&DefaultProjection{})
+	for _, f := range reader.GetAllFields() {
+		if !instance.HasField(f.Name()) {
+			instance.AddField(f.Name(), f.Interface(), `json:"`+utils.SnakeCase(f.Name())+`"`)
+		}
+	}
+	return instance.Build().New()
+}
+
 func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		//pulling the primary keys from the schema in order to match with the keys given for searching
+		scheme = resetScheme(scheme)
 		pks, _ := json.Marshal(contentType.Schema.Extensions["x-identifier"])
 		primaryKeys := []string{}
 		json.Unmarshal(pks, &primaryKeys)
@@ -49,9 +64,7 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.
 			}
 		}
 
-		var result *gorm.DB
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme)
-
+		result := p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme, identifiers)
 		if result.Error != nil {
 			return nil, result.Error
 		}
@@ -69,9 +82,8 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.
 
 func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
 	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
-		var result *gorm.DB
-
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Where("weos_id = ?", id).Find(scheme)
+		scheme = resetScheme(scheme)
+		result := p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme, "weos_id = ?", id)
 
 		if result.Error != nil {
 			return nil, result.Error
@@ -121,6 +133,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
+				eventPayload = resetScheme(eventPayload)
 				mapPayload := map[string]interface{}{}
 				err := json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
@@ -145,7 +158,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
-
+				eventPayload = resetScheme(eventPayload)
 				err := json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)

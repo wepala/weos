@@ -3,7 +3,6 @@ package rest
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -251,9 +250,6 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ctxt.JSON(http.StatusNotFound, "No entity found")
 		}
-
-		fmt.Print(cType)
-		fmt.Print(newContext)
 
 		return ctxt.JSON(http.StatusOK, result)
 	}
