@@ -7,6 +7,7 @@ import (
 )
 
 type DomainService struct {
+	Projection //not sure if its this simple
 	Repository
 	eventRepository EventRepository
 }
@@ -57,14 +58,25 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 }
 
 //Update is used for a single payload. It gets an existing entity and updates it with the new payload
-//TODO Add weosID/EntityID to cmd (when 1130 -> dev)
 func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
-	//TODO Check weosID if blank
-	//TODO call getEntity with id
-	//TODO check if entity is nil
-	//TODO call entity update
-	//TODO Return entity
-	return new(ContentEntity), nil
+
+	weosID, err := GetIDfromPayload(payload)
+	if err != nil {
+		return nil, NewDomainError("unexpected error unmarshalling payload to get weosID", entityType, "", err)
+	}
+
+	if weosID == "" {
+		return nil, NewDomainError("no weosID provided", entityType, "", nil)
+	}
+
+	existingEntity, err := s.GetContentEntity(ctx, weosID)
+	if err != nil {
+		return nil, NewDomainError("unexpected error fetching existing entity", entityType, weosID, err)
+	}
+
+	//TODO create the update func on the content entity
+	updatedEntity := existingEntity.Update(payload)
+	return updatedEntity, nil
 }
 
 func NewDomainService(ctx context.Context, eventRepository EventRepository) *DomainService {

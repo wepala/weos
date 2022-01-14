@@ -36,6 +36,7 @@ func (p *GORMProjection) GetByID(ctxt context.Context, contentType weosContext.C
 }
 
 func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (interface{}, error) {
+
 	return nil, nil
 }
 
