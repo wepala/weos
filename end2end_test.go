@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/wepala/weos-service/utils"
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
@@ -22,6 +23,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cucumber/godog"
+	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
+	api "github.com/wepala/weos-service/controllers/rest"
+	"gorm.io/gorm"
 	"github.com/wepala/weos-service/utils"
 )
 
@@ -67,7 +73,6 @@ type ContentType struct {
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
-	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
@@ -116,7 +121,6 @@ components:
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
-	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	errs = nil
 	rec = httptest.NewRecorder()
@@ -250,7 +254,6 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 }
 
 func aRouteShouldBeAddedToTheApi(method, path string) error {
-	return godog.ErrPending
 	yamlRoutes := e.Routes()
 	for _, route := range yamlRoutes {
 		if route.Method == method && route.Path == path {
@@ -260,9 +263,26 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
 }
 
+func aRouteShouldBeAddedToTheApi1(method string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if route.Method == method {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected route but got nil with method %s ", method)
+}
+
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
 	if !strings.Contains(buf.String(), "no handler set") {
-		fmt.Errorf("expected an error to be log got '%s'", buf.String())
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet() error {
+	if !strings.Contains(buf.String(), "a parameter for each part of the identifier must be set") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
 }
@@ -293,8 +313,8 @@ func anErrorShouldBeReturned() error {
 	return nil
 }
 
-func blogsInTheApi(arg1 *godog.Table) error {
-	return godog.ErrPending
+func blogsInTheApi(details *godog.Table) error {
+	return nil
 }
 
 func entersInTheField(userName, value, field string) error {
@@ -334,14 +354,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	}
 
 	contentEntity := map[string]interface{}{}
-	var result *gorm.DB
-	//ETag would help with this
-	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
-		if contentEntity != nil {
-			break
-		}
-	}
+	idEtag, seqNoEtag := api.SplitEtag(rec.Result().Header.Get("Etag"))
+	result := API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", idEtag, "sequence_no = ?", seqNoEtag)
 
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
@@ -357,7 +371,6 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
 
@@ -381,9 +394,11 @@ func theIsSubmitted(contentType string) error {
 
 func theShouldHaveAnId(contentType string) error {
 
-	if !contentTypeID[strings.ToLower(contentType)] {
-		return fmt.Errorf("expected the " + contentType + " to have an ID")
+	idEtag, _ := api.SplitEtag(rec.Result().Header.Get("Etag"))
+	if idEtag == "" {
+		return fmt.Errorf("expected the "+contentType+" to have an ID, got %s", idEtag)
 	}
+
 	return nil
 }
 
@@ -396,6 +411,8 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
 	os.Remove("e2e.db")
 	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
 		errs = err
@@ -556,6 +573,22 @@ func theServiceIsRunning() error {
 	return nil
 }
 
+func theHeaderShouldBe(header, value string) error {
+	//Table has no value to compare against so just checking for id existance
+	Etag := rec.Result().Header.Get(header)
+	idEtag, seqNoEtag := api.SplitEtag(Etag)
+	if Etag == "" {
+		return fmt.Errorf("expected the Etag to be added to header, got %s", Etag)
+	}
+	if idEtag == "" {
+		return fmt.Errorf("expected the Etag to contain a weos id, got %s", idEtag)
+	}
+	if seqNoEtag == "" {
+		return fmt.Errorf("expected the Etag to contain a sequence no, got %s", seqNoEtag)
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -580,6 +613,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
+	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
+	ctx.Step(`^the "([^"]*)" header should be "([^"]*)"$`, theHeaderShouldBe)
+	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
 	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
 	ctx.Step(`^request body$`, requestBody)
 	ctx.Step(`^that the "([^"]*)" binary is generated$`, thatTheBinaryIsGenerated)
