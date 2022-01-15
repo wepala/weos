@@ -1,11 +1,15 @@
 name: Release workflow
 
 on:
-  push:
-    branches:
-      - dev
-      - feature/*
-      - release/*
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Desired release tag (e.g. v1.2,v1.2-alpha,v1.2-RC1)
+        required: true
+      pre-release:
+        description: Is Pre-Release
+        required: true
+        default: "true"
 
 env:
   SLACK_CHANNEL: weos
@@ -35,6 +39,7 @@ jobs:
   build-api:
     name: Release Go Binaries
     runs-on: ubuntu-latest
+    needs: prep
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -60,11 +65,11 @@ jobs:
           buildmode: default
       - name: setup app
         run: |
-          #ls -al build/*
+          ls -al build/*
           
           #setup go tests
           go install github.com/cucumber/godog/cmd/godog@latest
-          godog -t long
+          
           
           #setup mac build
           mkdir -p build/mac
