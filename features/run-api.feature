@@ -99,7 +99,7 @@ Feature: Run API
      This runs the api using sqlite and then makes a create request on the API.
 
      Given that the "<build>" binary is generated
-     And is run on the operating system "<os>"
+     And is run on the operating system "<os>" as "<mount>"
      And the binary is run with the specification
      And request body
      """
@@ -113,5 +113,6 @@ Feature: Run API
      Then a 200 response should be returned
 
      Examples:
-     | build             | os            |
-     | weos-linux-amd64  | ubuntu:latest |
+     | build                       | os                                                      | mount                      |
+     | weos-linux-amd64            | ubuntu:latest                                           | /weos                      |
+#     | weos-windows-4.0-amd64.exe  | mcr.microsoft.com/windows/nanoserver:ltsc2022           | /weos.exe      |

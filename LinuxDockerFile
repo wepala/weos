@@ -1,9 +1,0 @@
-FROM alpine:3.15
-
-COPY weos-linux-386 /app/weos
-COPY api.yaml /app/api.yaml
-EXPOSE 8681
-ENTRYPOINT ["/app/weos"]
-
-
-

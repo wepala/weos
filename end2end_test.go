@@ -43,6 +43,7 @@ var reqBody string
 var imageName string
 var binary string
 var dockerFile string
+var binaryMount string
 var esContainer testcontainers.Container
 
 type User struct {
@@ -504,8 +505,8 @@ func theBinaryIsRunWithTheSpecification() error {
 		Image:        imageName,
 		Name:         "BDDTest",
 		ExposedPorts: []string{"8681/tcp"},
-		BindMounts:   map[string]string{"/weos": binaryPath},
-		Entrypoint:   []string{"/weos"},
+		BindMounts:   map[string]string{binaryMount: binaryPath},
+		Entrypoint:   []string{binaryMount},
 		//Entrypoint: []string{"tail", "-f", "/dev/null"},
 		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
 		WaitingFor: wait.ForLog("started"),
@@ -529,8 +530,9 @@ func theBinaryIsRunWithTheSpecification() error {
 	return nil
 }
 
-func isRunOnTheOperatingSystem(arg1 string) error {
+func isRunOnTheOperatingSystemAs(arg1 string, arg2 string) error {
 	imageName = arg1
+	binaryMount = arg2
 	return nil
 }
 
@@ -609,7 +611,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the binary is run with the specification$`, theBinaryIsRunWithTheSpecification)
 	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
-	ctx.Step(`^is run on the operating system "([^"]*)"$`, isRunOnTheOperatingSystem)
+	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
 }
 
 func TestBDD(t *testing.T) {
@@ -619,8 +621,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
-			//Tags: "long",
+			//Tags:   "~skipped && ~long",
+			Tags: "long",
 		},
 	}.Run()
 	if status != 0 {
