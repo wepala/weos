@@ -60,7 +60,7 @@ jobs:
           buildmode: default
       - name: setup app
         run: |
-          ls -al build/*
+          #ls -al build/*
           
           #setup go tests
           go install github.com/cucumber/godog/cmd/godog@latest
