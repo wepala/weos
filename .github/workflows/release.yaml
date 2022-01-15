@@ -1,45 +1,23 @@
 name: Release workflow
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Desired release tag (e.g. v1.2,v1.2-alpha,v1.2-RC1)
-        required: true
-      pre-release:
-        description: Is Pre-Release
-        required: true
-        default: "true"
+  push:
+    tags:
+      - "v*.*.*"
 
 env:
   SLACK_CHANNEL: weos
   SLACK_USERNAME: WeOS API
   SLACK_ICON: https://github.com/wepala.png?size=48
   SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-  SLACK_FOOTER: copyright 2021 Wepala
+  SLACK_FOOTER: copyright 2022 Wepala
 
 jobs:
-  prep:
-    runs-on: ubuntu-latest
-    outputs:
-      today: ${{ steps.date.outputs.today }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Install Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.16.x
-      - name: Run unit tests
-        run: go test -v ./...
-#      - name: Run Postgres integration tests
-      #   run: go test -v ./... -driver=postgres
-      # - name: Run Mysql integration tests
-      #   run: go test -v ./... -driver=mysql
   build-api:
     name: Release Go Binaries
+    outputs:
+      today: ${{ steps.date.outputs.today }}
     runs-on: ubuntu-latest
-    needs: prep
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -49,7 +27,10 @@ jobs:
           go-version: 1.16.x
       - name: Run unit tests
         run: go test -v ./...
-      - uses: actions/checkout@v2
+      - name: Run Postgres projections tests
+        run: go test -v ./projections -driver=postgres
+      - name: Run Mysql projections tests
+        run: go test -v ./projections -driver=mysql
       - uses: crazy-max/ghaction-xgo@v1
         name: build linux and mac
         with:
@@ -65,11 +46,9 @@ jobs:
           buildmode: default
       - name: setup app
         run: |
-          ls -al build/*
-          
           #setup go tests
           go install github.com/cucumber/godog/cmd/godog@latest
-          
+          godog -t long
           
           #setup mac build
           mkdir -p build/mac
@@ -123,30 +102,21 @@ jobs:
           chmod +x build/win64/weos.exe
           cd build/win64
           zip -r  ../../weos-win64.zip .
-
-      - uses: actions/upload-artifact@v2
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: Mac OS
-          path: weos-mac-amd64.tar.gz
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Linux 32 Bit
-          path: weos-linux-386.tar.gz
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Linux 64 Bit
-          path: weos-linux-amd64.tar.gz
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Windows 32 Bit
-          path: weos-win32.zip
-      - uses: actions/upload-artifact@v2
-        with:
-          name: Windows 64 bit
-          path: weos-win64.zip
+          files: |
+            weos-linux-386.tar.gz
+            weos-linux-amd64.tar.gz
+            weos-mac-amd64.tar.gz
+            weos-win32.zip
+            weos-win64.zip
+            LICENSE
+          generate_release_notes: true
       - name: Send release notification
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_COLOR: "FFFF00"
-          SLACK_MESSAGE: We were able to create a development build. Get the artifact here https://github.com/wepala/weos-api/actions/runs/${{ github.run_id }}
-          SLACK_TITLE: WeOS API Build Created
+          SLACK_MESSAGE: We were able to create a release. View the release at https://github.com/wepala/weos-service/releases
+          SLACK_TITLE: WeOS Build Created
