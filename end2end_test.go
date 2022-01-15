@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/wepala/weos-service/utils"
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos-service/controllers/rest"
+	"github.com/wepala/weos-service/utils"
 	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
@@ -22,13 +22,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/cucumber/godog"
-	"github.com/labstack/echo/v4"
-	ds "github.com/ompluscator/dynamic-struct"
-	api "github.com/wepala/weos-service/controllers/rest"
-	"gorm.io/gorm"
-	"github.com/wepala/weos-service/utils"
 )
 
 var e *echo.Echo
@@ -40,6 +33,7 @@ var errs error
 var buf bytes.Buffer
 var payload ContentType
 var rec *httptest.ResponseRecorder
+var resp *http.Response
 var db *sql.DB
 var requests map[string]map[string]interface{}
 var currScreen string
@@ -124,6 +118,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	Developer = &User{}
 	errs = nil
 	rec = httptest.NewRecorder()
+	resp = nil
 	os.Remove("e2e.db")
 	var err error
 	db, err = sql.Open("sqlite3", "e2e.db")
@@ -476,7 +471,10 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 }
 
 func aResponseShouldBeReturned(statusCode int) error {
-	if rec.Result().StatusCode != statusCode {
+	//check resp first
+	if resp != nil && resp.StatusCode != statusCode {
+		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, resp.StatusCode)
+	} else if rec != nil && rec.Result().StatusCode != statusCode {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, rec.Result().StatusCode)
 	}
 	return nil
@@ -556,8 +554,8 @@ func theEndpointIsHit(method, contentType string) error {
 	request = request.WithContext(context.TODO())
 	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Close = true
-	rec = httptest.NewRecorder()
-	e.ServeHTTP(rec, request)
+	client := http.Client{}
+	resp, errs = client.Do(request)
 	defer esContainer.Terminate(context.Background())
 	return nil
 }
@@ -566,6 +564,8 @@ func theServiceIsRunning() error {
 	e = echo.New()
 	os.Remove("e2e.db")
 	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
 		return err

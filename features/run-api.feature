@@ -72,7 +72,7 @@ Feature: Run API
            responses:
              200:
                description: Application Homepage
-       /blog:
+       /blogs:
          post:
            operationId: Add Blog
            requestBody:
@@ -80,12 +80,6 @@ Feature: Run API
              required: true
              content:
                application/json:
-                 schema:
-                   $ref: "#/components/schemas/Blog"
-               application/x-www-form-urlencoded:
-                 schema:
-                   $ref: "#/components/schemas/Blog"
-               application/xml:
                  schema:
                    $ref: "#/components/schemas/Blog"
            responses:
@@ -107,11 +101,12 @@ Feature: Run API
      And request body
      """
      {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
+       "title":"Test1",
+       "description": "Lorem Ipsum",
+       "url": "adsf"
       }
      """
-     When the "POST" endpoint "/blog" is hit
+     When the "POST" endpoint "/blogs" is hit
      Then a 201 response should be returned
 
    @linux32
@@ -122,11 +117,12 @@ Feature: Run API
      And request body
      """
      {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
+       "title":"Test1",
+       "description": "Lorem Ipsum",
+       "url": "adsf"
       }
      """
-     When the "POST" endpoint "/blog" is hit
+     When the "POST" endpoint "/blogs" is hit
      Then a 201 response should be returned
 
 
@@ -137,11 +133,12 @@ Feature: Run API
      And request body
      """
      {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
+       "title":"Test1",
+       "description": "Lorem Ipsum",
+       "url": "adsf"
       }
      """
-     When the "POST" endpoint "/blog" is hit
+     When the "POST" endpoint "/blogs" is hit
      Then a 201 response should be returned
 
    Scenario: Run on Windows 32 bit
@@ -151,11 +148,12 @@ Feature: Run API
      And request body
      """
      {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
+       "title":"Test1",
+       "description": "Lorem Ipsum",
+       "url": "adsf"
       }
      """
-     When the "POST" endpoint "/blog" is hit
+     When the "POST" endpoint "/blogs" is hit
      Then a 201 response should be returned
 
    Scenario: Run on Windows 64 bit
@@ -165,9 +163,10 @@ Feature: Run API
      And request body
      """
      {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
+       "title":"Test1",
+       "description": "Lorem Ipsum",
+       "url": "adsf"
       }
      """
-     When the "POST" endpoint "/blog" is hit
+     When the "POST" endpoint "/blogs" is hit
      Then a 201 response should be returned
