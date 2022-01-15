@@ -72,7 +72,7 @@ Feature: Run API
            responses:
              200:
                description: Application Homepage
-       /blogs:
+       /blog:
          post:
            operationId: Add Blog
            requestBody:
@@ -94,9 +94,12 @@ Feature: Run API
      """
 
 
-   Scenario: Run on mac intel
+   Scenario Outline: Create item on different platforms
 
-     Given that the "mac" binary is generated
+     This runs the api using sqlite and then makes a create request on the API.
+
+     Given that the "<build>" binary is generated
+     And is run on the operating system "<os>"
      And the binary is run with the specification
      And request body
      """
@@ -106,67 +109,9 @@ Feature: Run API
        "url": "adsf"
       }
      """
-     When the "POST" endpoint "/blogs" is hit
-     Then a 201 response should be returned
+     When the "POST" endpoint "/blog" is hit
+     Then a 200 response should be returned
 
-   @linux32
-   Scenario: Run on linux 32 bit
-
-     Given that the "linux32" binary is generated
-     And the binary is run with the specification
-     And request body
-     """
-     {
-       "title":"Test1",
-       "description": "Lorem Ipsum",
-       "url": "adsf"
-      }
-     """
-     When the "POST" endpoint "/blogs" is hit
-     Then a 201 response should be returned
-
-
-   Scenario: Run on linux 64 bit
-
-     Given that the "linux64" binary is generated
-     And the binary is run with the specification
-     And request body
-     """
-     {
-       "title":"Test1",
-       "description": "Lorem Ipsum",
-       "url": "adsf"
-      }
-     """
-     When the "POST" endpoint "/blogs" is hit
-     Then a 201 response should be returned
-
-   Scenario: Run on Windows 32 bit
-
-     Given that the "windows32" binary is generated
-     And the binary is run with the specification
-     And request body
-     """
-     {
-       "title":"Test1",
-       "description": "Lorem Ipsum",
-       "url": "adsf"
-      }
-     """
-     When the "POST" endpoint "/blogs" is hit
-     Then a 201 response should be returned
-
-   Scenario: Run on Windows 64 bit
-
-     Given that the "widnows64" binary is generated
-     And the binary is run with the specification
-     And request body
-     """
-     {
-       "title":"Test1",
-       "description": "Lorem Ipsum",
-       "url": "adsf"
-      }
-     """
-     When the "POST" endpoint "/blogs" is hit
-     Then a 201 response should be returned
+     Examples:
+     | build             | os            |
+     | weos-linux-amd64  | ubuntu:latest |

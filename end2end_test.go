@@ -486,21 +486,7 @@ func requestBody(arg1 *godog.DocString) error {
 }
 
 func thatTheBinaryIsGenerated(arg1 string) error {
-	switch arg1 {
-	case "mac":
-		imageName = "IntelMacDockerFile"
-	case "linux32":
-		//imageName = "alpine"
-		imageName = "ubuntu:latest"
-		binary = "weos-linux-386"
-		dockerFile = "LinuxDockerFile"
-	case "linux64":
-		imageName = "Linux64DockerFile"
-	case "windows32":
-		imageName = "Windows32DockerFile"
-	case "windows64":
-		imageName = "Windows64DockerFile"
-	}
+	binary = arg1
 	//check if the binary exists and if not throw an error
 	if _, err := os.Stat("./" + binary); errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("weos binary not found")
@@ -513,16 +499,12 @@ func theBinaryIsRunWithTheSpecification() error {
 	if err != nil {
 		return err
 	}
-	specPath, err := filepath.Abs("./api.yaml")
-	if err != nil {
-		return err
-	}
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		Image:        imageName,
 		Name:         "BDDTest",
 		ExposedPorts: []string{"8681/tcp"},
-		BindMounts:   map[string]string{"/api.yaml": specPath, "/weos": binaryPath},
+		BindMounts:   map[string]string{"/weos": binaryPath},
 		Entrypoint:   []string{"/weos"},
 		//Entrypoint: []string{"tail", "-f", "/dev/null"},
 		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
@@ -544,6 +526,11 @@ func theBinaryIsRunWithTheSpecification() error {
 		return fmt.Errorf("error setting up container '%s'", err)
 	}
 	dockerEndpoint = "http://" + endpoint + ":" + cport.Port()
+	return nil
+}
+
+func isRunOnTheOperatingSystem(arg1 string) error {
+	imageName = arg1
 	return nil
 }
 
@@ -622,7 +609,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the binary is run with the specification$`, theBinaryIsRunWithTheSpecification)
 	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
-
+	ctx.Step(`^is run on the operating system "([^"]*)"$`, isRunOnTheOperatingSystem)
 }
 
 func TestBDD(t *testing.T) {
@@ -633,7 +620,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "linux32",
+			//Tags: "long",
 		},
 	}.Run()
 	if status != 0 {
