@@ -223,8 +223,8 @@ Feature: Create content
     @WEOS-1294 @skipped
     Scenario: Create item and associate with an existing item
 
-    If an item has one to many relationships or many to many relationships those connections can be established by
-    passing in the identity of the related item
+      If an item has one to many relationships or many to many relationships those connections can be established by
+      passing in the identity of the related item
 
       Given "Sojourner" is on the "Blog" create screen
       And "Sojourner" enters "Some Blog" in the "title" field
@@ -239,4 +239,16 @@ Feature: Create content
       And the "Blog" should have an id
       And the "ETag" header should be present
 
+    @WEOS-1294 @skipped
+    Scenario: Create item with related item and the item is invalid
+
+      If the related item is invalid then an error should be returned and the parent and related items should NOT be created
+
+      Given "Sojourner" is on the "Blog" create screen
+      And "Sojourner" enters "Some Blog" in the "title" field
+      And "Sojourner" enters "Some Description" in the "description" field
+      And "Sojourner" adds an item "Post" to "posts"
+      And "Sojourner" enters "Some Description" in the "description" field of "Post"
+      When the "Blog" is submitted
+      Then an error should be returned
 
