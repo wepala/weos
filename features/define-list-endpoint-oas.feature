@@ -80,7 +80,7 @@ Feature: Setup List endpoint
     Then a "GET" route should be added to the api
     And a "List" middleware should be added to the route
 
-  Scenario: Setup list endpoint the uses a custom response fields
+  Scenario: Setup list endpoint that uses custom response fields
 
     By default the total results are turned with the result array as total and page. The developer can also specify the
     field in the response to use for that data
@@ -104,8 +104,9 @@ Feature: Setup List endpoint
                       p:
                         type: integer
                         x-alias: page
-                      items:
+                      blogs:
                         type: array
+                        x-alias: items
                         items:
                           $ref: "#/components/schemas/Blog"
             400:
