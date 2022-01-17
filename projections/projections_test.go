@@ -1316,7 +1316,7 @@ components:
 	}
 
 	blogRef := swagger.Components.Schemas["Blog"]
-	r, err := p.GetByKey(context.Background(), weosContext.ContentType{Name: "Blog", Schema: blogRef.Value}, map[string]interface{}{
+	r, err := p.GetByKey(context.Background(), &weosContext.ContentType{Name: "Blog", Schema: blogRef.Value}, map[string]interface{}{
 		"author_id": "kidding",
 		"title":     "hugs",
 	})
