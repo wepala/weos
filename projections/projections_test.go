@@ -1282,21 +1282,7 @@ components:
 		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
 
 		for _, c := range columns {
-			switch *driver {
-			case "mysql":
-				if c.Name() == "title" {
-					columnNullable, _ := c.Nullable()
-					if !strings.EqualFold(strconv.FormatBool(columnNullable), "false") {
-						t.Fatalf("expected the title nullable state to be %s, got %s", "false", strconv.FormatBool(columnNullable))
-					}
-				}
-				if c.Name() == "description" {
-					columnNullable, _ := c.Nullable()
-					if !strings.EqualFold(strconv.FormatBool(columnNullable), "true") {
-						t.Fatalf("expected the description nullable state to be %s, got %s", "true", strconv.FormatBool(columnNullable))
-					}
-				}
-			case "postgres":
+			if *driver != "sqlite3" {
 				if c.Name() == "title" {
 					columnNullable, _ := c.Nullable()
 					if !strings.EqualFold(strconv.FormatBool(columnNullable), "false") {
