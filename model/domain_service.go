@@ -70,23 +70,23 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	//Fetch the weosID from the payload
 	weosID, err := GetIDfromPayload(payload)
 	if err != nil {
-		return nil, NewDomainError("unexpected error unmarshalling payload to get weosID", entityType, "", err)
+		return nil, NewDomainError("invalid: unexpected error unmarshalling payload to get weosID", entityType, "", err)
 	}
 
 	//If there is a weosID present use this
 	if weosID != "" {
 		seqNo, err := GetSeqfromPayload(payload)
 		if err != nil {
-			return nil, NewDomainError("unexpected error unmarshalling payload to get sequence number", entityType, "", err)
+			return nil, NewDomainError("invalid: unexpected error unmarshalling payload to get sequence number", entityType, "", err)
 		}
 
 		if seqNo == "" {
-			return nil, NewDomainError("no sequence number provided", entityType, "", nil)
+			return nil, NewDomainError("invalid: no sequence number provided", entityType, "", nil)
 		}
 
 		existingEntity, err := s.GetContentEntity(ctx, weosID)
 		if err != nil {
-			return nil, NewDomainError("unexpected error fetching existing entity", entityType, weosID, err)
+			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, weosID, err)
 		}
 
 		entitySeqNo := strconv.Itoa(int(existingEntity.SequenceNo))
@@ -97,7 +97,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 
 		updatedEntity, err = existingEntity.Update(payload)
 		if err != nil {
-			return nil, NewDomainError("unexpected error updating existingEntity", entityType, weosID, err)
+			return nil, NewDomainError("invalid: unexpected error updating existingEntity", entityType, weosID, err)
 		}
 
 		//If there is no weosID, use the id passed from the param
@@ -105,7 +105,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		paramID := ctx.Value("id")
 
 		if paramID == "" {
-			return nil, NewDomainError("no ID provided", entityType, "", nil)
+			return nil, NewDomainError("invalid: no ID provided", entityType, "", nil)
 		}
 
 		identifier = map[string]interface{}{"id": paramID}
@@ -113,17 +113,17 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 
 		data, err := json.Marshal(entityInterface)
 		if err != nil {
-			return nil, NewDomainError("unexpected error marshalling existingEntity interface", entityType, paramID.(string), err)
+			return nil, NewDomainError("invalid: unexpected error marshalling existingEntity interface", entityType, paramID.(string), err)
 		}
 
 		err = json.Unmarshal(data, &existingEntity)
 		if err != nil {
-			return nil, NewDomainError("unexpected error unmarshalling existingEntity", entityType, paramID.(string), err)
+			return nil, NewDomainError("invalid: unexpected error unmarshalling existingEntity", entityType, paramID.(string), err)
 		}
 
 		updatedEntity, err = existingEntity.Update(payload)
 		if err != nil {
-			return nil, NewDomainError("unexpected error updating existingEntity", entityType, paramID.(string), err)
+			return nil, NewDomainError("invalid: unexpected error updating existingEntity", entityType, paramID.(string), err)
 		}
 
 	}
