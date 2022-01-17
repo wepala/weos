@@ -10,7 +10,6 @@ import (
 
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos-service/context"
-	"github.com/wepala/weos-service/projections"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 
@@ -50,12 +49,16 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 
 		//for inserting weos_id during testing
 		payMap := map[string]interface{}{}
+		var weosID string
+
 		json.Unmarshal(payload, &payMap)
-		weosID := ksuid.New().String()
 		if v, ok := payMap["weos_id"]; ok {
 			if val, ok := v.(string); ok {
 				weosID = val
 			}
+		}
+		if weosID == "" {
+			weosID = ksuid.New().String()
 		}
 
 		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
@@ -212,7 +215,11 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		var result map[string]interface{}
 		var err error
 		if sequence == 0 && etag == "" && entityID != "true" {
-			result, err = app.Projections()[0].(*projections.GORMProjection).GetByKey(ctxt.Request().Context(), *cType, identifiers)
+			for _, projection := range app.Projections() {
+				if projection != nil {
+					result, err = projection.GetByKey(ctxt.Request().Context(), *cType, identifiers)
+				}
+			}
 		} else if etag != "" {
 			tag, seq := SplitEtag(etag)
 			seqInt, er := strconv.Atoi(seq)
@@ -243,7 +250,11 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 					result = r.Property.(map[string]interface{})
 				}
 			} else {
-				result, err = app.Projections()[0].(*projections.GORMProjection).GetByEntityID(ctxt.Request().Context(), *cType, id)
+				for _, projection := range app.Projections() {
+					if projection != nil {
+						result, err = projection.GetByEntityID(ctxt.Request().Context(), *cType, id)
+					}
+				}
 			}
 		}
 
