@@ -224,12 +224,12 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			tag, seq := SplitEtag(etag)
 			seqInt, er := strconv.Atoi(seq)
 			if er != nil {
-				return ctxt.JSON(http.StatusBadRequest, "Invalid sequence number")
+				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
 			}
-			r := &model.ContentEntity{}
-			r, err = GetContentBySequenceNumber(app.EventRepository(), tag, int64(seqInt))
+			r, er := GetContentBySequenceNumber(app.EventRepository(), tag, int64(seqInt))
+			err = er
 			if r.SequenceNo == 0 {
-				return ctxt.JSON(http.StatusNotFound, "No entity found")
+				return NewControllerError("No entity found", err, http.StatusNotFound)
 			}
 			if err == nil && r.SequenceNo < int64(seqInt) {
 				return ctxt.JSON(http.StatusNotModified, r.Property)
@@ -244,11 +244,11 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 				}
 			}
 			if sequence != 0 {
-				r := &model.ContentEntity{}
-				r, err = GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
+				r, er := GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
 				if r != nil {
 					result = r.Property.(map[string]interface{})
 				}
+				err = er
 			} else {
 				for _, projection := range app.Projections() {
 					if projection != nil {
@@ -258,10 +258,28 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			}
 		}
 
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ctxt.JSON(http.StatusNotFound, "No entity found")
+		if errors.Is(err, gorm.ErrRecordNotFound) || (len(result) == 0 && err == nil) {
+			return NewControllerError("No entity found", err, http.StatusNotFound)
+		} else if err != nil {
+			return NewControllerError(err.Error(), err, http.StatusBadRequest)
 		}
 
+		weos_id := result["weos_id"].(string)
+		sequenceNo := result["sequence_no"].(float64)
+
+		etag = NewEtag(&model.ContentEntity{
+			AggregateRoot: model.AggregateRoot{
+				SequenceNo:  int64(sequenceNo),
+				BasicEntity: model.BasicEntity{ID: weos_id},
+			},
+		})
+
+		//remove sequence number and weos_id from response
+		delete(result, "weos_id")
+		delete(result, "sequence_no")
+
+		//set etag
+		ctxt.Response().Header().Set("Etag", etag)
 		return ctxt.JSON(http.StatusOK, result)
 	}
 }
