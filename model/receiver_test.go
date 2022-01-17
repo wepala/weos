@@ -156,7 +156,7 @@ func TestUpdateContentType(t *testing.T) {
 			}
 
 			if event.Type != "update" {
-				t.Errorf("expected event to be '%s', got '%s'", "create", event.Type)
+				t.Errorf("expected event to be '%s', got '%s'", "update", event.Type)
 			}
 			if event.Meta.EntityType == "" {
 				t.Errorf("expected event to be '%s', got '%s'", "", event.Type)
@@ -174,11 +174,12 @@ func TestUpdateContentType(t *testing.T) {
 			BasicEntity: model.BasicEntity{
 				ID: "dsafdsdfdsf",
 			},
-			SequenceNo: int64(1),
-			//TODO Add Create Event
+			SequenceNo: int64(0),
 		},
 		Property: existingPayload,
 	}
+	event := model.NewEntityEvent("update", existingBlog, existingBlog.ID, existingPayload)
+	existingBlog.NewChange(event)
 
 	projectionMock := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {

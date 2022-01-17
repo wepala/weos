@@ -65,7 +65,7 @@ func Initialize(service Service) error {
 	//add command handlers to the application's command dispatcher
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), receiver.Create)
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), receiver.CreateBatch)
-	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), receiver.Update)
+	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), receiver.Update)
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil)
 
