@@ -22,14 +22,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/wepala/weos-service/utils"
-
-	"github.com/cucumber/godog"
-	"github.com/labstack/echo/v4"
-	ds "github.com/ompluscator/dynamic-struct"
-	api "github.com/wepala/weos-service/controllers/rest"
-	"gorm.io/gorm"
 )
 
 var e *echo.Echo
