@@ -53,7 +53,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
 			}
 		}
-
+		var result *model.ContentEntity
 		var Etag string
 		for _, projection := range app.Projections() {
 			if projection != nil {
@@ -64,9 +64,10 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				Etag = NewEtag(result)
 			}
 		}
-
+		result.ID = ""
+		result.SequenceNo = 0
 		ctxt.Response().Header().Set("Etag", Etag)
-		return ctxt.JSON(http.StatusCreated, "Created")
+		return ctxt.JSON(http.StatusCreated, result)
 	}
 }
 
@@ -130,17 +131,17 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 				Schema: contentTypeSchema.Value,
 			})
 		}
-		var etag string
+		var weosID string
 		var newPayload map[string]interface{}
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 		//getting etag from context
 		etagInterface := newContext.Value("If-Match")
 		if etagInterface != nil {
-			etag = etagInterface.(string)
-			weosId, sequenceNo := SplitEtag(etag)
+			etag := etagInterface.(string)
+			weosID, sequenceNo := SplitEtag(etag)
 			json.Unmarshal(payload, &newPayload)
-			newPayload["weos_id"] = weosId
+			newPayload["weos_id"] = weosID
 			newPayload["sequence_no"] = sequenceNo
 			payload, _ = json.Marshal(newPayload)
 
@@ -152,13 +153,42 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 				if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
 					return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
 				}
+				if strings.Contains(errr.Error(), "invalid:") {
+					return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
+				}
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 			} else {
 				return NewControllerError("unexpected error updating content type", err, http.StatusBadRequest)
 			}
 		}
+		var Etag string
+		var identifiers []string
+		var result *model.ContentEntity
+		if etagInterface == nil {
+			pks, _ := json.Marshal(contentTypeSchema.Value.Extensions["x-identifier"])
+			json.Unmarshal(pks, &identifiers)
+			if len(identifiers) == 0 {
+				identifiers = append(identifiers, "id")
+			}
+			//TODO use the getbyprimarykey projection function, and add etag
+		} else {
 
-		return ctxt.JSON(http.StatusOK, "Updated")
+			for _, projection := range app.Projections() {
+				if projection != nil {
+					result, err := projection.GetContentEntity(newContext, weosID)
+					if err != nil {
+						return err
+					}
+					Etag = NewEtag(result)
+				}
+			}
+		}
+		result.ID = ""
+		result.SequenceNo = 0
+
+		ctxt.Response().Header().Set("Etag", Etag)
+
+		return ctxt.JSON(http.StatusOK, result)
 	}
 }
 
