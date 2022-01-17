@@ -213,8 +213,11 @@ paths:
                     type: integer
                   page:
                     type: integer
-                  items:
-                    $ref: "#/components/schemas/Blog"
+                  blogs:
+                    type: array
+                    x-alias: items
+                    items:
+                      $ref: "#/components/schemas/Blog"
   /blogs/{id}:
     get:
       parameters:
@@ -334,7 +337,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Post"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
 
   /posts/{id}:
     get:
@@ -430,7 +435,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Category"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
 
   /categories/{id}:
     get:
@@ -525,7 +532,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Author"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Author"
 
   /authors/{id}:
     get:
