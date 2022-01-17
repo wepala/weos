@@ -160,9 +160,9 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 }
 
 func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	return func(context echo.Context) error {
+	return func(ctxt echo.Context) error {
 
-		return nil
+		return ctxt.JSON(http.StatusOK, "List Items")
 	}
 }
 

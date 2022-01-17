@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wepala/weos-service/utils"
+
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
@@ -215,10 +217,10 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
 					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
-
 				}
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
+
 			case "Key":
 				if strings.EqualFold(cell.Value, "pk") {
 					if !strings.EqualFold(column.Name(), "id") { //default id tag
@@ -237,7 +239,6 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			}
 		}
 	}
-	//TODO check that the table has the expected columns
 	return nil
 }
 
@@ -258,7 +259,7 @@ func aRouteShouldBeAddedToTheApi1(method string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("Expected route but got nil with method %s ", method)
+	return fmt.Errorf("Expected route but got nil with method %s", method)
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
@@ -270,6 +271,13 @@ func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet() error {
 	if !strings.Contains(buf.String(), "a parameter for each part of the identifier must be set") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func aWarningShouldBeOutputBecauseTheEndpointIsInvalid() error {
+	if !strings.Contains(buf.String(), "no handler set") {
 		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
@@ -675,6 +683,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a blog should be returned$`, aBlogShouldBeReturned)
 	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
 	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
+	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
+
 }
 
 func TestBDD(t *testing.T) {
