@@ -69,6 +69,12 @@ func Initialize(service Service) error {
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil)
 
+	for _, projection := range service.Projections() {
+		if projections, ok := projection.(Projection); ok {
+			receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), projections)
+		}
+	}
+
 	if receiver.domainService == nil {
 		return NewError("no projection provided", nil)
 	}

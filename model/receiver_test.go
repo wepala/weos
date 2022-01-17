@@ -147,8 +147,8 @@ func TestUpdateContentType(t *testing.T) {
 			var event *model.Event
 			var ok bool
 			entities := entity.GetNewChanges()
-			if len(entities) != 1 {
-				t.Fatalf("expected %d event to be saved, got %d", 1, len(entities))
+			if len(entities) != 2 {
+				t.Fatalf("expected %d event to be saved, got %d", 2, len(entities))
 			}
 
 			if event, ok = entities[0].(*model.Event); !ok {
