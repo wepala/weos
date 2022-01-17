@@ -14,7 +14,7 @@ import (
 )
 
 //CreateSchema creates the table schemas for gorm syntax
-func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]interface{} {
+func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]ds.Builder {
 	structs := make(map[string]interface{})
 	builders := make(map[string]ds.Builder)
 	relations := make(map[string]map[string]string)
@@ -49,7 +49,7 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 		}
 		structs[name] = instance
 	}
-	return structs
+	return builders
 
 }
 
