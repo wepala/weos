@@ -341,7 +341,7 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 							//check the parameters
 							for _, param := range pathData.Get.Parameters {
 								cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-								if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+								if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 									allParam = false
 									e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
 									break
@@ -376,6 +376,24 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 					operationConfig.Handler = "List"
 					autoConfigure = true
 					break
+				}
+				if val.Schema.Value.Properties != nil {
+					var alias string
+					for _, prop := range val.Schema.Value.Properties {
+						aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
+						if aliasInterface != nil {
+							bytesContext := aliasInterface.(json.RawMessage)
+							json.Unmarshal(bytesContext, &alias)
+							if alias == "items" {
+								if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
+									operationConfig.Handler = "List"
+									autoConfigure = true
+									break
+								}
+							}
+						}
+
+					}
 				}
 
 			}

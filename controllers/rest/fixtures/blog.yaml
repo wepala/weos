@@ -213,8 +213,9 @@ paths:
                     type: integer
                   page:
                     type: integer
-                  items:
+                  blogs:
                     type: array
+                    x-alias: items
                     items:
                       $ref: "#/components/schemas/Blog"
   /blogs/{id}:

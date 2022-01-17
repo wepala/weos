@@ -20,3 +20,6 @@ const CopyExtension = "x-copy"
 
 //IdentifierExtension set identifier
 const IdentifierExtension = "x-identifier"
+
+//AliasExtension alias parameter name to a different name in the controller
+const AliasExtension = "x-alias"
