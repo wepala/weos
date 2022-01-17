@@ -325,6 +325,7 @@ func blogsInTheApi(details *godog.Table) error {
 		if rec.Code != http.StatusCreated {
 			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
 		}
+
 	}
 	return nil
 }
@@ -406,7 +407,7 @@ func theIsSubmitted(contentType string) error {
 	if strings.Contains(currScreen, "create") {
 		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
 	} else if strings.Contains(currScreen, "update") {
-		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType), body)
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), body)
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -605,8 +606,8 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 	return nil
 }
 
-func theEndpointIsHit(endpoint, url string) error {
-	request := httptest.NewRequest(endpoint, url, nil)
+func theEndpointIsHit(method, url string) error {
+	request := httptest.NewRequest(method, url, nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -642,8 +643,10 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 	return nil
 }
 
-func sojournerIsUpdatingWithId(arg1, arg2 string) error {
-	return godog.ErrPending
+func sojournerIsUpdatingWithId(contentType, id string) error {
+	requests[strings.ToLower(contentType+"_update")] = map[string]interface{}{"id": id}
+	currScreen = strings.ToLower(contentType + "_update")
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {

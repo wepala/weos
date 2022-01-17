@@ -3,6 +3,7 @@ package rest
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -208,10 +209,14 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			identifiers[p] = newContext.Value(p)
 		}
 
-		sequence, _ := newContext.Value("sequence_no").(int)
+		sequenceString, _ := newContext.Value("sequence_no").(string)
 		etag, _ := newContext.Value("If-None-Match").(string)
 		entityID, _ := newContext.Value("use_entity_id").(string)
 
+		var sequence int
+		if sequenceString != "" {
+			sequence, _ = strconv.Atoi(sequenceString)
+		}
 		var result map[string]interface{}
 		var err error
 		if sequence == 0 && etag == "" && entityID != "true" {
@@ -245,7 +250,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			}
 			if sequence != 0 {
 				r, er := GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
-				if r != nil {
+				if r != nil && r.ID != "" {
 					result = r.Property.(map[string]interface{})
 				}
 				err = er
@@ -257,15 +262,15 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 				}
 			}
 		}
-
-		if errors.Is(err, gorm.ErrRecordNotFound) || (len(result) == 0 && err == nil) {
+		weos_id, ok := result["weos_id"].(string)
+		if errors.Is(err, gorm.ErrRecordNotFound) || (len(result) == 0) || !ok || weos_id == "" {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
 		} else if err != nil {
 			return NewControllerError(err.Error(), err, http.StatusBadRequest)
 		}
 
-		weos_id := result["weos_id"].(string)
-		sequenceNo := result["sequence_no"].(float64)
+		sequenceString = fmt.Sprint(result["sequence_no"])
+		sequenceNo, _ := strconv.Atoi(sequenceString)
 
 		etag = NewEtag(&model.ContentEntity{
 			AggregateRoot: model.AggregateRoot{

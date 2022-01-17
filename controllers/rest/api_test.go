@@ -259,9 +259,24 @@ func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error '%s'", err)
 	}
+
 	mockID := "1246dg"
+	mockBlog := &Blog{ID: mockID, Title: "Test Blog", Url: "www.testBlog.com"}
+	reqBytes, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("error setting up request %s", err)
+	}
+	body := bytes.NewReader(reqBytes)
 	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/blogs/"+mockID, nil)
+	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 200
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/blogs/1", nil)
 	e.ServeHTTP(resp, req)
 	//confirm that the response is 200
 	if resp.Result().StatusCode != http.StatusOK {
