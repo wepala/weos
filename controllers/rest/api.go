@@ -313,6 +313,24 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 					if err != nil {
 						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
 					}
+					//checks if the controller explicitly stated and whether the endpoint is valid
+					if strings.ToUpper(method) == "GET" {
+						if operationConfig.Handler == "List" {
+							if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
+								for _, val := range pathData.Get.Responses["200"].Value.Content {
+									//checks if the response refers to an array schema
+									if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+										autoConfigure = true
+										break
+									}
+								}
+							}
+							if !autoConfigure {
+								operationConfig.Handler = ""
+							}
+						}
+					}
+
 				} else {
 					//Adds standard controller to path
 					autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
