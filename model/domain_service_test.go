@@ -188,35 +188,63 @@ func TestDomainService_Update(t *testing.T) {
 		},
 	}
 
+	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
+		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
+
+		//Update a blog - payload uses woesID and seq no from the created entity
+		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "1", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
+		updatedReqBytes, err := json.Marshal(updatedPayload)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		reqBytes, err = json.Marshal(updatedPayload)
+		if err != nil {
+			t.Fatalf("error converting content type to bytes %s", err)
+		}
+
+		updatedBlog, err := dService1.Update(newContext, updatedReqBytes, entityType)
+
+		if err != nil {
+			t.Fatalf("unexpected error updating content type '%s'", err)
+		}
+		if updatedBlog == nil {
+			t.Fatal("expected blog to be returned")
+		}
+		if updatedBlog.GetString("Title") != updatedPayload["title"] {
+			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))
+		}
+		if updatedBlog.GetString("Description") != updatedPayload["description"] {
+			t.Fatalf("expected blog description to be %s got %s", updatedPayload["description"], updatedBlog.GetString("Description"))
+		}
+		if updatedBlog.GetString("Url") != updatedPayload["url"] {
+			t.Fatalf("expected blog url to be %s got %s", updatedPayload["url"], updatedBlog.GetString("Url"))
+		}
+	})
+
 	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
 
-	//Update a blog - payload uses woesID and seq no from the created entity
-	updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "1", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
-	updatedReqBytes, err := json.Marshal(updatedPayload)
-	if err != nil {
-		t.Fatalf("error converting payload to bytes %s", err)
-	}
+	t.Run("Testing with stale sequence number", func(t *testing.T) {
 
-	reqBytes, err = json.Marshal(updatedPayload)
-	if err != nil {
-		t.Fatalf("error converting content type to bytes %s", err)
-	}
+		//Update a blog - payload uses woesID and seq no from the created entity
+		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "3", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
+		updatedReqBytes, err := json.Marshal(updatedPayload)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
 
-	updatedBlog, err := dService1.Update(newContext, updatedReqBytes, entityType)
+		reqBytes, err = json.Marshal(updatedPayload)
+		if err != nil {
+			t.Fatalf("error converting content type to bytes %s", err)
+		}
 
-	if err != nil {
-		t.Fatalf("unexpected error updating content type '%s'", err)
-	}
-	if updatedBlog == nil {
-		t.Fatal("expected blog to be returned")
-	}
-	if updatedBlog.GetString("Title") != updatedPayload["title"] {
-		t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))
-	}
-	if updatedBlog.GetString("Description") != updatedPayload["description"] {
-		t.Fatalf("expected blog description to be %s got %s", updatedPayload["description"], updatedBlog.GetString("Description"))
-	}
-	if updatedBlog.GetString("Url") != updatedPayload["url"] {
-		t.Fatalf("expected blog url to be %s got %s", updatedPayload["url"], updatedBlog.GetString("Url"))
-	}
+		updatedBlog, err := dService1.Update(newContext, updatedReqBytes, entityType)
+
+		if err == nil {
+			t.Fatalf("expected error updating content type '%s'", err)
+		}
+		if updatedBlog != nil {
+			t.Fatal("expected no blog to be returned")
+		}
+	})
 }

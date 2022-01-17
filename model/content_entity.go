@@ -220,7 +220,7 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 		case "update":
 			err := json.Unmarshal(change.Payload, &w.Property)
 			if err != nil {
-				return err
+				return NewDomainError("invalid: unable to get ID from payload", change.Meta.EntityType, w.ID, err)
 			}
 			w.User.BasicEntity.ID = change.Meta.User
 

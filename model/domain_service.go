@@ -63,25 +63,20 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
 	var existingEntity *ContentEntity
 	var updatedEntity *ContentEntity
-	var identifier map[string]interface{}
 	var weosID string
 	contentType := weosContext.GetContentType(ctx)
 
 	//Fetch the weosID from the payload
 	weosID, err := GetIDfromPayload(payload)
 	if err != nil {
-		return nil, NewDomainError("invalid: unexpected error unmarshalling payload to get weosID", entityType, "", err)
+		return nil, err
 	}
 
 	//If there is a weosID present use this
 	if weosID != "" {
 		seqNo, err := GetSeqfromPayload(payload)
 		if err != nil {
-			return nil, NewDomainError("invalid: unexpected error unmarshalling payload to get sequence number", entityType, "", err)
-		}
-
-		if seqNo == "" {
-			return nil, NewDomainError("invalid: no sequence number provided", entityType, "", nil)
+			return nil, err
 		}
 
 		existingEntity, err := s.GetContentEntity(ctx, weosID)
@@ -91,39 +86,59 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 
 		entitySeqNo := strconv.Itoa(int(existingEntity.SequenceNo))
 
-		if seqNo != entitySeqNo {
-			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
+		if seqNo != "" {
+			if seqNo != entitySeqNo {
+				return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
+			}
 		}
 
 		updatedEntity, err = existingEntity.Update(payload)
 		if err != nil {
-			return nil, NewDomainError("invalid: unexpected error updating existingEntity", entityType, weosID, err)
+			return nil, err
 		}
 
 		//If there is no weosID, use the id passed from the param
 	} else if weosID == "" {
-		paramID := ctx.Value("id")
+		var primaryKeys []string
+		identifiers := map[string]interface{}{}
 
-		if paramID == "" {
-			return nil, NewDomainError("invalid: no ID provided", entityType, "", nil)
+		if contentType.Schema.Extensions["x-identifier"] != nil {
+			identifiersFromSchema := contentType.Schema.Extensions["x-identifier"].(json.RawMessage)
+			json.Unmarshal(identifiersFromSchema, &primaryKeys)
 		}
 
-		identifier = map[string]interface{}{"id": paramID}
-		entityInterface, err := s.GetByKey(ctx, contentType, identifier)
+		if len(primaryKeys) == 0 {
+			primaryKeys = append(primaryKeys, "id")
+		}
+
+		for _, pk := range primaryKeys {
+			ctxtIdentifier := ctx.Value(pk)
+
+			if ctxtIdentifier == "" {
+				return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
+			}
+
+			identifiers[pk] = pk
+		}
+
+		entityInterface, err := s.GetByKey(ctx, contentType, identifiers)
+		if err != nil {
+			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
+		}
 
 		data, err := json.Marshal(entityInterface)
 		if err != nil {
-			return nil, NewDomainError("invalid: unexpected error marshalling existingEntity interface", entityType, paramID.(string), err)
+			return nil, err
 		}
 
 		err = json.Unmarshal(data, &existingEntity)
 		if err != nil {
-			return nil, NewDomainError("invalid: unexpected error unmarshalling existingEntity", entityType, paramID.(string), err)
+			return nil, err
 		}
 
 		updatedEntity, err = existingEntity.Update(payload)
 		if err != nil {
-			return nil, NewDomainError("invalid: unexpected error updating existingEntity", entityType, paramID.(string), err)
+			return nil, err
 		}
 
 	}
