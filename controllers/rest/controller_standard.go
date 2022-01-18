@@ -1,13 +1,18 @@
 package rest
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos-service/context"
 	"golang.org/x/net/context"
+	"gorm.io/gorm"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -42,7 +47,20 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		}
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
-		weosID := ksuid.New().String()
+
+		//for inserting weos_id during testing
+		payMap := map[string]interface{}{}
+		var weosID string
+
+		json.Unmarshal(payload, &payMap)
+		if v, ok := payMap["weos_id"]; ok {
+			if val, ok := v.(string); ok {
+				weosID = val
+			}
+		}
+		if weosID == "" {
+			weosID = ksuid.New().String()
+		}
 
 		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
 		if err != nil {
@@ -153,9 +171,121 @@ func (c *StandardControllers) BulkUpdate(app model.Service, spec *openapi3.Swagg
 }
 
 func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	return func(ctxt echo.Context) error {
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	//get the entity information based on the Content Type associated with this operation
+	for _, requestContent := range operation.Responses.Get(http.StatusOK).Value.Content {
+		//use the first schema ref to determine the entity type
+		if requestContent.Schema.Ref != "" {
+			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+			//get the schema details from the swagger file
+			contentTypeSchema = spec.Components.Schemas[contentType]
+			break
+		}
+	}
 
-		return ctxt.JSON(http.StatusOK, "View Item")
+	return func(ctxt echo.Context) error {
+		cType := &context2.ContentType{}
+		if contentType != "" && contentTypeSchema.Value != nil {
+			cType = &context2.ContentType{
+				Name:   contentType,
+				Schema: contentTypeSchema.Value,
+			}
+		}
+
+		pks, _ := json.Marshal(cType.Schema.Extensions["x-identifier"])
+		primaryKeys := []string{}
+		json.Unmarshal(pks, &primaryKeys)
+
+		if len(primaryKeys) == 0 {
+			primaryKeys = append(primaryKeys, "id")
+		}
+
+		newContext := ctxt.Request().Context()
+
+		identifiers := map[string]interface{}{}
+
+		for _, p := range primaryKeys {
+			identifiers[p] = newContext.Value(p)
+		}
+
+		sequenceString, _ := newContext.Value("sequence_no").(string)
+		etag, _ := newContext.Value("If-None-Match").(string)
+		entityID, _ := newContext.Value("use_entity_id").(string)
+
+		var sequence int
+		if sequenceString != "" {
+			sequence, _ = strconv.Atoi(sequenceString)
+		}
+		var result map[string]interface{}
+		var err error
+		if sequence == 0 && etag == "" && entityID != "true" {
+			for _, projection := range app.Projections() {
+				if projection != nil {
+					result, err = projection.GetByKey(ctxt.Request().Context(), *cType, identifiers)
+				}
+			}
+		} else if etag != "" {
+			tag, seq := SplitEtag(etag)
+			seqInt, er := strconv.Atoi(seq)
+			if er != nil {
+				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
+			}
+			r, er := GetContentBySequenceNumber(app.EventRepository(), tag, int64(seqInt))
+			err = er
+			if r.SequenceNo == 0 {
+				return NewControllerError("No entity found", err, http.StatusNotFound)
+			}
+			if err == nil && r.SequenceNo < int64(seqInt) {
+				return ctxt.JSON(http.StatusNotModified, r.Property)
+			}
+		} else {
+			//get first identifider
+			id := ""
+			for _, i := range identifiers {
+				id = i.(string)
+				if id != "" {
+					break
+				}
+			}
+			if sequence != 0 {
+				r, er := GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
+				if r != nil && r.ID != "" {
+					result = r.Property.(map[string]interface{})
+				}
+				err = er
+			} else {
+				for _, projection := range app.Projections() {
+					if projection != nil {
+						result, err = projection.GetByEntityID(ctxt.Request().Context(), *cType, id)
+					}
+				}
+			}
+		}
+		weos_id, ok := result["weos_id"].(string)
+		if errors.Is(err, gorm.ErrRecordNotFound) || (len(result) == 0) || !ok || weos_id == "" {
+			return NewControllerError("No entity found", err, http.StatusNotFound)
+		} else if err != nil {
+			return NewControllerError(err.Error(), err, http.StatusBadRequest)
+		}
+
+		sequenceString = fmt.Sprint(result["sequence_no"])
+		sequenceNo, _ := strconv.Atoi(sequenceString)
+
+		etag = NewEtag(&model.ContentEntity{
+			AggregateRoot: model.AggregateRoot{
+				SequenceNo:  int64(sequenceNo),
+				BasicEntity: model.BasicEntity{ID: weos_id},
+			},
+		})
+
+		//remove sequence number and weos_id from response
+		delete(result, "weos_id")
+		delete(result, "sequence_no")
+
+		//set etag
+		ctxt.Response().Header().Set("Etag", etag)
+		return ctxt.JSON(http.StatusOK, result)
 	}
 }
 

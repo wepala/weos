@@ -2,11 +2,12 @@ package model_test
 
 import (
 	"encoding/json"
+	"testing"
+
 	"github.com/getkin/kin-openapi/openapi3"
 	weosContext "github.com/wepala/weos-service/context"
 	"github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
-	"testing"
 )
 
 type Blog struct {
@@ -57,7 +58,7 @@ func TestCreateContentType(t *testing.T) {
 		AddSubscriberFunc: func(handler model.EventHandler) {
 		},
 	}
-	application := &ApplicationMock{
+	application := &ServiceMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return commandDispatcher
 		},

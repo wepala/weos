@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wepala/weos-service/utils"
-
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
@@ -333,6 +331,7 @@ func blogsInTheApi(details *godog.Table) error {
 		if rec.Code != http.StatusCreated {
 			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
 		}
+
 	}
 	return nil
 }
@@ -414,7 +413,7 @@ func theIsSubmitted(contentType string) error {
 	if strings.Contains(currScreen, "create") {
 		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
 	} else if strings.Contains(currScreen, "update") {
-		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType), body)
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), body)
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -517,7 +516,7 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 
 func aHeaderWithValue(key, value string) error {
 	header.Add(key, value)
-	return godog.ErrPending
+	return nil
 }
 
 func aResponseShouldBeReturned(code int) error {
@@ -613,8 +612,8 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 	return nil
 }
 
-func theEndpointIsHit(endpoint, url string) error {
-	request := httptest.NewRequest(endpoint, url, nil)
+func theEndpointIsHit(method, url string) error {
+	request := httptest.NewRequest(method, url, nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -650,6 +649,12 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 	return nil
 }
 
+func sojournerIsUpdatingWithId(contentType, id string) error {
+	requests[strings.ToLower(contentType+"_update")] = map[string]interface{}{"id": id}
+	currScreen = strings.ToLower(contentType + "_update")
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -681,6 +686,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
 	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
 	ctx.Step(`^a blog should be returned$`, aBlogShouldBeReturned)
+	ctx.Step(`^Sojourner is updating "([^"]*)" with id "([^"]*)"$`, sojournerIsUpdatingWithId)
 	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
 	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
@@ -694,7 +700,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped",
+			Tags:   "WEOS-1135",
 		},
 	}.Run()
 	if status != 0 {

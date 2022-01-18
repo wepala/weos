@@ -259,9 +259,21 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		},
 	}
 
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
 		},
 	}
 
@@ -416,9 +428,21 @@ func TestStandardControllers_Update(t *testing.T) {
 		},
 	}
 
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
 		},
 	}
 
@@ -481,9 +505,27 @@ func TestStandardControllers_View(t *testing.T) {
 		},
 	}
 
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"id":      "1234sd",
+				"weos_id": "1234sd",
+			}, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"id":      "1234sd",
+				"weos_id": "1234sd",
+			}, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
 		},
 	}
 
