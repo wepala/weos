@@ -74,17 +74,29 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		var Etag string
 		for _, projection := range app.Projections() {
 			if projection != nil {
-				result, err := projection.GetContentEntity(newContext, weosID)
+				result, err = projection.GetContentEntity(newContext, weosID)
 				if err != nil {
 					return err
 				}
 				Etag = NewEtag(result)
 			}
 		}
+		if result == nil || result.ID == "" {
+			return NewControllerError("No entity found", err, http.StatusNotFound)
+		}
+		entity := map[string]interface{}{}
 		result.ID = ""
 		result.SequenceNo = 0
+		bytes, err := json.Marshal(result.Property)
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal(bytes, &entity)
+		if err != nil {
+			return err
+		}
 		ctxt.Response().Header().Set("Etag", Etag)
-		return ctxt.JSON(http.StatusCreated, result)
+		return ctxt.JSON(http.StatusCreated, entity)
 	}
 }
 
@@ -242,12 +254,19 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
 			Etag = NewEtag(result)
+			entity := map[string]interface{}{}
 			result.ID = ""
 			result.SequenceNo = 0
-
+			bytes, err := json.Marshal(result.Property)
+			if err != nil {
+				return err
+			}
+			err = json.Unmarshal(bytes, &entity)
+			if err != nil {
+				return err
+			}
 			ctxt.Response().Header().Set("Etag", Etag)
-
-			return ctxt.JSON(http.StatusOK, result)
+			return ctxt.JSON(http.StatusOK, entity)
 		}
 
 	}
