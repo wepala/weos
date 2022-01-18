@@ -269,3 +269,50 @@ func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
 	}
 	os.Remove("test.db")
 }
+
+func TestRESTAPI_Initialize_GetEntityBySequenceNuber(t *testing.T) {
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog-create-batch.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+	mockBlog := &[3]Blog{
+		{ID: "1asdas3", Title: "Blog 1", Url: "www.testBlog1.com"},
+		{ID: "2gf233", Title: "Blog 2", Url: "www.testBlog2.com"},
+		{ID: "3dgff3", Title: "Blog 3", Url: "www.testBlog3.com"},
+	}
+	reqBytes, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("error setting up request %s", err)
+	}
+	body := bytes.NewReader(reqBytes)
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 201
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+
+	blogEntity, err := api.GetContentBySequenceNumber(tapi.Application.EventRepository(), "3dgff3", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mapEntity, ok := blogEntity.Property.(map[string]interface{})
+
+	if !ok {
+		t.Fatal("expected the properties of the blog entity to be mapable")
+	}
+	if mapEntity["title"] != "Blog 3" {
+		t.Errorf("expected the title to be %s got %s", "Blog 3", mapEntity["title"])
+	}
+
+	if blogEntity.SequenceNo != int64(1) {
+		t.Errorf("expected the sequence number to be %d got %d", blogEntity.SequenceNo, 1)
+	}
+	os.Remove("test.db")
+}

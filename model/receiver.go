@@ -43,6 +43,20 @@ func (r *Receiver) CreateBatch(ctx context.Context, command *Command) error {
 	return nil
 }
 
+//Update is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
+func (r *Receiver) Update(ctx context.Context, command *Command) error {
+
+	updatedEntity, err := r.domainService.Update(ctx, command.Payload, command.Metadata.EntityType)
+	if err != nil {
+		return err
+	}
+	err = r.service.EventRepository().Persist(ctx, updatedEntity)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 //Initialize sets up the command handlers
 func Initialize(service Service) error {
 	var payload json.RawMessage
@@ -51,8 +65,15 @@ func Initialize(service Service) error {
 	//add command handlers to the application's command dispatcher
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), receiver.Create)
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), receiver.CreateBatch)
+	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), receiver.Update)
 	//initialize any services
-	receiver.domainService = NewDomainService(context.Background(), service.EventRepository())
+	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil)
+
+	for _, projection := range service.Projections() {
+		if projections, ok := projection.(Projection); ok {
+			receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), projections)
+		}
+	}
 
 	if receiver.domainService == nil {
 		return NewError("no projection provided", nil)

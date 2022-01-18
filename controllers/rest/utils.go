@@ -4,14 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/gommon/log"
-	"github.com/wepala/weos-service/model"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
+	"github.com/wepala/weos-service/model"
 )
 
 //LoadHttpRequestFixture wrapper around the test helper to make it easier to use it with test table
@@ -196,4 +197,14 @@ func SplitEtag(Etag string) (string, string) {
 	weosID := result[0]
 	seqNo := result[1]
 	return weosID, seqNo
+}
+
+func GetContentBySequenceNumber(eventRepository model.EventRepository, id string, sequence_no int64) (*model.ContentEntity, error) {
+	entity := &model.ContentEntity{}
+	events, err := eventRepository.GetByAggregateAndSequenceRange(id, 0, sequence_no)
+	if err != nil {
+		return nil, err
+	}
+	err = entity.ApplyChanges(events)
+	return entity, err
 }
