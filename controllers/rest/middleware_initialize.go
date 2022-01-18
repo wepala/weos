@@ -15,7 +15,6 @@ import (
 
 //CreateSchema creates the table schemas for gorm syntax
 func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]ds.Builder {
-	structs := make(map[string]interface{})
 	builders := make(map[string]ds.Builder)
 	relations := make(map[string]map[string]string)
 	keys := make(map[string][]string)
@@ -38,16 +37,7 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 				}
 			}
 		}
-		f := scheme.GetField("Table")
-		f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
-		instance := scheme.Build().New()
-		err := json.Unmarshal([]byte(`{
-			"table_alias": "`+name+`"
-		}`), &instance)
-		if err != nil {
-			e.Logger.Errorf("unable to set the table name '%s'", err)
-		}
-		structs[name] = instance
+		builders[name] = scheme
 	}
 	return builders
 
