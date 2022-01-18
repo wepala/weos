@@ -150,16 +150,11 @@ paths:
           required: false
           description: query string
       x-context:
-        filters:
+        _filters:
           - field: status
             operator: eq
-            values:
+            value:
               - Active
-          - field: lastUpdated
-            operator: between
-            values:
-              - 2021-12-17 15:46:00
-              - 2021-12-18 15:46:00
           - field: categories
             operator: in
             values:

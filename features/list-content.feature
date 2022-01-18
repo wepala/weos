@@ -362,7 +362,7 @@ Feature: List content
 
     Given "Sojourner" is on the "Blog" list screen
     And the items per page are 5
-    And a filter on the field "id" "lt" with values
+    And a filter on the field "id" "in" with values
       | values       |
       | 3            |
       | 4            |

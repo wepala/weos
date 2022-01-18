@@ -186,7 +186,7 @@ Feature: Create content
       Then the "Post" is created
         | title          | description                       |
         | Some Blog      | Some Description                  |
-      And the "Blog" should have an id
+      And the "Post" should have an id
       And the "ETag" header should be present
 
     @WEOS-1289 @skipped
@@ -226,17 +226,15 @@ Feature: Create content
       If an item has one to many relationships or many to many relationships those connections can be established by
       passing in the identity of the related item
 
-      Given "Sojourner" is on the "Blog" create screen
-      And "Sojourner" enters "Some Blog" in the "title" field
+      Given "Sojourner" is on the "Post" create screen
+      And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
-      And "Sojourner" adds an item "Post" to "posts"
-      And "Sojourner" enters "Some Post" in the "title" field of "Post"
-      And "Sojourner" enters "Some Description" in the "description" field of "Post"
-      When the "Blog" is submitted
-      Then the "Blog" is created
-        | title          | description                       | post count  |
-        | Some Blog      | Some Description                  | 1           |
-      And the "Blog" should have an id
+      And "Sojourner" enters "1" in the "blog" field
+      When the "Post" form is submitted
+      Then the "Post" is created
+        | title          | description                       |
+        | Some Blog      | Some Description                  |
+      And the "Post" should have an id
       And the "ETag" header should be present
 
     @WEOS-1294 @skipped
