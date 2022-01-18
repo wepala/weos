@@ -1,4 +1,4 @@
-@skipped
+@WEOS-1176
 Feature: Setup List endpoint
 
   Background:
@@ -46,11 +46,6 @@ Feature: Setup List endpoint
               items:
                 $ref: "#/components/schemas/Category"
     """
-    And blogs in the api
-      | id    | title        | description    |
-      | 1234  | Blog 1       | Some Blog      |
-      | 4567  | Blog 2       | Some Blog 2    |
-
 
   Scenario: Setup list endpoint by specifying it returns an array of content type
 
@@ -59,62 +54,63 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  type: object
-                  properties:
-                    total:
-                      type: integer
-                    page:
-                      type: integer
-                    items:
-                      type: array
+      /blogs:
+        get:
+          operationId: Get Blogs
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
                       items:
-                        $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
     And a "List" middleware should be added to the route
 
-  Scenario: Setup list endpoint the uses a custom response fields
+  Scenario: Setup list endpoint that uses custom response fields
 
     By default the total results are turned with the result array as total and page. The developer can also specify the
     field in the response to use for that data
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  type: object
-                  properties:
-                    t:
-                      type: integer
-                      x-alias: total
-                    p:
-                      type: integer
-                      x-alias: page
-                    items:
-                      type: array
-                      items:
-                        $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+      /blogs:
+        get:
+          operationId: Get Blogs
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      t:
+                        type: integer
+                        x-alias: total
+                      p:
+                        type: integer
+                        x-alias: page
+                      blogs:
+                        type: array
+                        x-alias: items
+                        items:
+                          $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
@@ -124,28 +120,28 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        x-controller: List
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  type: object
-                  properties:
-                    total:
-                      type: integer
-                    page:
-                      type: integer
-                    items:
-                      type: array
+      /blogs:
+        get:
+          operationId: Get Blogs
+          x-controller: List
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
                       items:
-                        $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
@@ -157,19 +153,19 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        x-controller: List
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+      /blogs:
+        get:
+          operationId: Get Blogs
+          x-controller: List
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output because the endpoint is invalid
@@ -182,6 +178,7 @@ Feature: Setup List endpoint
   2. Operator - the operator to use for the filter (eq, ne, gt, lt, in, like)
   3. Value (an array or possible values. Most operators will be for scalar values
 
+  Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
   """
     /blogs:
       get:
@@ -230,51 +227,61 @@ Feature: Setup List endpoint
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        parameters:
-          - in: post
-            name: filters
-            schema:
-              type: array
-              items:
-                type: object
-                properties:
-                  field:
-                    type: string
-                    enum:
-                      - title
-                      - description
-                  operator:
-                    type: string
-                    enum:
-                      - eq
-                      - ne
-                  value:
-                    type: array
-                    items:
+      /blogs:
+        get:
+          operationId: Get Blogs
+          parameters:
+            - in: post
+              name: filters
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    field:
                       type: string
-        responses:
-          200:
-            description: Update blog
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                      enum:
+                        - title
+                        - description
+                    operator:
+                      type: string
+                      enum:
+                        - eq
+                        - ne
+                    value:
+                      type: array
+                      items:
+                        type: string
+          responses:
+            200:
+              description: Update blog
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "list" middleware should be added to the route
+    And a "List" middleware should be added to the route
 
 
   Scenario: Specify list item with an invalid filters definition
 
     If filters are specified then it should be in the expected for the controller to be associated. If it's invalid it
     should show a warning (otherwise a controller that knows how to parse the filters should be explicitly set).
-
+   
+  Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
   """
     /blogs:
       get:

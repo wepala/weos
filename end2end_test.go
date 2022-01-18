@@ -215,10 +215,10 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
 					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
-
 				}
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
+
 			case "Key":
 				if strings.EqualFold(cell.Value, "pk") {
 					if !strings.EqualFold(column.Name(), "id") { //default id tag
@@ -237,7 +237,6 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			}
 		}
 	}
-	//TODO check that the table has the expected columns
 	return nil
 }
 
@@ -258,7 +257,7 @@ func aRouteShouldBeAddedToTheApi1(method string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("Expected route but got nil with method %s ", method)
+	return fmt.Errorf("Expected route but got nil with method %s", method)
 }
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
@@ -270,6 +269,13 @@ func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet
 
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet() error {
 	if !strings.Contains(buf.String(), "a parameter for each part of the identifier must be set") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func aWarningShouldBeOutputBecauseTheEndpointIsInvalid() error {
+	if !strings.Contains(buf.String(), "no handler set") {
 		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
@@ -325,6 +331,7 @@ func blogsInTheApi(details *godog.Table) error {
 		if rec.Code != http.StatusCreated {
 			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
 		}
+
 	}
 	return nil
 }
@@ -406,7 +413,7 @@ func theIsSubmitted(contentType string) error {
 	if strings.Contains(currScreen, "create") {
 		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
 	} else if strings.Contains(currScreen, "update") {
-		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType), body)
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), body)
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -605,8 +612,8 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 	return nil
 }
 
-func theEndpointIsHit(endpoint, url string) error {
-	request := httptest.NewRequest(endpoint, url, nil)
+func theEndpointIsHit(method, url string) error {
+	request := httptest.NewRequest(method, url, nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -642,6 +649,12 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 	return nil
 }
 
+func sojournerIsUpdatingWithId(contentType, id string) error {
+	requests[strings.ToLower(contentType+"_update")] = map[string]interface{}{"id": id}
+	currScreen = strings.ToLower(contentType + "_update")
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -673,8 +686,11 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
 	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
 	ctx.Step(`^a blog should be returned$`, aBlogShouldBeReturned)
+	ctx.Step(`^Sojourner is updating "([^"]*)" with id "([^"]*)"$`, sojournerIsUpdatingWithId)
 	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
 	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
+	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
+
 }
 
 func TestBDD(t *testing.T) {

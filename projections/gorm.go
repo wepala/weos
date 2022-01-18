@@ -18,12 +18,13 @@ type GORMProjection struct {
 	db              *gorm.DB
 	logger          weos.Log
 	migrationFolder string
-	Schema          map[string]interface{}
+	Schema          map[string]ds.Builder
 }
 
-func (p *GORMProjection) GetByKey(ctxt context.Context, contentType *weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
-	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
+func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		//pulling the primary keys from the schema in order to match with the keys given for searching
+		scheme := s.Build().New()
 		pks, _ := json.Marshal(contentType.Schema.Extensions["x-identifier"])
 		primaryKeys := []string{}
 		json.Unmarshal(pks, &primaryKeys)
@@ -49,10 +50,7 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType *weosContext
 			}
 		}
 
-		var result *gorm.DB
-
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).First(scheme, identifiers)
-
+		result := p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme, identifiers)
 		if result.Error != nil {
 			return nil, result.Error
 		}
@@ -69,10 +67,9 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType *weosContext
 }
 
 func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
-	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
-		var result *gorm.DB
-
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Where("weos_id = ?", id).Take(scheme)
+	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
+		scheme := s.Build().New()
+		result := p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme, "weos_id = ?", id)
 
 		if result.Error != nil {
 			return nil, result.Error
@@ -104,8 +101,18 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	var err error
 	var tables []interface{}
-	for _, s := range p.Schema {
-		tables = append(tables, s)
+	for name, s := range p.Schema {
+		f := s.GetField("Table")
+		f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
+		instance := s.Build().New()
+		err := json.Unmarshal([]byte(`{
+			"table_alias": "`+name+`"
+		}`), &instance)
+		if err != nil {
+			p.logger.Errorf("unable to set the table name '%s'", err)
+			return err
+		}
+		tables = append(tables, instance)
 	}
 
 	err = p.db.Migrator().AutoMigrate(tables...)
@@ -118,10 +125,11 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 		case "create":
 			contentType := weosContext.GetContentType(ctx)
 			//using the schema ensures no nested fields are left out in creation
-			eventPayload, ok := p.Schema[strings.Title(contentType.Name)]
+			payload, ok := p.Schema[strings.Title(contentType.Name)]
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
+				eventPayload := payload.Build().New()
 				mapPayload := map[string]interface{}{}
 				err := json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
@@ -141,12 +149,12 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			}
 		case "update":
 			contentType := weosContext.GetContentType(ctx)
-			eventPayload, ok := p.Schema[strings.Title(contentType.Name)]
+			payload, ok := p.Schema[strings.Title(contentType.Name)]
 			mapPayload := map[string]interface{}{}
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
-
+				eventPayload := payload.Build().New()
 				err := json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
@@ -214,7 +222,7 @@ type QueryModifier func() func(db *gorm.DB) *gorm.DB
 var ContentQuery QueryModifier
 
 //NewProjection creates an instance of the projection
-func NewProjection(ctx context.Context, application weos.Service, schemas map[string]interface{}) (*GORMProjection, error) {
+func NewProjection(ctx context.Context, application weos.Service, schemas map[string]ds.Builder) (*GORMProjection, error) {
 
 	projection := &GORMProjection{
 		db:     application.DB(),

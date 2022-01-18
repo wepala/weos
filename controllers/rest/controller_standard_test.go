@@ -259,9 +259,21 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		},
 	}
 
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
 		},
 	}
 
@@ -416,9 +428,21 @@ func TestStandardControllers_Update(t *testing.T) {
 		},
 	}
 
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
 		},
 	}
 
@@ -481,9 +505,27 @@ func TestStandardControllers_View(t *testing.T) {
 		},
 	}
 
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"id":      "1234sd",
+				"weos_id": "1234sd",
+			}, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"id":      "1234sd",
+				"weos_id": "1234sd",
+			}, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
 		},
 	}
 
@@ -499,6 +541,62 @@ func TestStandardControllers_View(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue, nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
 		e.GET("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_List(t *testing.T) {
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	dispatcher := &DispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+			return nil
+		},
+	}
+
+	application := &ApplicationMock{
+		DispatcherFunc: func() model.Dispatcher {
+			return dispatcher
+		},
+	}
+
+	//initialization will instantiate with application so we need to overwrite with our mock application
+	restAPI.Application = application
+
+	t.Run("Testing the generic list endpoint", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.List(restAPI.Application, swagger, path, path.Get)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+		e.GET("/blogs", controller, mw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()

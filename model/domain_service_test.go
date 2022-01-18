@@ -3,11 +3,12 @@ package model_test
 import (
 	context3 "context"
 	"encoding/json"
+	"testing"
+
 	"github.com/getkin/kin-openapi/openapi3"
 	context2 "github.com/wepala/weos-service/context"
 	model "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
-	"testing"
 )
 
 func TestDomainService_Create(t *testing.T) {
@@ -183,7 +184,7 @@ func TestDomainService_Update(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType *context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
@@ -314,7 +315,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType *context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
@@ -420,7 +421,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType *context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}

@@ -259,9 +259,24 @@ func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error '%s'", err)
 	}
+
 	mockID := "1246dg"
+	mockBlog := &Blog{ID: mockID, Title: "Test Blog", Url: "www.testBlog.com"}
+	reqBytes, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("error setting up request %s", err)
+	}
+	body := bytes.NewReader(reqBytes)
 	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/blogs/"+mockID, nil)
+	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 200
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+
+	resp = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/blogs/1", nil)
 	e.ServeHTTP(resp, req)
 	//confirm that the response is 200
 	if resp.Result().StatusCode != http.StatusOK {
@@ -313,6 +328,24 @@ func TestRESTAPI_Initialize_GetEntityBySequenceNuber(t *testing.T) {
 
 	if blogEntity.SequenceNo != int64(1) {
 		t.Errorf("expected the sequence number to be %d got %d", blogEntity.SequenceNo, 1)
+	}
+	os.Remove("test.db")
+}
+
+func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
+	os.Remove("test.db")
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is 200
+	if resp.Result().StatusCode != http.StatusOK {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
 	}
 	os.Remove("test.db")
 }

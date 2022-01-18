@@ -130,7 +130,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			identifiers[pk] = ctxtIdentifier
 		}
 
-		entityInterface, err := s.GetByKey(ctx, contentType, identifiers)
+		entityInterface, err := s.GetByKey(ctx, *contentType, identifiers)
 		if err != nil {
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
 		}
