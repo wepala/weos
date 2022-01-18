@@ -1,4 +1,4 @@
-@skipped
+@WEOS-1170 @long
 Feature: Run API
 
    The API should be able to run across many platforms
@@ -15,6 +15,15 @@ Feature: Run API
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     x-weos-config:
+       database:
+         driver: sqlite3
+         database: e2e.db
+       rest:
+         middleware:
+           - RequestID
+           - Recover
+           - ZapLogger
      components:
        schemas:
          Blog:
@@ -73,12 +82,6 @@ Feature: Run API
                application/json:
                  schema:
                    $ref: "#/components/schemas/Blog"
-               application/x-www-form-urlencoded:
-                 schema:
-                   $ref: "#/components/schemas/Blog"
-               application/xml:
-                 schema:
-                   $ref: "#/components/schemas/Blog"
            responses:
              201:
                description: Add Blog to Aggregator
@@ -91,73 +94,25 @@ Feature: Run API
      """
 
 
-   Scenario: Run on mac intel
+   Scenario Outline: Create item on different platforms
 
-     Given that the "mac" binary is generated
+     This runs the api using sqlite and then makes a create request on the API.
+
+     Given that the "<build>" binary is generated
+     And is run on the operating system "<os>" as "<mount>"
      And the binary is run with the specification
      And request body
      """
      {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
+       "title":"Test1",
+       "description": "Lorem Ipsum",
+       "url": "adsf"
       }
      """
      When the "POST" endpoint "/blog" is hit
-     Then a 201 response should be returned
+     Then a 200 response should be returned
 
-   Scenario: Run on linux 32 bit
-
-     Given that the "linux32" binary is generated
-     And the binary is run with the specification
-     And request body
-     """
-     {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
-      }
-     """
-     When the "POST" endpoint "/blog" is hit
-     Then a 201 response should be returned
-
-
-   Scenario: Run on linux 64 bit
-
-     Given that the "linux64" binary is generated
-     And the binary is run with the specification
-     And request body
-     """
-     {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
-      }
-     """
-     When the "POST" endpoint "/blog" is hit
-     Then a 201 response should be returned
-
-   Scenario: Run on Windows 32 bit
-
-     Given that the "windows32" binary is generated
-     And the binary is run with the specification
-     And request body
-     """
-     {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
-      }
-     """
-     When the "POST" endpoint "/blog" is hit
-     Then a 201 response should be returned
-
-   Scenario: Run on Windows 64 bit
-
-     Given that the "widnows64" binary is generated
-     And the binary is run with the specification
-     And request body
-     """
-     {
-       "title: "Test1",
-       "description": "Lorem Ipsum"
-      }
-     """
-     When the "POST" endpoint "/blog" is hit
-     Then a 201 response should be returned
+     Examples:
+     | build                       | os                                                      | mount                      |
+     | weos-linux-amd64            | ubuntu:latest                                           | /weos                      |
+#     | weos-windows-4.0-amd64.exe  | mcr.microsoft.com/windows/nanoserver:ltsc2022           | /weos.exe      |
