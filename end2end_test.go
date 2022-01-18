@@ -538,10 +538,14 @@ func theHeaderShouldBe(key, value string) error {
 		if seqNoEtag == "" {
 			return fmt.Errorf("expected the Etag to contain a sequence no, got %s", seqNoEtag)
 		}
+
+		if seqNoEtag != strings.Split(value, ".")[1] {
+			return fmt.Errorf("expected the Etag to contain a sequence no %s, got %s", strings.Split(value, ".")[1], seqNoEtag)
+		}
 		return nil
 	}
 
-	headers := rec.HeaderMap
+	headers := rec.Result().Header
 	val := []string{}
 
 	for k, v := range headers {

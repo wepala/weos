@@ -1078,6 +1078,296 @@ components:
 	})
 }
 
+func TestProjections_GetContentTypeByEntityID(t *testing.T) {
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+       posts:
+        type: array
+        items:
+          $ref: "#/components/schemas/Post"
+`
+
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+	p, err := projections.NewProjection(context.Background(), app, schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = p.Migrate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gormDB := app.DB()
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Errorf("expected to get a table 'Blog'")
+	}
+
+	if !gormDB.Migrator().HasTable("Post") {
+		t.Errorf("expected to get a table 'Post'")
+	}
+
+	if !gormDB.Migrator().HasTable("blog_posts") {
+		t.Errorf("expected to get a table 'blog_posts'")
+	}
+
+	columns, _ := gormDB.Migrator().ColumnTypes("blog_posts")
+
+	found := false
+	found1 := false
+	for _, c := range columns {
+		if c.Name() == "id" {
+			found = true
+		}
+		if c.Name() == "post_id" {
+			found1 = true
+		}
+	}
+
+	if !found1 || !found {
+		t.Fatal("not all fields found")
+	}
+	gormDB.Table("Post").Create(map[string]interface{}{"weos_id": "1234", "sequence_no": 1, "title": "punches"})
+	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs"})
+	result := gormDB.Table("blog_posts").Create(map[string]interface{}{
+		"id":      1,
+		"post_id": 1,
+	})
+	if result.Error != nil {
+		t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
+	}
+
+	r, err := p.GetByEntityID(context.Background(), weosContext.ContentType{Name: "Blog"}, "5678")
+	if err != nil {
+		t.Fatalf("error querying '%s' '%s'", "Blog", err)
+	}
+	if r["title"] != "hugs" {
+		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
+	}
+
+	if *driver != "sqlite3" {
+		posts := r["posts"].([]interface{})
+		if len(posts) != 1 {
+			t.Errorf("expected to get %d posts, got %d", 1, len(posts))
+		}
+
+		pp := posts[0].(map[string]interface{})
+		if pp["title"] != "punches" {
+			t.Errorf("expected the post title to be %s got %v", "punches", pp["title"])
+		}
+
+		if id, ok := pp["weos_id"]; ok {
+			if id != "" {
+				t.Errorf("there should be no weos_id value")
+			}
+		}
+
+		if no, ok := pp["sequence_no"]; ok {
+			if no != 0 {
+				t.Errorf("there should be no sequence number value")
+			}
+		}
+	}
+
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+	err = gormDB.Migrator().DropTable("blog_posts")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+	}
+}
+
+func TestProjections_GetContentTypeByKeys(t *testing.T) {
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       author_id:
+         type: string
+       description:
+         type: string
+       posts:
+        type: array
+        items:
+          $ref: "#/components/schemas/Post"
+     x-identifier:
+      - title
+      - author_id
+`
+
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+	p, err := projections.NewProjection(context.Background(), app, schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = p.Migrate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gormDB := app.DB()
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Errorf("expected to get a table 'Blog'")
+	}
+
+	if !gormDB.Migrator().HasTable("Post") {
+		t.Errorf("expected to get a table 'Post'")
+	}
+
+	if !gormDB.Migrator().HasTable("blog_posts") {
+		t.Errorf("expected to get a table 'blog_posts'")
+	}
+
+	columns, _ := gormDB.Migrator().ColumnTypes("blog_posts")
+
+	found := false
+	found1 := false
+	found2 := false
+	for _, c := range columns {
+		if c.Name() == "id" {
+			found = true
+		}
+		if c.Name() == "title" {
+			found1 = true
+		}
+		if c.Name() == "author_id" {
+			found2 = true
+		}
+	}
+
+	if !found1 || !found || !found2 {
+		t.Fatal("not all fields found")
+	}
+	gormDB.Table("Post").Create(map[string]interface{}{"weos_id": "1234", "sequence_no": 1, "title": "punches"})
+	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "author_id": "kidding"})
+	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "9101", "sequence_no": 1, "title": "hugs 2 - the reckoning", "author_id": "kidding"})
+	result := gormDB.Table("blog_posts").Create(map[string]interface{}{
+		"author_id": "kidding",
+		"title":     "hugs",
+		"id":        1,
+	})
+	if result.Error != nil {
+		t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
+	}
+
+	blogRef := swagger.Components.Schemas["Blog"]
+	r, err := p.GetByKey(context.Background(), &weosContext.ContentType{Name: "Blog", Schema: blogRef.Value}, map[string]interface{}{
+		"author_id": "kidding",
+		"title":     "hugs",
+	})
+	if err != nil {
+		t.Fatalf("error querying '%s' '%s'", "Blog", err)
+	}
+
+	if r["title"] != "hugs" {
+		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
+	}
+
+	if *driver != "sqlite3" {
+		posts, ok := r["posts"].([]interface{})
+		if !ok {
+			t.Fatal("expected to get a posts array")
+		}
+		if len(posts) != 1 {
+			t.Errorf("expected to get %d posts, got %d", 1, len(posts))
+		}
+
+		pp := posts[0].(map[string]interface{})
+		if pp["title"] != "punches" {
+			t.Errorf("expected the post title to be %s got %v", "punches", pp["title"])
+		}
+
+		if id, ok := pp["weos_id"]; ok {
+			if id != "" {
+				t.Errorf("there should be no weos_id value")
+			}
+		}
+
+		if no, ok := pp["sequence_no"]; ok {
+			if no != 0 {
+				t.Errorf("there should be no sequence number value")
+			}
+		}
+	}
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+	err = gormDB.Migrator().DropTable("blog_posts")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+	}
+}
+
 func TestProjections_GormOperations(t *testing.T) {
 	t.Run("Basic Create using schema", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3

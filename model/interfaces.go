@@ -1,7 +1,10 @@
 package model
 
 //go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
-import "golang.org/x/net/context"
+import (
+	weosContext "github.com/wepala/weos-service/context"
+	"golang.org/x/net/context"
+)
 
 type WeOSEntity interface {
 	Entity
@@ -64,4 +67,5 @@ type Projection interface {
 	Datastore
 	GetEventHandler() EventHandler
 	GetContentEntity(ctx context.Context, weosID string) (*ContentEntity, error)
+	GetByKey(ctxt context.Context, contentType *weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
 }

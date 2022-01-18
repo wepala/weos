@@ -2,7 +2,7 @@ package projections
 
 import (
 	"encoding/json"
-
+	"fmt"
 	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
@@ -10,6 +10,7 @@ import (
 	weos "github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 //GORMProjection interface struct
@@ -20,6 +21,74 @@ type GORMProjection struct {
 	Schema          map[string]interface{}
 }
 
+func (p *GORMProjection) GetByKey(ctxt context.Context, contentType *weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
+		//pulling the primary keys from the schema in order to match with the keys given for searching
+		pks, _ := json.Marshal(contentType.Schema.Extensions["x-identifier"])
+		primaryKeys := []string{}
+		json.Unmarshal(pks, &primaryKeys)
+
+		if len(primaryKeys) == 0 {
+			primaryKeys = append(primaryKeys, "id")
+		}
+
+		if len(primaryKeys) != len(identifiers) {
+			return nil, fmt.Errorf("%d keys provided for %s but there should be %d keys", len(identifiers), contentType.Name, len(primaryKeys))
+		}
+
+		for _, k := range primaryKeys {
+			found := false
+			for i, _ := range identifiers {
+				if k == i {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("no value for %s %s found", contentType.Name, k)
+			}
+		}
+
+		var result *gorm.DB
+
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).First(scheme, identifiers)
+
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		data, err := json.Marshal(scheme)
+		if err != nil {
+			return nil, err
+		}
+		val := map[string]interface{}{}
+		json.Unmarshal(data, &val)
+		return val, nil
+	} else {
+		return nil, fmt.Errorf("no content type '%s' exists", contentType.Name)
+	}
+}
+
+func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
+	if scheme, ok := p.Schema[strings.Title(contentType.Name)]; ok {
+		var result *gorm.DB
+
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Where("weos_id = ?", id).Take(scheme)
+
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		data, err := json.Marshal(scheme)
+		if err != nil {
+			return nil, err
+		}
+		val := map[string]interface{}{}
+		json.Unmarshal(data, &val)
+		return val, nil
+	} else {
+		return nil, fmt.Errorf("no content type '%s' exists", contentType.Name)
+	}
+}
+
 //Persist save entity information in database
 func (p *GORMProjection) Persist(entities []weos.Entity) error {
 	return nil
@@ -28,15 +97,6 @@ func (p *GORMProjection) Persist(entities []weos.Entity) error {
 //Remove entity
 func (p *GORMProjection) Remove(entities []weos.Entity) error {
 	return nil
-}
-
-func (p *GORMProjection) GetByID(ctxt context.Context, contentType weosContext.ContentType, identifier []interface{}) (interface{}, error) {
-
-	return nil, nil
-}
-
-func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (interface{}, error) {
-	return nil, nil
 }
 
 func (p *GORMProjection) Migrate(ctx context.Context) error {
@@ -148,6 +208,11 @@ func (p *GORMProjection) GetContentEntity(ctx context.Context, weosID string) (*
 	return newEntity, nil
 }
 
+//query modifier for making queries to the database
+type QueryModifier func() func(db *gorm.DB) *gorm.DB
+
+var ContentQuery QueryModifier
+
 //NewProjection creates an instance of the projection
 func NewProjection(ctx context.Context, application weos.Service, schemas map[string]interface{}) (*GORMProjection, error) {
 
@@ -157,5 +222,17 @@ func NewProjection(ctx context.Context, application weos.Service, schemas map[st
 		Schema: schemas,
 	}
 	application.AddProjection(projection)
+
+	ContentQuery = func() func(db *gorm.DB) *gorm.DB {
+		return func(db *gorm.DB) *gorm.DB {
+			if projection.db.Dialector.Name() == "sqlite" {
+				//gorm sqlite generates the query incorrectly if there are composite keys when preloading
+				//https://github.com/go-gorm/gorm/issues/3585
+				return db
+			} else {
+				return db.Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") })
+			}
+		}
+	}
 	return projection, nil
 }
