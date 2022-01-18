@@ -61,8 +61,8 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 
 //Update is used for a single payload. It gets an existing entity and updates it with the new payload
 func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
-	var existingEntity *ContentEntity
 	var updatedEntity *ContentEntity
+	existingEntity := &ContentEntity{}
 	var weosID string
 	contentType := weosContext.GetContentType(ctx)
 
@@ -92,9 +92,18 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			}
 		}
 
-		updatedEntity, err = existingEntity.Update(payload)
+		existingEntityPayload, err := json.Marshal(existingEntity)
 		if err != nil {
 			return nil, err
+		}
+
+		updatedEntity, err = existingEntity.Update(ctx, existingEntityPayload, payload)
+		if err != nil {
+			return nil, err
+		}
+
+		if ok := updatedEntity.IsValid(); !ok {
+			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
 		}
 
 		//If there is no weosID, use the id passed from the param
@@ -114,11 +123,11 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		for _, pk := range primaryKeys {
 			ctxtIdentifier := ctx.Value(pk)
 
-			if ctxtIdentifier == "" {
+			if ctxtIdentifier == nil {
 				return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
 			}
 
-			identifiers[pk] = pk
+			identifiers[pk] = ctxtIdentifier
 		}
 
 		entityInterface, err := s.GetByKey(ctx, contentType, identifiers)
@@ -136,9 +145,13 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, err
 		}
 
-		updatedEntity, err = existingEntity.Update(payload)
+		updatedEntity, err = existingEntity.Update(ctx, data, payload)
 		if err != nil {
 			return nil, err
+		}
+
+		if ok := updatedEntity.IsValid(); !ok {
+			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
 		}
 
 	}

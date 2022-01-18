@@ -148,6 +148,11 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
 
+	existingEntityPayload, err := json.Marshal(existingEntity)
+	if err != nil {
+		t.Fatalf("unexpected error marshalling content entity '%s'", err)
+	}
+
 	if existingEntity.GetString("Title") != "test 1" {
 		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("Title"))
 	}
@@ -162,7 +167,7 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Fatalf("unexpected error marshalling update payload '%s'", err)
 	}
 
-	updatedEntity, err := existingEntity.Update(updatedPayload)
+	updatedEntity, err := existingEntity.Update(ctx, existingEntityPayload, updatedPayload)
 	if err != nil {
 		t.Fatalf("unexpected error updating existing entity '%s'", err)
 	}

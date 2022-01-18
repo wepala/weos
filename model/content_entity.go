@@ -131,9 +131,21 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	return w, w.ApplyChanges([]*Event{event})
 }
 
-func (w *ContentEntity) Update(payload json.RawMessage) (*ContentEntity, error) {
+func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMessage, updatedPayload json.RawMessage) (*ContentEntity, error) {
+	contentType := weosContext.GetContentType(ctx)
 
-	event := NewEntityEvent("update", w, w.ID, payload)
+	w.FromSchema(ctx, contentType.Schema)
+
+	err := json.Unmarshal(existingPayload, &w.BasicEntity)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(existingPayload, &w.Property)
+	if err != nil {
+		return nil, err
+	}
+
+	event := NewEntityEvent("update", w, w.ID, updatedPayload)
 	w.NewChange(event)
 	return w, w.ApplyChanges([]*Event{event})
 }
