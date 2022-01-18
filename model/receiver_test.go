@@ -3,11 +3,12 @@ package model_test
 import (
 	context3 "context"
 	"encoding/json"
+	"testing"
+
 	"github.com/getkin/kin-openapi/openapi3"
 	weosContext "github.com/wepala/weos-service/context"
 	"github.com/wepala/weos-service/model"
 	"golang.org/x/net/context"
-	"testing"
 )
 
 type Blog struct {
@@ -58,7 +59,7 @@ func TestCreateContentType(t *testing.T) {
 		AddSubscriberFunc: func(handler model.EventHandler) {
 		},
 	}
-	application := &ApplicationMock{
+	application := &ServiceMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return commandDispatcher
 		},
@@ -185,12 +186,12 @@ func TestUpdateContentType(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType *weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
 
-	application := &ApplicationMock{
+	application := &ServiceMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return commandDispatcher
 		},

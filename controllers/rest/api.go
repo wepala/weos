@@ -16,11 +16,11 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/wepala/weos-service/model"
-	"github.com/wepala/weos-service/projections"
-
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
+	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/wepala/weos-service/model"
+	"github.com/wepala/weos-service/projections"
 )
 
 //RESTAPI is used to manage the API
@@ -35,7 +35,7 @@ type RESTAPI struct {
 	Config      *APIConfig
 	e           *echo.Echo
 	PathConfigs map[string]*PathConfig
-	Schemas     map[string]interface{}
+	Schemas     map[string]ds.Builder
 	middlewares map[string]Middleware
 	controllers map[string]Controller
 }
@@ -117,7 +117,11 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 }
 
 func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
-	return p.projection.Schema, nil
+	schemes := map[string]interface{}{}
+	for name, s := range p.Schemas {
+		schemes[name] = s.Build().New()
+	}
+	return schemes, nil
 }
 
 //Initialize and setup configurations for RESTAPI
@@ -309,6 +313,24 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 					if err != nil {
 						e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
 					}
+					//checks if the controller explicitly stated and whether the endpoint is valid
+					if strings.ToUpper(method) == "GET" {
+						if operationConfig.Handler == "List" {
+							if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
+								for _, val := range pathData.Get.Responses["200"].Value.Content {
+									//checks if the response refers to an array schema
+									if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+										autoConfigure = true
+										break
+									}
+								}
+							}
+							if !autoConfigure {
+								operationConfig.Handler = ""
+							}
+						}
+					}
+
 				} else {
 					//Adds standard controller to path
 					autoConfigure, err = AddStandardController(e, pathData, method, swagger, operationConfig)
