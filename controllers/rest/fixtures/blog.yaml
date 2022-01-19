@@ -227,6 +227,11 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+          required: false
       summary: Get Blog by id
       operationId: Get Blog
       responses:
@@ -552,6 +557,7 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
       summary: Get Author by email and id
       responses:
@@ -572,6 +578,7 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
       summary: Update Author details
       requestBody:
@@ -598,6 +605,7 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
       summary: Delete author
       responses:

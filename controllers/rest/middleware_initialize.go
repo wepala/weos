@@ -219,7 +219,10 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 						//check the parameters for the identifiers
 						for _, param := range pathData.Put.Parameters {
 							cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-							if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+							if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+								break
+							}
+							if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 								allParam = false
 								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
 								return autoConfigure, nil
@@ -275,7 +278,10 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 						//check the parameters for the identifiers
 						for _, param := range pathData.Patch.Parameters {
 							cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-							if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+							if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+								break
+							}
+							if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 								allParam = false
 								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
 								return autoConfigure, nil
@@ -331,6 +337,9 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 							//check the parameters
 							for _, param := range pathData.Get.Parameters {
 								cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+								if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+									break
+								}
 								if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 									allParam = false
 									e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")

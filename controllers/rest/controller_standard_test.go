@@ -20,6 +20,7 @@ import (
 )
 
 type Blog struct {
+	DbID        uint   `json:"id"`
 	ID          string `json:"weos_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
@@ -301,10 +302,6 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		response := resp.Result()
 		defer response.Body.Close()
 
-		if len(dispatcher.DispatchCalls()) == 0 {
-			t.Error("expected create account command to be dispatched")
-		}
-
 		if response.StatusCode != 201 {
 			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
 		}
@@ -447,6 +444,9 @@ func TestStandardControllers_Update(t *testing.T) {
 			return nil, nil
 		},
 		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
 			return nil, nil
 		},
 	}
