@@ -354,6 +354,10 @@ func TestStandardControllers_Update(t *testing.T) {
 		Title:       "Test Blog",
 		Description: "testing description",
 	}
+	mockBlog1 := &Blog{
+		Title:       "Test changing Blog",
+		Description: "testing changing description",
+	}
 
 	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
 	if err != nil {
@@ -396,17 +400,14 @@ func TestStandardControllers_Update(t *testing.T) {
 			blog := &Blog{}
 			json.Unmarshal(command.Payload, &blog)
 
-			if blog.Title != mockBlog.Title {
-				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog.Title, blog.Title)
+			if blog.Title != mockBlog1.Title {
+				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog1.Title, blog.Title)
 			}
 
 			if blog.ID != weosId {
 				t.Errorf("expected the blog weos id to be '%s', got '%s'", weosId, blog.ID)
 			}
 
-			if blog.SequenceNo != "1" {
-				t.Errorf("expected the blog sequence no to be '%s', got '%s'", mockBlog.SequenceNo, blog.SequenceNo)
-			}
 			//check that content type information is in the context
 			contentType := weoscontext.GetContentType(ctx)
 			if contentType == nil {
@@ -438,6 +439,10 @@ func TestStandardControllers_Update(t *testing.T) {
 			return nil
 		},
 	}
+	mockEntity := &model.ContentEntity{}
+	mockEntity.ID = weosId
+	mockEntity.SequenceNo = int64(1)
+	mockEntity.Property = mockBlog
 
 	projection := &ProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
@@ -447,7 +452,7 @@ func TestStandardControllers_Update(t *testing.T) {
 			return nil, nil
 		},
 		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
-			return nil, nil
+			return mockEntity, nil
 		},
 	}
 
@@ -465,7 +470,7 @@ func TestStandardControllers_Update(t *testing.T) {
 
 	t.Run("basic update based on simple content type with id parameter in path and etag", func(t *testing.T) {
 		paramName := "id"
-		reqBytes, err := json.Marshal(mockBlog)
+		reqBytes, err := json.Marshal(mockBlog1)
 		if err != nil {
 			t.Fatalf("error setting up request %s", err)
 		}
