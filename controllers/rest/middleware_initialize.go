@@ -192,7 +192,7 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 			if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
 				operationConfig.Handler = "Create"
 				autoConfigure = true
-			} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Value.Type, "#/components/schemas/") {
+			} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
 				operationConfig.Handler = "CreateBatch"
 				autoConfigure = true
 
@@ -219,10 +219,13 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 						//check the parameters for the identifiers
 						for _, param := range pathData.Put.Parameters {
 							cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-							if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+							if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+								break
+							}
+							if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 								allParam = false
 								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-								break
+								return autoConfigure, nil
 							}
 						}
 					}
@@ -275,10 +278,13 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 						//check the parameters for the identifiers
 						for _, param := range pathData.Patch.Parameters {
 							cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-							if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+							if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+								break
+							}
+							if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 								allParam = false
 								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-								break
+								return autoConfigure, nil
 							}
 						}
 					}
@@ -331,10 +337,13 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 							//check the parameters
 							for _, param := range pathData.Get.Parameters {
 								cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+								if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+									break
+								}
 								if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 									allParam = false
 									e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-									break
+									return autoConfigure, nil
 								}
 							}
 						}

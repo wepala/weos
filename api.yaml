@@ -243,6 +243,11 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+          required: false
       summary: Update blog details
       operationId: Update Blog
       requestBody:
@@ -349,11 +354,11 @@ paths:
                     items:
                       $ref: "#/components/schemas/Post"
 
-  /posts/{postId}:
+  /posts/{id}:
     get:
       parameters:
         - in: path
-          name: postId
+          name: id
           schema:
             type: string
           required: true
@@ -368,7 +373,7 @@ paths:
     put:
       parameters:
         - in: path
-          name: postId
+          name: id
           schema:
             type: string
           required: true
@@ -389,7 +394,7 @@ paths:
     delete:
       parameters:
         - in: path
-          name: postId
+          name: id
           schema:
             type: string
           required: true
@@ -447,15 +452,15 @@ paths:
                     items:
                       $ref: "#/components/schemas/Category"
 
-  /categories/{categoryId}:
+  /categories/{title}:
     get:
       parameters:
         - in: path
-          name: categoryId
+          name: title
           schema:
             type: string
           required: true
-      summary: Get blog category by id
+      summary: Get blog category by title
       responses:
         200:
           description: Get blog category information
@@ -466,7 +471,7 @@ paths:
     put:
       parameters:
         - in: path
-          name: categoryId
+          name: title
           schema:
             type: string
           required: true
@@ -487,7 +492,7 @@ paths:
     delete:
       parameters:
         - in: path
-          name: categoryId
+          name: title
           schema:
             type: string
           required: true
@@ -544,11 +549,16 @@ paths:
                     items:
                       $ref: "#/components/schemas/Author"
 
-  /authors/{authorId}:
+  /authors/{id}:
     get:
       parameters:
         - in: path
-          name: authorId
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: header
+          name: email
           schema:
             type: string
           required: true
@@ -563,7 +573,12 @@ paths:
     put:
       parameters:
         - in: path
-          name: authorId
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: header
+          name: email
           schema:
             type: string
           required: true
@@ -584,7 +599,12 @@ paths:
     delete:
       parameters:
         - in: path
-          name: authorId
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: header
+          name: email
           schema:
             type: string
           required: true
