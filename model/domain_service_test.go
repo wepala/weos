@@ -481,3 +481,80 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 		}
 	})
 }
+
+func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
+	//load open api spec
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	newContext := context.Background()
+	newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+
+	//Adds primary key ID to context
+	newContext = context.WithValue(newContext, "id", "123")
+
+	entityType := "Blog"
+
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	reqBytes, err := json.Marshal(existingPayload)
+	if err != nil {
+		t.Fatalf("error converting payload to bytes %s", err)
+	}
+
+	mockEventRepository := &EventRepositoryMock{
+		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+			return nil
+		},
+	}
+
+	dService := model.NewDomainService(newContext, mockEventRepository, nil)
+	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
+
+	projectionMock := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+			return existingBlog, nil
+		},
+		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return existingPayload, nil
+		},
+	}
+
+	t.Run("Testing with compound PK - ID", func(t *testing.T) {
+		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
+
+		updatedPayload := map[string]interface{}{"title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
+		updatedReqBytes, err := json.Marshal(updatedPayload)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		updatedBlog, err := dService1.Update(newContext, updatedReqBytes, entityType)
+
+		if err != nil {
+			t.Fatalf("unexpected error updating content type '%s'", err)
+		}
+		if updatedBlog == nil {
+			t.Fatal("expected blog to be returned")
+		}
+		if updatedBlog.GetUint("ID") != uint(123) {
+			t.Fatalf("expected blog title to be %d got %d", uint(123), updatedBlog.GetUint("ID"))
+		}
+		if updatedBlog.GetString("Title") != updatedPayload["title"] {
+			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))
+		}
+		if updatedBlog.GetString("Description") != updatedPayload["description"] {
+			t.Fatalf("expected blog description to be %s got %s", updatedPayload["description"], updatedBlog.GetString("Description"))
+		}
+		if updatedBlog.GetString("Url") != updatedPayload["url"] {
+			t.Fatalf("expected blog url to be %s got %s", updatedPayload["url"], updatedBlog.GetString("Url"))
+		}
+	})
+}
