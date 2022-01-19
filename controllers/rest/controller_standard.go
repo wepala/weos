@@ -202,12 +202,29 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			//find entity based on identifiers specified
 			pks, _ := json.Marshal(contentTypeSchema.Value.Extensions["x-identifier"])
 			json.Unmarshal(pks, &identifiers)
+
+			var projectionIDUsed bool
+
 			if len(identifiers) == 0 {
 				identifiers = append(identifiers, "id")
+				projectionIDUsed = true
 			}
+
 			primaryKeys := map[string]interface{}{}
 			for _, p := range identifiers {
-				primaryKeys[p] = newContext.Value(p)
+
+				ctxtIdentifier := newContext.Value(p)
+
+				if projectionIDUsed == true && p == "id" {
+					tempInt, err := strconv.Atoi(ctxtIdentifier.(string))
+					if err != nil {
+						return err
+					}
+					primaryKeys[p] = uint(tempInt)
+					projectionIDUsed = false
+				} else {
+					primaryKeys[p] = ctxtIdentifier
+				}
 			}
 
 			for _, projection := range app.Projections() {
@@ -233,12 +250,12 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			} else if err != nil {
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
-			result1["weos_id"] = ""
-			result1["SequenceNo"] = 0
+			result1["weos_id"] = nil
+			result1["SequenceNo"] = nil
 
 			ctxt.Response().Header().Set("Etag", Etag)
 
-			return ctxt.JSON(http.StatusOK, result)
+			return ctxt.JSON(http.StatusOK, result1)
 		} else {
 			//find contentEntity based on weosid
 			for _, projection := range app.Projections() {
