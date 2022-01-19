@@ -97,6 +97,7 @@ Feature: Create content endpoints
     Then a "POST" route "/blog" should be added to the api
     And a "Create" middleware should be added to the route
 
+  @focus
   Scenario: Create a batch of items
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
@@ -112,17 +113,17 @@ Feature: Create content endpoints
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Blog"
               application/x-www-form-urlencoded:
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Blog"
               application/xml:
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Blog"
           responses:
             201:
               description: Added Blogs to Aggregator
@@ -136,17 +137,17 @@ Feature: Create content endpoints
                   schema:
                     type: array
                     items:
-                      type: "#/components/schemas/Blog"
+                      ref: "#/components/schemas/Blog"
                 application/x-www-form-urlencoded:
                   schema:
                     type: array
                     items:
-                      type: "#/components/schemas/Blog"
+                      ref: "#/components/schemas/Blog"
                 application/xml:
                   schema:
                     type: array
                     items:
-                      type: "#/components/schemas/Blog"
+                      ref: "#/components/schemas/Blog"
               400:
                 description: Invalid blog submitted
     """
