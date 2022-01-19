@@ -203,11 +203,8 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			pks, _ := json.Marshal(contentTypeSchema.Value.Extensions["x-identifier"])
 			json.Unmarshal(pks, &identifiers)
 
-			var projectionIDUsed bool
-
 			if len(identifiers) == 0 {
 				identifiers = append(identifiers, "id")
-				projectionIDUsed = true
 			}
 
 			primaryKeys := map[string]interface{}{}
@@ -215,16 +212,8 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 
 				ctxtIdentifier := newContext.Value(p)
 
-				if projectionIDUsed == true && p == "id" {
-					tempInt, err := strconv.Atoi(ctxtIdentifier.(string))
-					if err != nil {
-						return err
-					}
-					primaryKeys[p] = uint(tempInt)
-					projectionIDUsed = false
-				} else {
-					primaryKeys[p] = ctxtIdentifier
-				}
+				primaryKeys[p] = ctxtIdentifier
+
 			}
 
 			for _, projection := range app.Projections() {

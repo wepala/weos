@@ -208,7 +208,7 @@ paths:
         - in: path
           name: id
           schema:
-            type: string
+            type: integer
           required: true
           description: blog id
         - in: query
@@ -240,7 +240,7 @@ paths:
         - in: path
           name: id
           schema:
-            type: string
+            type: integer
           required: true
           description: blog id
         - in: header
