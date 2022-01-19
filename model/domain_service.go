@@ -107,40 +107,6 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		return nil, err
 	}
 
-	var primaryKeys []string
-	identifiers := map[string]interface{}{}
-
-	if contentType.Schema.Extensions["x-identifier"] != nil {
-		identifiersFromSchema := contentType.Schema.Extensions["x-identifier"].(json.RawMessage)
-		json.Unmarshal(identifiersFromSchema, &primaryKeys)
-	}
-
-	var tempPayload map[string]interface{}
-	err = json.Unmarshal(payload, &tempPayload)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(primaryKeys) == 0 {
-		primaryKeys = append(primaryKeys, "id")
-	}
-
-	for _, pk := range primaryKeys {
-		ctxtIdentifier := ctx.Value(pk)
-
-		if ctxtIdentifier == nil {
-			return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
-		}
-
-		identifiers[pk] = ctxtIdentifier
-		tempPayload[pk] = identifiers[pk]
-	}
-
-	newPayload, err := json.Marshal(tempPayload)
-	if err != nil {
-		return nil, err
-	}
-
 	//If there is a weosID present use this
 	if weosID != "" {
 		seqNo, err := GetSeqfromPayload(newPayload)
