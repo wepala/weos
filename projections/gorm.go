@@ -208,11 +208,22 @@ func (p *GORMProjection) GetContentEntity(ctx context.Context, weosID string) (*
 		p.logger.Errorf("unexpected error marshalling payload, got: '%s'", err)
 	}
 
-	newEntity, err := new(weos.ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, payload)
+	newEntity, err := new(weos.ContentEntity).FromSchema(ctx, contentType.Schema)
 	if err != nil {
 		p.logger.Errorf("unexpected error creating entity, got: '%s'", err)
 	}
 
+	err = json.Unmarshal(payload, &newEntity.BasicEntity)
+	if err != nil {
+		p.logger.Errorf("unexpected error unmarshalling entity, got: '%s'", err)
+	}
+	err = json.Unmarshal(payload, &newEntity.Property)
+	if err != nil {
+		p.logger.Errorf("unexpected error unmarshalling entity, got: '%s'", err)
+	}
+	if output["sequence_no"] != nil {
+		newEntity.SequenceNo = output["sequence_no"].(int64)
+	}
 	return newEntity, nil
 }
 

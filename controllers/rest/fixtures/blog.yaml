@@ -227,6 +227,11 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+          required: false
       summary: Get Blog by id
       operationId: Get Blog
       responses:
@@ -244,6 +249,10 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
       summary: Update blog details
       operationId: Update Blog
       requestBody:
@@ -439,15 +448,15 @@ paths:
                     items:
                       $ref: "#/components/schemas/Category"
 
-  /categories/{id}:
+  /categories/{title}:
     get:
       parameters:
         - in: path
-          name: id
+          name: title
           schema:
             type: string
           required: true
-      summary: Get blog category by id
+      summary: Get blog category by title
       responses:
         200:
           description: Get blog category information
@@ -458,7 +467,7 @@ paths:
     put:
       parameters:
         - in: path
-          name: id
+          name: title
           schema:
             type: string
           required: true
@@ -479,7 +488,7 @@ paths:
     delete:
       parameters:
         - in: path
-          name: id
+          name: title
           schema:
             type: string
           required: true
@@ -544,7 +553,13 @@ paths:
           schema:
             type: string
           required: true
-      summary: Get Author by id
+        - in: header
+          name: email
+          schema:
+            type: string
+            format: email
+          required: true
+      summary: Get Author by email and id
       responses:
         200:
           description: Get author information
@@ -558,6 +573,12 @@ paths:
           name: id
           schema:
             type: string
+          required: true
+        - in: header
+          name: email
+          schema:
+            type: string
+            format: email
           required: true
       summary: Update Author details
       requestBody:
@@ -579,6 +600,12 @@ paths:
           name: id
           schema:
             type: string
+          required: true
+        - in: header
+          name: email
+          schema:
+            type: string
+            format: email
           required: true
       summary: Delete author
       responses:
