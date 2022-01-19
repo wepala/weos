@@ -163,6 +163,7 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, cType)
 		}
 		var weosID string
+		var sequenceNo string
 		var newPayload map[string]interface{}
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
@@ -170,7 +171,7 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 		etagInterface := newContext.Value("If-Match")
 		if etagInterface != nil {
 			etag := etagInterface.(string)
-			weosID, sequenceNo := SplitEtag(etag)
+			weosID, sequenceNo = SplitEtag(etag)
 			json.Unmarshal(payload, &newPayload)
 			newPayload["weos_id"] = weosID
 			newPayload["sequence_no"] = sequenceNo
@@ -248,12 +249,12 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			} else if err != nil {
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
-			result1["weos_id"] = ""
-			result1["SequenceNo"] = 0
+			result1["weos_id"] = nil
+			result1["SequenceNo"] = nil
 
 			ctxt.Response().Header().Set("Etag", Etag)
 
-			return ctxt.JSON(http.StatusOK, result)
+			return ctxt.JSON(http.StatusOK, result1)
 		} else {
 			//find contentEntity based on weosid
 			for _, projection := range app.Projections() {
