@@ -34,16 +34,12 @@ func TestDomainService_Create(t *testing.T) {
 	})
 
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
-		mockBlog := &Blog{
-			Title:       "First blog",
-			Description: "Description testing 1",
-			Url:         "www.TestBlog.com",
-		}
 		entityType := "Blog"
 
+		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com"}
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
-			t.Fatalf("error converting content type to bytes %s", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
 		dService := model.NewDomainService(newContext, mockEventRepository, nil)
@@ -55,25 +51,24 @@ func TestDomainService_Create(t *testing.T) {
 		if blog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if blog.GetString("Title") != mockBlog.Title {
-			t.Fatalf("expected blog title to be %s got %s", mockBlog.Title, blog.GetString("Title"))
+		if blog.GetString("Title") != mockBlog["title"] {
+			t.Fatalf("expected blog title to be %s got %s", mockBlog["title"], blog.GetString("Title"))
 		}
-		if blog.GetString("Description") != mockBlog.Description {
-			t.Fatalf("expected blog description to be %s got %s", mockBlog.Description, blog.GetString("Description"))
+		if blog.GetString("Description") != mockBlog["description"] {
+			t.Fatalf("expected blog description to be %s got %s", mockBlog["description"], blog.GetString("Description"))
 		}
-		if blog.GetString("Url") != mockBlog.Url {
-			t.Fatalf("expected blog url to be %s got %s", mockBlog.Url, blog.GetString("Url"))
+		if blog.GetString("Url") != mockBlog["url"] {
+			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
 		}
 	})
 
 	t.Run("Testing create with an invalid payload", func(t *testing.T) {
-		mockBlog := &TestBlog{
-			Url: "ww.testBlog.com",
-		}
 		entityType := "Blog"
+
+		mockBlog := map[string]interface{}{"url": "www.NewBlog.com"}
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
-			t.Fatalf("error converting content type to bytes %s", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 		dService := model.NewDomainService(newContext, mockEventRepository, nil)
 		blog, err := dService.Create(newContext, reqBytes, entityType)
@@ -113,16 +108,17 @@ func TestDomainService_CreateBatch(t *testing.T) {
 	})
 
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
-		mockBlogs := &[3]Blog{
-			{Title: "Blog 1", Description: "Description testing 1", Url: "www.TestBlog1.com"},
-			{Title: "Blog 2", Description: "Description testing 2", Url: "www.TestBlog2.com"},
-			{Title: "Blog 3", Description: "Description testing 3", Url: "www.TestBlog3.com"},
-		}
+
 		entityType := "Blog"
 
+		mockBlogs := [3]map[string]interface{}{
+			{"title": "Blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"},
+			{"title": "Blog 2", "description": "Description testing 2", "url": "www.TestBlog2.com"},
+			{"title": "Blog 3", "description": "Description testing 3", "url": "www.TestBlog3.com"},
+		}
 		reqBytes, err := json.Marshal(mockBlogs)
 		if err != nil {
-			t.Fatalf("error converting content type to bytes %s", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
 		dService := model.NewDomainService(newContext, mockEventRepository, nil)
@@ -136,11 +132,11 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			if blogs[i] == nil {
 				t.Fatal("expected blog to be returned")
 			}
-			if blogs[i].GetString("Title") != mockBlogs[i].Title {
-				t.Fatalf("expected there to be generated blog title: %s got %s", mockBlogs[i].Title, blogs[i].GetString("Title"))
+			if blogs[i].GetString("Title") != mockBlogs[i]["title"] {
+				t.Fatalf("expected there to be generated blog title: %s got %s", mockBlogs[i]["title"], blogs[i].GetString("Title"))
 			}
-			if blogs[i].GetString("Url") != mockBlogs[i].Url {
-				t.Fatalf("expected there to be generated blog Url: %s got %s", mockBlogs[i].Url, blogs[i].GetString("Url"))
+			if blogs[i].GetString("Url") != mockBlogs[i]["url"] {
+				t.Fatalf("expected there to be generated blog Url: %s got %s", mockBlogs[i]["url"], blogs[i].GetString("Url"))
 			}
 		}
 	})
@@ -163,9 +159,11 @@ func TestDomainService_Update(t *testing.T) {
 		Schema: contentTypeSchema.Value,
 	})
 
+	newContext = context.WithValue(newContext, "id", uint(12))
+
 	entityType := "Blog"
 
-	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "id": uint(12), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
 	reqBytes, err := json.Marshal(existingPayload)
 	if err != nil {
 		t.Fatalf("error converting payload to bytes %s", err)
@@ -212,6 +210,9 @@ func TestDomainService_Update(t *testing.T) {
 		}
 		if updatedBlog == nil {
 			t.Fatal("expected blog to be returned")
+		}
+		if updatedBlog.GetUint("Id") != uint(12) {
+			t.Fatalf("expected blog title to be %d got %d", uint(12), updatedBlog.GetUint("Id"))
 		}
 		if updatedBlog.GetString("Title") != updatedPayload["title"] {
 			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))
@@ -292,7 +293,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 	newContext1 := newContext
 
 	//Adds primary key ID to context
-	newContext = context.WithValue(newContext, "id", "1")
+	newContext = context.WithValue(newContext, "id", "123")
 
 	entityType := "Blog"
 
@@ -329,11 +330,6 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		reqBytes, err = json.Marshal(updatedPayload)
-		if err != nil {
-			t.Fatalf("error converting content type to bytes %s", err)
-		}
-
 		updatedBlog, err := dService1.Update(newContext, updatedReqBytes, entityType)
 
 		if err != nil {
@@ -341,6 +337,9 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 		}
 		if updatedBlog == nil {
 			t.Fatal("expected blog to be returned")
+		}
+		if updatedBlog.GetString("Id") != "123" {
+			t.Fatalf("expected blog title to be %s got %s", "123", updatedBlog.GetString("Id"))
 		}
 		if updatedBlog.GetString("Title") != updatedPayload["title"] {
 			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))
@@ -360,11 +359,6 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 		updatedReqBytes, err := json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
-		}
-
-		reqBytes, err = json.Marshal(updatedPayload)
-		if err != nil {
-			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
 		updatedBlog, err := dService1.Update(newContext1, updatedReqBytes, entityType)
@@ -397,7 +391,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 	newContext1 := newContext
 
 	//Adds primary key ID to context
-	newContext = context.WithValue(newContext, "guid", "1")
+	newContext = context.WithValue(newContext, "guid", "123")
 	newContext = context.WithValue(newContext, "title", "blog 1")
 
 	entityType := "Blog"
@@ -430,7 +424,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 
 		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
 
-		updatedPayload := map[string]interface{}{"title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
+		updatedPayload := map[string]interface{}{"description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
@@ -449,8 +443,11 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 		if updatedBlog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if updatedBlog.GetString("Title") != updatedPayload["title"] {
-			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))
+		if updatedBlog.GetString("Guid") != "123" {
+			t.Fatalf("expected blog guid to be %s got %s", "123", updatedBlog.GetString("Guid"))
+		}
+		if updatedBlog.GetString("Title") != "blog 1" {
+			t.Fatalf("expected blog title to be %s got %s", "blog 1", updatedBlog.GetString("Title"))
 		}
 		if updatedBlog.GetString("Description") != updatedPayload["description"] {
 			t.Fatalf("expected blog description to be %s got %s", updatedPayload["description"], updatedBlog.GetString("Description"))

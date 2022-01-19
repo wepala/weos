@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/stoewer/go-strcase"
 	weosContext "github.com/wepala/weos-service/context"
+	utils "github.com/wepala/weos-service/utils"
 	"golang.org/x/net/context"
 	"strings"
 )
@@ -59,7 +59,13 @@ func (w *ContentEntity) IsNull(name string) bool {
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
 	w.User.ID = weosContext.GetUser(ctx)
 	w.Schema = ref
+	identifiers := w.Schema.Extensions["x-identifier"]
 	instance := ds.NewStruct()
+	if identifiers == nil {
+		var idType *uint //NOT SURE ABOUT THE TYPE
+		name := "Id"
+		instance.AddField(name, idType, "id")
+	}
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
 		name = strings.Title(name)
@@ -72,13 +78,13 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 				if t2 != "object" {
 					if t2 == "string" {
 						//format types to be added
-						instance.AddField(name, []*string{}, strcase.SnakeCase(name))
+						instance.AddField(name, []*string{}, utils.SnakeCase(name))
 					} else if t2 == "number" {
-						instance.AddField(name, []*float64{}, strcase.SnakeCase(name))
+						instance.AddField(name, []*float64{}, utils.SnakeCase(name))
 					} else if t == "integer" {
-						instance.AddField(name, []*int{}, strcase.SnakeCase(name))
+						instance.AddField(name, []*int{}, utils.SnakeCase(name))
 					} else if t == "boolean" {
-						instance.AddField(name, []*bool{}, strcase.SnakeCase(name))
+						instance.AddField(name, []*bool{}, utils.SnakeCase(name))
 					}
 				} else {
 					if p.Value.Items.Ref == "" {
@@ -97,16 +103,16 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 				if t == "string" {
 					//format types to be added
 					var strings *string
-					instance.AddField(name, strings, strcase.SnakeCase(name))
+					instance.AddField(name, strings, utils.SnakeCase(name))
 				} else if t == "number" {
 					var numbers *float32
-					instance.AddField(name, numbers, strcase.SnakeCase(name))
+					instance.AddField(name, numbers, utils.SnakeCase(name))
 				} else if t == "integer" {
 					var integers *int
-					instance.AddField(name, integers, strcase.SnakeCase(name))
+					instance.AddField(name, integers, utils.SnakeCase(name))
 				} else if t == "boolean" {
 					var boolean *bool
-					instance.AddField(name, boolean, strcase.SnakeCase(name))
+					instance.AddField(name, boolean, utils.SnakeCase(name))
 				}
 			}
 		}
@@ -182,6 +188,22 @@ func (w *ContentEntity) GetInteger(name string) int {
 	return *reader.GetField(name).PointerInt()
 }
 
+//GetUint returns the unsigned integer property value stored of a given the property name
+func (w *ContentEntity) GetUint(name string) uint {
+	if w.Property == nil {
+		return uint(0)
+	}
+	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return uint(0)
+	}
+	if reader.GetField(name).PointerUint() == nil {
+		return uint(0)
+	}
+	return *reader.GetField(name).PointerUint()
+}
+
 //GetBool returns the boolean property value stored of a given the property name
 func (w *ContentEntity) GetBool(name string) bool {
 	if w.Property == nil {
@@ -232,7 +254,7 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 		case "update":
 			err := json.Unmarshal(change.Payload, &w.Property)
 			if err != nil {
-				return NewDomainError("invalid: unable to get ID from payload", change.Meta.EntityType, w.ID, err)
+				return NewDomainError("invalid: error unmarshalling changed payload", change.Meta.EntityType, w.ID, err)
 			}
 			w.User.BasicEntity.ID = change.Meta.User
 
