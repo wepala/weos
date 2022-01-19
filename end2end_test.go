@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/testcontainers/testcontainers-go"
@@ -28,6 +29,7 @@ import (
 var e *echo.Echo
 var API api.RESTAPI
 var openAPI string
+var blogfixtures []interface{}
 var Developer *User
 var Content *ContentType
 var errs error
@@ -122,6 +124,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	errs = nil
+	blogfixtures = []interface{}{}
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
@@ -329,21 +332,8 @@ func blogsInTheApi(details *godog.Table) error {
 		for n, cell := range details.Rows[i].Cells {
 			req[head[n].Value] = cell.Value
 		}
-		reqBytes, _ := json.Marshal(req)
-		body := bytes.NewReader(reqBytes)
-		var request *http.Request
 
-		request = httptest.NewRequest("POST", "/blog", body)
-
-		request = request.WithContext(context.TODO())
-		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		request.Header = header
-		request.Close = true
-		rec = httptest.NewRecorder()
-		e.ServeHTTP(rec, request)
-		if rec.Code != http.StatusCreated {
-			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
-		}
+		blogfixtures = append(blogfixtures, req)
 
 	}
 	return nil
@@ -621,6 +611,26 @@ func theServiceIsRunning() error {
 	if err != nil {
 		return err
 	}
+
+	if len(blogfixtures) != 0 {
+		for _, req := range blogfixtures {
+			reqBytes, _ := json.Marshal(req)
+			body := bytes.NewReader(reqBytes)
+			var request *http.Request
+
+			request = httptest.NewRequest("POST", "/blog", body)
+
+			request = request.WithContext(context.TODO())
+			header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			request.Header = header
+			request.Close = true
+			rec = httptest.NewRecorder()
+			e.ServeHTTP(rec, request)
+			if rec.Code != http.StatusCreated {
+				return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			}
+		}
+	}
 	return nil
 }
 
@@ -742,6 +752,52 @@ func sojournerIsUpdatingWithId(contentType, id string) error {
 	return nil
 }
 
+func aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist() error {
+	return godog.ErrPending
+}
+
+func addsTheAttributeToTheFieldOnTheContentType(arg1, arg2, arg3, arg4 string) error {
+	return godog.ErrPending
+}
+
+func addsTheFieldToTheContentType(arg1, arg2, arg3 string) error {
+	return godog.ErrPending
+}
+
+func anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference() error {
+	return godog.ErrPending
+}
+
+func removedTheFieldFromTheContentType(user, field, contentType string) error {
+
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	delete(schemas[contentType].Value.Properties, field)
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func theFieldShouldBeRemovedFromTheTable(arg1, arg2 string) error {
+	return godog.ErrPending
+}
+
+func theServiceIsStopped() error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -784,6 +840,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
 	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
+	ctx.Step(`^a warning should be output to the logs telling the developer the property doesn\'t exist$`, aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist)
+	ctx.Step(`^"([^"]*)" adds the "([^"]*)" attribute to the "([^"]*)" field on the "([^"]*)" content type$`, addsTheAttributeToTheFieldOnTheContentType)
+	ctx.Step(`^"([^"]*)" adds the field "([^"]*)" to the "([^"]*)" content type$`, addsTheFieldToTheContentType)
+	ctx.Step(`^an error should show letting the developer know that is part of a foreign key reference$`, anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference)
+	ctx.Step(`^"([^"]*)" removed the "([^"]*)" field from the "([^"]*)" content type$`, removedTheFieldFromTheContentType)
+	ctx.Step(`^the "([^"]*)" field should be removed from the "([^"]*)" table$`, theFieldShouldBeRemovedFromTheTable)
+	ctx.Step(`^the service is stopped$`, theServiceIsStopped)
 
 }
 
@@ -794,7 +857,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
+			Tags:   "WEOS-1125",
 			//Tags: "long",
 		},
 	}.Run()

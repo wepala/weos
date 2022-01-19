@@ -172,7 +172,6 @@ Feature: Edit content
              200:
                description: Blog Deleted
      """
-     And the service is running
      And blogs in the api
        | id    | entity id                   | sequence no | title        | description    |
        | 1234  | <Generated ID> | 2           | Blog 1       | Some Blog      |

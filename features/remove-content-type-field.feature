@@ -1,18 +1,25 @@
-@WEOS-1135
-Feature: View content
+@WEOS-1125
+Feature: Remove field from content type
 
-   Background:
+  If a field is removed from content type it should NOT remove data stored in that field. In order to permanently remove
+  a field use the x-remove extension to permanently remove a field
 
-     Given a developer "Sojourner"
-     And "Sojourner" has an account with id "1234"
-     And "Open API 3.0" is used to model the service
-     And the specification is
+  Background:
+
+    Given a developer "Sojourner"
+    And "Sojourner" has an account with id "1234"
+    And "Open API 3.0" is used to model the service
+    And the specification is
      """
      openapi: 3.0.3
      info:
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
      x-weos-config:
       logger:
         level: warn
@@ -70,7 +77,7 @@ Feature: View content
              categories:
                type: array
                items:
-                 $ref: "#/components/schemas/Post"
+                 $ref: "#/components/schemas/Category"
            required:
              - title
          Category:
@@ -81,6 +88,20 @@ Feature: View content
              description:
                type: string
            required:
+             - title
+           x-identifier:
+             - title
+         Tag:
+           type: object
+           properties:
+             guid:
+               type: string
+             title:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - guid
              - title
      paths:
        /:
@@ -125,14 +146,6 @@ Feature: View content
                description: blog id
              - in: query
                name: sequence_no
-               schema:
-                 type: string
-             - in: query
-               name: use_entity_id
-               schema:
-                 type: boolean
-             - in: header
-               name: If-None-Match
                schema:
                  type: string
            summary: Get Blog by id
@@ -181,55 +194,80 @@ Feature: View content
              200:
                description: Blog Deleted
      """
-     And blogs in the api
-       | id    | weos_id                     | sequence_no | title        | description    |
-       | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
-       | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
+    And blogs in the api
+      | id    | entity id                   | sequence no | title        | description    |
+      | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
+      | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
 
+  Scenario: Remove a field that has no data
 
-   Scenario: Get blog details
+    Because the url field has been removed it should not be returned in the response
 
-     The blog should be retrieved using the identifier in the projection. The `ETag` header returned is a combination of
-     the entity id and the sequence no.
+    Given "Sojourner" removed the "url" field from the "Blog" content type
+    And the service is running
+    When the "GET" endpoint "/blogs/1234" is hit
+    Then a 200 response should be returned
+    And a blog should be returned
+      | id    | title        | description    |
+      | 1234  | Blog 1       | Some Blog      |
 
-     When the "GET" endpoint "/blogs/1234" is hit
-     Then a 200 response should be returned
-     And a blog should be returned
-       | id    | title        | description    |
-       | 1234  | Blog 1       | Some Blog      |
-     And the "ETag" header should be "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
+  Scenario: Remove a field that has data
 
-   Scenario: Get blog details using the entity id
+    If a field that is removed is added back it should still have the contents that was there before
 
-     If the view controller gets a parameter `use_entity_id` set to true then it will use the identifier as the entity id
+    Given "Sojourner" removed the "description" field from the "Blog" content type
+    And the service is running
+    And the "GET" endpoint "/blogs/1234" is hit
+    And a 200 response should be returned
+    And a blog should be returned
+      | id    | title        |
+      | 1234  | Blog 1       |
+    And "Sojourner" adds the field "description" to the "Blog" content type
+    When the "GET" endpoint "/blogs/1234" is hit
+    Then a 200 response should be returned
+    And a blog should be returned
+      | id    | title        | description    |
+      | 1234  | Blog 1       | Some Blog      |
 
-     When the "GET" endpoint "/blogs/22xu4iw0bWMwxqbrUvjqEqu5dof?use_entity_id=true" is hit
-     Then a 200 response should be returned
-     And a blog should be returned
-       | id    | title        | description    |
-       | 4567  | Blog 2       | Some Blog 2     |
-     And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.1"
+  Scenario: Permanently remove a field
 
-   Scenario: Get specific version of an entity
+    In order to permanently remove a field the "x-remove" extension should be used
 
-     A developer can pass in the specific sequence no (sequence_no) to get an entity at a specific state
+    Given "Sojourner" adds the "x-remove" attribute to the "description" field on the "Blog" content type
+    When the service is running
+    Then the "description" field should be removed from the "Blog" table
 
-     Given Sojourner is updating "Blog" with id "4567"
-     And "Sojourner" enters "Some New Blog" in the "title" field
-     And the "Blog" is submitted
-     When the "GET" endpoint "/blogs/22xu4iw0bWMwxqbrUvjqEqu5dof?sequence_no=1" is hit
-     Then a 200 response should be returned
-     And a blog should be returned
-       | id    | title           | description    |
-       | 4567  | Blog 2          | Some Blog 2    |
-     And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.2"
+  Scenario: Remove a field that has already been removed
 
-   Scenario: Check if new version of an item is available
+    If the field was already removed (maybe because of previous run) just show a warning
 
-     Check if version is the latest version https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag
+    Given "Sojourner" adds the "x-remove" attribute to the "description" field on the "Blog" content type
+    And the service is running
+    And the "description" field should be removed from the "Blog" table
+    And the service is stopped
+    When the service is running
+    Then a warning should be output to the logs telling the developer the property doesn't exist
 
-     Given a header "If-None-Match" with value "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
-     When the "GET" endpoint "/blogs/1234" is hit
-     Then a 304 response should be returned
+  Scenario: Remove a field that is an identifier
 
+    It's fine to remove an identifier
 
+    Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
+    Given "Sojourner" adds the "x-remove" attribute to the "title" field on the "Tag" content type
+    When the service is running
+    Then the "title" field should be removed from the "Tag" table
+    And the "guid" field should be removed from the "Tag" table
+
+  Scenario: Remove a field that is part of an identifier
+
+    It's fine to remove a part of an identifier
+
+    Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
+    When the service is running
+    Then the "title" field should be removed from the "Tag" table
+
+  Scenario: Remove a field that is part of a foreign key reference
+
+    Given "Sojourner" adds the "x-remove" attribute to the "title" field on the "Category" content type
+    When the service is running
+    Then an error should show letting the developer know that is part of a foreign key reference
