@@ -199,9 +199,9 @@ func TestStandardControllers_Create(t *testing.T) {
 
 func TestStandardControllers_CreateBatch(t *testing.T) {
 	mockBlog := &[3]Blog{
-		{Title: "Blog 1"},
-		{Title: "Blog 2"},
-		{Title: "Blog 3"},
+		{Title: "Blog 1", Url: "www.Test.com"},
+		{Title: "Blog 2", Url: "www.Test.com"},
+		{Title: "Blog 3", Url: "www.Test.com"},
 	}
 
 	content, err := ioutil.ReadFile("./fixtures/blog-create-batch.yaml")
