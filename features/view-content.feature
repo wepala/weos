@@ -1,4 +1,3 @@
-@skipped
 @WEOS-1135
 Feature: View content
 
