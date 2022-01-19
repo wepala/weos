@@ -176,7 +176,7 @@ func TestDomainService_Update(t *testing.T) {
 	}
 
 	dService := model.NewDomainService(newContext, mockEventRepository, nil)
-	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
+	existingBlog, _ := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
@@ -211,8 +211,8 @@ func TestDomainService_Update(t *testing.T) {
 		if updatedBlog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if updatedBlog.GetUint("Id") != uint(12) {
-			t.Fatalf("expected blog title to be %d got %d", uint(12), updatedBlog.GetUint("Id"))
+		if updatedBlog.GetUint("ID") != uint(12) {
+			t.Fatalf("expected blog id to be %d got %d", uint(12), updatedBlog.GetUint("id"))
 		}
 		if updatedBlog.GetString("Title") != updatedPayload["title"] {
 			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))

@@ -112,8 +112,8 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
 
-		if len(mockEventRepository.PersistCalls()) != 3 {
-			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 3, len(mockEventRepository.PersistCalls()))
+		if len(mockEventRepository.PersistCalls()) != 4 {
+			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 4, len(mockEventRepository.PersistCalls()))
 		}
 	})
 }

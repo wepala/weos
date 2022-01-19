@@ -45,6 +45,8 @@ Feature: Edit content
          Blog:
            type: object
            properties:
+             id:
+               type: string
              title:
                type: string
                description: blog title
@@ -52,6 +54,8 @@ Feature: Edit content
                type: string
            required:
              - title
+           x-identifier:
+             - id
          Post:
            type: object
            properties:

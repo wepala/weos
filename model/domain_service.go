@@ -3,10 +3,11 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos-service/context"
 	"golang.org/x/net/context"
-	"strconv"
 )
 
 type DomainService struct {
@@ -94,8 +95,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	for _, pk := range primaryKeys {
 		ctxtIdentifier := ctx.Value(pk)
 
-		if ctxtIdentifier == nil {
-			return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
+		if weosID == "" {
+			if ctxtIdentifier == nil {
+				return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
+			}
 		}
 
 		identifiers[pk] = ctxtIdentifier
@@ -146,7 +149,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		}
 
 		for _, pk := range primaryKeys {
-			if fmt.Sprint(tempExistingPayload["Property"].(map[string]interface{})[pk]) != fmt.Sprint(tempPayload[pk]) {
+			if fmt.Sprint(tempExistingPayload[pk]) != fmt.Sprint(tempPayload[pk]) {
 				return nil, NewDomainError("invalid: error updating entity. Primary keys cannot be updated.", entityType, weosID, nil)
 			}
 		}
