@@ -452,15 +452,15 @@ paths:
                     items:
                       $ref: "#/components/schemas/Category"
 
-  /categories/{id}:
+  /categories/{title}:
     get:
       parameters:
         - in: path
-          name: id
+          name: title
           schema:
             type: string
           required: true
-      summary: Get blog category by id
+      summary: Get blog category by title
       responses:
         200:
           description: Get blog category information
@@ -471,7 +471,7 @@ paths:
     put:
       parameters:
         - in: path
-          name: id
+          name: title
           schema:
             type: string
           required: true
@@ -492,7 +492,7 @@ paths:
     delete:
       parameters:
         - in: path
-          name: id
+          name: title
           schema:
             type: string
           required: true
@@ -557,6 +557,11 @@ paths:
           schema:
             type: string
           required: true
+        - in: header
+          name: email
+          schema:
+            type: string
+          required: true
       summary: Get Author by id
       responses:
         200:
@@ -569,6 +574,11 @@ paths:
       parameters:
         - in: path
           name: id
+          schema:
+            type: string
+          required: true
+        - in: header
+          name: email
           schema:
             type: string
           required: true
@@ -590,6 +600,11 @@ paths:
       parameters:
         - in: path
           name: id
+          schema:
+            type: string
+          required: true
+        - in: header
+          name: email
           schema:
             type: string
           required: true
