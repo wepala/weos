@@ -239,8 +239,9 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			} else if err != nil {
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
-			result1["weos_id"] = nil
-			result1["SequenceNo"] = nil
+			delete(result1, "sequence_no")
+			delete(result1, "weos_id")
+			delete(result1, "table_alias")
 
 			ctxt.Response().Header().Set("Etag", Etag)
 
@@ -273,6 +274,11 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			if err != nil {
 				return err
 			}
+
+			delete(entity, "sequence_no")
+			delete(entity, "weos_id")
+			delete(entity, "table_alias")
+
 			ctxt.Response().Header().Set("Etag", Etag)
 			return ctxt.JSON(http.StatusOK, entity)
 		}
@@ -398,6 +404,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		//remove sequence number and weos_id from response
 		delete(result, "weos_id")
 		delete(result, "sequence_no")
+		delete(result, "table_alias")
 
 		//set etag
 		ctxt.Response().Header().Set("Etag", etag)

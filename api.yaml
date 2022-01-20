@@ -404,7 +404,7 @@ paths:
           description: Delete post
 
 
-  /categories/:
+  /categories:
     post:
       operationId: Create Blog Category
       summary: Create Blog Category
@@ -475,6 +475,11 @@ paths:
           schema:
             type: string
           required: true
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+          required: false
       summary: Update category
       requestBody:
         required: true
