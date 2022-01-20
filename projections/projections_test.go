@@ -302,6 +302,11 @@ components:
 
 		}
 
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -416,6 +421,10 @@ components:
 			t.Fatal("expected no blogs to be created with a missing id field")
 		}
 
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -531,6 +540,10 @@ components:
 			t.Errorf("expected to be unable to create post with invalid reference to blog")
 		}
 
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -661,6 +674,10 @@ components:
 
 		}
 
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -668,10 +685,6 @@ components:
 		err = gormDB.Migrator().DropTable("Post")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Post", err)
-		}
-		err = gormDB.Migrator().DropTable("blog_posts")
-		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
 		}
 	})
 }
@@ -934,10 +947,14 @@ components:
 			t.Fatalf("expected desription to be %s, got %s", payload["desription"], post["desription"])
 		}
 
-		if post["blog_id"] != payload["blog_id"] {
+		if fmt.Sprint(post["blog_id"]) != fmt.Sprint(payload["blog_id"]) {
 			t.Fatalf("expected desription to be %d, got %d", payload["blog_id"], post["blog_id"])
 		}
 
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -1202,6 +1219,11 @@ components:
 		if len(blogposts) != 1 {
 			t.Fatalf("expected there to be %d blog posts got %v", 1, len(blogposts))
 		}
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -1210,11 +1232,6 @@ components:
 		err = gormDB.Migrator().DropTable("Post")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
-		}
-
-		err = gormDB.Migrator().DropTable("blog_posts")
-		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
 		}
 
 	})
@@ -1342,6 +1359,11 @@ components:
 		}
 	}
 
+	err = gormDB.Migrator().DropTable("blog_posts")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+	}
+
 	err = gormDB.Migrator().DropTable("Blog")
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -1349,10 +1371,6 @@ components:
 	err = gormDB.Migrator().DropTable("Post")
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "Post", err)
-	}
-	err = gormDB.Migrator().DropTable("blog_posts")
-	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
 	}
 }
 
@@ -1496,6 +1514,11 @@ components:
 			}
 		}
 	}
+	err = gormDB.Migrator().DropTable("blog_posts")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+	}
+
 	err = gormDB.Migrator().DropTable("Blog")
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "Blog", err)
@@ -1503,10 +1526,6 @@ components:
 	err = gormDB.Migrator().DropTable("Post")
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "Post", err)
-	}
-	err = gormDB.Migrator().DropTable("blog_posts")
-	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
 	}
 }
 
@@ -1637,6 +1656,10 @@ components:
 		gormDB.Preload(clause.Associations).Take(&r)
 		fmt.Printf("\nretrieved blog is %v\n", r)
 
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
 		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
