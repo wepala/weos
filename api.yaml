@@ -460,6 +460,10 @@ paths:
           schema:
             type: string
           required: true
+        - in: header
+          name: If-None-Match
+          schema:
+             type: string
       summary: Get blog category by title
       responses:
         200:

@@ -70,24 +70,25 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 			val = c.Param(parameter.Value.Name)
 		}
 
-		if paramType != nil && paramType.Value != nil {
-			pType := paramType.Value.Type
-			if pType != "string" && pType != "" {
-				if pType == "integer" {
+		if _, ok := val.(string); ok {
+			if paramType != nil && paramType.Value != nil {
+				pType := paramType.Value.Type
+				switch strings.ToLower(pType) {
+				case "integer":
 					val, _ = strconv.Atoi(val.(string))
-				} else if pType == "boolean" {
+				case "boolean":
 					val, _ = strconv.ParseBool(val.(string))
-				} else if pType == "number" {
+				case "number":
 					format := paramType.Value.Format
 					if format == "float" || format == "double" {
 						val, _ = strconv.ParseFloat(val.(string), 64)
 					} else {
 						val, _ = strconv.Atoi(val.(string))
 					}
+
 				}
 			}
 		}
-
 		cc = context.WithValue(cc, contextName, val)
 	}
 	//TODO account for $ref tag reference
