@@ -334,7 +334,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 
 		sequenceString, _ := newContext.Value("sequence_no").(string)
 		etag, _ := newContext.Value("If-None-Match").(string)
-		entityID, _ := newContext.Value("use_entity_id").(string)
+		entityID, _ := newContext.Value("use_entity_id").(bool)
 
 		var sequence int
 		if sequenceString != "" {
@@ -344,10 +344,11 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		var err error
 
 		//get by keys
-		if sequence == 0 && etag == "" && entityID != "true" {
+		if sequence == 0 && etag == "" && !entityID {
 			for _, projection := range app.Projections() {
 				if projection != nil {
 					result, err = projection.GetByKey(ctxt.Request().Context(), *cType, identifiers)
+					break
 				}
 			}
 		} else {

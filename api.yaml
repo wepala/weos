@@ -464,6 +464,11 @@ paths:
           name: If-None-Match
           schema:
              type: string
+        - in: query
+          name: use_entity_id
+          schema:
+            type: boolean
+      
       summary: Get blog category by title
       responses:
         200:
