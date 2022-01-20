@@ -138,17 +138,18 @@ func (p *RESTAPI) Initialize() error {
 		return err
 	}
 
+	//setup projections
+	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
+	if err != nil {
+		return err
+	}
+
 	//enable module
 	err = model.Initialize(p.Application)
 	if err != nil {
 		return err
 	}
 
-	//setup projections
-	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
-	if err != nil {
-		return err
-	}
 	//run fixtures
 	err = p.Application.Migrate(context.Background())
 	if err != nil {

@@ -89,7 +89,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 				if t2 != "object" {
 					if t2 == "string" {
 						if p.Value.Items.Value.Format == "date-time" {
-							instance.AddField(name, time.Now(), tagString)
+							instance.AddField(name, []time.Time{}, tagString)
 						} else {
 							instance.AddField(name, []string{}, tagString)
 						}
@@ -114,19 +114,24 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 				//add json object
 
 			} else {
-				if t == "string" {
+				var defaultValue interface{}
+
+				switch t {
+				case "string":
 					if p.Value.Format == "date-time" {
-						instance.AddField(name, time.Now(), tagString)
+						defaultValue = time.Now()
 					} else {
-						instance.AddField(name, "", tagString)
+						defaultValue = ""
 					}
-				} else if t == "number" {
-					instance.AddField(name, 0.0, tagString)
-				} else if t == "integer" {
-					instance.AddField(name, 0, tagString)
-				} else if t == "boolean" {
-					instance.AddField(name, false, tagString)
+				case "number":
+					defaultValue = 0.0
+				case "integer":
+					defaultValue = 0
+				case "boolean":
+					defaultValue = false
 				}
+				instance.AddField(name, defaultValue, tagString)
+
 			}
 		}
 	}
@@ -163,8 +168,25 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 			json.Unmarshal(bytes, &s)
 			keystring := ""
 			for _, k := range key {
-
-				struc.AddField(strings.Title(name)+strings.Title(k), s[k], `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
+				val := s[k]
+				//foreign key references must be nullable
+				if _, ok := val.(string); ok {
+					var s *string
+					val = s
+				} else if _, ok := val.(uint); ok {
+					var s *uint
+					val = s
+				} else if _, ok := val.(int); ok {
+					var s *int
+					val = s
+				} else if _, ok := val.(float64); ok {
+					var s *float64
+					val = s
+				} else if _, ok := val.(bool); ok {
+					var s *bool
+					val = s
+				}
+				struc.AddField(strings.Title(name)+strings.Title(k), val, `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
 				if keystring != "" {
 					keystring += ","
 				}
@@ -192,7 +214,7 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 			if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
 				operationConfig.Handler = "Create"
 				autoConfigure = true
-			} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Value.Type, "#/components/schemas/") {
+			} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
 				operationConfig.Handler = "CreateBatch"
 				autoConfigure = true
 
@@ -219,10 +241,13 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 						//check the parameters for the identifiers
 						for _, param := range pathData.Put.Parameters {
 							cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-							if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+							if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+								break
+							}
+							if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 								allParam = false
 								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-								break
+								return autoConfigure, nil
 							}
 						}
 					}
@@ -275,10 +300,13 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 						//check the parameters for the identifiers
 						for _, param := range pathData.Patch.Parameters {
 							cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-							if !(identifier == param.Value.Name) || (cName != nil && identifier == cName.(string)) {
+							if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+								break
+							}
+							if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 								allParam = false
 								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-								break
+								return autoConfigure, nil
 							}
 						}
 					}
@@ -331,10 +359,13 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 							//check the parameters
 							for _, param := range pathData.Get.Parameters {
 								cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+								if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+									break
+								}
 								if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
 									allParam = false
 									e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-									break
+									return autoConfigure, nil
 								}
 							}
 						}
