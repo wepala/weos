@@ -805,6 +805,148 @@ components:
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
 		}
 	})
+
+	t.Run("Create with many to one relationship", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+      blog:
+         $ref: "#/components/schemas/Blog"
+`
+
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		payload := map[string]interface{}{"weos_id": "123456", "title": "testBlog", "description": "This is a create projection test"}
+		contentEntity := &weos.ContentEntity{
+			AggregateRoot: weos.AggregateRoot{
+				BasicEntity: weos.BasicEntity{
+					ID: "123456",
+				},
+			},
+			Property: payload,
+		}
+
+		ctxt := context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name: "Blog",
+		})
+
+		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
+		contentEntity.NewChange(event)
+		p.GetEventHandler()(ctxt, *event)
+
+		//create post
+		payload = map[string]interface{}{"weos_id": "1234567", "title": "testPost", "description": "This is a create projection test", "blog_id": 1}
+		contentEntity = &weos.ContentEntity{
+			AggregateRoot: weos.AggregateRoot{
+				BasicEntity: weos.BasicEntity{
+					ID: "1234567",
+				},
+			},
+			Property: payload,
+		}
+
+		ctxt = context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name: "Post",
+		})
+
+		event = weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
+		contentEntity.NewChange(event)
+		p.GetEventHandler()(ctxt, *event)
+
+		post := map[string]interface{}{}
+		result := gormDB.Table("Post").Find(&post, "weos_id = ? ", contentEntity.ID)
+		if result.Error != nil {
+			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
+		}
+
+		if post["title"] != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], post["title"])
+		}
+
+		if post["description"] != payload["description"] {
+			t.Fatalf("expected desription to be %s, got %s", payload["desription"], post["desription"])
+		}
+
+		if post["blog_id"] != payload["blog_id"] {
+			t.Fatalf("expected desription to be %d, got %d", payload["blog_id"], post["blog_id"])
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+	})
 }
 
 func TestProjections_Update(t *testing.T) {

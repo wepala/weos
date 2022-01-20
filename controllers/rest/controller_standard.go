@@ -332,14 +332,10 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			identifiers[p] = newContext.Value(p)
 		}
 
-		sequenceString, _ := newContext.Value("sequence_no").(string)
+		sequence, _ := newContext.Value("sequence_no").(int)
 		etag, _ := newContext.Value("If-None-Match").(string)
 		entityID, _ := newContext.Value("use_entity_id").(bool)
 
-		var sequence int
-		if sequenceString != "" {
-			sequence, _ = strconv.Atoi(sequenceString)
-		}
 		var result map[string]interface{}
 		var err error
 
@@ -403,7 +399,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			return NewControllerError(err.Error(), err, http.StatusBadRequest)
 		}
 
-		sequenceString = fmt.Sprint(result["sequence_no"])
+		sequenceString := fmt.Sprint(result["sequence_no"])
 		sequenceNo, _ := strconv.Atoi(sequenceString)
 
 		etag = NewEtag(&model.ContentEntity{

@@ -176,7 +176,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 					//many to many association
 					if _, ok := entity.([]interface{}); ok {
 						field := reader.GetField(strings.Title(key))
-						err = p.db.Debug().Model(eventPayload).Association(strings.Title(key)).Replace(field.Interface())
+						err = p.db.Model(eventPayload).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
 							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), contentType.Name, err)
 						}
