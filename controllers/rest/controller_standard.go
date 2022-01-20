@@ -170,13 +170,14 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 		//getting etag from context
 		etagInterface := newContext.Value("If-Match")
 		if etagInterface != nil {
-			etag := etagInterface.(string)
-			if etag != "" {
-				weosID, sequenceNo = SplitEtag(etag)
-				json.Unmarshal(payload, &newPayload)
-				newPayload["weos_id"] = weosID
-				newPayload["sequence_no"] = sequenceNo
-				payload, _ = json.Marshal(newPayload)
+			if etag, ok := etagInterface.(string); ok {
+				if etag != "" {
+					weosID, sequenceNo = SplitEtag(etag)
+					json.Unmarshal(payload, &newPayload)
+					newPayload["weos_id"] = weosID
+					newPayload["sequence_no"] = sequenceNo
+					payload, _ = json.Marshal(newPayload)
+				}
 			}
 		}
 
@@ -378,10 +379,12 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 					if r != nil && r.ID != "" {
 						result = r.Property.(map[string]interface{})
 					}
-					if err == nil && r.SequenceNo < int64(sequence) && result["weos_id"].(string) != "" {
+					if err == nil && r.SequenceNo < int64(sequence) && r.ID != "" {
 						return ctxt.JSON(http.StatusNotModified, result)
 					}
 				}
+				result["weos_id"] = r.ID
+				result["sequence_no"] = r.SequenceNo
 				err = er
 			} else {
 				//get entity by entity_id
