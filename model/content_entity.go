@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
@@ -78,7 +79,11 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 				if t2 != "object" {
 					if t2 == "string" {
 						//format types to be added
-						instance.AddField(name, []*string{}, `json:"`+utils.SnakeCase(name)+`"`)
+						if p.Value.Items.Value.Format == "date-time" {
+							instance.AddField(name, time.Now(), `json:"`+utils.SnakeCase(name)+`"`)
+						} else {
+							instance.AddField(name, []*string{}, `json:"`+utils.SnakeCase(name)+`"`)
+						}
 					} else if t2 == "number" {
 						instance.AddField(name, []*float64{}, `json:"`+utils.SnakeCase(name)+`"`)
 					} else if t == "integer" {
@@ -102,8 +107,12 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 			} else {
 				if t == "string" {
 					//format types to be added
-					var strings *string
-					instance.AddField(name, strings, `json:"`+utils.SnakeCase(name)+`"`)
+					if p.Value.Format == "date-time" {
+						instance.AddField(name, time.Now(), `json:"`+utils.SnakeCase(name)+`"`)
+					} else {
+						var strings *string
+						instance.AddField(name, strings, `json:"`+utils.SnakeCase(name)+`"`)
+					}
 				} else if t == "number" {
 					var numbers *float32
 					instance.AddField(name, numbers, `json:"`+utils.SnakeCase(name)+`"`)
@@ -131,7 +140,9 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
 	}
 
-	w.ID = weosID
+	if w.ID == "" {
+		w.ID = weosID
+	}
 	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
 	return w, w.ApplyChanges([]*Event{event})
@@ -140,16 +151,18 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMessage, updatedPayload json.RawMessage) (*ContentEntity, error) {
 	contentType := weosContext.GetContentType(ctx)
 
-	w.FromSchema(ctx, contentType.Schema)
-
 	err := json.Unmarshal(existingPayload, &w.BasicEntity)
 	if err != nil {
 		return nil, err
 	}
-	err = json.Unmarshal(existingPayload, &w.Property)
+
+	c := &ContentEntity{}
+	c, err = c.FromSchemaWithValues(ctx, contentType.Schema, existingPayload)
 	if err != nil {
 		return nil, err
 	}
+	w.Property = c.Property
+	w.Schema = c.Schema
 
 	event := NewEntityEvent("update", w, w.ID, updatedPayload)
 	w.NewChange(event)

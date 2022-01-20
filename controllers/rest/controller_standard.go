@@ -170,13 +170,15 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 		//getting etag from context
 		etagInterface := newContext.Value("If-Match")
 		if etagInterface != nil {
-			etag := etagInterface.(string)
-			weosID, sequenceNo = SplitEtag(etag)
-			json.Unmarshal(payload, &newPayload)
-			newPayload["weos_id"] = weosID
-			newPayload["sequence_no"] = sequenceNo
-			payload, _ = json.Marshal(newPayload)
-
+			if etag, ok := etagInterface.(string); ok {
+				if etag != "" {
+					weosID, sequenceNo = SplitEtag(etag)
+					json.Unmarshal(payload, &newPayload)
+					newPayload["weos_id"] = weosID
+					newPayload["sequence_no"] = sequenceNo
+					payload, _ = json.Marshal(newPayload)
+				}
+			}
 		}
 
 		err := app.Dispatcher().Dispatch(newContext, model.Update(newContext, payload, contentType))
@@ -202,11 +204,8 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			pks, _ := json.Marshal(contentTypeSchema.Value.Extensions["x-identifier"])
 			json.Unmarshal(pks, &identifiers)
 
-			var projectionIDUsed bool
-
 			if len(identifiers) == 0 {
 				identifiers = append(identifiers, "id")
-				projectionIDUsed = true
 			}
 
 			primaryKeys := map[string]interface{}{}
@@ -214,16 +213,8 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 
 				ctxtIdentifier := newContext.Value(p)
 
-				if projectionIDUsed == true && p == "id" {
-					tempInt, err := strconv.Atoi(ctxtIdentifier.(string))
-					if err != nil {
-						return err
-					}
-					primaryKeys[p] = uint(tempInt)
-					projectionIDUsed = false
-				} else {
-					primaryKeys[p] = ctxtIdentifier
-				}
+				primaryKeys[p] = ctxtIdentifier
+
 			}
 
 			for _, projection := range app.Projections() {
@@ -249,8 +240,9 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			} else if err != nil {
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
-			result1["weos_id"] = nil
-			result1["SequenceNo"] = nil
+			delete(result1, "sequence_no")
+			delete(result1, "weos_id")
+			delete(result1, "table_alias")
 
 			ctxt.Response().Header().Set("Etag", Etag)
 
@@ -283,6 +275,11 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			if err != nil {
 				return err
 			}
+
+			delete(entity, "sequence_no")
+			delete(entity, "weos_id")
+			delete(entity, "table_alias")
+
 			ctxt.Response().Header().Set("Etag", Etag)
 			return ctxt.JSON(http.StatusOK, entity)
 		}
@@ -345,42 +342,52 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		}
 		var result map[string]interface{}
 		var err error
+
+		//get by keys
 		if sequence == 0 && etag == "" && entityID != "true" {
 			for _, projection := range app.Projections() {
 				if projection != nil {
 					result, err = projection.GetByKey(ctxt.Request().Context(), *cType, identifiers)
 				}
 			}
-		} else if etag != "" {
-			tag, seq := SplitEtag(etag)
-			seqInt, er := strconv.Atoi(seq)
-			if er != nil {
-				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
-			}
-			r, er := GetContentBySequenceNumber(app.EventRepository(), tag, int64(seqInt))
-			err = er
-			if r.SequenceNo == 0 {
-				return NewControllerError("No entity found", err, http.StatusNotFound)
-			}
-			if err == nil && r.SequenceNo < int64(seqInt) {
-				return ctxt.JSON(http.StatusNotModified, r.Property)
-			}
 		} else {
-			//get first identifider
 			id := ""
-			for _, i := range identifiers {
-				id = i.(string)
-				if id != "" {
-					break
+
+			//if etag given, get entity id and sequence number
+			if etag != "" {
+				tag, seq := SplitEtag(etag)
+				id = tag
+				sequence, err = strconv.Atoi(seq)
+				if err != nil {
+					return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
 				}
 			}
+
+			//get entity_id from list of identifiers
+			if id == "" {
+				for _, i := range identifiers {
+					id = i.(string)
+					if id != "" {
+						break
+					}
+				}
+			}
+			//if sequence number given, get entity by sequence number
 			if sequence != 0 {
 				r, er := GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
-				if r != nil && r.ID != "" {
-					result = r.Property.(map[string]interface{})
+				if r != nil && r.SequenceNo != 0 {
+					if r != nil && r.ID != "" {
+						result = r.Property.(map[string]interface{})
+					}
+					if err == nil && r.SequenceNo < int64(sequence) && r.ID != "" {
+						return ctxt.JSON(http.StatusNotModified, result)
+					}
 				}
+				result["weos_id"] = r.ID
+				result["sequence_no"] = r.SequenceNo
 				err = er
 			} else {
+				//get entity by entity_id
 				for _, projection := range app.Projections() {
 					if projection != nil {
 						result, err = projection.GetByEntityID(ctxt.Request().Context(), *cType, id)
@@ -408,6 +415,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		//remove sequence number and weos_id from response
 		delete(result, "weos_id")
 		delete(result, "sequence_no")
+		delete(result, "table_alias")
 
 		//set etag
 		ctxt.Response().Header().Set("Etag", etag)

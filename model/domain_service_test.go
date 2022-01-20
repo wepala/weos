@@ -499,7 +499,7 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 	})
 
 	//Adds primary key ID to context
-	newContext = context.WithValue(newContext, "id", "123")
+	newContext = context.WithValue(newContext, "id", uint(123))
 
 	entityType := "Blog"
 

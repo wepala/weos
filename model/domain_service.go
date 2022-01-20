@@ -88,11 +88,8 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		return nil, err
 	}
 
-	var projectionIDUsed bool
-
 	if len(primaryKeys) == 0 {
 		primaryKeys = append(primaryKeys, "id")
-		projectionIDUsed = true
 	}
 
 	for _, pk := range primaryKeys {
@@ -104,18 +101,8 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			}
 		}
 
-		if projectionIDUsed == true && pk == "id" {
-			tempInt, err := strconv.Atoi(ctxtIdentifier.(string))
-			if err != nil {
-				return nil, err
-			}
-			tempPayload[pk] = uint(tempInt)
-			identifiers[pk] = uint(tempInt)
-			projectionIDUsed = false
-		} else {
-			identifiers[pk] = ctxtIdentifier
-			tempPayload[pk] = identifiers[pk]
-		}
+		identifiers[pk] = ctxtIdentifier
+		tempPayload[pk] = identifiers[pk]
 
 	}
 
