@@ -183,7 +183,7 @@ Feature: View content
      """
      And the service is running
      And blogs in the api
-       | id    | weos_id                     | sequence no | title        | description    |
+       | id    | weos_id                     | sequence_no | title        | description    |
        | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
        | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
 
@@ -223,13 +223,13 @@ Feature: View content
      And a blog should be returned
        | id    | title           | description    |
        | 4567  | Blog 2          | Some Blog 2    |
-     And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.2"
+     And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.1"
 
    Scenario: Check if new version of an item is available
 
      Check if version is the latest version https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag
 
-     Given a header "If-None-Match" with value "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
+     Given a header "If-None-Match" with value "22xu1Xa5CS3DK1Om2tB7OBDfWAF.3"
      When the "GET" endpoint "/blogs/1234" is hit
      Then a 304 response should be returned
 
