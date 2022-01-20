@@ -170,6 +170,7 @@ Feature: Setup List endpoint
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output because the endpoint is invalid
 
+  @skipped
   Scenario: Setup list endpoint that allows for pagination
 
     To allow for pagination in the list endpoint then the pagination parameters need to be defined
