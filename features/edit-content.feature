@@ -186,7 +186,8 @@ Feature: Edit content
        | id    | weos_id        | sequence_no | title        | description    |
        | 1234  | 986888285      | 2           | Blog 1       | Some Blog      |
        | 4567  | 5uhq85nal      | 1           | Blog 2       | Some Blog 2    |
-
+    And the service is running
+    
    Scenario: Edit item
 
      Updating an item leads to a new sequence no. being created and returned

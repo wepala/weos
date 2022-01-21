@@ -210,6 +210,7 @@ Feature: Remove field from content type
     And a blog should be returned
       | id    | title        | description    |
       | 1234  | Blog 1       | Some Blog      |
+    And a blog should be returned without field "url"
 
   Scenario: Remove a field that has data
 
@@ -222,7 +223,10 @@ Feature: Remove field from content type
     And a blog should be returned
       | id    | title        |
       | 1234  | Blog 1       |
-    And "Sojourner" adds the field "description" to the "Blog" content type
+    And a blog should be returned without field "description"
+    And "Sojourner" adds the field "description" type "string" to the "Blog" content type
+    And the service is stopped
+    When the service is running
     When the "GET" endpoint "/blogs/1234" is hit
     Then a 200 response should be returned
     And a blog should be returned
