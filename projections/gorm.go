@@ -226,7 +226,7 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit
 		schemes = s.Build().NewSliceOfStructs()
 		scheme := s.Build().New()
 
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Count(&count).Scopes(paginate(page, limit)).Find(schemes)
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Count(&count).Scopes(paginate(page, limit)).Omit("weos_id, sequence_no").Find(schemes)
 	}
 	bytes, err := json.Marshal(schemes)
 	if err != nil {

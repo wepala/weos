@@ -1952,11 +1952,11 @@ components:
 				Schema: scheme.Value,
 			})
 		}
-		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs"}
-		blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs"}
-		blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs"}
-		blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs"}
-		blog4 := map[string]interface{}{"weos_id": blogWeosID4, "title": "morehugs"}
+		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "sequence_no": int64(1)}
+		blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs2", "sequence_no": int64(1)}
+		blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs3", "sequence_no": int64(1)}
+		blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs4", "sequence_no": int64(1)}
+		blog4 := map[string]interface{}{"weos_id": blogWeosID4, "title": "morehugs5", "sequence_no": int64(1)}
 
 		gormDB.Table("Blog").Create(blog)
 		gormDB.Table("Blog").Create(blog1)
@@ -1976,16 +1976,20 @@ components:
 		}
 		found := 0
 		for _, b := range results {
-			if b["weos_id"] == blog["weos_id"] && b["title"] == blog["title"] {
+			if b["title"] == blog["title"] && b["weos_id"] == nil && b["sequence_no"] == nil {
 				found++
 			}
-			if b["weos_id"] == blog1["weos_id"] && b["title"] == blog1["title"] {
+			if b["title"] == blog1["title"] && b["weos_id"] == nil && b["sequence_no"] == nil {
 				found++
 			}
 
 		}
 		if found != limit {
 			t.Errorf("expected to find %d blogs got %d", limit, found)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
 		}
 	})
 }
