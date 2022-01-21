@@ -48,6 +48,14 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 
+		ct := ctxt.Request().Header.Get("Content-Type")
+
+		switch ct {
+		case "application/x-www-form-urlencoded":
+			//TODO pass the payload to a utils func to convert it *properly* to a bytes and return it to be sent
+			ConvertFormUrlEncodedToJson(newContext, payload, ctxt.Request())
+		}
+
 		//for inserting weos_id during testing
 		payMap := map[string]interface{}{}
 		var weosID string

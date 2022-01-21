@@ -629,9 +629,6 @@ func TestStandardControllers_List(t *testing.T) {
 }
 
 func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
-	mockBlog := &Blog{
-		Title: "Test Blog",
-	}
 
 	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
 	if err != nil {
@@ -733,12 +730,9 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 	t.Run("basic create based on simple content type", func(t *testing.T) {
 		//TODO Make a form-urlencoded payload to be used, this should be converted to a json which will pass through the existing system
+		formURLRequest := "title=MyBlog&url=MyBlogUrl"
 
-		reqBytes, err := json.Marshal(mockBlog)
-		if err != nil {
-			t.Fatalf("error setting up request %s", err)
-		}
-		body := bytes.NewReader(reqBytes)
+		body := strings.NewReader(formURLRequest)
 
 		accountID := "Create Blog"
 		path := swagger.Paths.Find("/blogs")
@@ -746,6 +740,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
 		e.POST("/blogs", controller, mw)
 		e.ServeHTTP(resp, req)

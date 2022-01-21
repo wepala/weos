@@ -3,7 +3,10 @@ package rest
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
+	weosContext "github.com/wepala/weos-service/context"
+	"golang.org/x/net/context"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -208,4 +211,28 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 	}
 	err = entity.ApplyChanges(events)
 	return entity, err
+}
+
+func ConvertFormUrlEncodedToJson(ctxt context.Context, payload []byte, r *http.Request) (json.RawMessage, error) {
+	contentType := weosContext.GetContentType(ctxt)
+
+	newEntity, err := new(model.ContentEntity).FromSchema(ctxt, contentType.Schema)
+	if err != nil {
+		return nil, err
+	}
+
+	//TODO Parse the payload
+	//TODO unmarshall it onto an interface to then unmarshal it onto the New entity
+	//TODO now marshall the entity which will give the new "json payload"
+	
+	//ParseForm is not working as intended.
+
+	//err = r.ParseForm()
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//fmt.Printf("form: %#v\n", r.Form)
+
+	return nil, nil
 }
