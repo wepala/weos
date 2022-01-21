@@ -1945,6 +1945,9 @@ components:
 		blogWeosID4 := "abc1234567"
 		limit := 2
 		page := 1
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
 		ctxt := context.Background()
 		for name, scheme := range swagger.Components.Schemas {
 			ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
@@ -1964,7 +1967,7 @@ components:
 		gormDB.Table("Blog").Create(blog3)
 		gormDB.Table("Blog").Create(blog4)
 
-		results, total, err := p.GetContentEntities(ctxt, page, limit, "", nil, nil)
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, nil)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -1976,6 +1979,7 @@ components:
 		}
 		found := 0
 		for _, b := range results {
+			//Because it is sorted by asc order the first two blogs would be in the results
 			if b["title"] == blog["title"] && b["weos_id"] == nil && b["sequence_no"] == nil {
 				found++
 			}

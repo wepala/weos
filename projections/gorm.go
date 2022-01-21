@@ -226,7 +226,7 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit
 		schemes = s.Build().NewSliceOfStructs()
 		scheme := s.Build().New()
 
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Count(&count).Scopes(paginate(page, limit)).Omit("weos_id, sequence_no").Find(schemes)
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Omit("weos_id, sequence_no").Find(schemes)
 	}
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
@@ -249,6 +249,21 @@ func paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
 			actualPage = 1
 		}
 		return db.Offset((page - 1) * limit).Limit(actualLimit)
+	}
+}
+
+// function that sorts the query results
+func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		for key, value := range order {
+			//only support certain values since GORM doesn't protect the order function https://gorm.io/docs/security.html#SQL-injection-Methods
+			if (value != "asc" && value != "desc" && value != "") || (key != "id") {
+				return db
+			}
+			db.Order(key + " " + value)
+		}
+
+		return db
 	}
 }
 
