@@ -231,7 +231,7 @@ Feature: Create content endpoints
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
 
-  @WEOS-1289 @skipped
+  @WEOS-1289
   Scenario: Create a create endpoint that accepts form data
 
     A developer should be able to declare and end point that will only accept form data
@@ -280,7 +280,7 @@ Feature: Create content endpoints
     Then a "POST" route "/blog" should be added to the api
     And a "Create" middleware should be added to the route
 
-  @WEOS-1289 @skipped
+  @WEOS-1289
   Scenario: Multiple requests are defined but the schemas are all different
 
     If the schemas are different for the different content-types then a warning should be shown
