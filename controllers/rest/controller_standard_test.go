@@ -575,15 +575,10 @@ func TestStandardControllers_List(t *testing.T) {
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
 
-	dispatcher := &DispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command) error {
-			return nil
-		},
-	}
-
+	mockProjection := &ProjectionMock{}
 	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
-			return dispatcher
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{mockProjection}
 		},
 	}
 
@@ -594,7 +589,7 @@ func TestStandardControllers_List(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.List(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&limit=5", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
 		e.GET("/blogs", controller, mw)
 		e.ServeHTTP(resp, req)
@@ -604,6 +599,12 @@ func TestStandardControllers_List(t *testing.T) {
 
 		if response.StatusCode != 200 {
 			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+		//check response body is a list of content entities
+		var result rest.ListApiResponse
+		json.NewDecoder(response.Body).Decode(&resp)
+		if len(result.Items) == 0 {
+			t.Fatal("expected entities response")
 		}
 	})
 }

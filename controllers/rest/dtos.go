@@ -47,3 +47,9 @@ type Rest struct {
 type HealthCheckResponse struct {
 	Version string `json:"version"`
 }
+
+type ListApiResponse struct {
+	Total int64                     `json:"total"`
+	Page  int                       `json:"page"`
+	Items []*map[string]interface{} `json:"items"`
+}
