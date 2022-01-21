@@ -1,4 +1,4 @@
-@skipped
+
 Feature: List content
 
   The list controller provides pagination functionality if it's configured. The list endpoints also allow for filtering
@@ -24,6 +24,34 @@ Feature: List content
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        driver: sqlite3
+        database: e2e.db
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
      components:
        schemas:
          Blog:
