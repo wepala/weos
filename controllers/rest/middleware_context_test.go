@@ -1,6 +1,7 @@
 package rest_test
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -154,6 +155,60 @@ func TestContext(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue, nil)
 		e.GET("/blogs/:"+paramName, handler)
+		e.ServeHTTP(resp, req)
+	})
+
+	t.Run("parameter in the query string  of number type should be added to context", func(t *testing.T) {
+		paramName := "cost"
+		paramValue := 123
+		path := swagger.Paths.Find("/blogs/:id")
+		if path == nil {
+			t.Fatal("could not find expected path")
+		}
+		mw := rest.Context(nil, swagger, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value(paramName) == nil {
+				t.Fatalf("expected a value to be returned for '%s'", paramName)
+			}
+			tValue := cc.Value(paramName).(int)
+			if tValue != paramValue {
+				t.Errorf("expected the param '%s' to have value '%d', got '%v'", paramName, paramValue, tValue)
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/?"+fmt.Sprint(paramValue), nil)
+		e.GET("/blogs/:1?"+paramName, handler)
+		e.ServeHTTP(resp, req)
+	})
+
+	t.Run("parameter in the query string  of number type with format type should be added to context", func(t *testing.T) {
+		paramName := "leverage"
+		paramValue := 123.00
+		path := swagger.Paths.Find("/blogs/:id")
+		if path == nil {
+			t.Fatal("could not find expected path")
+		}
+		mw := rest.Context(nil, swagger, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value(paramName) == nil {
+				t.Fatalf("expected a value to be returned for '%s'", paramName)
+			}
+			tValue := cc.Value(paramName).(float64)
+			if tValue != paramValue {
+				t.Errorf("expected the param '%s' to have value '%f', got '%v'", paramName, paramValue, tValue)
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/?"+fmt.Sprint(paramValue), nil)
+		e.GET("/blogs/:1?"+paramName, handler)
 		e.ServeHTTP(resp, req)
 	})
 
