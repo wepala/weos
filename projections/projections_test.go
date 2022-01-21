@@ -1868,9 +1868,7 @@ components:
 }
 
 func TestProjections_List(t *testing.T) {
-
-	t.Run("do a basic list with page and limit", func(t *testing.T) {
-		openAPI := `openapi: 3.0.3
+	openAPI := `openapi: 3.0.3
 info:
   title: Blog
   description: Blog example
@@ -1915,28 +1913,44 @@ components:
          type: string
      required:
        - title
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: post title
+      description:
+         type: string
+      blog:
+         $ref: "#/components/schemas/Blog"
 `
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
-		if err != nil {
-			t.Fatal(err)
-		}
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
-		if err != nil {
-			t.Fatal(err)
-		}
+	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+	p, err := projections.NewProjection(context.Background(), app, schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
+	err = p.Migrate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		gormDB := app.DB()
-		if !gormDB.Migrator().HasTable("Blog") {
-			t.Fatal("expected to get a table 'Blog'")
-		}
+	gormDB := app.DB()
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Fatal("expected to get a table 'Blog'")
+	}
+
+	if !gormDB.Migrator().HasTable("Post") {
+		t.Fatal("expected to get a table 'Post'")
+	}
+
+	t.Run("do a basic list with page and limit", func(t *testing.T) {
 
 		blogWeosID := "abc123"
 		blogWeosID1 := "abc1234"
@@ -1949,12 +1963,12 @@ components:
 			"id": "asc",
 		}
 		ctxt := context.Background()
-		for name, scheme := range swagger.Components.Schemas {
-			ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-				Name:   strings.Title(name),
-				Schema: scheme.Value,
-			})
-		}
+		name := "Blog"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
 		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "sequence_no": int64(1)}
 		blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs2", "sequence_no": int64(1)}
 		blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs3", "sequence_no": int64(1)}
@@ -1991,9 +2005,50 @@ components:
 		if found != limit {
 			t.Errorf("expected to find %d blogs got %d", limit, found)
 		}
-		err = gormDB.Migrator().DropTable("Blog")
-		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+
+	})
+	t.Run("get a basic list with the foreign key returned", func(t *testing.T) {
+
+		blogWeosID := "abc123fgd"
+		limit := 1
+		page := 1
+		sortOptions := map[string]string{
+			"id": "asc",
 		}
+		ctxt := context.Background()
+		name := "Post"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
+
+		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "sequence_no": int64(1)}
+		gormDB.Table("Blog").Create(blog)
+		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes", "blog_id": uint(1)})
+		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes2", "blog_id": uint(1)})
+
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, nil)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(2) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		found := 0
+		for _, b := range results {
+			//Because it is sorted by asc order the first post would be in the results
+			if b["blog_id"] == float64(1) {
+				found++
+			}
+
+		}
+		if found != limit {
+			t.Errorf("expected to find %d post got %d", limit, found)
+		}
+
 	})
 }
