@@ -769,6 +769,47 @@ func sojournerIsUpdatingWithId(contentType, id string) error {
 	return nil
 }
 
+//TODO The warning string in the if statement has to be updated
+func aWarningShouldBeOutputToLogs() error {
+	if !strings.Contains(buf.String(), "provided schemas are different") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+//TODO This should be revisited since this should marshall form data to json first
+func theFormIsSubmitted(contentType string) error {
+	//Used to store the key/value pairs passed in the scenario
+	req := make(map[string]interface{})
+	for key, value := range requests[currScreen] {
+		req[key] = value
+	}
+
+	reqBytes, _ := json.Marshal(req)
+	body := bytes.NewReader(reqBytes)
+	var request *http.Request
+	if strings.Contains(currScreen, "create") {
+		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
+	} else if strings.Contains(currScreen, "update") {
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), body)
+	}
+	request = request.WithContext(context.TODO())
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theHeaderShouldBePresent(arg1 string) error {
+	header := rec.Result().Header.Get(arg1)
+	if header == "" {
+		return fmt.Errorf("no header found with the name: %s", arg1)
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -811,6 +852,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
 	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
+	ctx.Step(`^a warning should be output to logs$`, aWarningShouldBeOutputToLogs)
+	ctx.Step(`^the "([^"]*)" form is submitted$`, theFormIsSubmitted)
+	ctx.Step(`^the "([^"]*)" header should be present$`, theHeaderShouldBePresent)
 
 }
 
