@@ -109,6 +109,15 @@ components:
           type: string
           format: date-time
 paths:
+  /health:
+    summary: Health Check
+    get:
+      x-controller: HealthCheck
+      responses:
+        200:
+          description: Health Response
+        500:
+          description: API Internal Error
   /blogs:
     parameters:
       - in: header
@@ -204,8 +213,11 @@ paths:
                     type: integer
                   page:
                     type: integer
-                  items:
-                    $ref: "#/components/schemas/Blog"
+                  blogs:
+                    type: array
+                    x-alias: items
+                    items:
+                      $ref: "#/components/schemas/Blog"
   /blogs/{id}:
     get:
       parameters:
@@ -325,13 +337,15 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Post"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
 
-  /posts/{postId}:
+  /posts/{id}:
     get:
       parameters:
         - in: path
-          name: postId
+          name: id
           schema:
             type: string
           required: true
@@ -346,7 +360,7 @@ paths:
     put:
       parameters:
         - in: path
-          name: postId
+          name: id
           schema:
             type: string
           required: true
@@ -367,7 +381,7 @@ paths:
     delete:
       parameters:
         - in: path
-          name: postId
+          name: id
           schema:
             type: string
           required: true
@@ -421,13 +435,15 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Category"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
 
-  /categories/{categoryId}:
+  /categories/{id}:
     get:
       parameters:
         - in: path
-          name: categoryId
+          name: id
           schema:
             type: string
           required: true
@@ -442,7 +458,7 @@ paths:
     put:
       parameters:
         - in: path
-          name: categoryId
+          name: id
           schema:
             type: string
           required: true
@@ -463,7 +479,7 @@ paths:
     delete:
       parameters:
         - in: path
-          name: categoryId
+          name: id
           schema:
             type: string
           required: true
@@ -516,13 +532,15 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Author"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Author"
 
-  /authors/{authorId}:
+  /authors/{id}:
     get:
       parameters:
         - in: path
-          name: authorId
+          name: id
           schema:
             type: string
           required: true
@@ -537,7 +555,7 @@ paths:
     put:
       parameters:
         - in: path
-          name: authorId
+          name: id
           schema:
             type: string
           required: true
@@ -558,7 +576,7 @@ paths:
     delete:
       parameters:
         - in: path
-          name: authorId
+          name: id
           schema:
             type: string
           required: true

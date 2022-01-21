@@ -109,6 +109,15 @@ components:
           type: string
           format: date-time
 paths:
+  /health:
+    summary: Health Check
+    get:
+      x-controller: HealthCheck
+      responses:
+        200:
+          description: Health Response
+        500:
+          description: API Internal Error
   /blogs:
     post:
       operationId: Add Blogs
@@ -140,5 +149,37 @@ paths:
                 type: array
                 items:
                   type: "#/components/schemas/Blog"
+        400:
+          description: Invalid blog submitted
+  /blogs/{id}:
+    patch:
+      operationId: Edit Blog
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+      requestBody:
+        description: Blog info that is submitted
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Blog"
+          application/xml:
+            schema:
+              $ref: "#/components/schemas/Blog"
+      responses:
+        201:
+          description: Update blog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
         400:
           description: Invalid blog submitted

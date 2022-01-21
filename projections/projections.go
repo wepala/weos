@@ -10,5 +10,7 @@ type Projection interface {
 }
 
 type DefaultProjection struct {
-	Table string `json:"table_alias" gorm:"-"`
+	WEOSID     string `json:"weos_id" gorm:"unique"`
+	SequenceNo int64  `json:"sequence_no"`
+	Table      string `json:"table_alias"`
 }

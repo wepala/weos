@@ -5,19 +5,23 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"strings"
-	"testing"
-	"time"
-
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos-service/controllers/rest"
+	"github.com/wepala/weos-service/utils"
 	"gorm.io/gorm"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
 )
 
 var e *echo.Echo
@@ -25,14 +29,22 @@ var API api.RESTAPI
 var openAPI string
 var Developer *User
 var Content *ContentType
-var errors error
+var errs error
 var buf bytes.Buffer
 var payload ContentType
 var rec *httptest.ResponseRecorder
+var resp *http.Response
 var db *sql.DB
 var requests map[string]map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
+var dockerEndpoint string
+var reqBody string
+var imageName string
+var binary string
+var dockerFile string
+var binaryMount string
+var esContainer testcontainers.Container
 
 type User struct {
 	Name      string
@@ -56,7 +68,6 @@ type ContentType struct {
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
-	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
@@ -105,16 +116,17 @@ components:
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
-	contentTypeID = map[string]bool{}
 	Developer = &User{}
-	errors = nil
+	errs = nil
 	rec = httptest.NewRecorder()
+	resp = nil
 	os.Remove("e2e.db")
 	var err error
 	db, err = sql.Open("sqlite3", "e2e.db")
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
+	db.Exec("PRAGMA foreign_keys = ON")
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
@@ -180,7 +192,10 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 	gormDB := API.Application.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
-		return fmt.Errorf("%s table does not exist", arg1)
+		arg1 = utils.SnakeCase(arg1)
+		if !gormDB.Migrator().HasTable(arg1) {
+			return fmt.Errorf("%s table does not exist", arg1)
+		}
 	}
 
 	head := details.Rows[0].Cells
@@ -201,36 +216,39 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 					}
 				}
 			case "Type":
+
 				if cell.Value == "varchar(512)" {
 					cell.Value = "text"
 					payload[column.Name()] = "hugs"
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
 					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
-
 				}
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
+
 			case "Key":
-				if !strings.EqualFold(column.Name(), "id") { //default id tag
-					payload[column.Name()] = nil
+				if strings.EqualFold(cell.Value, "pk") {
+					if !strings.EqualFold(column.Name(), "id") { //default id tag
+						if _, ok := payload["id"]; ok {
+							payload["id"] = nil
+						}
+					}
+					keys = append(keys, cell.Value)
 				}
-				keys = append(keys, cell.Value)
 			}
 		}
-		if len(keys) != 1 && !strings.EqualFold(keys[0], "id") {
+		if len(keys) > 1 && !strings.EqualFold(keys[0], "id") {
 			resultDB := gormDB.Table(arg1).Create(payload)
 			if resultDB.Error == nil {
 				return fmt.Errorf("expected a missing primary key error")
 			}
 		}
 	}
-	//TODO check that the table has the expected columns
 	return nil
 }
 
 func aRouteShouldBeAddedToTheApi(method, path string) error {
-	return godog.ErrPending
 	yamlRoutes := e.Routes()
 	for _, route := range yamlRoutes {
 		if route.Method == method && route.Path == path {
@@ -240,9 +258,33 @@ func aRouteShouldBeAddedToTheApi(method, path string) error {
 	return fmt.Errorf("Expected route but got nil with method %s and path %s", method, path)
 }
 
+func aRouteShouldBeAddedToTheApi1(method string) error {
+	yamlRoutes := e.Routes()
+	for _, route := range yamlRoutes {
+		if route.Method == method {
+			return nil
+		}
+	}
+	return fmt.Errorf("Expected route but got nil with method %s", method)
+}
+
 func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAHandlerNeedsToBeSet() error {
 	if !strings.Contains(buf.String(), "no handler set") {
-		fmt.Errorf("expected an error to be log got '%s'", buf.String())
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet() error {
+	if !strings.Contains(buf.String(), "a parameter for each part of the identifier must be set") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func aWarningShouldBeOutputBecauseTheEndpointIsInvalid() error {
+	if !strings.Contains(buf.String(), "no handler set") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
 }
@@ -267,14 +309,14 @@ func allFieldsAreNullableByDefault() error {
 }
 
 func anErrorShouldBeReturned() error {
-	if rec.Result().StatusCode == http.StatusCreated && errors == nil {
+	if rec.Result().StatusCode == http.StatusCreated && errs == nil {
 		return fmt.Errorf("expected error but got status '%s'", rec.Result().Status)
 	}
 	return nil
 }
 
-func blogsInTheApi(arg1 *godog.Table) error {
-	return godog.ErrPending
+func blogsInTheApi(details *godog.Table) error {
+	return nil
 }
 
 func entersInTheField(userName, value, field string) error {
@@ -314,14 +356,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	}
 
 	contentEntity := map[string]interface{}{}
-	var result *gorm.DB
-	//ETag would help with this
-	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
-		if contentEntity != nil {
-			break
-		}
-	}
+	idEtag, seqNoEtag := api.SplitEtag(rec.Result().Header.Get("Etag"))
+	result := API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", idEtag, "sequence_no = ?", seqNoEtag)
 
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
@@ -337,7 +373,6 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
 
@@ -361,21 +396,16 @@ func theIsSubmitted(contentType string) error {
 
 func theShouldHaveAnId(contentType string) error {
 
-	if !contentTypeID[strings.ToLower(contentType)] {
-		return fmt.Errorf("expected the " + contentType + " to have an ID")
+	idEtag, _ := api.SplitEtag(rec.Result().Header.Get("Etag"))
+	if idEtag == "" {
+		return fmt.Errorf("expected the "+contentType+" to have an ID, got %s", idEtag)
 	}
+
 	return nil
 }
 
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
-	e = echo.New()
-	os.Remove("e2e.db")
-	API = api.RESTAPI{}
-	_, err := api.Initialize(e, &API, openAPI)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -383,9 +413,11 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = echo.New()
 	os.Remove("e2e.db")
 	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
-		errors = err
+		errs = err
 	}
 	return nil
 }
@@ -445,6 +477,113 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 	return nil
 }
 
+func aResponseShouldBeReturned(statusCode int) error {
+	//check resp first
+	if resp != nil && resp.StatusCode != statusCode {
+		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, resp.StatusCode)
+	} else if rec != nil && rec.Result().StatusCode != statusCode {
+		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, rec.Result().StatusCode)
+	}
+	return nil
+}
+
+func requestBody(arg1 *godog.DocString) error {
+	reqBody = arg1.Content
+	return nil
+}
+
+func thatTheBinaryIsGenerated(arg1 string) error {
+	binary = arg1
+	//check if the binary exists and if not throw an error
+	if _, err := os.Stat("./" + binary); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("weos binary not found")
+	}
+	return nil
+}
+
+func theBinaryIsRunWithTheSpecification() error {
+	binaryPath, err := filepath.Abs("./" + binary)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	req := testcontainers.ContainerRequest{
+		Image:        imageName,
+		Name:         "BDDTest",
+		ExposedPorts: []string{"8681/tcp"},
+		BindMounts:   map[string]string{binaryMount: binaryPath},
+		Entrypoint:   []string{binaryMount},
+		//Entrypoint: []string{"tail", "-f", "/dev/null"},
+		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
+		WaitingFor: wait.ForLog("started"),
+	}
+	esContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		return fmt.Errorf("unexpected error starting container '%s'", err)
+	}
+
+	//get the endpoint that the container was run on
+	var endpoint string
+	endpoint, err = esContainer.Host(ctx) //didn't use the endpoint call because it returns "localhost" which the client doesn't seem to like
+	cport, err := esContainer.MappedPort(ctx, "8681")
+	if err != nil {
+		return fmt.Errorf("error setting up container '%s'", err)
+	}
+	dockerEndpoint = "http://" + endpoint + ":" + cport.Port()
+	return nil
+}
+
+func isRunOnTheOperatingSystemAs(arg1 string, arg2 string) error {
+	imageName = arg1
+	binaryMount = arg2
+	return nil
+}
+
+func theEndpointIsHit(method, contentType string) error {
+	reqBytes, _ := json.Marshal(reqBody)
+	body := bytes.NewReader(reqBytes)
+	request := httptest.NewRequest(method, dockerEndpoint+contentType, body)
+	request = request.WithContext(context.TODO())
+	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Close = true
+	client := http.Client{}
+	resp, errs = client.Do(request)
+	defer esContainer.Terminate(context.Background())
+	return nil
+}
+
+func theServiceIsRunning() error {
+	e = echo.New()
+	os.Remove("e2e.db")
+	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
+	_, err := api.Initialize(e, &API, openAPI)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func theHeaderShouldBe(header, value string) error {
+	//Table has no value to compare against so just checking for id existance
+	Etag := rec.Result().Header.Get(header)
+	idEtag, seqNoEtag := api.SplitEtag(Etag)
+	if Etag == "" {
+		return fmt.Errorf("expected the Etag to be added to header, got %s", Etag)
+	}
+	if idEtag == "" {
+		return fmt.Errorf("expected the Etag to contain a weos id, got %s", idEtag)
+	}
+	if seqNoEtag == "" {
+		return fmt.Errorf("expected the Etag to contain a sequence no, got %s", seqNoEtag)
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -469,6 +608,17 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
 	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
+	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
+	ctx.Step(`^the "([^"]*)" header should be "([^"]*)"$`, theHeaderShouldBe)
+	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
+	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
+	ctx.Step(`^request body$`, requestBody)
+	ctx.Step(`^that the "([^"]*)" binary is generated$`, thatTheBinaryIsGenerated)
+	ctx.Step(`^the binary is run with the specification$`, theBinaryIsRunWithTheSpecification)
+	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
+	ctx.Step(`^the service is running$`, theServiceIsRunning)
+	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
+	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
 
 }
 
@@ -479,7 +629,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "",
+			Tags:   "~skipped && ~long",
+			//Tags: "long",
 		},
 	}.Run()
 	if status != 0 {

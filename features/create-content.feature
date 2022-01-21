@@ -51,10 +51,6 @@ Feature: Create content
               description: blog title
             description:
               type: string
-            posts:
-              type: array
-              items:
-                $ref: "#/components/schemas/Post"
           required:
             - title
         Post:
@@ -77,7 +73,6 @@ Feature: Create content
                 $ref: "#/components/schemas/Category"
           required:
             - title
-            - blog
         Category:
           type: object
           properties:
@@ -135,10 +130,11 @@ Feature: Create content
             400:
               description: Invalid blog submitted
     """
-    And blogs in the api
-      | id    | entity id      | sequence no | title        | description    |
-      | 1     | <Generated ID> | 1           | Blog 1       | Some Blog      |
-      | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
+      And the service is running
+      And blogs in the api
+        | id    | entity id      | sequence no | title        | description    |
+        | 1     | <Generated ID> | 1           | Blog 1       | Some Blog      |
+        | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
 
 
     Scenario: Create a basic item
@@ -153,7 +149,7 @@ Feature: Create content
         | title          | description                       |
         | Some Blog      | Some Description                  |
       And the "Blog" should have an id
-      And the "ETag" header should be present
+      And the "ETag" header should be "<Generated ID>.1"
 
     Scenario: Create an item that has an invalid type
 

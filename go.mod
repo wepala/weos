@@ -14,10 +14,11 @@ require (
 	github.com/ory/dockertest/v3 v3.6.0
 	github.com/proullon/ramsql v0.0.0-20181213202341-817cee58a244
 	github.com/segmentio/ksuid v1.0.3
-	github.com/sirupsen/logrus v1.7.0
+	github.com/sirupsen/logrus v1.8.1
 	github.com/stoewer/go-strcase v1.2.0
+	github.com/testcontainers/testcontainers-go v0.12.0
 	go.uber.org/zap v1.13.0
-	golang.org/x/net v0.0.0-20210726213435-c6fcb2dbf985
+	golang.org/x/net v0.0.0-20211108170745-6635138e15ea
 	gorm.io/datatypes v1.0.5
 	gorm.io/driver/clickhouse v0.2.2
 	gorm.io/driver/mysql v1.2.2

@@ -283,10 +283,6 @@ Content types can have multiple fields as part of the identifier. If there are n
               $ref: "#/components/schemas/Post"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set.  
@@ -319,10 +315,6 @@ Specifying a content type in the path definition is necessary. If no content typ
               $ref: "#/components/schemas/Blog"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a warning should be output to logs letting the developer know that a handler needs to be set.  
@@ -369,10 +361,6 @@ In order to use the delete handler a schema is needed so that validation etc cou
               $ref: "#/components/schemas/Blog"
       400:
         description: Invalid blog submitted
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ErrorResponse"
 ```
 **When** the "OpenAPI 3.0" specification is parsed  
 **Then** a warning should be output to logs letting the developer know that a handler needs to be set.  
