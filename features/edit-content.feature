@@ -1,4 +1,3 @@
-@skipped
 Feature: Edit content
 
    Background:
@@ -13,6 +12,34 @@ Feature: Edit content
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        driver: sqlite3
+        database: e2e.db
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
      components:
        schemas:
          Blog:
@@ -145,11 +172,11 @@ Feature: Edit content
              200:
                description: Blog Deleted
      """
+     And the service is running
      And blogs in the api
        | id    | entity id                   | sequence no | title        | description    |
        | 1234  | <Generated ID> | 2           | Blog 1       | Some Blog      |
        | 4567  | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
-     And the service is running
 
    Scenario: Edit item
 

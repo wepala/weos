@@ -131,6 +131,25 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	return w, w.ApplyChanges([]*Event{event})
 }
 
+func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMessage, updatedPayload json.RawMessage) (*ContentEntity, error) {
+	contentType := weosContext.GetContentType(ctx)
+
+	w.FromSchema(ctx, contentType.Schema)
+
+	err := json.Unmarshal(existingPayload, &w.BasicEntity)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(existingPayload, &w.Property)
+	if err != nil {
+		return nil, err
+	}
+
+	event := NewEntityEvent("update", w, w.ID, updatedPayload)
+	w.NewChange(event)
+	return w, w.ApplyChanges([]*Event{event})
+}
+
 //GetString returns the string property value stored of a given the property name
 func (w *ContentEntity) GetString(name string) string {
 	if w.Property == nil {
@@ -208,6 +227,12 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 			err = json.Unmarshal(change.Payload, &w.Property)
 			if err != nil {
 				return err
+			}
+			w.User.BasicEntity.ID = change.Meta.User
+		case "update":
+			err := json.Unmarshal(change.Payload, &w.Property)
+			if err != nil {
+				return NewDomainError("invalid: unable to get ID from payload", change.Meta.EntityType, w.ID, err)
 			}
 			w.User.BasicEntity.ID = change.Meta.User
 
