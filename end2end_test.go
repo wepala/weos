@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,6 @@ var e *echo.Echo
 var API api.RESTAPI
 var openAPI string
 var Developer *User
-var Content *ContentType
 var errs error
 var buf bytes.Buffer
 var payload ContentType
@@ -47,6 +47,9 @@ var binary string
 var dockerFile string
 var binaryMount string
 var esContainer testcontainers.Container
+var limit int
+var page int
+var contentType string
 
 type User struct {
 	Name      string
@@ -742,6 +745,61 @@ func sojournerIsUpdatingWithId(contentType, id string) error {
 	return nil
 }
 
+func isOnTheListScreen(user, contentType string) error {
+	contentType = contentType
+	requests[strings.ToLower(contentType+"_list")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_list")
+	return nil
+}
+
+func theItemsPerPageAre(pageLimit int) error {
+	limit = pageLimit
+	return nil
+}
+
+func theListResultsShouldBe(details *godog.Table) error {
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	//contentEntity := map[string]interface{}{}
+	//TODO get the object from request body so you can compare with the table
+	//result :=  rec.Result().Body
+	return godog.ErrPending
+}
+
+func thePageInTheResultShouldBe(arg1 int) error {
+	//TODO Take total from the rec results and compare to what you got
+	return godog.ErrPending
+}
+
+func thePageNoIs(page int) error {
+	page = page
+	return nil
+}
+
+func theSearchButtonIsHit() error {
+	var request *http.Request
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&&page="+strconv.Itoa(page), nil)
+	request = request.WithContext(context.TODO())
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theTotalResultsShouldBe(total int) error {
+	//TODO Take total from the rec results and compare to what you got
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -784,7 +842,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
 	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
-
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" list screen$`, isOnTheListScreen)
+	ctx.Step(`^the items per page are (\d+)$`, theItemsPerPageAre)
+	ctx.Step(`^the list results should be$`, theListResultsShouldBe)
+	ctx.Step(`^the page in the result should be (\d+)$`, thePageInTheResultShouldBe)
+	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
+	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
+	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
 }
 
 func TestBDD(t *testing.T) {
@@ -794,7 +858,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
+			Tags:   "WEOS-1133",
 			//Tags: "long",
 		},
 	}.Run()
