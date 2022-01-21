@@ -1866,3 +1866,126 @@ components:
 		}
 	})
 }
+
+func TestProjections_List(t *testing.T) {
+
+	t.Run("do a basic list with page and limit", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     required:
+       - title
+`
+		loader := openapi3.NewSwaggerLoader()
+		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+		p, err := projections.NewProjection(context.Background(), app, schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gormDB := app.DB()
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		blogWeosID := "abc123"
+		blogWeosID1 := "abc1234"
+		blogWeosID2 := "abc12345"
+		blogWeosID3 := "abc123456"
+		blogWeosID4 := "abc1234567"
+		limit := 2
+		page := 1
+		ctxt := context.Background()
+		for name, scheme := range swagger.Components.Schemas {
+			ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+				Name:   strings.Title(name),
+				Schema: scheme.Value,
+			})
+		}
+		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs"}
+		blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs"}
+		blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs"}
+		blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs"}
+		blog4 := map[string]interface{}{"weos_id": blogWeosID4, "title": "morehugs"}
+
+		gormDB.Table("Blog").Create(blog)
+		gormDB.Table("Blog").Create(blog1)
+		gormDB.Table("Blog").Create(blog2)
+		gormDB.Table("Blog").Create(blog3)
+		gormDB.Table("Blog").Create(blog4)
+
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", nil, nil)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(5) {
+			t.Errorf("expected total to be %d got %d", int64(5), total)
+		}
+		found := 0
+		for _, b := range results {
+			if b["weos_id"] == blog["weos_id"] && b["title"] == blog["title"] {
+				found++
+			}
+			if b["weos_id"] == blog1["weos_id"] && b["title"] == blog1["title"] {
+				found++
+			}
+
+		}
+		if found != limit {
+			t.Errorf("expected to find %d blogs got %d", limit, found)
+		}
+	})
+}
