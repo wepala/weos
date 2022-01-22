@@ -16,8 +16,8 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/wepala/weos-service/model"
-	"github.com/wepala/weos-service/projections"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"

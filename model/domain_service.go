@@ -2,7 +2,7 @@ package model
 
 import (
 	"encoding/json"
-	weosContext "github.com/wepala/weos-service/context"
+	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 

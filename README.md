@@ -13,7 +13,7 @@ Build your app using microservices that combine an [OpenAPI Specification](https
 
 ## 🚀 Get Started
 1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos/examples))
-2. [Download the WeOS binary](https://github.com/wepala/weos-service/releases) for your platform
+2. [Download the WeOS binary](https://github.com/wepala/weos/releases) for your platform
 3. Run the API `weos -schema=api.yaml -port=8680`
 
 ## 🎉 Features
@@ -29,16 +29,16 @@ Please read our [Contributing Guide](./CONTRIBUTING.md) before submitting a Pull
 
 ## 🙏 Community support
 
-For general help using WeOS, please refer to [the official WeOS documentation](https://wepala.github.io/weos-service). For additional help, you can use one of these channels to ask a question:
+For general help using WeOS, please refer to [the official WeOS documentation](https://wepala.github.io/weos). For additional help, you can use one of these channels to ask a question:
 
-- [GitHub](https://github.com/wepala/weos-service) (Bug reports, Contributions)
+- [GitHub](https://github.com/wepala/weos) (Bug reports, Contributions)
 - [Dev.to](https://dev.to/wepala) (Our Blog)
 
 ## ✨ Documentation
 
-- [Developer docs](https://wepala.github.io/weos-service/)
-- [User guide](https://wepala.github.io/weos-service/getting-started/)
-- [Example Specifications](https://wepala.github.io/weos-service/examples/)
+- [Developer docs](https://wepala.github.io/weos/)
+- [User guide](https://wepala.github.io/weos/getting-started/)
+- [Example Specifications](https://wepala.github.io/weos/examples/)
 - 
 
 ## License

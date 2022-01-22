@@ -2,8 +2,8 @@ package projections
 
 import (
 	"encoding/json"
-	weosContext "github.com/wepala/weos-service/context"
-	weos "github.com/wepala/weos-service/model"
+	weosContext "github.com/wepala/weos/context"
+	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"strings"
