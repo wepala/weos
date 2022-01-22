@@ -13,15 +13,15 @@ import (
 
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
-	weosContext "github.com/wepala/weos-service/context"
+	weosContext "github.com/wepala/weos/context"
 	"gorm.io/gorm/clause"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/gommon/log"
 	"github.com/ory/dockertest/v3"
-	"github.com/wepala/weos-service/controllers/rest"
-	weos "github.com/wepala/weos-service/model"
-	"github.com/wepala/weos-service/projections"
+	"github.com/wepala/weos/controllers/rest"
+	weos "github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 )
 
 var db *sql.DB

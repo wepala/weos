@@ -6,7 +6,7 @@ package rest_test
 import (
 	"context"
 	"database/sql"
-	weos "github.com/wepala/weos-service/model"
+	weos "github.com/wepala/weos/model"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -1831,4 +1831,3 @@ func (mock *ProjectionMock) MigrateCalls() []struct {
 	mock.lockMigrate.RUnlock()
 	return calls
 }
-

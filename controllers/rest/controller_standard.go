@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	"github.com/segmentio/ksuid"
-	context2 "github.com/wepala/weos-service/context"
+	context2 "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos-service/model"
+	"github.com/wepala/weos/model"
 )
 
 type StandardControllers struct {

@@ -1,7 +1,7 @@
 package model_test
 
 import (
-	weos "github.com/wepala/weos-service/model"
+	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"testing"
 )

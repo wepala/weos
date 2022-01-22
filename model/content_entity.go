@@ -5,7 +5,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/stoewer/go-strcase"
-	weosContext "github.com/wepala/weos-service/context"
+	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 	"strings"
 )

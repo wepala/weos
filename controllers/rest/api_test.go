@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	api "github.com/wepala/weos-service/controllers/rest"
+	api "github.com/wepala/weos/controllers/rest"
 )
 
 func TestRESTAPI_Initialize_Basic(t *testing.T) {

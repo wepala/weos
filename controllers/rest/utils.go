@@ -12,7 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
-	"github.com/wepala/weos-service/model"
+	"github.com/wepala/weos/model"
 )
 
 //LoadHttpRequestFixture wrapper around the test helper to make it easier to use it with test table
