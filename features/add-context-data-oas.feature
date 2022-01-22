@@ -11,7 +11,7 @@ Feature: Add data to request context via the spec
 
   Scenario: Add basic key value to context on endpoint
 
-    The x-content extension should be used to add data to the request context
+    The x-content extension should be used to add data to the request context. Values can be strings, integers, objects
 
     Given the specification is
     """
@@ -74,6 +74,10 @@ Feature: Add data to request context via the spec
          x-context:
            page: 1
            limit: 10
+           _filters:
+             - field: status
+               operator: eq
+               value: Active
          responses:
            200:
              description: List of blogs
@@ -96,6 +100,7 @@ Feature: Add data to request context via the spec
     When the search button is hit
     Then there should be a key "page" in the request context with value "1"
     And there should be a key "limit" in the request context with value "10"
+    And there should be a key "_filters" in the request context with object
 
 
   Scenario: Add value to context that is also declared as a parameter
