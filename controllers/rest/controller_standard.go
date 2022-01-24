@@ -54,16 +54,18 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		ct := ctxt.Request().Header.Get("Content-Type")
 
 		switch ct {
+		case "application/json":
+			payload, err = ioutil.ReadAll(ctxt.Request().Body)
+			if err != nil {
+				return err
+			}
 		case "application/x-www-form-urlencoded":
 			payload, err = ConvertFormUrlEncodedToJson(ctxt.Request())
 			if err != nil {
 				return err
 			}
 		default:
-			payload, err = ioutil.ReadAll(ctxt.Request().Body)
-			if err != nil {
-				return err
-			}
+			return NewControllerError("a content type must be explicitly defined in request", err, http.StatusBadRequest)
 		}
 
 		//for inserting weos_id during testing
