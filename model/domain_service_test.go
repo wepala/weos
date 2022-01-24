@@ -4,6 +4,7 @@ import (
 	context3 "context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	context2 "github.com/wepala/weos/context"
@@ -36,7 +37,7 @@ func TestDomainService_Create(t *testing.T) {
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 		entityType := "Blog"
 
-		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com"}
+		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com", "last_updated": "2106-11-02T15:04:00Z"}
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
@@ -58,6 +59,14 @@ func TestDomainService_Create(t *testing.T) {
 			t.Fatalf("expected blog description to be %s got %s", mockBlog["description"], blog.GetString("Description"))
 		}
 		if blog.GetString("Url") != mockBlog["url"] {
+			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
+		}
+
+		tt, err := time.Parse("2006-01-02T15:04:00Z", mockBlog["last_updated"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if blog.GetTime("LastUpdated") != tt {
 			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
 		}
 	})

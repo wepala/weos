@@ -80,8 +80,8 @@ func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawM
 	for name, p := range contentType.Properties {
 		if p.Value != nil && p.Value.Type == "string" {
 			if p.Value.Format == "date-time" {
-				if _, ok := payload[utils.SnakeCase(name)]; ok {
-					t, err := time.Parse("Jan 2, 2006 at 3:04pm (MST)", payload[utils.SnakeCase(name)].(string))
+				if _, ok := payload[utils.SnakeCase(name)].(string); ok {
+					t, err := time.Parse("2006-01-02T15:04:00Z", payload[utils.SnakeCase(name)].(string))
 					payload[utils.SnakeCase(name)] = t
 					if err != nil {
 						return bytes, err

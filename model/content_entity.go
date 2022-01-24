@@ -108,7 +108,8 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 				if t == "string" {
 					//format types to be added
 					if p.Value.Format == "date-time" {
-						instance.AddField(name, time.Now(), `json:"`+utils.SnakeCase(name)+`"`)
+						var t *time.Time
+						instance.AddField(name, t, `json:"`+utils.SnakeCase(name)+`"`)
 					} else {
 						var strings *string
 						instance.AddField(name, strings, `json:"`+utils.SnakeCase(name)+`"`)
@@ -251,6 +252,22 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 		return 0.0
 	}
 	return *reader.GetField(name).PointerFloat64()
+}
+
+//GetTime returns the time.Time property value stored of a given the property name
+func (w *ContentEntity) GetTime(name string) time.Time {
+	if w.Property == nil {
+		return time.Time{}
+	}
+	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return time.Time{}
+	}
+	if reader.GetField(name).PointerTime() == nil {
+		return time.Time{}
+	}
+	return *reader.GetField(name).PointerTime()
 }
 
 //ApplyChanges apply the new changes from payload to the entity
