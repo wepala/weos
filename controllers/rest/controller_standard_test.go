@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -730,9 +731,17 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 	t.Run("basic create based on simple content type", func(t *testing.T) {
 		//TODO Make a form-urlencoded payload to be used, this should be converted to a json which will pass through the existing system
-		formURLRequest := "title=MyBlog&url=MyBlogUrl"
+		//formURLRequest := "title=MyBlog&url=MyBlogUrl"
+		//body := strings.NewReader(formURLRequest)
 
-		body := strings.NewReader(formURLRequest)
+		data := url.Values{}
+		data.Set("title", "MyBlog")
+		data.Set("url", "MyBlogUrl")
+
+		//reqBytes, _ := json.Marshal(data)
+		//body := bytes.NewReader(reqBytes)
+
+		body := strings.NewReader(data.Encode())
 
 		accountID := "Create Blog"
 		path := swagger.Paths.Find("/blogs")

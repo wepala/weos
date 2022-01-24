@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	gorillaSchema "github.com/gorilla/schema"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 	"github.com/wepala/weos-service/model"
@@ -203,16 +204,6 @@ func SplitEtag(Etag string) (string, string) {
 	return "", "-1"
 }
 
-func GetContentBySequenceNumber(eventRepository model.EventRepository, id string, sequence_no int64) (*model.ContentEntity, error) {
-	entity := &model.ContentEntity{}
-	events, err := eventRepository.GetByAggregateAndSequenceRange(id, 0, sequence_no)
-	if err != nil {
-		return nil, err
-	}
-	err = entity.ApplyChanges(events)
-	return entity, err
-}
-
 func ConvertFormUrlEncodedToJson(ctxt context.Context, payload []byte, r *http.Request) (json.RawMessage, error) {
 	contentType := weosContext.GetContentType(ctxt)
 
@@ -224,15 +215,22 @@ func ConvertFormUrlEncodedToJson(ctxt context.Context, payload []byte, r *http.R
 	//TODO Parse the payload
 	//TODO unmarshall it onto an interface to then unmarshal it onto the New entity
 	//TODO now marshall the entity which will give the new "json payload"
-	
+
+	var decoder = gorillaSchema.NewDecoder()
+
 	//ParseForm is not working as intended.
 
-	//err = r.ParseForm()
-	//if err != nil {
-	//	return nil, err
-	//}
-	//
+	err = r.ParseForm()
+	if err != nil {
+		return nil, err
+	}
+
 	//fmt.Printf("form: %#v\n", r.Form)
+
+	err = decoder.Decode(newEntity, r.PostForm)
+	if err != nil {
+		// Handle error
+	}
 
 	return nil, nil
 }
