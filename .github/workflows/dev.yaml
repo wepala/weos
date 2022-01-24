@@ -129,5 +129,5 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_COLOR: "FFFF00"
-          SLACK_MESSAGE: We were able to create a development build. Get the artifact here https://github.com/wepala/weos-service/actions/runs/${{ github.run_id }}
+          SLACK_MESSAGE: We were able to create a development build. Get the artifact here https://github.com/wepala/weos/actions/runs/${{ github.run_id }}
           SLACK_TITLE: WeOS Build Created

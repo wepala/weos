@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	weosContext "github.com/wepala/weos-service/context"
-	"github.com/wepala/weos-service/model"
+	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 )
 
@@ -77,18 +77,15 @@ func TestCreateContentType(t *testing.T) {
 	}
 
 	t.Run("Testing basic create entity", func(t *testing.T) {
-		mockBlog := &Blog{
-			ID:    "123",
-			Title: "Test Blog",
-			Url:   "ww.testingBlog.com",
-		}
 		entityType := "Blog"
+
+		mockBlog := map[string]interface{}{"weos_id": "fsdf32432", "title": "New Blog", "description": "New Description", "url": "www.NewBlog.com"}
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
-			t.Fatalf("error converting content type to bytes %s", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, entityType, mockBlog.ID))
+		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, entityType, "fsdf32432"))
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -98,22 +95,16 @@ func TestCreateContentType(t *testing.T) {
 		}
 	})
 	t.Run("Testing basic batch create", func(t *testing.T) {
-		mockBlog := &Blog{
-			ID:    "123",
-			Title: "Test Blog 1",
-			Url:   "ww.testBlog.com",
-		}
 		entityType := "Blog"
-		mockBlog2 := &Blog{
-			ID:          "1234",
-			Title:       "Test Blog 2",
-			Description: "Description 2",
-			Url:         "ww.testingBlog.com",
+
+		mockBlogs := [3]map[string]interface{}{
+			{"title": "Blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"},
+			{"title": "Blog 2", "description": "Description testing 2", "url": "www.TestBlog2.com"},
+			{"title": "Blog 3", "description": "Description testing 3", "url": "www.TestBlog3.com"},
 		}
-		blogs := []*Blog{mockBlog, mockBlog2}
-		reqBytes, err := json.Marshal(blogs)
+		reqBytes, err := json.Marshal(mockBlogs)
 		if err != nil {
-			t.Fatalf("error converting content type to bytes %s", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
 		err1 := commandDispatcher.Dispatch(ctx, model.CreateBatch(ctx, reqBytes, entityType))
@@ -121,8 +112,8 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
 
-		if len(mockEventRepository.PersistCalls()) != 3 {
-			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 3, len(mockEventRepository.PersistCalls()))
+		if len(mockEventRepository.PersistCalls()) != 4 {
+			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 4, len(mockEventRepository.PersistCalls()))
 		}
 	})
 }

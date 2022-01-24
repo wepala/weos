@@ -3,8 +3,8 @@ package model_test
 import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
-	weosContext "github.com/wepala/weos-service/context"
-	"github.com/wepala/weos-service/model"
+	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"testing"
 )
@@ -39,13 +39,6 @@ func TestContentEntity_FromSchema(t *testing.T) {
 	}
 }
 
-type TestBlog struct {
-	ID          string  `json:"id"`
-	Title       *string `json:"title"`
-	Description string  `json:"description"`
-	Url         string  `json:"url"`
-}
-
 func TestContentEntity_IsValid(t *testing.T) {
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
 	if err != nil {
@@ -62,14 +55,10 @@ func TestContentEntity_IsValid(t *testing.T) {
 	})
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
 	t.Run("Testing with all the required fields", func(t *testing.T) {
-		mockBlog := &Blog{
-			Title:       "test 1",
-			Description: "lorem ipsum",
-			Url:         "www.ShaniahsBlog.com",
-		}
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com"}
 		payload, err := json.Marshal(mockBlog)
 		if err != nil {
-			t.Fatalf("unexpected error marshalling payload '%s'", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
 		entity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
@@ -89,13 +78,10 @@ func TestContentEntity_IsValid(t *testing.T) {
 		}
 	})
 	t.Run("Testing with a missing required field that is nullable: title", func(t *testing.T) {
-		mockBlog := &TestBlog{
-			Description: "lorem ipsum",
-			Url:         "www.ShaniahsBlog.com",
-		}
+		mockBlog := map[string]interface{}{"description": "New Description", "url": "www.NewBlog.com"}
 		payload, err := json.Marshal(mockBlog)
 		if err != nil {
-			t.Fatalf("unexpected error marshalling payload '%s'", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
 		entity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
@@ -133,14 +119,10 @@ func TestContentEntity_Update(t *testing.T) {
 	})
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
 
-	mockBlog := &Blog{
-		Title:       "test 1",
-		Description: "lorem ipsum",
-		Url:         "www.ShaniahsBlog.com",
-	}
+	mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com"}
 	payload, err := json.Marshal(mockBlog)
 	if err != nil {
-		t.Fatalf("unexpected error marshalling payload '%s'", err)
+		t.Fatalf("error converting payload to bytes %s", err)
 	}
 
 	existingEntity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
@@ -157,14 +139,10 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("Title"))
 	}
 
-	input := &Blog{
-		Title:       "updated title",
-		Description: "updated desc",
-	}
-
-	updatedPayload, err := json.Marshal(input)
+	updatedBlog := map[string]interface{}{"title": "Updated title", "description": "Updated Description", "url": "www.UpdatedBlog.com"}
+	updatedPayload, err := json.Marshal(updatedBlog)
 	if err != nil {
-		t.Fatalf("unexpected error marshalling update payload '%s'", err)
+		t.Fatalf("error converting payload to bytes %s", err)
 	}
 
 	updatedEntity, err := existingEntity.Update(ctx, existingEntityPayload, updatedPayload)
@@ -172,11 +150,11 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Fatalf("unexpected error updating existing entity '%s'", err)
 	}
 
-	if updatedEntity.GetString("Title") != "updated title" {
-		t.Errorf("expected the updated title to be '%s', got '%s'", "updated title", existingEntity.GetString("Title"))
+	if updatedEntity.GetString("Title") != "Updated title" {
+		t.Errorf("expected the updated title to be '%s', got '%s'", "Updated title", existingEntity.GetString("Title"))
 	}
 
-	if updatedEntity.GetString("Description") != "updated desc" {
-		t.Errorf("expected the updated description to be '%s', got '%s'", "updated desc", existingEntity.GetString("Description"))
+	if updatedEntity.GetString("Description") != "Updated Description" {
+		t.Errorf("expected the updated description to be '%s', got '%s'", "Updated Description", existingEntity.GetString("Description"))
 	}
 }
