@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	api "github.com/wepala/weos-service/controllers/rest"
+	api "github.com/wepala/weos/controllers/rest"
 	"os"
 )
 

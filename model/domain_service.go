@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	ds "github.com/ompluscator/dynamic-struct"
-	weosContext "github.com/wepala/weos-service/context"
+	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 

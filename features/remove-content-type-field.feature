@@ -56,6 +56,8 @@ Feature: Remove field from content type
                description: blog title
              description:
                type: string
+             url:
+               type: string
            required:
              - title
            x-identifier:

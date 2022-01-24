@@ -2,7 +2,7 @@ package model
 
 //go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
 import (
-	weosContext "github.com/wepala/weos-service/context"
+	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 

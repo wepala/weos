@@ -9,7 +9,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos-service/controllers/rest"
+	"github.com/wepala/weos/controllers/rest"
 	"golang.org/x/net/context"
 )
 
