@@ -69,4 +69,5 @@ type Projection interface {
 	GetContentEntity(ctx context.Context, weosID string) (*ContentEntity, error)
 	GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
 	GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error)
+	GetContentEntities(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
 }
