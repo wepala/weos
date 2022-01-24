@@ -2,7 +2,7 @@ package context_test
 
 import (
 	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos-service/context"
+	"github.com/wepala/weos/context"
 	"testing"
 )
 
