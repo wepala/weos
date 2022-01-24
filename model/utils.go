@@ -3,6 +3,10 @@ package model
 import (
 	"encoding/json"
 	"reflect"
+	"time"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/wepala/weos/utils"
 )
 
 func GetType(myvar interface{}) string {
@@ -63,4 +67,29 @@ func GetSeqfromPayload(payload []byte) (string, error) {
 	seqNo := tempPayload["sequence_no"].(string)
 
 	return seqNo, nil
+}
+
+//helper function used to parse string values to type
+func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawMessage, error) {
+
+	payload := map[string]interface{}{}
+	err := json.Unmarshal(bytes, &payload)
+	if err != nil {
+		return bytes, err
+	}
+	for name, p := range contentType.Properties {
+		if p.Value != nil && p.Value.Type == "string" {
+			if p.Value.Format == "date-time" {
+				if _, ok := payload[utils.SnakeCase(name)]; ok {
+					t, err := time.Parse("Jan 2, 2006 at 3:04pm (MST)", payload[utils.SnakeCase(name)].(string))
+					payload[utils.SnakeCase(name)] = t
+					if err != nil {
+						return bytes, err
+					}
+				}
+			}
+		}
+	}
+	bytes, err = json.Marshal(payload)
+	return bytes, err
 }

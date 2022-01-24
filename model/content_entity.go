@@ -143,6 +143,10 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	if w.ID == "" {
 		w.ID = weosID
 	}
+	payload, err = ParseToType(payload, schema)
+	if err != nil {
+		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
 	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
 	return w, w.ApplyChanges([]*Event{event})
