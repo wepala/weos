@@ -52,6 +52,13 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 				return nil, err
 			}
 		}
+		//if there is an alias name specified use that instead. The value is a json.RawMessage (not a string)
+		if tcontextName, ok := parameter.Value.ExtensionProps.Extensions[AliasExtension]; ok {
+			err := json.Unmarshal(tcontextName.(json.RawMessage), &contextName)
+			if err != nil {
+				return nil, err
+			}
+		}
 		switch strings.ToLower(parameter.Value.In) {
 		case "header":
 			//have to normalize the key name to be able to retrieve from header because of how echo setup up the headers map

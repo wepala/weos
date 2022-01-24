@@ -290,9 +290,52 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 }
 
 func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	//get the entity information based on the Content Type associated with this operation
+	for _, requestContent := range operation.Responses.Get(http.StatusOK).Value.Content {
+		//use the first schema ref to determine the entity type
+		if requestContent.Schema.Ref != "" {
+			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+			//get the schema details from the swagger file
+			contentTypeSchema = spec.Components.Schemas[contentType]
+			break
+		}
+	}
 	return func(ctxt echo.Context) error {
+		newContext := ctxt.Request().Context()
+		if contentType != "" && contentTypeSchema.Value != nil {
+			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+				Name:   contentType,
+				Schema: contentTypeSchema.Value,
+			})
+		}
+		//gets the limit and page from context
+		limit, _ := strconv.Atoi(newContext.Value("limit").(string))
+		page, _ := strconv.Atoi(newContext.Value("page").(string))
+		if page == 0 {
+			page = 1
+		}
+		var count int64
+		var err error
+		var contentEntities []map[string]interface{}
+		// sort by default is by id
+		sorts := map[string]string{"id": "asc"}
 
-		return ctxt.JSON(http.StatusOK, "List Items")
+		for _, projection := range app.Projections() {
+			if projection != nil {
+				contentEntities, count, err = projection.GetContentEntities(newContext, page, limit, "", sorts, nil)
+			}
+		}
+		if err != nil {
+			return NewControllerError(err.Error(), err, http.StatusBadRequest)
+		}
+		resp := ListApiResponse{
+			Total: count,
+			Page:  page,
+			Items: contentEntities,
+		}
+		return ctxt.JSON(http.StatusOK, resp)
 	}
 }
 
