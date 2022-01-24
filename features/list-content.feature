@@ -230,16 +230,17 @@ Feature: List content
              200:
                description: Blog Deleted
      """
+    And the service is running
     And blogs in the api
       | id    | entity id      | sequence no | title        | description    |
-      | 1     | <Generated ID> | 2           | Blog 1       | Some Blog      |
+      | 1     | <Generated ID> | 1           | Blog 1       | Some Blog 1    |
       | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
-      | 164   | <Generated ID> | 1           | Blog 6       | Some Blog 6    |
-      | 3     | <Generated ID> | 4           | Blog 3       | Some Blog 3    |
+      | 3     | <Generated ID> | 1           | Blog 3       | Some Blog 3    |
       | 4     | <Generated ID> | 1           | Blog 4       | Some Blog 4    |
       | 5     | <Generated ID> | 1           | Blog 5       | Some Blog 5    |
-      | 890   | <Generated ID> | 1           | Blog 7       | Some Blog 7    |
-      | 1237  | <Generated ID> | 1           | Blog 8       | Some Blog 8    |
+      | 6     | <Generated ID> | 1           | Blog 6       | Some Blog 6    |
+      | 7     | <Generated ID> | 1           | Blog 7       | Some Blog 7    |
+      | 8     | <Generated ID> | 1           | Blog 8       | Some Blog 8    |
 
   @WEOS-1133
   Scenario: Get list of items
@@ -251,12 +252,12 @@ Feature: List content
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
-      | id    | entity id      | sequence no | title        | description    |
-      | 1     | <Generated ID> | 2           | Blog 1       | Some Blog      |
-      | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
-      | 3     | <Generated ID> | 4           | Blog 3       | Some Blog 3    |
-      | 4     | <Generated ID> | 1           | Blog 4       | Some Blog 4    |
-      | 5     | <Generated ID> | 1           | Blog 5       | Some Blog 5    |
+      | id    | title        | description    |
+      | 1     | Blog 1       | Some Blog 1    |
+      | 2     | Blog 2       | Some Blog 2    |
+      | 3     | Blog 3       | Some Blog 3    |
+      | 4     | Blog 4       | Some Blog 4    |
+      | 5     | Blog 5       | Some Blog 5    |
     And the total results should be 8
     And the page in the result should be 1
 
@@ -271,9 +272,9 @@ Feature: List content
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
-      | id    | entity id      | sequence no | title        | description    |
-      | 3     | <Generated ID> | 4           | Blog 3       | Some Blog 3    |
-      | 4     | <Generated ID> | 1           | Blog 4       | Some Blog 4    |
+      | id    | title        | description    |
+      | 3     | Blog 3       | Some Blog 3    |
+      | 4     | Blog 4       | Some Blog 4    |
     And the total results should be 8
     And the page in the result should be 2
 

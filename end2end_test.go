@@ -50,6 +50,7 @@ var esContainer testcontainers.Container
 var limit int
 var page int
 var contentType string
+var result api.ListApiResponse
 
 type User struct {
 	Name      string
@@ -75,6 +76,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	result = api.ListApiResponse{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
 	os.Remove("e2e.db")
@@ -124,6 +126,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
@@ -745,8 +748,8 @@ func sojournerIsUpdatingWithId(contentType, id string) error {
 	return nil
 }
 
-func isOnTheListScreen(user, contentType string) error {
-	contentType = contentType
+func isOnTheListScreen(user, content string) error {
+	contentType = content
 	requests[strings.ToLower(contentType+"_list")] = map[string]interface{}{}
 	currScreen = strings.ToLower(contentType + "_list")
 	return nil
@@ -760,32 +763,50 @@ func theItemsPerPageAre(pageLimit int) error {
 func theListResultsShouldBe(details *godog.Table) error {
 	head := details.Rows[0].Cells
 	compare := map[string]interface{}{}
+	compareArray := []map[string]interface{}{}
 
 	for i := 1; i < len(details.Rows); i++ {
 		for n, cell := range details.Rows[i].Cells {
 			compare[head[n].Value] = cell.Value
 		}
+		compareArray = append(compareArray, compare)
+		compare = map[string]interface{}{}
+	}
+	foundItems := 0
+
+	json.NewDecoder(rec.Body).Decode(&result)
+	for i, entity := range compareArray {
+		foundEntity := false
+
+		if strconv.Itoa(int(result.Items[i]["id"].(float64))) == entity["id"].(string) && result.Items[i]["title"] == entity["title"] && result.Items[i]["description"] == entity["description"] {
+			foundEntity = true
+		}
+		if foundEntity {
+			foundItems++
+		}
+	}
+	if foundItems != len(compareArray) {
+		return fmt.Errorf("expected to find %d, got %d", len(compareArray), foundItems)
 	}
 
-	//contentEntity := map[string]interface{}{}
-	//TODO get the object from request body so you can compare with the table
-	//result :=  rec.Result().Body
-	return godog.ErrPending
+	return nil
 }
 
-func thePageInTheResultShouldBe(arg1 int) error {
-	//TODO Take total from the rec results and compare to what you got
-	return godog.ErrPending
+func thePageInTheResultShouldBe(pageResult int) error {
+	if result.Page != pageResult {
+		return fmt.Errorf("expect page to be %d, got %d", pageResult, result.Page)
+	}
+	return nil
 }
 
-func thePageNoIs(page int) error {
-	page = page
+func thePageNoIs(pageNo int) error {
+	page = pageNo
 	return nil
 }
 
 func theSearchButtonIsHit() error {
 	var request *http.Request
-	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&&page="+strconv.Itoa(page), nil)
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page), nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -795,9 +816,11 @@ func theSearchButtonIsHit() error {
 	return nil
 }
 
-func theTotalResultsShouldBe(total int) error {
-	//TODO Take total from the rec results and compare to what you got
-	return godog.ErrPending
+func theTotalResultsShouldBe(totalResult int) error {
+	if result.Total != int64(totalResult) {
+		return fmt.Errorf("expect page to be %d, got %d", totalResult, result.Total)
+	}
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {

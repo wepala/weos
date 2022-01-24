@@ -226,7 +226,7 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit
 		schemes = s.Build().NewSliceOfStructs()
 		scheme := s.Build().New()
 
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Omit("weos_id, sequence_no").Find(schemes)
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	}
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
@@ -289,7 +289,7 @@ func NewProjection(ctx context.Context, application weos.Service, schemas map[st
 				//https://github.com/go-gorm/gorm/issues/3585
 				return db
 			} else {
-				return db.Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") })
+				return db.Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no, table") })
 			}
 		}
 	}
