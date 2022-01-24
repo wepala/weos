@@ -57,6 +57,8 @@ Feature: List content
          Blog:
            type: object
            properties:
+             id:
+               type: string
              title:
                type: string
                description: blog title
@@ -64,6 +66,8 @@ Feature: List content
                type: string
            required:
              - title
+           x-identifier:
+             - id
          Post:
            type: object
            properties:
@@ -232,15 +236,15 @@ Feature: List content
      """
     And the service is running
     And blogs in the api
-      | id    | entity id      | sequence no | title        | description    |
-      | 1     | <Generated ID> | 1           | Blog 1       | Some Blog 1    |
-      | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
-      | 3     | <Generated ID> | 1           | Blog 3       | Some Blog 3    |
-      | 4     | <Generated ID> | 1           | Blog 4       | Some Blog 4    |
-      | 5     | <Generated ID> | 1           | Blog 5       | Some Blog 5    |
-      | 6     | <Generated ID> | 1           | Blog 6       | Some Blog 6    |
-      | 7     | <Generated ID> | 1           | Blog 7       | Some Blog 7    |
-      | 8     | <Generated ID> | 1           | Blog 8       | Some Blog 8    |
+      | id    | entity id                   | sequence no | title        | description    |
+      | 1     | 249qleXDVVWUUjfpYP1wpWCTSbg | 1           | Blog 1       | Some Blog 1    |
+      | 2     | 249qnjrxjHHfzBUez2QTrpeDojp | 1           | Blog 2       | Some Blog 2    |
+      | 3     | 249qosPPnecdZQgmsxpm2QTPJ9c | 1           | Blog 3       | Some Blog 3    |
+      | 4     | 249qpherXteGKVzOhmP9qFHFmBv | 1           | Blog 4       | Some Blog 4    |
+      | 5     | 249qqljRZN44rxpluqfBLUsX9zl | 1           | Blog 5       | Some Blog 5    |
+      | 6     | 249qrqGYmCecwHyrEJ9RYnu7wiD | 1           | Blog 6       | Some Blog 6    |
+      | 7     | 249qsjdx1FUUXFcYWsusRZUB4Ct | 1           | Blog 7       | Some Blog 7    |
+      | 8     | 249qtnrvHWg0MV4urs1MAkfLAW8 | 1           | Blog 8       | Some Blog 8    |
 
   @WEOS-1133
   Scenario: Get list of items
