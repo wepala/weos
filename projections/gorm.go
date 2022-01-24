@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
-	weosContext "github.com/wepala/weos-service/context"
-	weos "github.com/wepala/weos-service/model"
+	weosContext "github.com/wepala/weos/context"
+	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"

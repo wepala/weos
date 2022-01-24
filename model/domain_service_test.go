@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	context2 "github.com/wepala/weos-service/context"
-	model "github.com/wepala/weos-service/model"
+	context2 "github.com/wepala/weos/context"
+	model "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 )
 

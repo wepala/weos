@@ -86,4 +86,6 @@ are available for:
 6. Deleting Content 
 
 Standard Controllers are automatically associated with an endpoint if a controller is not explicitly specified and the
-path specification meets the conditions for one of the Standard Controllers.
+path specification meets the conditions for one of the Standard Controllers. [Learn More About Controllers](./controllers.md)
+
+## Configuring Databases

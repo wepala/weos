@@ -118,5 +118,5 @@ jobs:
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_COLOR: "FFFF00"
-          SLACK_MESSAGE: We were able to create a release. View the release at https://github.com/wepala/weos-service/releases
+          SLACK_MESSAGE: We were able to create a release. View the release at https://github.com/wepala/weos/releases
           SLACK_TITLE: WeOS Build Created

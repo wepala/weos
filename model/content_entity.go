@@ -7,8 +7,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
-	weosContext "github.com/wepala/weos-service/context"
-	utils "github.com/wepala/weos-service/utils"
+	weosContext "github.com/wepala/weos/context"
+	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
 )
 

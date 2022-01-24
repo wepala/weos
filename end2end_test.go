@@ -21,8 +21,8 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	api "github.com/wepala/weos-service/controllers/rest"
-	"github.com/wepala/weos-service/utils"
+	api "github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/utils"
 	"gorm.io/gorm"
 )
 
