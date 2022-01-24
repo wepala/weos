@@ -1,4 +1,3 @@
-@skipped
 @WEOS-1125
 Feature: Remove field from content type
 
@@ -17,11 +16,41 @@ Feature: Remove field from content type
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        driver: sqlite3
+        database: e2e.db
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
      components:
        schemas:
          Blog:
            type: object
            properties:
+             id:
+               type: string
              title:
                type: string
                description: blog title
@@ -31,6 +60,8 @@ Feature: Remove field from content type
                type: string
            required:
              - title
+           x-identifier:
+             - id
          Post:
            type: object
            properties:
@@ -106,10 +137,6 @@ Feature: Remove field from content type
                      $ref: "#/components/schemas/Blog"
              400:
                description: Invalid blog submitted
-               content:
-                 application/json:
-                   schema:
-                     $ref: "#/components/schemas/ErrorResponse"
        /blogs/{id}:
          get:
            parameters:
@@ -180,11 +207,12 @@ Feature: Remove field from content type
 
     Given "Sojourner" removed the "url" field from the "Blog" content type
     And the service is running
-    When the "GET" endpoint "/blog/1234" is hit
+    When the "GET" endpoint "/blogs/1234" is hit
     Then a 200 response should be returned
     And a blog should be returned
       | id    | title        | description    |
       | 1234  | Blog 1       | Some Blog      |
+    And a blog should be returned without field "url"
 
   Scenario: Remove a field that has data
 
@@ -192,13 +220,16 @@ Feature: Remove field from content type
 
     Given "Sojourner" removed the "description" field from the "Blog" content type
     And the service is running
-    And the "GET" endpoint "/blog/1234" is hit
+    And the "GET" endpoint "/blogs/1234" is hit
     And a 200 response should be returned
     And a blog should be returned
       | id    | title        |
       | 1234  | Blog 1       |
-    And "Sojourner" adds the field "description" to the "Blog" content type
-    When the "GET" endpoint "/blog/1234" is hit
+    And a blog should be returned without field "description"
+    And "Sojourner" adds the field "description" type "string" to the "Blog" content type
+    And the service is stopped
+    When the service is running
+    When the "GET" endpoint "/blogs/1234" is hit
     Then a 200 response should be returned
     And a blog should be returned
       | id    | title        | description    |

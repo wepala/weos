@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/testcontainers/testcontainers-go"
@@ -29,6 +30,8 @@ import (
 var e *echo.Echo
 var API api.RESTAPI
 var openAPI string
+var blogfixtures []interface{}
+var responseBody map[string]interface{}
 var Developer *User
 var Content *ContentType
 var errs error
@@ -72,6 +75,7 @@ type ContentType struct {
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
+	responseBody = make(map[string]interface{})
 	Developer = &User{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
@@ -123,6 +127,8 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	errs = nil
+
+	blogfixtures = []interface{}{}
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
@@ -327,46 +333,11 @@ func blogsInTheApi(details *godog.Table) error {
 
 	for i := 1; i < len(details.Rows); i++ {
 		req := make(map[string]interface{})
-		seq := 0
 		for n, cell := range details.Rows[i].Cells {
-			if (head[n].Value) != "sequence_no" {
-				req[head[n].Value] = cell.Value
-			} else {
-				seq, _ = strconv.Atoi(cell.Value)
-			}
-		}
-		reqBytes, _ := json.Marshal(req)
-		body := bytes.NewReader(reqBytes)
-		var request *http.Request
-
-		request = httptest.NewRequest("POST", "/blog", body)
-
-		request = request.WithContext(context.TODO())
-		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		request.Header = header
-		request.Close = true
-		rec = httptest.NewRecorder()
-		e.ServeHTTP(rec, request)
-		if rec.Code != http.StatusCreated {
-			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			req[head[n].Value] = cell.Value
 		}
 
-		if seq > 1 {
-			reqBytes, _ := json.Marshal(req)
-			body := bytes.NewReader(reqBytes)
-			for i := 1; i < seq; i++ {
-				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
-				request = request.WithContext(context.TODO())
-				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-				request.Header = header
-				request.Close = true
-				rec = httptest.NewRecorder()
-				e.ServeHTTP(rec, request)
-				if rec.Code != http.StatusOK {
-					return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
-				}
-			}
-		}
+		blogfixtures = append(blogfixtures, req)
 
 	}
 	return nil
@@ -636,13 +607,58 @@ func theEndpointIsHit(method, contentType string) error {
 
 func theServiceIsRunning() error {
 	e = echo.New()
+
 	os.Remove("e2e.db")
+
 	API = api.RESTAPI{}
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {
 		return err
+	}
+
+	if len(blogfixtures) != 0 {
+		for _, r := range blogfixtures {
+			req := r.(map[string]interface{})
+			sequence := req["sequence_no"]
+			delete(req, "sequence_no")
+			reqBytes, _ := json.Marshal(req)
+			body := bytes.NewReader(reqBytes)
+			var request *http.Request
+			seq := 0
+			if _, ok := sequence.(string); ok {
+				seq, _ = strconv.Atoi(sequence.(string))
+			}
+			request = httptest.NewRequest("POST", "/blog", body)
+
+			request = request.WithContext(context.TODO())
+			header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			request.Header = header
+			request.Close = true
+			rec = httptest.NewRecorder()
+			e.ServeHTTP(rec, request)
+			if rec.Code != http.StatusCreated {
+				return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			}
+
+			if seq > 1 {
+				reqBytes, _ := json.Marshal(req)
+				body := bytes.NewReader(reqBytes)
+				for i := 1; i < seq; i++ {
+					request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
+					request = request.WithContext(context.TODO())
+					header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+					request.Header = header
+					request.Close = true
+					rec = httptest.NewRecorder()
+					e.ServeHTTP(rec, request)
+					if rec.Code != http.StatusOK {
+						return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
+					}
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -748,8 +764,13 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 	}
 
 	contentEntity := map[string]interface{}{}
-	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
-
+	var err error
+	if len(responseBody) == 0 {
+		err = json.NewDecoder(rec.Body).Decode(&contentEntity)
+		responseBody = contentEntity
+	} else {
+		contentEntity = responseBody
+	}
 	if err != nil {
 		return err
 	}
@@ -766,6 +787,129 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 func sojournerIsUpdatingWithId(contentType, id string) error {
 	requests[strings.ToLower(contentType+"_update")] = map[string]interface{}{"id": id}
 	currScreen = strings.ToLower(contentType + "_update")
+	return nil
+}
+
+func aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist() error {
+	if !strings.Contains(buf.String(), "property does not exist") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func addsTheAttributeToTheFieldOnTheContentType(user, attribute, field, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	schemas[contentType].Value.Extensions[attribute] = []string{field}
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func addsTheFieldToTheContentType(user, field, fieldType, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+	switch fieldType {
+	case "string":
+		schemas[contentType].Value.Properties[field] = &openapi3.SchemaRef{
+			Value: &openapi3.Schema{
+				Type: "string",
+			},
+		}
+	default:
+		fmt.Errorf("no logic for adding field type %s", fieldType)
+	}
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference() error {
+	if errs == nil {
+		fmt.Errorf("expected there to be an error on migrating")
+	}
+	//TODO: add checks fo the speicific error
+	return godog.ErrPending
+}
+
+func removedTheFieldFromTheContentType(user, field, contentType string) error {
+
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	delete(schemas[contentType].Value.Properties, strings.ToLower(field))
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func theFieldShouldBeRemovedFromTheTable(field, table string) error {
+	gormDB := API.Application.DB()
+	if !gormDB.Migrator().HasTable(table) {
+		return fmt.Errorf("expected there to be a table %s", table)
+	}
+	columns, err := gormDB.Migrator().ColumnTypes(table)
+	if err != nil {
+		return err
+	}
+
+	for _, c := range columns {
+		if strings.EqualFold(c.Name(), field) {
+			return fmt.Errorf("there should be no column %s", field)
+		}
+	}
+
+	return nil
+}
+
+func aBlogShouldBeReturnedWithoutField(field string) error {
+	if len(responseBody) == 0 {
+		err := json.NewDecoder(rec.Body).Decode(&responseBody)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, ok := responseBody[field]; ok {
+		return fmt.Errorf("expected to not find field %s", field)
+	}
+	return nil
+}
+
+func theServiceIsStopped() error {
 	return nil
 }
 
@@ -811,6 +955,14 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
 	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
+	ctx.Step(`^a warning should be output to the logs telling the developer the property doesn\'t exist$`, aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist)
+	ctx.Step(`^"([^"]*)" adds the "([^"]*)" attribute to the "([^"]*)" field on the "([^"]*)" content type$`, addsTheAttributeToTheFieldOnTheContentType)
+	ctx.Step(`^"([^"]*)" adds the field "([^"]*)" type "([^"]*)" to the "([^"]*)" content type$`, addsTheFieldToTheContentType)
+	ctx.Step(`^an error should show letting the developer know that is part of a foreign key reference$`, anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference)
+	ctx.Step(`^"([^"]*)" removed the "([^"]*)" field from the "([^"]*)" content type$`, removedTheFieldFromTheContentType)
+	ctx.Step(`^the "([^"]*)" field should be removed from the "([^"]*)" table$`, theFieldShouldBeRemovedFromTheTable)
+	ctx.Step(`^a blog should be returned without field "([^"]*)"$`, aBlogShouldBeReturnedWithoutField)
+	ctx.Step(`^the service is stopped$`, theServiceIsStopped)
 
 }
 
@@ -821,7 +973,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
+			Tags:   "WEOS-1125",
 			//Tags: "long",
 		},
 	}.Run()
