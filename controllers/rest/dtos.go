@@ -44,12 +44,14 @@ type Rest struct {
 	PreMiddleware []string `json:"pre-middleware"`
 }
 
+//HealthCheckResponse used int he health check controller to return a response with version
 type HealthCheckResponse struct {
 	Version string `json:"version"`
 }
 
+//ListApiResponse used in the list controller to return a response with total, page and items retrieved
 type ListApiResponse struct {
-	Total int64                     `json:"total"`
-	Page  int                       `json:"page"`
-	Items []*map[string]interface{} `json:"items"`
+	Total int64                    `json:"total"`
+	Page  int                      `json:"page"`
+	Items []map[string]interface{} `json:"items"`
 }
