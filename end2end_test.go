@@ -612,6 +612,7 @@ func theServiceIsRunning() error {
 
 	API = api.RESTAPI{}
 	buf = bytes.Buffer{}
+	responseBody = make(map[string]interface{})
 	e.Logger.SetOutput(&buf)
 	_, err := api.Initialize(e, &API, openAPI)
 	if err != nil {

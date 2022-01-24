@@ -3,6 +3,7 @@ package context
 import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
 )
 
@@ -23,8 +24,9 @@ const SORTS ContextKey = "_sorts"
 
 //ContentType this makes it easier to access the content type information in the context
 type ContentType struct {
-	Name   string           `json:"name"`
-	Schema *openapi3.Schema `json:"fields"`
+	Name    string           `json:"name"`
+	Schema  *openapi3.Schema `json:"fields"`
+	Builder ds.Builder       `json:"builder"`
 }
 
 //---- Context Getters

@@ -18,13 +18,13 @@ type GORMProjection struct {
 	db              *gorm.DB
 	logger          weos.Log
 	migrationFolder string
-	Schema          map[string]ds.Builder
+	Schema          map[string]weosContext.ContentType
 }
 
 func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		//pulling the primary keys from the schema in order to match with the keys given for searching
-		scheme := s.Build().New()
+		scheme := s.Builder.Build().New()
 		pks, _ := json.Marshal(contentType.Schema.Extensions["x-identifier"])
 		primaryKeys := []string{}
 		json.Unmarshal(pks, &primaryKeys)
@@ -68,7 +68,7 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.
 
 func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
 	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
-		scheme := s.Build().New()
+		scheme := s.Builder.Build().New()
 		result := p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme, "weos_id = ?", id)
 
 		if result.Error != nil {
@@ -102,9 +102,9 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 	var err error
 	var tables []interface{}
 	for name, s := range p.Schema {
-		f := s.GetField("Table")
+		f := s.Builder.GetField("Table")
 		f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
-		instance := s.Build().New()
+		instance := s.Builder.Build().New()
 		err := json.Unmarshal([]byte(`{
 			"table_alias": "`+name+`"
 		}`), &instance)
@@ -113,6 +113,20 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 			return err
 		}
 		tables = append(tables, instance)
+
+		dfs, _ := json.Marshal(s.Schema.Extensions["x-remove"])
+		deletedFields := []string{}
+		json.Unmarshal(dfs, &deletedFields)
+		for _, f := range deletedFields {
+			if p.db.Migrator().HasColumn(instance, f) {
+				err = p.db.Migrator().DropColumn(instance, f)
+				if err != nil {
+					p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
+					return err
+				}
+			}
+		}
+		fmt.Print(deletedFields)
 	}
 
 	err = p.db.Migrator().AutoMigrate(tables...)
@@ -129,7 +143,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
-				eventPayload := payload.Build().New()
+				eventPayload := payload.Builder.Build().New()
 				mapPayload := map[string]interface{}{}
 				err := json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
@@ -154,7 +168,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 			if !ok {
 				p.logger.Errorf("found no content type %s", contentType.Name)
 			} else {
-				eventPayload := payload.Build().New()
+				eventPayload := payload.Builder.Build().New()
 				err := json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
@@ -233,7 +247,7 @@ type QueryModifier func() func(db *gorm.DB) *gorm.DB
 var ContentQuery QueryModifier
 
 //NewProjection creates an instance of the projection
-func NewProjection(ctx context.Context, application weos.Service, schemas map[string]ds.Builder) (*GORMProjection, error) {
+func NewProjection(ctx context.Context, application weos.Service, schemas map[string]weosContext.ContentType) (*GORMProjection, error) {
 
 	projection := &GORMProjection{
 		db:     application.DB(),

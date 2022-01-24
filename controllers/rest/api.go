@@ -13,12 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/echo/v4/middleware"
-
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
-	ds "github.com/ompluscator/dynamic-struct"
+	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 )
@@ -35,7 +34,7 @@ type RESTAPI struct {
 	Config      *APIConfig
 	e           *echo.Echo
 	PathConfigs map[string]*PathConfig
-	Schemas     map[string]ds.Builder
+	Schemas     map[string]weosContext.ContentType
 	middlewares map[string]Middleware
 	controllers map[string]Controller
 }
@@ -119,7 +118,7 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 	schemes := map[string]interface{}{}
 	for name, s := range p.Schemas {
-		schemes[name] = s.Build().New()
+		schemes[name] = s.Builder.Build().New()
 	}
 	return schemes, nil
 }

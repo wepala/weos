@@ -8,16 +8,18 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
+	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections"
 	"github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
 )
 
 //CreateSchema creates the table schemas for gorm syntax
-func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]ds.Builder {
+func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]weosContext.ContentType {
 	builders := make(map[string]ds.Builder)
 	relations := make(map[string]map[string]string)
 	keys := make(map[string][]string)
+
 	schemas := s.Components.Schemas
 	for name, scheme := range schemas {
 		var instance ds.Builder
@@ -39,16 +41,29 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 		}
 		builders[name] = scheme
 	}
-	return builders
+
+	contentTypes := make(map[string]weosContext.ContentType)
+
+	for name, scheme := range schemas {
+		contentTypes[name] = weosContext.ContentType{
+			Name:    name,
+			Schema:  scheme.Value,
+			Builder: builders[name],
+		}
+	}
+	return contentTypes
 
 }
 
 //creates a new schema interface instance
 func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string]string, []string) {
 	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
+	dfs, _ := json.Marshal(ref.Extensions["x-remove"])
 
 	primaryKeys := []string{}
+	deletedFields := []string{}
 	json.Unmarshal(pks, &primaryKeys)
+	json.Unmarshal(dfs, &deletedFields)
 
 	if len(primaryKeys) == 0 {
 		primaryKeys = append(primaryKeys, "id")
@@ -58,6 +73,18 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
+		found := false
+
+		for _, n := range deletedFields {
+			if strings.EqualFold(n, name) {
+				found = true
+			}
+		}
+		//this field should not be added to the schema
+		if found {
+			break
+		}
+
 		tagString := `json:"` + utils.SnakeCase(name) + `"`
 		var gormParts []string
 		for _, req := range ref.Required {
