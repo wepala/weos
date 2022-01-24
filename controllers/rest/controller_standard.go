@@ -46,14 +46,24 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 			})
 		}
 		//reads the request body
-		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+		//payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+
+		var payload []byte
+		var err error
 
 		ct := ctxt.Request().Header.Get("Content-Type")
 
 		switch ct {
 		case "application/x-www-form-urlencoded":
-			//TODO pass the payload to a utils func to convert it *properly* to a bytes and return it to be sent
-			ConvertFormUrlEncodedToJson(newContext, payload, ctxt.Request())
+			payload, err = ConvertFormUrlEncodedToJson(ctxt.Request())
+			if err != nil {
+				return err
+			}
+		default:
+			payload, err = ioutil.ReadAll(ctxt.Request().Body)
+			if err != nil {
+				return err
+			}
 		}
 
 		//for inserting weos_id during testing
@@ -70,7 +80,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 			weosID = ksuid.New().String()
 		}
 
-		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
+		err = app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)

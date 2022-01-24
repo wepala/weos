@@ -5,15 +5,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	weosContext "github.com/wepala/weos-service/context"
-	"golang.org/x/net/context"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
 
-	gorillaSchema "github.com/gorilla/schema"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 	"github.com/wepala/weos/model"
@@ -204,33 +201,35 @@ func SplitEtag(Etag string) (string, string) {
 	return "", "-1"
 }
 
-func ConvertFormUrlEncodedToJson(ctxt context.Context, payload []byte, r *http.Request) (json.RawMessage, error) {
-	contentType := weosContext.GetContentType(ctxt)
+func GetContentBySequenceNumber(eventRepository model.EventRepository, id string, sequence_no int64) (*model.ContentEntity, error) {
+	entity := &model.ContentEntity{}
+	events, err := eventRepository.GetByAggregateAndSequenceRange(id, 0, sequence_no)
+	if err != nil {
+		return nil, err
+	}
+	err = entity.ApplyChanges(events)
+	return entity, err
+}
 
-	newEntity, err := new(model.ContentEntity).FromSchema(ctxt, contentType.Schema)
+//ConvertFormUrlEncodedToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
+func ConvertFormUrlEncodedToJson(r *http.Request) (json.RawMessage, error) {
+	parsedForm := map[string]interface{}{}
+
+	err := r.ParseForm()
 	if err != nil {
 		return nil, err
 	}
 
-	//TODO Parse the payload
-	//TODO unmarshall it onto an interface to then unmarshal it onto the New entity
-	//TODO now marshall the entity which will give the new "json payload"
+	for k, v := range r.PostForm {
+		for _, value := range v {
+			parsedForm[k] = value
+		}
+	}
 
-	var decoder = gorillaSchema.NewDecoder()
-
-	//ParseForm is not working as intended.
-
-	err = r.ParseForm()
+	parsedPayload, err := json.Marshal(parsedForm)
 	if err != nil {
 		return nil, err
 	}
 
-	//fmt.Printf("form: %#v\n", r.Form)
-
-	err = decoder.Decode(newEntity, r.PostForm)
-	if err != nil {
-		// Handle error
-	}
-
-	return nil, nil
+	return parsedPayload, nil
 }

@@ -729,17 +729,11 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 	//initialization will instantiate with application so we need to overwrite with our mock application
 	restAPI.Application = application
 
-	t.Run("basic create based on simple content type", func(t *testing.T) {
-		//TODO Make a form-urlencoded payload to be used, this should be converted to a json which will pass through the existing system
-		//formURLRequest := "title=MyBlog&url=MyBlogUrl"
-		//body := strings.NewReader(formURLRequest)
+	t.Run("basic create based on application/x-www-form-urlencoded content type", func(t *testing.T) {
 
 		data := url.Values{}
-		data.Set("title", "MyBlog")
+		data.Set("title", "Test Blog")
 		data.Set("url", "MyBlogUrl")
-
-		//reqBytes, _ := json.Marshal(data)
-		//body := bytes.NewReader(reqBytes)
 
 		body := strings.NewReader(data.Encode())
 
@@ -767,6 +761,35 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 		if response.StatusCode != 201 {
 			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
+		}
+	})
+	t.Run("create with missing required value based on x-www-form-urlencoded content type", func(t *testing.T) {
+
+		data := url.Values{}
+		data.Set("title", "Test Blog")
+
+		body := strings.NewReader(data.Encode())
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
 		}
 	})
 }

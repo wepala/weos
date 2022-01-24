@@ -19,8 +19,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/wepala/weos-service/model"
-	"github.com/wepala/weos-service/projections"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 )
 
 //RESTAPI is used to manage the API
