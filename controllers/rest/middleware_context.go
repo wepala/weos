@@ -8,8 +8,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	weosContext "github.com/wepala/weos-service/context"
-	"github.com/wepala/weos-service/model"
+	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 )
 

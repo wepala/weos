@@ -1,4 +1,4 @@
-module github.com/wepala/weos-service
+module github.com/wepala/weos
 
 go 1.16
 

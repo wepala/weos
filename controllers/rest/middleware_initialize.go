@@ -8,8 +8,8 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/wepala/weos-service/projections"
-	"github.com/wepala/weos-service/utils"
+	"github.com/wepala/weos/projections"
+	"github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
 )
 

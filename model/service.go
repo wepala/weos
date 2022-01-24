@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/wepala/weos-service/projections/dialects"
+	"github.com/wepala/weos/projections/dialects"
 	"gorm.io/driver/sqlite"
 	"net/http"
 	"os"

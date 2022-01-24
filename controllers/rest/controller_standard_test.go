@@ -15,9 +15,9 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	weoscontext "github.com/wepala/weos-service/context"
-	"github.com/wepala/weos-service/controllers/rest"
-	"github.com/wepala/weos-service/model"
+	weoscontext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/model"
 )
 
 type Blog struct {

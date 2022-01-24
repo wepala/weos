@@ -2,7 +2,7 @@ package model_test
 
 import (
 	"encoding/json"
-	weos "github.com/wepala/weos-service/model"
+	weos "github.com/wepala/weos/model"
 	"testing"
 )
 

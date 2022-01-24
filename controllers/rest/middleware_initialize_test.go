@@ -9,6 +9,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	dynamicstruct "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos-service/controllers/rest"
 	"golang.org/x/net/context"
 )
@@ -38,9 +39,13 @@ func TestCreateSchema(t *testing.T) {
 
 		result := rest.CreateSchema(context.Background(), e, swagger)
 		//loop through and confirm each has a table name set
-		for _, table := range result {
-			if table.GetField("Table") == nil {
+		for tableName, table := range result {
+			reader := dynamicstruct.NewReader(table)
+			if reader.GetField("Table") == nil {
 				t.Fatalf("expected a table field")
+			}
+			if reader.GetField("Table").String() != tableName {
+				t.Errorf("There was an error setting the table name, expected '%s'", tableName)
 			}
 		}
 
@@ -50,7 +55,12 @@ func TestCreateSchema(t *testing.T) {
 			t.Fatalf("expected to find a table Post")
 		}
 
-		if !postTable.HasField("AuthorEmail") {
+		reader := dynamicstruct.NewReader(postTable)
+		if !reader.HasField("AuthorId") {
+			t.Errorf("expected the struct to have field '%s'", "AuthorId")
+		}
+
+		if !reader.HasField("AuthorEmail") {
 			t.Errorf("expected the struct to have field '%s'", "AuthorEmail")
 		}
 	})

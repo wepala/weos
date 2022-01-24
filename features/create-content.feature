@@ -129,6 +129,20 @@ Feature: Create content
               description: Add Blog to Aggregator
             400:
               description: Invalid blog submitted
+      /category:
+        post:
+          operationId: Add Category
+          requestBody:
+            description: Category info that is submitted
+            required: true
+            content:
+              multipart/form-data:
+                schema:
+                  $ref: "#/components/schemas/Category"
+          responses:
+            201:
+              description: Add Category
+              description: Invalid Catgory submitted
     """
       And the service is running
       And blogs in the api
@@ -169,7 +183,7 @@ Feature: Create content
       When the "Blog" is submitted
       Then an error should be returned
 
-    @WEOS-1289
+    @WEOS-1289 @skipped
     Scenario: Create an item using post data
 
       If form data is sent to the request body it is converted to json so the same commands could be used
@@ -185,7 +199,19 @@ Feature: Create content
       And the "Post" should have an id
       And the "ETag" header should be present
 
-    @WEOS-1289
+    @WEOS-1289 @skipped
+    Scenario: Create an item using post data using the multipart content type
+
+      Given "Sojourner" is on the "Category" create screen
+      And "Sojourner" enters "Some Category" in the "title" field
+      When the "Category" form is submitted
+      Then the "Category" is created
+        | title          | description                       |
+        | Some Blog      | Some Description                  |
+      And the "Category" should have an id
+      And the "ETag" header should be present
+
+    @WEOS-1289 @skipped
     Scenario: Try to create item with content type that is not defined
 
       If the content type is not explicity defined then an error is returned (e.g. if json is not specified on the request then a json body should not be allowed)
