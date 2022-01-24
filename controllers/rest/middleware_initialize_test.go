@@ -39,7 +39,7 @@ func TestCreateSchema(t *testing.T) {
 		result := rest.CreateSchema(context.Background(), e, swagger)
 		//loop through and confirm each has a table name set
 		for _, table := range result {
-			if table.GetField("Table") == nil {
+			if table.Builder.GetField("Table") == nil {
 				t.Fatalf("expected a table field")
 			}
 		}
@@ -50,7 +50,7 @@ func TestCreateSchema(t *testing.T) {
 			t.Fatalf("expected to find a table Post")
 		}
 
-		if !postTable.HasField("AuthorEmail") {
+		if !postTable.Builder.HasField("AuthorEmail") {
 			t.Errorf("expected the struct to have field '%s'", "AuthorEmail")
 		}
 	})

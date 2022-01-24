@@ -1590,7 +1590,7 @@ components:
 
 		bytes, _ := json.Marshal(m)
 
-		blog := schemes["Blog"]
+		blog := schemes["Blog"].Builder
 
 		json.Unmarshal(bytes, &blog)
 
@@ -1604,7 +1604,7 @@ components:
 			t.Errorf("got error creating blog %s", result.Error)
 		}
 
-		post := schemes["Post"]
+		post := schemes["Post"].Builder
 		m = map[string]interface{}{"title": "hills"}
 		bytes, _ = json.Marshal(m)
 		json.Unmarshal(bytes, &post)

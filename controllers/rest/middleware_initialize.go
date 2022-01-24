@@ -64,6 +64,14 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 	deletedFields := []string{}
 	json.Unmarshal(pks, &primaryKeys)
 	json.Unmarshal(dfs, &deletedFields)
+	for i, k := range primaryKeys {
+		for _, d := range deletedFields {
+			if strings.EqualFold(k, d) {
+				primaryKeys[i] = primaryKeys[len(primaryKeys)-1]
+				primaryKeys = primaryKeys[:len(primaryKeys)-1]
+			}
+		}
+	}
 
 	if len(primaryKeys) == 0 {
 		primaryKeys = append(primaryKeys, "id")

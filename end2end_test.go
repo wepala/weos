@@ -867,6 +867,18 @@ func removedTheFieldFromTheContentType(user, field, contentType string) error {
 
 	delete(schemas[contentType].Value.Properties, strings.ToLower(field))
 
+	pks, _ := json.Marshal(schemas[contentType].Value.Extensions["x-identifier"])
+	primayKeys := []string{}
+	json.Unmarshal(pks, &primayKeys)
+	for i, k := range primayKeys {
+		if strings.EqualFold(k, field) {
+			primayKeys[i] = primayKeys[len(primayKeys)-1]
+			primayKeys = primayKeys[:len(primayKeys)-1]
+		}
+	}
+
+	schemas[contentType].Value.Extensions["x-identifier"] = primayKeys
+
 	swagger.Components.Schemas = schemas
 
 	bytes, err := swagger.MarshalJSON()

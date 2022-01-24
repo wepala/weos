@@ -124,9 +124,24 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 					p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
 					return err
 				}
+			} else {
+				p.logger.Errorf("unable to drop column %s from table %s.  property does not exist", f, name)
 			}
 		}
-		fmt.Print(deletedFields)
+		columns, err := p.db.Migrator().ColumnTypes(instance)
+		if err != nil {
+			p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
+		} else {
+			for _, c := range columns {
+				//if the field is in the database but not in the schema, remove constraints on that field
+				if !s.Builder.HasField(c.Name()) {
+					err = p.db.Migrator().DropConstraint(instance, c.Name())
+					if err != nil {
+						p.logger.Errorf("unable to rremove contraint %s from table %s with error '%s'", c.Name(), name, err)
+					}
+				}
+			}
+		}
 	}
 
 	err = p.db.Migrator().AutoMigrate(tables...)
