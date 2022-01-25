@@ -52,23 +52,6 @@ func GetIDfromPayload(payload []byte) (string, error) {
 	return weosID, nil
 }
 
-//GetSeqfromPayload: This returns the sequence number from payload
-func GetSeqfromPayload(payload []byte) (string, error) {
-	var tempPayload map[string]interface{}
-	err := json.Unmarshal(payload, &tempPayload)
-	if err != nil {
-		return "", err
-	}
-
-	if tempPayload["sequence_no"] == nil {
-		tempPayload["sequence_no"] = ""
-	}
-
-	seqNo := tempPayload["sequence_no"].(string)
-
-	return seqNo, nil
-}
-
 //helper function used to parse string values to type
 func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawMessage, error) {
 

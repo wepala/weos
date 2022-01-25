@@ -270,6 +270,16 @@ func (w *ContentEntity) GetTime(name string) time.Time {
 	return *reader.GetField(name).PointerTime()
 }
 
+func GetContentBySequenceNumber(eventRepository EventRepository, id string, sequence_no int64) (*ContentEntity, error) {
+	entity := &ContentEntity{}
+	events, err := eventRepository.GetByAggregateAndSequenceRange(id, 0, sequence_no)
+	if err != nil {
+		return nil, err
+	}
+	err = entity.ApplyChanges(events)
+	return entity, err
+}
+
 //ApplyChanges apply the new changes from payload to the entity
 func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 	for _, change := range changes {
