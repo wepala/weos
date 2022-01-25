@@ -802,10 +802,12 @@ func theListResultsShouldBe(details *godog.Table) error {
 
 	json.NewDecoder(rec.Body).Decode(&result)
 	for i, entity := range compareArray {
-		foundEntity := false
-
-		if strconv.Itoa(int(result.Items[i]["id"].(float64))) == entity["id"].(string) && result.Items[i]["title"] == entity["title"] && result.Items[i]["description"] == entity["description"] {
-			foundEntity = true
+		foundEntity := true
+		for key, value := range entity {
+			if result.Items[i][key] != value {
+				foundEntity = false
+				break
+			}
 		}
 		if foundEntity {
 			foundItems++
@@ -907,7 +909,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
+			Tags:   "WEOS-1133",
 			//Tags: "long",
 		},
 	}.Run()
