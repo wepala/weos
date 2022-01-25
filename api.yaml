@@ -148,6 +148,15 @@ paths:
       summary: Get List of Blogs
       parameters:
         - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: l
+          x-alias: limit
+          schema:
+            type: integer
+        - in: query
           name: filters
           schema:
             type: array

@@ -6,7 +6,7 @@ package rest_test
 import (
 	"context"
 	"database/sql"
-	weoscontext "github.com/wepala/weos/context"
+	weosContext "github.com/wepala/weos/context"
 	weos "github.com/wepala/weos/model"
 	"gorm.io/gorm"
 	"net/http"
@@ -1721,10 +1721,10 @@ var _ weos.Projection = &ProjectionMock{}
 // 	}
 type ProjectionMock struct {
 	// GetByEntityIDFunc mocks the GetByEntityID method.
-	GetByEntityIDFunc func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error)
+	GetByEntityIDFunc func(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error)
 
 	// GetByKeyFunc mocks the GetByKey method.
-	GetByKeyFunc func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
+	GetByKeyFunc func(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
 
 	// GetContentEntitiesFunc mocks the GetContentEntities method.
 	GetContentEntitiesFunc func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
@@ -1745,7 +1745,7 @@ type ProjectionMock struct {
 			// Ctxt is the ctxt argument value.
 			Ctxt context.Context
 			// ContentType is the contentType argument value.
-			ContentType weoscontext.ContentType
+			ContentType weosContext.ContentType
 			// ID is the id argument value.
 			ID string
 		}
@@ -1754,7 +1754,7 @@ type ProjectionMock struct {
 			// Ctxt is the ctxt argument value.
 			Ctxt context.Context
 			// ContentType is the contentType argument value.
-			ContentType weoscontext.ContentType
+			ContentType weosContext.ContentType
 			// Identifiers is the identifiers argument value.
 			Identifiers map[string]interface{}
 		}
@@ -1798,13 +1798,13 @@ type ProjectionMock struct {
 }
 
 // GetByEntityID calls GetByEntityIDFunc.
-func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
 	if mock.GetByEntityIDFunc == nil {
 		panic("ProjectionMock.GetByEntityIDFunc: method is nil but Projection.GetByEntityID was just called")
 	}
 	callInfo := struct {
 		Ctxt        context.Context
-		ContentType weoscontext.ContentType
+		ContentType weosContext.ContentType
 		ID          string
 	}{
 		Ctxt:        ctxt,
@@ -1822,12 +1822,12 @@ func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, contentType weos
 //     len(mockedProjection.GetByEntityIDCalls())
 func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 	Ctxt        context.Context
-	ContentType weoscontext.ContentType
+	ContentType weosContext.ContentType
 	ID          string
 } {
 	var calls []struct {
 		Ctxt        context.Context
-		ContentType weoscontext.ContentType
+		ContentType weosContext.ContentType
 		ID          string
 	}
 	mock.lockGetByEntityID.RLock()
@@ -1837,13 +1837,13 @@ func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 }
 
 // GetByKey calls GetByKeyFunc.
-func (mock *ProjectionMock) GetByKey(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	if mock.GetByKeyFunc == nil {
 		panic("ProjectionMock.GetByKeyFunc: method is nil but Projection.GetByKey was just called")
 	}
 	callInfo := struct {
 		Ctxt        context.Context
-		ContentType weoscontext.ContentType
+		ContentType weosContext.ContentType
 		Identifiers map[string]interface{}
 	}{
 		Ctxt:        ctxt,
@@ -1861,12 +1861,12 @@ func (mock *ProjectionMock) GetByKey(ctxt context.Context, contentType weosconte
 //     len(mockedProjection.GetByKeyCalls())
 func (mock *ProjectionMock) GetByKeyCalls() []struct {
 	Ctxt        context.Context
-	ContentType weoscontext.ContentType
+	ContentType weosContext.ContentType
 	Identifiers map[string]interface{}
 } {
 	var calls []struct {
 		Ctxt        context.Context
-		ContentType weoscontext.ContentType
+		ContentType weosContext.ContentType
 		Identifiers map[string]interface{}
 	}
 	mock.lockGetByKey.RLock()

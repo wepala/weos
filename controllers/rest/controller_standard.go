@@ -460,8 +460,8 @@ func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, pa
 			})
 		}
 		//gets the limit and page from context
-		limit := newContext.Value("limit").(int)
-		page := newContext.Value("page").(int)
+		limit, _ := newContext.Value("limit").(int)
+		page, _ := newContext.Value("page").(int)
 		if page == 0 {
 			page = 1
 		}
