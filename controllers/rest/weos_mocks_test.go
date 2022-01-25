@@ -6,11 +6,11 @@ package rest_test
 import (
 	"context"
 	"database/sql"
-	weos "github.com/wepala/weos-service/model"
+	weoscontext "github.com/wepala/weos/context"
+	weos "github.com/wepala/weos/model"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
-	weoscontext "github.com/wepala/weos-service/context"
 )
 
 // Ensure, that EventRepositoryMock does implement weos.EventRepository.

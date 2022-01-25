@@ -6,8 +6,8 @@ package model_test
 import (
 	"context"
 	"database/sql"
-	weoscontext "github.com/wepala/weos-service/context"
-	"github.com/wepala/weos-service/model"
+	weoscontext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/model"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -1788,5 +1788,3 @@ func (mock *ServiceMock) TitleCalls() []struct {
 	mock.lockTitle.RUnlock()
 	return calls
 }
-
-
