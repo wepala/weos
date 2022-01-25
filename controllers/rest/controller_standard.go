@@ -424,13 +424,31 @@ func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, pa
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
 	//get the entity information based on the Content Type associated with this operation
-	for _, requestContent := range operation.Responses.Get(http.StatusOK).Value.Content {
+	for _, respContent := range operation.Responses.Get(http.StatusOK).Value.Content {
 		//use the first schema ref to determine the entity type
-		if requestContent.Schema.Ref != "" {
-			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+		if respContent.Schema.Value.Properties["items"] != nil {
+			contentType = strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
 			//get the schema details from the swagger file
 			contentTypeSchema = spec.Components.Schemas[contentType]
 			break
+		} else {
+			//if items are named differently the alias is checked
+			var alias string
+			for _, prop := range respContent.Schema.Value.Properties {
+				aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
+				if aliasInterface != nil {
+					bytesContext := aliasInterface.(json.RawMessage)
+					json.Unmarshal(bytesContext, &alias)
+					if alias == "items" {
+						if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
+							contentType = strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
+							contentTypeSchema = spec.Components.Schemas[contentType]
+							break
+						}
+					}
+				}
+
+			}
 		}
 	}
 	return func(ctxt echo.Context) error {
@@ -442,8 +460,8 @@ func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, pa
 			})
 		}
 		//gets the limit and page from context
-		limit, _ := strconv.Atoi(newContext.Value("limit").(string))
-		page, _ := strconv.Atoi(newContext.Value("page").(string))
+		limit := newContext.Value("limit").(int)
+		page := newContext.Value("page").(int)
 		if page == 0 {
 			page = 1
 		}
