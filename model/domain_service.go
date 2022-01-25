@@ -3,7 +3,6 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
@@ -73,6 +72,9 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	if err != nil {
 		return nil, err
 	}
+	if weosID == "" {
+		weosID, _ = ctx.Value(weosContext.WEOS_ID).(string)
+	}
 
 	var primaryKeys []string
 	identifiers := map[string]interface{}{}
@@ -113,9 +115,9 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 
 	//If there is a weosID present use this
 	if weosID != "" {
-		seqNo, err := GetSeqfromPayload(newPayload)
-		if err != nil {
-			return nil, err
+		seqNo := -1
+		if seq, ok := ctx.Value(weosContext.SEQUENCE_NO).(int); ok {
+			seqNo = seq
 		}
 
 		existingEntity, err := s.GetContentEntity(ctx, weosID)
@@ -123,12 +125,8 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, weosID, err)
 		}
 
-		entitySeqNo := strconv.Itoa(int(existingEntity.SequenceNo))
-
-		if seqNo != "" {
-			if seqNo != entitySeqNo {
-				return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
-			}
+		if seqNo != -1 && existingEntity.SequenceNo != int64(seqNo) {
+			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
 
 		reader := ds.NewReader(existingEntity.Property)
