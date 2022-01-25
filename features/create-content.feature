@@ -192,7 +192,7 @@ Feature: Create content
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
       And "Sojourner" enters "1" in the "blog" field
-      When the "Post" form is submitted
+      When the "Post" form is submitted with content type "application/x-www-form-urlencoded"
       Then the "Post" is created
         | title          | description                       |
         | Some Blog      | Some Description                  |
@@ -204,7 +204,7 @@ Feature: Create content
 
       Given "Sojourner" is on the "Category" create screen
       And "Sojourner" enters "Some Category" in the "title" field
-      When the "Category" form is submitted
+      When the "Category" form is submitted with content type "multipart/form-data"
       Then the "Category" is created
         | title          | description                       |
         | Some Blog      | Some Description                  |
@@ -220,7 +220,7 @@ Feature: Create content
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
       And "Sojourner" enters "1" in the "blog" field
-      When the "Post" is submitted
+      When the "Post" is submitted without content type
       Then an error should be returned
 
     @WEOS-1294 @skipped
