@@ -211,24 +211,47 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 	return entity, err
 }
 
-//ConvertFormUrlEncodedToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormUrlEncodedToJson(r *http.Request) (json.RawMessage, error) {
-	parsedForm := map[string]interface{}{}
+//ConvertFormToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
+func ConvertFormToJson(r *http.Request, contentType string) (json.RawMessage, error) {
+	var parsedPayload []byte
 
-	err := r.ParseForm()
-	if err != nil {
-		return nil, err
-	}
+	switch contentType {
+	case "application/x-www-form-urlencoded":
+		parsedForm := map[string]interface{}{}
 
-	for k, v := range r.PostForm {
-		for _, value := range v {
-			parsedForm[k] = value
+		err := r.ParseForm()
+		if err != nil {
+			return nil, err
 		}
-	}
 
-	parsedPayload, err := json.Marshal(parsedForm)
-	if err != nil {
-		return nil, err
+		for k, v := range r.PostForm {
+			for _, value := range v {
+				parsedForm[k] = value
+			}
+		}
+
+		parsedPayload, err = json.Marshal(parsedForm)
+		if err != nil {
+			return nil, err
+		}
+	case "multipart/form-data":
+		parsedForm := map[string]interface{}{}
+
+		err := r.ParseMultipartForm(1024) //Revisit
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range r.MultipartForm.Value {
+			for _, value := range v {
+				parsedForm[k] = value
+			}
+		}
+
+		parsedPayload, err = json.Marshal(parsedForm)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return parsedPayload, nil

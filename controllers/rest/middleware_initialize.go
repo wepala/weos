@@ -193,6 +193,14 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 				operationConfig.Handler = "Create"
 				autoConfigure = true
 			} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
+
+				for _, compare := range pathData.Post.RequestBody.Value.Content {
+					if compare.Schema.Value.Items.Ref != value.Schema.Value.Items.Ref {
+						e.Logger.Warnf("unexpected error: cannot assign different schemas for different content types")
+						return autoConfigure, nil
+					}
+				}
+
 				operationConfig.Handler = "CreateBatch"
 				autoConfigure = true
 

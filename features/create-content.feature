@@ -142,13 +142,14 @@ Feature: Create content
           responses:
             201:
               description: Add Category
-              description: Invalid Catgory submitted
+            400:
+              description: Invalid Category submitted
     """
       And the service is running
       And blogs in the api
-        | id    | entity id      | sequence no | title        | description    |
-        | 1     | <Generated ID> | 1           | Blog 1       | Some Blog      |
-        | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
+        | entity id      | sequence no | title        | description    |
+        | <Generated ID> | 1           | Blog 1       | Some Blog      |
+        | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
 
 
     Scenario: Create a basic item
@@ -195,7 +196,7 @@ Feature: Create content
       When the "Post" form is submitted with content type "application/x-www-form-urlencoded"
       Then the "Post" is created
         | title          | description                       |
-        | Some Blog      | Some Description                  |
+        | Some Post      | Some Description                  |
       And the "Post" should have an id
       And the "ETag" header should be present
 
@@ -206,8 +207,8 @@ Feature: Create content
       And "Sojourner" enters "Some Category" in the "title" field
       When the "Category" form is submitted with content type "multipart/form-data"
       Then the "Category" is created
-        | title          | description                       |
-        | Some Blog      | Some Description                  |
+        | title          |
+        | Some Category  |
       And the "Category" should have an id
       And the "ETag" header should be present
 

@@ -60,14 +60,20 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				return err
 			}
 		case "application/x-www-form-urlencoded":
-			payload, err = ConvertFormUrlEncodedToJson(ctxt.Request())
+			payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
 			if err != nil {
 				return err
 			}
 		default:
-			payload, err = ioutil.ReadAll(ctxt.Request().Body) //REMOVE THIS
-			if err != nil {
-				return err
+			if strings.Contains(ct, "multipart/form-data") {
+				payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
+				if err != nil {
+					return err
+				}
+			} else if ct == "" {
+				return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
+			} else {
+				return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
 			}
 		}
 
