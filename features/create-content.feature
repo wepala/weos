@@ -44,15 +44,19 @@ Feature: Create content
     components:
       schemas:
         Blog:
-          type: object
-          properties:
-            title:
-              type: string
-              description: blog title
-            description:
-              type: string
-          required:
-            - title
+           type: object
+           properties:
+             id:
+               type: string
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - id
         Post:
           type: object
           properties:
@@ -185,7 +189,8 @@ Feature: Create content
       And the "Post" should have an id
       And the "ETag" header should be present
 
-    @WEOS-1289 @skipped
+    @skipped
+    @WEOS-1289 
     Scenario: Try to create item with content type that is not defined
 
       If the content type is not explicity defined then an error is returned (e.g. if json is not specified on the request then a json body should not be allowed)
@@ -197,7 +202,8 @@ Feature: Create content
       When the "Post" is submitted
       Then an error should be returned
 
-    @WEOS-1294 @skipped
+    @skipped
+    @WEOS-1294
     Scenario: Create item and related items
 
       If an item has one to many relationships or many to many relationships those connections can be established by

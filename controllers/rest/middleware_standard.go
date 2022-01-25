@@ -5,9 +5,9 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/segmentio/ksuid"
-	"github.com/wepala/weos-service/context"
-	logs "github.com/wepala/weos-service/log"
-	"github.com/wepala/weos-service/model"
+	"github.com/wepala/weos/context"
+	logs "github.com/wepala/weos/log"
+	"github.com/wepala/weos/model"
 )
 
 //StandardMiddlewares receiver for all the standard middleware that WeOS provides

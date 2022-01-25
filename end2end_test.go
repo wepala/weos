@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,8 +21,8 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	api "github.com/wepala/weos-service/controllers/rest"
-	"github.com/wepala/weos-service/utils"
+	api "github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/utils"
 	"gorm.io/gorm"
 )
 
@@ -326,8 +327,13 @@ func blogsInTheApi(details *godog.Table) error {
 
 	for i := 1; i < len(details.Rows); i++ {
 		req := make(map[string]interface{})
+		seq := 0
 		for n, cell := range details.Rows[i].Cells {
-			req[head[n].Value] = cell.Value
+			if (head[n].Value) != "sequence_no" {
+				req[head[n].Value] = cell.Value
+			} else {
+				seq, _ = strconv.Atoi(cell.Value)
+			}
 		}
 		reqBytes, _ := json.Marshal(req)
 		body := bytes.NewReader(reqBytes)
@@ -343,6 +349,23 @@ func blogsInTheApi(details *godog.Table) error {
 		e.ServeHTTP(rec, request)
 		if rec.Code != http.StatusCreated {
 			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+		}
+
+		if seq > 1 {
+			reqBytes, _ := json.Marshal(req)
+			body := bytes.NewReader(reqBytes)
+			for i := 1; i < seq; i++ {
+				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
+				request = request.WithContext(context.TODO())
+				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+				request.Header = header
+				request.Close = true
+				rec = httptest.NewRecorder()
+				e.ServeHTTP(rec, request)
+				if rec.Code != http.StatusOK {
+					return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
+				}
+			}
 		}
 
 	}
@@ -490,16 +513,16 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 		field := reader.GetField(strings.Title(fields[1]))
 		switch fields[0] {
 		case "string":
-			if field.Interface() != "" {
+			if field.Interface() != "" && field.Interface() != field.PointerString() {
 				return fmt.Errorf("expected a string, got '%v'", field.Interface())
 			}
 
 		case "integer":
-			if field.Interface() != 0 {
+			if field.Interface() != 0 && field.Interface() != field.PointerInt() {
 				return fmt.Errorf("expected an integer, got '%v'", field.Interface())
 			}
 		case "uint":
-			if field.Interface() != uint(0) {
+			if field.Interface() != uint(0) && field.Interface() != field.PointerUint() {
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
 			}
 		case "datetime":
@@ -627,6 +650,7 @@ func theServiceIsRunning() error {
 func isOnTheEditScreenWithId(user, contentType, id string) error {
 	requests[strings.ToLower(contentType+"_update")] = map[string]interface{}{}
 	currScreen = strings.ToLower(contentType + "_update")
+	requests[currScreen]["id"] = id
 	return nil
 }
 
@@ -690,6 +714,9 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 		if contentEntity != nil {
 			break
 		}
+	}
+	if contentEntity == nil {
+		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "id = ?", requests[currScreen])
 	}
 
 	if contentEntity == nil {

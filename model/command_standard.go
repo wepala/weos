@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	weoscontext "github.com/wepala/weos-service/context"
+	weoscontext "github.com/wepala/weos/context"
 )
 
 func Create(ctx context.Context, payload json.RawMessage, entityType string, entityID string) *Command {

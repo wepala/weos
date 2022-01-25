@@ -19,8 +19,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/wepala/weos-service/model"
-	"github.com/wepala/weos-service/projections"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 )
 
 //RESTAPI is used to manage the API
@@ -138,17 +138,18 @@ func (p *RESTAPI) Initialize() error {
 		return err
 	}
 
+	//setup projections
+	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
+	if err != nil {
+		return err
+	}
+
 	//enable module
 	err = model.Initialize(p.Application)
 	if err != nil {
 		return err
 	}
 
-	//setup projections
-	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
-	if err != nil {
-		return err
-	}
 	//run fixtures
 	err = p.Application.Migrate(context.Background())
 	if err != nil {

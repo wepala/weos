@@ -6,11 +6,11 @@ package rest_test
 import (
 	"context"
 	"database/sql"
-	weosContext "github.com/wepala/weos-service/context"
-	weos "github.com/wepala/weos-service/model"
+	weos "github.com/wepala/weos/model"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
+	weoscontext "github.com/wepala/weos/context"
 )
 
 // Ensure, that EventRepositoryMock does implement weos.EventRepository.
@@ -1822,12 +1822,12 @@ func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, contentType weos
 //     len(mockedProjection.GetByEntityIDCalls())
 func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 	Ctxt        context.Context
-	ContentType weosContext.ContentType
+	ContentType weoscontext.ContentType
 	ID          string
 } {
 	var calls []struct {
 		Ctxt        context.Context
-		ContentType weosContext.ContentType
+		ContentType weoscontext.ContentType
 		ID          string
 	}
 	mock.lockGetByEntityID.RLock()
@@ -1843,7 +1843,7 @@ func (mock *ProjectionMock) GetByKey(ctxt context.Context, contentType weosConte
 	}
 	callInfo := struct {
 		Ctxt        context.Context
-		ContentType weosContext.ContentType
+		ContentType weoscontext.ContentType
 		Identifiers map[string]interface{}
 	}{
 		Ctxt:        ctxt,
@@ -1861,12 +1861,12 @@ func (mock *ProjectionMock) GetByKey(ctxt context.Context, contentType weosConte
 //     len(mockedProjection.GetByKeyCalls())
 func (mock *ProjectionMock) GetByKeyCalls() []struct {
 	Ctxt        context.Context
-	ContentType weosContext.ContentType
+	ContentType weoscontext.ContentType
 	Identifiers map[string]interface{}
 } {
 	var calls []struct {
 		Ctxt        context.Context
-		ContentType weosContext.ContentType
+		ContentType weoscontext.ContentType
 		Identifiers map[string]interface{}
 	}
 	mock.lockGetByKey.RLock()
