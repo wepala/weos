@@ -137,7 +137,7 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 				if !s.Builder.HasField(c.Name()) {
 					err = p.db.Migrator().DropConstraint(instance, c.Name())
 					if err != nil {
-						p.logger.Errorf("unable to rremove contraint %s from table %s with error '%s'", c.Name(), name, err)
+						p.logger.Errorf("unable to remove contraint %s from table %s with error '%s'", c.Name(), name, err)
 					}
 				}
 			}

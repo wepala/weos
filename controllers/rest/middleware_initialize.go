@@ -67,8 +67,12 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 	for i, k := range primaryKeys {
 		for _, d := range deletedFields {
 			if strings.EqualFold(k, d) {
-				primaryKeys[i] = primaryKeys[len(primaryKeys)-1]
-				primaryKeys = primaryKeys[:len(primaryKeys)-1]
+				if len(primaryKeys) == 1 {
+					primaryKeys = []string{}
+				} else {
+					primaryKeys[i] = primaryKeys[len(primaryKeys)-1]
+					primaryKeys = primaryKeys[:len(primaryKeys)-1]
+				}
 			}
 		}
 	}

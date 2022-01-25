@@ -793,7 +793,7 @@ func sojournerIsUpdatingWithId(contentType, id string) error {
 
 func aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist() error {
 	if !strings.Contains(buf.String(), "property does not exist") {
-		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+		return fmt.Errorf("expected an error to be log for no existing property got '%s'", buf.String())
 	}
 	return nil
 }
@@ -807,11 +807,16 @@ func addsTheAttributeToTheFieldOnTheContentType(user, attribute, field, contentT
 
 	schemas := swagger.Components.Schemas
 
-	schemas[contentType].Value.Extensions[attribute] = []string{field}
+	attributes := schemas[contentType].Value.Extensions[attribute]
+	deletedFields := []string{}
+	bytes, _ := json.Marshal(attributes)
+	json.Unmarshal(bytes, &deletedFields)
+	deletedFields = append(deletedFields, field)
+	schemas[contentType].Value.Extensions[attribute] = deletedFields
 
 	swagger.Components.Schemas = schemas
 
-	bytes, err := swagger.MarshalJSON()
+	bytes, err = swagger.MarshalJSON()
 	if err != nil {
 		return err
 	}
