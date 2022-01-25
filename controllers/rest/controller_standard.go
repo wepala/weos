@@ -65,7 +65,10 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				return err
 			}
 		default:
-			return NewControllerError("a content type must be explicitly defined in request", err, http.StatusBadRequest)
+			payload, err = ioutil.ReadAll(ctxt.Request().Body) //REMOVE THIS
+			if err != nil {
+				return err
+			}
 		}
 
 		//for inserting weos_id during testing
