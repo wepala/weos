@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/textproto"
 	"strconv"
 	"strings"
@@ -89,13 +90,15 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 				filters = map[string]*FilterProperties{}
 				if parameter.Value.Name == "_filters" {
 					filtersArray := SplitFilters(c.Request().URL.RawQuery)
-					if filtersArray != nil && len(filtersArray) != 0 {
-						for _, value := range filtersArray {
-							prop := SplitFilter(value)
-							if prop != nil {
-								filters[prop.Field] = prop
-							}
+					if filtersArray == nil || len(filtersArray) == 0 {
+						return cc, fmt.Errorf("unexpected error filters format is incorrect")
+					}
+					for _, value := range filtersArray {
+						prop := SplitFilter(value)
+						if prop == nil {
+							return cc, fmt.Errorf("unexpected error filter format is incorrect")
 						}
+						filters[prop.Field] = prop
 					}
 					val = filters
 					break
