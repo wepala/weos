@@ -6,11 +6,11 @@ package rest_test
 import (
 	"context"
 	"database/sql"
-	weoscontext "github.com/wepala/weos/context"
 	weos "github.com/wepala/weos/model"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
+	weoscontext "github.com/wepala/weos/context"
 )
 
 // Ensure, that EventRepositoryMock does implement weos.EventRepository.
@@ -1943,5 +1943,4 @@ func (mock *ProjectionMock) MigrateCalls() []struct {
 	calls = mock.calls.Migrate
 	mock.lockMigrate.RUnlock()
 	return calls
-
 }
