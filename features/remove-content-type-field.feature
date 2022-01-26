@@ -234,7 +234,7 @@ Feature: Remove field from content type
     And a blog should be returned
       | id    | title        | description    |
       | 1234  | Blog 1       | Some Blog      |
-
+  
   Scenario: Permanently remove a field
 
     In order to permanently remove a field the "x-remove" extension should be used
@@ -252,7 +252,8 @@ Feature: Remove field from content type
     And the "description" field should be removed from the "Blog" table
     And the service is reset
     Then a warning should be output to the logs telling the developer the property doesn't exist
-
+  
+  @here
   Scenario: Remove a field that is an identifier
 
     It's fine to remove an identifier
@@ -263,13 +264,14 @@ Feature: Remove field from content type
     Then the "title" field should be removed from the "Tag" table
     And the "guid" field should be removed from the "Tag" table
 
+  
   Scenario: Remove a field that is part of an identifier
 
     It's fine to remove a part of an identifier
 
     Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
     When the service is reset
-    Then the "title" field should be removed from the "Tag" table
+    Then the "guid" field should be removed from the "Tag" table
 
   Scenario: Remove a field that is part of a foreign key reference
 

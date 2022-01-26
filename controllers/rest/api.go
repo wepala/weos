@@ -132,6 +132,7 @@ func (p *RESTAPI) Initialize() error {
 			Timeout: time.Second * 10,
 		}
 	}
+	p.Log = p.e.Logger
 	p.Application, err = model.NewApplicationFromConfig(p.Config.ServiceConfig, p.Log, p.DB, p.Client, nil)
 	if err != nil {
 		return err

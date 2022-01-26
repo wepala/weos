@@ -26,7 +26,7 @@ import (
 )
 
 var db *sql.DB
-var driver = flag.String("driver", "sqlite3", "run database tests")
+var driver = flag.String("driver", "postgres", "run database tests")
 var host = flag.String("host", "localhost", "database host")
 var dbuser = flag.String("user", "root", "database user")
 var password = flag.String("password", "secret", "database password")

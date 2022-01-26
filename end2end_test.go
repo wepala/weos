@@ -855,9 +855,10 @@ func addsTheFieldToTheContentType(user, field, fieldType, contentType string) er
 func anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference() error {
 	if errs == nil {
 		fmt.Errorf("expected there to be an error on migrating")
+		return fmt.Errorf("expected error on migrating")
 	}
 	//TODO: add checks fo the speicific error
-	return godog.ErrPending
+	return nil
 }
 
 func removedTheFieldFromTheContentType(user, field, contentType string) error {
