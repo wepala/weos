@@ -193,7 +193,6 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 		}
 		var weosID string
 		var sequenceNo string
-		var newPayload map[string]interface{}
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 		//getting etag from context
@@ -202,10 +201,12 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			if etag, ok := etagInterface.(string); ok {
 				if etag != "" {
 					weosID, sequenceNo = SplitEtag(etag)
-					json.Unmarshal(payload, &newPayload)
-					newPayload["weos_id"] = weosID
-					newPayload["sequence_no"] = sequenceNo
-					payload, _ = json.Marshal(newPayload)
+					seq, err := strconv.Atoi(sequenceNo)
+					if err != nil {
+						return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
+					}
+					newContext = context.WithValue(newContext, context2.WEOS_ID, weosID)
+					newContext = context.WithValue(newContext, context2.SEQUENCE_NO, seq)
 				}
 			}
 		}
@@ -361,14 +362,10 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			identifiers[p] = newContext.Value(p)
 		}
 
-		sequenceString, _ := newContext.Value("sequence_no").(string)
+		sequence, _ := newContext.Value("sequence_no").(int)
 		etag, _ := newContext.Value("If-None-Match").(string)
 		entityID, _ := newContext.Value("use_entity_id").(bool)
 
-		var sequence int
-		if sequenceString != "" {
-			sequence, _ = strconv.Atoi(sequenceString)
-		}
 		var result map[string]interface{}
 		var err error
 
@@ -396,15 +393,19 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			//get entity_id from list of identifiers
 			if id == "" {
 				for _, i := range identifiers {
-					id = i.(string)
+					id, _ = i.(string)
 					if id != "" {
+						break
+					}
+					if v, ok := i.(int); ok {
+						id = strconv.Itoa(v)
 						break
 					}
 				}
 			}
 			//if sequence number given, get entity by sequence number
 			if sequence != 0 {
-				r, er := GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
+				r, er := model.GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
 				if r != nil && r.SequenceNo != 0 {
 					if r != nil && r.ID != "" {
 						result = r.Property.(map[string]interface{})
@@ -432,7 +433,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			return NewControllerError(err.Error(), err, http.StatusBadRequest)
 		}
 
-		sequenceString = fmt.Sprint(result["sequence_no"])
+		sequenceString := fmt.Sprint(result["sequence_no"])
 		sequenceNo, _ := strconv.Atoi(sequenceString)
 
 		etag = NewEtag(&model.ContentEntity{

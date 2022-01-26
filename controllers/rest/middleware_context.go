@@ -71,21 +71,47 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 		}
 
 		if _, ok := val.(string); ok {
-			if paramType != nil && paramType.Value != nil {
-				pType := paramType.Value.Type
-				switch strings.ToLower(pType) {
-				case "integer":
-					val, _ = strconv.Atoi(val.(string))
-				case "boolean":
-					val, _ = strconv.ParseBool(val.(string))
-				case "number":
-					format := paramType.Value.Format
-					if format == "float" || format == "double" {
-						val, _ = strconv.ParseFloat(val.(string), 64)
-					} else {
-						val, _ = strconv.Atoi(val.(string))
-					}
+			switch parameter.Value.Name {
+			case "sequence_no": //default type is integer
+				v, err := strconv.Atoi(val.(string))
+				if err == nil {
+					val = v
+				}
+			case "use_entity_id": //default type is boolean
+				v, err := strconv.ParseBool(val.(string))
+				if err == nil {
+					val = v
+				}
+			case "If-Match", "If-None-Match": //default type is string
+			default:
+				if paramType != nil && paramType.Value != nil {
+					pType := paramType.Value.Type
+					switch strings.ToLower(pType) {
+					case "integer":
+						v, err := strconv.Atoi(val.(string))
+						if err == nil {
+							val = v
+						}
+					case "boolean":
+						v, err := strconv.ParseBool(val.(string))
+						if err == nil {
+							val = v
+						}
+					case "number":
+						format := paramType.Value.Format
+						if format == "float" || format == "double" {
+							v, err := strconv.ParseFloat(val.(string), 64)
+							if err == nil {
+								val = v
+							}
+						} else {
+							v, err := strconv.Atoi(val.(string))
+							if err == nil {
+								val = v
+							}
+						}
 
+					}
 				}
 			}
 		}

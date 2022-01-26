@@ -515,16 +515,16 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 		field := reader.GetField(strings.Title(fields[1]))
 		switch fields[0] {
 		case "string":
-			if field.Interface() != "" {
+			if field.Interface() != "" && field.Interface() != field.PointerString() {
 				return fmt.Errorf("expected a string, got '%v'", field.Interface())
 			}
 
 		case "integer":
-			if field.Interface() != 0 {
+			if field.Interface() != 0 && field.Interface() != field.PointerInt() {
 				return fmt.Errorf("expected an integer, got '%v'", field.Interface())
 			}
 		case "uint":
-			if field.Interface() != uint(0) {
+			if field.Interface() != uint(0) && field.Interface() != field.PointerUint() {
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
 			}
 		case "datetime":
