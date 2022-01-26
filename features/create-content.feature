@@ -151,9 +151,9 @@ Feature: Create content
     """
       And the service is running
       And blogs in the api
-        | entity id      | sequence no | title        | description    |
-        | <Generated ID> | 1           | Blog 1       | Some Blog      |
-        | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
+        | id    | entity id      | sequence no | title        | description    |
+        | 1     | <Generated ID> | 1           | Blog 1       | Some Blog      |
+        | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
 
 
     Scenario: Create a basic item
