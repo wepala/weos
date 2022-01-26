@@ -927,7 +927,16 @@ func aBlogShouldBeReturnedWithoutField(field string) error {
 	return nil
 }
 
-func theServiceIsStopped() error {
+func theServiceIsReset() error {
+	e = echo.New()
+	API = api.RESTAPI{}
+	buf = bytes.Buffer{}
+	responseBody = make(map[string]interface{})
+	e.Logger.SetOutput(&buf)
+	_, err := api.Initialize(e, &API, openAPI)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -980,7 +989,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^"([^"]*)" removed the "([^"]*)" field from the "([^"]*)" content type$`, removedTheFieldFromTheContentType)
 	ctx.Step(`^the "([^"]*)" field should be removed from the "([^"]*)" table$`, theFieldShouldBeRemovedFromTheTable)
 	ctx.Step(`^a blog should be returned without field "([^"]*)"$`, aBlogShouldBeReturnedWithoutField)
-	ctx.Step(`^the service is stopped$`, theServiceIsStopped)
+	ctx.Step(`^the service is reset$`, theServiceIsReset)
 
 }
 
