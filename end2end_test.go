@@ -51,7 +51,14 @@ var limit int
 var page int
 var contentType string
 var result api.ListApiResponse
+var filters []FilterProperties
 
+type FilterProperties struct {
+	Operator string
+	Field    string
+	Value    string
+	Values   []string
+}
 type User struct {
 	Name      string
 	AccountID string
@@ -76,6 +83,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = []FilterProperties{}
 	result = api.ListApiResponse{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
@@ -126,6 +134,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = []FilterProperties{}
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
@@ -834,7 +843,12 @@ func thePageNoIs(pageNo int) error {
 
 func theSearchButtonIsHit() error {
 	var request *http.Request
-	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page), nil)
+
+	if len(filters[0].Values) == 0 {
+		request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&_filters["+filters[0].Field+"]["+filters[0].Operator+"]="+filters[0].Value, nil)
+	} else { //TODO How to parse array in query
+		//request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&_filters["+filters[0].Field+"]["+filters[0].Operator+"]="+filters[0].Values, nil)
+	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -848,6 +862,88 @@ func theTotalResultsShouldBe(totalResult int) error {
 	if result.Total != int64(totalResult) {
 		return fmt.Errorf("expect page to be %d, got %d", totalResult, result.Total)
 	}
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValue(field, value string) error {
+	prop := FilterProperties{
+		Operator: "eq",
+		Field:    field,
+		Value:    value,
+	}
+	filters = append(filters, prop)
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValues(field string, values *godog.Table) error {
+	var valuesArray []string
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			valuesArray = append(valuesArray, cell.Value)
+		}
+	}
+	prop := FilterProperties{
+		Operator: "eq",
+		Field:    field,
+		Values:   valuesArray,
+	}
+	filters = append(filters, prop)
+	return nil
+}
+
+func aFilterOnTheFieldGtWithValue(field, value string) error {
+	prop := FilterProperties{
+		Operator: "gt",
+		Field:    field,
+		Value:    value,
+	}
+	filters = append(filters, prop)
+	return nil
+}
+
+func aFilterOnTheFieldInWithValues(field string, values *godog.Table) error {
+	var valuesArray []string
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			valuesArray = append(valuesArray, cell.Value)
+		}
+	}
+	prop := FilterProperties{
+		Operator: "in",
+		Field:    field,
+		Values:   valuesArray,
+	}
+	filters = append(filters, prop)
+	return nil
+}
+
+func aFilterOnTheFieldLikeWithValue(field, value string) error {
+	prop := FilterProperties{
+		Operator: "like",
+		Field:    field,
+		Value:    value,
+	}
+	filters = append(filters, prop)
+	return nil
+}
+
+func aFilterOnTheFieldLtWithValue(field, value string) error {
+	prop := FilterProperties{
+		Operator: "lt",
+		Field:    field,
+		Value:    value,
+	}
+	filters = append(filters, prop)
+	return nil
+}
+
+func aFilterOnTheFieldNeWithValue(field, value string) error {
+	prop := FilterProperties{
+		Operator: "ne",
+		Field:    field,
+		Value:    value,
+	}
+	filters = append(filters, prop)
 	return nil
 }
 
@@ -900,6 +996,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
 	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
 	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with value "([^"]*)"$`, aFilterOnTheFieldEqWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with values$`, aFilterOnTheFieldEqWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "gt" with value "([^"]*)"$`, aFilterOnTheFieldGtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "in" with values$`, aFilterOnTheFieldInWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "like" with value "([^"]*)"$`, aFilterOnTheFieldLikeWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "lt" with value "([^"]*)"$`, aFilterOnTheFieldLtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "ne" with value "([^"]*)"$`, aFilterOnTheFieldNeWithValue)
 }
 
 func TestBDD(t *testing.T) {
@@ -909,7 +1012,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
+			Tags:   "WEOS-1134",
 			//Tags: "long",
 		},
 	}.Run()
