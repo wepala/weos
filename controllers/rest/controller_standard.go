@@ -164,7 +164,6 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 		}
 		var weosID string
 		var sequenceNo string
-		var newPayload map[string]interface{}
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 		//getting etag from context
@@ -173,10 +172,12 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			if etag, ok := etagInterface.(string); ok {
 				if etag != "" {
 					weosID, sequenceNo = SplitEtag(etag)
-					json.Unmarshal(payload, &newPayload)
-					newPayload["weos_id"] = weosID
-					newPayload["sequence_no"] = sequenceNo
-					payload, _ = json.Marshal(newPayload)
+					seq, err := strconv.Atoi(sequenceNo)
+					if err != nil {
+						return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
+					}
+					newContext = context.WithValue(newContext, context2.WEOS_ID, weosID)
+					newContext = context.WithValue(newContext, context2.SEQUENCE_NO, seq)
 				}
 			}
 		}
@@ -371,7 +372,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			}
 			//if sequence number given, get entity by sequence number
 			if sequence != 0 {
-				r, er := GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
+				r, er := model.GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
 				if r != nil && r.SequenceNo != 0 {
 					if r != nil && r.ID != "" {
 						result = r.Property.(map[string]interface{})
