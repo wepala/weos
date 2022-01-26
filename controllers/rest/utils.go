@@ -209,3 +209,35 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 	err = entity.ApplyChanges(events)
 	return entity, err
 }
+
+//SplitFilters splits multiple filters into array of filters
+func SplitFilters(filters string) []string {
+	if filters == "" {
+		return nil
+	}
+	result := strings.Split(filters, "&")
+	return result
+}
+
+//SplitFilter splits a filter with a single value into the field, operator, value
+func SplitFilter(filter string) *FilterProperties {
+	if filter == "" {
+		return nil
+	}
+	result := strings.Split(filter, "[")
+	if len(result) != 3 {
+		return nil
+	}
+	result[1] = strings.Replace(result[1], "]", "", -1)
+	results := strings.Split(result[2], "=")
+	if len(results) != 2 {
+		return nil
+	}
+	results[0] = strings.Replace(results[0], "]", "", -1)
+	property := &FilterProperties{
+		Field:    result[1],
+		Operator: results[0],
+		Value:    results[1],
+	}
+	return property
+}

@@ -85,6 +85,17 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 				val, _ = strconv.ParseBool(val.(string))
 			case "If-Match", "If-None-Match": //default type is string
 			default:
+				var filters []*FilterProperties
+				if parameter.Value.Name == "_filters" {
+					filtersArray := SplitFilters(c.Request().URL.RawQuery)
+					if filtersArray != nil && len(filtersArray) != 0 {
+						for _, value := range filtersArray {
+							filters = append(filters, SplitFilter(value))
+						}
+					}
+					val = filters
+					break
+				}
 				if paramType != nil && paramType.Value != nil {
 					pType := paramType.Value.Type
 					switch strings.ToLower(pType) {
