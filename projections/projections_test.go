@@ -2217,3 +2217,154 @@ components:
 
 	})
 }
+func TestProjections_Filters(t *testing.T) {
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     required:
+       - title
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: post title
+      description:
+         type: string
+      blog:
+         $ref: "#/components/schemas/Blog"
+`
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
+	p, err := projections.NewProjection(context.Background(), app, schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = p.Migrate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gormDB := app.DB()
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Fatal("expected to get a table 'Blog'")
+	}
+
+	if !gormDB.Migrator().HasTable("Post") {
+		t.Fatal("expected to get a table 'Post'")
+	}
+	blogWeosID := "abc123"
+	blogWeosID1 := "abc1234"
+	blogWeosID2 := "abc12345"
+	blogWeosID3 := "abc123456"
+	blogWeosID4 := "abc1234567"
+
+	blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "sequence_no": int64(1)}
+	blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs2", "sequence_no": int64(1)}
+	blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs3", "sequence_no": int64(1)}
+	blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs4", "sequence_no": int64(1)}
+	blog4 := map[string]interface{}{"weos_id": blogWeosID4, "title": "morehugs5", "sequence_no": int64(1)}
+
+	gormDB.Table("Blog").Create(blog)
+	gormDB.Table("Blog").Create(blog1)
+	gormDB.Table("Blog").Create(blog2)
+	gormDB.Table("Blog").Create(blog3)
+	gormDB.Table("Blog").Create(blog4)
+
+	t.Run("testing filters with the eq operator", func(t *testing.T) {
+		page := 1
+		limit := 2
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		name := "Blog"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
+		filter := &rest.FilterProperties{
+			Field:    "title",
+			Operator: "eq",
+			Value:    "hugs1",
+			Values:   nil,
+		}
+		filters := []*rest.FilterProperties{filter}
+		//TODO figure out if u want a map or an array being passed in
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(2) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+	})
+	t.Run("testing filters with the ne operator", func(t *testing.T) {
+
+	})
+	t.Run("testing filters with the like operator", func(t *testing.T) {
+
+	})
+	t.Run("testing filters with the in operator with a single value", func(t *testing.T) {
+
+	})
+	t.Run("testing filters with the eq operator with multiple values", func(t *testing.T) {
+
+	})
+	t.Run("testing filters with the lt operator", func(t *testing.T) {
+
+	})
+	t.Run("testing filters with the gt operator", func(t *testing.T) {
+
+	})
+}
