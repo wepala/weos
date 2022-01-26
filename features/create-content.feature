@@ -44,15 +44,19 @@ Feature: Create content
     components:
       schemas:
         Blog:
-          type: object
-          properties:
-            title:
-              type: string
-              description: blog title
-            description:
-              type: string
-          required:
-            - title
+           type: object
+           properties:
+             id:
+               type: string
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - id
         Post:
           type: object
           properties:
