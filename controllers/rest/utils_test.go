@@ -59,4 +59,23 @@ func TestFiltersSplit(t *testing.T) {
 		}
 
 	})
+	t.Run("testing splitfilter with a filter that has an array of values", func(t *testing.T) {
+		queryString := "_filters[id][eq]=2,3,45"
+		field := "id"
+		operator := "eq"
+		prop := rest.SplitFilter(queryString)
+		if prop == nil {
+			t.Fatalf("expected to get a property but go nil")
+		}
+		if prop.Field != field {
+			t.Errorf("expected field to be %s got %s", field, prop.Field)
+		}
+		if prop.Operator != operator {
+			t.Errorf("expected operator to be %s got %s", operator, prop.Operator)
+		}
+		if len(prop.Values) != 3 {
+			t.Errorf("expected value to be %d got %d", 3, len(prop.Values))
+		}
+
+	})
 }

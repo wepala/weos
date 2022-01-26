@@ -221,23 +221,36 @@ func SplitFilters(filters string) []string {
 
 //SplitFilter splits a filter with a single value into the field, operator, value
 func SplitFilter(filter string) *FilterProperties {
+	var property *FilterProperties
 	if filter == "" {
 		return nil
 	}
-	result := strings.Split(filter, "[")
-	if len(result) != 3 {
+	field := strings.Split(filter, "[")
+	if len(field) != 3 {
 		return nil
 	}
-	result[1] = strings.Replace(result[1], "]", "", -1)
-	results := strings.Split(result[2], "=")
-	if len(results) != 2 {
+	field[1] = strings.Replace(field[1], "]", "", -1)
+	operator := strings.Split(field[2], "=")
+	if len(operator) != 2 {
 		return nil
 	}
-	results[0] = strings.Replace(results[0], "]", "", -1)
-	property := &FilterProperties{
-		Field:    result[1],
-		Operator: results[0],
-		Value:    results[1],
+	operator[0] = strings.Replace(operator[0], "]", "", -1)
+	//checks if the there are more than one values specified by checking if there is a comma
+	if strings.Contains(operator[1], ",") {
+		values := strings.Split(operator[1], ",")
+		property = &FilterProperties{
+			Field:    field[1],
+			Operator: operator[0],
+			Values:   values,
+		}
+
+	} else {
+		property = &FilterProperties{
+			Field:    field[1],
+			Operator: operator[0],
+			Value:    operator[1],
+		}
 	}
+
 	return property
 }
