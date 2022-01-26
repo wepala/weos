@@ -795,6 +795,44 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
 		}
 	})
+	//t.Run("nested create based on application/x-www-form-urlencoded content type", func(t *testing.T) {
+	//
+	//	data := url.Values{}
+	//	data.Set("title", "Test Blog")
+	//	data.Set("url", "MyBlogUrl")
+	// Playing around with how to go about sending nested arrays
+	//  data.Set("posts.0.id", "1")
+	//  data.Set("posts.0.title", "my post title")
+	//	data.Set("posts", "id=1,id=2&title=my title")
+	//
+	//	body := strings.NewReader(data.Encode())
+	//
+	//	accountID := "Create Blog"
+	//	path := swagger.Paths.Find("/blogs")
+	//	controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+	//	resp := httptest.NewRecorder()
+	//	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+	//	req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+	//	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	//	mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+	//	e.POST("/blogs", controller, mw)
+	//	e.ServeHTTP(resp, req)
+	//
+	//	response := resp.Result()
+	//	defer response.Body.Close()
+	//
+	//	if len(dispatcher.DispatchCalls()) == 0 {
+	//		t.Error("expected create account command to be dispatched")
+	//	}
+	//
+	//	if response.Header.Get("Etag") != "123456.1" {
+	//		t.Errorf("expected an Etag, got %s", response.Header.Get("Etag"))
+	//	}
+	//
+	//	if response.StatusCode != 201 {
+	//		t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
+	//	}
+	//})
 }
 
 func TestStandardControllers_FormData_Create(t *testing.T) {
