@@ -146,13 +146,14 @@ Feature: Create content
           responses:
             201:
               description: Add Category
-              description: Invalid Catgory submitted
+            400:
+              description: Invalid Category submitted
     """
       And the service is running
       And blogs in the api
-        | id    | entity id      | sequence no | title        | description    |
-        | 1     | <Generated ID> | 1           | Blog 1       | Some Blog      |
-        | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
+        | entity id      | sequence no | title        | description    |
+        | <Generated ID> | 1           | Blog 1       | Some Blog      |
+        | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
 
 
     Scenario: Create a basic item
@@ -196,10 +197,10 @@ Feature: Create content
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
       And "Sojourner" enters "1" in the "blog" field
-      When the "Post" form is submitted
+      When the "Post" form is submitted with content type "application/x-www-form-urlencoded"
       Then the "Post" is created
         | title          | description                       |
-        | Some Blog      | Some Description                  |
+        | Some Post      | Some Description                  |
       And the "Post" should have an id
       And the "ETag" header should be present
 
@@ -208,10 +209,10 @@ Feature: Create content
 
       Given "Sojourner" is on the "Category" create screen
       And "Sojourner" enters "Some Category" in the "title" field
-      When the "Category" form is submitted
+      When the "Category" form is submitted with content type "multipart/form-data"
       Then the "Category" is created
-        | title          | description                       |
-        | Some Blog      | Some Description                  |
+        | title          |
+        | Some Category  |
       And the "Category" should have an id
       And the "ETag" header should be present
 
@@ -224,7 +225,7 @@ Feature: Create content
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
       And "Sojourner" enters "1" in the "blog" field
-      When the "Post" is submitted
+      When the "Post" is submitted without content type
       Then an error should be returned
 
     @WEOS-1294 @skipped

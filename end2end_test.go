@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -769,6 +771,98 @@ func sojournerIsUpdatingWithId(contentType, id string) error {
 	return nil
 }
 
+func aWarningShouldBeOutputToLogs() error {
+	if !strings.Contains(buf.String(), "unexpected error: cannot assign different schemas for different content types") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func theFormIsSubmittedWithContentType(contentEntity, contentType string) error {
+	//Used to store the key/value pairs passed in the scenario
+
+	switch contentType {
+	case "application/x-www-form-urlencoded":
+
+		data := url.Values{}
+
+		req := make(map[string]interface{})
+		for key, value := range requests[currScreen] {
+			data.Set(key, value.(string))
+		}
+
+		body := strings.NewReader(data.Encode())
+
+		var request *http.Request
+		if strings.Contains(currScreen, "create") {
+			request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+		} else if strings.Contains(currScreen, "update") {
+			request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+		}
+		request = request.WithContext(context.TODO())
+		header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		return nil
+	case "multipart/form-data":
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+
+		req := make(map[string]interface{})
+		for key, value := range requests[currScreen] {
+			writer.WriteField(key, value.(string))
+		}
+
+		writer.Close()
+
+		var request *http.Request
+		if strings.Contains(currScreen, "create") {
+			request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+		} else if strings.Contains(currScreen, "update") {
+			request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+		}
+		request = request.WithContext(context.TODO())
+		header.Set("Content-Type", writer.FormDataContentType())
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		return nil
+	}
+	return fmt.Errorf("This content type is not supported: %s", contentType)
+}
+
+func theIsSubmittedWithoutContentType(contentEntity string) error {
+	req := make(map[string]interface{})
+	for key, value := range requests[currScreen] {
+		req[key] = value
+	}
+
+	reqBytes, _ := json.Marshal(req)
+	body := bytes.NewReader(reqBytes)
+	var request *http.Request
+	if strings.Contains(currScreen, "create") {
+		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+	} else if strings.Contains(currScreen, "update") {
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+	}
+	request = request.WithContext(context.TODO())
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theHeaderShouldBePresent(arg1 string) error {
+	header := rec.Result().Header.Get(arg1)
+	if header == "" {
+		return fmt.Errorf("no header found with the name: %s", arg1)
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -811,7 +905,10 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
 	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
-
+	ctx.Step(`^a warning should be output to logs$`, aWarningShouldBeOutputToLogs)
+	ctx.Step(`^the "([^"]*)" header should be present$`, theHeaderShouldBePresent)
+	ctx.Step(`^the "([^"]*)" form is submitted with content type "([^"]*)"$`, theFormIsSubmittedWithContentType)
+	ctx.Step(`^the "([^"]*)" is submitted without content type$`, theIsSubmittedWithoutContentType)
 }
 
 func TestBDD(t *testing.T) {
@@ -821,8 +918,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~skipped && ~long",
-			Tags: "WEOS-1289",
+			Tags:   "~skipped && ~long",
 		},
 	}.Run()
 	if status != 0 {
