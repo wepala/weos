@@ -296,3 +296,28 @@ func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
 	}
 	os.Remove("test.db")
 }
+
+func TestRESTAPI_Initialize_DeleteAdded(t *testing.T) {
+	os.Remove("test.db")
+	e := echo.New()
+	tapi := api.RESTAPI{}
+	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+
+	found := false
+	method := "DELETE"
+	path := "/blogs/:id"
+	middleware := "Delete"
+	routes := e.Routes()
+	for _, route := range routes {
+		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected to find delete path")
+	}
+}

@@ -303,6 +303,7 @@ paths:
             type: string
           required: true
           description: blog id
+      x-content-type: Blog
       summary: Delete blog
       operationId: Delete Blog
       responses:
@@ -421,6 +422,12 @@ paths:
           schema:
             type: string
           required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
       summary: Delete post
       responses:
         200:
@@ -519,6 +526,12 @@ paths:
           schema:
             type: string
           required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
       summary: Delete category
       responses:
         200:
@@ -634,6 +647,12 @@ paths:
             type: string
             format: email
           required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
       summary: Delete author
       responses:
         200:
