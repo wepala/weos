@@ -404,7 +404,7 @@ func TestStandardControllers_Update(t *testing.T) {
 				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog1.Title, blog.Title)
 			}
 
-			if blog.ID != weosId {
+			if ctx.Value(weoscontext.WEOS_ID).(string) != weosId {
 				t.Errorf("expected the blog weos id to be '%s', got '%s'", weosId, blog.ID)
 			}
 
