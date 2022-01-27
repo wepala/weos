@@ -188,7 +188,7 @@ Feature: Create content
       When the "Blog" is submitted
       Then an error should be returned
 
-    @WEOS-1289 @skipped
+    @WEOS-1289
     Scenario: Create an item using post data
 
       If form data is sent to the request body it is converted to json so the same commands could be used
@@ -204,7 +204,7 @@ Feature: Create content
       And the "Post" should have an id
       And the "ETag" header should be present
 
-    @WEOS-1289 @skipped
+    @WEOS-1289
     Scenario: Create an item using post data using the multipart content type
 
       Given "Sojourner" is on the "Category" create screen
@@ -216,7 +216,7 @@ Feature: Create content
       And the "Category" should have an id
       And the "ETag" header should be present
 
-    @WEOS-1289 @skipped
+    @WEOS-1289
     Scenario: Try to create item with content type that is not defined
 
       If the content type is not explicity defined then an error is returned (e.g. if json is not specified on the request then a json body should not be allowed)

@@ -45,8 +45,6 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				Schema: contentTypeSchema.Value,
 			})
 		}
-		//reads the request body
-		//payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 
 		var payload []byte
 		var err error
