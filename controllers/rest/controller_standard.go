@@ -364,7 +364,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		etag, _ := newContext.Value("If-None-Match").(string)
 		entityID, _ := newContext.Value("use_entity_id").(bool)
 
-		var result map[string]interface{}
+		result := map[string]interface{}{}
 		var err error
 
 		//get by keys
