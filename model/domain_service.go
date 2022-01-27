@@ -193,6 +193,11 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	return updatedEntity, nil
 }
 
+//Delete is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
+func (s *DomainService) Delete(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
+	return nil, nil
+}
+
 func NewDomainService(ctx context.Context, eventRepository EventRepository, projections Projection) *DomainService {
 	return &DomainService{
 		eventRepository: eventRepository,

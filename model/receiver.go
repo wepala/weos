@@ -57,6 +57,20 @@ func (r *Receiver) Update(ctx context.Context, command *Command) error {
 	return nil
 }
 
+//Delete is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
+func (r *Receiver) Delete(ctx context.Context, command *Command) error {
+
+	deletedEntity, err := r.domainService.Delete(ctx, command.Payload, command.Metadata.EntityType)
+	if err != nil {
+		return err
+	}
+	err = r.service.EventRepository().Persist(ctx, deletedEntity)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 //Initialize sets up the command handlers
 func Initialize(service Service) error {
 	var payload json.RawMessage
@@ -66,6 +80,7 @@ func Initialize(service Service) error {
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), receiver.Create)
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), receiver.CreateBatch)
 	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), receiver.Update)
+	service.Dispatcher().AddSubscriber(Delete(context.Background(), payload, "", ""), receiver.Delete)
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil)
 
