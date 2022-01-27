@@ -30,6 +30,11 @@ func Context(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem,
 			for _, parameter := range operation.Parameters {
 				cc, err = parseParams(c, cc, parameter)
 			}
+			//check for "standard" parameters
+			cc, err = parseParams(c, cc, &openapi3.ParameterRef{Value: &openapi3.Parameter{
+				Name: "sequence_no",
+				In:   "query",
+			}})
 			//if there are any errors
 			if err != nil {
 				c.Logger().Error(err)
