@@ -526,7 +526,7 @@ func TestStandardControllers_View(t *testing.T) {
 	}
 	mockEvent1 := &model.Event{
 		ID:      "1234sd",
-		Type:    "",
+		Type:    "create",
 		Payload: nil,
 		Meta: model.EventMeta{
 			EntityID:   "1234sd",
@@ -542,7 +542,7 @@ func TestStandardControllers_View(t *testing.T) {
 	}
 	mockEvent2 := &model.Event{
 		ID:      "1234sd",
-		Type:    "",
+		Type:    "update",
 		Payload: nil,
 		Meta: model.EventMeta{
 			EntityID:   "1234sd",

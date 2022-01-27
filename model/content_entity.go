@@ -284,6 +284,7 @@ func GetContentBySequenceNumber(eventRepository EventRepository, id string, sequ
 func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 	for _, change := range changes {
 		w.SequenceNo = change.Meta.SequenceNo
+		w.ID = change.Meta.EntityID
 		switch change.Type {
 		case "create":
 			err := json.Unmarshal(change.Payload, &w.BasicEntity)

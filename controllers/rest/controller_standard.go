@@ -333,14 +333,10 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			identifiers[p] = newContext.Value(p)
 		}
 
-		sequenceString, _ := newContext.Value("sequence_no").(string)
 		etag, _ := newContext.Value("If-None-Match").(string)
 		useEntity, _ := newContext.Value("use_entity_id").(string)
+		seqInt := newContext.Value("sequence_no").(int)
 
-		var seqInt int
-		if sequenceString != "" {
-			seqInt, _ = strconv.Atoi(sequenceString)
-		}
 		var result map[string]interface{}
 		var err error
 		var entityID string
@@ -363,7 +359,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			}
 		}
 		//if sequence no. was sent in the request but we don't have the entity let's get it from projection
-		if entityID == "" && sequenceString != "" {
+		if entityID == "" && seqInt != 0 {
 			entityID, ok = result["weos_id"].(string)
 			if !ok {
 				ctxt.Logger().Debugf("the item '%v' does not have an entity id stored", identifiers)
@@ -384,12 +380,12 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		if entityID != "" {
 			//get the entity using the sequence no.
 			if seqInt != 0 {
-				r, er := GetContentBySequenceNumber(app.EventRepository(), entityID, int64(seqInt))
+				r, er := model.GetContentBySequenceNumber(app.EventRepository(), entityID, int64(seqInt))
 				err = er
 				if r.SequenceNo == 0 {
 					return NewControllerError("No entity found", err, http.StatusNotFound)
 				}
-				if r != nil && r.ID != "" {
+				if r != nil && r.ID != "" && r.Property != nil {
 					result = r.Property.(map[string]interface{})
 				}
 				result["weos_id"] = r.ID
@@ -415,7 +411,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			return NewControllerError(err.Error(), err, http.StatusBadRequest)
 		}
 
-		sequenceString = fmt.Sprint(result["sequence_no"])
+		sequenceString := fmt.Sprint(result["sequence_no"])
 		sequenceNo, _ := strconv.Atoi(sequenceString)
 
 		etag = NewEtag(&model.ContentEntity{
