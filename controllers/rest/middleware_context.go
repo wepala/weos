@@ -81,9 +81,15 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 		if _, ok := val.(string); ok {
 			switch parameter.Value.Name {
 			case "sequence_no": //default type is integer
-				val, _ = strconv.Atoi(val.(string))
+				v, err := strconv.Atoi(val.(string))
+				if err == nil {
+					val = v
+				}
 			case "use_entity_id": //default type is boolean
-				val, _ = strconv.ParseBool(val.(string))
+				v, err := strconv.ParseBool(val.(string))
+				if err == nil {
+					val = v
+				}
 			case "If-Match", "If-None-Match": //default type is string
 			default:
 				var filters map[string]*FilterProperties
@@ -107,15 +113,27 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 					pType := paramType.Value.Type
 					switch strings.ToLower(pType) {
 					case "integer":
-						val, _ = strconv.Atoi(val.(string))
+						v, err := strconv.Atoi(val.(string))
+						if err == nil {
+							val = v
+						}
 					case "boolean":
-						val, _ = strconv.ParseBool(val.(string))
+						v, err := strconv.ParseBool(val.(string))
+						if err == nil {
+							val = v
+						}
 					case "number":
 						format := paramType.Value.Format
 						if format == "float" || format == "double" {
-							val, _ = strconv.ParseFloat(val.(string), 64)
+							v, err := strconv.ParseFloat(val.(string), 64)
+							if err == nil {
+								val = v
+							}
 						} else {
-							val, _ = strconv.Atoi(val.(string))
+							v, err := strconv.Atoi(val.(string))
+							if err == nil {
+								val = v
+							}
 						}
 
 					}
