@@ -419,6 +419,64 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 
 			}
 		}
+	case "DELETE":
+		allParam := true
+		if pathData.Put.RequestBody == nil {
+			break
+		}
+		//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
+		for _, value := range pathData.Put.RequestBody.Value.Content {
+			if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+				var identifiers []string
+				identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
+				if identifierExtension != nil {
+					bytesId := identifierExtension.(json.RawMessage)
+					json.Unmarshal(bytesId, &identifiers)
+				}
+				var contextName string
+				//check for identifiers
+				if identifiers != nil && len(identifiers) > 0 {
+					for _, identifier := range identifiers {
+						//check the parameters for the identifiers
+						for _, param := range pathData.Put.Parameters {
+							cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+							if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+								break
+							}
+							if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
+								allParam = false
+								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+								return autoConfigure, nil
+							}
+						}
+					}
+					if allParam {
+						operationConfig.Handler = "Delete"
+						autoConfigure = true
+						break
+					}
+				}
+				//if there is no identifiers then id is the default identifier
+				for _, param := range pathData.Put.Parameters {
+
+					if "id" == param.Value.Name {
+						operationConfig.Handler = "Delete"
+						autoConfigure = true
+						break
+					}
+					interfaceContext := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+					if interfaceContext != nil {
+						bytesContext := interfaceContext.(json.RawMessage)
+						json.Unmarshal(bytesContext, &contextName)
+						if "id" == contextName {
+							operationConfig.Handler = "Delete"
+							autoConfigure = true
+							break
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return autoConfigure, nil
