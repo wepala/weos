@@ -1,3 +1,4 @@
+@skipped
 @WEOS-1125
 Feature: Remove field from content type
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,9 +98,9 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 	e.ServeHTTP(resp, req)
-	//confirm that the response is 201
-	if resp.Result().StatusCode != http.StatusCreated {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+	//confirm that the response is not 404
+	if resp.Result().StatusCode == http.StatusNotFound {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
 	}
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
@@ -127,9 +128,9 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 	e.ServeHTTP(resp, req)
-	//confirm that the response is 201
-	if resp.Result().StatusCode != http.StatusCreated {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+	//confirm that the response is not 404
+	if resp.Result().StatusCode == http.StatusNotFound {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
 	}
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
@@ -211,20 +212,21 @@ func TestRESTAPI_Initialize_UpdateAddedToPut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error '%s'", err)
 	}
-	mockBlog := &Blog{ID: "1246dg", Title: "Test Blog", Url: "www.testBlog.com"}
-	reqBytes, err := json.Marshal(mockBlog)
-	if err != nil {
-		t.Fatalf("error setting up request %s", err)
+	found := false
+	method := "PUT"
+	path := "/blogs/:id"
+	middleware := "Update"
+	routes := e.Routes()
+	for _, route := range routes {
+		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
+			found = true
+			break
+		}
 	}
-	body := bytes.NewReader(reqBytes)
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/blogs/"+mockBlog.ID, body)
-	e.ServeHTTP(resp, req)
-	//confirm that the response is 200
-	if resp.Result().StatusCode != http.StatusOK {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+	if !found {
+		t.Errorf("expected to find update path")
 	}
-	os.Remove("test.db")
+
 }
 
 func TestRESTAPI_Initialize_UpdateAddedToPatch(t *testing.T) {
@@ -235,20 +237,21 @@ func TestRESTAPI_Initialize_UpdateAddedToPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error '%s'", err)
 	}
-	mockBlog := &Blog{ID: "1246dg", Title: "Test Blog", Url: "www.testBlog.com"}
-	reqBytes, err := json.Marshal(mockBlog)
-	if err != nil {
-		t.Fatalf("error setting up request %s", err)
+	found := false
+	method := "PATCH"
+	path := "/blogs/:id"
+	middleware := "Update"
+	routes := e.Routes()
+	for _, route := range routes {
+		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
+			found = true
+			break
+		}
 	}
-	body := bytes.NewReader(reqBytes)
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPatch, "/blogs/"+mockBlog.ID, body)
-	e.ServeHTTP(resp, req)
-	//confirm that the response is 200
-	if resp.Result().StatusCode != http.StatusOK {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+	if !found {
+		t.Errorf("expected to find update path")
 	}
-	os.Remove("test.db")
+
 }
 
 func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
@@ -259,15 +262,21 @@ func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error '%s'", err)
 	}
-	mockID := "1246dg"
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/blogs/"+mockID, nil)
-	e.ServeHTTP(resp, req)
-	//confirm that the response is 200
-	if resp.Result().StatusCode != http.StatusOK {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+
+	found := false
+	method := "GET"
+	path := "/blogs/:id"
+	middleware := "View"
+	routes := e.Routes()
+	for _, route := range routes {
+		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
+			found = true
+			break
+		}
 	}
-	os.Remove("test.db")
+	if !found {
+		t.Errorf("expected to find update path")
+	}
 }
 
 func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
@@ -281,9 +290,9 @@ func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
 	e.ServeHTTP(resp, req)
-	//confirm that the response is 200
-	if resp.Result().StatusCode != http.StatusOK {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+	//confirm that the response is not 404
+	if resp.Result().StatusCode == http.StatusNotFound {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
 	}
 	os.Remove("test.db")
 }

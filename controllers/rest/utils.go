@@ -194,7 +194,8 @@ func NewEtag(entity *model.ContentEntity) string {
 //SplitEtag: This takes an Etag and returns the weosID and sequence number
 func SplitEtag(Etag string) (string, string) {
 	result := strings.Split(Etag, ".")
-	weosID := result[0]
-	seqNo := result[1]
-	return weosID, seqNo
+	if len(result) == 2 {
+		return result[0], result[1]
+	}
+	return "", "-1"
 }

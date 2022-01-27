@@ -1,4 +1,4 @@
-@skipped
+@WEOS-1132
 Feature: Edit content
 
    Background:
@@ -13,18 +13,53 @@ Feature: Edit content
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        driver: sqlite3
+        database: e2e.db
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
      components:
        schemas:
          Blog:
            type: object
            properties:
+             id:
+               type: string
              title:
                type: string
                description: blog title
              description:
                type: string
+             lastUpdated:
+               type: string
+               format: date-time
            required:
              - title
+           x-identifier:
+             - id
          Post:
            type: object
            properties:
@@ -116,6 +151,8 @@ Feature: Edit content
                  type: string
                required: true
                description: blog id
+             - in: header
+               name: If-Match
            summary: Update blog details
            operationId: Update Blog
            requestBody:
@@ -145,11 +182,11 @@ Feature: Edit content
              200:
                description: Blog Deleted
      """
-     And blogs in the api
-       | id    | entity id                   | sequence no | title        | description    |
-       | 1234  | <Generated ID> | 2           | Blog 1       | Some Blog      |
-       | 4567  | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
      And the service is running
+     And blogs in the api
+       | id    | weos_id        | sequence_no | title        | description    |
+       | 1234  | 986888285      | 2           | Blog 1       | Some Blog      |
+       | 4567  | 5uhq85nal      | 1           | Blog 2       | Some Blog 2    |
 
    Scenario: Edit item
 
@@ -157,20 +194,21 @@ Feature: Edit content
 
      Given "Sojourner" is on the "Blog" edit screen with id "1234"
      And "Sojourner" enters "Some New Title" in the "title" field
+     And "Sojourner" enters "Some Description" in the "description" field
      When the "Blog" is submitted
      Then a 200 response should be returned
      And the "ETag" header should be "<Generated ID>.3"
      And the "Blog" is updated
        | title          | description                       |
        | Some New Title | Some Description                  |
-
+   
    Scenario: Update item with invalid data
 
      If the content type validation fails then a 422 response code should be returned (the request could have a valid
      format but the contents are invalid)
 
      Given "Sojourner" is on the "Blog" edit screen with id "1234"
-     And "Sojourner" enters "Some New Title" in the "lastUpdated" field
+     And "Sojourner" enters "Some New Title" in the "last_updated" field
      When the "Blog" is submitted
      Then a 422 response should be returned
 
@@ -182,6 +220,6 @@ Feature: Edit content
 
      Given "Sojourner" is on the "Blog" edit screen with id "1234"
      And "Sojourner" enters "Some New Title" in the "lastUpdated" field
-     And a header "If-Match" with value "<Generated ID>.1"
+     And a header "If-Match" with value "986888285.1"
      When the "Blog" is submitted
      Then a 412 response should be returned

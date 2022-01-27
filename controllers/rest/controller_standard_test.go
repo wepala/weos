@@ -20,10 +20,12 @@ import (
 )
 
 type Blog struct {
+	DbID        uint   `json:"id"`
 	ID          string `json:"weos_id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Url         string `json:"url"`
+	SequenceNo  string `json:"sequence_no"`
 }
 
 func TestStandardControllers_Create(t *testing.T) {
@@ -197,9 +199,9 @@ func TestStandardControllers_Create(t *testing.T) {
 
 func TestStandardControllers_CreateBatch(t *testing.T) {
 	mockBlog := &[3]Blog{
-		{Title: "Blog 1"},
-		{Title: "Blog 2"},
-		{Title: "Blog 3"},
+		{Title: "Blog 1", Url: "www.Test.com"},
+		{Title: "Blog 2", Url: "www.Test.com"},
+		{Title: "Blog 3", Url: "www.Test.com"},
 	}
 
 	content, err := ioutil.ReadFile("./fixtures/blog-create-batch.yaml")
@@ -259,9 +261,21 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		},
 	}
 
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
 		},
 	}
 
@@ -287,10 +301,6 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 
 		response := resp.Result()
 		defer response.Body.Close()
-
-		if len(dispatcher.DispatchCalls()) == 0 {
-			t.Error("expected create account command to be dispatched")
-		}
 
 		if response.StatusCode != 201 {
 			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
@@ -339,10 +349,14 @@ func TestStandardControllers_HealthCheck(t *testing.T) {
 }
 
 func TestStandardControllers_Update(t *testing.T) {
+	weosId := "123"
 	mockBlog := &Blog{
-		ID:          "123",
 		Title:       "Test Blog",
 		Description: "testing description",
+	}
+	mockBlog1 := &Blog{
+		Title:       "Test changing Blog",
+		Description: "testing changing description",
 	}
 
 	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
@@ -386,9 +400,14 @@ func TestStandardControllers_Update(t *testing.T) {
 			blog := &Blog{}
 			json.Unmarshal(command.Payload, &blog)
 
-			if blog.Title != mockBlog.Title {
-				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog.Title, blog.Title)
+			if blog.Title != mockBlog1.Title {
+				t.Errorf("expected the blog title to be '%s', got '%s'", mockBlog1.Title, blog.Title)
 			}
+
+			if ctx.Value(weoscontext.WEOS_ID).(string) != weosId {
+				t.Errorf("expected the blog weos id to be '%s', got '%s'", weosId, blog.ID)
+			}
+
 			//check that content type information is in the context
 			contentType := weoscontext.GetContentType(ctx)
 			if contentType == nil {
@@ -408,11 +427,32 @@ func TestStandardControllers_Update(t *testing.T) {
 			}
 
 			id := ctx.Value("id").(string)
-			if id != "123" {
-				t.Errorf("unexpected error, expected id to be %s got %s", "123", id)
+			if id != weosId {
+				t.Errorf("unexpected error, expected id to be %s got %s", weosId, id)
+			}
+
+			etag := ctx.Value("If-Match").(string)
+			if etag != "123.1" {
+				t.Errorf("unexpected error, expected etag to be %s got %s", "123.1", etag)
 			}
 
 			return nil
+		},
+	}
+	mockEntity := &model.ContentEntity{}
+	mockEntity.ID = weosId
+	mockEntity.SequenceNo = int64(1)
+	mockEntity.Property = mockBlog
+
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockEntity, nil
 		},
 	}
 
@@ -420,14 +460,17 @@ func TestStandardControllers_Update(t *testing.T) {
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
 		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
+		},
 	}
 
 	//initialization will instantiate with application so we need to overwrite with our mock application
 	restAPI.Application = application
 
-	t.Run("basic update based on simple content type with id parameter in path", func(t *testing.T) {
+	t.Run("basic update based on simple content type with id parameter in path and etag", func(t *testing.T) {
 		paramName := "id"
-		reqBytes, err := json.Marshal(mockBlog)
+		reqBytes, err := json.Marshal(mockBlog1)
 		if err != nil {
 			t.Fatalf("error setting up request %s", err)
 		}
@@ -437,8 +480,9 @@ func TestStandardControllers_Update(t *testing.T) {
 		path := swagger.Paths.Find("/blogs/:" + paramName)
 		controller := restAPI.Update(restAPI.Application, swagger, path, path.Put)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/blogs/"+mockBlog.ID, body)
+		req := httptest.NewRequest(http.MethodPut, "/blogs/"+weosId, body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("If-Match", weosId+".1")
 		mw := rest.Context(restAPI.Application, swagger, path, path.Put)
 		e.PUT("/blogs/:"+paramName, controller, mw)
 		e.ServeHTTP(resp, req)
@@ -481,9 +525,27 @@ func TestStandardControllers_View(t *testing.T) {
 		},
 	}
 
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"id":      "1234sd",
+				"weos_id": "1234sd",
+			}, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"id":      "1234sd",
+				"weos_id": "1234sd",
+			}, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
 		},
 	}
 

@@ -39,13 +39,6 @@ func TestContentEntity_FromSchema(t *testing.T) {
 	}
 }
 
-type TestBlog struct {
-	ID          string  `json:"id"`
-	Title       *string `json:"title"`
-	Description string  `json:"description"`
-	Url         string  `json:"url"`
-}
-
 func TestContentEntity_IsValid(t *testing.T) {
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
 	if err != nil {
@@ -62,14 +55,10 @@ func TestContentEntity_IsValid(t *testing.T) {
 	})
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
 	t.Run("Testing with all the required fields", func(t *testing.T) {
-		mockBlog := &Blog{
-			Title:       "test 1",
-			Description: "lorem ipsum",
-			Url:         "www.ShaniahsBlog.com",
-		}
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com"}
 		payload, err := json.Marshal(mockBlog)
 		if err != nil {
-			t.Fatalf("unexpected error marshalling payload '%s'", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
 		entity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
@@ -89,13 +78,10 @@ func TestContentEntity_IsValid(t *testing.T) {
 		}
 	})
 	t.Run("Testing with a missing required field that is nullable: title", func(t *testing.T) {
-		mockBlog := &TestBlog{
-			Description: "lorem ipsum",
-			Url:         "www.ShaniahsBlog.com",
-		}
+		mockBlog := map[string]interface{}{"description": "New Description", "url": "www.NewBlog.com"}
 		payload, err := json.Marshal(mockBlog)
 		if err != nil {
-			t.Fatalf("unexpected error marshalling payload '%s'", err)
+			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
 		entity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
@@ -115,4 +101,60 @@ func TestContentEntity_IsValid(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestContentEntity_Update(t *testing.T) {
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
+	mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com"}
+	payload, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("error converting payload to bytes %s", err)
+	}
+
+	existingEntity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+
+	existingEntityPayload, err := json.Marshal(existingEntity)
+	if err != nil {
+		t.Fatalf("unexpected error marshalling content entity '%s'", err)
+	}
+
+	if existingEntity.GetString("Title") != "test 1" {
+		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("Title"))
+	}
+
+	updatedBlog := map[string]interface{}{"title": "Updated title", "description": "Updated Description", "url": "www.UpdatedBlog.com"}
+	updatedPayload, err := json.Marshal(updatedBlog)
+	if err != nil {
+		t.Fatalf("error converting payload to bytes %s", err)
+	}
+
+	updatedEntity, err := existingEntity.Update(ctx, existingEntityPayload, updatedPayload)
+	if err != nil {
+		t.Fatalf("unexpected error updating existing entity '%s'", err)
+	}
+
+	if updatedEntity.GetString("Title") != "Updated title" {
+		t.Errorf("expected the updated title to be '%s', got '%s'", "Updated title", existingEntity.GetString("Title"))
+	}
+
+	if updatedEntity.GetString("Description") != "Updated Description" {
+		t.Errorf("expected the updated description to be '%s', got '%s'", "Updated Description", existingEntity.GetString("Description"))
+	}
 }
