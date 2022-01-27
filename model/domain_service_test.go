@@ -4,6 +4,7 @@ import (
 	context3 "context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	context2 "github.com/wepala/weos/context"
@@ -36,7 +37,7 @@ func TestDomainService_Create(t *testing.T) {
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 		entityType := "Blog"
 
-		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com"}
+		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com", "last_updated": "2106-11-02T15:04:00Z"}
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
@@ -58,6 +59,14 @@ func TestDomainService_Create(t *testing.T) {
 			t.Fatalf("expected blog description to be %s got %s", mockBlog["description"], blog.GetString("Description"))
 		}
 		if blog.GetString("Url") != mockBlog["url"] {
+			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
+		}
+
+		tt, err := time.Parse("2006-01-02T15:04:00Z", mockBlog["last_updated"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if blog.GetTime("LastUpdated") != tt {
 			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
 		}
 	})
@@ -192,11 +201,13 @@ func TestDomainService_Update(t *testing.T) {
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 
 		//Update a blog - payload uses woesID and seq no from the created entity
-		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "1", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
+		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
+
+		newContext = context.WithValue(newContext, context2.SEQUENCE_NO, 1)
 
 		reqBytes, err = json.Marshal(updatedPayload)
 		if err != nil {
@@ -228,12 +239,12 @@ func TestDomainService_Update(t *testing.T) {
 	t.Run("Testing with stale sequence number", func(t *testing.T) {
 
 		//Update a blog - payload uses woesID and seq no from the created entity
-		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "3", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
+		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
-
+		newContext = context.WithValue(newContext, context2.SEQUENCE_NO, 3)
 		reqBytes, err = json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting content type to bytes %s", err)
@@ -252,12 +263,12 @@ func TestDomainService_Update(t *testing.T) {
 	t.Run("Testing with invalid data", func(t *testing.T) {
 
 		//Update a blog - payload uses woesID and seq no from the created entity
-		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "1", "title": nil, "description": "Update Description", "url": "www.Updated!.com"}
+		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "title": nil, "description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
-
+		newContext = context.WithValue(newContext, context2.SEQUENCE_NO, 1)
 		reqBytes, err = json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting content type to bytes %s", err)
@@ -297,12 +308,12 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 
 	entityType := "Blog"
 
-	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
 	reqBytes, err := json.Marshal(existingPayload)
 	if err != nil {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
-
+	newContext = context.WithValue(newContext, context2.SEQUENCE_NO, 1)
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 			return nil
@@ -396,11 +407,12 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 
 	entityType := "Blog"
 
-	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
 	reqBytes, err := json.Marshal(existingPayload)
 	if err != nil {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
+	newContext = context.WithValue(newContext, context2.SEQUENCE_NO, 1)
 
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
@@ -503,11 +515,12 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 
 	entityType := "Blog"
 
-	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
 	reqBytes, err := json.Marshal(existingPayload)
 	if err != nil {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
+	newContext = context.WithValue(newContext, context2.SEQUENCE_NO, 1)
 
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
