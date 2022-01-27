@@ -1,5 +1,5 @@
-@WEOS-1135
-Feature: View content
+@skipped
+Feature: Delete content
 
    Background:
 
@@ -13,37 +13,11 @@ Feature: View content
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
-     x-weos-config:
-      logger:
-        level: warn
-        report-caller: true
-        formatter: json
-      database:
-        driver: sqlite3
-        database: e2e.db
-      event-source:
-        - title: default
-          driver: service
-          endpoint: https://prod1.weos.sh/events/v1
-        - title: event
-          driver: sqlite3
-          database: e2e.db
-      databases:
-        - title: default
-          driver: sqlite3
-          database: e2e.db
-      rest:
-        middleware:
-          - RequestID
-          - Recover
-          - ZapLogger
      components:
        schemas:
          Blog:
            type: object
            properties:
-             id:
-               type: string
              title:
                type: string
                description: blog title
@@ -51,8 +25,6 @@ Feature: View content
                type: string
            required:
              - title
-           x-identifier:
-             - id
          Post:
            type: object
            properties:
@@ -114,6 +86,10 @@ Feature: View content
                      $ref: "#/components/schemas/Blog"
              400:
                description: Invalid blog submitted
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/ErrorResponse"
        /blogs/{id}:
          get:
            parameters:
@@ -125,14 +101,6 @@ Feature: View content
                description: blog id
              - in: query
                name: sequence_no
-               schema:
-                 type: string
-             - in: query
-               name: use_entity_id
-               schema:
-                 type: boolean
-             - in: header
-               name: If-None-Match
                schema:
                  type: string
            summary: Get Blog by id
@@ -181,70 +149,42 @@ Feature: View content
              200:
                description: Blog Deleted
      """
-     And the service is running
      And blogs in the api
-       | id    | weos_id                     | sequence_no | title        | description    |
-       | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
-       | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
+       | id    | entity id      | sequence no | title        | description    |
+       | 1     | <Generated ID> | 2           | Blog 1       | Some Blog      |
+       | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
+       | 164   | <Generated ID> | 1           | Blog 6       | Some Blog 6    |
+       | 3     | <Generated ID> | 4           | Blog 3       | Some Blog 3    |
+       | 4     | <Generated ID> | 1           | Blog 4       | Some Blog 4    |
+       | 5     | <Generated ID> | 1           | Blog 5       | Some Blog 5    |
+       | 890   | <Generated ID> | 1           | Blog 7       | Some Blog 7    |
+       | 1237  | <Generated ID> | 1           | Blog 8       | Some Blog 8    |
 
 
-   Scenario: Get blog details
+   Scenario: Delete item based on id
 
-     The blog should be retrieved using the identifier in the projection. The `ETag` header returned is a combination of
-     the entity id and the sequence no.
+     Delete an item
 
-     When the "GET" endpoint "/blogs/1234" is hit
+     Given "Sojourner" is on the "Blog" delete screen with id "1"
+     When the "Blog" is submitted
      Then a 200 response should be returned
-     And a blog should be returned
-       | id    | title        | description    |
-       | 1234  | Blog 1       | Some Blog      |
-     And the "ETag" header should be "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
+     And the "ETag" header should be "<Generated ID>.3"
+     And the "Blog" "1" should be deleted
 
-   Scenario: Get blog details using the entity id
+   Scenario: Delete item using entity id
 
-     If the view controller gets a parameter `use_entity_id` set to true then it will use the identifier as the entity id
-
-     When the "GET" endpoint "/blogs/22xu4iw0bWMwxqbrUvjqEqu5dof?use_entity_id=true" is hit
+     Given "Sojourner" is on the "Blog" delete screen with entity id "<Generated ID>" for blog with id "1"
+     When the "Blog" is submitted
      Then a 200 response should be returned
-     And a blog should be returned
-       | id    | title        | description    |
-       | 4567  | Blog 2       | Some Blog 2     |
-     And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.1"
+     And the "ETag" header should be "<Generated ID>.3"
+     And the "Blog" "1" should be deleted
 
-   Scenario: Get specific version of an entity
+   Scenario: Delete stale item
 
-     A developer can pass in the specific sequence no (sequence_no) to get an entity at a specific state
+     If you try to delete an item and it has already been updated since since the last time the client got an updated
+     version then an error is returned. This requires using the "If-Match" header
 
-     Given Sojourner is updating "Blog" with id "4567"
-     And "Sojourner" enters "Some New Blog" in the "title" field
-     And the "Blog" is submitted
-     When the "GET" endpoint "/blogs/4567?sequence_no=1" is hit
-     Then a 200 response should be returned
-     And a blog should be returned
-       | id    | title           | description    |
-       | 4567  | Blog 2          | Some Blog 2    |
-     And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.1"
-
-  Scenario: Get specific version of an entity using the entity id
-
-    A developer can pass in the specific sequence no (sequence_no) to get an entity at a specific state
-
-     Given Sojourner is updating "Blog" with id "4567"
-     And "Sojourner" enters "Some New Blog" in the "title" field
-     And the "Blog" is submitted
-     When the "GET" endpoint "/blogs/22xu4iw0bWMwxqbrUvjqEqu5dof?sequence_no=1&use_entity_id=true" is hit
-     Then a 200 response should be returned
-     And a blog should be returned
-       | id    | title           | description    |
-       | 4567  | Blog 2          | Some Blog 2    |
-     And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.1"
-
-   Scenario: Check if new version of an item is available
-
-     Check if version is the latest version https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag
-
-     Given a header "If-None-Match" with value "22xu1Xa5CS3DK1Om2tB7OBDfWAF.3"
-     When the "GET" endpoint "/blogs/1234" is hit
-     Then a 304 response should be returned
-
-
+     Given "Sojourner" is on the "Blog" delete screen with id "1"
+     And a header "If-Match" with value "<Generated ID>.1"
+     When the "Blog" is submitted
+     Then a 412 response should be returned

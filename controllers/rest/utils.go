@@ -12,7 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
-	"github.com/wepala/weos-service/model"
+	"github.com/wepala/weos/model"
 )
 
 //LoadHttpRequestFixture wrapper around the test helper to make it easier to use it with test table
@@ -194,17 +194,8 @@ func NewEtag(entity *model.ContentEntity) string {
 //SplitEtag: This takes an Etag and returns the weosID and sequence number
 func SplitEtag(Etag string) (string, string) {
 	result := strings.Split(Etag, ".")
-	weosID := result[0]
-	seqNo := result[1]
-	return weosID, seqNo
-}
-
-func GetContentBySequenceNumber(eventRepository model.EventRepository, id string, sequence_no int64) (*model.ContentEntity, error) {
-	entity := &model.ContentEntity{}
-	events, err := eventRepository.GetByAggregateAndSequenceRange(id, 0, sequence_no)
-	if err != nil {
-		return nil, err
+	if len(result) == 2 {
+		return result[0], result[1]
 	}
-	err = entity.ApplyChanges(events)
-	return entity, err
+	return "", "-1"
 }

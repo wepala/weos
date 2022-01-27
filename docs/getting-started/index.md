@@ -6,7 +6,7 @@ has_children: true
 ---
 # Getting Started
 
-1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos-service/examples))
+1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos/examples))
 2. Download the WeOS binary for your platform
 3. Run the API
 
@@ -19,7 +19,7 @@ functionality available. You can also use one of our examples as a starting poin
 ## Download the WeOS binary
 The WeOS binary is essentially a server that uses the OpenAPI specification for configuration. We chose to build the
 server with Go because we wanted to make the server extensible, easy to deploy and maintain with no runtime required.
-You can download a binary for your environment on [our release page](https://github.com/wepala/weos-service/releases).
+You can download a binary for your environment on [our release page](https://github.com/wepala/weos/releases).
 
 ## Run the API
 Now that you have a specification and the WeOS executable, you can run the API by using the `weos` command in the same

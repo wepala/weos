@@ -44,15 +44,19 @@ Feature: Create content
     components:
       schemas:
         Blog:
-          type: object
-          properties:
-            title:
-              type: string
-              description: blog title
-            description:
-              type: string
-          required:
-            - title
+           type: object
+           properties:
+             id:
+               type: string
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - id
         Post:
           type: object
           properties:
@@ -114,8 +118,27 @@ Feature: Create content
                     $ref: "#/components/schemas/Blog"
             400:
               description: Invalid blog submitted
+      /post:
+        post:
+          operationId: Add Post
+          requestBody:
+            description: Blog info that is submitted
+            required: true
+            content:
+              application/x-www-form-urlencoded:
+                schema:
+                  $ref: "#/components/schemas/Post"
+          responses:
+            201:
+              description: Add Blog to Aggregator
+            400:
+              description: Invalid blog submitted
     """
       And the service is running
+      And blogs in the api
+        | id    | entity id      | sequence no | title        | description    |
+        | 1     | <Generated ID> | 1           | Blog 1       | Some Blog      |
+        | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
 
 
     Scenario: Create a basic item
@@ -149,3 +172,83 @@ Feature: Create content
       And "Sojourner" enters "Some Description" in the "description" field
       When the "Blog" is submitted
       Then an error should be returned
+
+    @WEOS-1289 @skipped
+    Scenario: Create an item using post data
+
+      If form data is sent to the request body it is converted to json so the same commands could be used
+
+      Given "Sojourner" is on the "Post" create screen
+      And "Sojourner" enters "Some Post" in the "title" field
+      And "Sojourner" enters "Some Description" in the "description" field
+      And "Sojourner" enters "1" in the "blog" field
+      When the "Post" form is submitted
+      Then the "Post" is created
+        | title          | description                       |
+        | Some Blog      | Some Description                  |
+      And the "Post" should have an id
+      And the "ETag" header should be present
+
+    @skipped
+    @WEOS-1289 
+    Scenario: Try to create item with content type that is not defined
+
+      If the content type is not explicity defined then an error is returned (e.g. if json is not specified on the request then a json body should not be allowed)
+
+      Given "Sojourner" is on the "Post" create screen
+      And "Sojourner" enters "Some Post" in the "title" field
+      And "Sojourner" enters "Some Description" in the "description" field
+      And "Sojourner" enters "1" in the "blog" field
+      When the "Post" is submitted
+      Then an error should be returned
+
+    @skipped
+    @WEOS-1294
+    Scenario: Create item and related items
+
+      If an item has one to many relationships or many to many relationships those connections can be established by
+      passing in the info for the item so the relationship can be established
+
+      Given "Sojourner" is on the "Blog" create screen
+      And "Sojourner" enters "Some Blog" in the "title" field
+      And "Sojourner" enters "Some Description" in the "description" field
+      And "Sojourner" adds an item "Post" to "posts"
+      And "Sojourner" enters "Some Post" in the "title" field of "Post"
+      And "Sojourner" enters "Some Description" in the "description" field of "Post"
+      When the "Blog" is submitted
+      Then the "Blog" is created
+        | title          | description                       | post count  |
+        | Some Blog      | Some Description                  | 1           |
+      And the "Blog" should have an id
+      And the "ETag" header should be present
+
+    @WEOS-1294 @skipped
+    Scenario: Create item and associate with an existing item
+
+      If an item has one to many relationships or many to many relationships those connections can be established by
+      passing in the identity of the related item
+
+      Given "Sojourner" is on the "Post" create screen
+      And "Sojourner" enters "Some Post" in the "title" field
+      And "Sojourner" enters "Some Description" in the "description" field
+      And "Sojourner" enters "1" in the "blog" field
+      When the "Post" form is submitted
+      Then the "Post" is created
+        | title          | description                       |
+        | Some Blog      | Some Description                  |
+      And the "Post" should have an id
+      And the "ETag" header should be present
+
+    @WEOS-1294 @skipped
+    Scenario: Create item with related item and the item is invalid
+
+      If the related item is invalid then an error should be returned and the parent and related items should NOT be created
+
+      Given "Sojourner" is on the "Blog" create screen
+      And "Sojourner" enters "Some Blog" in the "title" field
+      And "Sojourner" enters "Some Description" in the "description" field
+      And "Sojourner" adds an item "Post" to "posts"
+      And "Sojourner" enters "Some Description" in the "description" field of "Post"
+      When the "Blog" is submitted
+      Then an error should be returned
+

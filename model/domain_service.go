@@ -2,9 +2,10 @@ package model
 
 import (
 	"encoding/json"
-	"strconv"
+	"fmt"
 
-	weosContext "github.com/wepala/weos-service/context"
+	ds "github.com/ompluscator/dynamic-struct"
+	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 
@@ -71,12 +72,52 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	if err != nil {
 		return nil, err
 	}
+	if weosID == "" {
+		weosID, _ = ctx.Value(weosContext.WEOS_ID).(string)
+	}
+
+	var primaryKeys []string
+	identifiers := map[string]interface{}{}
+
+	if contentType.Schema.Extensions["x-identifier"] != nil {
+		identifiersFromSchema := contentType.Schema.Extensions["x-identifier"].(json.RawMessage)
+		json.Unmarshal(identifiersFromSchema, &primaryKeys)
+	}
+
+	var tempPayload map[string]interface{}
+	err = json.Unmarshal(payload, &tempPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(primaryKeys) == 0 {
+		primaryKeys = append(primaryKeys, "id")
+	}
+
+	for _, pk := range primaryKeys {
+		ctxtIdentifier := ctx.Value(pk)
+
+		if weosID == "" {
+			if ctxtIdentifier == nil {
+				return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
+			}
+		}
+
+		identifiers[pk] = ctxtIdentifier
+		tempPayload[pk] = identifiers[pk]
+
+	}
+
+	newPayload, err := json.Marshal(tempPayload)
+	if err != nil {
+		return nil, err
+	}
 
 	//If there is a weosID present use this
 	if weosID != "" {
-		seqNo, err := GetSeqfromPayload(payload)
-		if err != nil {
-			return nil, err
+		seqNo := -1
+		if seq, ok := ctx.Value(weosContext.SEQUENCE_NO).(int); ok {
+			seqNo = seq
 		}
 
 		existingEntity, err := s.GetContentEntity(ctx, weosID)
@@ -84,20 +125,35 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, weosID, err)
 		}
 
-		entitySeqNo := strconv.Itoa(int(existingEntity.SequenceNo))
-
-		if seqNo != "" {
-			if seqNo != entitySeqNo {
-				return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
-			}
+		if seqNo != -1 && existingEntity.SequenceNo != int64(seqNo) {
+			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
 
-		existingEntityPayload, err := json.Marshal(existingEntity)
+		reader := ds.NewReader(existingEntity.Property)
+		for _, f := range reader.GetAllFields() {
+			fmt.Print(f)
+			reader.GetValue()
+		}
+
+		existingEntityPayload, err := json.Marshal(existingEntity.Property)
 		if err != nil {
 			return nil, err
 		}
 
-		updatedEntity, err = existingEntity.Update(ctx, existingEntityPayload, payload)
+		var tempExistingPayload map[string]interface{}
+
+		err = json.Unmarshal(existingEntityPayload, &tempExistingPayload)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, pk := range primaryKeys {
+			if fmt.Sprint(tempExistingPayload[pk]) != fmt.Sprint(tempPayload[pk]) {
+				return nil, NewDomainError("invalid: error updating entity. Primary keys cannot be updated.", entityType, weosID, nil)
+			}
+		}
+
+		updatedEntity, err = existingEntity.Update(ctx, existingEntityPayload, newPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -108,27 +164,6 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 
 		//If there is no weosID, use the id passed from the param
 	} else if weosID == "" {
-		var primaryKeys []string
-		identifiers := map[string]interface{}{}
-
-		if contentType.Schema.Extensions["x-identifier"] != nil {
-			identifiersFromSchema := contentType.Schema.Extensions["x-identifier"].(json.RawMessage)
-			json.Unmarshal(identifiersFromSchema, &primaryKeys)
-		}
-
-		if len(primaryKeys) == 0 {
-			primaryKeys = append(primaryKeys, "id")
-		}
-
-		for _, pk := range primaryKeys {
-			ctxtIdentifier := ctx.Value(pk)
-
-			if ctxtIdentifier == nil {
-				return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
-			}
-
-			identifiers[pk] = ctxtIdentifier
-		}
 
 		entityInterface, err := s.GetByKey(ctx, *contentType, identifiers)
 		if err != nil {
@@ -145,7 +180,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, err
 		}
 
-		updatedEntity, err = existingEntity.Update(ctx, data, payload)
+		updatedEntity, err = existingEntity.Update(ctx, data, newPayload)
 		if err != nil {
 			return nil, err
 		}
