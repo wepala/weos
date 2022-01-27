@@ -199,13 +199,3 @@ func SplitEtag(Etag string) (string, string) {
 	}
 	return "", "-1"
 }
-
-func GetContentBySequenceNumber(eventRepository model.EventRepository, id string, sequence_no int64) (*model.ContentEntity, error) {
-	entity := &model.ContentEntity{}
-	events, err := eventRepository.GetByAggregateAndSequenceRange(id, 0, sequence_no)
-	if err != nil {
-		return nil, err
-	}
-	err = entity.ApplyChanges(events)
-	return entity, err
-}

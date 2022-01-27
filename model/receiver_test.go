@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	context2 "github.com/wepala/weos/context"
 	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
@@ -200,8 +201,9 @@ func TestUpdateContentType(t *testing.T) {
 	}
 
 	t.Run("Testing basic update entity", func(t *testing.T) {
-		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": "1", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
+		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
 		entityType := "Blog"
+		ctx = context.WithValue(ctx, context2.SEQUENCE_NO, 1)
 		reqBytes, err := json.Marshal(updatedPayload)
 		if err != nil {
 			t.Fatalf("error converting content type to bytes %s", err)
