@@ -2317,7 +2317,7 @@ components:
 	gormDB.Table("Blog").Create(blog3)
 	gormDB.Table("Blog").Create(blog4)
 
-	t.Run("testing filters with the eq operator", func(t *testing.T) {
+	t.Run("testing a filter with the eq operator", func(t *testing.T) {
 		page := 1
 		limit := 2
 		sortOptions := map[string]string{
@@ -2336,8 +2336,7 @@ components:
 			Value:    "hugs1",
 			Values:   nil,
 		}
-		filters := []*rest.FilterProperties{filter}
-		//TODO figure out if u want a map or an array being passed in
+		filters := map[string]*rest.FilterProperties{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
@@ -2345,26 +2344,215 @@ components:
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
 		}
-		if total != int64(2) {
+		if total != int64(1) {
 			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if results[0]["id"] != 1 {
+			t.Errorf("expected result id to be %d got %d", 1, results[0]["id"])
 		}
 	})
 	t.Run("testing filters with the ne operator", func(t *testing.T) {
-
+		page := 1
+		limit := 2
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		name := "Blog"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
+		filter := &rest.FilterProperties{
+			Field:    "title",
+			Operator: "ne",
+			Value:    "hugs1",
+			Values:   nil,
+		}
+		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 4 {
+			t.Errorf("expected length of results  to be %d got %d", 4, len(results))
+		}
 	})
 	t.Run("testing filters with the like operator", func(t *testing.T) {
-
+		page := 1
+		limit := 2
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		name := "Blog"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
+		filter := &rest.FilterProperties{
+			Field:    "title",
+			Operator: "like",
+			Value:    "morehugs",
+			Values:   nil,
+		}
+		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 2 {
+			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+		}
 	})
 	t.Run("testing filters with the in operator with a single value", func(t *testing.T) {
-
+		page := 1
+		limit := 2
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		name := "Blog"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
+		filter := &rest.FilterProperties{
+			Field:    "title",
+			Operator: "in",
+			Value:    "hugs2",
+			Values:   nil,
+		}
+		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
 	})
-	t.Run("testing filters with the eq operator with multiple values", func(t *testing.T) {
-
+	t.Run("testing filters with the in operator with multiple values", func(t *testing.T) {
+		page := 1
+		limit := 2
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		name := "Blog"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
+		arrValues := []string{"hugs1", "hugs3"}
+		filter := &rest.FilterProperties{
+			Field:    "title",
+			Operator: "ne",
+			Values:   arrValues,
+		}
+		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 2 {
+			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+		}
 	})
 	t.Run("testing filters with the lt operator", func(t *testing.T) {
-
+		page := 1
+		limit := 2
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		name := "Blog"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
+		filter := &rest.FilterProperties{
+			Field:    "id",
+			Operator: "lt",
+			Value:    "2",
+			Values:   nil,
+		}
+		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
 	})
 	t.Run("testing filters with the gt operator", func(t *testing.T) {
-
+		page := 1
+		limit := 2
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		name := "Blog"
+		scheme := swagger.Components.Schemas[name]
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   strings.Title(name),
+			Schema: scheme.Value,
+		})
+		filter := &rest.FilterProperties{
+			Field:    "id",
+			Operator: "gt",
+			Value:    "3",
+			Values:   nil,
+		}
+		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 2 {
+			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+		}
 	})
 }

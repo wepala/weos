@@ -3,6 +3,7 @@ package projections
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/wepala/weos/controllers/rest"
 	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
@@ -19,6 +20,12 @@ type GORMProjection struct {
 	logger          weos.Log
 	migrationFolder string
 	Schema          map[string]ds.Builder
+}
+
+type filterProperty struct {
+	Operator string   `json:"operator"`
+	Value    string   `json:"value"`
+	Values   []string `json:"values"`
 }
 
 func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
@@ -233,6 +240,10 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit
 	var result *gorm.DB
 	var schemes interface{}
 	contentType := weosContext.GetContentType(ctx)
+	prop := p.convertProperties(filterOptions, p.Schema, contentType)
+	if prop != nil {
+
+	}
 	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		schemes = s.Build().NewSliceOfStructs()
 		scheme := s.Build().New()
@@ -248,7 +259,7 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit
 	return entities, count, result.Error
 }
 
-//paginate to query results
+//paginate is used for querying results
 func paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		actualLimit := limit
@@ -263,7 +274,7 @@ func paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
-// function that sorts the query results
+//sort is used to sort the query results
 func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		for key, value := range order {
@@ -278,10 +289,65 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
+// filter that filters query results
+func filter(filter map[string]interface{}) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		if filter != nil {
+			return db.Where(filter)
+		}
+		return db
+	}
+}
+
+//filterStringBuilder is used to build the query strings
+func filterStringBuilder(dbName string, contentType *weosContext.ContentType, properties *rest.FilterProperties) string {
+	var query string
+	switch properties.Operator {
+	case "eq":
+		query = contentType.Name + "." + properties.Field + " = " + properties.Value
+
+	}
+	return query
+}
+
+//convertProperties is used to convert the filter properties into key (field) , value pairs
+func (p *GORMProjection) convertProperties(properties map[string]interface{}, schema map[string]ds.Builder, contentType *weosContext.ContentType) map[string]interface{} {
+	filters := map[string]interface{}{}
+
+	if properties == nil {
+		return nil
+	}
+
+	for field, filterProperty := range properties {
+		if filterProperty.Value != "" && (filterProperty == nil || len(filterProperty.Values) == 0) {
+			columns, _ := p.db.Migrator().ColumnTypes(contentType.Name)
+
+			for _, c := range columns {
+				if c.Name() == field {
+					cType := c.DatabaseTypeName()
+					if cType == "string" {
+
+					}
+				}
+
+			}
+			filters[field] = filterProperty.Value
+		}
+		if filterProperty.Value == "" && (filterProperty != nil && len(filterProperty.Values) > 0) {
+			filters[field] = filterProperty.Values
+		}
+
+	}
+
+	return filters
+}
+
 //query modifier for making queries to the database
 type QueryModifier func() func(db *gorm.DB) *gorm.DB
+type QueryFilterModifier func(query string) func(db *gorm.DB) *gorm.DB
 
 var ContentQuery QueryModifier
+var FilterQuery QueryFilterModifier
 
 //NewProjection creates an instance of the projection
 func NewProjection(ctx context.Context, application weos.Service, schemas map[string]ds.Builder) (*GORMProjection, error) {
@@ -292,6 +358,16 @@ func NewProjection(ctx context.Context, application weos.Service, schemas map[st
 		Schema: schemas,
 	}
 	application.AddProjection(projection)
+
+	FilterQuery = func(query string) func(db *gorm.DB) *gorm.DB {
+		return func(db *gorm.DB) *gorm.DB {
+			if query != "" {
+
+				return db.Where(query, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no, table") })
+			}
+			return db
+		}
+	}
 
 	ContentQuery = func() func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {
