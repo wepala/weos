@@ -898,7 +898,7 @@ func theListResultsShouldBe(details *godog.Table) error {
 	for i, entity := range compareArray {
 		foundEntity := true
 		for key, value := range entity {
-			if result.Items[i][key] != value {
+			if strings.Compare(result.Items[i][key].(string), value.(string)) == 0 {
 				foundEntity = false
 				break
 			}
