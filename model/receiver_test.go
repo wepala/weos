@@ -303,7 +303,8 @@ func TestDeleteContentType(t *testing.T) {
 
 	t.Run("Testing basic delete entity", func(t *testing.T) {
 		entityType := "Blog"
-
+// Handler should take the entity id passed in the commmand or if there is none, it should default to whatever the identifier is
+// Similar to the logic behind the update func expect no payload is "neccesary" 
 		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, nil, entityType, "dsafdsdfdsf"))
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
