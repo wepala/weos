@@ -333,15 +333,20 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			identifiers[p] = newContext.Value(p)
 		}
 
-		etag, _ := newContext.Value("If-None-Match").(string)
-		useEntity, _ := newContext.Value("use_entity_id").(string)
-		seqInt := newContext.Value("sequence_no").(int)
-
 		var result map[string]interface{}
 		var err error
 		var entityID string
 		var seq string
 		var ok bool
+		var seqInt int
+
+		etag, _ := newContext.Value("If-None-Match").(string)
+		useEntity, _ := newContext.Value("use_entity_id").(string)
+		seqInt, ok = newContext.Value("sequence_no").(int)
+		if !ok {
+			ctxt.Logger().Debug("sequence no. not set")
+		}
+
 		//if use_entity_id is not set then let's get the item by key
 		if useEntity != "true" {
 			for _, projection := range app.Projections() {
@@ -385,8 +390,13 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 				if r.SequenceNo == 0 {
 					return NewControllerError("No entity found", err, http.StatusNotFound)
 				}
-				if r != nil && r.ID != "" && r.Property != nil {
-					result = r.Property.(map[string]interface{})
+				if r != nil && r.ID != "" { //get the map from the entity
+					if r.Property != nil {
+						result = r.Property.(map[string]interface{})
+					} else {
+						result = make(map[string]interface{})
+					}
+
 				}
 				result["weos_id"] = r.ID
 				result["sequence_no"] = r.SequenceNo
