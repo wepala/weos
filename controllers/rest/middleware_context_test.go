@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -231,29 +230,6 @@ func TestContext(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", nil)
 		req.Header.Set(paramName, paramValue)
 		e.POST("/blogs", handler)
-		e.ServeHTTP(resp, req)
-	})
-
-	t.Run("sequence no. should be added to context by default", func(t *testing.T) {
-		paramName := context.SEQUENCE_NO
-		paramValue := 123
-		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, swagger, path, path.Post)
-		handler := mw(func(ctxt echo.Context) error {
-			//check that certain parameters are in the context
-			cc := ctxt.Request().Context()
-			if _, ok := cc.Value(paramName).(int); !ok {
-				t.Fatalf("expected param '%s' to be in context", paramName)
-			}
-			if cc.Value(paramName) != paramValue {
-				t.Errorf("expected '%d' for sequence_no, got '%d'", paramValue, cc.Value(paramName).(int))
-			}
-			return nil
-		})
-		e := echo.New()
-		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/blogs?sequence_no="+strconv.Itoa(paramValue), nil)
-		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
 

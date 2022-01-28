@@ -648,6 +648,9 @@ func TestStandardControllers_View(t *testing.T) {
 		paramName := "id"
 		paramValue := "1234sd"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
+		if path == nil {
+			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
+		}
 		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
@@ -703,6 +706,9 @@ func TestStandardControllers_View(t *testing.T) {
 		paramName := "id"
 		paramValue := "1234sd"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
+		if path == nil {
+			t.Fatalf("could not find path '%s' in swagger paths", "/blogs/:"+paramName)
+		}
 		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=1", nil)
