@@ -2352,8 +2352,8 @@ components:
 		if total != int64(1) {
 			t.Errorf("expected total to be %d got %d", int64(1), total)
 		}
-		if results[0]["id"] != 1 {
-			t.Errorf("expected result id to be %d got %d", 1, results[0]["id"])
+		if int(results[0]["id"].(float64)) != 1 {
+			t.Errorf("expected result id to be %d got %d", 1, int(results[0]["id"].(float64)))
 		}
 	})
 	t.Run("testing filters with the ne operator", func(t *testing.T) {

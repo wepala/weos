@@ -252,8 +252,9 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit
 			filters := p.convertProperties(filtersProp, contentType)
 			queryString := filterStringBuilder(p.db.Dialector.Name(), contentType, filtersProp)
 			result = p.db.Table(contentType.Name).Scopes(FilterQuery(queryString)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions), filter(filters)).Find(schemes)
+		} else {
+			result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 		}
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	}
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
@@ -381,7 +382,7 @@ func NewProjection(ctx context.Context, application weos.Service, schemas map[st
 	FilterQuery = func(query string) func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {
 			if query != "" {
-				return db.Where(query, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no, table") })
+				return db.Where(query).Omit("weos_id, sequence_no, table")
 			}
 			return db
 		}
