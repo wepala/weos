@@ -371,7 +371,8 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		useEntity, _ := newContext.Value("use_entity_id").(bool)
 		seqInt, ok = newContext.Value("sequence_no").(int)
 		if !ok {
-			ctxt.Logger().Debug("sequence no. not set")
+			seq = newContext.Value("sequence_no").(string)
+			ctxt.Logger().Debugf("invalid sequence no ")
 		}
 
 		//if use_entity_id is not set then let's get the item by key
@@ -386,9 +387,10 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		if etag != "" {
 			entityID, seq = SplitEtag(etag)
 			seqInt, err = strconv.Atoi(seq)
-			if err != nil {
-				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
-			}
+		}
+		//if a sequence no. was sent BUT it could not be converted to an integer then return an error
+		if seq != "" && seqInt == 0 {
+			return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
 		}
 		//if sequence no. was sent in the request but we don't have the entity let's get it from projection
 		if entityID == "" && seqInt != 0 {
@@ -401,8 +403,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		if useEntity && entityID == "" {
 			//get first identifier for the entity id
 			for _, i := range identifiers {
-				entityID = i.(string)
-				if entityID != "" {
+				if entityID, ok = i.(string); ok && entityID != "" {
 					break
 				}
 			}
