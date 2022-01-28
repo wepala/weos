@@ -45,8 +45,35 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 				Schema: contentTypeSchema.Value,
 			})
 		}
-		//reads the request body
-		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+
+		var payload []byte
+		var err error
+
+		ct := ctxt.Request().Header.Get("Content-Type")
+
+		switch ct {
+		case "application/json":
+			payload, err = ioutil.ReadAll(ctxt.Request().Body)
+			if err != nil {
+				return err
+			}
+		case "application/x-www-form-urlencoded":
+			payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
+			if err != nil {
+				return err
+			}
+		default:
+			if strings.Contains(ct, "multipart/form-data") {
+				payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
+				if err != nil {
+					return err
+				}
+			} else if ct == "" {
+				return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
+			} else {
+				return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
+			}
+		}
 
 		//for inserting weos_id during testing
 		payMap := map[string]interface{}{}
@@ -62,7 +89,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 			weosID = ksuid.New().String()
 		}
 
-		err := app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
+		err = app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
