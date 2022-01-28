@@ -898,13 +898,6 @@ func theListResultsShouldBe(details *godog.Table) error {
 	for i, entity := range compareArray {
 		foundEntity := true
 		for key, value := range entity {
-			if key == "id" {
-				val := result.Items[i][key].(int)
-				compVal, _ := strconv.Atoi(value.(string))
-				if val == compVal {
-					continue
-				}
-			}
 			if result.Items[i][key] != value {
 				foundEntity = false
 				break
