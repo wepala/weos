@@ -2324,7 +2324,7 @@ components:
 
 	t.Run("testing a filter with the eq operator", func(t *testing.T) {
 		page := 1
-		limit := 2
+		limit := 0
 		sortOptions := map[string]string{
 			"id": "asc",
 		}
@@ -2350,7 +2350,7 @@ components:
 			t.Errorf("expected to get results but got nil")
 		}
 		if total != int64(1) {
-			t.Errorf("expected total to be %d got %d", int64(2), total)
+			t.Errorf("expected total to be %d got %d", int64(1), total)
 		}
 		if results[0]["id"] != 1 {
 			t.Errorf("expected result id to be %d got %d", 1, results[0]["id"])
@@ -2384,10 +2384,10 @@ components:
 			t.Errorf("expected to get results but got nil")
 		}
 		if total != int64(1) {
-			t.Errorf("expected total to be %d got %d", int64(2), total)
+			t.Errorf("expected total to be %d got %d", int64(1), total)
 		}
 		if len(results) != 4 {
-			t.Errorf("expected length of results  to be %d got %d", 4, len(results))
+			t.Errorf("expected length of results to be %d got %d", 4, len(results))
 		}
 	})
 	t.Run("testing filters with the like operator", func(t *testing.T) {
@@ -2418,7 +2418,7 @@ components:
 			t.Errorf("expected to get results but got nil")
 		}
 		if total != int64(1) {
-			t.Errorf("expected total to be %d got %d", int64(2), total)
+			t.Errorf("expected total to be %d got %d", int64(1), total)
 		}
 		if len(results) != 2 {
 			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
@@ -2426,7 +2426,7 @@ components:
 	})
 	t.Run("testing filters with the in operator with a single value", func(t *testing.T) {
 		page := 1
-		limit := 2
+		limit := 0
 		sortOptions := map[string]string{
 			"id": "asc",
 		}
@@ -2452,7 +2452,7 @@ components:
 			t.Errorf("expected to get results but got nil")
 		}
 		if total != int64(1) {
-			t.Errorf("expected total to be %d got %d", int64(2), total)
+			t.Errorf("expected total to be %d got %d", int64(1), total)
 		}
 		if len(results) != 1 {
 			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
@@ -2460,7 +2460,7 @@ components:
 	})
 	t.Run("testing filters with the in operator with multiple values", func(t *testing.T) {
 		page := 1
-		limit := 2
+		limit := 0
 		sortOptions := map[string]string{
 			"id": "asc",
 		}
@@ -2474,7 +2474,7 @@ components:
 		arrValues := []string{"hugs1", "hugs3"}
 		filter := &projections.FilterProperty{
 			Field:    "title",
-			Operator: "ne",
+			Operator: "in",
 			Values:   arrValues,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
@@ -2485,7 +2485,7 @@ components:
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
 		}
-		if total != int64(1) {
+		if total != int64(2) {
 			t.Errorf("expected total to be %d got %d", int64(2), total)
 		}
 		if len(results) != 2 {
@@ -2494,7 +2494,7 @@ components:
 	})
 	t.Run("testing filters with the lt operator", func(t *testing.T) {
 		page := 1
-		limit := 2
+		limit := 0
 		sortOptions := map[string]string{
 			"id": "asc",
 		}
@@ -2520,7 +2520,7 @@ components:
 			t.Errorf("expected to get results but got nil")
 		}
 		if total != int64(1) {
-			t.Errorf("expected total to be %d got %d", int64(2), total)
+			t.Errorf("expected total to be %d got %d", int64(1), total)
 		}
 		if len(results) != 1 {
 			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
@@ -2528,7 +2528,7 @@ components:
 	})
 	t.Run("testing filters with the gt operator", func(t *testing.T) {
 		page := 1
-		limit := 2
+		limit := 0
 		sortOptions := map[string]string{
 			"id": "asc",
 		}
@@ -2553,7 +2553,7 @@ components:
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
 		}
-		if total != int64(1) {
+		if total != int64(2) {
 			t.Errorf("expected total to be %d got %d", int64(2), total)
 		}
 		if len(results) != 2 {
