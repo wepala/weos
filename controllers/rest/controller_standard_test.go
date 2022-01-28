@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"io/ioutil"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -143,6 +145,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
 		e.POST("/blogs", controller, mw)
@@ -179,6 +182,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
 		e.POST("/blogs", controller, mw)
@@ -722,6 +726,336 @@ func TestStandardControllers_List(t *testing.T) {
 
 		if response.StatusCode != 200 {
 			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
+
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	dispatcher := &DispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+
+			//if it's a the create blog call let's check to see if the command is what we expect
+			if command == nil {
+				t.Fatal("no command sent")
+			}
+
+			if command.Type != "create" {
+				t.Errorf("expected the command to be '%s', got '%s'", "create", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			if command.Metadata.EntityID == "" {
+				t.Errorf("expected the entity ID to be generated, got '%s'", command.Metadata.EntityID)
+			}
+
+			blog := &TestBlog{}
+			json.Unmarshal(command.Payload, &blog)
+
+			if blog.Title == nil {
+				return model.NewDomainError("expected the blog title to be a title got nil", command.Metadata.EntityType, "", nil)
+			}
+			if blog.Url == nil {
+				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
+			}
+			//check that content type information is in the context
+			contentType := weoscontext.GetContentType(ctx)
+			if contentType == nil {
+				t.Fatal("expected a content type to be in the context")
+			}
+
+			if contentType.Name != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
+			}
+
+			if _, ok := contentType.Schema.Properties["title"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			}
+
+			return nil
+		},
+	}
+
+	mockPayload := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+	mockContentEntity := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "123456",
+			},
+			SequenceNo: 1,
+		},
+		Property: mockPayload,
+	}
+
+	projections := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockContentEntity, nil
+		},
+	}
+
+	application := &ApplicationMock{
+		DispatcherFunc: func() model.Dispatcher {
+			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projections}
+		},
+	}
+
+	//initialization will instantiate with application so we need to overwrite with our mock application
+	restAPI.Application = application
+
+	t.Run("basic create based on application/x-www-form-urlencoded content type", func(t *testing.T) {
+
+		data := url.Values{}
+		data.Set("title", "Test Blog")
+		data.Set("url", "MyBlogUrl")
+
+		body := strings.NewReader(data.Encode())
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.Header.Get("Etag") != "123456.1" {
+			t.Errorf("expected an Etag, got %s", response.Header.Get("Etag"))
+		}
+
+		if response.StatusCode != 201 {
+			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
+		}
+	})
+	t.Run("create with missing required value based on x-www-form-urlencoded content type", func(t *testing.T) {
+
+		data := url.Values{}
+		data.Set("title", "Test Blog")
+
+		body := strings.NewReader(data.Encode())
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_FormData_Create(t *testing.T) {
+
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	dispatcher := &DispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+
+			//if it's a the create blog call let's check to see if the command is what we expect
+			if command == nil {
+				t.Fatal("no command sent")
+			}
+
+			if command.Type != "create" {
+				t.Errorf("expected the command to be '%s', got '%s'", "create", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			if command.Metadata.EntityID == "" {
+				t.Errorf("expected the entity ID to be generated, got '%s'", command.Metadata.EntityID)
+			}
+
+			blog := &TestBlog{}
+			json.Unmarshal(command.Payload, &blog)
+
+			if blog.Title == nil {
+				return model.NewDomainError("expected the blog title to be a title got nil", command.Metadata.EntityType, "", nil)
+			}
+			if blog.Url == nil {
+				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
+			}
+			//check that content type information is in the context
+			contentType := weoscontext.GetContentType(ctx)
+			if contentType == nil {
+				t.Fatal("expected a content type to be in the context")
+			}
+
+			if contentType.Name != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
+			}
+
+			if _, ok := contentType.Schema.Properties["title"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			}
+
+			return nil
+		},
+	}
+
+	mockPayload := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+	mockContentEntity := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "123456",
+			},
+			SequenceNo: 1,
+		},
+		Property: mockPayload,
+	}
+
+	projections := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockContentEntity, nil
+		},
+	}
+
+	application := &ApplicationMock{
+		DispatcherFunc: func() model.Dispatcher {
+			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projections}
+		},
+	}
+
+	//initialization will instantiate with application so we need to overwrite with our mock application
+	restAPI.Application = application
+
+	t.Run("basic create based on multipart/form-data content type", func(t *testing.T) {
+
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+		writer.WriteField("title", "Test Blog")
+		writer.WriteField("url", "MyBlogUrl")
+		writer.Close()
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.Header.Get("Etag") != "123456.1" {
+			t.Errorf("expected an Etag, got %s", response.Header.Get("Etag"))
+		}
+
+		if response.StatusCode != 201 {
+			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
+		}
+	})
+	t.Run("create with missing required value based on multipart/form-data content type", func(t *testing.T) {
+
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+		writer.WriteField("title", "Test Blog")
+		writer.Close()
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
 		}
 	})
 }

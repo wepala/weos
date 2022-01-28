@@ -1788,5 +1788,3 @@ func (mock *ServiceMock) TitleCalls() []struct {
 	mock.lockTitle.RUnlock()
 	return calls
 }
-
-
