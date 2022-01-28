@@ -616,7 +616,61 @@ func TestStandardControllers_View(t *testing.T) {
 			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
 		}
 	})
+	t.Run("Testing view with entity id", func(t *testing.T) {
+		projection := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+		}
+		application := &ApplicationMock{
+			DispatcherFunc: func() model.Dispatcher {
+				return dispatcher
+			},
+			ProjectionsFunc: func() []model.Projection {
+				return []model.Projection{projection}
+			},
+			EventRepositoryFunc: func() model.EventRepository {
+				return eventRepository
+			},
+		}
 
+		//initialization will instantiate with application so we need to overwrite with our mock application
+		restAPI.Application = application
+		paramName := "id"
+		paramValue := "1234sd"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		//confirm  the entity is retrieved by entity id
+		if len(projection.GetByEntityIDCalls()) != 1 {
+			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByEntityIDCalls()))
+		}
+
+		if len(projection.GetByKeyCalls()) != 0 {
+			t.Errorf("expected the get by key method on the projection to be called %d times, called %d times", 0, len(projection.GetByKeyCalls()))
+		}
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
 	t.Run("Testing view with sequence no", func(t *testing.T) {
 		projection := &ProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {

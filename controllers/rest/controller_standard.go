@@ -368,14 +368,14 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		var seqInt int
 
 		etag, _ := newContext.Value("If-None-Match").(string)
-		useEntity, _ := newContext.Value("use_entity_id").(string)
+		useEntity, _ := newContext.Value("use_entity_id").(bool)
 		seqInt, ok = newContext.Value("sequence_no").(int)
 		if !ok {
 			ctxt.Logger().Debug("sequence no. not set")
 		}
 
 		//if use_entity_id is not set then let's get the item by key
-		if useEntity != "true" {
+		if !useEntity {
 			for _, projection := range app.Projections() {
 				if projection != nil {
 					result, err = projection.GetByKey(ctxt.Request().Context(), *cType, identifiers)
@@ -398,7 +398,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			}
 		}
 
-		if useEntity == "true" && entityID == "" {
+		if useEntity && entityID == "" {
 			//get first identifier for the entity id
 			for _, i := range identifiers {
 				entityID = i.(string)

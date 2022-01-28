@@ -37,6 +37,10 @@ func Context(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem,
 				Name: "sequence_no",
 				In:   "query",
 			}})
+			cc, err = parseParams(c, cc, &openapi3.ParameterRef{Value: &openapi3.Parameter{
+				Name: "use_entity_id",
+				In:   "query",
+			}})
 			//if there are any errors
 			if err != nil {
 				c.Logger().Error(err)
