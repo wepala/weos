@@ -898,7 +898,7 @@ func theListResultsShouldBe(details *godog.Table) error {
 	for i, entity := range compareArray {
 		foundEntity := true
 		for key, value := range entity {
-			if strings.Compare(result.Items[i][key].(string), value.(string)) == 0 {
+			if strings.Compare(result.Items[i][key].(string), value.(string)) != 0 {
 				foundEntity = false
 				break
 			}
@@ -1007,7 +1007,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1133",
+			Tags:   "~skipped && ~long",
 		},
 	}.Run()
 	if status != 0 {
