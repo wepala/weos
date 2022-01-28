@@ -3,7 +3,7 @@ package projections
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/wepala/weos/controllers/rest"
+	"strconv"
 	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
@@ -22,7 +22,8 @@ type GORMProjection struct {
 	Schema          map[string]ds.Builder
 }
 
-type filterProperty struct {
+type FilterProperty struct {
+	Field    string   `json:"field"`
 	Operator string   `json:"operator"`
 	Value    string   `json:"value"`
 	Values   []string `json:"values"`
@@ -239,15 +240,19 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit
 	var count int64
 	var result *gorm.DB
 	var schemes interface{}
+	var filtersProp map[string]FilterProperty
+	props, _ := json.Marshal(filterOptions)
+	json.Unmarshal(props, &filtersProp)
 	contentType := weosContext.GetContentType(ctx)
-	prop := p.convertProperties(filterOptions, p.Schema, contentType)
-	if prop != nil {
 
-	}
 	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		schemes = s.Build().NewSliceOfStructs()
 		scheme := s.Build().New()
-
+		if len(filterOptions) != 0 {
+			filters := p.convertProperties(filtersProp, contentType)
+			queryString := filterStringBuilder(p.db.Dialector.Name(), contentType, filtersProp)
+			result = p.db.Table(contentType.Name).Scopes(FilterQuery(queryString)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions), filter(filters)).Find(schemes)
+		}
 		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	}
 	bytes, err := json.Marshal(schemes)
@@ -300,18 +305,26 @@ func filter(filter map[string]interface{}) func(db *gorm.DB) *gorm.DB {
 }
 
 //filterStringBuilder is used to build the query strings
-func filterStringBuilder(dbName string, contentType *weosContext.ContentType, properties *rest.FilterProperties) string {
+func filterStringBuilder(dbName string, contentType *weosContext.ContentType, properties map[string]FilterProperty) string {
 	var query string
-	switch properties.Operator {
-	case "eq":
-		query = contentType.Name + "." + properties.Field + " = " + properties.Value
+	for _, prop := range properties {
 
+		switch prop.Operator {
+		case "eq":
+			if query != "" {
+				query += " AND " + prop.Field + " = '" + prop.Value + "'"
+			} else {
+				query += prop.Field + " = '" + prop.Value + "'"
+			}
+
+		}
 	}
+
 	return query
 }
 
 //convertProperties is used to convert the filter properties into key (field) , value pairs
-func (p *GORMProjection) convertProperties(properties map[string]interface{}, schema map[string]ds.Builder, contentType *weosContext.ContentType) map[string]interface{} {
+func (p *GORMProjection) convertProperties(properties map[string]FilterProperty, contentType *weosContext.ContentType) map[string]interface{} {
 	filters := map[string]interface{}{}
 
 	if properties == nil {
@@ -319,21 +332,27 @@ func (p *GORMProjection) convertProperties(properties map[string]interface{}, sc
 	}
 
 	for field, filterProperty := range properties {
-		if filterProperty.Value != "" && (filterProperty == nil || len(filterProperty.Values) == 0) {
+		if filterProperty.Value != "" && (filterProperty.Values == nil || len(filterProperty.Values) == 0) {
 			columns, _ := p.db.Migrator().ColumnTypes(contentType.Name)
-
 			for _, c := range columns {
 				if c.Name() == field {
 					cType := c.DatabaseTypeName()
-					if cType == "string" {
+					switch cType {
+					case "text":
+						filters[field] = filterProperty.Value
+					case "INTEGER":
+					case "integer":
+						v, err := strconv.Atoi(filterProperty.Value)
+						if err == nil {
+							filters[field] = v
+						}
 
 					}
 				}
 
 			}
-			filters[field] = filterProperty.Value
 		}
-		if filterProperty.Value == "" && (filterProperty != nil && len(filterProperty.Values) > 0) {
+		if filterProperty.Value == "" && len(filterProperty.Values) > 0 {
 			filters[field] = filterProperty.Values
 		}
 
@@ -362,7 +381,6 @@ func NewProjection(ctx context.Context, application weos.Service, schemas map[st
 	FilterQuery = func(query string) func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {
 			if query != "" {
-
 				return db.Where(query, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no, table") })
 			}
 			return db

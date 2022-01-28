@@ -2222,7 +2222,7 @@ components:
 
 	})
 }
-func TestProjections_Filters(t *testing.T) {
+func TestProjections_ListFilters(t *testing.T) {
 	openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -2335,13 +2335,13 @@ components:
 			Name:   strings.Title(name),
 			Schema: scheme.Value,
 		})
-		filter := &rest.FilterProperties{
+		filter := &projections.FilterProperty{
 			Field:    "title",
 			Operator: "eq",
 			Value:    "hugs1",
 			Values:   nil,
 		}
-		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
@@ -2369,13 +2369,13 @@ components:
 			Name:   strings.Title(name),
 			Schema: scheme.Value,
 		})
-		filter := &rest.FilterProperties{
+		filter := &projections.FilterProperty{
 			Field:    "title",
 			Operator: "ne",
 			Value:    "hugs1",
 			Values:   nil,
 		}
-		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
@@ -2403,13 +2403,13 @@ components:
 			Name:   strings.Title(name),
 			Schema: scheme.Value,
 		})
-		filter := &rest.FilterProperties{
+		filter := &projections.FilterProperty{
 			Field:    "title",
 			Operator: "like",
 			Value:    "morehugs",
 			Values:   nil,
 		}
-		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
@@ -2437,13 +2437,13 @@ components:
 			Name:   strings.Title(name),
 			Schema: scheme.Value,
 		})
-		filter := &rest.FilterProperties{
+		filter := &projections.FilterProperty{
 			Field:    "title",
 			Operator: "in",
 			Value:    "hugs2",
 			Values:   nil,
 		}
-		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
@@ -2472,12 +2472,12 @@ components:
 			Schema: scheme.Value,
 		})
 		arrValues := []string{"hugs1", "hugs3"}
-		filter := &rest.FilterProperties{
+		filter := &projections.FilterProperty{
 			Field:    "title",
 			Operator: "ne",
 			Values:   arrValues,
 		}
-		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
@@ -2505,13 +2505,13 @@ components:
 			Name:   strings.Title(name),
 			Schema: scheme.Value,
 		})
-		filter := &rest.FilterProperties{
+		filter := &projections.FilterProperty{
 			Field:    "id",
 			Operator: "lt",
 			Value:    "2",
 			Values:   nil,
 		}
-		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
@@ -2539,13 +2539,13 @@ components:
 			Name:   strings.Title(name),
 			Schema: scheme.Value,
 		})
-		filter := &rest.FilterProperties{
+		filter := &projections.FilterProperty{
 			Field:    "id",
 			Operator: "gt",
 			Value:    "3",
 			Values:   nil,
 		}
-		filters := map[string]*rest.FilterProperties{filter.Field: filter}
+		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
