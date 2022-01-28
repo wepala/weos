@@ -284,25 +284,30 @@ func GetContentBySequenceNumber(eventRepository EventRepository, id string, sequ
 func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 	for _, change := range changes {
 		w.SequenceNo = change.Meta.SequenceNo
-		switch change.Type {
-		case "create":
-			err := json.Unmarshal(change.Payload, &w.BasicEntity)
-			if err != nil {
-				return err
-			}
-			err = json.Unmarshal(change.Payload, &w.Property)
-			if err != nil {
-				return err
-			}
-			w.User.BasicEntity.ID = change.Meta.User
-		case "update":
-			err := json.Unmarshal(change.Payload, &w.Property)
-			if err != nil {
-				return NewDomainError("invalid: error unmarshalling changed payload", change.Meta.EntityType, w.ID, err)
-			}
-			w.User.BasicEntity.ID = change.Meta.User
+		w.ID = change.Meta.EntityID
+		w.User.BasicEntity.ID = change.Meta.User
+		w.User.BasicEntity.ID = change.Meta.User
 
+		if change.Payload != nil {
+			switch change.Type {
+			case "create":
+				err := json.Unmarshal(change.Payload, &w.BasicEntity)
+				if err != nil {
+					return err
+				}
+				err = json.Unmarshal(change.Payload, &w.Property)
+				if err != nil {
+					return err
+				}
+
+			case "update":
+				err := json.Unmarshal(change.Payload, &w.Property)
+				if err != nil {
+					return NewDomainError("invalid: error unmarshalling changed payload", change.Meta.EntityType, w.ID, err)
+				}
+			}
 		}
+
 	}
 	return nil
 }
