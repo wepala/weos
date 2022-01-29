@@ -158,3 +158,131 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Errorf("expected the updated description to be '%s', got '%s'", "Updated Description", existingEntity.GetString("Description"))
 	}
 }
+
+func TestContentEntity_FromSchemaWithEvents(t *testing.T) {
+	//load open api spec
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
+	mockEvent1 := &model.Event{
+		ID:      "1234sd",
+		Type:    "create",
+		Payload: nil,
+		Meta: model.EventMeta{
+			EntityID:   "1234sd",
+			EntityType: "Blog",
+			SequenceNo: 1,
+			User:       "",
+			Module:     "",
+			RootID:     "",
+			Group:      "",
+			Created:    "",
+		},
+		Version: 0,
+	}
+	mockEvent2 := &model.Event{
+		ID:      "1234sd",
+		Type:    "update",
+		Payload: nil,
+		Meta: model.EventMeta{
+			EntityID:   "1234sd",
+			EntityType: "Blog",
+			SequenceNo: 2,
+			User:       "",
+			Module:     "",
+			RootID:     "",
+			Group:      "",
+			Created:    "",
+		},
+		Version: 0,
+	}
+	events := []*model.Event{mockEvent1, mockEvent2}
+
+	entity, err := new(model.ContentEntity).FromSchemaWithEvents(ctx, swagger.Components.Schemas["Blog"].Value, events)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+
+	if entity.Property == nil {
+		t.Fatal("expected item to be returned")
+	}
+
+	if entity.GetString("Title") != "" {
+		t.Errorf("expected there to be a field '%s' with value '%s' got '%s'", "Title", " ", entity.GetString("Title"))
+	}
+}
+
+func TestContentEntity_ToMap(t *testing.T) {
+	//load open api spec
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
+	entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+
+	if entity.Property == nil {
+		t.Fatal("expected item to be returned")
+	}
+
+	result := entity.ToMap()
+	if err != nil {
+		t.Fatalf("unexpected error getting map '%s'", err)
+	}
+
+	if _, ok := result["title"]; !ok {
+		t.Errorf("expected '%s' to be in map", "title")
+	}
+}
+
+func TestContentEntity_GetOriginalFieldName(t *testing.T) {
+	//load open api spec
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
+	entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+	originalName := entity.GetOriginalFieldName("Title")
+	if originalName != "title" {
+		t.Errorf("expected the original field name for '%s' to be '%s', got '%s'", "Title", "title", originalName)
+	}
+}

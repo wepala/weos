@@ -16,6 +16,7 @@ type ContentEntity struct {
 	AggregateRoot
 	Schema   *openapi3.Schema
 	Property interface{}
+	reader   ds.Reader
 }
 
 //IsValid checks if the property is valid using the IsNull function
@@ -128,6 +129,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 		}
 	}
 	w.Property = instance.Build().New()
+	w.reader = ds.NewReader(w.Property)
 	return w, nil
 
 }
@@ -150,7 +152,7 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	}
 	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
-	return w, w.ApplyChanges([]*Event{event})
+	return w, w.ApplyEvents([]*Event{event})
 }
 
 func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMessage, updatedPayload json.RawMessage) (*ContentEntity, error) {
@@ -171,7 +173,7 @@ func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMess
 
 	event := NewEntityEvent("update", w, w.ID, updatedPayload)
 	w.NewChange(event)
-	return w, w.ApplyChanges([]*Event{event})
+	return w, w.ApplyEvents([]*Event{event})
 }
 
 //GetString returns the string property value stored of a given the property name
@@ -270,18 +272,21 @@ func (w *ContentEntity) GetTime(name string) time.Time {
 	return *reader.GetField(name).PointerTime()
 }
 
-func GetContentBySequenceNumber(eventRepository EventRepository, id string, sequence_no int64) (*ContentEntity, error) {
-	entity := &ContentEntity{}
-	events, err := eventRepository.GetByAggregateAndSequenceRange(id, 0, sequence_no)
+//FromSchemaWithEvents create content entity using schema and events
+func (w *ContentEntity) FromSchemaWithEvents(ctx context.Context, ref *openapi3.Schema, changes []*Event) (*ContentEntity, error) {
+	entity, err := w.FromSchema(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	err = entity.ApplyChanges(events)
+	err = entity.ApplyEvents(changes)
+	if err != nil {
+		return nil, err
+	}
 	return entity, err
 }
 
-//ApplyChanges apply the new changes from payload to the entity
-func (w *ContentEntity) ApplyChanges(changes []*Event) error {
+//ApplyEvents apply the new changes from payload to the entity
+func (w *ContentEntity) ApplyEvents(changes []*Event) error {
 	for _, change := range changes {
 		w.SequenceNo = change.Meta.SequenceNo
 		w.ID = change.Meta.EntityID
@@ -310,4 +315,29 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 
 	}
 	return nil
+}
+
+//ToMap return entity has a map
+func (w *ContentEntity) ToMap() map[string]interface{} {
+	result := make(map[string]interface{})
+	//get all fields and return the map
+	fields := w.reader.GetAllFields()
+	for _, field := range fields {
+		//check if the lowercase version of the field is the same as the schema and use the scehma version instead
+		result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+	}
+	return result
+}
+
+//GetOriginalFieldName the original name of the field as defined in the schema (the field is Title cased when converted to struct)
+func (w *ContentEntity) GetOriginalFieldName(structName string) string {
+	if w.Schema != nil {
+		for key, _ := range w.Schema.Properties {
+			if strings.ToLower(key) == strings.ToLower(structName) {
+				return key
+			}
+		}
+	}
+
+	return ""
 }

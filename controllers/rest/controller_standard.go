@@ -413,18 +413,16 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 		if entityID != "" {
 			//get the entity using the sequence no.
 			if seqInt != 0 {
-				r, er := model.GetContentBySequenceNumber(app.EventRepository(), entityID, int64(seqInt))
+				//get the events up to the sequence
+				events, err := app.EventRepository().GetByAggregateAndSequenceRange(entityID, 0, int64(seqInt))
+				//create content entity
+				r, er := new(model.ContentEntity).FromSchemaWithEvents(ctxt.Request().Context(), contentTypeSchema.Value, events)
 				err = er
 				if r.SequenceNo == 0 {
 					return NewControllerError("No entity found", err, http.StatusNotFound)
 				}
 				if r != nil && r.ID != "" { //get the map from the entity
-					if r.Property != nil {
-						result = r.Property.(map[string]interface{})
-					} else {
-						result = make(map[string]interface{})
-					}
-
+					result = r.ToMap()
 				}
 				result["weos_id"] = r.ID
 				result["sequence_no"] = r.SequenceNo

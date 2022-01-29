@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -838,8 +839,16 @@ func TestStandardControllers_View(t *testing.T) {
 		e.GET("/blogs/:"+paramName, controller, mw)
 		e.ServeHTTP(resp, req)
 
-		response := resp.Result()
-		defer response.Body.Close()
+		response, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("invalid response '%s'", err)
+		}
+		defer resp.Body.Reset()
+
+		//check that properties of the scehma are in the response even if it was not set in the event
+		if !strings.Contains(string(response), "title") {
+			t.Errorf("expected the response to have '%s' based on the schema, got '%s'", "title", string(response))
+		}
 
 		//confirm  the entity is retrieved to get entity id
 		if len(projection.GetByKeyCalls()) != 1 {
@@ -850,8 +859,8 @@ func TestStandardControllers_View(t *testing.T) {
 			t.Errorf("expected the event repository to be called %d time, called %d times", 1, len(eventRepository.GetByAggregateAndSequenceRangeCalls()))
 		}
 
-		if response.StatusCode != 200 {
-			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		if resp.Code != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, resp.Code)
 		}
 	})
 	t.Run("view with invalid sequence no", func(t *testing.T) {
