@@ -228,6 +228,15 @@ paths:
                     items:
                       $ref: "#/components/schemas/Blog"
   /blogs/{id}:
+    parameters:
+      - in: query
+        name: sequence_no
+        schema:
+          type: integer
+      - in: query
+        name: use_entity_id
+        schema:
+          type: boolean
     get:
       parameters:
         - in: path

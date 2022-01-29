@@ -360,70 +360,86 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 			identifiers[p] = newContext.Value(p)
 		}
 
-		sequence, _ := newContext.Value("sequence_no").(int)
-		etag, _ := newContext.Value("If-None-Match").(string)
-		entityID, _ := newContext.Value("use_entity_id").(bool)
-
-		result := map[string]interface{}{}
+		var result map[string]interface{}
 		var err error
+		var entityID string
+		var seq string
+		var ok bool
+		var seqInt int
 
-		//get by keys
-		if sequence == 0 && etag == "" && !entityID {
+		etag, _ := newContext.Value("If-None-Match").(string)
+		useEntity, _ := newContext.Value("use_entity_id").(bool)
+		seqInt, ok = newContext.Value("sequence_no").(int)
+		if !ok {
+			seq = newContext.Value("sequence_no").(string)
+			ctxt.Logger().Debugf("invalid sequence no ")
+		}
+
+		//if use_entity_id is not set then let's get the item by key
+		if !useEntity {
 			for _, projection := range app.Projections() {
 				if projection != nil {
 					result, err = projection.GetByKey(ctxt.Request().Context(), *cType, identifiers)
+				}
+			}
+		}
+		//if etag is set then let's use that info
+		if etag != "" {
+			entityID, seq = SplitEtag(etag)
+			seqInt, err = strconv.Atoi(seq)
+		}
+		//if a sequence no. was sent BUT it could not be converted to an integer then return an error
+		if seq != "" && seqInt == 0 {
+			return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
+		}
+		//if sequence no. was sent in the request but we don't have the entity let's get it from projection
+		if entityID == "" && seqInt != 0 {
+			entityID, ok = result["weos_id"].(string)
+			if !ok {
+				ctxt.Logger().Debugf("the item '%v' does not have an entity id stored", identifiers)
+			}
+		}
+
+		if useEntity && entityID == "" {
+			//get first identifier for the entity id
+			for _, i := range identifiers {
+				if entityID, ok = i.(string); ok && entityID != "" {
 					break
 				}
 			}
-		} else {
-			id := ""
+		}
 
-			//if etag given, get entity id and sequence number
-			if etag != "" {
-				tag, seq := SplitEtag(etag)
-				id = tag
-				sequence, err = strconv.Atoi(seq)
-				if err != nil {
-					return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
+		//use the entity id and sequence no. to get the entity if they were passed in
+		if entityID != "" {
+			//get the entity using the sequence no.
+			if seqInt != 0 {
+				//get the events up to the sequence
+				events, err := app.EventRepository().GetByAggregateAndSequenceRange(entityID, 0, int64(seqInt))
+				//create content entity
+				r, er := new(model.ContentEntity).FromSchemaWithEvents(ctxt.Request().Context(), contentTypeSchema.Value, events)
+				err = er
+				if r.SequenceNo == 0 {
+					return NewControllerError("No entity found", err, http.StatusNotFound)
 				}
-			}
-
-			//get entity_id from list of identifiers
-			if id == "" {
-				for _, i := range identifiers {
-					id, _ = i.(string)
-					if id != "" {
-						break
-					}
-					if v, ok := i.(int); ok {
-						id = strconv.Itoa(v)
-						break
-					}
-				}
-			}
-			//if sequence number given, get entity by sequence number
-			if sequence != 0 {
-				r, er := model.GetContentBySequenceNumber(app.EventRepository(), id, int64(sequence))
-				if r != nil && r.SequenceNo != 0 {
-					if r != nil && r.ID != "" {
-						result = r.Property.(map[string]interface{})
-					}
-					if err == nil && r.SequenceNo < int64(sequence) && r.ID != "" {
-						return ctxt.JSON(http.StatusNotModified, result)
-					}
+				if r != nil && r.ID != "" { //get the map from the entity
+					result = r.ToMap()
 				}
 				result["weos_id"] = r.ID
 				result["sequence_no"] = r.SequenceNo
 				err = er
+				if err == nil && r.SequenceNo < int64(seqInt) && etag != "" { //if the etag is set then let's return the header
+					return ctxt.JSON(http.StatusNotModified, r.Property)
+				}
 			} else {
 				//get entity by entity_id
 				for _, projection := range app.Projections() {
 					if projection != nil {
-						result, err = projection.GetByEntityID(ctxt.Request().Context(), *cType, id)
+						result, err = projection.GetByEntityID(ctxt.Request().Context(), *cType, entityID)
 					}
 				}
 			}
 		}
+
 		weos_id, ok := result["weos_id"].(string)
 		if errors.Is(err, gorm.ErrRecordNotFound) || (len(result) == 0) || !ok || weos_id == "" {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
