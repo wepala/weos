@@ -590,7 +590,7 @@ func theBinaryIsRunWithTheSpecification() error {
 		BindMounts:   map[string]string{binaryMount: binaryPath},
 		Entrypoint:   []string{binaryMount},
 		//Entrypoint: []string{"tail", "-f", "/dev/null"},
-		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
+		Env:        map[string]string{"WEOS_SPEC": openAPI},
 		WaitingFor: wait.ForLog("started"),
 	}
 	esContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
