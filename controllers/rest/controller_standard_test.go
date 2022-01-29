@@ -937,26 +937,31 @@ func TestStandardControllers_List(t *testing.T) {
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
 
-	dispatcher := &DispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command) error {
-			return nil
+	mockBlog := map[string]interface{}{"id": "123", "title": "my first blog", "description": "description"}
+	mockBlog1 := map[string]interface{}{"id": "1234", "title": "my first blog1", "description": "description1"}
+
+	array := []map[string]interface{}{}
+	array = append(array, mockBlog, mockBlog1)
+
+	mockProjection := &ProjectionMock{
+		GetContentEntitiesFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+			return array, 2, nil
 		},
 	}
-
 	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
-			return dispatcher
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{mockProjection}
 		},
 	}
 
 	//initialization will instantiate with application so we need to overwrite with our mock application
 	restAPI.Application = application
 
-	t.Run("Testing the generic list endpoint", func(t *testing.T) {
+	t.Run("Testing the generic list endpoint with parameters", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.List(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
 		e.GET("/blogs", controller, mw)
 		e.ServeHTTP(resp, req)
@@ -967,6 +972,33 @@ func TestStandardControllers_List(t *testing.T) {
 		if response.StatusCode != 200 {
 			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
 		}
+		//check response body is a list of content entities
+		var result rest.ListApiResponse
+		json.NewDecoder(response.Body).Decode(&result)
+		if len(result.Items) != 2 {
+			t.Fatal("expected entities found")
+		}
+		if result.Total != 2 {
+			t.Errorf("expected total to be %d got %d", 2, result.Total)
+		}
+		if result.Page != 1 {
+			t.Errorf("expected page to be %d got %d", 1, result.Page)
+		}
+		found := 0
+		for _, blog := range result.Items {
+			if blog["id"] == "123" && blog["title"] == "my first blog" && blog["description"] == "description" {
+				found++
+				continue
+			}
+			if blog["id"] == "1234" && blog["title"] == "my first blog1" && blog["description"] == "description1" {
+				found++
+				continue
+			}
+		}
+		if found != 2 {
+			t.Errorf("expected to find %d got %d", 2, found)
+		}
+
 	})
 }
 

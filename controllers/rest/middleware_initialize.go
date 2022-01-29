@@ -246,17 +246,19 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 				//check for identifiers
 				if identifiers != nil && len(identifiers) > 0 {
 					for _, identifier := range identifiers {
+						foundIdentifier := false
 						//check the parameters for the identifiers
 						for _, param := range pathData.Put.Parameters {
 							cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
 							if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+								foundIdentifier = true
 								break
 							}
-							if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
-								allParam = false
-								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-								return autoConfigure, nil
-							}
+						}
+						if !foundIdentifier {
+							allParam = false
+							e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+							return autoConfigure, nil
 						}
 					}
 					if allParam {
@@ -364,17 +366,19 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 					var contextName string
 					if identifiers != nil && len(identifiers) > 0 {
 						for _, identifier := range identifiers {
+							foundIdentifier := false
 							//check the parameters
 							for _, param := range pathData.Get.Parameters {
 								cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
 								if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+									foundIdentifier = true
 									break
 								}
-								if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
-									allParam = false
-									e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-									return autoConfigure, nil
-								}
+							}
+							if !foundIdentifier {
+								allParam = false
+								e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+								return autoConfigure, nil
 							}
 						}
 					}
