@@ -172,6 +172,15 @@ paths:
       summary: Get List of Blogs
       parameters:
         - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: l
+          x-alias: limit
+          schema:
+            type: integer
+        - in: query
           name: filters
           schema:
             type: array
@@ -228,6 +237,15 @@ paths:
                     items:
                       $ref: "#/components/schemas/Blog"
   /blogs/{id}:
+    parameters:
+      - in: query
+        name: sequence_no
+        schema:
+          type: integer
+      - in: query
+        name: use_entity_id
+        schema:
+          type: boolean
     get:
       parameters:
         - in: path

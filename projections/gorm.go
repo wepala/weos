@@ -419,6 +419,57 @@ func (p *GORMProjection) GetContentEntity(ctx context.Context, weosID string) (*
 	return newEntity, nil
 }
 
+//GetContentEntities returns a list of content entities as well as the total found
+func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+	var count int64
+	var result *gorm.DB
+	var schemes interface{}
+	contentType := weosContext.GetContentType(ctx)
+	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
+		schemes = s.Builder.Build().NewSliceOfStructs()
+		scheme := s.Builder.Build().New()
+
+		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+	}
+	bytes, err := json.Marshal(schemes)
+	if err != nil {
+		return nil, 0, err
+	}
+	var entities []map[string]interface{}
+	json.Unmarshal(bytes, &entities)
+	return entities, count, result.Error
+}
+
+//paginate to query results
+func paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		actualLimit := limit
+		actualPage := page
+		if actualLimit == 0 {
+			actualLimit = -1
+		}
+		if actualPage == 0 {
+			actualPage = 1
+		}
+		return db.Offset((page - 1) * limit).Limit(actualLimit)
+	}
+}
+
+// function that sorts the query results
+func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		for key, value := range order {
+			//only support certain values since GORM doesn't protect the order function https://gorm.io/docs/security.html#SQL-injection-Methods
+			if (value != "asc" && value != "desc" && value != "") || (key != "id") {
+				return db
+			}
+			db.Order(key + " " + value)
+		}
+
+		return db
+	}
+}
+
 //query modifier for making queries to the database
 type QueryModifier func() func(db *gorm.DB) *gorm.DB
 
@@ -441,7 +492,7 @@ func NewProjection(ctx context.Context, application weos.Service, schemas map[st
 				//https://github.com/go-gorm/gorm/issues/3585
 				return db
 			} else {
-				return db.Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no") })
+				return db.Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no, table") })
 			}
 		}
 	}

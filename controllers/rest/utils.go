@@ -207,7 +207,7 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 	if err != nil {
 		return nil, err
 	}
-	err = entity.ApplyChanges(events)
+	err = entity.ApplyEvents(events)
 	return entity, err
 }
 
