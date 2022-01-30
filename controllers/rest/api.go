@@ -227,13 +227,13 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 
 		err = api.AddConfig(config)
 		if err != nil {
-			e.Logger.Fatalf("error setting up module '%s", err)
+			e.Logger.Errorf("error setting up module '%s", err)
 			return e, err
 		}
 
 		err = api.Initialize()
 		if err != nil {
-			e.Logger.Fatalf("error initializing application '%s'", err)
+			e.Logger.Errorf("error initializing application '%s'", err)
 			return e, err
 		}
 

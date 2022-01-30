@@ -253,7 +253,6 @@ Feature: Remove field from content type
     And the service is reset
     Then a warning should be output to the logs telling the developer the property doesn't exist
   
-  @here
   Scenario: Remove a field that is an identifier
 
     It's fine to remove an identifier

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/jinzhu/inflection"
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
 	weos "github.com/wepala/weos/model"
@@ -113,7 +115,6 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 			p.logger.Errorf("unable to set the table name '%s'", err)
 			return err
 		}
-		tables = append(tables, instance)
 
 		dfs, _ := json.Marshal(s.Schema.Extensions["x-remove"])
 		deletedFields := []string{}
@@ -122,106 +123,190 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 		for i, f := range deletedFields {
 			deletedFields[i] = utils.SnakeCase(f)
 		}
-		for _, f := range deletedFields {
-			if p.db.Migrator().HasColumn(instance, f) {
-				err = p.db.Migrator().DropColumn(instance, f)
-				if err != nil {
-					p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
-					if p.db.Dialector.Name() != "sqlite" {
-						return err
-					}
-				}
-			} else {
-				p.logger.Errorf("unable to drop column %s from table %s.  property does not exist", f, name)
-			}
-		}
 
+		tables = append(tables, instance)
 		columns, err := p.db.Migrator().ColumnTypes(instance)
 		if err != nil {
 			p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
-		} else {
+		}
+		if len(columns) != 0 {
 			reader := ds.NewReader(instance)
 			readerFields := reader.GetAllFields()
 			jsonFields := []string{}
 			for _, r := range readerFields {
 				jsonFields = append(jsonFields, utils.SnakeCase(r.Name()))
 			}
-			//clear database constraints
-			deleted := len(deletedFields) != 0
-			if !deleted {
-				for _, c := range columns {
-					if !utils.Contains(jsonFields, c.Name()) {
-						deleted = true
-						break
+
+			builder := ds.ExtendStruct(instance)
+			for _, c := range columns {
+				if !utils.Contains(jsonFields, c.Name()) && !utils.Contains(deletedFields, c.Name()) {
+					if !utils.Contains(deletedFields, c.Name()) {
+						var val interface{}
+						dType := strings.ToLower(c.DatabaseTypeName())
+						jsonString := `json:"` + c.Name() + `"`
+						switch dType {
+						case "text", "varchar", "char", "longtext":
+							val = ""
+							jsonString += `gorm:"size:512"`
+						case "integer", "int8", "int", "smallint", "bigint":
+							val = 0
+						case "real", "float8", "numeric", "float4", "double", "decimal":
+							val = 0.0
+						case "bool", "boolean":
+							val = false
+						case "timetz", "timestamptz", "date", "datetime", "timestamp":
+							val = time.Time{}
+						}
+						builder.AddField(strings.Title(c.Name()), val, jsonString)
 					}
 				}
 			}
 
-			if deleted {
-				if p.db.Dialector.Name() == "sqlite" {
-					builder := ds.ExtendStruct(instance)
-					for _, c := range columns {
-						if !utils.Contains(jsonFields, c.Name()) && !utils.Contains(deletedFields, c.Name()) {
-							var val interface{}
-							deleted = true
-							dType := strings.ToLower(c.DatabaseTypeName())
-							switch dType {
-							case "text":
-								val = ""
-							case "integer":
-								val = 0
-							case "real":
-								val = 0.0
-							}
-							//make val type based on database type
-							builder.AddField(strings.Title(c.Name()), val, `json:"`+c.Name()+`"`)
-						}
-					}
-					b := builder.Build().New()
-					err := json.Unmarshal([]byte(`{
-						"table_alias": "temp"
+			constraintDeleted := false
+			var deleteConstraintError error
+			b := builder.Build().New()
+			json.Unmarshal([]byte(`{
+						"table_alias": "`+name+`"
 					}`), &b)
-					if err != nil {
-						p.logger.Errorf("unable to set the table name '%s'", err)
-						return err
-					}
-					err = p.db.Migrator().CreateTable(b)
-					if err != nil {
-						p.logger.Errorf("got error creating temporary table %s", err)
-						return err
-					}
-					tableVals := []map[string]interface{}{}
-					p.db.Table(name).Find(&tableVals)
-					if len(tableVals) != 0 {
-						db := p.db.Table("temp").Create(&tableVals)
-						if db.Error != nil {
-							p.logger.Errorf("got error transfering table values %s", db.Error)
+			currDBPK := []string{}
+
+			//get current primary keys
+			if p.db.Dialector.Name() == "mysql" {
+				db := p.db.Raw(fmt.Sprintf("SELECT COLUMN_NAME FROM %s WHERE TABLE_NAME = ? AND CONSTRAINT_NAME = ?", "INFORMATION_SCHEMA.KEY_COLUMN_USAGE"), name, "PRIMARY").Scan(&currDBPK)
+				if db.Error != nil {
+					p.logger.Errorf("got error getting primary keys for table '%s', %s", name, db.Error)
+					return err
+				}
+			} else if p.db.Dialector.Name() == "postgres" {
+				db := p.db.Raw(fmt.Sprintf(`SELECT c.column_name
+				FROM information_schema.table_constraints tc 
+				JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) 
+				JOIN information_schema.columns AS c ON c.table_schema = tc.constraint_schema
+				  AND tc.table_name = c.table_name AND ccu.column_name = c.column_name
+				WHERE constraint_type = 'PRIMARY KEY' and tc.table_name = '%s';
+				`, name)).Scan(&currDBPK)
+				if db.Error != nil {
+					p.logger.Errorf("got error getting primary keys for table '%s', %s", name, db.Error)
+					return err
+				}
+			}
+
+			//if column exists in table but not in new schema, alter column
+			for _, c := range columns {
+				if !utils.Contains(jsonFields, c.Name()) {
+					if p.db.Dialector.Name() == "sqlite" {
+						//cannot check for nullable in sqlite.  if we are unable to alter the field, remake table
+						deleteConstraintError = p.db.Migrator().AlterColumn(b, c.Name())
+						if deleteConstraintError != nil {
+							p.logger.Errorf("got error removing null column %s", deleteConstraintError)
+
+						}
+					} else {
+						if nullable, ok := c.Nullable(); ok {
+							if !nullable {
+								for _, keyString := range currDBPK {
+									//if primary key changed, remake table and relations
+									if strings.EqualFold(keyString, c.Name()) {
+										constraintDeleted = true
+										break
+									}
+								}
+								if !constraintDeleted {
+									//remove constraint
+									if p.db.Dialector.Name() == "mysql" {
+										//gorm tags being overwritten works for mysql
+										err = p.db.Debug().Migrator().AlterColumn(b, c.Name())
+										if err != nil {
+											p.logger.Errorf("got error removing null column %s", err)
+											return err
+										}
+									} else if p.db.Dialector.Name() == "postgres" {
+										//explicit constraint dropping for postgres
+										db := p.db.Debug().Exec(fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" DROP NOT NULL;`, name, c.Name()))
+										if db.Error != nil {
+											p.logger.Errorf("got error removing null column %s", db.Error)
+											return db.Error
+										}
+									}
+								}
+							}
 						}
 					}
 
-					err = p.db.Migrator().DropTable(name)
-					if err != nil {
-						p.logger.Errorf("got error dropping table%s", err)
-					}
-					err = p.db.Migrator().RenameTable("temp", name)
-					if err != nil {
-						p.logger.Errorf("got error renaming temporary table %s", err)
-					}
-				} else {
-					for _, c := range columns {
-						if !utils.Contains(jsonFields, c.Name()) && !utils.Contains(deletedFields, c.Name()) {
-							//remove constraints on field
-							db := p.db.Exec(fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s;", name, c.Name()))
-							if db.Error != nil {
-								p.logger.Error("got error altering column %s", db.Error)
-							}
+				}
+			}
+
+			//drop columns with x-remove tag
+			for _, f := range deletedFields {
+				if p.db.Migrator().HasColumn(instance, f) {
+					deleteConstraintError = p.db.Migrator().DropColumn(instance, f)
+					if deleteConstraintError != nil {
+						p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
+						if p.db.Dialector.Name() != "sqlite" {
+							return deleteConstraintError
 						}
 					}
+				} else {
+					p.logger.Errorf("unable to drop column %s from table %s.  property does not exist", f, name)
 				}
+			}
+
+			//remake table if primary key constraints are changed
+			if constraintDeleted || deleteConstraintError != nil {
+
+				//check if changing primary key affects relationship tables
+				tables, err := p.db.Migrator().GetTables()
+				if err != nil {
+					p.logger.Errorf("got error getting current tables %s", err)
+					return err
+				}
+
+				//check foreign keys
+				for _, t := range tables {
+					pluralName := strings.ToLower(inflection.Plural(name))
+
+					if strings.Contains(strings.ToLower(t), name+"_") || strings.Contains(t, "_"+pluralName) {
+						return weos.NewError(fmt.Sprintf("a relationship exists that uses constraints from table %s", name), fmt.Errorf("a relationship exists that uses constraints from table %s", name))
+					}
+				}
+
+				b := builder.Build().New()
+				err = json.Unmarshal([]byte(`{
+						"table_alias": "temp"
+					}`), &b)
+				if err != nil {
+					p.logger.Errorf("unable to set the table name '%s'", err)
+					return err
+				}
+				err = p.db.Migrator().CreateTable(b)
+				if err != nil {
+					p.logger.Errorf("got error creating temporary table %s", err)
+					return err
+				}
+				tableVals := []map[string]interface{}{}
+				p.db.Table(name).Find(&tableVals)
+				if len(tableVals) != 0 {
+					db := p.db.Table("temp").Create(&tableVals)
+					if db.Error != nil {
+						p.logger.Errorf("got error transfering table values %s", db.Error)
+						return err
+					}
+				}
+
+				err = p.db.Migrator().DropTable(name)
+				if err != nil {
+					p.logger.Errorf("got error dropping table%s", err)
+					return err
+				}
+				err = p.db.Migrator().RenameTable("temp", name)
+				if err != nil {
+					p.logger.Errorf("got error renaming temporary table %s", err)
+					return err
+				}
+
 			}
 		}
 	}
-
 	err = p.db.Migrator().AutoMigrate(tables...)
 	return err
 }

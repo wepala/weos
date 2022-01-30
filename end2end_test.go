@@ -943,10 +943,7 @@ func theServiceIsReset() error {
 	buf = bytes.Buffer{}
 	responseBody = make(map[string]interface{})
 	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
-	if err != nil {
-		return err
-	}
+	_, errs = api.Initialize(e, &API, openAPI)
 	return nil
 }
 
@@ -1099,7 +1096,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1125",
+			Tags:   "~skipped && ~long",
 			//Tags: "long",
 		},
 	}.Run()
