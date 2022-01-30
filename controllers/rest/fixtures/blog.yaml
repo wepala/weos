@@ -236,6 +236,18 @@ paths:
                     x-alias: items
                     items:
                       $ref: "#/components/schemas/Blog"
+    put:
+      operationId: Import blogs
+      requestBody:
+        content:
+          text/csv:
+            schema:
+              type: string
+              format: binary
+      responses:
+        201:
+          description: items created
+
   /blogs/{id}:
     parameters:
       - in: query

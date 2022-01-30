@@ -1,13 +1,16 @@
 package rest
 
 import (
+	"context"
+	"encoding/csv"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/segmentio/ksuid"
-	"github.com/wepala/weos/context"
+	context2 "github.com/wepala/weos/context"
 	logs "github.com/wepala/weos/log"
 	"github.com/wepala/weos/model"
+	"net/http"
 )
 
 //StandardMiddlewares receiver for all the standard middleware that WeOS provides
@@ -18,16 +21,15 @@ type StandardMiddlewares struct {
 func (m *StandardMiddlewares) RequestID(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			cc := c.(*context.Context)
-			req := cc.Request()
-			res := cc.Response()
-			rid := req.Header.Get(echo.HeaderXRequestID)
+			cc := c.Request().Context()
+			rid := c.Request().Header.Get(echo.HeaderXRequestID)
 			if rid == "" {
 				rid = ksuid.New().String()
 			}
-			res.Header().Set(echo.HeaderXRequestID, rid)
-
-			return next(cc.WithValue(cc, context.REQUEST_ID, rid))
+			c.Response().Header().Set(echo.HeaderXRequestID, rid)
+			request := c.Request().WithContext(context.WithValue(cc, context2.REQUEST_ID, rid))
+			c.SetRequest(request)
+			return next(c)
 		}
 	}
 }
@@ -48,8 +50,7 @@ func (m *StandardMiddlewares) ZapLogger(app model.Service, spec *openapi3.Swagge
 				c.Logger().Errorf("Unexpected error setting the context logger : %s", err)
 			}
 			c.SetLogger(zapLogger)
-			cc := c.(*context.Context)
-			return next(cc)
+			return next(c)
 		}
 	}
 }
@@ -57,5 +58,42 @@ func (m *StandardMiddlewares) ZapLogger(app model.Service, spec *openapi3.Swagge
 func (m *StandardMiddlewares) Logger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return middleware.Logger()(next)
+	}
+}
+
+//CSVUpload parse csv and add items as "_items" to context
+func (m *StandardMiddlewares) CSVUpload(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			var csvFile *csv.Reader
+			//if it's a csv file upload then use the body
+			if c.Request().Header.Get("content-type") == "text/csv" {
+				csvFile = csv.NewReader(c.Request().Body)
+			} else if c.Request().Header.Get("content-type") == "multipart/form-data" {
+				file, err := c.FormFile("_csv_upload")
+				if err != nil {
+					c.Logger().Debugf("Error retrieving upload file %s", err)
+					return NewControllerError("error with file upload", err, http.StatusBadRequest)
+				}
+				src, err := file.Open()
+				if err != nil {
+					c.Logger().Debugf("Error retrieving upload file %s", err)
+					return NewControllerError("error with file upload", err, http.StatusBadRequest)
+				}
+				defer src.Close()
+				csvFile = csv.NewReader(src)
+			}
+
+			records, err := csvFile.ReadAll()
+			if err != nil {
+				c.Logger().Debugf("Error reading csv file %s", err)
+				return NewControllerError("invalid csv", err, http.StatusBadRequest)
+			}
+
+			cc := context.WithValue(c.Request().Context(), "_items", records)
+			request := c.Request().WithContext(cc)
+			c.SetRequest(request)
+			return next(c)
+		}
 	}
 }
