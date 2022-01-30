@@ -17,6 +17,7 @@ type ContentEntity struct {
 	Schema   *openapi3.Schema
 	Property interface{}
 	reader   ds.Reader
+	builder  ds.Builder
 }
 
 //IsValid checks if the property is valid using the IsNull function
@@ -58,6 +59,16 @@ func (w *ContentEntity) IsNull(name string) bool {
 	return false
 }
 
+//FromSchemaAndBuilder the entity factor uses this to initialize the content entity
+func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.Schema, builder ds.Builder) (*ContentEntity, error) {
+	w.Schema = ref
+	w.builder = builder
+	w.Property = w.builder.Build().New()
+	w.reader = ds.NewReader(w.Property)
+	return w, nil
+}
+
+//Deprecated: this duplicates the work of making the dynamic struct builder. Use FromSchemaAndBuilder instead (this is used by the EntityFactory)
 //FromSchema builds properties from the schema
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
 	w.User.ID = weosContext.GetUser(ctx)

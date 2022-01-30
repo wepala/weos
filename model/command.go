@@ -25,19 +25,13 @@ type CommandMetadata struct {
 	AccountID     string
 }
 
-type Dispatcher interface {
-	Dispatch(ctx context.Context, command *Command) error
-	AddSubscriber(command *Command, handler CommandHandler) map[string][]CommandHandler
-	GetSubscribers() map[string][]CommandHandler
-}
-
 type DefaultCommandDispatcher struct {
 	handlers        map[string][]CommandHandler
 	handlerPanicked bool
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command) error {
+func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection) error {
 	//mutex helps keep state between routines
 	e.dispatch.Lock()
 	defer e.dispatch.Unlock()
@@ -63,7 +57,7 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 					}
 					wg.Done()
 				}()
-				err = handler(ctx, command)
+				err = handler(ctx, command, eventStore, projection)
 			}()
 		}
 
@@ -86,4 +80,4 @@ func (e *DefaultCommandDispatcher) GetSubscribers() map[string][]CommandHandler 
 	return e.handlers
 }
 
-type CommandHandler func(ctx context.Context, command *Command) error
+type CommandHandler func(ctx context.Context, command *Command, eventRepository EventRepository, projection Projection) error

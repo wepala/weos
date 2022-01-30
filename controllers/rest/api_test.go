@@ -3,6 +3,9 @@ package rest_test
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
+	"golang.org/x/net/context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -69,11 +72,22 @@ components:
 		if err != nil {
 			t.Errorf("unexpected error: '%s'", err)
 		}
-		err = tapi.Initialize()
+		err = tapi.Initialize(context.TODO())
 		if err != nil {
 			t.Fatalf("unexpected error initializing api '%s'", err)
 		}
-		if !tapi.Application.DB().Migrator().HasTable("Category") {
+		//check that the table was created on the default projection
+		var defaultProjection model.Projection
+		if defaultProjection, err = tapi.GetProjection("Default"); err != nil {
+			t.Fatalf("unexpected error getting default projection '%s'", err)
+		}
+		var ok bool
+		var defaultGormProject *projections.GORMProjection
+		if defaultGormProject, ok = defaultProjection.(*projections.GORMProjection); !ok {
+			t.Fatalf("unexpected error getting default projection '%s'", err)
+		}
+
+		if !defaultGormProject.DB().Migrator().HasTable("Category") {
 			t.Errorf("expected categories table to exist")
 		}
 	})
@@ -88,7 +102,7 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -117,7 +131,7 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -150,7 +164,7 @@ func TestRESTAPI_Initialize_HealthCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -179,7 +193,7 @@ func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -224,7 +238,7 @@ func TestRESTAPI_Initialize_UpdateAddedToPut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -252,7 +266,7 @@ func TestRESTAPI_Initialize_UpdateAddedToPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -280,7 +294,7 @@ func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -308,7 +322,7 @@ func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -321,4 +335,34 @@ func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
 		t.Errorf("expected the response code to be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
 	}
 	os.Remove("test.db")
+}
+
+func TestRESTAPI_RegisterCommandDispatcher(t *testing.T) {
+	tapi := &api.RESTAPI{}
+	tapi.RegisterCommandDispatcher("test", &model.DefaultCommandDispatcher{})
+	//get dispatcher
+	_, err := tapi.GetCommandDispatcher("test")
+	if err != nil {
+		t.Fatalf("unexpected error getting dispatcher '%s'", err)
+	}
+}
+
+func TestRESTAPI_RegisterEventDispatcher(t *testing.T) {
+	tapi := &api.RESTAPI{}
+	tapi.RegisterEventStore("test", &model.EventRepositoryGorm{})
+	//get dispatcher
+	_, err := tapi.GetEventStore("test")
+	if err != nil {
+		t.Fatalf("unexpected error getting dispatcher '%s'", err)
+	}
+}
+
+func TestRESTAPI_RegisterProjection(t *testing.T) {
+	tapi := &api.RESTAPI{}
+	tapi.RegisterProjection("test", &projections.GORMProjection{})
+	//get dispatcher
+	_, err := tapi.GetProjection("test")
+	if err != nil {
+		t.Fatalf("unexpected error getting projection '%s'", err)
+	}
 }

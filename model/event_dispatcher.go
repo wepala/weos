@@ -5,13 +5,13 @@ import (
 	"sync"
 )
 
-type EventDisptacher struct {
+type DefaultEventDisptacher struct {
 	handlers        []EventHandler
 	handlerPanicked bool
 	dispatch        sync.Mutex
 }
 
-func (e *EventDisptacher) Dispatch(ctx context.Context, event Event) {
+func (e *DefaultEventDisptacher) Dispatch(ctx context.Context, event Event) {
 	//mutex helps keep state between routines
 	e.dispatch.Lock()
 	defer e.dispatch.Unlock()
@@ -33,11 +33,11 @@ func (e *EventDisptacher) Dispatch(ctx context.Context, event Event) {
 	wg.Wait()
 }
 
-func (e *EventDisptacher) AddSubscriber(handler EventHandler) {
+func (e *DefaultEventDisptacher) AddSubscriber(handler EventHandler) {
 	e.handlers = append(e.handlers, handler)
 }
 
-func (e *EventDisptacher) GetSubscribers() []EventHandler {
+func (e *DefaultEventDisptacher) GetSubscribers() []EventHandler {
 	return e.handlers
 }
 

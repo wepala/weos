@@ -14,7 +14,7 @@ import (
 	"golang.org/x/net/context"
 )
 
-//Context Create go context and add parameter values to context
+//Context CreateHandler go context and add parameter values to context
 func Context(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {

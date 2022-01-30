@@ -6,8 +6,10 @@ package rest_test
 import (
 	"context"
 	"database/sql"
+	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
 	weos "github.com/wepala/weos/model"
+	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -422,7 +424,7 @@ func (mock *EventRepositoryMock) GetSubscribersCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *EventRepositoryMock) Migrate(ctx context.Context) error {
+func (mock *EventRepositoryMock) Migrate(ctx context2.Context) error {
 	if mock.MigrateFunc == nil {
 		panic("EventRepositoryMock.MigrateFunc: method is nil but EventRepository.Migrate was just called")
 	}
@@ -1061,15 +1063,15 @@ func (mock *LogMock) PrintfCalls() []struct {
 	return calls
 }
 
-// Ensure, that DispatcherMock does implement weos.Dispatcher.
+// Ensure, that DispatcherMock does implement weos.CommandDispatcher.
 // If this is not the case, regenerate this file with moq.
-var _ weos.Dispatcher = &DispatcherMock{}
+var _ weos.CommandDispatcher = &DispatcherMock{}
 
-// DispatcherMock is a mock implementation of weos.Dispatcher.
+// DispatcherMock is a mock implementation of weos.CommandDispatcher.
 //
 //     func TestSomethingThatUsesDispatcher(t *testing.T) {
 //
-//         // make and configure a mocked weos.Dispatcher
+//         // make and configure a mocked weos.CommandDispatcher
 //         mockedDispatcher := &DispatcherMock{
 //             AddSubscriberFunc: func(command *weos.Command, handler weos.CommandHandler) map[string][]weos.CommandHandler {
 // 	               panic("mock out the AddSubscriber method")
@@ -1082,7 +1084,7 @@ var _ weos.Dispatcher = &DispatcherMock{}
 //             },
 //         }
 //
-//         // use mockedDispatcher in code that requires weos.Dispatcher
+//         // use mockedDispatcher in code that requires weos.CommandDispatcher
 //         // and then make assertions.
 //
 //     }
@@ -1124,7 +1126,7 @@ type DispatcherMock struct {
 // AddSubscriber calls AddSubscriberFunc.
 func (mock *DispatcherMock) AddSubscriber(command *weos.Command, handler weos.CommandHandler) map[string][]weos.CommandHandler {
 	if mock.AddSubscriberFunc == nil {
-		panic("DispatcherMock.AddSubscriberFunc: method is nil but Dispatcher.AddSubscriber was just called")
+		panic("DispatcherMock.AddSubscriberFunc: method is nil but CommandDispatcher.AddSubscriber was just called")
 	}
 	callInfo := struct {
 		Command *weos.Command
@@ -1157,9 +1159,9 @@ func (mock *DispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *DispatcherMock) Dispatch(ctx context.Context, command *weos.Command) error {
+func (mock *DispatcherMock) Dispatch(ctx context2.Context, command *weos.Command, eventStore weos.EventRepository, projection weos.Projection) error {
 	if mock.DispatchFunc == nil {
-		panic("DispatcherMock.DispatchFunc: method is nil but Dispatcher.Dispatch was just called")
+		panic("DispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
@@ -1194,7 +1196,7 @@ func (mock *DispatcherMock) DispatchCalls() []struct {
 // GetSubscribers calls GetSubscribersFunc.
 func (mock *DispatcherMock) GetSubscribers() map[string][]weos.CommandHandler {
 	if mock.GetSubscribersFunc == nil {
-		panic("DispatcherMock.GetSubscribersFunc: method is nil but Dispatcher.GetSubscribers was just called")
+		panic("DispatcherMock.GetSubscribersFunc: method is nil but CommandDispatcher.GetSubscribers was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1239,8 +1241,8 @@ var _ weos.Service = &ApplicationMock{}
 //             DBConnectionFunc: func() *sql.DB {
 // 	               panic("mock out the DBConnection method")
 //             },
-//             DispatcherFunc: func() weos.Dispatcher {
-// 	               panic("mock out the Dispatcher method")
+//             DispatcherFunc: func() weos.CommandDispatcher {
+// 	               panic("mock out the CommandDispatcher method")
 //             },
 //             EventRepositoryFunc: func() weos.EventRepository {
 // 	               panic("mock out the EventRepository method")
@@ -1282,8 +1284,8 @@ type ApplicationMock struct {
 	// DBConnectionFunc mocks the DBConnection method.
 	DBConnectionFunc func() *sql.DB
 
-	// DispatcherFunc mocks the Dispatcher method.
-	DispatcherFunc func() weos.Dispatcher
+	// DispatcherFunc mocks the CommandDispatcher method.
+	DispatcherFunc func() weos.CommandDispatcher
 
 	// EventRepositoryFunc mocks the EventRepository method.
 	EventRepositoryFunc func() weos.EventRepository
@@ -1322,7 +1324,7 @@ type ApplicationMock struct {
 		// DBConnection holds details about calls to the DBConnection method.
 		DBConnection []struct {
 		}
-		// Dispatcher holds details about calls to the Dispatcher method.
+		// CommandDispatcher holds details about calls to the CommandDispatcher method.
 		Dispatcher []struct {
 		}
 		// EventRepository holds details about calls to the EventRepository method.
@@ -1472,10 +1474,10 @@ func (mock *ApplicationMock) DBConnectionCalls() []struct {
 	return calls
 }
 
-// Dispatcher calls DispatcherFunc.
-func (mock *ApplicationMock) Dispatcher() weos.Dispatcher {
+// CommandDispatcher calls DispatcherFunc.
+func (mock *ApplicationMock) Dispatcher() weos.CommandDispatcher {
 	if mock.DispatcherFunc == nil {
-		panic("ApplicationMock.DispatcherFunc: method is nil but Service.Dispatcher was just called")
+		panic("ApplicationMock.DispatcherFunc: method is nil but Service.CommandDispatcher was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1485,7 +1487,7 @@ func (mock *ApplicationMock) Dispatcher() weos.Dispatcher {
 	return mock.DispatcherFunc()
 }
 
-// DispatcherCalls gets all the calls that were made to Dispatcher.
+// DispatcherCalls gets all the calls that were made to CommandDispatcher.
 // Check the length with:
 //     len(mockedApplication.DispatcherCalls())
 func (mock *ApplicationMock) DispatcherCalls() []struct {
@@ -1603,7 +1605,7 @@ func (mock *ApplicationMock) LoggerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ApplicationMock) Migrate(ctx context.Context) error {
+func (mock *ApplicationMock) Migrate(ctx context2.Context, builders map[string]ds.Builder) error {
 	if mock.MigrateFunc == nil {
 		panic("ApplicationMock.MigrateFunc: method is nil but Service.Migrate was just called")
 	}
@@ -1988,7 +1990,7 @@ func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ProjectionMock) Migrate(ctx context.Context) error {
+func (mock *ProjectionMock) Migrate(ctx context2.Context, builders map[string]ds.Builder) error {
 	if mock.MigrateFunc == nil {
 		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
 	}

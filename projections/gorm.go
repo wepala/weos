@@ -21,6 +21,10 @@ type GORMProjection struct {
 	Schema          map[string]ds.Builder
 }
 
+func (p *GORMProjection) DB() *gorm.DB {
+	return p.db
+}
+
 func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
 		//pulling the primary keys from the schema in order to match with the keys given for searching
@@ -96,12 +100,12 @@ func (p *GORMProjection) Remove(entities []weos.Entity) error {
 	return nil
 }
 
-func (p *GORMProjection) Migrate(ctx context.Context) error {
+func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Builder) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	var err error
 	var tables []interface{}
-	for name, s := range p.Schema {
+	for name, s := range builders {
 		f := s.GetField("Table")
 		f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
 		instance := s.Build().New()
@@ -123,15 +127,16 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) {
 		switch event.Type {
 		case "create":
-			contentType := weosContext.GetContentType(ctx)
+			entityFactory := weos.GetEntityFactory(ctx)
 			//using the schema ensures no nested fields are left out in creation
-			payload, ok := p.Schema[strings.Title(contentType.Name)]
-			if !ok {
-				p.logger.Errorf("found no content type %s", contentType.Name)
-			} else {
-				eventPayload := payload.Build().New()
-				mapPayload := map[string]interface{}{}
-				err := json.Unmarshal(event.Payload, &mapPayload)
+			if entityFactory != nil {
+				entity, err := entityFactory.NewEntity(ctx)
+				if err != nil {
+					p.logger.Errorf("error get a copy of the entity '%s'", err)
+				}
+				eventPayload := entity.Property
+				mapPayload := entity.ToMap()
+				err = json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
@@ -142,20 +147,21 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
-				db := p.db.Table(contentType.Name).Create(eventPayload)
+				db := p.db.Table(entityFactory.Name()).Create(eventPayload)
 				if db.Error != nil {
-					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 				}
 			}
 		case "update":
-			contentType := weosContext.GetContentType(ctx)
-			payload, ok := p.Schema[strings.Title(contentType.Name)]
-			mapPayload := map[string]interface{}{}
-			if !ok {
-				p.logger.Errorf("found no content type %s", contentType.Name)
-			} else {
-				eventPayload := payload.Build().New()
-				err := json.Unmarshal(event.Payload, &mapPayload)
+			entityFactory := weos.GetEntityFactory(ctx)
+			if entityFactory != nil {
+				entity, err := entityFactory.NewEntity(ctx)
+				if err != nil {
+					p.logger.Errorf("error creating entity '%s'", err)
+				}
+				eventPayload := entity.Property
+				mapPayload := entity.ToMap()
+				err = json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
@@ -178,15 +184,15 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 						field := reader.GetField(strings.Title(key))
 						err = p.db.Model(eventPayload).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
-							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), contentType.Name, err)
+							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
 						}
 					}
 				}
 
 				//update database value
-				db := p.db.Table(contentType.Name).Updates(eventPayload)
+				db := p.db.Table(entityFactory.Name()).Updates(eventPayload)
 				if db.Error != nil {
-					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
+					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 				}
 			}
 
@@ -284,14 +290,12 @@ type QueryModifier func() func(db *gorm.DB) *gorm.DB
 var ContentQuery QueryModifier
 
 //NewProjection creates an instance of the projection
-func NewProjection(ctx context.Context, application weos.Service, schemas map[string]ds.Builder) (*GORMProjection, error) {
+func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProjection, error) {
 
 	projection := &GORMProjection{
-		db:     application.DB(),
-		logger: application.Logger(),
-		Schema: schemas,
+		db:     db,
+		logger: logger,
 	}
-	application.AddProjection(projection)
 
 	ContentQuery = func() func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {

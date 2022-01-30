@@ -124,7 +124,7 @@ components:
 	API = *tapi
 	e = API.EchoInstance()
 	e.Logger.SetOutput(&buf)
-	err = tapi.Initialize()
+	err = tapi.Initialize(nil)
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
@@ -496,7 +496,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	err = API.Initialize()
+	err = API.Initialize(nil)
 	if err != nil {
 		return err
 	}
@@ -657,7 +657,7 @@ func theServiceIsRunning() error {
 	tapi, err := api.New(openAPI)
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
-	err = API.Initialize()
+	err = API.Initialize(nil)
 	if err != nil {
 		return err
 	}

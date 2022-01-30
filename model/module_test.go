@@ -3,6 +3,7 @@ package model_test
 import (
 	"database/sql"
 	_ "github.com/proullon/ramsql/driver"
+	"github.com/wepala/weos/controllers/rest"
 	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"os"
@@ -109,12 +110,13 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 			},
 		}
 
-		app, err := weos.NewApplicationFromConfig(sqliteConfig, nil, nil, nil, &EventRepositoryMock{})
+		api := &rest.RESTAPI{}
+		db, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
 		if err != nil {
-			t.Fatalf("error encountered setting up app '%s'", err)
+			t.Fatalf("unexpected error getting connection '%s'", err)
 		}
 
-		if app.DBConnection().Ping() != nil {
+		if db.Ping() != nil {
 			t.Errorf("didn't expect errors pinging the database")
 		}
 
@@ -141,12 +143,13 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 			},
 		}
 
-		app, err := weos.NewApplicationFromConfig(sqliteConfig, nil, nil, nil, &EventRepositoryMock{})
+		api := &rest.RESTAPI{}
+		db, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
 		if err != nil {
-			t.Fatalf("error encountered setting up app '%s'", err)
+			t.Fatalf("unexpected error getting connection '%s'", err)
 		}
 
-		if app.DBConnection().Ping() != nil {
+		if db.Ping() != nil {
 			t.Errorf("didn't expect errors pinging the database")
 		}
 
@@ -178,12 +181,13 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 			},
 		}
 
-		app, err := weos.NewApplicationFromConfig(sqliteConfig, nil, nil, nil, &EventRepositoryMock{})
+		api := &rest.RESTAPI{}
+		db, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
 		if err != nil {
-			t.Fatalf("error encountered setting up app '%s'", err)
+			t.Fatalf("unexpected error getting connection '%s'", err)
 		}
 
-		if app.DBConnection().Ping() != nil {
+		if db.Ping() != nil {
 			t.Errorf("didn't expect errors pinging the database")
 		}
 
@@ -191,6 +195,7 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 }
 
 func TestWeOSApp_AddProjection(t *testing.T) {
+	t.Skip("use of application object is deprecated")
 	config := &weos.ServiceConfig{
 		ModuleID:  "1iPwGftUqaP4rkWdvFp6BBW2tOf",
 		Title:     "Test Module",
@@ -237,7 +242,7 @@ func TestWeOSApp_AddProjection(t *testing.T) {
 		t.Fatalf("unexpected error occured setting up projection '%s'", err)
 	}
 
-	err = app.Migrate(context.TODO())
+	err = app.Migrate(context.TODO(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error running migrations '%s'", err)
 	}

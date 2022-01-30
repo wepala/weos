@@ -2,9 +2,22 @@ package model
 
 //go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
 import (
+	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
+
+type CommandDispatcher interface {
+	Dispatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection) error
+	AddSubscriber(command *Command, handler CommandHandler) map[string][]CommandHandler
+	GetSubscribers() map[string][]CommandHandler
+}
+
+type EventDispatcher interface {
+	AddSubscriber(handler EventHandler)
+	GetSubscribers() []EventHandler
+	Dispatch(ctx context.Context, event Event)
+}
 
 type WeOSEntity interface {
 	Entity
@@ -41,7 +54,7 @@ type UnitOfWorkRepository interface {
 
 type EventRepository interface {
 	UnitOfWorkRepository
-	Datastore
+	Migrate(ctx context.Context) error
 	Persist(ctxt context.Context, entity AggregateInterface) error
 	GetByAggregate(ID string) ([]*Event, error)
 	//GetByEntityAndAggregate returns events by entity id and type withing the context of the root aggregate
@@ -59,7 +72,7 @@ type EventRepository interface {
 }
 
 type Datastore interface {
-	Migrate(ctx context.Context) error
+	Migrate(ctx context.Context, builders map[string]ds.Builder) error
 }
 
 type Projection interface {

@@ -4,24 +4,13 @@ package model
 
 import (
 	"database/sql"
-	"errors"
-	"fmt"
-	"github.com/wepala/weos/projections/dialects"
-	"gorm.io/driver/sqlite"
+	ds "github.com/ompluscator/dynamic-struct"
 	"net/http"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
-	"gorm.io/driver/clickhouse"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
 
@@ -66,13 +55,15 @@ type Service interface {
 	Logger() Log
 	AddProjection(projection Projection) error
 	Projections() []Projection
-	Migrate(ctx context.Context) error
+	Migrate(ctx context.Context, builders map[string]ds.Builder) error
 	Config() *ServiceConfig
 	EventRepository() EventRepository
 	HTTPClient() *http.Client
-	Dispatcher() Dispatcher
+	Dispatcher() CommandDispatcher
 }
 
+//Deprecated: 01/30/2022 Removing this in favor of instantiating things during initialize and then passing by injecting
+//them into the routes.
 //Module is the core of the WeOS framework. It has a config, command handler and basic metadata as a default.
 //This is a basic implementation and can be overwritten to include a db connection, httpCLient etc.
 type BaseService struct {
@@ -85,7 +76,7 @@ type BaseService struct {
 	projections     []Projection
 	eventRepository EventRepository
 	httpClient      *http.Client
-	dispatcher      Dispatcher
+	dispatcher      CommandDispatcher
 }
 
 func (w *BaseService) Logger() Log {
@@ -124,10 +115,10 @@ func (w *BaseService) DB() *gorm.DB {
 	return w.db
 }
 
-func (w *BaseService) Migrate(ctx context.Context) error {
+func (w *BaseService) Migrate(ctx context.Context, builders map[string]ds.Builder) error {
 	w.logger.Infof("preparing to migrate %d projections", len(w.projections))
 	for _, projection := range w.projections {
-		err := projection.Migrate(ctx)
+		err := projection.Migrate(ctx, nil)
 		if err != nil {
 			return err
 		}
@@ -149,153 +140,12 @@ func (w *BaseService) HTTPClient() *http.Client {
 	return w.httpClient
 }
 
-func (w *BaseService) Dispatcher() Dispatcher {
+func (w *BaseService) Dispatcher() CommandDispatcher {
 	return w.dispatcher
 }
 
+//Deprecated: Dependency injection is used so that there no longer is a need to create a struct that holds the api information
 var NewApplicationFromConfig = func(config *ServiceConfig, logger Log, db *sql.DB, client *http.Client, eventRepository EventRepository) (*BaseService, error) {
-
-	var err error
-
-	if logger == nil {
-		//	if config.Log.Level != "" {
-		//		switch config.Log.Level {
-		//		case "debug":
-		//			log.SetLevel(log.DebugLevel)
-		//			break
-		//		case "fatal":
-		//			log.SetLevel(log.FatalLevel)
-		//			break
-		//		case "error":
-		//			log.SetLevel(log.ErrorLevel)
-		//			break
-		//		case "warn":
-		//			log.SetLevel(log.WarnLevel)
-		//			break
-		//		case "info":
-		//			log.SetLevel(log.InfoLevel)
-		//			break
-		//		case "trace":
-		//			log.SetLevel(log.TraceLevel)
-		//			break
-		//		}
-		//	}
-		//
-		//	if config.Log.Formatter == "json" {
-		//		log.SetFormatter(&log.JSONFormatter{})
-		//	}
-		//
-		//	if config.Log.Formatter == "text" {
-		//		log.SetFormatter(&log.TextFormatter{})
-		//	}
-		//
-		//	log.SetReportCaller(config.Log.ReportCaller)
-		//
-		logger = log.New()
-	}
-
-	if db == nil && config.Database != nil {
-		var connStr string
-
-		switch config.Database.Driver {
-		case "sqlite3":
-			//check if file exists and if not create it. We only do this if a memory only db is NOT asked for
-			//(Note that if it's a combination we go ahead and create the file) https://www.sqlite.org/inmemorydb.html
-			if config.Database.Database != ":memory:" {
-				if _, err = os.Stat(config.Database.Database); os.IsNotExist(err) {
-					_, err = os.Create(strings.Replace(config.Database.Database, ":memory:", "", -1))
-					if err != nil {
-						return nil, NewError(fmt.Sprintf("error creating sqlite database '%s'", config.Database.Database), err)
-					}
-				}
-			}
-
-			connStr = fmt.Sprintf("%s",
-				config.Database.Database)
-
-			//update connection string to include authentication IF a username is set
-			if config.Database.User != "" {
-				authenticationString := fmt.Sprintf("?_auth&_auth_user=%s&_auth_pass=%s&_auth_crypt=sha512&_foreign_keys=on",
-					config.Database.User, config.Database.Password)
-				connStr = connStr + authenticationString
-			} else {
-				connStr = connStr + "?_foreign_keys=on"
-			}
-			log.Debugf("sqlite connection string '%s'", connStr)
-		case "sqlserver":
-			connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%s/%s",
-				config.Database.User, config.Database.Password, config.Database.Host, strconv.Itoa(config.Database.Port), config.Database.Database)
-		case "ramsql":
-			connStr = "Testing"
-		case "mysql":
-			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=true",
-				config.Database.User, config.Database.Password, config.Database.Host, strconv.Itoa(config.Database.Port), config.Database.Database)
-		case "clickhouse":
-			connStr = fmt.Sprintf("tcp://%s:%s?username=%s&password=%s&database=%s",
-				config.Database.Host, strconv.Itoa(config.Database.Port), config.Database.User, config.Database.Password, config.Database.Database)
-		case "postgres":
-			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-				config.Database.Host, strconv.Itoa(config.Database.Port), config.Database.User, config.Database.Password, config.Database.Database)
-		default:
-			return nil, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Database.Driver))
-		}
-
-		db, err = sql.Open(config.Database.Driver, connStr)
-		if err != nil {
-			logger.Errorf("connection string '%s'", connStr)
-			return nil, NewError(fmt.Sprintf("error setting up connection to database '%s' with connection '%s'", err, connStr), err)
-		}
-
-		db.SetMaxOpenConns(config.Database.MaxOpen)
-		db.SetMaxIdleConns(config.Database.MaxIdle)
-
-	}
-
-	//setup gorm connection
-	var gormDB *gorm.DB
-	switch config.Database.Driver {
-	case "postgres":
-		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
-			Conn: db,
-		}), nil)
-		if err != nil {
-			return nil, err
-		}
-	case "sqlite3":
-		gormDB, err = gorm.Open(&dialects.SQLite{
-			sqlite.Dialector{
-				Conn: db,
-			},
-		}, nil)
-		if err != nil {
-			return nil, err
-		}
-	case "mysql":
-		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
-			Conn: db,
-		}), nil)
-		if err != nil {
-			return nil, err
-		}
-	case "ramsql": //this is for testing
-		gormDB = &gorm.DB{}
-	case "sqlserver":
-		gormDB, err = gorm.Open(sqlserver.New(sqlserver.Config{
-			Conn: db,
-		}), nil)
-		if err != nil {
-			return nil, err
-		}
-	case "clickhouse":
-		gormDB, err = gorm.Open(clickhouse.New(clickhouse.Config{
-			Conn: db,
-		}), nil)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		return nil, errors.New(fmt.Sprintf("we don't support database driver '%s'", config.Database.Driver))
-	}
 
 	if client == nil {
 		client = &http.Client{
@@ -303,19 +153,18 @@ var NewApplicationFromConfig = func(config *ServiceConfig, logger Log, db *sql.D
 		}
 	}
 
-	if eventRepository == nil {
-		eventRepository, err = NewBasicEventRepository(gormDB, logger, false, config.AccountID, config.ApplicationID)
-		if err != nil {
-			return nil, err
-		}
-	}
+	//if eventRepository == nil {
+	//	eventRepository, err = NewBasicEventRepository(gormDB, logger, false, config.AccountID, config.ApplicationID)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//}
 
 	return &BaseService{
 		id:              config.ModuleID,
 		title:           config.Title,
 		logger:          logger,
 		dbConnection:    db,
-		db:              gormDB,
 		config:          config,
 		httpClient:      client,
 		eventRepository: eventRepository,

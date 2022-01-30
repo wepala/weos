@@ -4,13 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/labstack/echo/v4/middleware"
-	"io/ioutil"
+	"github.com/wepala/weos/projections/dialects"
+	"gorm.io/driver/clickhouse"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/driver/sqlserver"
+	"gorm.io/gorm"
 	"net/http"
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,18 +34,21 @@ import (
 type RESTAPI struct {
 	*StandardMiddlewares
 	*StandardControllers
-	Application model.Service
-	Log         model.Log
-	DB          *sql.DB
-	Client      *http.Client
-	projection  *projections.GORMProjection
-	config      *APIConfig
-	e           *echo.Echo
-	PathConfigs map[string]*PathConfig
-	Schemas     map[string]ds.Builder
-	Swagger     *openapi3.Swagger
-	middlewares map[string]Middleware
-	controllers map[string]Controller
+	Application        model.Service
+	Log                model.Log
+	DB                 *sql.DB
+	Client             *http.Client
+	projection         *projections.GORMProjection
+	config             *APIConfig
+	e                  *echo.Echo
+	PathConfigs        map[string]*PathConfig
+	Schemas            map[string]ds.Builder
+	Swagger            *openapi3.Swagger
+	middlewares        map[string]Middleware
+	controllers        map[string]Controller
+	eventStores        map[string]model.EventRepository
+	commandDispatchers map[string]model.CommandDispatcher
+	projections        map[string]projections.Projection
 }
 
 type schema struct {
@@ -51,7 +62,7 @@ type schema struct {
 type APIInterface interface {
 	AddPathConfig(path string, config *PathConfig) error
 	AddConfig(config *APIConfig) error
-	Initialize() error
+	Initialize(ctxt context.Context) error
 	EchoInstance() *echo.Echo
 	SetEchoInstance(e *echo.Echo)
 }
@@ -93,8 +104,36 @@ func (p *RESTAPI) RegisterController(name string, controller Controller) {
 	p.controllers[name] = controller
 }
 
+//RegisterEventStore Add event store so that it can be referenced in the OpenAPI spec
+func (p *RESTAPI) RegisterEventStore(name string, dispatcher model.EventRepository) {
+	if p.eventStores == nil {
+		p.eventStores = make(map[string]model.EventRepository)
+	}
+	p.eventStores[name] = dispatcher
+}
+
+//RegisterCommandDispatcher Add command dispatcher so that it can be referenced in the OpenAPI spec
+func (p *RESTAPI) RegisterCommandDispatcher(name string, dispatcher model.CommandDispatcher) {
+	if p.commandDispatchers == nil {
+		p.commandDispatchers = make(map[string]model.CommandDispatcher)
+	}
+	p.commandDispatchers[name] = dispatcher
+}
+
+//RegisterProjection Add command dispatcher so that it can be referenced in the OpenAPI spec
+func (p *RESTAPI) RegisterProjection(name string, projection projections.Projection) {
+	if p.projections == nil {
+		p.projections = make(map[string]projections.Projection)
+	}
+	p.projections[name] = projection
+}
+
 //GetMiddleware get middleware by name
 func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
+	if tmiddleware, ok := p.middlewares[name]; ok {
+		return tmiddleware, nil
+	}
+
 	//use reflection to check if the middleware is already on the API
 	t := reflect.ValueOf(p)
 	tmiddleware := t.MethodByName(name)
@@ -103,15 +142,15 @@ func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 		return tmiddleware.Interface().(func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.MiddlewareFunc), nil
 	}
 
-	if tmiddleware, ok := p.middlewares[name]; ok {
-		return tmiddleware, nil
-	}
-
 	return nil, fmt.Errorf("middleware '%s' not found", name)
 }
 
 //GetController get controller by name
 func (p *RESTAPI) GetController(name string) (Controller, error) {
+	if tcontroller, ok := p.controllers[name]; ok {
+		return tcontroller, nil
+	}
+
 	//use reflection to check if the middleware is already on the API
 	t := reflect.ValueOf(p)
 	tcontroller := t.MethodByName(name)
@@ -120,11 +159,31 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 		return tcontroller.Interface().(func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.HandlerFunc), nil
 	}
 
-	if tcontroller, ok := p.controllers[name]; ok {
-		return tcontroller, nil
-	}
-
 	return nil, fmt.Errorf("controller '%s' not found", name)
+}
+
+//GetEventStore get event dispatcher by name
+func (p *RESTAPI) GetEventStore(name string) (model.EventRepository, error) {
+	if tdispatcher, ok := p.eventStores[name]; ok {
+		return tdispatcher, nil
+	}
+	return nil, fmt.Errorf("event disptacher '%s' not found", name)
+}
+
+//GetCommandDispatcher get event dispatcher by name
+func (p *RESTAPI) GetCommandDispatcher(name string) (model.CommandDispatcher, error) {
+	if tdispatcher, ok := p.commandDispatchers[name]; ok {
+		return tdispatcher, nil
+	}
+	return nil, fmt.Errorf("command disptacher '%s' not found", name)
+}
+
+//GetProjection get event dispatcher by name
+func (p *RESTAPI) GetProjection(name string) (projections.Projection, error) {
+	if tdispatcher, ok := p.projections[name]; ok {
+		return tdispatcher, nil
+	}
+	return nil, fmt.Errorf("projection '%s' not found", name)
 }
 
 func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
@@ -136,7 +195,56 @@ func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 }
 
 //Initialize and setup configurations for RESTAPI
-func (p *RESTAPI) Initialize() error {
+func (p *RESTAPI) Initialize(ctxt context.Context) error {
+	if p.config != nil && p.config.Database != nil {
+		//setup default projection
+		var gormDB *gorm.DB
+		var err error
+
+		p.DB, gormDB, err = p.SQLConnectionFromConfig(p.config.Database)
+		if err != nil {
+			return err
+		}
+
+		//setup default projection if gormDB is configured
+		if gormDB != nil {
+			defaultProjection, err := projections.NewProjection(ctxt, gormDB, p.EchoInstance().Logger)
+			if err != nil {
+				return err
+			}
+			p.RegisterProjection("Default", defaultProjection)
+			//get the database schema
+			schemas := CreateSchema(context.Background(), p.EchoInstance(), p.Swagger)
+			err = defaultProjection.Migrate(ctxt, schemas)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	//setup default event store if there isn't already one
+	if _, err := p.GetEventStore("Default"); err != nil {
+		//if there is a projection then add the event handler as a subscriber to the event store
+		if defaultProjection, err := p.GetProjection("Default"); err == nil {
+			//only setup the gorm event repository if it's a gorm projection
+			if gormProjection, ok := defaultProjection.(*projections.GORMProjection); ok {
+				defaultEventStore, err := model.NewBasicEventRepository(gormProjection.DB(), p.EchoInstance().Logger, false, "", "")
+				if err != nil {
+					return err
+				}
+				defaultEventStore.AddSubscriber(defaultProjection.GetEventHandler())
+				p.RegisterEventStore("Default", defaultEventStore)
+			}
+		}
+	}
+
+	//setup command dispatcher
+	if _, err := p.GetCommandDispatcher("Default"); err != nil {
+		defaultCommandDispatcher := &model.DefaultCommandDispatcher{}
+		//setup default commands
+		defaultCommandDispatcher.AddSubscriber(model.Create(context.Background(), nil, "", ""), model.CreateHandler)
+		//defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), receiver.CreateBatch)
+		//defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), receiver.Update)
+	}
 
 	//setup middleware  - https://echo.labstack.com/middleware/
 
@@ -166,34 +274,11 @@ func (p *RESTAPI) Initialize() error {
 	//all routes setup after this will use this middleware
 	p.e.Use(middlewares...)
 
-	var err error
 	//initialize app
 	if p.Client == nil {
 		p.Client = &http.Client{
 			Timeout: time.Second * 10,
 		}
-	}
-	p.Application, err = model.NewApplicationFromConfig(p.config.ServiceConfig, p.Log, p.DB, p.Client, nil)
-	if err != nil {
-		return err
-	}
-
-	//setup projections
-	p.projection, err = projections.NewProjection(context.Background(), p.Application, p.Schemas)
-	if err != nil {
-		return err
-	}
-
-	//enable module
-	err = model.Initialize(p.Application)
-	if err != nil {
-		return err
-	}
-
-	//run fixtures
-	err = p.Application.Migrate(context.Background())
-	if err != nil {
-		return err
 	}
 	//set log level to debug
 	p.EchoInstance().Logger.SetLevel(log.DEBUG)
@@ -333,92 +418,106 @@ func (p *RESTAPI) Initialize() error {
 	return nil
 }
 
-//New instantiates and initializes the api
-func New(apiConfig string) (*RESTAPI, error) {
-	e := echo.New()
+//SQLConnectionFromConfig get db connection based on a config
+func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gorm.DB, error) {
+	var connStr string
 	var err error
-	api := &RESTAPI{}
-	_, err = Initialize(e, api, apiConfig)
-	if err != nil {
-		e.Logger.Errorf("Unexpected error: '%s'", err)
-	}
-	return api, err
-}
 
-//Start API
-func Start(port string, apiConfig string) *RESTAPI {
-	api, err := New(apiConfig)
-	if err != nil {
-		api.EchoInstance().Logger.Error(err)
-	}
-	err = api.Initialize()
-	if err != nil {
-		api.EchoInstance().Logger.Error(err)
-	}
-	api.EchoInstance().Logger.Fatal(api.EchoInstance().Start(":" + port))
-	return api
-}
-
-func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error) {
-	e.HideBanner = true
-	if apiConfig == "" {
-		apiConfig = "./api.yaml"
-	}
-
-	//set echo instance because the instance may not already be in the api that is passed in but the handlers must have access to it
-	api.SetEchoInstance(e)
-
-	//configure context middleware using the register method because the context middleware is in it's own file for code readability reasons
-	api.RegisterMiddleware("Context", Context)
-
-	var content []byte
-	var err error
-	//try load file if it's a yaml file otherwise it's the contents of a yaml file WEOS-1009
-	if strings.Contains(apiConfig, ".yaml") || strings.Contains(apiConfig, "/yml") {
-		content, err = ioutil.ReadFile(apiConfig)
-		if err != nil {
-			e.Logger.Fatalf("error loading api specification '%s'", err)
-		}
-	} else {
-		content = []byte(apiConfig)
-	}
-
-	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
-	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
-	//replace environment variables in file
-	tempFile = os.ExpandEnv(string(tempFile))
-	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
-	content = []byte(tempFile)
-	loader := openapi3.NewSwaggerLoader()
-	swagger, err := loader.LoadSwaggerFromData(content)
-	if err != nil {
-		e.Logger.Fatalf("error loading api specification '%s'", err)
-	}
-
-	//get the database schema
-	api.Schemas = CreateSchema(context.Background(), e, swagger)
-
-	//parse the main config
-	var config *APIConfig
-	if swagger.ExtensionProps.Extensions[WeOSConfigExtension] != nil {
-
-		data, err := swagger.ExtensionProps.Extensions[WeOSConfigExtension].(json.RawMessage).MarshalJSON()
-		if err != nil {
-			e.Logger.Fatalf("error loading api config '%s", err)
-			return e, err
-		}
-		err = json.Unmarshal(data, &config)
-		if err != nil {
-			e.Logger.Fatalf("error loading api config '%s", err)
-			return e, err
+	switch config.Driver {
+	case "sqlite3":
+		//check if file exists and if not create it. We only do this if a memory only db is NOT asked for
+		//(Note that if it's a combination we go ahead and create the file) https://www.sqlite.org/inmemorydb.html
+		if config.Database != ":memory:" {
+			if _, err = os.Stat(config.Database); os.IsNotExist(err) {
+				_, err = os.Create(strings.Replace(config.Database, ":memory:", "", -1))
+				if err != nil {
+					return nil, nil, model.NewError(fmt.Sprintf("error creating sqlite database '%s'", config.Database), err)
+				}
+			}
 		}
 
-		err = api.AddConfig(config)
-		if err != nil {
-			e.Logger.Fatalf("error setting up module '%s", err)
-			return e, err
+		connStr = fmt.Sprintf("%s",
+			config.Database)
+
+		//update connection string to include authentication IF a username is set
+		if config.User != "" {
+			authenticationString := fmt.Sprintf("?_auth&_auth_user=%s&_auth_pass=%s&_auth_crypt=sha512&_foreign_keys=on",
+				config.User, config.Password)
+			connStr = connStr + authenticationString
+		} else {
+			connStr = connStr + "?_foreign_keys=on"
 		}
+		log.Debugf("sqlite connection string '%s'", connStr)
+	case "sqlserver":
+		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%s/%s",
+			config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
+	case "ramsql":
+		connStr = "Testing"
+	case "mysql":
+		connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=true",
+			config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
+	case "clickhouse":
+		connStr = fmt.Sprintf("tcp://%s:%s?username=%s&password=%s&database=%s",
+			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
+	case "postgres":
+		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
+	default:
+		return nil, nil, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 	}
-	api.Swagger = swagger
-	return e, nil
+
+	db, err := sql.Open(config.Driver, connStr)
+	if err != nil {
+		return nil, nil, errors.New(fmt.Sprintf("error setting up connection to database '%s' with connection '%s'", err, connStr))
+	}
+
+	db.SetMaxOpenConns(config.MaxOpen)
+	db.SetMaxIdleConns(config.MaxIdle)
+
+	//setup gorm
+	var gormDB *gorm.DB
+	switch config.Driver {
+	case "postgres":
+		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
+			Conn: db,
+		}), nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	case "sqlite3":
+		gormDB, err = gorm.Open(&dialects.SQLite{
+			sqlite.Dialector{
+				Conn: db,
+			},
+		}, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	case "mysql":
+		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
+			Conn: db,
+		}), nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	case "ramsql": //this is for testing
+		gormDB = &gorm.DB{}
+	case "sqlserver":
+		gormDB, err = gorm.Open(sqlserver.New(sqlserver.Config{
+			Conn: db,
+		}), nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	case "clickhouse":
+		gormDB, err = gorm.Open(clickhouse.New(clickhouse.Config{
+			Conn: db,
+		}), nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	default:
+		return nil, nil, errors.New(fmt.Sprintf("we don't support database driver '%s'", config.Driver))
+	}
+	return db, gormDB, err
 }

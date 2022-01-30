@@ -123,7 +123,7 @@ func TestStandardControllers_Create(t *testing.T) {
 	}
 
 	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
+		DispatcherFunc: func() model.CommandDispatcher {
 			return dispatcher
 		},
 		ProjectionsFunc: func() []model.Projection {
@@ -141,7 +141,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		}
 		body := bytes.NewReader(reqBytes)
 
-		accountID := "Create Blog"
+		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
@@ -178,7 +178,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		}
 		body := bytes.NewReader(reqBytes)
 
-		accountID := "Create Blog"
+		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
@@ -235,7 +235,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		DispatchFunc: func(ctx context.Context, command *model.Command) error {
 			accountID := weoscontext.GetAccount(ctx)
 			//if it's a the create blog call let's check to see if the command is what we expect
-			if accountID == "Create Blog" {
+			if accountID == "CreateHandler Blog" {
 				if command == nil {
 					t.Fatal("no command sent")
 				}
@@ -276,7 +276,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 	}
 
 	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
+		DispatcherFunc: func() model.CommandDispatcher {
 			return dispatcher
 		},
 		ProjectionsFunc: func() []model.Projection {
@@ -294,7 +294,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		}
 		body := bytes.NewReader(reqBytes)
 
-		accountID := "Create Blog"
+		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.CreateBatch(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
@@ -462,7 +462,7 @@ func TestStandardControllers_Update(t *testing.T) {
 	}
 
 	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
+		DispatcherFunc: func() model.CommandDispatcher {
 			return dispatcher
 		},
 		ProjectionsFunc: func() []model.Projection {
@@ -581,7 +581,7 @@ func TestStandardControllers_View(t *testing.T) {
 			},
 		}
 		application := &ApplicationMock{
-			DispatcherFunc: func() model.Dispatcher {
+			DispatcherFunc: func() model.CommandDispatcher {
 				return dispatcher
 			},
 			ProjectionsFunc: func() []model.Projection {
@@ -633,7 +633,7 @@ func TestStandardControllers_View(t *testing.T) {
 			},
 		}
 		application := &ApplicationMock{
-			DispatcherFunc: func() model.Dispatcher {
+			DispatcherFunc: func() model.CommandDispatcher {
 				return dispatcher
 			},
 			ProjectionsFunc: func() []model.Projection {
@@ -694,7 +694,7 @@ func TestStandardControllers_View(t *testing.T) {
 			},
 		}
 		application := &ApplicationMock{
-			DispatcherFunc: func() model.Dispatcher {
+			DispatcherFunc: func() model.CommandDispatcher {
 				return dispatcher
 			},
 			ProjectionsFunc: func() []model.Projection {
@@ -755,7 +755,7 @@ func TestStandardControllers_View(t *testing.T) {
 			},
 		}
 		application := &ApplicationMock{
-			DispatcherFunc: func() model.Dispatcher {
+			DispatcherFunc: func() model.CommandDispatcher {
 				return dispatcher
 			},
 			ProjectionsFunc: func() []model.Projection {
@@ -813,7 +813,7 @@ func TestStandardControllers_View(t *testing.T) {
 			},
 		}
 		application := &ApplicationMock{
-			DispatcherFunc: func() model.Dispatcher {
+			DispatcherFunc: func() model.CommandDispatcher {
 				return dispatcher
 			},
 			ProjectionsFunc: func() []model.Projection {
@@ -879,7 +879,7 @@ func TestStandardControllers_View(t *testing.T) {
 			},
 		}
 		application := &ApplicationMock{
-			DispatcherFunc: func() model.Dispatcher {
+			DispatcherFunc: func() model.CommandDispatcher {
 				return dispatcher
 			},
 			ProjectionsFunc: func() []model.Projection {
@@ -1091,7 +1091,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 	}
 
 	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
+		DispatcherFunc: func() model.CommandDispatcher {
 			return dispatcher
 		},
 		ProjectionsFunc: func() []model.Projection {
@@ -1110,7 +1110,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 		body := strings.NewReader(data.Encode())
 
-		accountID := "Create Blog"
+		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
@@ -1143,7 +1143,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 		body := strings.NewReader(data.Encode())
 
-		accountID := "Create Blog"
+		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
@@ -1256,7 +1256,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 	}
 
 	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
+		DispatcherFunc: func() model.CommandDispatcher {
 			return dispatcher
 		},
 		ProjectionsFunc: func() []model.Projection {
@@ -1275,7 +1275,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		writer.WriteField("url", "MyBlogUrl")
 		writer.Close()
 
-		accountID := "Create Blog"
+		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
@@ -1308,7 +1308,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		writer.WriteField("title", "Test Blog")
 		writer.Close()
 
-		accountID := "Create Blog"
+		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()

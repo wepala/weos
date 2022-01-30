@@ -17,7 +17,6 @@ import (
 	weosContext "github.com/wepala/weos/context"
 	"gorm.io/gorm/clause"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/gommon/log"
 	"github.com/ory/dockertest/v3"
 	"github.com/wepala/weos/controllers/rest"
@@ -168,7 +167,7 @@ func TestMain(t *testing.M) {
 
 func TestProjections_InitilizeBasicTable(t *testing.T) {
 
-	t.Run("Create basic table with no specified primary key", func(t *testing.T) {
+	t.Run("CreateHandler basic table with no specified primary key", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -222,24 +221,26 @@ components:
          type: string
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Errorf("expected to get a table 'Blog'")
 		}
@@ -286,7 +287,7 @@ components:
 
 		//automigrate table again to ensure no issue on multiple migrates
 		for i := 0; i < 10; i++ {
-			_, err = projections.NewProjection(context.Background(), app, schemes)
+			_, err = projections.NewProjection(context.Background(), nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -317,7 +318,7 @@ components:
 		}
 	})
 
-	t.Run("Create basic table with speecified primary key", func(t *testing.T) {
+	t.Run("CreateHandler basic table with specified primary key", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -367,24 +368,26 @@ components:
        - guid
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
 		}
@@ -441,7 +444,7 @@ func TestProjections_InitializeCompositeKeyTable(t *testing.T) {
 
 func TestProjections_CreateBasicRelationship(t *testing.T) {
 
-	t.Run("Create basic many to one relationship", func(t *testing.T) {
+	t.Run("CreateHandler basic many to one relationship", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -473,24 +476,26 @@ components:
          $ref: "#/components/schemas/Blog"
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Errorf("expected to get a table 'Blog'")
 		}
@@ -554,7 +559,7 @@ components:
 		}
 	})
 
-	t.Run("Create basic many to many relationship", func(t *testing.T) {
+	t.Run("CreateHandler basic many to many relationship", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -588,24 +593,25 @@ components:
           $ref: "#/components/schemas/Post"
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Errorf("expected to get a table 'Blog'")
 		}
@@ -654,7 +660,7 @@ components:
 
 		//automigrate table again to ensure no issue on multiple migrates
 		for i := 0; i < 20; i++ {
-			_, err = projections.NewProjection(context.Background(), app, schemes)
+			_, err = projections.NewProjection(context.Background(), nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -691,7 +697,7 @@ components:
 
 func TestProjections_Create(t *testing.T) {
 
-	t.Run("Basic Create", func(t *testing.T) {
+	t.Run("Basic CreateHandler", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -737,24 +743,25 @@ components:
          type: string
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
 		}
@@ -791,9 +798,7 @@ components:
 		}
 
 		ctxt := context.Background()
-		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-			Name: "Blog",
-		})
+		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"]))
 
 		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
 		contentEntity.NewChange(event)
@@ -819,7 +824,7 @@ components:
 		}
 	})
 
-	t.Run("Create with many to one relationship", func(t *testing.T) {
+	t.Run("CreateHandler with many to one relationship", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -851,24 +856,26 @@ components:
          $ref: "#/components/schemas/Blog"
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
 		}
@@ -1014,24 +1021,25 @@ components:
          type: string
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
-
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 
 		id := ksuid.New().String()
 		gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": id, "title": "hugs"})
@@ -1108,24 +1116,25 @@ components:
           $ref: "#/components/schemas/Post"
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
-
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 
 		blogWeosID := ksuid.New().String()
 		postWeosID := ksuid.New().String()
@@ -1271,24 +1280,26 @@ components:
           $ref: "#/components/schemas/Post"
 `
 
-	loader := openapi3.NewSwaggerLoader()
-	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	api, err := rest.New(openAPI)
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+	_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+		Database: "test.db",
+		Driver:   "sqlite3",
+	})
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+	p, err := projections.NewProjection(context.Background(), gormDB, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-	p, err := projections.NewProjection(context.Background(), app, schemes)
+	err = p.Migrate(context.Background(), schemes)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gormDB := app.DB()
 	if !gormDB.Migrator().HasTable("Blog") {
 		t.Errorf("expected to get a table 'Blog'")
 	}
@@ -1418,24 +1429,26 @@ components:
       - author_id
 `
 
-	loader := openapi3.NewSwaggerLoader()
-	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	api, err := rest.New(openAPI)
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+	_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+		Database: "test.db",
+		Driver:   "sqlite3",
+	})
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+	p, err := projections.NewProjection(context.Background(), gormDB, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-	p, err := projections.NewProjection(context.Background(), app, schemes)
+	err = p.Migrate(context.Background(), schemes)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gormDB := app.DB()
 	if !gormDB.Migrator().HasTable("Blog") {
 		t.Errorf("expected to get a table 'Blog'")
 	}
@@ -1480,7 +1493,7 @@ components:
 		t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
 	}
 
-	blogRef := swagger.Components.Schemas["Blog"]
+	blogRef := api.Swagger.Components.Schemas["Blog"]
 	r, err := p.GetByKey(context.Background(), weosContext.ContentType{Name: "Blog", Schema: blogRef.Value}, map[string]interface{}{
 		"author_id": "kidding",
 		"title":     "hugs",
@@ -1535,7 +1548,7 @@ components:
 }
 
 func TestProjections_GormOperations(t *testing.T) {
-	t.Run("Basic Create using schema", func(t *testing.T) {
+	t.Run("Basic CreateHandler using schema", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -1569,23 +1582,25 @@ components:
           $ref: "#/components/schemas/Post"
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
-
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		gormDB := app.DB()
 
 		m := map[string]interface{}{"table_alias": "Blog", "title": "hugs", "posts": []map[string]interface{}{
 			{
@@ -1724,24 +1739,26 @@ components:
        - title
 `
 
-	loader := openapi3.NewSwaggerLoader()
-	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	api, err := rest.New(openAPI)
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+	_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+		Database: "test.db",
+		Driver:   "sqlite3",
+	})
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+	p, err := projections.NewProjection(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-	p, err := projections.NewProjection(context.Background(), app, schemes)
+	err = p.Migrate(context.Background(), schemes)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gormDB := app.DB()
 	if !gormDB.Migrator().HasTable("Blog") {
 		t.Fatal("expected to get a table 'Blog'")
 	}
@@ -1855,24 +1872,26 @@ components:
          type: string
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
 		}
@@ -1909,7 +1928,7 @@ components:
 		}
 
 		ctxt := context.Background()
-		for name, scheme := range swagger.Components.Schemas {
+		for name, scheme := range api.Swagger.Components.Schemas {
 			ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 				Name:   strings.Title(name),
 				Schema: scheme.Value,
@@ -1989,24 +2008,26 @@ components:
      required:
        - title
 `
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+			Database: "test.db",
+			Driver:   "sqlite3",
+		})
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
 		}
@@ -2094,24 +2115,26 @@ components:
       blog:
          $ref: "#/components/schemas/Blog"
 `
-	loader := openapi3.NewSwaggerLoader()
-	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	api, err := rest.New(openAPI)
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+	_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
+		Database: "test.db",
+		Driver:   "sqlite3",
+	})
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+	p, err := projections.NewProjection(context.Background(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-	p, err := projections.NewProjection(context.Background(), app, schemes)
+	err = p.Migrate(context.Background(), schemes)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gormDB := app.DB()
 	if !gormDB.Migrator().HasTable("Blog") {
 		t.Fatal("expected to get a table 'Blog'")
 	}
@@ -2134,7 +2157,7 @@ components:
 		}
 		ctxt := context.Background()
 		name := "Blog"
-		scheme := swagger.Components.Schemas[name]
+		scheme := api.Swagger.Components.Schemas[name]
 		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 			Name:   strings.Title(name),
 			Schema: scheme.Value,
@@ -2187,7 +2210,7 @@ components:
 		}
 		ctxt := context.Background()
 		name := "Post"
-		scheme := swagger.Components.Schemas[name]
+		scheme := api.Swagger.Components.Schemas[name]
 		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 			Name:   strings.Title(name),
 			Schema: scheme.Value,

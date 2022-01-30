@@ -6,8 +6,10 @@ package model_test
 import (
 	"context"
 	"database/sql"
+	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
+	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -422,7 +424,7 @@ func (mock *EventRepositoryMock) GetSubscribersCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *EventRepositoryMock) Migrate(ctx context.Context) error {
+func (mock *EventRepositoryMock) Migrate(ctx context2.Context) error {
 	if mock.MigrateFunc == nil {
 		panic("EventRepositoryMock.MigrateFunc: method is nil but EventRepository.Migrate was just called")
 	}
@@ -1364,7 +1366,7 @@ func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ProjectionMock) Migrate(ctx context.Context) error {
+func (mock *ProjectionMock) Migrate(ctx context2.Context, builders map[string]ds.Builder) error {
 	if mock.MigrateFunc == nil {
 		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
 	}
@@ -1416,8 +1418,8 @@ var _ model.Service = &ServiceMock{}
 //             DBConnectionFunc: func() *sql.DB {
 // 	               panic("mock out the DBConnection method")
 //             },
-//             DispatcherFunc: func() model.Dispatcher {
-// 	               panic("mock out the Dispatcher method")
+//             DispatcherFunc: func() model.CommandDispatcher {
+// 	               panic("mock out the CommandDispatcher method")
 //             },
 //             EventRepositoryFunc: func() model.EventRepository {
 // 	               panic("mock out the EventRepository method")
@@ -1459,8 +1461,8 @@ type ServiceMock struct {
 	// DBConnectionFunc mocks the DBConnection method.
 	DBConnectionFunc func() *sql.DB
 
-	// DispatcherFunc mocks the Dispatcher method.
-	DispatcherFunc func() model.Dispatcher
+	// DispatcherFunc mocks the CommandDispatcher method.
+	DispatcherFunc func() model.CommandDispatcher
 
 	// EventRepositoryFunc mocks the EventRepository method.
 	EventRepositoryFunc func() model.EventRepository
@@ -1499,7 +1501,7 @@ type ServiceMock struct {
 		// DBConnection holds details about calls to the DBConnection method.
 		DBConnection []struct {
 		}
-		// Dispatcher holds details about calls to the Dispatcher method.
+		// CommandDispatcher holds details about calls to the CommandDispatcher method.
 		Dispatcher []struct {
 		}
 		// EventRepository holds details about calls to the EventRepository method.
@@ -1649,10 +1651,10 @@ func (mock *ServiceMock) DBConnectionCalls() []struct {
 	return calls
 }
 
-// Dispatcher calls DispatcherFunc.
-func (mock *ServiceMock) Dispatcher() model.Dispatcher {
+// CommandDispatcher calls DispatcherFunc.
+func (mock *ServiceMock) Dispatcher() model.CommandDispatcher {
 	if mock.DispatcherFunc == nil {
-		panic("ServiceMock.DispatcherFunc: method is nil but Service.Dispatcher was just called")
+		panic("ServiceMock.DispatcherFunc: method is nil but Service.CommandDispatcher was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1662,7 +1664,7 @@ func (mock *ServiceMock) Dispatcher() model.Dispatcher {
 	return mock.DispatcherFunc()
 }
 
-// DispatcherCalls gets all the calls that were made to Dispatcher.
+// DispatcherCalls gets all the calls that were made to CommandDispatcher.
 // Check the length with:
 //     len(mockedService.DispatcherCalls())
 func (mock *ServiceMock) DispatcherCalls() []struct {
@@ -1780,7 +1782,7 @@ func (mock *ServiceMock) LoggerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ServiceMock) Migrate(ctx context.Context) error {
+func (mock *ServiceMock) Migrate(ctx context2.Context, builders map[string]ds.Builder) error {
 	if mock.MigrateFunc == nil {
 		panic("ServiceMock.MigrateFunc: method is nil but Service.Migrate was just called")
 	}

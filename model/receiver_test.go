@@ -61,7 +61,7 @@ func TestCreateContentType(t *testing.T) {
 		},
 	}
 	application := &ServiceMock{
-		DispatcherFunc: func() model.Dispatcher {
+		DispatcherFunc: func() model.CommandDispatcher {
 			return commandDispatcher
 		},
 		EventRepositoryFunc: func() model.EventRepository {
@@ -86,7 +86,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, entityType, "fsdf32432"))
+		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, entityType, "fsdf32432"), nil, nil)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -108,7 +108,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx, model.CreateBatch(ctx, reqBytes, entityType))
+		err1 := commandDispatcher.Dispatch(ctx, model.CreateBatch(ctx, reqBytes, entityType), nil, nil)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -184,7 +184,7 @@ func TestUpdateContentType(t *testing.T) {
 	}
 
 	application := &ServiceMock{
-		DispatcherFunc: func() model.Dispatcher {
+		DispatcherFunc: func() model.CommandDispatcher {
 			return commandDispatcher
 		},
 		EventRepositoryFunc: func() model.EventRepository {
@@ -209,7 +209,7 @@ func TestUpdateContentType(t *testing.T) {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx, model.Update(ctx, reqBytes, entityType))
+		err1 := commandDispatcher.Dispatch(ctx, model.Update(ctx, reqBytes, entityType), nil, nil)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}

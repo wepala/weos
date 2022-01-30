@@ -89,7 +89,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 			weosID = ksuid.New().String()
 		}
 
-		err = app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID))
+		err = app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID), nil, nil)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -153,7 +153,7 @@ func (c *StandardControllers) CreateBatch(app model.Service, spec *openapi3.Swag
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 
-		err := app.Dispatcher().Dispatch(newContext, model.CreateBatch(newContext, payload, contentType))
+		err := app.Dispatcher().Dispatch(newContext, model.CreateBatch(newContext, payload, contentType), nil, nil)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -209,7 +209,7 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			}
 		}
 
-		err := app.Dispatcher().Dispatch(newContext, model.Update(newContext, payload, contentType))
+		err := app.Dispatcher().Dispatch(newContext, model.Update(newContext, payload, contentType), nil, nil)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {

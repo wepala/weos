@@ -150,6 +150,9 @@ paths:
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-projection: Default
+      x-event-dispatcher: Default
+      x-command-disptacher: Default
       requestBody:
         description: Blog info that is submitted
         required: true
