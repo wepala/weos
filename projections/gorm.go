@@ -3,7 +3,6 @@ package projections
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
@@ -249,9 +248,8 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit
 		schemes = s.Build().NewSliceOfStructs()
 		scheme := s.Build().New()
 		if len(filterOptions) != 0 {
-			filters := p.convertProperties(filtersProp, contentType)
-			queryString := filterStringBuilder(p.db.Dialector.Name(), contentType, filtersProp)
-			result = p.db.Table(contentType.Name).Scopes(FilterQuery(queryString)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions), filter(filters)).Find(schemes)
+			queryString := filterStringBuilder(p.db.Dialector.Name(), filtersProp)
+			result = p.db.Table(contentType.Name).Scopes(FilterQuery(queryString)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 		} else {
 			result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 		}
@@ -295,18 +293,8 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
-// filter that filters query results
-func filter(filter map[string]interface{}) func(db *gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		if filter != nil {
-			return db.Where(filter)
-		}
-		return db
-	}
-}
-
 //filterStringBuilder is used to build the query strings
-func filterStringBuilder(dbName string, contentType *weosContext.ContentType, properties map[string]FilterProperty) string {
+func filterStringBuilder(dbName string, properties map[string]FilterProperty) string {
 	var query string
 	for _, prop := range properties {
 
@@ -317,49 +305,51 @@ func filterStringBuilder(dbName string, contentType *weosContext.ContentType, pr
 			} else {
 				query += prop.Field + " = '" + prop.Value + "'"
 			}
-
+		case "ne":
+			if query != "" {
+				query += " AND " + prop.Field + " != '" + prop.Value + "'"
+			} else {
+				query += prop.Field + " != '" + prop.Value + "'"
+			}
+		case "like":
+			if dbName == "postgres" {
+				if query != "" {
+					query += " AND " + prop.Field + " ILIKE '%" + prop.Value + "%'"
+				} else {
+					query += prop.Field + " ILIKE '%" + prop.Value + "%'"
+				}
+			} else {
+				if query != "" {
+					query += " AND " + prop.Field + " LIKE '%" + prop.Value + "%'"
+				} else {
+					query += prop.Field + " LIKE '%" + prop.Value + "%'"
+				}
+			}
+		case "in":
+			vals := "'"
+			if query != "" {
+				vals += strings.Join(prop.Values, "','") + "'"
+				query += " AND " + prop.Field + " in '(" + vals + ")'"
+			} else {
+				vals += strings.Join(prop.Values, "','") + "'"
+				query += prop.Field + " in (" + vals + ")"
+			}
+		case "lt":
+			if query != "" {
+				query += " AND " + prop.Field + " < '" + prop.Value + "'"
+			} else {
+				query += prop.Field + " < '" + prop.Value + "'"
+			}
+		case "gt":
+			if query != "" {
+				query += " AND " + prop.Field + " > '" + prop.Value + "'"
+			} else {
+				query += prop.Field + " > '" + prop.Value + "'"
+			}
 		}
 	}
 
 	return query
-}
-
-//convertProperties is used to convert the filter properties into key (field) , value pairs
-func (p *GORMProjection) convertProperties(properties map[string]FilterProperty, contentType *weosContext.ContentType) map[string]interface{} {
-	filters := map[string]interface{}{}
-
-	if properties == nil {
-		return nil
-	}
-
-	for field, filterProperty := range properties {
-		if filterProperty.Value != "" && (filterProperty.Values == nil || len(filterProperty.Values) == 0) {
-			columns, _ := p.db.Migrator().ColumnTypes(contentType.Name)
-			for _, c := range columns {
-				if c.Name() == field {
-					cType := c.DatabaseTypeName()
-					switch cType {
-					case "text":
-						filters[field] = filterProperty.Value
-					case "INTEGER":
-					case "integer":
-						v, err := strconv.Atoi(filterProperty.Value)
-						if err == nil {
-							filters[field] = v
-						}
-
-					}
-				}
-
-			}
-		}
-		if filterProperty.Value == "" && len(filterProperty.Values) > 0 {
-			filters[field] = filterProperty.Values
-		}
-
-	}
-
-	return filters
 }
 
 //query modifier for making queries to the database
