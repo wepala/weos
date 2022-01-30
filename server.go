@@ -15,8 +15,8 @@ func main() {
 	var apiEnv string
 	apiEnv = os.Getenv("WEOS_SPEC")
 	if apiEnv != "" {
-		api.New(port, apiEnv)
+		api.New(*port, apiEnv)
 	} else if *schema != "" {
-		api.New(port, apiFlag)
+		api.New(*port, apiFlag)
 	}
 }

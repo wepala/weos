@@ -161,14 +161,16 @@ func (p *RESTAPI) Initialize() error {
 }
 
 //New instantiates and initializes the api
-func New(port *string, apiConfig string) {
+func New(port string, apiConfig string) *RESTAPI {
 	e := echo.New()
 	var err error
-	_, err = Initialize(e, &RESTAPI{}, apiConfig)
+	api := &RESTAPI{}
+	_, err = Initialize(e, api, apiConfig)
 	if err != nil {
 		e.Logger.Errorf("Unexpected error: '%s'", err)
 	}
-	e.Logger.Fatal(e.Start(":" + *port))
+	e.Logger.Fatal(e.Start(":" + port))
+	return api
 }
 
 func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error) {
