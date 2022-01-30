@@ -6,7 +6,7 @@ package model_test
 import (
 	"context"
 	"database/sql"
-	weoscontext "github.com/wepala/weos/context"
+	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
 	"gorm.io/gorm"
 	"net/http"
@@ -1067,37 +1067,43 @@ var _ model.Projection = &ProjectionMock{}
 
 // ProjectionMock is a mock implementation of model.Projection.
 //
-//     func TestSomethingThatUsesProjection(t *testing.T) {
+// 	func TestSomethingThatUsesProjection(t *testing.T) {
 //
-//         // make and configure a mocked model.Projection
-//         mockedProjection := &ProjectionMock{
-//             GetByEntityIDFunc: func(ctxt context.Context, contentType context.ContentType, id string) (map[string]interface{}, error) {
-// 	               panic("mock out the GetByEntityID method")
-//             },
-//             GetByKeyFunc: func(ctxt context.Context, contentType context.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
-// 	               panic("mock out the GetByKey method")
-//             },
-//             GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
-// 	               panic("mock out the GetContentEntity method")
-//             },
-//             GetEventHandlerFunc: func() model.EventHandler {
-// 	               panic("mock out the GetEventHandler method")
-//             },
-//             MigrateFunc: func(ctx context.Context) error {
-// 	               panic("mock out the Migrate method")
-//             },
-//         }
+// 		// make and configure a mocked model.Projection
+// 		mockedProjection := &ProjectionMock{
+// 			GetByEntityIDFunc: func(ctxt context.Context, contentType context2.ContentType, id string) (map[string]interface{}, error) {
+// 				panic("mock out the GetByEntityID method")
+// 			},
+// 			GetByKeyFunc: func(ctxt context.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+// 				panic("mock out the GetByKey method")
+// 			},
+// 			GetContentEntitiesFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+// 				panic("mock out the GetContentEntities method")
+// 			},
+// 			GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+// 				panic("mock out the GetContentEntity method")
+// 			},
+// 			GetEventHandlerFunc: func() model.EventHandler {
+// 				panic("mock out the GetEventHandler method")
+// 			},
+// 			MigrateFunc: func(ctx context.Context) error {
+// 				panic("mock out the Migrate method")
+// 			},
+// 		}
 //
-//         // use mockedProjection in code that requires model.Projection
-//         // and then make assertions.
+// 		// use mockedProjection in code that requires model.Projection
+// 		// and then make assertions.
 //
-//     }
+// 	}
 type ProjectionMock struct {
 	// GetByEntityIDFunc mocks the GetByEntityID method.
-	GetByEntityIDFunc func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error)
+	GetByEntityIDFunc func(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error)
 
 	// GetByKeyFunc mocks the GetByKey method.
-	GetByKeyFunc func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
+	GetByKeyFunc func(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
+
+	// GetContentEntitiesFunc mocks the GetContentEntities method.
+	GetContentEntitiesFunc func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
 
 	// GetContentEntityFunc mocks the GetContentEntity method.
 	GetContentEntityFunc func(ctx context.Context, weosID string) (*model.ContentEntity, error)
@@ -1115,7 +1121,7 @@ type ProjectionMock struct {
 			// Ctxt is the ctxt argument value.
 			Ctxt context.Context
 			// ContentType is the contentType argument value.
-			ContentType weoscontext.ContentType
+			ContentType weosContext.ContentType
 			// ID is the id argument value.
 			ID string
 		}
@@ -1124,9 +1130,24 @@ type ProjectionMock struct {
 			// Ctxt is the ctxt argument value.
 			Ctxt context.Context
 			// ContentType is the contentType argument value.
-			ContentType weoscontext.ContentType
+			ContentType weosContext.ContentType
 			// Identifiers is the identifiers argument value.
 			Identifiers map[string]interface{}
+		}
+		// GetContentEntities holds details about calls to the GetContentEntities method.
+		GetContentEntities []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Page is the page argument value.
+			Page int
+			// Limit is the limit argument value.
+			Limit int
+			// Query is the query argument value.
+			Query string
+			// SortOptions is the sortOptions argument value.
+			SortOptions map[string]string
+			// FilterOptions is the filterOptions argument value.
+			FilterOptions map[string]interface{}
 		}
 		// GetContentEntity holds details about calls to the GetContentEntity method.
 		GetContentEntity []struct {
@@ -1144,21 +1165,22 @@ type ProjectionMock struct {
 			Ctx context.Context
 		}
 	}
-	lockGetByEntityID    sync.RWMutex
-	lockGetByKey         sync.RWMutex
-	lockGetContentEntity sync.RWMutex
-	lockGetEventHandler  sync.RWMutex
-	lockMigrate          sync.RWMutex
+	lockGetByEntityID      sync.RWMutex
+	lockGetByKey           sync.RWMutex
+	lockGetContentEntities sync.RWMutex
+	lockGetContentEntity   sync.RWMutex
+	lockGetEventHandler    sync.RWMutex
+	lockMigrate            sync.RWMutex
 }
 
 // GetByEntityID calls GetByEntityIDFunc.
-func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
 	if mock.GetByEntityIDFunc == nil {
 		panic("ProjectionMock.GetByEntityIDFunc: method is nil but Projection.GetByEntityID was just called")
 	}
 	callInfo := struct {
 		Ctxt        context.Context
-		ContentType weoscontext.ContentType
+		ContentType weosContext.ContentType
 		ID          string
 	}{
 		Ctxt:        ctxt,
@@ -1176,12 +1198,12 @@ func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, contentType weos
 //     len(mockedProjection.GetByEntityIDCalls())
 func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 	Ctxt        context.Context
-	ContentType weoscontext.ContentType
+	ContentType weosContext.ContentType
 	ID          string
 } {
 	var calls []struct {
 		Ctxt        context.Context
-		ContentType weoscontext.ContentType
+		ContentType weosContext.ContentType
 		ID          string
 	}
 	mock.lockGetByEntityID.RLock()
@@ -1191,13 +1213,13 @@ func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 }
 
 // GetByKey calls GetByKeyFunc.
-func (mock *ProjectionMock) GetByKey(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	if mock.GetByKeyFunc == nil {
 		panic("ProjectionMock.GetByKeyFunc: method is nil but Projection.GetByKey was just called")
 	}
 	callInfo := struct {
 		Ctxt        context.Context
-		ContentType weoscontext.ContentType
+		ContentType weosContext.ContentType
 		Identifiers map[string]interface{}
 	}{
 		Ctxt:        ctxt,
@@ -1215,17 +1237,68 @@ func (mock *ProjectionMock) GetByKey(ctxt context.Context, contentType weosconte
 //     len(mockedProjection.GetByKeyCalls())
 func (mock *ProjectionMock) GetByKeyCalls() []struct {
 	Ctxt        context.Context
-	ContentType weoscontext.ContentType
+	ContentType weosContext.ContentType
 	Identifiers map[string]interface{}
 } {
 	var calls []struct {
 		Ctxt        context.Context
-		ContentType weoscontext.ContentType
+		ContentType weosContext.ContentType
 		Identifiers map[string]interface{}
 	}
 	mock.lockGetByKey.RLock()
 	calls = mock.calls.GetByKey
 	mock.lockGetByKey.RUnlock()
+	return calls
+}
+
+// GetContentEntities calls GetContentEntitiesFunc.
+func (mock *ProjectionMock) GetContentEntities(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+	if mock.GetContentEntitiesFunc == nil {
+		panic("ProjectionMock.GetContentEntitiesFunc: method is nil but Projection.GetContentEntities was just called")
+	}
+	callInfo := struct {
+		Ctx           context.Context
+		Page          int
+		Limit         int
+		Query         string
+		SortOptions   map[string]string
+		FilterOptions map[string]interface{}
+	}{
+		Ctx:           ctx,
+		Page:          page,
+		Limit:         limit,
+		Query:         query,
+		SortOptions:   sortOptions,
+		FilterOptions: filterOptions,
+	}
+	mock.lockGetContentEntities.Lock()
+	mock.calls.GetContentEntities = append(mock.calls.GetContentEntities, callInfo)
+	mock.lockGetContentEntities.Unlock()
+	return mock.GetContentEntitiesFunc(ctx, page, limit, query, sortOptions, filterOptions)
+}
+
+// GetContentEntitiesCalls gets all the calls that were made to GetContentEntities.
+// Check the length with:
+//     len(mockedProjection.GetContentEntitiesCalls())
+func (mock *ProjectionMock) GetContentEntitiesCalls() []struct {
+	Ctx           context.Context
+	Page          int
+	Limit         int
+	Query         string
+	SortOptions   map[string]string
+	FilterOptions map[string]interface{}
+} {
+	var calls []struct {
+		Ctx           context.Context
+		Page          int
+		Limit         int
+		Query         string
+		SortOptions   map[string]string
+		FilterOptions map[string]interface{}
+	}
+	mock.lockGetContentEntities.RLock()
+	calls = mock.calls.GetContentEntities
+	mock.lockGetContentEntities.RUnlock()
 	return calls
 }
 
@@ -1788,5 +1861,3 @@ func (mock *ServiceMock) TitleCalls() []struct {
 	mock.lockTitle.RUnlock()
 	return calls
 }
-
-

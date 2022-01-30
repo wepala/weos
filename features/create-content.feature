@@ -133,12 +133,27 @@ Feature: Create content
               description: Add Blog to Aggregator
             400:
               description: Invalid blog submitted
+      /category:
+        post:
+          operationId: Add Category
+          requestBody:
+            description: Category info that is submitted
+            required: true
+            content:
+              multipart/form-data:
+                schema:
+                  $ref: "#/components/schemas/Category"
+          responses:
+            201:
+              description: Add Category
+            400:
+              description: Invalid Category submitted
     """
       And the service is running
       And blogs in the api
-        | id    | entity id      | sequence no | title        | description    |
-        | 1     | <Generated ID> | 1           | Blog 1       | Some Blog      |
-        | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
+        | id    | entity id                   | sequence no | title        | description    |
+        | 1     | 24Kj3zfpocMlmFNV2KwkFfP2bgf | 1           | Blog 1       | Some Blog      |
+        | 2     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 2       | Some Blog 2    |
 
 
     Scenario: Create a basic item
@@ -173,7 +188,7 @@ Feature: Create content
       When the "Blog" is submitted
       Then an error should be returned
 
-    @WEOS-1289 @skipped
+    @WEOS-1289
     Scenario: Create an item using post data
 
       If form data is sent to the request body it is converted to json so the same commands could be used
@@ -182,15 +197,26 @@ Feature: Create content
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
       And "Sojourner" enters "1" in the "blog" field
-      When the "Post" form is submitted
+      When the "Post" form is submitted with content type "application/x-www-form-urlencoded"
       Then the "Post" is created
         | title          | description                       |
-        | Some Blog      | Some Description                  |
+        | Some Post      | Some Description                  |
       And the "Post" should have an id
       And the "ETag" header should be present
 
-    @skipped
-    @WEOS-1289 
+    @WEOS-1289
+    Scenario: Create an item using post data using the multipart content type
+
+      Given "Sojourner" is on the "Category" create screen
+      And "Sojourner" enters "Some Category" in the "title" field
+      When the "Category" form is submitted with content type "multipart/form-data"
+      Then the "Category" is created
+        | title          |
+        | Some Category  |
+      And the "Category" should have an id
+      And the "ETag" header should be present
+
+    @WEOS-1289
     Scenario: Try to create item with content type that is not defined
 
       If the content type is not explicity defined then an error is returned (e.g. if json is not specified on the request then a json body should not be allowed)
@@ -199,11 +225,10 @@ Feature: Create content
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
       And "Sojourner" enters "1" in the "blog" field
-      When the "Post" is submitted
+      When the "Post" is submitted without content type
       Then an error should be returned
 
-    @skipped
-    @WEOS-1294
+    @WEOS-1294 @skipped
     Scenario: Create item and related items
 
       If an item has one to many relationships or many to many relationships those connections can be established by

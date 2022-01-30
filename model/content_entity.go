@@ -16,6 +16,7 @@ type ContentEntity struct {
 	AggregateRoot
 	Schema   *openapi3.Schema
 	Property interface{}
+	reader   ds.Reader
 }
 
 //IsValid checks if the property is valid using the IsNull function
@@ -108,7 +109,8 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 				if t == "string" {
 					//format types to be added
 					if p.Value.Format == "date-time" {
-						instance.AddField(name, time.Now(), `json:"`+utils.SnakeCase(name)+`"`)
+						var t *time.Time
+						instance.AddField(name, t, `json:"`+utils.SnakeCase(name)+`"`)
 					} else {
 						var strings *string
 						instance.AddField(name, strings, `json:"`+utils.SnakeCase(name)+`"`)
@@ -127,6 +129,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 		}
 	}
 	w.Property = instance.Build().New()
+	w.reader = ds.NewReader(w.Property)
 	return w, nil
 
 }
@@ -143,9 +146,13 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	if w.ID == "" {
 		w.ID = weosID
 	}
+	payload, err = ParseToType(payload, schema)
+	if err != nil {
+		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
 	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
-	return w, w.ApplyChanges([]*Event{event})
+	return w, w.ApplyEvents([]*Event{event})
 }
 
 func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMessage, updatedPayload json.RawMessage) (*ContentEntity, error) {
@@ -166,7 +173,7 @@ func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMess
 
 	event := NewEntityEvent("update", w, w.ID, updatedPayload)
 	w.NewChange(event)
-	return w, w.ApplyChanges([]*Event{event})
+	return w, w.ApplyEvents([]*Event{event})
 }
 
 //GetString returns the string property value stored of a given the property name
@@ -249,29 +256,88 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 	return *reader.GetField(name).PointerFloat64()
 }
 
-//ApplyChanges apply the new changes from payload to the entity
-func (w *ContentEntity) ApplyChanges(changes []*Event) error {
+//GetTime returns the time.Time property value stored of a given the property name
+func (w *ContentEntity) GetTime(name string) time.Time {
+	if w.Property == nil {
+		return time.Time{}
+	}
+	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return time.Time{}
+	}
+	if reader.GetField(name).PointerTime() == nil {
+		return time.Time{}
+	}
+	return *reader.GetField(name).PointerTime()
+}
+
+//FromSchemaWithEvents create content entity using schema and events
+func (w *ContentEntity) FromSchemaWithEvents(ctx context.Context, ref *openapi3.Schema, changes []*Event) (*ContentEntity, error) {
+	entity, err := w.FromSchema(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	err = entity.ApplyEvents(changes)
+	if err != nil {
+		return nil, err
+	}
+	return entity, err
+}
+
+//ApplyEvents apply the new changes from payload to the entity
+func (w *ContentEntity) ApplyEvents(changes []*Event) error {
 	for _, change := range changes {
 		w.SequenceNo = change.Meta.SequenceNo
-		switch change.Type {
-		case "create":
-			err := json.Unmarshal(change.Payload, &w.BasicEntity)
-			if err != nil {
-				return err
-			}
-			err = json.Unmarshal(change.Payload, &w.Property)
-			if err != nil {
-				return err
-			}
-			w.User.BasicEntity.ID = change.Meta.User
-		case "update":
-			err := json.Unmarshal(change.Payload, &w.Property)
-			if err != nil {
-				return NewDomainError("invalid: error unmarshalling changed payload", change.Meta.EntityType, w.ID, err)
-			}
-			w.User.BasicEntity.ID = change.Meta.User
+		w.ID = change.Meta.EntityID
+		w.User.BasicEntity.ID = change.Meta.User
+		w.User.BasicEntity.ID = change.Meta.User
 
+		if change.Payload != nil {
+			switch change.Type {
+			case "create":
+				err := json.Unmarshal(change.Payload, &w.BasicEntity)
+				if err != nil {
+					return err
+				}
+				err = json.Unmarshal(change.Payload, &w.Property)
+				if err != nil {
+					return err
+				}
+
+			case "update":
+				err := json.Unmarshal(change.Payload, &w.Property)
+				if err != nil {
+					return NewDomainError("invalid: error unmarshalling changed payload", change.Meta.EntityType, w.ID, err)
+				}
+			}
 		}
+
 	}
 	return nil
+}
+
+//ToMap return entity has a map
+func (w *ContentEntity) ToMap() map[string]interface{} {
+	result := make(map[string]interface{})
+	//get all fields and return the map
+	fields := w.reader.GetAllFields()
+	for _, field := range fields {
+		//check if the lowercase version of the field is the same as the schema and use the scehma version instead
+		result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+	}
+	return result
+}
+
+//GetOriginalFieldName the original name of the field as defined in the schema (the field is Title cased when converted to struct)
+func (w *ContentEntity) GetOriginalFieldName(structName string) string {
+	if w.Schema != nil {
+		for key, _ := range w.Schema.Properties {
+			if strings.ToLower(key) == strings.ToLower(structName) {
+				return key
+			}
+		}
+	}
+
+	return ""
 }

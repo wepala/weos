@@ -53,7 +53,6 @@ type EventRepository interface {
 	//GetAggregateSequenceNumber returns the latest sequence number for all events in the context of the root aggregate
 	GetAggregateSequenceNumber(ID string) (int64, error)
 	//GetByAggregateAndSequenceRange this returns a sequence of events.
-	//Deprecated: 08/17/2021 This isn't actually used and would need to be updated to account for the new RootID property on events
 	GetByAggregateAndSequenceRange(ID string, start int64, end int64) ([]*Event, error)
 	AddSubscriber(handler EventHandler)
 	GetSubscribers() ([]EventHandler, error)
@@ -69,4 +68,5 @@ type Projection interface {
 	GetContentEntity(ctx context.Context, weosID string) (*ContentEntity, error)
 	GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
 	GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error)
+	GetContentEntities(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
 }

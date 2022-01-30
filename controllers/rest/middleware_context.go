@@ -55,6 +55,13 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 				return nil, err
 			}
 		}
+		//if there is an alias name specified use that instead. The value is a json.RawMessage (not a string)
+		if tcontextName, ok := parameter.Value.ExtensionProps.Extensions[AliasExtension]; ok {
+			err := json.Unmarshal(tcontextName.(json.RawMessage), &contextName)
+			if err != nil {
+				return nil, err
+			}
+		}
 		var val interface{}
 		switch strings.ToLower(parameter.Value.In) {
 		//parameter values stored as strings
@@ -73,24 +80,42 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 		if _, ok := val.(string); ok {
 			switch parameter.Value.Name {
 			case "sequence_no": //default type is integer
-				val, _ = strconv.Atoi(val.(string))
+				v, err := strconv.Atoi(val.(string))
+				if err == nil {
+					val = v
+				}
 			case "use_entity_id": //default type is boolean
-				val, _ = strconv.ParseBool(val.(string))
+				v, err := strconv.ParseBool(val.(string))
+				if err == nil {
+					val = v
+				}
 			case "If-Match", "If-None-Match": //default type is string
 			default:
 				if paramType != nil && paramType.Value != nil {
 					pType := paramType.Value.Type
 					switch strings.ToLower(pType) {
 					case "integer":
-						val, _ = strconv.Atoi(val.(string))
+						v, err := strconv.Atoi(val.(string))
+						if err == nil {
+							val = v
+						}
 					case "boolean":
-						val, _ = strconv.ParseBool(val.(string))
+						v, err := strconv.ParseBool(val.(string))
+						if err == nil {
+							val = v
+						}
 					case "number":
 						format := paramType.Value.Format
 						if format == "float" || format == "double" {
-							val, _ = strconv.ParseFloat(val.(string), 64)
+							v, err := strconv.ParseFloat(val.(string), 64)
+							if err == nil {
+								val = v
+							}
 						} else {
-							val, _ = strconv.Atoi(val.(string))
+							v, err := strconv.Atoi(val.(string))
+							if err == nil {
+								val = v
+							}
 						}
 
 					}

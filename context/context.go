@@ -17,9 +17,11 @@ const ACCOUNT_ID ContextKey = "ACCOUNT_ID"
 const USER_ID ContextKey = "USER_ID"
 const LOG_LEVEL ContextKey = "LOG_LEVEL"
 const REQUEST_ID ContextKey = "REQUEST_ID"
+const WEOS_ID ContextKey = "WEOS_ID"
 const CONTENT_TYPE ContextKey = "_contentType"
 const FILTERS ContextKey = "_filters"
 const SORTS ContextKey = "_sorts"
+const SEQUENCE_NO string = "sequence_no"
 
 //ContentType this makes it easier to access the content type information in the context
 type ContentType struct {
