@@ -77,6 +77,7 @@ func (p *RESTAPI) SetEchoInstance(e *echo.Echo) {
 	p.e = e
 }
 
+//RegisterMiddleware Add middleware so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterMiddleware(name string, middleware Middleware) {
 	if p.middlewares == nil {
 		p.middlewares = make(map[string]Middleware)
@@ -84,6 +85,15 @@ func (p *RESTAPI) RegisterMiddleware(name string, middleware Middleware) {
 	p.middlewares[name] = middleware
 }
 
+//RegisterController Add controller so that it can be referenced in the OpenAPI spec
+func (p *RESTAPI) RegisterController(name string, controller Controller) {
+	if p.controllers == nil {
+		p.controllers = make(map[string]Controller)
+	}
+	p.controllers[name] = controller
+}
+
+//GetMiddleware get middleware by name
 func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	//use reflection to check if the middleware is already on the API
 	t := reflect.ValueOf(p)
@@ -100,6 +110,7 @@ func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	return nil, fmt.Errorf("middleware '%s' not found", name)
 }
 
+//GetController get controller by name
 func (p *RESTAPI) GetController(name string) (Controller, error) {
 	//use reflection to check if the middleware is already on the API
 	t := reflect.ValueOf(p)
