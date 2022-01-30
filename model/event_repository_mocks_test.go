@@ -1408,7 +1408,7 @@ var _ model.Service = &ServiceMock{}
 // 	               panic("mock out the AddProjection method")
 //             },
 //             ConfigFunc: func() *model.ServiceConfig {
-// 	               panic("mock out the Config method")
+// 	               panic("mock out the config method")
 //             },
 //             DBFunc: func() *gorm.DB {
 // 	               panic("mock out the DB method")
@@ -1450,7 +1450,7 @@ type ServiceMock struct {
 	// AddProjectionFunc mocks the AddProjection method.
 	AddProjectionFunc func(projection model.Projection) error
 
-	// ConfigFunc mocks the Config method.
+	// ConfigFunc mocks the config method.
 	ConfigFunc func() *model.ServiceConfig
 
 	// DBFunc mocks the DB method.
@@ -1490,7 +1490,7 @@ type ServiceMock struct {
 			// Projection is the projection argument value.
 			Projection model.Projection
 		}
-		// Config holds details about calls to the Config method.
+		// config holds details about calls to the config method.
 		Config []struct {
 		}
 		// DB holds details about calls to the DB method.
@@ -1571,10 +1571,10 @@ func (mock *ServiceMock) AddProjectionCalls() []struct {
 	return calls
 }
 
-// Config calls ConfigFunc.
+// config calls ConfigFunc.
 func (mock *ServiceMock) Config() *model.ServiceConfig {
 	if mock.ConfigFunc == nil {
-		panic("ServiceMock.ConfigFunc: method is nil but Service.Config was just called")
+		panic("ServiceMock.ConfigFunc: method is nil but Service.config was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1584,7 +1584,7 @@ func (mock *ServiceMock) Config() *model.ServiceConfig {
 	return mock.ConfigFunc()
 }
 
-// ConfigCalls gets all the calls that were made to Config.
+// ConfigCalls gets all the calls that were made to config.
 // Check the length with:
 //     len(mockedService.ConfigCalls())
 func (mock *ServiceMock) ConfigCalls() []struct {

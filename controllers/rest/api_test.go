@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/echo/v4"
 	api "github.com/wepala/weos/controllers/rest"
 )
 
@@ -19,8 +18,6 @@ func TestRESTAPI_Initialize_Basic(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	t.Run("basic schema", func(t *testing.T) {
 		defer os.Remove("test.db")
-		e := echo.New()
-		tapi := api.RESTAPI{}
 		openApi := `openapi: 3.0.3
 info:
   title: Blog
@@ -68,9 +65,13 @@ components:
       x-identifier:
         - title
 `
-		_, err := api.Initialize(e, &tapi, openApi)
+		tapi, err := api.New(openApi)
 		if err != nil {
 			t.Errorf("unexpected error: '%s'", err)
+		}
+		err = tapi.Initialize()
+		if err != nil {
+			t.Fatalf("unexpected error initializing api '%s'", err)
 		}
 		if !tapi.Application.DB().Migrator().HasTable("Category") {
 			t.Errorf("expected categories table to exist")
@@ -83,12 +84,15 @@ components:
 func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
-	e := echo.New()
-	tapi := api.RESTAPI{}
-	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	tapi, err := api.New("./fixtures/blog.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error '%s'", err)
+		t.Fatalf("un expected error loading spec '%s'", err)
 	}
+	err = tapi.Initialize()
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
 	mockBlog := &Blog{Title: "Test Blog", Url: "www.testBlog.com"}
 	reqBytes, err := json.Marshal(mockBlog)
 	if err != nil {
@@ -109,12 +113,15 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
-	e := echo.New()
-	tapi := api.RESTAPI{}
-	_, err := api.Initialize(e, &tapi, "./fixtures/blog-create-batch.yaml")
+	tapi, err := api.New("./fixtures/blog-create-batch.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error '%s'", err)
+		t.Fatalf("un expected error loading spec '%s'", err)
 	}
+	err = tapi.Initialize()
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
 	mockBlog := &[3]Blog{
 		{ID: "1asdas3", Title: "Blog 1", Url: "www.testBlog1.com"},
 		{ID: "2gf233", Title: "Blog 2", Url: "www.testBlog2.com"},
@@ -139,12 +146,15 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 func TestRESTAPI_Initialize_HealthCheck(t *testing.T) {
 	//make sure healthcheck is being added
 	os.Remove("test.db")
-	e := echo.New()
-	tapi := api.RESTAPI{}
-	_, err := api.Initialize(e, &tapi, "./fixtures/blog-create-batch.yaml")
+	tapi, err := api.New("./fixtures/blog-create-batch.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error '%s'", err)
+		t.Fatalf("un expected error loading spec '%s'", err)
 	}
+	err = tapi.Initialize()
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
 
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -165,12 +175,15 @@ type TestBlog struct {
 }
 
 func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
-	e := echo.New()
-	tapi := api.RESTAPI{}
-	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	tapi, err := api.New("./fixtures/blog.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error '%s'", err)
+		t.Fatalf("un expected error loading spec '%s'", err)
 	}
+	err = tapi.Initialize()
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
 	t.Run("sending blog without a title and url which are required fields", func(t *testing.T) {
 		description := "testing 1st blog description"
 		mockBlog := &TestBlog{Description: &description}
@@ -207,12 +220,15 @@ func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
 
 func TestRESTAPI_Initialize_UpdateAddedToPut(t *testing.T) {
 	os.Remove("test.db")
-	e := echo.New()
-	tapi := api.RESTAPI{}
-	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	tapi, err := api.New("./fixtures/blog.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error '%s'", err)
+		t.Fatalf("un expected error loading spec '%s'", err)
 	}
+	err = tapi.Initialize()
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
 	found := false
 	method := "PUT"
 	path := "/blogs/:id"
@@ -232,12 +248,15 @@ func TestRESTAPI_Initialize_UpdateAddedToPut(t *testing.T) {
 
 func TestRESTAPI_Initialize_UpdateAddedToPatch(t *testing.T) {
 	os.Remove("test.db")
-	e := echo.New()
-	tapi := api.RESTAPI{}
-	_, err := api.Initialize(e, &tapi, "./fixtures/blog-create-batch.yaml")
+	tapi, err := api.New("./fixtures/blog-create-batch.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error '%s'", err)
+		t.Fatalf("un expected error loading spec '%s'", err)
 	}
+	err = tapi.Initialize()
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
 	found := false
 	method := "PATCH"
 	path := "/blogs/:id"
@@ -257,12 +276,15 @@ func TestRESTAPI_Initialize_UpdateAddedToPatch(t *testing.T) {
 
 func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
 	os.Remove("test.db")
-	e := echo.New()
-	tapi := api.RESTAPI{}
-	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	tapi, err := api.New("./fixtures/blog.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error '%s'", err)
+		t.Fatalf("un expected error loading spec '%s'", err)
 	}
+	err = tapi.Initialize()
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
 
 	found := false
 	method := "GET"
@@ -282,12 +304,15 @@ func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
 
 func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
 	os.Remove("test.db")
-	e := echo.New()
-	tapi := api.RESTAPI{}
-	_, err := api.Initialize(e, &tapi, "./fixtures/blog.yaml")
+	tapi, err := api.New("./fixtures/blog-create-batch.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error '%s'", err)
+		t.Fatalf("un expected error loading spec '%s'", err)
 	}
+	err = tapi.Initialize()
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
 	e.ServeHTTP(resp, req)

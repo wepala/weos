@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	api "github.com/wepala/weos/controllers/rest"
+	weos "github.com/wepala/weos/controllers/rest"
 	"os"
 )
 
@@ -15,8 +15,8 @@ func main() {
 	var apiEnv string
 	apiEnv = os.Getenv("WEOS_SPEC")
 	if apiEnv != "" {
-		api.New(*port, apiEnv)
+		weos.Start(*port, apiEnv)
 	} else if *schema != "" {
-		api.New(*port, apiFlag)
+		weos.Start(*port, apiFlag)
 	}
 }

@@ -1231,7 +1231,7 @@ var _ weos.Service = &ApplicationMock{}
 // 	               panic("mock out the AddProjection method")
 //             },
 //             ConfigFunc: func() *weos.ServiceConfig {
-// 	               panic("mock out the Config method")
+// 	               panic("mock out the config method")
 //             },
 //             DBFunc: func() *gorm.DB {
 // 	               panic("mock out the DB method")
@@ -1273,7 +1273,7 @@ type ApplicationMock struct {
 	// AddProjectionFunc mocks the AddProjection method.
 	AddProjectionFunc func(projection weos.Projection) error
 
-	// ConfigFunc mocks the Config method.
+	// ConfigFunc mocks the config method.
 	ConfigFunc func() *weos.ServiceConfig
 
 	// DBFunc mocks the DB method.
@@ -1313,7 +1313,7 @@ type ApplicationMock struct {
 			// Projection is the projection argument value.
 			Projection weos.Projection
 		}
-		// Config holds details about calls to the Config method.
+		// config holds details about calls to the config method.
 		Config []struct {
 		}
 		// DB holds details about calls to the DB method.
@@ -1394,10 +1394,10 @@ func (mock *ApplicationMock) AddProjectionCalls() []struct {
 	return calls
 }
 
-// Config calls ConfigFunc.
+// config calls ConfigFunc.
 func (mock *ApplicationMock) Config() *weos.ServiceConfig {
 	if mock.ConfigFunc == nil {
-		panic("ApplicationMock.ConfigFunc: method is nil but Service.Config was just called")
+		panic("ApplicationMock.ConfigFunc: method is nil but Service.config was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -1407,7 +1407,7 @@ func (mock *ApplicationMock) Config() *weos.ServiceConfig {
 	return mock.ConfigFunc()
 }
 
-// ConfigCalls gets all the calls that were made to Config.
+// ConfigCalls gets all the calls that were made to config.
 // Check the length with:
 //     len(mockedApplication.ConfigCalls())
 func (mock *ApplicationMock) ConfigCalls() []struct {

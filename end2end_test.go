@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/testcontainers/testcontainers-go"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/utils"
@@ -79,13 +79,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	result = api.ListApiResponse{}
-	e = echo.New()
-	e.Logger.SetOutput(&buf)
 	os.Remove("e2e.db")
-	_, err := api.Initialize(e, &API, "e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -122,6 +116,18 @@ x-weos-config:
 components:
   schemas:
 `
+
+	tapi, err := api.New("e2e.yaml")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
+	API = *tapi
+	e = API.EchoInstance()
+	e.Logger.SetOutput(&buf)
+	err = tapi.Initialize()
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
@@ -481,14 +487,18 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	e = echo.New()
 	os.Remove("e2e.db")
-	API = api.RESTAPI{}
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	API = *tapi
+	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
+	err = API.Initialize()
 	if err != nil {
-		errs = err
+		return err
 	}
 	return nil
 }
@@ -642,15 +652,16 @@ func theEndpointIsHit(method, contentType string) error {
 }
 
 func theServiceIsRunning() error {
-	e = echo.New()
 	os.Remove("e2e.db")
-	API = api.RESTAPI{}
 	buf = bytes.Buffer{}
-	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
+	tapi, err := api.New(openAPI)
+	tapi.EchoInstance().Logger.SetOutput(&buf)
+	API = *tapi
+	err = API.Initialize()
 	if err != nil {
 		return err
 	}
+	e = API.EchoInstance()
 	return nil
 }
 
