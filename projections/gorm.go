@@ -25,69 +25,69 @@ func (p *GORMProjection) DB() *gorm.DB {
 	return p.db
 }
 
-func (p *GORMProjection) GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
-	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
-		//pulling the primary keys from the schema in order to match with the keys given for searching
-		scheme := s.Build().New()
-		pks, _ := json.Marshal(contentType.Schema.Extensions["x-identifier"])
-		primaryKeys := []string{}
-		json.Unmarshal(pks, &primaryKeys)
-
-		if len(primaryKeys) == 0 {
-			primaryKeys = append(primaryKeys, "id")
-		}
-
-		if len(primaryKeys) != len(identifiers) {
-			return nil, fmt.Errorf("%d keys provided for %s but there should be %d keys", len(identifiers), contentType.Name, len(primaryKeys))
-		}
-
-		for _, k := range primaryKeys {
-			found := false
-			for i, _ := range identifiers {
-				if k == i {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return nil, fmt.Errorf("no value for %s %s found", contentType.Name, k)
-			}
-		}
-
-		result := p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme, identifiers)
-		if result.Error != nil {
-			return nil, result.Error
-		}
-		data, err := json.Marshal(scheme)
-		if err != nil {
-			return nil, err
-		}
-		val := map[string]interface{}{}
-		json.Unmarshal(data, &val)
-		return val, nil
-	} else {
-		return nil, fmt.Errorf("no content type '%s' exists", contentType.Name)
+func (p *GORMProjection) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+	scheme, err := entityFactory.NewEntity(ctxt)
+	if err != nil {
+		return nil, err
 	}
+	//pulling the primary keys from the schema in order to match with the keys given for searching
+	pks, _ := json.Marshal(scheme.Schema.Extensions["x-identifier"])
+	primaryKeys := []string{}
+	json.Unmarshal(pks, &primaryKeys)
+
+	if len(primaryKeys) == 0 {
+		primaryKeys = append(primaryKeys, "id")
+	}
+
+	if len(primaryKeys) != len(identifiers) {
+		return nil, fmt.Errorf("%d keys provided for %s but there should be %d keys", len(identifiers), entityFactory.Name(), len(primaryKeys))
+	}
+
+	for _, k := range primaryKeys {
+		found := false
+		for i, _ := range identifiers {
+			if k == i {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("no value for %s %s found", entityFactory.Name(), k)
+		}
+	}
+
+	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(scheme.Property, identifiers)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	data, err := json.Marshal(scheme.Property)
+	if err != nil {
+		return nil, err
+	}
+	val := map[string]interface{}{}
+	json.Unmarshal(data, &val)
+	return val, nil
+
 }
 
-func (p *GORMProjection) GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error) {
-	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
-		scheme := s.Build().New()
-		result := p.db.Table(contentType.Name).Scopes(ContentQuery()).Find(scheme, "weos_id = ?", id)
-
-		if result.Error != nil {
-			return nil, result.Error
-		}
-		data, err := json.Marshal(scheme)
-		if err != nil {
-			return nil, err
-		}
-		val := map[string]interface{}{}
-		json.Unmarshal(data, &val)
-		return val, nil
-	} else {
-		return nil, fmt.Errorf("no content type '%s' exists", contentType.Name)
+func (p *GORMProjection) GetByEntityID(ctx context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
+	scheme, err := entityFactory.NewEntity(ctx)
+	if err != nil {
+		return nil, err
 	}
+	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(scheme.Property, "weos_id = ?", id)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	data, err := json.Marshal(scheme.Property)
+	if err != nil {
+		return nil, err
+	}
+	val := map[string]interface{}{}
+	json.Unmarshal(data, &val)
+	return val, nil
+
 }
 
 //Persist save entity information in database

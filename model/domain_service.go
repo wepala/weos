@@ -165,7 +165,9 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		//If there is no weosID, use the id passed from the param
 	} else if weosID == "" {
 
-		entityInterface, err := s.GetByKey(ctx, *contentType, identifiers)
+		//temporary fiv
+		entityFactory := GetEntityFactory(ctx)
+		entityInterface, err := s.GetByKey(ctx, entityFactory, identifiers)
 		if err != nil {
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
 		}

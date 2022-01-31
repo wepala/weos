@@ -188,10 +188,10 @@ func TestDomainService_Update(t *testing.T) {
 	existingBlog, _ := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
@@ -324,10 +324,10 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
@@ -424,10 +424,10 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
@@ -532,10 +532,10 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
