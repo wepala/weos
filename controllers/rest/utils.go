@@ -3,6 +3,7 @@ package rest
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -208,6 +209,52 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 	}
 	err = entity.ApplyChanges(events)
 	return entity, err
+}
+
+//ConvertFormToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
+func ConvertFormToJson(r *http.Request, contentType string) (json.RawMessage, error) {
+	var parsedPayload []byte
+
+	switch contentType {
+	case "application/x-www-form-urlencoded":
+		parsedForm := map[string]interface{}{}
+
+		err := r.ParseForm()
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range r.PostForm {
+			for _, value := range v {
+				parsedForm[k] = value
+			}
+		}
+
+		parsedPayload, err = json.Marshal(parsedForm)
+		if err != nil {
+			return nil, err
+		}
+	case "multipart/form-data":
+		parsedForm := map[string]interface{}{}
+
+		err := r.ParseMultipartForm(1024) //Revisit
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range r.MultipartForm.Value {
+			for _, value := range v {
+				parsedForm[k] = value
+			}
+		}
+
+		parsedPayload, err = json.Marshal(parsedForm)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return parsedPayload, nil
 }
 
 //SplitFilters splits multiple filters into array of filters
