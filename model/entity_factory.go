@@ -5,12 +5,15 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
+	"strings"
 )
 
 type EntityFactory interface {
 	FromSchemaAndBuilder(string, *openapi3.Schema, ds.Builder) EntityFactory
 	NewEntity(ctx context.Context) (*ContentEntity, error)
+	DynamicStruct(ctx context.Context) ds.DynamicStruct
 	Name() string
+	TableName() string
 }
 
 type DefaultEntityFactory struct {
@@ -32,6 +35,14 @@ func (d *DefaultEntityFactory) NewEntity(ctxt context.Context) (*ContentEntity, 
 
 func (d *DefaultEntityFactory) Name() string {
 	return d.name
+}
+
+func (d *DefaultEntityFactory) TableName() string {
+	return strings.Title(d.Name())
+}
+
+func (d *DefaultEntityFactory) DynamicStruct(ctx context.Context) ds.DynamicStruct {
+	return d.builder.Build()
 }
 
 //GetEntityFactory get entity factory from context

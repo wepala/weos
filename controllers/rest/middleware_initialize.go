@@ -121,14 +121,18 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 					if p.Value.Format == "date-time" {
 						defaultValue = time.Now()
 					} else {
-						defaultValue = ""
+						var strings *string
+						defaultValue = strings
 					}
 				case "number":
-					defaultValue = 0.0
+					var numbers *float32
+					defaultValue = numbers
 				case "integer":
-					defaultValue = 0
+					var integers *int
+					defaultValue = integers
 				case "boolean":
-					defaultValue = false
+					var boolean *bool
+					defaultValue = boolean
 				}
 				instance.AddField(name, defaultValue, tagString)
 

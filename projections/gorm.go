@@ -135,7 +135,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error get a copy of the entity '%s'", err)
 				}
 				eventPayload := entity.Property
-				mapPayload := entity.ToMap()
+				mapPayload := map[string]interface{}{}
 				err = json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
@@ -160,7 +160,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error creating entity '%s'", err)
 				}
 				eventPayload := entity.Property
-				mapPayload := entity.ToMap()
+				mapPayload := map[string]interface{}{}
 				err = json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
@@ -200,51 +200,27 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	}
 }
 
-func (p *GORMProjection) GetContentEntity(ctx context.Context, weosID string) (*weos.ContentEntity, error) {
-	contentType := weosContext.GetContentType(ctx)
-
-	output := map[string]interface{}{}
-	result := p.db.Table(strings.Title(strings.Title(contentType.Name))).Find(&output, "weos_id = ? ", weosID)
+func (p *GORMProjection) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
+	newEntity, err := entityFactory.NewEntity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := p.db.Table(entityFactory.TableName()).Find(&newEntity.Property, "weos_id = ? ", weosID)
 	if result.Error != nil {
-		p.logger.Errorf("unexpected error retreiving created blog, got: '%s'", result.Error)
-	}
-
-	payload, err := json.Marshal(output)
-	if err != nil {
-		p.logger.Errorf("unexpected error marshalling payload, got: '%s'", err)
-	}
-
-	newEntity, err := new(weos.ContentEntity).FromSchema(ctx, contentType.Schema)
-	if err != nil {
-		p.logger.Errorf("unexpected error creating entity, got: '%s'", err)
-	}
-
-	err = json.Unmarshal(payload, &newEntity.BasicEntity)
-	if err != nil {
-		p.logger.Errorf("unexpected error unmarshalling entity, got: '%s'", err)
-	}
-	err = json.Unmarshal(payload, &newEntity.Property)
-	if err != nil {
-		p.logger.Errorf("unexpected error unmarshalling entity, got: '%s'", err)
-	}
-	if output["sequence_no"] != nil {
-		newEntity.SequenceNo = output["sequence_no"].(int64)
+		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
 	}
 	return newEntity, nil
 }
 
 //GetContentEntities returns a list of content entities as well as the total found
-func (p *GORMProjection) GetContentEntities(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 	var count int64
 	var result *gorm.DB
 	var schemes interface{}
 	contentType := weosContext.GetContentType(ctx)
-	if s, ok := p.Schema[strings.Title(contentType.Name)]; ok {
-		schemes = s.Build().NewSliceOfStructs()
-		scheme := s.Build().New()
-
-		result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
-	}
+	schemes = entityFactory.DynamicStruct(ctx).NewSliceOfStructs()
+	scheme := entityFactory.DynamicStruct(ctx).New()
+	result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
 		return nil, 0, err

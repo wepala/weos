@@ -1878,7 +1878,7 @@ func (mock *ProjectionMock) GetByKeyCalls() []struct {
 }
 
 // GetContentEntities calls GetContentEntitiesFunc.
-func (mock *ProjectionMock) GetContentEntities(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+func (mock *ProjectionMock) GetContentEntities(ctx context2.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 	if mock.GetContentEntitiesFunc == nil {
 		panic("ProjectionMock.GetContentEntitiesFunc: method is nil but Projection.GetContentEntities was just called")
 	}
@@ -1929,7 +1929,7 @@ func (mock *ProjectionMock) GetContentEntitiesCalls() []struct {
 }
 
 // GetContentEntity calls GetContentEntityFunc.
-func (mock *ProjectionMock) GetContentEntity(ctx context.Context, weosID string) (*weos.ContentEntity, error) {
+func (mock *ProjectionMock) GetContentEntity(ctx context2.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
 	if mock.GetContentEntityFunc == nil {
 		panic("ProjectionMock.GetContentEntityFunc: method is nil but Projection.GetContentEntity was just called")
 	}

@@ -192,15 +192,14 @@ func (w *ContentEntity) GetString(name string) string {
 	if w.Property == nil {
 		return ""
 	}
-	reader := ds.NewReader(w.Property)
-	isValid := reader.HasField(name)
+	isValid := w.reader.HasField(name)
 	if !isValid {
 		return ""
 	}
-	if reader.GetField(name).PointerString() == nil {
+	if w.reader.GetField(name).PointerString() == nil {
 		return ""
 	}
-	return *reader.GetField(name).PointerString()
+	return *w.reader.GetField(name).PointerString()
 }
 
 //GetInteger returns the integer property value stored of a given the property name

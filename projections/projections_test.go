@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"gorm.io/gorm/logger"
 	"os"
 	"strconv"
 	"strings"
@@ -549,13 +550,13 @@ components:
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
 		}
-		err = gormDB.Migrator().DropTable("Blog")
-		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "Blog", err)
-		}
 		err = gormDB.Migrator().DropTable("Post")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
 		}
 	})
 
@@ -742,7 +743,10 @@ components:
        description:
          type: string
 `
-
+		err := os.Remove("test.db")
+		if err != nil {
+			t.Fatal("test database could not be removed")
+		}
 		api, err := rest.New(openAPI)
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
@@ -856,6 +860,10 @@ components:
          $ref: "#/components/schemas/Blog"
 `
 
+		err := os.Remove("test.db")
+		if err != nil {
+			t.Fatal("test database could not be removed")
+		}
 		api, err := rest.New(openAPI)
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
@@ -866,7 +874,7 @@ components:
 		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -915,6 +923,7 @@ components:
 		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 			Name: "Blog",
 		})
+		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"]))
 
 		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
 		contentEntity.NewChange(event)
@@ -935,6 +944,7 @@ components:
 		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 			Name: "Post",
 		})
+		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Post", api.Swagger.Components.Schemas["Post"].Value, schemes["Post"]))
 
 		event = weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
 		contentEntity.NewChange(event)
@@ -962,11 +972,11 @@ components:
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
 		}
-		err = gormDB.Migrator().DropTable("Blog")
+		err = gormDB.Migrator().DropTable("Post")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
 		}
-		err = gormDB.Migrator().DropTable("Post")
+		err = gormDB.Migrator().DropTable("Blog")
 		if err != nil {
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
 		}
@@ -1374,14 +1384,13 @@ components:
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
 	}
-
-	err = gormDB.Migrator().DropTable("Blog")
-	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "Blog", err)
-	}
 	err = gormDB.Migrator().DropTable("Post")
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
 	}
 }
 
@@ -1438,8 +1447,17 @@ components:
 		Driver:   "sqlite3",
 	})
 
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
+
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-	p, err := projections.NewProjection(context.Background(), gormDB, nil)
+	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1749,7 +1767,7 @@ components:
 	})
 
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-	p, err := projections.NewProjection(context.Background(), nil, nil)
+	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1880,9 +1898,10 @@ components:
 			Database: "test.db",
 			Driver:   "sqlite3",
 		})
+		gormDB.Logger.LogMode(logger.Info)
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), nil, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1928,6 +1947,7 @@ components:
 		}
 
 		ctxt := context.Background()
+		blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
 		for name, scheme := range api.Swagger.Components.Schemas {
 			ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 				Name:   strings.Title(name),
@@ -1935,17 +1955,18 @@ components:
 			})
 		}
 
+		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"]))
 		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
 		contentEntity.NewChange(event)
 		p.GetEventHandler()(ctxt, *event)
 
-		blog, err := p.GetContentEntity(ctxt, contentEntity.ID)
+		blog, err := p.GetContentEntity(ctxt, blogEntityFactory, contentEntity.ID)
 		if err != nil {
 			t.Errorf("Error getting content type: got %s", err)
 		}
 
 		if blog.GetString("Title") != payload["title"] {
-			t.Fatalf("expected title to be %s, got %s", payload["title"], blog.GetString("title"))
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog.GetString("Title"))
 		}
 
 		if blog.GetString("Description") != payload["description"] {
@@ -2018,7 +2039,7 @@ components:
 		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), nil, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2125,7 +2146,7 @@ components:
 	})
 
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-	p, err := projections.NewProjection(context.Background(), nil, nil)
+	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2142,6 +2163,9 @@ components:
 	if !gormDB.Migrator().HasTable("Post") {
 		t.Fatal("expected to get a table 'Post'")
 	}
+
+	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	postEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Post", api.Swagger.Components.Schemas["Post"].Value, schemes["Post"])
 
 	t.Run("do a basic list with page and limit", func(t *testing.T) {
 
@@ -2174,7 +2198,7 @@ components:
 		gormDB.Table("Blog").Create(blog3)
 		gormDB.Table("Blog").Create(blog4)
 
-		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, nil)
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, nil)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2221,7 +2245,7 @@ components:
 		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes", "blog_id": uint(1)})
 		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes2", "blog_id": uint(1)})
 
-		results, total, err := p.GetContentEntities(ctxt, page, limit, "", sortOptions, nil)
+		results, total, err := p.GetContentEntities(ctxt, postEntityFactory, page, limit, "", sortOptions, nil)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}

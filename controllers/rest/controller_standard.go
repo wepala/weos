@@ -101,7 +101,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 		var Etag string
 		for _, projection := range app.Projections() {
 			if projection != nil {
-				result, err = projection.GetContentEntity(newContext, weosID)
+				result, err = projection.GetContentEntity(newContext, nil, weosID)
 				if err != nil {
 					return err
 				}
@@ -279,7 +279,7 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 			//find contentEntity based on weosid
 			for _, projection := range app.Projections() {
 				if projection != nil {
-					result, err = projection.GetContentEntity(newContext, weosID)
+					result, err = projection.GetContentEntity(newContext, nil, weosID)
 					if err != nil {
 						return err
 					}
@@ -521,7 +521,7 @@ func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, pa
 
 		for _, projection := range app.Projections() {
 			if projection != nil {
-				contentEntities, count, err = projection.GetContentEntities(newContext, page, limit, "", sorts, nil)
+				contentEntities, count, err = projection.GetContentEntities(newContext, nil, page, limit, "", sorts, nil)
 			}
 		}
 		if err != nil {
