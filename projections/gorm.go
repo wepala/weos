@@ -162,97 +162,51 @@ func (p *GORMProjection) Migrate(ctx context.Context) error {
 				}
 			}
 
-			constraintDeleted := false
 			var deleteConstraintError error
 			b := builder.Build().New()
 			json.Unmarshal([]byte(`{
 						"table_alias": "`+name+`"
 					}`), &b)
-			currDBPK := []string{}
-
-			//get current primary keys
-			if p.db.Dialector.Name() == "mysql" {
-				db := p.db.Raw(fmt.Sprintf("SELECT COLUMN_NAME FROM %s WHERE TABLE_NAME = ? AND CONSTRAINT_NAME = ?", "INFORMATION_SCHEMA.KEY_COLUMN_USAGE"), name, "PRIMARY").Scan(&currDBPK)
-				if db.Error != nil {
-					p.logger.Errorf("got error getting primary keys for table '%s', %s", name, db.Error)
-					return err
-				}
-			} else if p.db.Dialector.Name() == "postgres" {
-				db := p.db.Raw(fmt.Sprintf(`SELECT c.column_name
-				FROM information_schema.table_constraints tc 
-				JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) 
-				JOIN information_schema.columns AS c ON c.table_schema = tc.constraint_schema
-				  AND tc.table_name = c.table_name AND ccu.column_name = c.column_name
-				WHERE constraint_type = 'PRIMARY KEY' and tc.table_name = '%s';
-				`, name)).Scan(&currDBPK)
-				if db.Error != nil {
-					p.logger.Errorf("got error getting primary keys for table '%s', %s", name, db.Error)
-					return err
-				}
-			}
-
-			//if column exists in table but not in new schema, alter column
-			for _, c := range columns {
-				if !utils.Contains(jsonFields, c.Name()) {
-					if p.db.Dialector.Name() == "sqlite" {
-						//cannot check for nullable in sqlite.  if we are unable to alter the field, remake table
-						deleteConstraintError = p.db.Migrator().AlterColumn(b, c.Name())
-						if deleteConstraintError != nil {
-							p.logger.Errorf("got error removing null column %s", deleteConstraintError)
-
-						}
-					} else {
-						if nullable, ok := c.Nullable(); ok {
-							if !nullable {
-								for _, keyString := range currDBPK {
-									//if primary key changed, remake table and relations
-									if strings.EqualFold(keyString, c.Name()) {
-										constraintDeleted = true
-										break
-									}
-								}
-								if !constraintDeleted {
-									//remove constraint
-									if p.db.Dialector.Name() == "mysql" {
-										//gorm tags being overwritten works for mysql
-										err = p.db.Debug().Migrator().AlterColumn(b, c.Name())
-										if err != nil {
-											p.logger.Errorf("got error removing null column %s", err)
-											return err
-										}
-									} else if p.db.Dialector.Name() == "postgres" {
-										//explicit constraint dropping for postgres
-										db := p.db.Debug().Exec(fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" DROP NOT NULL;`, name, c.Name()))
-										if db.Error != nil {
-											p.logger.Errorf("got error removing null column %s", db.Error)
-											return db.Error
-										}
-									}
-								}
-							}
-						}
-					}
-
-				}
-			}
 
 			//drop columns with x-remove tag
+			columns, err := p.db.Migrator().ColumnTypes(instance)
+			if err != nil {
+				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
+			}
+
 			for _, f := range deletedFields {
-				if p.db.Migrator().HasColumn(instance, f) {
-					deleteConstraintError = p.db.Migrator().DropColumn(instance, f)
+				if p.db.Migrator().HasColumn(b, f) {
+
+					deleteConstraintError = p.db.Migrator().DropColumn(b, f)
 					if deleteConstraintError != nil {
 						p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
-						if p.db.Dialector.Name() != "sqlite" {
-							return deleteConstraintError
-						}
 					}
 				} else {
 					p.logger.Errorf("unable to drop column %s from table %s.  property does not exist", f, name)
 				}
 			}
 
+			//if column exists in table but not in new schema, alter column
+			if deleteConstraintError == nil {
+				for _, c := range columns {
+					if !utils.Contains(jsonFields, c.Name()) {
+						if p.db.Dialector.Name() == "sqlite" {
+							deleteConstraintError = fmt.Errorf("sqlite column changed")
+						} else {
+							deleteConstraintError = p.db.Debug().Migrator().AlterColumn(b, c.Name())
+							if deleteConstraintError != nil {
+								p.logger.Errorf("got error updating constraint %s", err)
+							}
+						}
+						if deleteConstraintError != nil {
+							break
+						}
+					}
+				}
+			}
+
 			//remake table if primary key constraints are changed
-			if constraintDeleted || deleteConstraintError != nil {
+			if deleteConstraintError != nil {
 
 				//check if changing primary key affects relationship tables
 				tables, err := p.db.Migrator().GetTables()
