@@ -174,6 +174,11 @@ func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMess
 	return w, w.ApplyChanges([]*Event{event})
 }
 
+func (w *ContentEntity) Delete() error {
+
+	return nil
+}
+
 //GetString returns the string property value stored of a given the property name
 func (w *ContentEntity) GetString(name string) string {
 	if w.Property == nil {

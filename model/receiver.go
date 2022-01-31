@@ -60,10 +60,11 @@ func (r *Receiver) Update(ctx context.Context, command *Command) error {
 //Delete is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
 func (r *Receiver) Delete(ctx context.Context, command *Command) error {
 
-	deletedEntity, err := r.domainService.Delete(ctx, command.Payload, command.Metadata.EntityType)
+	deletedEntity, err := r.domainService.Delete(ctx, command.Metadata.EntityID, command.Metadata.EntityType)
 	if err != nil {
 		return err
 	}
+
 	err = r.service.EventRepository().Persist(ctx, deletedEntity)
 	if err != nil {
 		return err
