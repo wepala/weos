@@ -125,7 +125,7 @@ func CreateBatchfunc(api *RESTAPI, projection projections.Projection, commandDis
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 
-		err := app.Dispatcher().Dispatch(newContext, model.CreateBatch(newContext, payload, contentType), nil, nil)
+		err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, contentType), nil, nil)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -161,7 +161,7 @@ func Updatefunc(api *RESTAPI, projection projections.Projection, commandDispatch
 			}
 		}
 
-		err := app.Dispatcher().Dispatch(newContext, model.Update(newContext, payload, contentType), nil, nil)
+		err := commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), nil, nil)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
@@ -360,11 +360,11 @@ func Viewfunc(api *RESTAPI, projection projections.Projection, commandDispatcher
 				}
 			} else {
 				//get entity by entity_id
-				for _, projection := range app.Projections() {
-					if projection != nil {
-						result, err = projection.GetByEntityID(ctxt.Request().Context(), nil, entityID)
-					}
+
+				if projection != nil {
+					result, err = projection.GetByEntityID(ctxt.Request().Context(), nil, entityID)
 				}
+
 			}
 		}
 
@@ -400,12 +400,7 @@ func Listfunc(api *RESTAPI, projection projections.Projection, commandDispatcher
 
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
-		if contentType != "" && contentTypeSchema.Value != nil {
-			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
-				Name:   contentType,
-				Schema: contentTypeSchema.Value,
-			})
-		}
+		entityFactory := GetEntityFactory(newContext)
 		//gets the limit and page from context
 		limit, _ := newContext.Value("limit").(int)
 		page, _ := newContext.Value("page").(int)
@@ -418,11 +413,10 @@ func Listfunc(api *RESTAPI, projection projections.Projection, commandDispatcher
 		// sort by default is by id
 		sorts := map[string]string{"id": "asc"}
 
-		for _, projection := range app.Projections() {
-			if projection != nil {
-				contentEntities, count, err = projection.GetContentEntities(newContext, nil, page, limit, "", sorts, nil)
-			}
+		if projection != nil {
+			contentEntities, count, err = projection.GetContentEntities(newContext, entityFactory, page, limit, "", sorts, nil)
 		}
+
 		if err != nil {
 			return NewControllerError(err.Error(), err, http.StatusBadRequest)
 		}

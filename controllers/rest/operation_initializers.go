@@ -118,8 +118,261 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 }
 
 //StandardInitializer adds standard controller and middleware if not already setup
-func StandardInitializer(pathContext context.Context, ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) {
+func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	if GetOperationController(ctxt) == nil {
+		autoConfigure := false
+		handler := ""
+		switch strings.ToUpper(method) {
+		case "POST":
+			if pathItem.Post.RequestBody == nil {
+				api.e.Logger.Warnf("unexpected error: expected request body but got nil")
+				break
+			} else {
+				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
+				for _, value := range pathItem.Post.RequestBody.Value.Content {
+					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+						handler = "CreateHandler"
+						autoConfigure = true
+					} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
+						attach := true
+						for _, compare := range pathItem.Post.RequestBody.Value.Content {
+							if compare.Schema.Value.Items.Ref != value.Schema.Value.Items.Ref {
+								api.e.Logger.Warnf("unexpected error: cannot assign different schemas for different content types")
+								attach = false
+								break
+							}
+						}
+						if attach {
+							handler = "CreateBatch"
+							autoConfigure = true
+						}
 
+					}
+				}
+			}
+		case "PUT":
+			allParam := true
+			if pathItem.Put.RequestBody == nil {
+				break
+			} else {
+				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
+				for _, value := range pathItem.Put.RequestBody.Value.Content {
+					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+						var identifiers []string
+						identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
+						if identifierExtension != nil {
+							bytesId := identifierExtension.(json.RawMessage)
+							json.Unmarshal(bytesId, &identifiers)
+						}
+						var contextName string
+						//check for identifiers
+						if identifiers != nil && len(identifiers) > 0 {
+							for _, identifier := range identifiers {
+								foundIdentifier := false
+								//check the parameters for the identifiers
+								for _, param := range pathItem.Put.Parameters {
+									cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+									if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+										foundIdentifier = true
+										break
+									}
+								}
+								if !foundIdentifier {
+									allParam = false
+									api.e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+									break
+								}
+							}
+							if allParam {
+								handler = "Update"
+								autoConfigure = true
+								break
+							}
+						} else {
+							//if there is no identifiers then id is the default identifier
+							for _, param := range pathItem.Put.Parameters {
+
+								if "id" == param.Value.Name {
+									handler = "Update"
+									autoConfigure = true
+									break
+								}
+								interfaceContext := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+								if interfaceContext != nil {
+									bytesContext := interfaceContext.(json.RawMessage)
+									json.Unmarshal(bytesContext, &contextName)
+									if "id" == contextName {
+										handler = "Update"
+										autoConfigure = true
+										break
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+		case "PATCH":
+			allParam := true
+			if pathItem.Patch.RequestBody == nil {
+				break
+			} else {
+				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
+				for _, value := range pathItem.Patch.RequestBody.Value.Content {
+					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+						var identifiers []string
+						identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
+						if identifierExtension != nil {
+							bytesId := identifierExtension.(json.RawMessage)
+							json.Unmarshal(bytesId, &identifiers)
+						}
+						var contextName string
+						//check for identifiers
+						if identifiers != nil && len(identifiers) > 0 {
+							for _, identifier := range identifiers {
+								//check the parameters for the identifiers
+								for _, param := range pathItem.Patch.Parameters {
+									cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+									if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+										break
+									}
+									if !(identifier == param.Value.Name) && !(cName != nil && identifier == cName.(string)) {
+										allParam = false
+										api.e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+										break
+									}
+								}
+							}
+							if allParam {
+								handler = "Update"
+								autoConfigure = true
+								break
+							}
+						} else {
+							//if there is no identifiers then id is the default identifier
+							for _, param := range pathItem.Patch.Parameters {
+
+								if "id" == param.Value.Name {
+									handler = "Update"
+									autoConfigure = true
+									break
+								}
+								interfaceContext := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+								if interfaceContext != nil {
+									bytesContext := interfaceContext.(json.RawMessage)
+									json.Unmarshal(bytesContext, &contextName)
+									if "id" == contextName {
+										handler = "Update"
+										autoConfigure = true
+										break
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		case "GET":
+			allParam := true
+			//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
+			//checks if the response refers to a schema
+			if pathItem.Get.Responses != nil && pathItem.Get.Responses["200"].Value.Content != nil {
+				for _, val := range pathItem.Get.Responses["200"].Value.Content {
+					if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
+						var identifiers []string
+						identifierExtension := swagger.Components.Schemas[strings.Replace(val.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
+						if identifierExtension != nil {
+							bytesId := identifierExtension.(json.RawMessage)
+							err := json.Unmarshal(bytesId, &identifiers)
+							if err != nil {
+								//return err
+							}
+						}
+						var contextName string
+						if identifiers != nil && len(identifiers) > 0 {
+							for _, identifier := range identifiers {
+								foundIdentifier := false
+								//check the parameters
+								for _, param := range pathItem.Get.Parameters {
+									cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+									if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+										foundIdentifier = true
+										break
+									}
+								}
+								if !foundIdentifier {
+									allParam = false
+									api.e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
+									break
+								}
+							}
+						} else {
+							//check the parameters for id
+							if pathItem.Get.Parameters != nil && len(pathItem.Get.Parameters) != 0 {
+								for _, param := range pathItem.Get.Parameters {
+									if "id" == param.Value.Name {
+										allParam = true
+									}
+									contextInterface := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+									if contextInterface != nil {
+										bytesContext := contextInterface.(json.RawMessage)
+										json.Unmarshal(bytesContext, &contextName)
+										if "id" == contextName {
+											allParam = true
+										}
+									}
+								}
+							}
+						}
+						if allParam {
+							handler = "View"
+							autoConfigure = true
+							break
+						}
+					} else {
+						//checks if the response refers to an array schema
+						if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+							handler = "List"
+							autoConfigure = true
+							break
+						} else {
+							if val.Schema.Value.Properties != nil {
+								var alias string
+								for _, prop := range val.Schema.Value.Properties {
+									aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
+									if aliasInterface != nil {
+										bytesContext := aliasInterface.(json.RawMessage)
+										json.Unmarshal(bytesContext, &alias)
+										if alias == "items" {
+											if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
+												handler = "List"
+												autoConfigure = true
+												break
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		if handler != "" && autoConfigure {
+			controller, err := api.GetController(handler)
+			if err != nil {
+				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+			}
+			if controller != nil {
+				ctxt = context.WithValue(ctxt, CONTROLLER, controller)
+			}
+		} else {
+			//this should not return an error it should log
+			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+		}
+	}
+	return ctxt, nil
 }
 
 //RouteInitializer creates route using information in the initialization context
