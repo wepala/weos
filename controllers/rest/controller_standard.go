@@ -110,7 +110,7 @@ func Create(api *RESTAPI, projection projections.Projection, commandDispatcher m
 }
 
 //CreateBatch is used for an array of payloads. It dispatches this to the model which then validates and creates it.
-func CreateBatchfunc(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func CreateBatch(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
 	return func(ctxt echo.Context) error {
@@ -137,7 +137,7 @@ func CreateBatchfunc(api *RESTAPI, projection projections.Projection, commandDis
 	}
 }
 
-func Updatefunc(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func Update(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//look up the schema for the content type so that we could identify the rules
 		newContext := ctxt.Request().Context()
@@ -265,7 +265,7 @@ func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIt
 	}
 }
 
-func Viewfunc(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func View(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		cType := &context2.ContentType{}
 		pks, _ := json.Marshal(cType.Schema.Extensions["x-identifier"])
@@ -396,7 +396,7 @@ func Viewfunc(api *RESTAPI, projection projections.Projection, commandDispatcher
 	}
 }
 
-func Listfunc(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func List(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
@@ -429,24 +429,24 @@ func Listfunc(api *RESTAPI, projection projections.Projection, commandDispatcher
 	}
 }
 
-func Delete(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func Delete(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 
 		return nil
 	}
 }
 
-func Get(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func Get(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//TODO call GetByID
 
 		return ctxt.JSON(200, nil)
 	}
 }
-func HealthCheck(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func HealthCheck(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		response := &HealthCheckResponse{
-			Version: spec.Info.Version,
+			Version: api.Swagger.Info.Version,
 		}
 		return context.JSON(http.StatusOK, response)
 	}

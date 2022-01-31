@@ -12,8 +12,11 @@ func TestEntityFactoryInitializer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error loading api '%s'", err)
 	}
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	baseCtxt := context.WithValue(context.TODO(), rest.SCHEMA_BUILDERS, schemas)
 	t.Run("get schema from request body", func(t *testing.T) {
-		ctxt, err := rest.EntityFactoryInitializer(context.TODO(), api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+
+		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -30,7 +33,7 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		ctxt, err := rest.EntityFactoryInitializer(context.TODO(), api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -47,7 +50,7 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		ctxt, err := rest.EntityFactoryInitializer(context.TODO(), api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
