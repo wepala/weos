@@ -12,6 +12,7 @@ type (
 	Middleware func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.MiddlewareFunc
 	//Controller is the handler for a specific operation
 	Controller func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.HandlerFunc
-	//InitializationMiddleware are middleware that are used during the startup process of the service
-	InitializationMiddleware func(context.Context, *echo.Echo, *openapi3.Swagger) echo.MiddlewareFunc
+	//OperationInitializer initialzers that are run when processing OpenAPI operations
+	OperationInitializer func(context.Context, context.Context, *RESTAPI, string, string, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation)
+	PathInitializer      func(context.Context, *RESTAPI, string, *openapi3.Swagger, *openapi3.PathItem)
 )

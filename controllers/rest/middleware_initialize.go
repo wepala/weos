@@ -216,6 +216,7 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 		//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 		for _, value := range pathData.Post.RequestBody.Value.Content {
 			if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+
 				operationConfig.Handler = "CreateHandler"
 				autoConfigure = true
 			} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {

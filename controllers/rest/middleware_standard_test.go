@@ -37,10 +37,9 @@ func TestStandardMiddlewares_CSVUpload(t *testing.T) {
 
 	t.Run("import basic blogs", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
-		middlewares := rest.StandardMiddlewares{}
 		contextHasItems := false
 
-		csvUploadMiddleware := middlewares.CSVUpload(nil, swagger, path, path.Post)
+		csvUploadMiddleware := rest.CSVUpload(nil, swagger, path, path.Post)
 		controller := func(ctxt echo.Context) error {
 			var csvItems [][]string
 			//confirm that the items are in the context

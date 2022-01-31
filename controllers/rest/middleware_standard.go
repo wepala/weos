@@ -13,12 +13,8 @@ import (
 	"net/http"
 )
 
-//StandardMiddlewares receiver for all the standard middleware that WeOS provides
-type StandardMiddlewares struct {
-}
-
 //RequestID generate request id
-func (m *StandardMiddlewares) RequestID(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func RequestID(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			cc := c.Request().Context()
@@ -34,14 +30,14 @@ func (m *StandardMiddlewares) RequestID(app model.Service, spec *openapi3.Swagge
 	}
 }
 
-func (m *StandardMiddlewares) Recover(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func Recover(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return middleware.Recover()(next)
 	}
 }
 
 //ZapLogger switch to using ZapLogger
-func (m *StandardMiddlewares) ZapLogger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func ZapLogger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			//setting the default logger in the context as zap with the default mode being error
@@ -55,14 +51,14 @@ func (m *StandardMiddlewares) ZapLogger(app model.Service, spec *openapi3.Swagge
 	}
 }
 
-func (m *StandardMiddlewares) Logger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func Logger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return middleware.Logger()(next)
 	}
 }
 
 //CSVUpload parse csv and add items as "_items" to context
-func (m *StandardMiddlewares) CSVUpload(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func CSVUpload(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			var csvFile *csv.Reader

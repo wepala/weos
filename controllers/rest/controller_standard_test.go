@@ -143,7 +143,7 @@ func TestStandardControllers_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		controller := rest.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/json")
@@ -180,7 +180,7 @@ func TestStandardControllers_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		controller := rest.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/json")
@@ -296,7 +296,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := restAPI.CreateBatch(restAPI.Application, swagger, path, path.Post)
+		controller := rest.CreateBatch(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
@@ -338,7 +338,7 @@ func TestStandardControllers_HealthCheck(t *testing.T) {
 	restAPI := &rest.RESTAPI{}
 
 	path := swagger.Paths.Find("/health")
-	controller := restAPI.HealthCheck(restAPI.Application, swagger, path, path.Get)
+	controller := rest.HealthCheck(restAPI.Application, swagger, path, path.Get)
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	mw := rest.Context(restAPI.Application, swagger, path, path.Get)
@@ -483,7 +483,7 @@ func TestStandardControllers_Update(t *testing.T) {
 
 		accountID := "Update Blog"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
-		controller := restAPI.Update(restAPI.Application, swagger, path, path.Put)
+		controller := rest.Update(restAPI.Application, swagger, path, path.Put)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPut, "/blogs/"+weosId, body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
@@ -598,7 +598,7 @@ func TestStandardControllers_View(t *testing.T) {
 		paramName := "id"
 		paramValue := "1"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
-		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		controller := rest.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue, nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
@@ -652,7 +652,7 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
 		}
-		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		controller := rest.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
@@ -713,7 +713,7 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
 		}
-		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		controller := rest.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
@@ -774,7 +774,7 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
 		}
-		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		controller := rest.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
@@ -832,7 +832,7 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in swagger paths", "/blogs/:"+paramName)
 		}
-		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		controller := rest.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=1", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
@@ -898,7 +898,7 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in swagger paths", "/blogs/:"+paramName)
 		}
-		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		controller := rest.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=asdf", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
@@ -959,7 +959,7 @@ func TestStandardControllers_List(t *testing.T) {
 
 	t.Run("Testing the generic list endpoint with parameters", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
-		controller := restAPI.List(restAPI.Application, swagger, path, path.Get)
+		controller := rest.List(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
@@ -1112,7 +1112,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		controller := rest.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
@@ -1145,7 +1145,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		controller := rest.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
@@ -1277,7 +1277,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		controller := rest.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
@@ -1310,7 +1310,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		controller := rest.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)

@@ -19,11 +19,8 @@ import (
 	"github.com/wepala/weos/model"
 )
 
-type StandardControllers struct {
-}
-
 //Create is used for a single payload. It dispatches this to the model which then validates and creates it.
-func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func Create(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
 	//get the entity information based on the Content Type associated with this operation
@@ -128,7 +125,7 @@ func (c *StandardControllers) Create(app model.Service, spec *openapi3.Swagger, 
 }
 
 //CreateBatch is used for an array of payloads. It dispatches this to the model which then validates and creates it.
-func (c *StandardControllers) CreateBatch(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func CreateBatch(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
 	//get the entity information based on the Content Type associated with this operation
@@ -165,7 +162,7 @@ func (c *StandardControllers) CreateBatch(app model.Service, spec *openapi3.Swag
 	}
 }
 
-func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func Update(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
 	//get the entity information based on the Content Type associated with this operation
@@ -315,13 +312,13 @@ func (c *StandardControllers) Update(app model.Service, spec *openapi3.Swagger, 
 	}
 }
 
-func (c *StandardControllers) BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		return nil
 	}
 }
 
-func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
 	//get the entity information based on the Content Type associated with this operation
@@ -468,7 +465,7 @@ func (c *StandardControllers) View(app model.Service, spec *openapi3.Swagger, pa
 	}
 }
 
-func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func List(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
 	//get the entity information based on the Content Type associated with this operation
@@ -536,21 +533,21 @@ func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, pa
 	}
 }
 
-func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func Delete(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(context echo.Context) error {
 
 		return nil
 	}
 }
 
-func (c *StandardControllers) Get(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func Get(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//TODO call GetByID
 
 		return ctxt.JSON(200, nil)
 	}
 }
-func (c *StandardControllers) HealthCheck(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func HealthCheck(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		response := &HealthCheckResponse{
 			Version: spec.Info.Version,
