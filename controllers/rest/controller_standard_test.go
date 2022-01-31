@@ -117,7 +117,7 @@ func TestStandardControllers_Create(t *testing.T) {
 	}
 
 	projections := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockContentEntity, nil
 		},
 	}
@@ -267,10 +267,10 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 	}
 
 	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
-		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 			return nil, nil
 		},
 	}
@@ -450,13 +450,13 @@ func TestStandardControllers_Update(t *testing.T) {
 	mockEntity.Property = mockBlog
 
 	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
-		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 			return nil, nil
 		},
-		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockEntity, nil
 		},
 	}
@@ -567,13 +567,13 @@ func TestStandardControllers_View(t *testing.T) {
 
 	t.Run("Testing the generic view endpoint", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
 				}, nil
 			},
-			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
@@ -619,13 +619,13 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("Testing view with entity id", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
 				}, nil
 			},
-			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
@@ -677,13 +677,13 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("invalid entity id should return 404", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
 				}, nil
 			},
-			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				if id == "1234sd" {
 					return map[string]interface{}{
 						"id":      "1",
@@ -738,13 +738,13 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("invalid numeric entity id should return 404", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
 				}, nil
 			},
-			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				if id == "1234sd" {
 					return map[string]interface{}{
 						"id":      "1",
@@ -799,13 +799,13 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("view with sequence no", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
 				}, nil
 			},
-			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
@@ -865,13 +865,13 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("view with invalid sequence no", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
 				}, nil
 			},
-			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
@@ -944,7 +944,7 @@ func TestStandardControllers_List(t *testing.T) {
 	array = append(array, mockBlog, mockBlog1)
 
 	mockProjection := &ProjectionMock{
-		GetContentEntitiesFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 			return array, 2, nil
 		},
 	}
@@ -1085,7 +1085,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 	}
 
 	projections := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockContentEntity, nil
 		},
 	}
@@ -1250,7 +1250,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 	}
 
 	projections := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockContentEntity, nil
 		},
 	}

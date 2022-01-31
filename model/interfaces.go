@@ -3,7 +3,6 @@ package model
 //go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
 import (
 	ds "github.com/ompluscator/dynamic-struct"
-	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 
@@ -79,7 +78,7 @@ type Projection interface {
 	Datastore
 	GetEventHandler() EventHandler
 	GetContentEntity(ctx context.Context, entityFactory EntityFactory, weosID string) (*ContentEntity, error)
-	GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
-	GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error)
+	GetByKey(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
+	GetByEntityID(ctxt context.Context, entityFactory EntityFactory, id string) (map[string]interface{}, error)
 	GetContentEntities(ctx context.Context, entityFactory EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
 }

@@ -2,12 +2,14 @@ package model_test
 
 import (
 	"database/sql"
+	"os"
+	"testing"
+
+	dynamicstruct "github.com/ompluscator/dynamic-struct"
 	_ "github.com/proullon/ramsql/driver"
 	"github.com/wepala/weos/controllers/rest"
 	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
-	"os"
-	"testing"
 )
 
 func TestNewApplicationFromConfig(t *testing.T) {
@@ -220,7 +222,7 @@ func TestWeOSApp_AddProjection(t *testing.T) {
 
 			}
 		},
-		MigrateFunc: func(ctx context.Context) error {
+		MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder) error {
 			return nil
 		},
 	}

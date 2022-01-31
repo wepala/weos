@@ -244,7 +244,7 @@ func Update(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, 
 
 			for _, projection := range app.Projections() {
 				if projection != nil {
-					result1, err = projection.GetByKey(newContext, *cType, primaryKeys)
+					result1, err = projection.GetByKey(newContext, nil, primaryKeys)
 					if err != nil {
 						return err
 					}
@@ -376,7 +376,7 @@ func View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, op
 		if !useEntity {
 			for _, projection := range app.Projections() {
 				if projection != nil {
-					result, err = projection.GetByKey(ctxt.Request().Context(), *cType, identifiers)
+					result, err = projection.GetByKey(ctxt.Request().Context(), nil, identifiers)
 				}
 			}
 		}
@@ -431,7 +431,7 @@ func View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, op
 				//get entity by entity_id
 				for _, projection := range app.Projections() {
 					if projection != nil {
-						result, err = projection.GetByEntityID(ctxt.Request().Context(), *cType, entityID)
+						result, err = projection.GetByEntityID(ctxt.Request().Context(), nil, entityID)
 					}
 				}
 			}

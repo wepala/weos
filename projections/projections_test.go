@@ -6,16 +6,22 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"gorm.io/gorm/logger"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
 
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/projections/dialects"
 	"gorm.io/gorm/clause"
 
 	"github.com/labstack/gommon/log"
@@ -34,7 +40,7 @@ var port = flag.Int("port", 49179, "database port")
 var maxOpen = flag.Int("open", 4, "database maximum open connections")
 var maxIdle = flag.Int("idle", 1, "database maximum idle connections")
 var database = flag.String("database", "", "database name")
-var app weos.Service
+var gormDB *gorm.DB
 
 type dbConfig struct {
 	Host     string `json:"host"`
@@ -95,6 +101,12 @@ func TestMain(t *testing.M) {
 
 		config.Host = connection[0]
 		config.Port, _ = strconv.Atoi(connection[1])
+		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
+			Conn: db,
+		}), nil)
+		if err != nil {
+			log.Fatalf("failed to create postgres database '%s'", err)
+		}
 	case "mysql":
 		log.Info("Started mysql database")
 		// uses a sensible default on windows (tcp/http) and linux/osx (socket)
@@ -122,6 +134,12 @@ func TestMain(t *testing.M) {
 		connection := strings.Split(resource.GetHostPort("3306/tcp"), ":")
 		config.Host = connection[0]
 		config.Port, _ = strconv.Atoi(connection[1])
+		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
+			Conn: db,
+		}), nil)
+		if err != nil {
+			log.Fatalf("failed to create mysql database '%s'", err)
+		}
 	case "sqlite3":
 		log.Infof("Started sqlite3 database")
 		db, err = sql.Open(*driver, "projection.db")
@@ -129,28 +147,16 @@ func TestMain(t *testing.M) {
 			log.Fatalf("failed to create sqlite database '%s'", err)
 		}
 		db.Exec("PRAGMA foreign_keys = ON")
+		gormDB, err = gorm.Open(&dialects.SQLite{
+			sqlite.Dialector{
+				Conn: db,
+			},
+		}, nil)
+		if err != nil {
+			log.Fatalf("failed to create sqlite database '%s'", err)
+		}
 	}
 	defer db.Close()
-	appConfig := &weos.ServiceConfig{
-		ModuleID: "123",
-		Title:    "Test App",
-		Database: &weos.DBConfig{
-			Driver:   config.Driver,
-			Host:     config.Host,
-			User:     config.User,
-			Password: config.Password,
-			Database: config.Database,
-			Port:     config.Port,
-		},
-		Log:           nil,
-		ApplicationID: "12345",
-	}
-
-	app, err = weos.NewApplicationFromConfig(appConfig, nil, db, nil, nil)
-	if err != nil {
-		log.Fatalf("failed to set up projections test '%s'", err)
-	}
-
 	code := t.Run()
 
 	switch *driver {
@@ -226,10 +232,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, nil)
@@ -373,11 +375,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
-
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
@@ -481,10 +478,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, nil)
@@ -598,10 +591,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
@@ -743,18 +732,11 @@ components:
        description:
          type: string
 `
-		err := os.Remove("test.db")
-		if err != nil {
-			t.Fatal("test database could not be removed")
-		}
 		api, err := rest.New(openAPI)
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
+
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, nil)
 		if err != nil {
@@ -859,19 +841,10 @@ components:
       blog:
          $ref: "#/components/schemas/Blog"
 `
-
-		err := os.Remove("test.db")
-		if err != nil {
-			t.Fatal("test database could not be removed")
-		}
 		api, err := rest.New(openAPI)
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
@@ -1035,10 +1008,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, nil)
@@ -1068,6 +1037,7 @@ components:
 		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 			Name: "Blog",
 		})
+		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"]))
 
 		event := weos.NewEntityEvent("update", contentEntity, contentEntity.ID, &payload)
 		p.GetEventHandler()(ctxt, *event)
@@ -1130,10 +1100,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, nil)
@@ -1171,6 +1137,7 @@ components:
 		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 			Name: "Blog",
 		})
+		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"]))
 
 		event := weos.NewEntityEvent("update", contentEntity, contentEntity.ID, &payload)
 		p.GetEventHandler()(ctxt, *event)
@@ -1225,6 +1192,7 @@ components:
 		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
 			Name: "Blog",
 		})
+		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"]))
 
 		event = weos.NewEntityEvent("update", contentEntity, contentEntity.ID, &payload)
 		p.GetEventHandler()(ctxt, *event)
@@ -1294,11 +1262,6 @@ components:
 	if err != nil {
 		t.Fatalf("error loading api config '%s'", err)
 	}
-	_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-		Database: "test.db",
-		Driver:   "sqlite3",
-	})
-
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 	p, err := projections.NewProjection(context.Background(), gormDB, nil)
 	if err != nil {
@@ -1348,7 +1311,8 @@ components:
 		t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
 	}
 
-	r, err := p.GetByEntityID(context.Background(), weosContext.ContentType{Name: "Blog"}, "5678")
+	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	r, err := p.GetByEntityID(context.Background(), blogEntityFactory, "5678")
 	if err != nil {
 		t.Fatalf("error querying '%s' '%s'", "Blog", err)
 	}
@@ -1442,19 +1406,6 @@ components:
 	if err != nil {
 		t.Fatalf("error loading api config '%s'", err)
 	}
-	_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-		Database: "test.db",
-		Driver:   "sqlite3",
-	})
-
-	err = gormDB.Migrator().DropTable("Post")
-	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "Blog", err)
-	}
-	err = gormDB.Migrator().DropTable("Blog")
-	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "Blog", err)
-	}
 
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
@@ -1511,8 +1462,8 @@ components:
 		t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
 	}
 
-	blogRef := api.Swagger.Components.Schemas["Blog"]
-	r, err := p.GetByKey(context.Background(), weosContext.ContentType{Name: "Blog", Schema: blogRef.Value}, map[string]interface{}{
+	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	r, err := p.GetByKey(context.Background(), blogEntityFactory, map[string]interface{}{
 		"author_id": "kidding",
 		"title":     "hugs",
 	})
@@ -1604,10 +1555,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, nil)
@@ -1761,11 +1708,6 @@ components:
 	if err != nil {
 		t.Fatalf("error loading api config '%s'", err)
 	}
-	_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-		Database: "test.db",
-		Driver:   "sqlite3",
-	})
-
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
@@ -1894,10 +1836,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 		gormDB.Logger.LogMode(logger.Info)
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
@@ -2033,10 +1971,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-			Database: "test.db",
-			Driver:   "sqlite3",
-		})
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
@@ -2140,10 +2074,6 @@ components:
 	if err != nil {
 		t.Fatalf("error loading api config '%s'", err)
 	}
-	_, gormDB, err := api.SQLConnectionFromConfig(&weos.DBConfig{
-		Database: "test.db",
-		Driver:   "sqlite3",
-	})
 
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)

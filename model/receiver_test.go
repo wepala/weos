@@ -175,10 +175,10 @@ func TestUpdateContentType(t *testing.T) {
 	existingBlog.NewChange(event)
 
 	projectionMock := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
