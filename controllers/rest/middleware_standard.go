@@ -10,6 +10,7 @@ import (
 	context2 "github.com/wepala/weos/context"
 	logs "github.com/wepala/weos/log"
 	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"net/http"
 )
 
@@ -30,7 +31,7 @@ func RequestID(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIte
 	}
 }
 
-func Recover(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func Recover(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return middleware.Recover()(next)
 	}

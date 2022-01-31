@@ -1,27 +1,120 @@
 package rest
 
 import (
+	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
+	"net/http"
+	"regexp"
+	"strings"
 )
 
 const MIDDLEWARES weoscontext.ContextKey = "_middlewares"
 const CONTROLLER weoscontext.ContextKey = "_controller"
-
-//GlobalInitializer This will setup global middleware
-func GlobalInitializer(pathContext context.Context, ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) {
-
-}
+const PROJECTION weoscontext.ContextKey = "_projection"
+const COMMAND_DISPATCHER weoscontext.ContextKey = "_command_disptacher"
+const EVENT_STORE weoscontext.ContextKey = "_event_store"
+const ENTITY_FACTORY weoscontext.ContextKey = "_entity_factory"
+const SCHEMA_BUILDERS weoscontext.ContextKey = "_schema_builders"
 
 //EntityFactoryInitializer setups the EntityFactory for a specific route
-func EntityFactoryInitializer(pathContext context.Context, ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) {
+func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	schemas := GetSchemaBuilders(ctxt)
+	jsonSchema := operation.ExtensionProps.Extensions[SchemaExtension]
+	if jsonSchema != nil {
+		contentType := ""
+		err := json.Unmarshal(jsonSchema.(json.RawMessage), &contentType)
+		if err != nil {
+			return ctxt, err
+		}
+		//get the schema details from the swagger file
+		if builder, ok := schemas[contentType]; ok {
+			entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+			newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+			return newContext, nil
+		}
 
+	}
+	if operation.RequestBody != nil {
+		//get the entity information based on the Content Type associated with this operation
+		for _, requestContent := range operation.RequestBody.Value.Content {
+			//use the first schema ref to determine the entity type
+			if requestContent.Schema.Ref != "" {
+				contentType := strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+				//get the schema details from the swagger file
+				if builder, ok := schemas[contentType]; ok {
+					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+					newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+					return newContext, nil
+				}
+				break
+			}
+			//use the first schema ref to determine the entity type
+			if requestContent.Schema.Value.Items != nil && strings.Contains(requestContent.Schema.Value.Items.Ref, "#/components/schemas/") {
+				contentType := strings.Replace(requestContent.Schema.Value.Items.Ref, "#/components/schemas/", "", -1)
+				if builder, ok := schemas[contentType]; ok {
+					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+					newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+					return newContext, nil
+				}
+			}
+		}
+	}
+
+	if operation.Responses.Get(http.StatusOK) != nil {
+		for _, respContent := range operation.Responses.Get(http.StatusOK).Value.Content {
+			//use the first schema ref to determine the entity type
+			if respContent.Schema.Ref != "" {
+				contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
+				if builder, ok := schemas[contentType]; ok {
+					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+					newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+					return newContext, nil
+				}
+			}
+			//use the first schema ref to determine the entity type
+			if respContent.Schema.Value.Properties["items"] != nil {
+				contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
+				if builder, ok := schemas[contentType]; ok {
+					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+					newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+					return newContext, nil
+				}
+			} else {
+				//if items are named differently the alias is checked
+				var alias string
+				for _, prop := range respContent.Schema.Value.Properties {
+					aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
+					if aliasInterface != nil {
+						bytesContext := aliasInterface.(json.RawMessage)
+						json.Unmarshal(bytesContext, &alias)
+						if alias == "items" {
+							if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
+								contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
+								if builder, ok := schemas[contentType]; ok {
+									entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+									newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+									return newContext, nil
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return ctxt, nil
 }
 
 //UserDefinedInitializer adds user defined middleware, controller, command dispatchers and event store to the initialize context
-func UserDefinedInitializer(pathContext context.Context, ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) {
-
+func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	return ctxt, nil
 }
 
 //StandardInitializer adds standard controller and middleware if not already setup
@@ -30,6 +123,106 @@ func StandardInitializer(pathContext context.Context, ctxt context.Context, api 
 }
 
 //RouteInitializer creates route using information in the initialization context
-func RouteInitializer(pathContext context.Context, ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) {
+func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	var err error
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	echoPath := re.ReplaceAllString(path, `:$1`)
+	controller := GetOperationController(ctxt)
+	projection := GetOperationProjection(ctxt)
+	if projection == nil {
+		projection, err = api.GetProjection("Default")
 
+	}
+	commandDispatcher := GetOperationCommandDispatcher(ctxt)
+	if commandDispatcher == nil {
+		commandDispatcher, err = api.GetCommandDispatcher("Default")
+	}
+	eventStore := GetOperationEventStore(ctxt)
+	if eventStore == nil {
+		eventStore, err = api.GetEventStore("Default")
+	}
+	entityFactory := GetEntityFactory(ctxt)
+	if entityFactory == nil {
+
+	}
+	handler := controller(api, projection, commandDispatcher, eventStore, entityFactory)
+	middlewares := GetOperationMiddlewares(ctxt)
+	var pathMiddleware []echo.MiddlewareFunc
+	for _, tmiddleware := range middlewares {
+		//Not sure if CORS middleware and any other middlewares needs to be added
+		pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
+	}
+	switch method {
+	case "GET":
+		api.EchoInstance().GET(api.config.BasePath+echoPath, handler, pathMiddleware...)
+	case "POST":
+		api.e.POST(api.config.BasePath+echoPath, handler, pathMiddleware...)
+	case "PUT":
+		api.e.PUT(api.config.BasePath+echoPath, handler, pathMiddleware...)
+	case "PATCH":
+		api.e.PATCH(api.config.BasePath+echoPath, handler, pathMiddleware...)
+	case "DELETE":
+		api.e.DELETE(api.config.BasePath+echoPath, handler, pathMiddleware...)
+	case "HEAD":
+		api.e.HEAD(api.config.BasePath+echoPath, handler, pathMiddleware...)
+	case "TRACE":
+		api.e.TRACE(api.config.BasePath+echoPath, handler, pathMiddleware...)
+	case "CONNECT":
+		api.e.CONNECT(api.config.BasePath+echoPath, handler, pathMiddleware...)
+
+	}
+
+	return ctxt, err
+}
+
+func GetOperationMiddlewares(ctx context.Context) []Middleware {
+	if value, ok := ctx.Value(MIDDLEWARES).([]Middleware); ok {
+		return value
+	}
+	return []Middleware{}
+}
+
+func GetOperationController(ctx context.Context) Controller {
+	if value, ok := ctx.Value(CONTROLLER).(Controller); ok {
+		return value
+	}
+	return nil
+}
+
+func GetOperationCommandDispatcher(ctx context.Context) model.CommandDispatcher {
+	if value, ok := ctx.Value(COMMAND_DISPATCHER).(model.CommandDispatcher); ok {
+		return value
+	}
+	return nil
+}
+
+func GetOperationEventStore(ctx context.Context) model.EventRepository {
+	if value, ok := ctx.Value(EVENT_STORE).(model.EventRepository); ok {
+		return value
+	}
+	return nil
+}
+
+func GetOperationProjection(ctx context.Context) projections.Projection {
+	if value, ok := ctx.Value(PROJECTION).(projections.Projection); ok {
+		return value
+	}
+	return nil
+}
+
+//GetEntityFactory get the configured event factory from the context
+func GetEntityFactory(ctx context.Context) model.EntityFactory {
+	if value, ok := ctx.Value(ENTITY_FACTORY).(model.EntityFactory); ok {
+		return value
+	}
+	return nil
+}
+
+//GetSchemaBuilders get a map of the dynamic struct builders for the schemas from the context
+func GetSchemaBuilders(ctx context.Context) map[string]ds.Builder {
+	if value, ok := ctx.Value(SCHEMA_BUILDERS).(map[string]ds.Builder); ok {
+		return value
+	}
+	return make(map[string]ds.Builder)
 }

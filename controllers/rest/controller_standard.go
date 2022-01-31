@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/wepala/weos/projections"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -20,29 +21,10 @@ import (
 )
 
 //Create is used for a single payload. It dispatches this to the model which then validates and creates it.
-func Create(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	//get the entity information based on the Content Type associated with this operation
-	for _, requestContent := range operation.RequestBody.Value.Content {
-		//use the first schema ref to determine the entity type
-		if requestContent.Schema.Ref != "" {
-			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
-			//get the schema details from the swagger file
-			contentTypeSchema = spec.Components.Schemas[contentType]
-			break
-		}
-	}
+func Create(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//look up the schema for the content type so that we could identify the rules
 		newContext := ctxt.Request().Context()
-		if contentType != "" && contentTypeSchema.Value != nil {
-			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
-				Name:   contentType,
-				Schema: contentTypeSchema.Value,
-			})
-		}
-
 		var payload []byte
 		var err error
 
@@ -86,7 +68,12 @@ func Create(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, 
 			weosID = ksuid.New().String()
 		}
 
-		err = app.Dispatcher().Dispatch(newContext, model.Create(newContext, payload, contentType, weosID), nil, nil)
+		var entityName string
+		if entityFactory != nil {
+			entityName = entityFactory.Name()
+		}
+
+		err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityName, weosID), nil, nil)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -96,14 +83,12 @@ func Create(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, 
 		}
 		var result *model.ContentEntity
 		var Etag string
-		for _, projection := range app.Projections() {
-			if projection != nil {
-				result, err = projection.GetContentEntity(newContext, nil, weosID)
-				if err != nil {
-					return err
-				}
-				Etag = NewEtag(result)
+		if projection != nil {
+			result, err = projection.GetContentEntity(newContext, nil, weosID)
+			if err != nil {
+				return err
 			}
+			Etag = NewEtag(result)
 		}
 		if result == nil || result.ID == "" {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
@@ -125,19 +110,9 @@ func Create(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, 
 }
 
 //CreateBatch is used for an array of payloads. It dispatches this to the model which then validates and creates it.
-func CreateBatch(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+func CreateBatchfunc(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
-	//get the entity information based on the Content Type associated with this operation
-	for _, requestContent := range operation.RequestBody.Value.Content {
-		//use the first schema ref to determine the entity type
-		if requestContent.Schema.Value.Items != nil && strings.Contains(requestContent.Schema.Value.Items.Ref, "#/components/schemas/") {
-			contentType = strings.Replace(requestContent.Schema.Value.Items.Ref, "#/components/schemas/", "", -1)
-			//get the schema details from the swagger file
-			contentTypeSchema = spec.Components.Schemas[contentType]
-			break
-		}
-	}
 	return func(ctxt echo.Context) error {
 		//look up the schema for the content type so that we could identify the rules
 		newContext := ctxt.Request().Context()
@@ -162,30 +137,10 @@ func CreateBatch(app model.Service, spec *openapi3.Swagger, path *openapi3.PathI
 	}
 }
 
-func Update(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	//get the entity information based on the Content Type associated with this operation
-	for _, requestContent := range operation.RequestBody.Value.Content {
-		//use the first schema ref to determine the entity type
-		if requestContent.Schema.Ref != "" {
-			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
-			//get the schema details from the swagger file
-			contentTypeSchema = spec.Components.Schemas[contentType]
-			break
-		}
-	}
+func Updatefunc(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//look up the schema for the content type so that we could identify the rules
 		newContext := ctxt.Request().Context()
-		cType := &context2.ContentType{}
-		if contentType != "" && contentTypeSchema.Value != nil {
-			cType = &context2.ContentType{
-				Name:   contentType,
-				Schema: contentTypeSchema.Value,
-			}
-			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, cType)
-		}
 		var weosID string
 		var sequenceNo string
 		//reads the request body
@@ -226,7 +181,7 @@ func Update(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, 
 		var result1 map[string]interface{}
 		if etagInterface == nil {
 			//find entity based on identifiers specified
-			pks, _ := json.Marshal(contentTypeSchema.Value.Extensions["x-identifier"])
+			pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
 			json.Unmarshal(pks, &identifiers)
 
 			if len(identifiers) == 0 {
@@ -242,14 +197,9 @@ func Update(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, 
 
 			}
 
-			for _, projection := range app.Projections() {
-				if projection != nil {
-					result1, err = projection.GetByKey(newContext, nil, primaryKeys)
-					if err != nil {
-						return err
-					}
-
-				}
+			result1, err = projection.GetByKey(newContext, nil, primaryKeys)
+			if err != nil {
+				return err
 			}
 			weos_id, ok := result1["weos_id"].(string)
 			sequenceString := fmt.Sprint(result1["sequence_no"])
@@ -273,15 +223,12 @@ func Update(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, 
 
 			return ctxt.JSON(http.StatusOK, result1)
 		} else {
-			//find contentEntity based on weosid
-			for _, projection := range app.Projections() {
-				if projection != nil {
-					result, err = projection.GetContentEntity(newContext, nil, weosID)
-					if err != nil {
-						return err
-					}
-
+			if projection != nil {
+				result, err = projection.GetContentEntity(newContext, nil, weosID)
+				if err != nil {
+					return err
 				}
+
 			}
 			if result == nil || result.ID == "" {
 				return NewControllerError("No entity found", err, http.StatusNotFound)
@@ -318,29 +265,9 @@ func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIt
 	}
 }
 
-func View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	//get the entity information based on the Content Type associated with this operation
-	for _, requestContent := range operation.Responses.Get(http.StatusOK).Value.Content {
-		//use the first schema ref to determine the entity type
-		if requestContent.Schema.Ref != "" {
-			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
-			//get the schema details from the swagger file
-			contentTypeSchema = spec.Components.Schemas[contentType]
-			break
-		}
-	}
-
+func Viewfunc(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		cType := &context2.ContentType{}
-		if contentType != "" && contentTypeSchema.Value != nil {
-			cType = &context2.ContentType{
-				Name:   contentType,
-				Schema: contentTypeSchema.Value,
-			}
-		}
-
 		pks, _ := json.Marshal(cType.Schema.Extensions["x-identifier"])
 		primaryKeys := []string{}
 		json.Unmarshal(pks, &primaryKeys)
@@ -374,10 +301,8 @@ func View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, op
 
 		//if use_entity_id is not set then let's get the item by key
 		if !useEntity {
-			for _, projection := range app.Projections() {
-				if projection != nil {
-					result, err = projection.GetByKey(ctxt.Request().Context(), nil, identifiers)
-				}
+			if projection != nil {
+				result, err = projection.GetByKey(ctxt.Request().Context(), nil, identifiers)
 			}
 		}
 		//if etag is set then let's use that info
@@ -411,10 +336,16 @@ func View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, op
 			//get the entity using the sequence no.
 			if seqInt != 0 {
 				//get the events up to the sequence
-				events, err := app.EventRepository().GetByAggregateAndSequenceRange(entityID, 0, int64(seqInt))
+				events, err := eventSource.GetByAggregateAndSequenceRange(entityID, 0, int64(seqInt))
 				//create content entity
-				r, er := new(model.ContentEntity).FromSchemaWithEvents(ctxt.Request().Context(), contentTypeSchema.Value, events)
-				err = er
+				r, er := entityFactory.NewEntity(ctxt.Request().Context())
+				if er != nil {
+					return NewControllerError("unable to create entity", er, http.StatusInternalServerError)
+				}
+				er = r.ApplyEvents(events)
+				if er != nil {
+					return NewControllerError("unable to changes", er, http.StatusInternalServerError)
+				}
 				if r.SequenceNo == 0 {
 					return NewControllerError("No entity found", err, http.StatusNotFound)
 				}
@@ -465,37 +396,8 @@ func View(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, op
 	}
 }
 
-func List(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	//get the entity information based on the Content Type associated with this operation
-	for _, respContent := range operation.Responses.Get(http.StatusOK).Value.Content {
-		//use the first schema ref to determine the entity type
-		if respContent.Schema.Value.Properties["items"] != nil {
-			contentType = strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
-			//get the schema details from the swagger file
-			contentTypeSchema = spec.Components.Schemas[contentType]
-			break
-		} else {
-			//if items are named differently the alias is checked
-			var alias string
-			for _, prop := range respContent.Schema.Value.Properties {
-				aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
-				if aliasInterface != nil {
-					bytesContext := aliasInterface.(json.RawMessage)
-					json.Unmarshal(bytesContext, &alias)
-					if alias == "items" {
-						if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-							contentType = strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
-							contentTypeSchema = spec.Components.Schemas[contentType]
-							break
-						}
-					}
-				}
+func Listfunc(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 
-			}
-		}
-	}
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
 		if contentType != "" && contentTypeSchema.Value != nil {

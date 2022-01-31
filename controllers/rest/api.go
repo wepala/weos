@@ -182,7 +182,7 @@ func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	tmiddleware := t.MethodByName(name)
 	//only show error if handler was set
 	if tmiddleware.IsValid() {
-		return tmiddleware.Interface().(func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.MiddlewareFunc), nil
+		return tmiddleware.Interface().(func(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc), nil
 	}
 
 	return nil, fmt.Errorf("middleware '%s' not found", name)
@@ -199,7 +199,7 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	tcontroller := t.MethodByName(name)
 	//only show error if handler was set
 	if tcontroller.IsValid() {
-		return tcontroller.Interface().(func(model.Service, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) echo.HandlerFunc), nil
+		return tcontroller.Interface().(func(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc), nil
 	}
 
 	return nil, fmt.Errorf("controller '%s' not found", name)
@@ -258,6 +258,13 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("Create", Create)
 	//register standard middleware
 	p.RegisterMiddleware("Recover", Recover)
+	//register standard operation initializers
+	p.RegisterOperationInitializer(EntityFactoryInitializer)
+	p.RegisterOperationInitializer(UserDefinedInitializer)
+	p.RegisterOperationInitializer(StandardInitializer)
+	p.RegisterOperationInitializer(RouteInitializer)
+	//these are the dynamic struct builders for the schemas in the OpenAPI
+	var schemas map[string]ds.Builder
 
 	if p.config != nil && p.config.Database != nil {
 		//setup default projection
@@ -277,7 +284,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			}
 			p.RegisterProjection("Default", defaultProjection)
 			//get the database schema
-			schemas := CreateSchema(context.Background(), p.EchoInstance(), p.Swagger)
+			schemas = CreateSchema(context.Background(), p.EchoInstance(), p.Swagger)
 			err = defaultProjection.Migrate(ctxt, schemas)
 			if err != nil {
 				return err
@@ -327,13 +334,13 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup global middleware
 	var middlewares []echo.MiddlewareFunc
 	//prepend Context middleware
-	for _, middlewareName := range p.config.Rest.Middleware {
-		tmiddleware, err := p.GetMiddleware(middlewareName)
-		if err != nil {
-			p.e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
-		}
-		middlewares = append(middlewares, tmiddleware(p.Application, p.Swagger, nil, nil))
-	}
+	//for _, middlewareName := range p.config.Rest.Middleware {
+	//	tmiddleware, err := p.GetMiddleware(middlewareName)
+	//	if err != nil {
+	//		p.e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
+	//	}
+	//	middlewares = append(middlewares, tmiddleware(p.Application, p.Swagger, nil, nil))
+	//}
 	//all routes setup after this will use this middleware
 	p.e.Use(middlewares...)
 
@@ -348,12 +355,15 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 
 	//setup routes
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
-
+	var err error
 	for path, pathData := range p.Swagger.Paths {
 		pathContext := context.Background()
 		//run pre path initializers
 		for _, initializer := range p.GetPrePathInitializers() {
-			initializer(pathContext, p, path, p.Swagger, pathData)
+			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			if err != nil {
+				return err
+			}
 		}
 		for _, method := range knownActions {
 			//get the operation data
@@ -361,7 +371,10 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			if operationData != nil {
 				operationContext := context.Background()
 				for _, initializer := range p.GetOperationInitializers() {
-					initializer(pathContext, operationContext, p, path, method, p.Swagger, pathData, operationData)
+					operationContext, err = initializer(operationContext, p, path, method, p.Swagger, pathData, operationData)
+					if err != nil {
+						return err
+					}
 				}
 			}
 			//if operationData != nil {
