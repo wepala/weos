@@ -148,6 +148,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 	if GetOperationController(ctxt) == nil {
 		autoConfigure := false
 		handler := ""
+		var middlewareNames []string
 		switch strings.ToUpper(method) {
 		case "POST":
 			if pathItem.Post.RequestBody == nil {
@@ -157,7 +158,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Post.RequestBody.Value.Content {
 					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-						handler = "Create"
+						handler = "CreateController"
+						middlewareNames = append(middlewareNames, "CreateMiddleware")
 						autoConfigure = true
 					} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
 						attach := true
@@ -398,6 +400,14 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			//this should not return an error it should log
 			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
 		}
+		middlewares := GetOperationMiddlewares(ctxt)
+		//there are middlewareNames let's add them
+		for _, middlewareName := range middlewareNames {
+			if middleware, _ := api.GetMiddleware(middlewareName); middleware != nil {
+				middlewares = append(middlewares, middleware)
+			}
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	}
 	return ctxt, nil
 }

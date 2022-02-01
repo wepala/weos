@@ -152,7 +152,7 @@ func TestStandardInitializer(t *testing.T) {
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.RegisterController("Create", rest.Create)
+	api.RegisterController("CreateController", rest.CreateController)
 	api.RegisterController("List", rest.List)
 	api.RegisterController("Update", rest.Update)
 	api.RegisterController("View", rest.View)

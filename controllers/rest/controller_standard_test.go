@@ -134,7 +134,7 @@ func TestStandardControllers_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := rest.Create(restAPI, projections, dispatcher, eventRepository, entityFactory)
+		controller := rest.CreateController(restAPI, projections, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/json")
@@ -171,7 +171,7 @@ func TestStandardControllers_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := rest.Create(restAPI, projections, dispatcher, eventRepository, entityFactory)
+		controller := rest.CreateController(restAPI, projections, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/json")
@@ -1054,7 +1054,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := rest.Create(restAPI, projections, dispatcher, eventRepository, entityFactory)
+		controller := rest.CreateController(restAPI, projections, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
@@ -1087,7 +1087,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := rest.Create(restAPI, projections, dispatcher, eventRepository, entityFactory)
+		controller := rest.CreateController(restAPI, projections, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
@@ -1209,7 +1209,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := rest.Create(restAPI, projections, dispatcher, eventRepository, entityFactory)
+		controller := rest.CreateController(restAPI, projections, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
@@ -1242,7 +1242,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := rest.Create(restAPI, projections, dispatcher, eventRepository, entityFactory)
+		controller := rest.CreateController(restAPI, projections, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)

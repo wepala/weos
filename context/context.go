@@ -30,6 +30,9 @@ const FILTERS ContextKey = "_filters"
 const SORTS ContextKey = "_sorts"
 const SEQUENCE_NO string = "sequence_no"
 
+//entity
+const ENTITY_ID = "_entity_id"
+
 //ContentType this makes it easier to access the content type information in the context
 type ContentType struct {
 	Name   string           `json:"name"`
@@ -72,6 +75,14 @@ func GetLogLevel(ctx context.Context) string {
 //Get request id from context
 func GetRequestID(ctx context.Context) string {
 	if value, ok := ctx.Value(REQUEST_ID).(string); ok {
+		return value
+	}
+	return ""
+}
+
+//Get entity id if it's in the context
+func GetEntityID(ctx context.Context) string {
+	if value, ok := ctx.Value(ENTITY_ID).(string); ok {
 		return value
 	}
 	return ""
