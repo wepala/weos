@@ -95,7 +95,7 @@ func TestStandardControllers_Create(t *testing.T) {
 			}
 
 			if entityFactory.(*EntityFactoryMock).Name() != "Blog" {
-				t.Errorf("expected the content type to be'%s', got %s", "Blog", entityFactory.(*model.DefaultEntityFactory).Name())
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", entityFactory.(*EntityFactoryMock).Name())
 			}
 
 			return nil
