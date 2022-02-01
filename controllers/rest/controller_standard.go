@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/segmentio/ksuid"
-	context2 "github.com/wepala/weos/context"
+	weoscontext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 
@@ -25,6 +25,13 @@ func Create(api *RESTAPI, projection projections.Projection, commandDispatcher m
 	return func(ctxt echo.Context) error {
 		//look up the schema for the content type so that we could identify the rules
 		newContext := ctxt.Request().Context()
+		if entityFactory != nil {
+			newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
+		} else {
+			err := errors.New("entity factory must be set")
+			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+			return err
+		}
 		var payload []byte
 		var err error
 
@@ -73,7 +80,7 @@ func Create(api *RESTAPI, projection projections.Projection, commandDispatcher m
 			entityName = entityFactory.Name()
 		}
 
-		err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityName, weosID), nil, nil)
+		err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityName, weosID), eventSource, projection, api.EchoInstance().Logger)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -117,7 +124,7 @@ func CreateBatch(api *RESTAPI, projection projections.Projection, commandDispatc
 		//look up the schema for the content type so that we could identify the rules
 		newContext := ctxt.Request().Context()
 		if contentType != "" && contentTypeSchema.Value != nil {
-			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+			newContext = context.WithValue(newContext, weoscontext.CONTENT_TYPE, &weoscontext.ContentType{
 				Name:   contentType,
 				Schema: contentTypeSchema.Value,
 			})
@@ -125,7 +132,7 @@ func CreateBatch(api *RESTAPI, projection projections.Projection, commandDispatc
 		//reads the request body
 		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
 
-		err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, contentType), nil, nil)
+		err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, contentType), nil, nil, api.EchoInstance().Logger)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -155,13 +162,13 @@ func Update(api *RESTAPI, projection projections.Projection, commandDispatcher m
 					if err != nil {
 						return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
 					}
-					newContext = context.WithValue(newContext, context2.WEOS_ID, weosID)
-					newContext = context.WithValue(newContext, context2.SEQUENCE_NO, seq)
+					newContext = context.WithValue(newContext, weoscontext.WEOS_ID, weosID)
+					newContext = context.WithValue(newContext, weoscontext.SEQUENCE_NO, seq)
 				}
 			}
 		}
 
-		err := commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), nil, nil)
+		err := commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), nil, nil, api.EchoInstance().Logger)
 		if err != nil {
 			if errr, ok := err.(*model.DomainError); ok {
 				if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
@@ -267,7 +274,7 @@ func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIt
 
 func View(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
-		cType := &context2.ContentType{}
+		cType := &weoscontext.ContentType{}
 		pks, _ := json.Marshal(cType.Schema.Extensions["x-identifier"])
 		primaryKeys := []string{}
 		json.Unmarshal(pks, &primaryKeys)

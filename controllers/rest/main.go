@@ -29,7 +29,7 @@ func Start(port string, apiConfig string) *RESTAPI {
 	}
 	err = api.Initialize(nil)
 	if err != nil {
-		api.EchoInstance().Logger.Error(err)
+		api.EchoInstance().Logger.Fatal(err)
 	}
 	api.EchoInstance().Logger.Fatal(api.EchoInstance().Start(":" + port))
 	return api

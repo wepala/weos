@@ -145,6 +145,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 
 }
 
+//Deprecated: 02/01/2022 Use FromSchemaAndBulider then call SetValues
 //FromSchemaWithValues builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
 	w.FromSchema(ctx, schema)
@@ -164,6 +165,23 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
 	return w, w.ApplyEvents([]*Event{event})
+}
+
+func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.RawMessage) error {
+	weosID, err := GetIDfromPayload(payload)
+	if err != nil {
+		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
+
+	if w.ID == "" {
+		w.ID = weosID
+	}
+	payload, err = ParseToType(payload, w.Schema)
+	if err != nil {
+		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
+
+	return nil
 }
 
 func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMessage, updatedPayload json.RawMessage) (*ContentEntity, error) {

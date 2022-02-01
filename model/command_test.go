@@ -33,7 +33,7 @@ func TestCommandDisptacher_Dispatch(t *testing.T) {
 		}
 		return nil
 	})
-	dispatcher.Dispatch(context.TODO(), mockCommand, nil, nil)
+	dispatcher.Dispatch(context.TODO(), mockCommand, nil, nil, nil)
 
 	if handlersCalled != 2 {
 		t.Errorf("expected %d handler to be called, %d called", 2, handlersCalled)

@@ -124,7 +124,7 @@ components:
 	API = *tapi
 	e = API.EchoInstance()
 	e.Logger.SetOutput(&buf)
-	err = tapi.Initialize(nil)
+	err = tapi.Initialize(context.TODO())
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
@@ -1018,8 +1018,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1310",
+			//Tags:   "~skipped && ~long",
+			Tags: "WEOS-1130",
 		},
 	}.Run()
 	if status != 0 {

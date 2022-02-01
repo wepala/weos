@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections/dialects"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
@@ -256,6 +257,7 @@ func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
 	p.RegisterController("Create", Create)
+	p.RegisterController("Update", Update)
 	p.RegisterController("List", List)
 	p.RegisterController("View", View)
 	p.RegisterController("HealthCheck", HealthCheck)
@@ -377,7 +379,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			operationData := pathData.GetOperation(strings.ToUpper(method))
 			if operationData != nil {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
-				operationContext := context.Background()
+				operationContext := context.WithValue(context.Background(), weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
 				for _, initializer := range p.GetOperationInitializers() {
 					operationContext, err = initializer(operationContext, p, path, method, p.Swagger, pathData, operationData)
 					if err != nil {

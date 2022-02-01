@@ -15,14 +15,6 @@ import (
 	"strings"
 )
 
-const MIDDLEWARES weoscontext.ContextKey = "_middlewares"
-const CONTROLLER weoscontext.ContextKey = "_controller"
-const PROJECTION weoscontext.ContextKey = "_projection"
-const COMMAND_DISPATCHER weoscontext.ContextKey = "_command_disptacher"
-const EVENT_STORE weoscontext.ContextKey = "_event_store"
-const ENTITY_FACTORY weoscontext.ContextKey = "_entity_factory"
-const SCHEMA_BUILDERS weoscontext.ContextKey = "_schema_builders"
-
 //EntityFactoryInitializer setups the EntityFactory for a specific route
 func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	schemas := GetSchemaBuilders(ctxt)
@@ -36,7 +28,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 		//get the schema details from the swagger file
 		if builder, ok := schemas[contentType]; ok {
 			entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-			newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+			newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
 			return newContext, nil
 		}
 
@@ -50,7 +42,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				//get the schema details from the swagger file
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
 					return newContext, nil
 				}
 				break
@@ -60,7 +52,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				contentType := strings.Replace(requestContent.Schema.Value.Items.Ref, "#/components/schemas/", "", -1)
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
 					return newContext, nil
 				}
 			}
@@ -74,16 +66,16 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
 					return newContext, nil
 				}
 			}
 			//use the first schema ref to determine the entity type
-			if respContent.Schema.Value.Properties["items"] != nil {
+			if respContent.Schema.Value.Properties["items"] != nil && respContent.Schema.Value.Properties["items"].Value.Items != nil {
 				contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
 					return newContext, nil
 				}
 			} else {
@@ -99,7 +91,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 								contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
 								if builder, ok := schemas[contentType]; ok {
 									entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-									newContext := context.WithValue(ctxt, ENTITY_FACTORY, entityFactory)
+									newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
 									return newContext, nil
 								}
 							}
@@ -126,7 +118,7 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 		if err != nil {
 			return ctxt, fmt.Errorf("unregistered controller '%s' specified on path '%s'", controllerName, path)
 		}
-		ctxt = context.WithValue(ctxt, CONTROLLER, controller)
+		ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
 	}
 
 	//if the controller extension is set then add controller to the context
@@ -145,7 +137,7 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			}
 			middlewares = append(middlewares, middleware)
 		}
-		ctxt = context.WithValue(ctxt, MIDDLEWARES, middlewares)
+		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	}
 
 	return ctxt, nil
@@ -396,10 +388,11 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		if handler != "" && autoConfigure {
 			controller, err := api.GetController(handler)
 			if err != nil {
+				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
 				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
 			}
 			if controller != nil {
-				ctxt = context.WithValue(ctxt, CONTROLLER, controller)
+				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
 			}
 		} else {
 			//this should not return an error it should log
@@ -471,35 +464,35 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 }
 
 func GetOperationMiddlewares(ctx context.Context) []Middleware {
-	if value, ok := ctx.Value(MIDDLEWARES).([]Middleware); ok {
+	if value, ok := ctx.Value(weoscontext.MIDDLEWARES).([]Middleware); ok {
 		return value
 	}
 	return []Middleware{}
 }
 
 func GetOperationController(ctx context.Context) Controller {
-	if value, ok := ctx.Value(CONTROLLER).(Controller); ok {
+	if value, ok := ctx.Value(weoscontext.CONTROLLER).(Controller); ok {
 		return value
 	}
 	return nil
 }
 
 func GetOperationCommandDispatcher(ctx context.Context) model.CommandDispatcher {
-	if value, ok := ctx.Value(COMMAND_DISPATCHER).(model.CommandDispatcher); ok {
+	if value, ok := ctx.Value(weoscontext.COMMAND_DISPATCHER).(model.CommandDispatcher); ok {
 		return value
 	}
 	return nil
 }
 
 func GetOperationEventStore(ctx context.Context) model.EventRepository {
-	if value, ok := ctx.Value(EVENT_STORE).(model.EventRepository); ok {
+	if value, ok := ctx.Value(weoscontext.EVENT_STORE).(model.EventRepository); ok {
 		return value
 	}
 	return nil
 }
 
 func GetOperationProjection(ctx context.Context) projections.Projection {
-	if value, ok := ctx.Value(PROJECTION).(projections.Projection); ok {
+	if value, ok := ctx.Value(weoscontext.PROJECTION).(projections.Projection); ok {
 		return value
 	}
 	return nil
@@ -507,7 +500,7 @@ func GetOperationProjection(ctx context.Context) projections.Projection {
 
 //GetEntityFactory get the configured event factory from the context
 func GetEntityFactory(ctx context.Context) model.EntityFactory {
-	if value, ok := ctx.Value(ENTITY_FACTORY).(model.EntityFactory); ok {
+	if value, ok := ctx.Value(weoscontext.ENTITY_FACTORY).(model.EntityFactory); ok {
 		return value
 	}
 	return nil
@@ -515,7 +508,7 @@ func GetEntityFactory(ctx context.Context) model.EntityFactory {
 
 //GetSchemaBuilders get a map of the dynamic struct builders for the schemas from the context
 func GetSchemaBuilders(ctx context.Context) map[string]ds.Builder {
-	if value, ok := ctx.Value(SCHEMA_BUILDERS).(map[string]ds.Builder); ok {
+	if value, ok := ctx.Value(weoscontext.SCHEMA_BUILDERS).(map[string]ds.Builder); ok {
 		return value
 	}
 	return make(map[string]ds.Builder)

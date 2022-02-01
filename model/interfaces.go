@@ -7,7 +7,7 @@ import (
 )
 
 type CommandDispatcher interface {
-	Dispatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection) error
+	Dispatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error
 	AddSubscriber(command *Command, handler CommandHandler) map[string][]CommandHandler
 	GetSubscribers() map[string][]CommandHandler
 }

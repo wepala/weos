@@ -2,7 +2,8 @@ package model
 
 import (
 	"encoding/json"
-	weosContext "github.com/wepala/weos/context"
+	"errors"
+	"fmt"
 	"golang.org/x/net/context"
 )
 
@@ -12,17 +13,33 @@ type Receiver struct {
 }
 
 //CreateHandler is used for a single payload. It takes in the command and context which is used to dispatch and the persist the incoming request.
-func CreateHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection) error {
+func CreateHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+	if logger == nil {
+		return fmt.Errorf("no logger set")
+	}
+
 	payload, err := AddIDToPayload(command.Payload, command.Metadata.EntityID)
 	if err != nil {
 		return err
 	}
 
-	contentType := weosContext.GetContentType(ctx)
-	newEntity, err := new(ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, payload)
-	if err != nil {
-		return NewDomainError("unexpected error creating entity", command.Metadata.EntityType, "", err)
+	entityFactory := GetEntityFactory(ctx)
+	if entityFactory == nil {
+		err = errors.New("no entity factory found")
+		logger.Error(err)
+		return err
 	}
+	newEntity, err := entityFactory.NewEntity(ctx)
+	if err != nil {
+		err = NewDomainError("unexpected error creating entity", command.Metadata.EntityType, "", err)
+		logger.Error(err)
+		return err
+	}
+	err = newEntity.SetValueFromPayload(ctx, payload)
+	if err != nil {
+		return NewDomainError("unexpected error setting payload to entity", command.Metadata.EntityType, "", err)
+	}
+
 	if ok := newEntity.IsValid(); !ok {
 		errors := newEntity.GetErrors()
 		if len(errors) != 0 {
@@ -37,7 +54,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 }
 
 //CreateBatch is used for an array of payloads. It takes in the command and context which is used to dispatch and the persist the incoming request.
-func (r *Receiver) CreateBatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection) error {
+func (r *Receiver) CreateBatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
 	entities, err := r.domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
 		return err
@@ -52,7 +69,7 @@ func (r *Receiver) CreateBatch(ctx context.Context, command *Command, eventStore
 }
 
 //Update is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
-func (r *Receiver) Update(ctx context.Context, command *Command, eventStore EventRepository, projection Projection) error {
+func (r *Receiver) Update(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
 
 	updatedEntity, err := r.domainService.Update(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
