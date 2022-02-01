@@ -1,5 +1,5 @@
 ## 🤯 Build API Driven Apps Fast
-![WeOS Logo In Black and White](./docs/assets/images/logo.png)
+![WeOS Logo In Black and White](./docs/assets/images/weos-white.png)
 ## ✨ WeOS
 WeOS is an open-source platform that allows developers to design and build APIs quickly and easily. How easy? Just bring your yaml file and see for yourself!
 <p align="center">
