@@ -1,7 +1,11 @@
 package rest_test
 
 import (
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"net/http"
 	"testing"
@@ -63,4 +67,90 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		}
 	})
 
+}
+
+func TestUserDefinedInitializer(t *testing.T) {
+	api, err := rest.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading api '%s'", err)
+	}
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	baseCtxt := context.WithValue(context.TODO(), rest.SCHEMA_BUILDERS, schemas)
+
+	t.Run("attach user defined controller", func(t *testing.T) {
+		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		controller := rest.GetOperationController(ctxt)
+		if controller == nil {
+			t.Fatalf("expected controller to be in the context")
+		}
+	})
+
+	t.Run("attach user defined middleware", func(t *testing.T) {
+		middlewareCalled := false
+		api.RegisterMiddleware("TestMiddleware", func(api *rest.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+			return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					middlewareCalled = true
+					return nil
+				}
+			}
+		})
+		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		middlewares := rest.GetOperationMiddlewares(ctxt)
+		if len(middlewares) != 1 {
+			t.Fatalf("expected the middlewares in context to be %d, got %d", 1, len(middlewares))
+		}
+		for _, middleware := range middlewares {
+			middleware(api, nil, nil, nil, nil, nil, nil)(func(c echo.Context) error {
+				return nil
+			})
+		}
+		if !middlewareCalled {
+			t.Errorf("expected middleware to be in context and called")
+		}
+	})
+
+	t.Run("add user defined command dispatcher", func(t *testing.T) {
+
+	})
+
+	t.Run("add user defined event repository", func(t *testing.T) {
+
+	})
+}
+
+func TestStandardInitializer(t *testing.T) {
+	api, err := rest.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading api '%s'", err)
+	}
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	baseCtxt := context.WithValue(context.TODO(), rest.SCHEMA_BUILDERS, schemas)
+	t.Run("attach standard create", func(t *testing.T) {
+		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		controller := rest.GetOperationController(ctxt)
+		if controller == nil {
+			t.Fatalf("expected controller to be in the context")
+		}
+	})
+
+	t.Run("attach standard list view", func(t *testing.T) {
+		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		controller := rest.GetOperationController(ctxt)
+		if controller == nil {
+			t.Fatalf("expected controller to be in the context")
+		}
+	})
 }

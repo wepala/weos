@@ -102,7 +102,7 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize(nil)
+	err = tapi.Initialize(context.TODO())
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
@@ -118,7 +118,7 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	e.ServeHTTP(resp, req)
 	//confirm that the response is not 404
 	if resp.Result().StatusCode == http.StatusNotFound {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
+		t.Errorf("expected the response code to not be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
 	}
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)

@@ -190,6 +190,11 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 					var s *bool
 					val = s
 				}
+				//default to string if nil
+				if val == nil {
+					var s *string
+					val = s
+				}
 				struc.AddField(strings.Title(name)+strings.Title(k), val, `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
 				if keystring != "" {
 					keystring += ","

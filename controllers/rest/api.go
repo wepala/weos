@@ -45,11 +45,11 @@ type RESTAPI struct {
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]projections.Projection
 	operationInitializers          []OperationInitializer
-	registeredInitializers         map[reflect.Type]int
+	registeredInitializers         map[reflect.Value]int
 	prePathInitializers            []PathInitializer
-	registeredPrePathInitializers  map[reflect.Type]int
+	registeredPrePathInitializers  map[reflect.Value]int
 	postPathInitializers           []PathInitializer
-	registeredPostPathInitializers map[reflect.Type]int
+	registeredPostPathInitializers map[reflect.Value]int
 }
 
 type schema struct {
@@ -116,10 +116,10 @@ func (p *RESTAPI) RegisterEventStore(name string, repository model.EventReposito
 //RegisterOperationInitializer add operation initializer if it's not already there
 func (p *RESTAPI) RegisterOperationInitializer(initializer OperationInitializer) {
 	if p.registeredInitializers == nil {
-		p.registeredInitializers = make(map[reflect.Type]int)
+		p.registeredInitializers = make(map[reflect.Value]int)
 	}
 	//only add initializer if it doesn't already exist
-	tpoint := reflect.TypeOf(initializer).Elem()
+	tpoint := reflect.ValueOf(initializer)
 	if _, ok := p.registeredInitializers[tpoint]; !ok {
 		p.operationInitializers = append(p.operationInitializers, initializer)
 		p.registeredInitializers[tpoint] = len(p.operationInitializers)
@@ -130,10 +130,10 @@ func (p *RESTAPI) RegisterOperationInitializer(initializer OperationInitializer)
 //RegisterPrePathInitializer add path initializer that runs BEFORE operation initializers if it's not already there
 func (p *RESTAPI) RegisterPrePathInitializer(initializer PathInitializer) {
 	if p.registeredPrePathInitializers == nil {
-		p.registeredPrePathInitializers = make(map[reflect.Type]int)
+		p.registeredPrePathInitializers = make(map[reflect.Value]int)
 	}
 	//only add initializer if it doesn't already exist
-	tpoint := reflect.TypeOf(initializer).Elem()
+	tpoint := reflect.ValueOf(initializer)
 	if _, ok := p.registeredPrePathInitializers[tpoint]; !ok {
 		p.prePathInitializers = append(p.prePathInitializers, initializer)
 		p.registeredPrePathInitializers[tpoint] = len(p.prePathInitializers)
@@ -144,10 +144,10 @@ func (p *RESTAPI) RegisterPrePathInitializer(initializer PathInitializer) {
 //RegisterPostPathInitializer add path initializer that runs AFTER operation initializers if it's not already there
 func (p *RESTAPI) RegisterPostPathInitializer(initializer PathInitializer) {
 	if p.registeredPostPathInitializers == nil {
-		p.registeredPostPathInitializers = make(map[reflect.Type]int)
+		p.registeredPostPathInitializers = make(map[reflect.Value]int)
 	}
 	//only add initializer if it doesn't already exist
-	tpoint := reflect.TypeOf(initializer).Elem()
+	tpoint := reflect.ValueOf(initializer)
 	if _, ok := p.registeredPostPathInitializers[tpoint]; !ok {
 		p.postPathInitializers = append(p.postPathInitializers, initializer)
 		p.registeredPostPathInitializers[tpoint] = len(p.postPathInitializers)

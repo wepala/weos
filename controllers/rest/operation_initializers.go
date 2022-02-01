@@ -399,31 +399,35 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 	if entityFactory == nil {
 
 	}
-	handler := controller(api, projection, commandDispatcher, eventStore, entityFactory)
-	middlewares := GetOperationMiddlewares(ctxt)
-	var pathMiddleware []echo.MiddlewareFunc
-	for _, tmiddleware := range middlewares {
-		//Not sure if CORS middleware and any other middlewares needs to be added
-		pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
-	}
-	switch method {
-	case "GET":
-		api.EchoInstance().GET(api.config.BasePath+echoPath, handler, pathMiddleware...)
-	case "POST":
-		api.e.POST(api.config.BasePath+echoPath, handler, pathMiddleware...)
-	case "PUT":
-		api.e.PUT(api.config.BasePath+echoPath, handler, pathMiddleware...)
-	case "PATCH":
-		api.e.PATCH(api.config.BasePath+echoPath, handler, pathMiddleware...)
-	case "DELETE":
-		api.e.DELETE(api.config.BasePath+echoPath, handler, pathMiddleware...)
-	case "HEAD":
-		api.e.HEAD(api.config.BasePath+echoPath, handler, pathMiddleware...)
-	case "TRACE":
-		api.e.TRACE(api.config.BasePath+echoPath, handler, pathMiddleware...)
-	case "CONNECT":
-		api.e.CONNECT(api.config.BasePath+echoPath, handler, pathMiddleware...)
+	//only set up routes if controller is set because echo returns an error if the handler for a route is nil
+	if controller != nil {
+		var handler echo.HandlerFunc
+		handler = controller(api, projection, commandDispatcher, eventStore, entityFactory)
+		middlewares := GetOperationMiddlewares(ctxt)
+		var pathMiddleware []echo.MiddlewareFunc
+		for _, tmiddleware := range middlewares {
+			//Not sure if CORS middleware and any other middlewares needs to be added
+			pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
+		}
+		switch method {
+		case "GET":
+			api.EchoInstance().GET(api.config.BasePath+echoPath, handler, pathMiddleware...)
+		case "POST":
+			api.e.POST(api.config.BasePath+echoPath, handler, pathMiddleware...)
+		case "PUT":
+			api.e.PUT(api.config.BasePath+echoPath, handler, pathMiddleware...)
+		case "PATCH":
+			api.e.PATCH(api.config.BasePath+echoPath, handler, pathMiddleware...)
+		case "DELETE":
+			api.e.DELETE(api.config.BasePath+echoPath, handler, pathMiddleware...)
+		case "HEAD":
+			api.e.HEAD(api.config.BasePath+echoPath, handler, pathMiddleware...)
+		case "TRACE":
+			api.e.TRACE(api.config.BasePath+echoPath, handler, pathMiddleware...)
+		case "CONNECT":
+			api.e.CONNECT(api.config.BasePath+echoPath, handler, pathMiddleware...)
 
+		}
 	}
 
 	return ctxt, err
