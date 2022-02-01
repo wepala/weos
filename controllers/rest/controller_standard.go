@@ -91,17 +91,16 @@ func Create(api *RESTAPI, projection projections.Projection, commandDispatcher m
 		var result *model.ContentEntity
 		var Etag string
 		if projection != nil {
-			result, err = projection.GetContentEntity(newContext, nil, weosID)
+			result, err = projection.GetContentEntity(newContext, entityFactory, weosID)
 			if err != nil {
 				return err
 			}
 			Etag = NewEtag(result)
 		}
-		if result == nil || result.ID == "" {
+		if result == nil {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
 		}
 		entity := map[string]interface{}{}
-		result.ID = ""
 		result.SequenceNo = 0
 		bytes, err := json.Marshal(result.Property)
 		if err != nil {

@@ -1426,7 +1426,7 @@ var _ model.CommandDispatcher = &CommandDispatcherMock{}
 // 			AddSubscriberFunc: func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler {
 // 				panic("mock out the AddSubscriber method")
 // 			},
-// 			DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error {
+// 			DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 // 				panic("mock out the Dispatch method")
 // 			},
 // 			GetSubscribersFunc: func() map[string][]model.CommandHandler {
@@ -1443,7 +1443,7 @@ type CommandDispatcherMock struct {
 	AddSubscriberFunc func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error
+	DispatchFunc func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
 	GetSubscribersFunc func() map[string][]model.CommandHandler
@@ -1467,6 +1467,8 @@ type CommandDispatcherMock struct {
 			EventStore model.EventRepository
 			// Projection is the projection argument value.
 			Projection model.Projection
+			// Logger is the logger argument value.
+			Logger model.Log
 		}
 		// GetSubscribers holds details about calls to the GetSubscribers method.
 		GetSubscribers []struct {
@@ -1513,7 +1515,7 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error {
+func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
@@ -1522,16 +1524,18 @@ func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.
 		Command    *model.Command
 		EventStore model.EventRepository
 		Projection model.Projection
+		Logger     model.Log
 	}{
 		Ctx:        ctx,
 		Command:    command,
 		EventStore: eventStore,
 		Projection: projection,
+		Logger:     logger,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, command, eventStore, projection)
+	return mock.DispatchFunc(ctx, command, eventStore, projection, logger)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
@@ -1542,12 +1546,14 @@ func (mock *CommandDispatcherMock) DispatchCalls() []struct {
 	Command    *model.Command
 	EventStore model.EventRepository
 	Projection model.Projection
+	Logger     model.Log
 } {
 	var calls []struct {
 		Ctx        context.Context
 		Command    *model.Command
 		EventStore model.EventRepository
 		Projection model.Projection
+		Logger     model.Log
 	}
 	mock.lockDispatch.RLock()
 	calls = mock.calls.Dispatch

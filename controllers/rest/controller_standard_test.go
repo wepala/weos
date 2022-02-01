@@ -59,7 +59,7 @@ func TestStandardControllers_Create(t *testing.T) {
 	restAPI := &rest.RESTAPI{}
 
 	dispatcher := &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error {
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 
 			//if it's a the create blog call let's check to see if the command is what we expect
 			if command == nil {
@@ -223,7 +223,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 	restAPI := &rest.RESTAPI{}
 
 	dispatcher := &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error {
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 			accountID := weoscontext.GetAccount(ctx)
 			//if it's a the create blog call let's check to see if the command is what we expect
 			if accountID == "CreateHandler Blog" {
@@ -372,7 +372,7 @@ func TestStandardControllers_Update(t *testing.T) {
 	restAPI := &rest.RESTAPI{}
 
 	dispatcher := &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error {
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 			//if it's a the update blog call let's check to see if the command is what we expect
 			if command == nil {
 				t.Fatal("no command sent")
@@ -500,7 +500,7 @@ func TestStandardControllers_View(t *testing.T) {
 	restAPI := &rest.RESTAPI{}
 
 	dispatcher := &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error {
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 			return nil
 		},
 	}
@@ -979,7 +979,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 	restAPI := &rest.RESTAPI{}
 
 	dispatcher := &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error {
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 			//if it's a the create blog call let's check to see if the command is what we expect
 			if command == nil {
 				t.Fatal("no command sent")
@@ -1134,7 +1134,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 	restAPI := &rest.RESTAPI{}
 
 	dispatcher := &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection) error {
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 			//if it's a the create blog call let's check to see if the command is what we expect
 			if command == nil {
 				t.Fatal("no command sent")

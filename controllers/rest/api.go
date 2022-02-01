@@ -294,6 +294,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			schemas = CreateSchema(context.Background(), p.EchoInstance(), p.Swagger)
 			err = defaultProjection.Migrate(ctxt, schemas)
 			if err != nil {
+				p.EchoInstance().Logger.Error(err)
 				return err
 			}
 		}
@@ -309,6 +310,11 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 					return err
 				}
 				defaultEventStore.AddSubscriber(defaultProjection.GetEventHandler())
+				err = defaultEventStore.Migrate(ctxt)
+				if err != nil {
+					p.EchoInstance().Logger.Error(err)
+					return err
+				}
 				p.RegisterEventStore("Default", defaultEventStore)
 			}
 		}

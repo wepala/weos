@@ -3,6 +3,7 @@ package rest_test
 import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
@@ -17,7 +18,7 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		t.Fatalf("unexpected error loading api '%s'", err)
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
-	baseCtxt := context.WithValue(context.TODO(), rest.SCHEMA_BUILDERS, schemas)
+	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	t.Run("get schema from request body", func(t *testing.T) {
 
 		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
@@ -75,7 +76,7 @@ func TestUserDefinedInitializer(t *testing.T) {
 		t.Fatalf("unexpected error loading api '%s'", err)
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
-	baseCtxt := context.WithValue(context.TODO(), rest.SCHEMA_BUILDERS, schemas)
+	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 
 	api.RegisterController("HealthCheck", rest.HealthCheck)
 
@@ -137,7 +138,7 @@ func TestStandardInitializer(t *testing.T) {
 		t.Fatalf("unexpected error loading api '%s'", err)
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
-	baseCtxt := context.WithValue(context.TODO(), rest.SCHEMA_BUILDERS, schemas)
+	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("Create", rest.Create)
 	api.RegisterController("List", rest.List)
 	t.Run("attach standard create", func(t *testing.T) {

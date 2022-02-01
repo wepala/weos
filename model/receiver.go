@@ -35,9 +35,14 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		logger.Error(err)
 		return err
 	}
-	err = newEntity.SetValueFromPayload(ctx, payload)
+	//use the entity id that was passed with the command
+	newEntity.ID = command.Metadata.EntityID
+	//add create event
+	event := NewEntityEvent("create", newEntity, newEntity.ID, payload)
+	newEntity.NewChange(event)
+	err = newEntity.ApplyEvents([]*Event{event})
 	if err != nil {
-		return NewDomainError("unexpected error setting payload to entity", command.Metadata.EntityType, "", err)
+		return NewDomainError(err.Error(), command.Metadata.EntityType, "", err)
 	}
 
 	if ok := newEntity.IsValid(); !ok {

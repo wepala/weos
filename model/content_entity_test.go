@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"testing"
@@ -284,5 +285,38 @@ func TestContentEntity_GetOriginalFieldName(t *testing.T) {
 	originalName := entity.GetOriginalFieldName("Title")
 	if originalName != "title" {
 		t.Errorf("expected the original field name for '%s' to be '%s', got '%s'", "Title", "title", originalName)
+	}
+}
+
+func TestContentEntity_SetValueFromPayload(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	contentType := "Blog"
+	entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, api.Swagger.Components.Schemas[contentType].Value, schemas[contentType])
+	if err != nil {
+		t.Fatalf("error setting up entity factory")
+	}
+	entity, err := entityFactory.NewEntity(context.TODO())
+	if err != nil {
+		t.Fatalf("error generating entity '%s'", err)
+	}
+
+	payloadData := &struct {
+		Title string `json:"title"`
+	}{
+		Title: "Test Blog",
+	}
+	payload, err := json.Marshal(payloadData)
+	if err != nil {
+		t.Fatalf("error marshalling Payload '%s'", err)
+	}
+	err = entity.SetValueFromPayload(context.TODO(), payload)
+	if err != nil {
+		t.Fatalf("error setting Payload '%s'", err)
+	}
+
+	if entity.GetString("title") != payloadData.Title {
+		t.Errorf("expected the title on the entity to be '%s', got '%s'", payloadData.Title, entity.GetString("title"))
 	}
 }

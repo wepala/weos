@@ -176,7 +176,8 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 	if w.ID == "" {
 		w.ID = weosID
 	}
-	payload, err = ParseToType(payload, w.Schema)
+
+	err = json.Unmarshal(payload, w.Property)
 	if err != nil {
 		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
 	}
@@ -207,6 +208,7 @@ func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMess
 
 //GetString returns the string property value stored of a given the property name
 func (w *ContentEntity) GetString(name string) string {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return ""
 	}

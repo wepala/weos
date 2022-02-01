@@ -52,6 +52,7 @@ func GetIDfromPayload(payload []byte) (string, error) {
 	return weosID, nil
 }
 
+//Deprecated: 02/01/2022 not sure this is needed. Marshal into Property directly
 //helper function used to parse string values to type
 func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawMessage, error) {
 

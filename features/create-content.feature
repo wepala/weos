@@ -151,7 +151,7 @@ Feature: Create content
     """
       And the service is running
       And blogs in the api
-        | id    | entity id                   | sequence no | title        | description    |
+        | id    | weos_id                   | sequence_no | title        | description    |
         | 1     | 24Kj3zfpocMlmFNV2KwkFfP2bgf | 1           | Blog 1       | Some Blog      |
         | 2     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 2       | Some Blog 2    |
 
