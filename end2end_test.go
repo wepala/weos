@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/testcontainers/testcontainers-go"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -39,6 +40,8 @@ var rec *httptest.ResponseRecorder
 var header http.Header
 var resp *http.Response
 var db *sql.DB
+var gormDB *gorm.DB
+var dbconfig dbConfig
 var requests map[string]map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
@@ -79,7 +82,6 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	result = api.ListApiResponse{}
-	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -95,8 +97,12 @@ x-weos-config:
     report-caller: true
     formatter: json
   database:
-    driver: sqlite3
-    database: e2e.db
+    database: "%s"
+    driver: "%s"
+    host: "%s"
+    password: "%s"
+    username: "%s"
+    port: %d
   event-source:
     - title: default
       driver: service
@@ -117,10 +123,7 @@ components:
   schemas:
 `
 
-	tapi, err := api.New("e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	API = *tapi
 	e = API.EchoInstance()
 	e.Logger.SetOutput(&buf)
@@ -139,13 +142,6 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
-	os.Remove("e2e.db")
-	var err error
-	db, err = sql.Open("sqlite3", "e2e.db")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
-	db.Exec("PRAGMA foreign_keys = ON")
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
@@ -162,8 +158,12 @@ x-weos-config:
     report-caller: true
     formatter: json
   database:
-    driver: sqlite3
-    database: e2e.db
+    database: "%s"
+    driver: "%s"
+    host: "%s"
+    password: "%s"
+    username: "%s"
+    port: %d
   event-source:
     - title: default
       driver: service
@@ -183,6 +183,11 @@ x-weos-config:
 components:
   schemas:
 `
+	return ctx, nil
+}
+
+func dropDB(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+	gormDB.Rollback()
 	return ctx, nil
 }
 
@@ -208,17 +213,17 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
 	//use gorm connection to get table
-	gormDB := API.Application.DB()
+	gDB := API.Application.DB()
 
-	if !gormDB.Migrator().HasTable(arg1) {
+	if !gDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
-		if !gormDB.Migrator().HasTable(arg1) {
+		if !gDB.Migrator().HasTable(arg1) {
 			return fmt.Errorf("%s table does not exist", arg1)
 		}
 	}
 
 	head := details.Rows[0].Cells
-	columns, _ := gormDB.Migrator().ColumnTypes(arg1)
+	columns, _ := gDB.Migrator().ColumnTypes(arg1)
 	var column gorm.ColumnType
 
 	for i := 1; i < len(details.Rows); i++ {
@@ -237,7 +242,11 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			case "Type":
 
 				if cell.Value == "varchar(512)" {
-					cell.Value = "text"
+					if *driver == "sqlite3" {
+						cell.Value = "text"
+					} else {
+						cell.Value = "varchar"
+					}
 					payload[column.Name()] = "hugs"
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
@@ -258,7 +267,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			}
 		}
 		if len(keys) > 1 && !strings.EqualFold(keys[0], "id") {
-			resultDB := gormDB.Table(arg1).Create(payload)
+			resultDB := gDB.Table(arg1).Create(payload)
 			if resultDB.Error == nil {
 				return fmt.Errorf("expected a missing primary key error")
 			}
@@ -487,7 +496,7 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	os.Remove("e2e.db")
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	if err != nil {
 		return err
@@ -496,7 +505,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	err = API.Initialize(nil)
+	err = API.Initialize()
 	if err != nil {
 		return err
 	}
@@ -652,12 +661,12 @@ func theEndpointIsHit(method, contentType string) error {
 }
 
 func theServiceIsRunning() error {
-	os.Remove("e2e.db")
 	buf = bytes.Buffer{}
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
-	err = API.Initialize(nil)
+	err = API.Initialize()
 	if err != nil {
 		return err
 	}
@@ -958,6 +967,7 @@ func theTotalResultsShouldBe(totalResult int) error {
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
+	ctx.After(dropDB)
 	//add context steps
 	ctx.Step(`^a content type "([^"]*)" modeled in the "([^"]*)" specification$`, aContentTypeModeledInTheSpecification)
 	ctx.Step(`^a developer "([^"]*)"$`, aDeveloper)
@@ -1018,8 +1028,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~skipped && ~long",
-			Tags: "WEOS-1130",
+			Tags:   "WEOS-1132",
+			//Tags: "WEOS-1310",
 		},
 	}.Run()
 	if status != 0 {
