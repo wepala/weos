@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"io/ioutil"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -143,6 +146,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
 		e.POST("/blogs", controller, mw)
@@ -179,6 +183,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
 		e.POST("/blogs", controller, mw)
@@ -524,37 +529,74 @@ func TestStandardControllers_View(t *testing.T) {
 			return nil
 		},
 	}
-
-	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return map[string]interface{}{
-				"id":      "1234sd",
-				"weos_id": "1234sd",
-			}, nil
+	mockEvent1 := &model.Event{
+		ID:      "1234sd",
+		Type:    "create",
+		Payload: nil,
+		Meta: model.EventMeta{
+			EntityID:   "1234sd",
+			EntityType: "Blog",
+			SequenceNo: 1,
+			User:       "",
+			Module:     "",
+			RootID:     "",
+			Group:      "",
+			Created:    "",
 		},
-		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
-			return map[string]interface{}{
-				"id":      "1234sd",
-				"weos_id": "1234sd",
-			}, nil
-		},
+		Version: 0,
 	}
-
-	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
-			return dispatcher
+	mockEvent2 := &model.Event{
+		ID:      "1234sd",
+		Type:    "update",
+		Payload: nil,
+		Meta: model.EventMeta{
+			EntityID:   "1234sd",
+			EntityType: "Blog",
+			SequenceNo: 2,
+			User:       "",
+			Module:     "",
+			RootID:     "",
+			Group:      "",
+			Created:    "",
 		},
-		ProjectionsFunc: func() []model.Projection {
-			return []model.Projection{projection}
-		},
+		Version: 0,
 	}
+	eventRepository := &EventRepositoryMock{GetByAggregateAndSequenceRangeFunc: func(ID string, start int64, end int64) ([]*model.Event, error) {
+		return []*model.Event{mockEvent1, mockEvent2}, nil
+	}}
 
-	//initialization will instantiate with application so we need to overwrite with our mock application
-	restAPI.Application = application
+	t.Run("Testing the generic view endpoint", func(t *testing.T) {
+		projection := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+		}
+		application := &ApplicationMock{
+			DispatcherFunc: func() model.Dispatcher {
+				return dispatcher
+			},
+			ProjectionsFunc: func() []model.Projection {
+				return []model.Projection{projection}
+			},
+			EventRepositoryFunc: func() model.EventRepository {
+				return eventRepository
+			},
+		}
 
-	t.Run("Testing the generic list endpoint", func(t *testing.T) {
+		//initialization will instantiate with application so we need to overwrite with our mock application
+		restAPI.Application = application
+
 		paramName := "id"
-		paramValue := "1234sd"
+		paramValue := "1"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
 		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
@@ -566,8 +608,308 @@ func TestStandardControllers_View(t *testing.T) {
 		response := resp.Result()
 		defer response.Body.Close()
 
+		//confirm the projection is called
+		if len(projection.GetByKeyCalls()) != 1 {
+			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByKeyCalls()))
+		}
+
 		if response.StatusCode != 200 {
 			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+	t.Run("Testing view with entity id", func(t *testing.T) {
+		projection := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+		}
+		application := &ApplicationMock{
+			DispatcherFunc: func() model.Dispatcher {
+				return dispatcher
+			},
+			ProjectionsFunc: func() []model.Projection {
+				return []model.Projection{projection}
+			},
+			EventRepositoryFunc: func() model.EventRepository {
+				return eventRepository
+			},
+		}
+
+		//initialization will instantiate with application so we need to overwrite with our mock application
+		restAPI.Application = application
+		paramName := "id"
+		paramValue := "1234sd"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		if path == nil {
+			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
+		}
+		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		//confirm  the entity is retrieved by entity id
+		if len(projection.GetByEntityIDCalls()) != 1 {
+			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByEntityIDCalls()))
+		}
+
+		if len(projection.GetByKeyCalls()) != 0 {
+			t.Errorf("expected the get by key method on the projection to be called %d times, called %d times", 0, len(projection.GetByKeyCalls()))
+		}
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+	t.Run("invalid entity id should return 404", func(t *testing.T) {
+		projection := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+				if id == "1234sd" {
+					return map[string]interface{}{
+						"id":      "1",
+						"weos_id": "1234sd",
+					}, nil
+				}
+				return nil, nil
+			},
+		}
+		application := &ApplicationMock{
+			DispatcherFunc: func() model.Dispatcher {
+				return dispatcher
+			},
+			ProjectionsFunc: func() []model.Projection {
+				return []model.Projection{projection}
+			},
+			EventRepositoryFunc: func() model.EventRepository {
+				return eventRepository
+			},
+		}
+
+		//initialization will instantiate with application so we need to overwrite with our mock application
+		restAPI.Application = application
+		paramName := "id"
+		paramValue := "asdfasdfasdfasdf"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		if path == nil {
+			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
+		}
+		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		//confirm  the entity is retrieved by entity id
+		if len(projection.GetByEntityIDCalls()) != 1 {
+			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByEntityIDCalls()))
+		}
+
+		if len(projection.GetByKeyCalls()) != 0 {
+			t.Errorf("expected the get by key method on the projection to be called %d times, called %d times", 0, len(projection.GetByKeyCalls()))
+		}
+
+		if response.StatusCode != http.StatusNotFound {
+			t.Errorf("expected response code to be %d, got %d", http.StatusNotFound, response.StatusCode)
+		}
+	})
+	t.Run("invalid numeric entity id should return 404", func(t *testing.T) {
+		projection := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+				if id == "1234sd" {
+					return map[string]interface{}{
+						"id":      "1",
+						"weos_id": "1234sd",
+					}, nil
+				}
+				return nil, nil
+			},
+		}
+		application := &ApplicationMock{
+			DispatcherFunc: func() model.Dispatcher {
+				return dispatcher
+			},
+			ProjectionsFunc: func() []model.Projection {
+				return []model.Projection{projection}
+			},
+			EventRepositoryFunc: func() model.EventRepository {
+				return eventRepository
+			},
+		}
+
+		//initialization will instantiate with application so we need to overwrite with our mock application
+		restAPI.Application = application
+		paramName := "id"
+		paramValue := "1"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		if path == nil {
+			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
+		}
+		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		//confirm  the entity is retrieved by entity id
+		if len(projection.GetByEntityIDCalls()) != 1 {
+			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByEntityIDCalls()))
+		}
+
+		if len(projection.GetByKeyCalls()) != 0 {
+			t.Errorf("expected the get by key method on the projection to be called %d times, called %d times", 0, len(projection.GetByKeyCalls()))
+		}
+
+		if response.StatusCode != http.StatusNotFound {
+			t.Errorf("expected response code to be %d, got %d", http.StatusNotFound, response.StatusCode)
+		}
+	})
+	t.Run("view with sequence no", func(t *testing.T) {
+		projection := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+		}
+		application := &ApplicationMock{
+			DispatcherFunc: func() model.Dispatcher {
+				return dispatcher
+			},
+			ProjectionsFunc: func() []model.Projection {
+				return []model.Projection{projection}
+			},
+			EventRepositoryFunc: func() model.EventRepository {
+				return eventRepository
+			},
+		}
+
+		//initialization will instantiate with application so we need to overwrite with our mock application
+		restAPI.Application = application
+		paramName := "id"
+		paramValue := "1234sd"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		if path == nil {
+			t.Fatalf("could not find path '%s' in swagger paths", "/blogs/:"+paramName)
+		}
+		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=1", nil)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("invalid response '%s'", err)
+		}
+		defer resp.Body.Reset()
+
+		//check that properties of the scehma are in the response even if it was not set in the event
+		if !strings.Contains(string(response), "title") {
+			t.Errorf("expected the response to have '%s' based on the schema, got '%s'", "title", string(response))
+		}
+
+		//confirm  the entity is retrieved to get entity id
+		if len(projection.GetByKeyCalls()) != 1 {
+			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByKeyCalls()))
+		}
+
+		if len(eventRepository.GetByAggregateAndSequenceRangeCalls()) != 1 {
+			t.Errorf("expected the event repository to be called %d time, called %d times", 1, len(eventRepository.GetByAggregateAndSequenceRangeCalls()))
+		}
+
+		if resp.Code != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, resp.Code)
+		}
+	})
+	t.Run("view with invalid sequence no", func(t *testing.T) {
+		projection := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+				return map[string]interface{}{
+					"id":      "1",
+					"weos_id": "1234sd",
+				}, nil
+			},
+		}
+		application := &ApplicationMock{
+			DispatcherFunc: func() model.Dispatcher {
+				return dispatcher
+			},
+			ProjectionsFunc: func() []model.Projection {
+				return []model.Projection{projection}
+			},
+			EventRepositoryFunc: func() model.EventRepository {
+				return eventRepository
+			},
+		}
+
+		//initialization will instantiate with application so we need to overwrite with our mock application
+		restAPI.Application = application
+		paramName := "id"
+		paramValue := "1"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		if path == nil {
+			t.Fatalf("could not find path '%s' in swagger paths", "/blogs/:"+paramName)
+		}
+		controller := restAPI.View(restAPI.Application, swagger, path, path.Get)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=asdf", nil)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected response code to be %d, got %d", http.StatusBadRequest, response.StatusCode)
 		}
 	})
 }
@@ -595,26 +937,31 @@ func TestStandardControllers_List(t *testing.T) {
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
 
-	dispatcher := &DispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command) error {
-			return nil
+	mockBlog := map[string]interface{}{"id": "123", "title": "my first blog", "description": "description"}
+	mockBlog1 := map[string]interface{}{"id": "1234", "title": "my first blog1", "description": "description1"}
+
+	array := []map[string]interface{}{}
+	array = append(array, mockBlog, mockBlog1)
+
+	mockProjection := &ProjectionMock{
+		GetContentEntitiesFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+			return array, 2, nil
 		},
 	}
-
 	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
-			return dispatcher
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{mockProjection}
 		},
 	}
 
 	//initialization will instantiate with application so we need to overwrite with our mock application
 	restAPI.Application = application
 
-	t.Run("Testing the generic list endpoint", func(t *testing.T) {
+	t.Run("Testing the generic list endpoint with parameters", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
 		controller := restAPI.List(restAPI.Application, swagger, path, path.Get)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
 		mw := rest.Context(restAPI.Application, swagger, path, path.Get)
 		e.GET("/blogs", controller, mw)
 		e.ServeHTTP(resp, req)
@@ -624,6 +971,363 @@ func TestStandardControllers_List(t *testing.T) {
 
 		if response.StatusCode != 200 {
 			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+		//check response body is a list of content entities
+		var result rest.ListApiResponse
+		json.NewDecoder(response.Body).Decode(&result)
+		if len(result.Items) != 2 {
+			t.Fatal("expected entities found")
+		}
+		if result.Total != 2 {
+			t.Errorf("expected total to be %d got %d", 2, result.Total)
+		}
+		if result.Page != 1 {
+			t.Errorf("expected page to be %d got %d", 1, result.Page)
+		}
+		found := 0
+		for _, blog := range result.Items {
+			if blog["id"] == "123" && blog["title"] == "my first blog" && blog["description"] == "description" {
+				found++
+				continue
+			}
+			if blog["id"] == "1234" && blog["title"] == "my first blog1" && blog["description"] == "description1" {
+				found++
+				continue
+			}
+		}
+		if found != 2 {
+			t.Errorf("expected to find %d got %d", 2, found)
+		}
+
+	})
+}
+
+func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
+
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	dispatcher := &DispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+
+			//if it's a the create blog call let's check to see if the command is what we expect
+			if command == nil {
+				t.Fatal("no command sent")
+			}
+
+			if command.Type != "create" {
+				t.Errorf("expected the command to be '%s', got '%s'", "create", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			if command.Metadata.EntityID == "" {
+				t.Errorf("expected the entity ID to be generated, got '%s'", command.Metadata.EntityID)
+			}
+
+			blog := &TestBlog{}
+			json.Unmarshal(command.Payload, &blog)
+
+			if blog.Title == nil {
+				return model.NewDomainError("expected the blog title to be a title got nil", command.Metadata.EntityType, "", nil)
+			}
+			if blog.Url == nil {
+				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
+			}
+			//check that content type information is in the context
+			contentType := weoscontext.GetContentType(ctx)
+			if contentType == nil {
+				t.Fatal("expected a content type to be in the context")
+			}
+
+			if contentType.Name != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
+			}
+
+			if _, ok := contentType.Schema.Properties["title"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			}
+
+			return nil
+		},
+	}
+
+	mockPayload := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+	mockContentEntity := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "123456",
+			},
+			SequenceNo: 1,
+		},
+		Property: mockPayload,
+	}
+
+	projections := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockContentEntity, nil
+		},
+	}
+
+	application := &ApplicationMock{
+		DispatcherFunc: func() model.Dispatcher {
+			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projections}
+		},
+	}
+
+	//initialization will instantiate with application so we need to overwrite with our mock application
+	restAPI.Application = application
+
+	t.Run("basic create based on application/x-www-form-urlencoded content type", func(t *testing.T) {
+
+		data := url.Values{}
+		data.Set("title", "Test Blog")
+		data.Set("url", "MyBlogUrl")
+
+		body := strings.NewReader(data.Encode())
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.Header.Get("Etag") != "123456.1" {
+			t.Errorf("expected an Etag, got %s", response.Header.Get("Etag"))
+		}
+
+		if response.StatusCode != 201 {
+			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
+		}
+	})
+	t.Run("create with missing required value based on x-www-form-urlencoded content type", func(t *testing.T) {
+
+		data := url.Values{}
+		data.Set("title", "Test Blog")
+
+		body := strings.NewReader(data.Encode())
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_FormData_Create(t *testing.T) {
+
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	dispatcher := &DispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+
+			//if it's a the create blog call let's check to see if the command is what we expect
+			if command == nil {
+				t.Fatal("no command sent")
+			}
+
+			if command.Type != "create" {
+				t.Errorf("expected the command to be '%s', got '%s'", "create", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			if command.Metadata.EntityID == "" {
+				t.Errorf("expected the entity ID to be generated, got '%s'", command.Metadata.EntityID)
+			}
+
+			blog := &TestBlog{}
+			json.Unmarshal(command.Payload, &blog)
+
+			if blog.Title == nil {
+				return model.NewDomainError("expected the blog title to be a title got nil", command.Metadata.EntityType, "", nil)
+			}
+			if blog.Url == nil {
+				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
+			}
+			//check that content type information is in the context
+			contentType := weoscontext.GetContentType(ctx)
+			if contentType == nil {
+				t.Fatal("expected a content type to be in the context")
+			}
+
+			if contentType.Name != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
+			}
+
+			if _, ok := contentType.Schema.Properties["title"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			}
+
+			return nil
+		},
+	}
+
+	mockPayload := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+	mockContentEntity := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "123456",
+			},
+			SequenceNo: 1,
+		},
+		Property: mockPayload,
+	}
+
+	projections := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockContentEntity, nil
+		},
+	}
+
+	application := &ApplicationMock{
+		DispatcherFunc: func() model.Dispatcher {
+			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projections}
+		},
+	}
+
+	//initialization will instantiate with application so we need to overwrite with our mock application
+	restAPI.Application = application
+
+	t.Run("basic create based on multipart/form-data content type", func(t *testing.T) {
+
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+		writer.WriteField("title", "Test Blog")
+		writer.WriteField("url", "MyBlogUrl")
+		writer.Close()
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.Header.Get("Etag") != "123456.1" {
+			t.Errorf("expected an Etag, got %s", response.Header.Get("Etag"))
+		}
+
+		if response.StatusCode != 201 {
+			t.Errorf("expected response code to be %d, got %d", 201, response.StatusCode)
+		}
+	})
+	t.Run("create with missing required value based on multipart/form-data content type", func(t *testing.T) {
+
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+		writer.WriteField("title", "Test Blog")
+		writer.Close()
+
+		accountID := "Create Blog"
+		path := swagger.Paths.Find("/blogs")
+		controller := restAPI.Create(restAPI.Application, swagger, path, path.Post)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		mw := rest.Context(restAPI.Application, swagger, path, path.Post)
+		e.POST("/blogs", controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if len(dispatcher.DispatchCalls()) == 0 {
+			t.Error("expected create account command to be dispatched")
+		}
+
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
 		}
 	})
 }
