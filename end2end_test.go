@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/wepala/weos/projections"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -425,7 +426,12 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
