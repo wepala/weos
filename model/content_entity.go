@@ -371,3 +371,9 @@ func (w *ContentEntity) GetOriginalFieldName(structName string) string {
 
 	return ""
 }
+
+func (w *ContentEntity) UnmarshalJSON(data []byte) error {
+	err := json.Unmarshal(data, &w.AggregateRoot)
+	err = json.Unmarshal(data, &w.Property)
+	return err
+}

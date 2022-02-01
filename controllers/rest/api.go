@@ -257,12 +257,13 @@ func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
-	p.RegisterController("Create", Create)
+	p.RegisterController("CreateController", CreateController)
 	p.RegisterController("Update", Update)
 	p.RegisterController("List", List)
 	p.RegisterController("View", View)
 	p.RegisterController("HealthCheck", HealthCheck)
 	//register standard middleware
+	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(EntityFactoryInitializer)

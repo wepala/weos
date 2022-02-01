@@ -201,14 +201,26 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 }
 
 func (p *GORMProjection) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
+	row := map[string]interface{}{}
+	result := p.db.Table(entityFactory.TableName()).Find(&row, "weos_id = ? ", weosID)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
+	}
+	//set result to entity
 	newEntity, err := entityFactory.NewEntity(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := p.db.Table(entityFactory.TableName()).Find(&newEntity.Property, "weos_id = ? ", weosID)
-	if result.Error != nil {
-		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
+	rowData, err := json.Marshal(row)
+	if err != nil {
+		return nil, err
 	}
+	err = json.Unmarshal(rowData, &newEntity)
+	if err != nil {
+		return nil, err
+	}
+
+	//because we're unmarshallign to the property field directly the weos id and sequence no. is not being set on the entity itself. The ideal fix is to make a custom unmarshal routine for ContentEntity
 	return newEntity, nil
 }
 

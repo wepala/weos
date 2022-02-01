@@ -89,12 +89,12 @@ func TestUserDefinedInitializer(t *testing.T) {
 			}
 		}
 	})
-	commandDispatcherCalled := false
+
 	api.RegisterCommandDispatcher("HealthCheck", &CommandDispatcherMock{
 		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
-			commandDispatcherCalled = true
 			return nil
 		}})
+	api.RegisterEventStore("HealthCheck", &EventRepositoryMock{})
 
 	t.Run("attach user defined controller", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
@@ -141,7 +141,14 @@ func TestUserDefinedInitializer(t *testing.T) {
 	})
 
 	t.Run("add user defined event repository", func(t *testing.T) {
-
+		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		eventStore := rest.GetOperationEventStore(ctxt)
+		if eventStore != nil {
+			t.Fatalf("expected the event store to be in context but got nil")
+		}
 	})
 }
 
@@ -152,7 +159,7 @@ func TestStandardInitializer(t *testing.T) {
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.RegisterController("Create", rest.Create)
+	api.RegisterController("CreateController", rest.CreateController)
 	api.RegisterController("List", rest.List)
 	api.RegisterController("Update", rest.Update)
 	api.RegisterController("View", rest.View)

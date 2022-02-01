@@ -20,98 +20,115 @@ import (
 	"github.com/wepala/weos/model"
 )
 
-//Create is used for a single payload. It dispatches this to the model which then validates and creates it.
-func Create(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
-	return func(ctxt echo.Context) error {
-		//look up the schema for the content type so that we could identify the rules
-		newContext := ctxt.Request().Context()
-		if entityFactory != nil {
-			newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
-		} else {
-			err := errors.New("entity factory must be set")
-			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
-			return err
-		}
-		var payload []byte
-		var err error
-
-		ct := ctxt.Request().Header.Get("Content-Type")
-
-		switch ct {
-		case "application/json":
-			payload, err = ioutil.ReadAll(ctxt.Request().Body)
-			if err != nil {
+//CreateMiddleware is used for a single payload. It dispatches this to the model which then validates and creates it.
+func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			//look up the schema for the content type so that we could identify the rules
+			newContext := ctxt.Request().Context()
+			if entityFactory != nil {
+				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
+			} else {
+				err := errors.New("entity factory must be set")
+				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
-		case "application/x-www-form-urlencoded":
-			payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
-			if err != nil {
-				return err
-			}
-		default:
-			if strings.Contains(ct, "multipart/form-data") {
-				payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
+			var payload []byte
+			var err error
+
+			ct := ctxt.Request().Header.Get("Content-Type")
+
+			switch ct {
+			case "application/json":
+				payload, err = ioutil.ReadAll(ctxt.Request().Body)
 				if err != nil {
 					return err
 				}
-			} else if ct == "" {
-				return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
-			} else {
-				return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
+			case "application/x-www-form-urlencoded":
+				payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
+				if err != nil {
+					return err
+				}
+			default:
+				if strings.Contains(ct, "multipart/form-data") {
+					payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
+					if err != nil {
+						return err
+					}
+				} else if ct == "" {
+					return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
+				} else {
+					return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
+				}
 			}
-		}
 
-		//for inserting weos_id during testing
-		payMap := map[string]interface{}{}
-		var weosID string
+			//for inserting weos_id during testing
+			payMap := map[string]interface{}{}
+			var weosID string
 
-		json.Unmarshal(payload, &payMap)
-		if v, ok := payMap["weos_id"]; ok {
-			if val, ok := v.(string); ok {
-				weosID = val
+			json.Unmarshal(payload, &payMap)
+			if v, ok := payMap["weos_id"]; ok {
+				if val, ok := v.(string); ok {
+					weosID = val
+				}
 			}
-		}
-		if weosID == "" {
-			weosID = ksuid.New().String()
-		}
-
-		var entityName string
-		if entityFactory != nil {
-			entityName = entityFactory.Name()
-		}
-
-		err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityName, weosID), eventSource, projection, api.EchoInstance().Logger)
-		if err != nil {
-			if errr, ok := err.(*model.DomainError); ok {
-				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
-			} else {
-				return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
+			if weosID == "" {
+				weosID = ksuid.New().String()
 			}
+
+			var entityName string
+			if entityFactory != nil {
+				entityName = entityFactory.Name()
+			}
+
+			err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityName, weosID), eventSource, projection, api.EchoInstance().Logger)
+			if err != nil {
+				if errr, ok := err.(*model.DomainError); ok {
+					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+				} else {
+					return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
+				}
+			}
+			//add id to context for use by controller
+			newContext = context.WithValue(newContext, weoscontext.ENTITY_ID, weosID)
+			request := ctxt.Request().WithContext(newContext)
+			ctxt.SetRequest(request)
+			return next(ctxt)
 		}
-		var result *model.ContentEntity
-		var Etag string
-		if projection != nil {
-			result, err = projection.GetContentEntity(newContext, entityFactory, weosID)
+	}
+}
+
+//CreateController is used for a single payload. It dispatches this to the model which then validates and creates it.
+func CreateController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		if weosID := weoscontext.GetEntityID(ctxt.Request().Context()); weosID != "" {
+			var result *model.ContentEntity
+			var Etag string
+			var err error
+			if projection != nil {
+				result, err = projection.GetContentEntity(ctxt.Request().Context(), entityFactory, weosID)
+				if err != nil {
+					return err
+				}
+				Etag = NewEtag(result)
+			}
+			if result == nil {
+				return NewControllerError("No entity found", err, http.StatusNotFound)
+			}
+			entity := map[string]interface{}{}
+			result.SequenceNo = 0
+			bytes, err := json.Marshal(result.Property)
 			if err != nil {
 				return err
 			}
-			Etag = NewEtag(result)
+			err = json.Unmarshal(bytes, &entity)
+			if err != nil {
+				return err
+			}
+			ctxt.Response().Header().Set("Etag", Etag)
+			return ctxt.JSON(http.StatusCreated, entity)
 		}
-		if result == nil {
-			return NewControllerError("No entity found", err, http.StatusNotFound)
-		}
-		entity := map[string]interface{}{}
-		result.SequenceNo = 0
-		bytes, err := json.Marshal(result.Property)
-		if err != nil {
-			return err
-		}
-		err = json.Unmarshal(bytes, &entity)
-		if err != nil {
-			return err
-		}
-		ctxt.Response().Header().Set("Etag", Etag)
-		return ctxt.JSON(http.StatusCreated, entity)
+		return ctxt.String(http.StatusCreated, "OK")
 	}
 }
 
