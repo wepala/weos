@@ -174,10 +174,9 @@ func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMess
 	return w, w.ApplyChanges([]*Event{event})
 }
 
-func (w *ContentEntity) Delete() (*ContentEntity, error) {
-	w = &ContentEntity{}
+func (w *ContentEntity) Delete(deletedEntity json.RawMessage) (*ContentEntity, error) {
 
-	event := NewEntityEvent("delete", w, w.ID, nil)
+	event := NewEntityEvent("delete", w, w.ID, deletedEntity)
 	w.NewChange(event)
 	return w, w.ApplyChanges([]*Event{event})
 }

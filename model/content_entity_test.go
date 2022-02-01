@@ -190,16 +190,16 @@ func TestContentEntity_Delete(t *testing.T) {
 		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("Title"))
 	}
 
-	deletedEntity, err := existingEntity.Delete()
+	deletedEntity, err := existingEntity.Delete(payload)
 	if err != nil {
 		t.Fatalf("unexpected error updating existing entity '%s'", err)
 	}
 
-	if deletedEntity.GetString("Title") != "" {
-		t.Errorf("expected the updated title to be '%s', got '%s'", "", deletedEntity.GetString("Title"))
+	if deletedEntity.GetString("Title") != "test 1" {
+		t.Errorf("expected the updated title to be '%s', got '%s'", "test 1", deletedEntity.GetString("Title"))
 	}
 
-	if deletedEntity.GetString("Description") != "" {
-		t.Errorf("expected the updated description to be '%s', got '%s'", "", deletedEntity.GetString("Description"))
+	if deletedEntity.GetString("Description") != "New Description" {
+		t.Errorf("expected the updated description to be '%s', got '%s'", "New Description", deletedEntity.GetString("Description"))
 	}
 }

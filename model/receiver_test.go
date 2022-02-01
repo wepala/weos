@@ -304,7 +304,7 @@ func TestDeleteContentType(t *testing.T) {
 
 	t.Run("Testing basic delete entity", func(t *testing.T) {
 		entityType := "Blog"
-		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, nil, entityType, "dsafdsdfdsf"))
+		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"))
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}

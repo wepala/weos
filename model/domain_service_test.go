@@ -642,5 +642,17 @@ func TestDomainService_Delete(t *testing.T) {
 			t.Fatalf("unexpected error deleting content type '%s'", err)
 		}
 	})
-	t.Run("Testing delete with stale item", func(t *testing.T) {})
+	t.Run("Testing delete with stale item", func(t *testing.T) {
+		newContext = context.WithValue(newContext, context2.SEQUENCE_NO, 3)
+
+		deletedEntity, err := dService1.Delete(newContext, "dsafdsdfdsf", entityType)
+
+		if err == nil {
+			t.Fatalf("expected error deleting content type '%s'", err)
+		}
+
+		if deletedEntity != nil {
+			t.Fatalf("expected error deleting content type '%s'", err)
+		}
+	})
 }

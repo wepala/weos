@@ -433,9 +433,64 @@ func (c *StandardControllers) List(app model.Service, spec *openapi3.Swagger, pa
 }
 
 func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	//get the entity information based on the Content Type associated with this operation
+	for _, requestContent := range operation.RequestBody.Value.Content {
+		//use the first schema ref to determine the entity type
+		if requestContent.Schema.Ref != "" {
+			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+			//get the schema details from the swagger file
+			contentTypeSchema = spec.Components.Schemas[contentType]
+			break
+		}
+	}
 	return func(ctxt echo.Context) error {
+		//look up the schema for the content type so that we could identify the rules
+		newContext := ctxt.Request().Context()
+		cType := &context2.ContentType{}
+		if contentType != "" && contentTypeSchema.Value != nil {
+			cType = &context2.ContentType{
+				Name:   contentType,
+				Schema: contentTypeSchema.Value,
+			}
+			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, cType)
+		}
+		var weosID string
+		var sequenceNo string
 
+		//getting etag from context
+		etagInterface := newContext.Value("If-Match")
+		if etagInterface != nil {
+			if etag, ok := etagInterface.(string); ok {
+				if etag != "" {
+					weosID, sequenceNo = SplitEtag(etag)
+					seq, err := strconv.Atoi(sequenceNo)
+					if err != nil {
+						return NewControllerError("unexpected error deleting content type.  invalid sequence number", err, http.StatusBadRequest)
+					}
+					newContext = context.WithValue(newContext, context2.WEOS_ID, weosID)
+					newContext = context.WithValue(newContext, context2.SEQUENCE_NO, seq)
+				}
+			}
+		}
+
+		err := app.Dispatcher().Dispatch(newContext, model.Delete(newContext, contentType, weosID))
+		if err != nil {
+			if errr, ok := err.(*model.DomainError); ok {
+				if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
+					return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
+				}
+				if strings.Contains(errr.Error(), "invalid:") {
+					return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
+				}
+				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+			} else {
+				return NewControllerError("unexpected error deleting content type", err, http.StatusBadRequest)
+			}
+		}
 		return ctxt.JSON(http.StatusOK, "Deleted")
+
 	}
 }
 

@@ -303,7 +303,13 @@ paths:
             type: string
           required: true
           description: blog id
-      x-content-type: Blog
+      requestBody:
+        description: Blog info that is submitted
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:

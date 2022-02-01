@@ -81,7 +81,7 @@ func Initialize(service Service) error {
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), receiver.Create)
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), receiver.CreateBatch)
 	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), receiver.Update)
-	service.Dispatcher().AddSubscriber(Delete(context.Background(), payload, "", ""), receiver.Delete)
+	service.Dispatcher().AddSubscriber(Delete(context.Background(), "", ""), receiver.Delete)
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil)
 

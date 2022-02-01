@@ -245,7 +245,12 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 			return nil, NewDomainError("error deleting entity. This is a stale item", entityType, entityID, nil)
 		}
 
-		deletedEntity, err = existingEntity.Delete()
+		existingEntityPayload, err := json.Marshal(existingEntity.Property)
+		if err != nil {
+			return nil, err
+		}
+
+		deletedEntity, err = existingEntity.Delete(existingEntityPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -271,7 +276,7 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 			return nil, err
 		}
 
-		deletedEntity, err = existingEntity.Delete()
+		deletedEntity, err = existingEntity.Delete(data)
 		if err != nil {
 			return nil, err
 		}
