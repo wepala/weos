@@ -246,4 +246,29 @@ func TestContext(t *testing.T) {
 		e.POST("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
+	t.Run("parameter in query string that has an alias should be added to context", func(t *testing.T) {
+		paramName := "l"
+		alias := "limit"
+		paramValue := "2"
+		pValue := 2
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(nil, swagger, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value(alias) == nil {
+				t.Fatalf("expected a value to be returned for '%s'", paramName)
+			}
+			tValue := cc.Value(alias).(int)
+			if tValue != pValue {
+				t.Errorf("expected the param '%s' to have value '%s', got '%v'", paramName, paramValue, tValue)
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?"+paramName+"="+paramValue, nil)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
 }

@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -48,6 +50,10 @@ var binary string
 var dockerFile string
 var binaryMount string
 var esContainer testcontainers.Container
+var limit int
+var page int
+var contentType string
+var result api.ListApiResponse
 
 type User struct {
 	Name      string
@@ -73,6 +79,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	result = api.ListApiResponse{}
 	e = echo.New()
 	e.Logger.SetOutput(&buf)
 	os.Remove("e2e.db")
@@ -122,6 +129,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
@@ -769,6 +777,175 @@ func sojournerIsUpdatingWithId(contentType, id string) error {
 	return nil
 }
 
+func aWarningShouldBeOutputToLogs() error {
+	if !strings.Contains(buf.String(), "unexpected error: cannot assign different schemas for different content types") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func theFormIsSubmittedWithContentType(contentEntity, contentType string) error {
+	//Used to store the key/value pairs passed in the scenario
+
+	switch contentType {
+	case "application/x-www-form-urlencoded":
+
+		data := url.Values{}
+
+		req := make(map[string]interface{})
+		for key, value := range requests[currScreen] {
+			data.Set(key, value.(string))
+		}
+
+		body := strings.NewReader(data.Encode())
+
+		var request *http.Request
+		if strings.Contains(currScreen, "create") {
+			request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+		} else if strings.Contains(currScreen, "update") {
+			request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+		}
+		request = request.WithContext(context.TODO())
+		header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		return nil
+	case "multipart/form-data":
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+
+		req := make(map[string]interface{})
+		for key, value := range requests[currScreen] {
+			writer.WriteField(key, value.(string))
+		}
+
+		writer.Close()
+
+		var request *http.Request
+		if strings.Contains(currScreen, "create") {
+			request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+		} else if strings.Contains(currScreen, "update") {
+			request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+		}
+		request = request.WithContext(context.TODO())
+		header.Set("Content-Type", writer.FormDataContentType())
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		return nil
+	}
+	return fmt.Errorf("This content type is not supported: %s", contentType)
+}
+
+func theIsSubmittedWithoutContentType(contentEntity string) error {
+	req := make(map[string]interface{})
+	for key, value := range requests[currScreen] {
+		req[key] = value
+	}
+
+	reqBytes, _ := json.Marshal(req)
+	body := bytes.NewReader(reqBytes)
+	var request *http.Request
+	if strings.Contains(currScreen, "create") {
+		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+	} else if strings.Contains(currScreen, "update") {
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+	}
+	request = request.WithContext(context.TODO())
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theHeaderShouldBePresent(arg1 string) error {
+	header := rec.Result().Header.Get(arg1)
+	if header == "" {
+		return fmt.Errorf("no header found with the name: %s", arg1)
+	}
+	return nil
+}
+
+func isOnTheListScreen(user, content string) error {
+	contentType = content
+	requests[strings.ToLower(contentType+"_list")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_list")
+	return nil
+}
+
+func theItemsPerPageAre(pageLimit int) error {
+	limit = pageLimit
+	return nil
+}
+
+func theListResultsShouldBe(details *godog.Table) error {
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+	compareArray := []map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+		compareArray = append(compareArray, compare)
+		compare = map[string]interface{}{}
+	}
+	foundItems := 0
+
+	json.NewDecoder(rec.Body).Decode(&result)
+	for i, entity := range compareArray {
+		foundEntity := true
+		for key, value := range entity {
+			if strings.Compare(result.Items[i][key].(string), value.(string)) != 0 {
+				foundEntity = false
+				break
+			}
+		}
+		if foundEntity {
+			foundItems++
+		}
+	}
+	if foundItems != len(compareArray) {
+		return fmt.Errorf("expected to find %d, got %d", len(compareArray), foundItems)
+	}
+
+	return nil
+}
+
+func thePageInTheResultShouldBe(pageResult int) error {
+	if result.Page != pageResult {
+		return fmt.Errorf("expect page to be %d, got %d", pageResult, result.Page)
+	}
+	return nil
+}
+
+func thePageNoIs(pageNo int) error {
+	page = pageNo
+	return nil
+}
+
+func theSearchButtonIsHit() error {
+	var request *http.Request
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page), nil)
+	request = request.WithContext(context.TODO())
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theTotalResultsShouldBe(totalResult int) error {
+	if result.Total != int64(totalResult) {
+		return fmt.Errorf("expect page to be %d, got %d", totalResult, result.Total)
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -811,7 +988,17 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
 	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
-
+	ctx.Step(`^a warning should be output to logs$`, aWarningShouldBeOutputToLogs)
+	ctx.Step(`^the "([^"]*)" header should be present$`, theHeaderShouldBePresent)
+	ctx.Step(`^the "([^"]*)" form is submitted with content type "([^"]*)"$`, theFormIsSubmittedWithContentType)
+	ctx.Step(`^the "([^"]*)" is submitted without content type$`, theIsSubmittedWithoutContentType)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" list screen$`, isOnTheListScreen)
+	ctx.Step(`^the items per page are (\d+)$`, theItemsPerPageAre)
+	ctx.Step(`^the list results should be$`, theListResultsShouldBe)
+	ctx.Step(`^the page in the result should be (\d+)$`, thePageInTheResultShouldBe)
+	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
+	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
+	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
 }
 
 func TestBDD(t *testing.T) {
@@ -822,6 +1009,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
+			//Tags: "WEOS-1310",
 		},
 	}.Run()
 	if status != 0 {
