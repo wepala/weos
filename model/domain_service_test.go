@@ -621,17 +621,25 @@ func TestDomainService_Delete(t *testing.T) {
 
 	t.Run("Testing delete with id in path", func(t *testing.T) {
 
-		err := dService1.Delete(newContext, "", entityType)
+		deletedEntity, err := dService1.Delete(newContext, "", entityType)
 
 		if err != nil {
-			t.Fatalf("unexpected error updating content type '%s'", err)
+			t.Fatalf("unexpected error deleting content type '%s'", err)
+		}
+
+		if deletedEntity == nil {
+			t.Fatalf("unexpected error deleting content type '%s'", err)
 		}
 	})
 	t.Run("Testing delete with entity ID", func(t *testing.T) {
-		err := dService1.Delete(newContext, "dsafdsdfdsf", entityType)
+		deletedEntity, err := dService1.Delete(newContext, "dsafdsdfdsf", entityType)
 
 		if err != nil {
-			t.Fatalf("unexpected error updating content type '%s'", err)
+			t.Fatalf("unexpected error deleting content type '%s'", err)
+		}
+
+		if deletedEntity == nil {
+			t.Fatalf("unexpected error deleting content type '%s'", err)
 		}
 	})
 	t.Run("Testing delete with stale item", func(t *testing.T) {})

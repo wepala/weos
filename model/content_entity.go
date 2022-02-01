@@ -174,9 +174,12 @@ func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMess
 	return w, w.ApplyChanges([]*Event{event})
 }
 
-func (w *ContentEntity) Delete() error {
+func (w *ContentEntity) Delete() (*ContentEntity, error) {
+	w = &ContentEntity{}
 
-	return nil
+	event := NewEntityEvent("delete", w, w.ID, nil)
+	w.NewChange(event)
+	return w, w.ApplyChanges([]*Event{event})
 }
 
 //GetString returns the string property value stored of a given the property name
@@ -306,7 +309,8 @@ func (w *ContentEntity) ApplyChanges(changes []*Event) error {
 				return NewDomainError("invalid: error unmarshalling changed payload", change.Meta.EntityType, w.ID, err)
 			}
 			w.User.BasicEntity.ID = change.Meta.User
-
+		case "delete":
+			w = &ContentEntity{}
 		}
 	}
 	return nil
