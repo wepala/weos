@@ -16,6 +16,7 @@ type ContentEntity struct {
 	AggregateRoot
 	Schema   *openapi3.Schema
 	Property interface{}
+	reader   ds.Reader
 }
 
 //IsValid checks if the property is valid using the IsNull function
@@ -150,7 +151,7 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 	}
 	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
-	return w, w.ApplyChanges([]*Event{event})
+	return w, w.ApplyEvents([]*Event{event})
 }
 
 func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMessage, updatedPayload json.RawMessage) (*ContentEntity, error) {
@@ -171,14 +172,14 @@ func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMess
 
 	event := NewEntityEvent("update", w, w.ID, updatedPayload)
 	w.NewChange(event)
-	return w, w.ApplyChanges([]*Event{event})
+	return w, w.ApplyEvents([]*Event{event})
 }
 
 func (w *ContentEntity) Delete(deletedEntity json.RawMessage) (*ContentEntity, error) {
 
 	event := NewEntityEvent("delete", w, w.ID, deletedEntity)
 	w.NewChange(event)
-	return w, w.ApplyChanges([]*Event{event})
+	return w, w.ApplyEvents([]*Event{event})
 }
 
 //GetString returns the string property value stored of a given the property name
