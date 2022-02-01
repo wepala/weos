@@ -21,7 +21,7 @@ import (
 )
 
 //CreateMiddleware is used for a single payload. It dispatches this to the model which then validates and creates it.
-func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.MiddlewareFunc {
+func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules

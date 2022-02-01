@@ -262,6 +262,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("View", View)
 	p.RegisterController("HealthCheck", HealthCheck)
 	//register standard middleware
+	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(EntityFactoryInitializer)

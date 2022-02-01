@@ -148,7 +148,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 	if GetOperationController(ctxt) == nil {
 		autoConfigure := false
 		handler := ""
-		var middlewareNames []string
+		middlewareNames := make(map[string]bool)
 		switch strings.ToUpper(method) {
 		case "POST":
 			if pathItem.Post.RequestBody == nil {
@@ -159,7 +159,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 				for _, value := range pathItem.Post.RequestBody.Value.Content {
 					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
 						handler = "CreateController"
-						middlewareNames = append(middlewareNames, "CreateMiddleware")
+						middlewareNames["CreateMiddleware"] = true
 						autoConfigure = true
 					} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
 						attach := true
@@ -402,7 +402,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		}
 		middlewares := GetOperationMiddlewares(ctxt)
 		//there are middlewareNames let's add them
-		for _, middlewareName := range middlewareNames {
+		for middlewareName := range middlewareNames {
 			if middleware, _ := api.GetMiddleware(middlewareName); middleware != nil {
 				middlewares = append(middlewares, middleware)
 			}
