@@ -122,8 +122,11 @@ x-weos-config:
 components:
   schemas:
 `
-
 	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+	tapi, err := api.New("e2e.yaml")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
 	API = *tapi
 	e = API.EchoInstance()
 	e.Logger.SetOutput(&buf)
@@ -187,8 +190,22 @@ components:
 }
 
 func dropDB(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
-	gormDB.Rollback()
-	return ctx, nil
+
+	var errr error
+	if *driver == "sqlite3" {
+		os.Remove("e2e.db")
+		db, errr = sql.Open("sqlite3", "e2e.db")
+	} else if *driver == "postgres" {
+		gormDB = gormDB.Exec(`DROP SCHEMA public CASCADE;
+		CREATE SCHEMA public;`)
+		errr = gormDB.Error
+	} else if *driver == "mysql" {
+		gormDB = gormDB.Exec(`drop database mysql;`)
+		gormDB = gormDB.Exec(`create database mysql;`)
+		errr = gormDB.Error
+
+	}
+	return ctx, errr
 }
 
 func aContentTypeModeledInTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
@@ -434,7 +451,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		result = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -501,11 +518,12 @@ func theSpecificationIsParsed(arg1 string) error {
 	if err != nil {
 		return err
 	}
+	tapi.DB = db
 	API = *tapi
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	err = API.Initialize()
+	err = API.Initialize(context.TODO())
 	if err != nil {
 		return err
 	}
@@ -664,9 +682,13 @@ func theServiceIsRunning() error {
 	buf = bytes.Buffer{}
 	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
-	err = API.Initialize()
+	err = API.Initialize(context.TODO())
 	if err != nil {
 		return err
 	}
@@ -1028,7 +1050,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1132",
+			Tags:   "WEOS-1130",
 			//Tags: "WEOS-1310",
 		},
 	}.Run()

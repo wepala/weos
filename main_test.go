@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var driver = flag.String("driver", "postgres", "run database tests")
+var driver = flag.String("driver", "mysql", "run database tests")
 
 type dbConfig struct {
 	Host     string `json:"host"`
@@ -38,16 +38,6 @@ func TestMain(t *testing.M) {
 	var resource *dockertest.Resource
 	var err error
 
-	dbconfig = dbConfig{
-		Host:     "localhost",
-		User:     "root",
-		Password: "secret",
-		Port:     49179,
-		Database: "",
-		Driver:   *driver,
-		MaxOpen:  4,
-		MaxIdle:  1,
-	}
 	switch *driver {
 	case "postgres":
 		log.Info("Started postgres database")
@@ -77,6 +67,16 @@ func TestMain(t *testing.M) {
 
 		connection := strings.Split(resource.GetHostPort("5432/tcp"), ":")
 
+		dbconfig = dbConfig{
+			Host:     "localhost",
+			User:     "root",
+			Password: "secret",
+			Port:     49179,
+			Database: "test",
+			Driver:   *driver,
+			MaxOpen:  4,
+			MaxIdle:  1,
+		}
 		dbconfig.Host = connection[0]
 		dbconfig.Port, _ = strconv.Atoi(connection[1])
 		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
@@ -109,6 +109,17 @@ func TestMain(t *testing.M) {
 		}); err != nil {
 			log.Fatalf("Could not connect to docker: %s", err)
 		}
+
+		dbconfig = dbConfig{
+			Host:     "localhost",
+			User:     "root",
+			Password: "secret",
+			Port:     49179,
+			Database: "mysql",
+			Driver:   *driver,
+			MaxOpen:  4,
+			MaxIdle:  1,
+		}
 		connection := strings.Split(resource.GetHostPort("3306/tcp"), ":")
 		dbconfig.Host = connection[0]
 		dbconfig.Port, _ = strconv.Atoi(connection[1])
@@ -123,6 +134,11 @@ func TestMain(t *testing.M) {
 		db, err = sql.Open(*driver, "e2e.db")
 		if err != nil {
 			log.Fatalf("failed to create sqlite database '%s'", err)
+		}
+		dbconfig = dbConfig{
+			Host:     "localhost",
+			Database: "e2e.db",
+			Driver:   *driver,
 		}
 		db.Exec("PRAGMA foreign_keys = ON")
 		gormDB, err = gorm.Open(&dialects.SQLite{

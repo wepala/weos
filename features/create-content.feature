@@ -50,8 +50,6 @@ Feature: Create content
         Blog:
            type: object
            properties:
-             id:
-               type: string
              title:
                type: string
                description: blog title
@@ -59,8 +57,6 @@ Feature: Create content
                type: string
            required:
              - title
-           x-identifier:
-             - id
         Post:
           type: object
           properties:
@@ -155,9 +151,9 @@ Feature: Create content
     """
       And the service is running
       And blogs in the api
-        | id    | weos_id                   | sequence_no | title        | description    |
-        | 1     | 24Kj3zfpocMlmFNV2KwkFfP2bgf | 1           | Blog 1       | Some Blog      |
-        | 2     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 2       | Some Blog 2    |
+        | weos_id                     | sequence_no | title        | description    |
+        | 24Kj3zfpocMlmFNV2KwkFfP2bgf | 1           | Blog 1       | Some Blog      |
+        | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 2       | Some Blog 2    |
 
 
     Scenario: Create a basic item
