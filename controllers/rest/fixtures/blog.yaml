@@ -181,7 +181,7 @@ paths:
           schema:
             type: integer
         - in: query
-          name: filters
+          name: _filters
           schema:
             type: array
             items:

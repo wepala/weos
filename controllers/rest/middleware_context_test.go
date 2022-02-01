@@ -271,4 +271,182 @@ func TestContext(t *testing.T) {
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
+	t.Run("a filter in query string that should be added to context", func(t *testing.T) {
+		paramName := "_filters"
+		paramValue := "2"
+		field := "id"
+		operator := "eq"
+		queryString := "/blogs?" + paramName + "[" + field + "][" + operator + "]=" + paramValue
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(nil, swagger, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value(paramName) == nil {
+				t.Fatalf("expected a value to be returned for '%s'", paramName)
+			}
+			tValue := cc.Value(paramName)
+			if tValue != nil {
+				filters := tValue.(map[string]*rest.FilterProperties)
+				if filters == nil {
+					t.Fatalf("expected filters got nil")
+				}
+				if filters[field].Field != field {
+					t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+				}
+				if filters[field].Operator != operator {
+					t.Errorf("expected the filters operator to be '%s', got '%s'", field, filters[field].Operator)
+				}
+				if filters[field].Value != paramValue {
+					t.Errorf("expected the filters value to be '%s', got '%s'", field, filters[field].Value)
+				}
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, queryString, nil)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
+	t.Run("multiple filters in query string that should be added to context", func(t *testing.T) {
+		paramName := "_filters"
+		paramValue := "2"
+		paramValue2 := "5"
+		field := "id"
+		field2 := "title"
+		operator := "eq"
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(nil, swagger, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value(paramName) == nil {
+				t.Fatalf("expected a value to be returned for '%s'", paramName)
+			}
+			tValue := cc.Value(paramName)
+			if tValue != nil {
+				tValue := cc.Value(paramName)
+				if tValue != nil {
+					filters := tValue.(map[string]*rest.FilterProperties)
+					if filters[field].Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					}
+					if filters[field].Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					}
+					if filters[field].Value != paramValue {
+						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue, filters[field].Value)
+					}
+					if filters[field2].Field != field2 {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].Field)
+					}
+					if filters[field2].Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].Operator)
+					}
+					if filters[field2].Value != paramValue2 {
+						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue2, filters[field2].Value)
+					}
+				}
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		queryString := "/blogs?" + paramName + "[" + field + "][" + operator + "]=" + paramValue + "&" + paramName + "[" + field2 + "][" + operator + "]=" + paramValue2
+		req := httptest.NewRequest(http.MethodGet, queryString, nil)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
+	t.Run("multiple filters with a filter that has multiple values in query string that should be added to context", func(t *testing.T) {
+		paramName := "_filters"
+		paramValue := "2"
+		value1 := "35"
+		value2 := "54"
+		value3 := "79"
+		field := "id"
+		field2 := "title"
+		operator := "eq"
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(nil, swagger, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value(paramName) == nil {
+				t.Fatalf("expected a value to be returned for '%s'", paramName)
+			}
+			tValue := cc.Value(paramName)
+			if tValue != nil {
+				tValue := cc.Value(paramName)
+				if tValue != nil {
+					filters := tValue.(map[string]*rest.FilterProperties)
+					if filters[field].Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					}
+					if filters[field].Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					}
+					if filters[field].Value != paramValue {
+						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue, filters[field].Value)
+					}
+					if filters[field2].Field != field2 {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].Field)
+					}
+					if filters[field2].Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].Operator)
+					}
+					if len(filters[field2].Values) != 3 {
+						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field2].Values))
+					}
+				}
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		queryString := "/blogs?" + paramName + "[" + field + "][" + operator + "]=" + paramValue + "&" + paramName + "[" + field2 + "][" + operator + "]=" + value1 + "," + value2 + "," + value3
+		req := httptest.NewRequest(http.MethodGet, queryString, nil)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
+	t.Run("a filter that has multiple values in query string that should be added to context", func(t *testing.T) {
+		paramName := "_filters"
+		value1 := "35"
+		value2 := "54"
+		value3 := "79"
+		field := "id"
+		operator := "eq"
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(nil, swagger, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value(paramName) == nil {
+				t.Fatalf("expected a value to be returned for '%s'", paramName)
+			}
+			tValue := cc.Value(paramName)
+			if tValue != nil {
+				tValue := cc.Value(paramName)
+				if tValue != nil {
+					filters := tValue.(map[string]*rest.FilterProperties)
+					if filters[field].Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					}
+					if filters[field].Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					}
+					if len(filters[field].Values) != 3 {
+						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field].Values))
+					}
+				}
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		queryString := "/blogs?" + paramName + "[" + field + "][" + operator + "]=" + value1 + "," + value2 + "," + value3
+		req := httptest.NewRequest(http.MethodGet, queryString, nil)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
 }
