@@ -193,9 +193,9 @@ func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize(nil)
+	err = tapi.Initialize(context.TODO())
 	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
+		t.Fatalf("un expected error initializing api '%s'", err)
 	}
 	e := tapi.EchoInstance()
 	t.Run("sending blog without a title and url which are required fields", func(t *testing.T) {

@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
@@ -114,6 +115,39 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 
 //UserDefinedInitializer adds user defined middleware, controller, command dispatchers and event store to the initialize context
 func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	//if the controller extension is set then add controller to the context
+	if controllerExtension, ok := operation.ExtensionProps.Extensions[ControllerExtension]; ok {
+		controllerName := ""
+		err := json.Unmarshal(controllerExtension.(json.RawMessage), &controllerName)
+		if err != nil {
+			return ctxt, err
+		}
+		controller, err := api.GetController(controllerName)
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered controller '%s' specified on path '%s'", controllerName, path)
+		}
+		ctxt = context.WithValue(ctxt, CONTROLLER, controller)
+	}
+
+	//if the controller extension is set then add controller to the context
+	if middlewareExtension, ok := operation.ExtensionProps.Extensions[MiddlewareExtension]; ok {
+		var middlewareNames []string
+		err := json.Unmarshal(middlewareExtension.(json.RawMessage), &middlewareNames)
+		if err != nil {
+			return ctxt, err
+		}
+		//get the existing middleware from context and then add user defined middleare to it
+		middlewares := GetOperationMiddlewares(ctxt)
+		for _, middlewareName := range middlewareNames {
+			middleware, err := api.GetMiddleware(middlewareName)
+			if err != nil {
+				return ctxt, fmt.Errorf("unregistered middleware '%s' specified on path '%s'", middlewareName, path)
+			}
+			middlewares = append(middlewares, middleware)
+		}
+		ctxt = context.WithValue(ctxt, MIDDLEWARES, middlewares)
+	}
+
 	return ctxt, nil
 }
 
@@ -131,7 +165,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Post.RequestBody.Value.Content {
 					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-						handler = "CreateHandler"
+						handler = "Create"
 						autoConfigure = true
 					} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
 						attach := true
@@ -390,6 +424,9 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 	commandDispatcher := GetOperationCommandDispatcher(ctxt)
 	if commandDispatcher == nil {
 		commandDispatcher, err = api.GetCommandDispatcher("Default")
+		if commandDispatcher == nil {
+			return ctxt, fmt.Errorf("command dispatcher must be configured. No default found '%s'", err)
+		}
 	}
 	eventStore := GetOperationEventStore(ctxt)
 	if eventStore == nil {

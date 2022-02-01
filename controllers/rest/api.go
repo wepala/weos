@@ -256,6 +256,9 @@ func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
 	p.RegisterController("Create", Create)
+	p.RegisterController("List", List)
+	p.RegisterController("View", View)
+	p.RegisterController("HealthCheck", HealthCheck)
 	//register standard middleware
 	p.RegisterMiddleware("Recover", Recover)
 	//register standard operation initializers
@@ -263,6 +266,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterOperationInitializer(UserDefinedInitializer)
 	p.RegisterOperationInitializer(StandardInitializer)
 	p.RegisterOperationInitializer(RouteInitializer)
+	//register standard post path initializers
+	p.RegisterPostPathInitializer(CORsInitializer)
 	//these are the dynamic struct builders for the schemas in the OpenAPI
 	var schemas map[string]ds.Builder
 
@@ -314,6 +319,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		defaultCommandDispatcher.AddSubscriber(model.Create(context.Background(), nil, "", ""), model.CreateHandler)
 		//defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), receiver.CreateBatch)
 		//defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), receiver.Update)
+		p.RegisterCommandDispatcher("Default", defaultCommandDispatcher)
 	}
 
 	//setup middleware  - https://echo.labstack.com/middleware/
@@ -357,6 +363,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
 	var err error
 	for path, pathData := range p.Swagger.Paths {
+		var methodsFound []string
 		pathContext := context.Background()
 		//run pre path initializers
 		for _, initializer := range p.GetPrePathInitializers() {
@@ -369,6 +376,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			//get the operation data
 			operationData := pathData.GetOperation(strings.ToUpper(method))
 			if operationData != nil {
+				methodsFound = append(methodsFound, strings.ToUpper(method))
 				operationContext := context.Background()
 				for _, initializer := range p.GetOperationInitializers() {
 					operationContext, err = initializer(operationContext, p, path, method, p.Swagger, pathData, operationData)
@@ -377,117 +385,15 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 					}
 				}
 			}
-			//if operationData != nil {
-			//	methodsFound = append(methodsFound, strings.ToUpper(method))
-			//	operationConfig := &PathConfig{}
-			//	var middlewares []echo.MiddlewareFunc
-			//	contextMiddleware, err := p.GetMiddleware("Context")
-			//	if err != nil {
-			//		return fmt.Errorf("unable to initialize context middleware; confirm that it is registered")
-			//	}
-			//
-			//	//get the middleware set on the operation
-			//	middlewareData := operationData.ExtensionProps.Extensions[MiddlewareExtension]
-			//	if middlewareData != nil {
-			//		err = json.Unmarshal(middlewareData.(json.RawMessage), &operationConfig.Middleware)
-			//		if err != nil {
-			//			p.e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
-			//		}
-			//		for _, middlewareName := range operationConfig.Middleware {
-			//			tmiddleware, err := p.GetMiddleware(middlewareName)
-			//			if err != nil {
-			//				p.e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
-			//			}
-			//			middlewares = append(middlewares, tmiddleware(p.Application, p.Swagger, pathData, operationData))
-			//		}
-			//	}
-			//	middlewares = append(middlewares, contextMiddleware(p.Application, p.Swagger, pathData, operationData))
-			//	controllerData := pathData.GetOperation(strings.ToUpper(method)).ExtensionProps.Extensions[ControllerExtension]
-			//	autoConfigure := false
-			//	if controllerData != nil {
-			//		err = json.Unmarshal(controllerData.(json.RawMessage), &operationConfig.Handler)
-			//		if err != nil {
-			//			p.e.Logger.Fatalf("unable to load middleware on '%s' '%s', error: '%s'", path, method, err)
-			//		}
-			//		//checks if the controller explicitly stated and whether the endpoint is valid
-			//		if strings.ToUpper(method) == "GET" {
-			//			if operationConfig.Handler == "List" {
-			//				if pathData.Get.Responses != nil && pathData.Get.Responses["200"].Value.Content != nil {
-			//					for _, val := range pathData.Get.Responses["200"].Value.Content {
-			//						//checks if the response refers to an array schema
-			//						if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-			//							autoConfigure = true
-			//							break
-			//						}
-			//					}
-			//				}
-			//				if !autoConfigure {
-			//					operationConfig.Handler = ""
-			//				}
-			//			}
-			//		}
-			//
-			//	} else {
-			//		//Adds standard controller to path
-			//		autoConfigure, err = AddStandardController(p.e, pathData, method, p.Swagger, operationConfig)
-			//		if err != nil {
-			//			return err
-			//		}
-			//	}
-			//
-			//	if operationConfig.Handler != "" {
-			//		controller, err := p.GetController(operationConfig.Handler)
-			//		if err != nil {
-			//			p.e.Logger.Fatalf("error getting controller '%s'", err)
-			//			return err
-			//		}
-			//		handler := controller(p.Application, p.Swagger, pathData, operationData)
-			//		err = p.AddPathConfig(p.config.BasePath+echoPath, operationConfig)
-			//		if err != nil {
-			//			p.e.Logger.Fatalf("error adding path config '%s' '%s'", echoPath, err)
-			//		}
-			//		corsMiddleware := middleware.CORSWithConfig(middleware.CORSConfig{
-			//			AllowOrigins: allowedOrigins,
-			//			AllowHeaders: allowedHeaders,
-			//			AllowMethods: methodsFound,
-			//		})
-			//		pathMiddleware := append([]echo.MiddlewareFunc{corsMiddleware}, middlewares...)
-			//
-			//		switch method {
-			//		case "GET":
-			//			p.e.GET(p.config.BasePath+echoPath, handler, pathMiddleware...)
-			//		case "POST":
-			//			p.e.POST(p.config.BasePath+echoPath, handler, pathMiddleware...)
-			//		case "PUT":
-			//			p.e.PUT(p.config.BasePath+echoPath, handler, pathMiddleware...)
-			//		case "PATCH":
-			//			p.e.PATCH(p.config.BasePath+echoPath, handler, pathMiddleware...)
-			//		case "DELETE":
-			//			p.e.DELETE(p.config.BasePath+echoPath, handler, pathMiddleware...)
-			//		case "HEAD":
-			//			p.e.HEAD(p.config.BasePath+echoPath, handler, pathMiddleware...)
-			//		case "TRACE":
-			//			p.e.TRACE(p.config.BasePath+echoPath, handler, pathMiddleware...)
-			//		case "CONNECT":
-			//			p.e.CONNECT(p.config.BasePath+echoPath, handler, pathMiddleware...)
-			//
-			//		}
-			//
-			//	} else {
-			//		if !autoConfigure {
-			//			//this should not return an error it should log
-			//			p.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
-			//		}
-			//	}
-			//}
 		}
 
 		//run post path initializers
+		pathContext = context.WithValue(pathContext, METHODS_FOUND, methodsFound)
 		for _, initializer := range p.GetPrePathInitializers() {
-			initializer(pathContext, p, path, p.Swagger, pathData)
+			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
 		}
 	}
-	return nil
+	return err
 }
 
 //SQLConnectionFromConfig get db connection based on a config

@@ -113,6 +113,8 @@ paths:
     summary: Health Check
     get:
       x-controller: HealthCheck
+      x-middleware:
+        - Recover
       responses:
         200:
           description: Health Response
