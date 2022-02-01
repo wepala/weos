@@ -89,6 +89,12 @@ func TestUserDefinedInitializer(t *testing.T) {
 			}
 		}
 	})
+	commandDispatcherCalled := false
+	api.RegisterCommandDispatcher("HealthCheck", &CommandDispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+			commandDispatcherCalled = true
+			return nil
+		}})
 
 	t.Run("attach user defined controller", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
@@ -124,7 +130,14 @@ func TestUserDefinedInitializer(t *testing.T) {
 	})
 
 	t.Run("add user defined command dispatcher", func(t *testing.T) {
-
+		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		commandDispatcher := rest.GetOperationCommandDispatcher(ctxt)
+		if commandDispatcher != nil {
+			t.Fatalf("expected the command dispatcher to be in context but got nil")
+		}
 	})
 
 	t.Run("add user defined event repository", func(t *testing.T) {
@@ -141,6 +154,8 @@ func TestStandardInitializer(t *testing.T) {
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("Create", rest.Create)
 	api.RegisterController("List", rest.List)
+	api.RegisterController("Update", rest.Update)
+	api.RegisterController("View", rest.View)
 	t.Run("attach standard create", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
@@ -154,6 +169,26 @@ func TestStandardInitializer(t *testing.T) {
 
 	t.Run("attach standard list view", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		controller := rest.GetOperationController(ctxt)
+		if controller == nil {
+			t.Fatalf("expected controller to be in the context")
+		}
+	})
+	t.Run("attach standard view", func(t *testing.T) {
+		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		controller := rest.GetOperationController(ctxt)
+		if controller == nil {
+			t.Fatalf("expected controller to be in the context")
+		}
+	})
+	t.Run("attach standard update", func(t *testing.T) {
+		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{}", http.MethodPut, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Put)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}

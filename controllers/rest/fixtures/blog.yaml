@@ -115,6 +115,7 @@ paths:
       x-controller: HealthCheck
       x-middleware:
         - Recover
+      x-command-dispatcher: HealthCheck
       responses:
         200:
           description: Health Response
