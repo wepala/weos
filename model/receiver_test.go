@@ -277,34 +277,17 @@ func TestDeleteContentType(t *testing.T) {
 	existingBlog.NewChange(event)
 
 	projectionMock := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
 	}
 
-	application := &ServiceMock{
-		DispatcherFunc: func() model.Dispatcher {
-			return commandDispatcher
-		},
-		EventRepositoryFunc: func() model.EventRepository {
-			return mockEventRepository
-		},
-		ProjectionsFunc: func() []model.Projection {
-			return []model.Projection{projectionMock}
-		},
-	}
-
-	err1 := model.Initialize(application)
-	if err1 != nil {
-		t.Fatalf("unexpected error setting up model '%s'", err1)
-	}
-
 	t.Run("Testing basic delete entity", func(t *testing.T) {
 		entityType := "Blog"
-		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"))
+		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"), mockEventRepository, projectionMock, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}

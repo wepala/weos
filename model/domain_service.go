@@ -219,17 +219,21 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 	var existingEntity *ContentEntity
 	var deletedEntity *ContentEntity
 	var err error
-	contentType := weosContext.GetContentType(ctx)
 
 	if entityID == "" {
 		entityID, _ = ctx.Value(weosContext.WEOS_ID).(string)
 	}
 
+	entityFactory := GetEntityFactory(ctx)
+	if entityFactory == nil {
+		return nil, errors.New("entity factory must be set")
+	}
+
 	var primaryKeys []string
 	identifiers := map[string]interface{}{}
 
-	if contentType.Schema.Extensions["x-identifier"] != nil {
-		identifiersFromSchema := contentType.Schema.Extensions["x-identifier"].(json.RawMessage)
+	if entityFactory.Schema().Extensions["x-identifier"] != nil {
+		identifiersFromSchema := entityFactory.Schema().Extensions["x-identifier"].(json.RawMessage)
 		json.Unmarshal(identifiersFromSchema, &primaryKeys)
 	}
 
@@ -257,7 +261,7 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 			seqNo = seq
 		}
 
-		existingEntity, err = s.GetContentEntity(ctx, entityID)
+		existingEntity, err = s.GetContentEntity(ctx, entityFactory, entityID)
 		if err != nil {
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, entityID, err)
 		}
@@ -282,7 +286,7 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 
 	} else if entityID == "" {
 
-		entityInterface, err := s.GetByKey(ctx, *contentType, identifiers)
+		entityInterface, err := s.GetByKey(ctx, entityFactory, identifiers)
 		if err != nil {
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
 		}

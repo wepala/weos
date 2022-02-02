@@ -527,132 +527,120 @@ func ListController(api *RESTAPI, projection projections.Projection, commandDisp
 	}
 }
 
-func Delete(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	//get the entity information based on the Content Type associated with this operation
-	contentTypeExt := path.Delete.ExtensionProps.Extensions[ContentTypeExtension]
+//DeleteMiddleware delete entity
+func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			//look up the schema for the content type so that we could identify the rules
+			newContext := ctxt.Request().Context()
+			var weosID string
+			var sequenceNo string
 
-	if contentTypeExt != nil {
-		contentTypeSchema = spec.Components.Schemas[contentType]
-	} else {
-		for _, requestContent := range operation.RequestBody.Value.Content {
-			//use the first schema ref to determine the entity type
-			if requestContent.Schema.Ref != "" {
-				contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
-				//get the schema details from the swagger file
-				contentTypeSchema = spec.Components.Schemas[contentType]
-				break
-			}
-		}
-	}
-
-	return func(ctxt echo.Context) error {
-		//look up the schema for the content type so that we could identify the rules
-		newContext := ctxt.Request().Context()
-		cType := &context2.ContentType{}
-		if contentType != "" && contentTypeSchema.Value != nil {
-			cType = &context2.ContentType{
-				Name:   contentType,
-				Schema: contentTypeSchema.Value,
-			}
-			newContext = context.WithValue(newContext, context2.CONTENT_TYPE, cType)
-		}
-		var weosID string
-		var sequenceNo string
-		var Etag string
-
-		//getting etag from context
-		etagInterface := newContext.Value("If-Match")
-		if etagInterface != nil {
-			if etag, ok := etagInterface.(string); ok {
-				if etag != "" {
-					Etag = etag
-					weosID, sequenceNo = SplitEtag(etag)
-					seq, err := strconv.Atoi(sequenceNo)
-					if err != nil {
-						return NewControllerError("unexpected error deleting content type.  invalid sequence number", err, http.StatusBadRequest)
+			//getting etag from context
+			etagInterface := newContext.Value("If-Match")
+			if etagInterface != nil {
+				if etag, ok := etagInterface.(string); ok {
+					if etag != "" {
+						weosID, sequenceNo = SplitEtag(etag)
+						seq, err := strconv.Atoi(sequenceNo)
+						if err != nil {
+							return NewControllerError("unexpected error deleting content type.  invalid sequence number", err, http.StatusBadRequest)
+						}
+						newContext = context.WithValue(newContext, weoscontext.WEOS_ID, weosID)
+						newContext = context.WithValue(newContext, weoscontext.SEQUENCE_NO, seq)
 					}
-					newContext = context.WithValue(newContext, context2.WEOS_ID, weosID)
-					newContext = context.WithValue(newContext, context2.SEQUENCE_NO, seq)
 				}
 			}
-		}
 
-		var err error
-		var identifiers []string
-		var result1 map[string]interface{}
-		var weos_id string
-		var ok bool
+			var err error
+			var identifiers []string
+			var result1 map[string]interface{}
+			var ok bool
 
-		//Uses the identifiers to pull the weosID, to be later used to get Seq NO
-		if etagInterface == nil {
-			//find entity based on identifiers specified
-			pks, _ := json.Marshal(contentTypeSchema.Value.Extensions["x-identifier"])
-			json.Unmarshal(pks, &identifiers)
+			//Uses the identifiers to pull the weosID, to be later used to get Seq NO
+			if etagInterface == nil {
+				//find entity based on identifiers specified
+				pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
+				json.Unmarshal(pks, &identifiers)
 
-			if len(identifiers) == 0 {
-				identifiers = append(identifiers, "id")
-			}
+				if len(identifiers) == 0 {
+					identifiers = append(identifiers, "id")
+				}
 
-			primaryKeys := map[string]interface{}{}
-			for _, p := range identifiers {
+				primaryKeys := map[string]interface{}{}
+				for _, p := range identifiers {
 
-				ctxtIdentifier := newContext.Value(p)
+					ctxtIdentifier := newContext.Value(p)
 
-				primaryKeys[p] = ctxtIdentifier
+					primaryKeys[p] = ctxtIdentifier
 
-			}
+				}
 
-			for _, projection := range app.Projections() {
 				if projection != nil {
-					result1, err = projection.GetByKey(newContext, *cType, primaryKeys)
+					result1, err = projection.GetByKey(newContext, entityFactory, primaryKeys)
 					if err != nil {
 						return err
 					}
 
 				}
-			}
-			weos_id, ok = result1["weos_id"].(string)
+				weosID, ok = result1["weos_id"].(string)
 
-			if (len(result1) == 0) || !ok || weos_id == "" {
-				return NewControllerError("No entity found", err, http.StatusNotFound)
-			} else if err != nil {
-				return NewControllerError(err.Error(), err, http.StatusBadRequest)
-			}
-		}
-
-		//Dispatch the actual delete to projecitons
-		err = app.Dispatcher().Dispatch(newContext, model.Delete(newContext, contentType, weosID))
-		if err != nil {
-			if errr, ok := err.(*model.DomainError); ok {
-				if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
-					return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
+				if (len(result1) == 0) || !ok || weosID == "" {
+					return NewControllerError("No entity found", err, http.StatusNotFound)
+				} else if err != nil {
+					return NewControllerError(err.Error(), err, http.StatusBadRequest)
 				}
-				if strings.Contains(errr.Error(), "invalid:") {
-					return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
+			}
+
+			//Dispatch the actual delete to projecitons
+			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			if err != nil {
+				if errr, ok := err.(*model.DomainError); ok {
+					if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
+						return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
+					}
+					if strings.Contains(errr.Error(), "invalid:") {
+						return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
+					}
+					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+				} else {
+					return NewControllerError("unexpected error deleting content type", err, http.StatusBadRequest)
 				}
-				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
-			} else {
-				return NewControllerError("unexpected error deleting content type", err, http.StatusBadRequest)
+			}
+			//Add response to context for controller
+			newContext = context.WithValue(newContext, weoscontext.WEOS_ID, weosID)
+			request := ctxt.Request().WithContext(newContext)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+		}
+	}
+}
+
+//DeleteController handle delete
+func DeleteController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		newContext := ctxt.Request().Context()
+		if weosIDRaw := newContext.Value(weoscontext.WEOS_ID); weosIDRaw != nil {
+			if weosID, ok := weosIDRaw.(string); ok {
+				deleteEventSeq, err := eventSource.GetAggregateSequenceNumber(weosID)
+				if err != nil {
+					return NewControllerError("No delete event found", err, http.StatusNotFound)
+				}
+
+				etag := NewEtag(&model.ContentEntity{
+					AggregateRoot: model.AggregateRoot{
+						SequenceNo:  deleteEventSeq,
+						BasicEntity: model.BasicEntity{ID: weosID},
+					},
+				})
+
+				ctxt.Response().Header().Set("Etag", etag)
+
+				return ctxt.JSON(http.StatusOK, "Deleted")
 			}
 		}
 
-		deleteEventSeq, err := app.EventRepository().GetAggregateSequenceNumber(weos_id)
-		if err != nil {
-			return NewControllerError("No delete event found", err, http.StatusNotFound)
-		}
-
-		Etag = NewEtag(&model.ContentEntity{
-			AggregateRoot: model.AggregateRoot{
-				SequenceNo:  deleteEventSeq,
-				BasicEntity: model.BasicEntity{ID: weos_id},
-			},
-		})
-
-		ctxt.Response().Header().Set("Etag", Etag)
-
-		return ctxt.JSON(http.StatusOK, "Deleted")
+		return ctxt.String(http.StatusBadRequest, "Item not deleted")
 	}
 }
 

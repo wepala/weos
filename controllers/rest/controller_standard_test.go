@@ -1417,9 +1417,10 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 	//instantiate api
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
 
-	dispatcher := &DispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+	dispatcher := &CommandDispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 
 			if command == nil {
 				t.Fatal("no command sent")
@@ -1438,24 +1439,6 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 
 			if ctx.Value(weoscontext.WEOS_ID).(string) != weosId {
 				t.Errorf("expected the blog weos id to be '%s', got '%s'", weosId, ctx.Value(weoscontext.WEOS_ID).(string))
-			}
-
-			//check that content type information is in the context
-			contentType := weoscontext.GetContentType(ctx)
-			if contentType == nil {
-				t.Fatal("expected a content type to be in the context")
-			}
-
-			if contentType.Name != "Blog" {
-				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
-			}
-
-			if _, ok := contentType.Schema.Properties["title"]; !ok {
-				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
-			}
-
-			if _, ok := contentType.Schema.Properties["description"]; !ok {
-				t.Errorf("expected a property '%s' on content type '%s'", "description", "blog")
 			}
 
 			id := ctx.Value("id").(string)
@@ -1477,13 +1460,13 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 	mockEntity.Property = mockBlog
 
 	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
-		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 			return nil, nil
 		},
-		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockEntity, nil
 		},
 	}
@@ -1494,33 +1477,24 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 		},
 	}
 
-	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
-			return dispatcher
-		},
-		ProjectionsFunc: func() []model.Projection {
-			return []model.Projection{projection}
-		},
-		EventRepositoryFunc: func() model.EventRepository {
-			return eventMock
-		},
-	}
-
-	//initialization will instantiate with application so we need to overwrite with our mock application
-	restAPI.Application = application
-
 	t.Run("basic delete based on simple content type with id parameter in path and etag", func(t *testing.T) {
 		paramName := "id"
 
 		accountID := "Delete Blog"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
-		controller := restAPI.Delete(restAPI.Application, swagger, path, path.Delete)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+		}
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodDelete, "/blogs/"+weosId, nil)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		req.Header.Set("If-Match", weosId+".1")
-		mw := rest.Context(restAPI.Application, swagger, path, path.Delete)
-		e.DELETE("/blogs/:"+paramName, controller, mw)
+		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection, dispatcher, eventMock, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1559,10 +1533,10 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 	//instantiate api
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
 
-	dispatcher := &DispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command) error {
-
+	dispatcher := &CommandDispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 			if command == nil {
 				t.Fatal("no command sent")
 			}
@@ -1573,24 +1547,6 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 			if command.Metadata.EntityType != "Blog" {
 				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
-			}
-
-			//check that content type information is in the context
-			contentType := weoscontext.GetContentType(ctx)
-			if contentType == nil {
-				t.Fatal("expected a content type to be in the context")
-			}
-
-			if contentType.Name != "Blog" {
-				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
-			}
-
-			if _, ok := contentType.Schema.Properties["title"]; !ok {
-				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
-			}
-
-			if _, ok := contentType.Schema.Properties["description"]; !ok {
-				t.Errorf("expected a property '%s' on content type '%s'", "description", "blog")
 			}
 
 			id := ctx.Value("id").(string)
@@ -1613,43 +1569,37 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 	}
 
 	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return mockInterface, nil
 		},
-		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
-			return nil, nil
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+			return mockInterface, nil
 		},
-		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockEntity, nil
 		},
 	}
-
-	application := &ApplicationMock{
-		DispatcherFunc: func() model.Dispatcher {
-			return dispatcher
-		},
-		ProjectionsFunc: func() []model.Projection {
-			return []model.Projection{projection}
-		},
-		EventRepositoryFunc: func() model.EventRepository {
-			return eventMock
-		},
-	}
-
-	//initialization will instantiate with application so we need to overwrite with our mock application
-	restAPI.Application = application
 
 	t.Run("basic delete based on simple content type with id parameter in path", func(t *testing.T) {
 		paramName := "id"
 
 		accountID := "Delete Blog"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
-		controller := restAPI.Delete(restAPI.Application, swagger, path, path.Delete)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
-		mw := rest.Context(restAPI.Application, swagger, path, path.Delete)
-		e.DELETE("/blogs/:"+paramName, controller, mw)
+		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection, dispatcher, eventMock, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()

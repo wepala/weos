@@ -444,7 +444,7 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 	case "DELETE":
 		var strContentType string
 		allParam := true
-		contentTypeExt := pathData.Delete.ExtensionProps.Extensions[ContentTypeExtension]
+		contentTypeExt := pathData.Delete.ExtensionProps.Extensions[SchemaExtension]
 
 		if pathData.Delete.RequestBody == nil && contentTypeExt == nil {
 			break

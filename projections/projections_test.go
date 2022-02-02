@@ -2248,24 +2248,21 @@ components:
          type: string
 `
 
-		loader := openapi3.NewSwaggerLoader()
-		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-		p, err := projections.NewProjection(context.Background(), app, schemes)
+		err = p.Migrate(context.Background(), schemes)
 		if err != nil {
 			t.Fatal(err)
 		}
-
-		err = p.Migrate(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		gormDB := app.DB()
 
 		id := ksuid.New().String()
 

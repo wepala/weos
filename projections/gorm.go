@@ -124,9 +124,9 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 
 func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) {
+		entityFactory := weos.GetEntityFactory(ctx)
 		switch event.Type {
 		case "create":
-			entityFactory := weos.GetEntityFactory(ctx)
 			//using the schema ensures no nested fields are left out in creation
 			if entityFactory != nil {
 				entity, err := entityFactory.NewEntity(ctx)
@@ -152,7 +152,6 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				}
 			}
 		case "update":
-			entityFactory := weos.GetEntityFactory(ctx)
 			if entityFactory != nil {
 				entity, err := entityFactory.NewEntity(ctx)
 				if err != nil {
@@ -195,30 +194,14 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				}
 			}
 		case "delete":
-			contentType := weosContext.GetContentType(ctx)
-
-			payload, ok := p.Schema[strings.Title(contentType.Name)]
-			if !ok {
-				p.logger.Errorf("found no content type %s", contentType.Name)
-			} else {
-				eventPayload := payload.Build().New()
-				mapPayload := map[string]interface{}{}
-				err := json.Unmarshal(event.Payload, &mapPayload)
+			if entityFactory != nil {
+				entity, err := entityFactory.NewEntity(ctx)
 				if err != nil {
-					p.logger.Errorf("error unmarshalling event '%s'", err)
+					p.logger.Errorf("error creating entity '%s'", err)
 				}
-				mapPayload["sequence_no"] = event.Meta.SequenceNo
-
-				bytes, _ := json.Marshal(mapPayload)
-				err = json.Unmarshal(bytes, &eventPayload)
-				if err != nil {
-					p.logger.Errorf("error unmarshalling event '%s'", err)
-				}
-
-				//Rebuild the exact entity to be deleted
-				db := p.db.Table(contentType.Name).Delete(eventPayload)
+				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.Property)
 				if db.Error != nil {
-					p.logger.Errorf("error deleting %s, got %s", contentType.Name, db.Error)
+					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
 				}
 			}
 		}

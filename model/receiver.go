@@ -98,15 +98,16 @@ func UpdateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	return nil
 }
 
-//Delete is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
-func (r *Receiver) Delete(ctx context.Context, command *Command) error {
-
-	deletedEntity, err := r.domainService.Delete(ctx, command.Metadata.EntityID, command.Metadata.EntityType)
+//DeleteHandler is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
+func DeleteHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+	//initialize any services
+	domainService := NewDomainService(ctx, eventStore, projection, logger)
+	deletedEntity, err := domainService.Delete(ctx, command.Metadata.EntityID, command.Metadata.EntityType)
 	if err != nil {
 		return err
 	}
 
-	err = r.service.EventRepository().Persist(ctx, deletedEntity)
+	err = eventStore.Persist(ctx, deletedEntity)
 	if err != nil {
 		return err
 	}
@@ -123,7 +124,7 @@ func Initialize(service Service) error {
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), CreateHandler)
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), CreateBatchHandler)
 	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), UpdateHandler)
-	service.Dispatcher().AddSubscriber(Delete(context.Background(), "", ""), receiver.Delete)
+	service.Dispatcher().AddSubscriber(Delete(context.Background(), "", ""), DeleteHandler)
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil, nil)
 
