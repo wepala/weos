@@ -10,14 +10,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/segmentio/ksuid"
-	weoscontext "github.com/wepala/weos/context"
-	"golang.org/x/net/context"
-	"gorm.io/gorm"
-
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"github.com/segmentio/ksuid"
+	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
+	"golang.org/x/net/context"
 )
 
 //CreateMiddleware is used for a single payload. It dispatches this to the model which then validates and creates it.
@@ -316,124 +314,147 @@ func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIt
 	}
 }
 
-func View(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			if entityFactory == nil {
+				err := errors.New("entity factory must be set")
+				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				return err
+			}
+			pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
+			primaryKeys := []string{}
+			json.Unmarshal(pks, &primaryKeys)
+
+			if len(primaryKeys) == 0 {
+				primaryKeys = append(primaryKeys, "id")
+			}
+
+			newContext := ctxt.Request().Context()
+
+			identifiers := map[string]interface{}{}
+
+			for _, p := range primaryKeys {
+				identifiers[p] = newContext.Value(p)
+			}
+
+			var result map[string]interface{}
+			var err error
+			var entityID string
+			var seq string
+			var ok bool
+			var seqInt int
+
+			etag, _ := newContext.Value("If-None-Match").(string)
+			useEntity, _ := newContext.Value("use_entity_id").(bool)
+			seqInt, ok = newContext.Value("sequence_no").(int)
+			if !ok {
+				seq = newContext.Value("sequence_no").(string)
+				ctxt.Logger().Debugf("invalid sequence no ")
+			}
+
+			//if use_entity_id is not set then let's get the item by key
+			if !useEntity {
+				if projection != nil {
+					result, err = projection.GetByKey(ctxt.Request().Context(), entityFactory, identifiers)
+				}
+			}
+			//if etag is set then let's use that info
+			if etag != "" {
+				entityID, seq = SplitEtag(etag)
+				seqInt, err = strconv.Atoi(seq)
+			}
+			//if a sequence no. was sent BUT it could not be converted to an integer then return an error
+			if seq != "" && seqInt == 0 {
+				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
+			}
+			//if sequence no. was sent in the request but we don't have the entity let's get it from projection
+			if entityID == "" && seqInt != 0 {
+				entityID, ok = result["weos_id"].(string)
+				if !ok {
+					ctxt.Logger().Debugf("the item '%v' does not have an entity id stored", identifiers)
+				}
+			}
+
+			if useEntity && entityID == "" {
+				//get first identifier for the entity id
+				for _, i := range identifiers {
+					if entityID, ok = i.(string); ok && entityID != "" {
+						break
+					}
+				}
+			}
+
+			//use the entity id and sequence no. to get the entity if they were passed in
+			if entityID != "" {
+				//get the entity using the sequence no.
+				if seqInt != 0 {
+					//get the events up to the sequence
+					events, err := eventSource.GetByAggregateAndSequenceRange(entityID, 0, int64(seqInt))
+					//create content entity
+					r, er := entityFactory.NewEntity(ctxt.Request().Context())
+					if er != nil {
+						return NewControllerError("unable to create entity", er, http.StatusInternalServerError)
+					}
+					er = r.ApplyEvents(events)
+					if er != nil {
+						return NewControllerError("unable to changes", er, http.StatusInternalServerError)
+					}
+					if r.SequenceNo == 0 {
+						return NewControllerError("No entity found", err, http.StatusNotFound)
+					}
+					if r != nil && r.ID != "" { //get the map from the entity
+						result = r.ToMap()
+					}
+					result["weos_id"] = r.ID
+					result["sequence_no"] = r.SequenceNo
+					err = er
+					if err == nil && r.SequenceNo < int64(seqInt) && etag != "" { //if the etag is set then let's return the header
+						return ctxt.JSON(http.StatusNotModified, r.Property)
+					}
+				} else {
+					//get entity by entity_id
+
+					if projection != nil {
+						result, err = projection.GetByEntityID(ctxt.Request().Context(), entityFactory, entityID)
+					}
+
+				}
+			}
+
+			//add result to context
+			newContext = context.WithValue(newContext, weoscontext.ENTITY, result) //TODO store the entity instead (this requires the different projection calls to return entities)
+			request := ctxt.Request().WithContext(newContext)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+		}
+	}
+
+}
+
+func ViewController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
+		newContext := ctxt.Request().Context()
+
+		var err error
+		if err = weoscontext.GetError(newContext); err != nil {
+			return NewControllerError("Error occured", err, http.StatusBadRequest)
+		}
 		if entityFactory == nil {
-			err := errors.New("entity factory must be set")
+			err = errors.New("entity factory must be set")
 			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 			return err
 		}
-		pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
-		primaryKeys := []string{}
-		json.Unmarshal(pks, &primaryKeys)
 
-		if len(primaryKeys) == 0 {
-			primaryKeys = append(primaryKeys, "id")
-		}
-
-		newContext := ctxt.Request().Context()
-
-		identifiers := map[string]interface{}{}
-
-		for _, p := range primaryKeys {
-			identifiers[p] = newContext.Value(p)
-		}
-
-		var result map[string]interface{}
-		var err error
-		var entityID string
-		var seq string
-		var ok bool
-		var seqInt int
-
-		etag, _ := newContext.Value("If-None-Match").(string)
-		useEntity, _ := newContext.Value("use_entity_id").(bool)
-		seqInt, ok = newContext.Value("sequence_no").(int)
-		if !ok {
-			seq = newContext.Value("sequence_no").(string)
-			ctxt.Logger().Debugf("invalid sequence no ")
-		}
-
-		//if use_entity_id is not set then let's get the item by key
-		if !useEntity {
-			if projection != nil {
-				result, err = projection.GetByKey(ctxt.Request().Context(), entityFactory, identifiers)
-			}
-		}
-		//if etag is set then let's use that info
-		if etag != "" {
-			entityID, seq = SplitEtag(etag)
-			seqInt, err = strconv.Atoi(seq)
-		}
-		//if a sequence no. was sent BUT it could not be converted to an integer then return an error
-		if seq != "" && seqInt == 0 {
-			return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
-		}
-		//if sequence no. was sent in the request but we don't have the entity let's get it from projection
-		if entityID == "" && seqInt != 0 {
-			entityID, ok = result["weos_id"].(string)
-			if !ok {
-				ctxt.Logger().Debugf("the item '%v' does not have an entity id stored", identifiers)
-			}
-		}
-
-		if useEntity && entityID == "" {
-			//get first identifier for the entity id
-			for _, i := range identifiers {
-				if entityID, ok = i.(string); ok && entityID != "" {
-					break
-				}
-			}
-		}
-
-		//use the entity id and sequence no. to get the entity if they were passed in
-		if entityID != "" {
-			//get the entity using the sequence no.
-			if seqInt != 0 {
-				//get the events up to the sequence
-				events, err := eventSource.GetByAggregateAndSequenceRange(entityID, 0, int64(seqInt))
-				//create content entity
-				r, er := entityFactory.NewEntity(ctxt.Request().Context())
-				if er != nil {
-					return NewControllerError("unable to create entity", er, http.StatusInternalServerError)
-				}
-				er = r.ApplyEvents(events)
-				if er != nil {
-					return NewControllerError("unable to changes", er, http.StatusInternalServerError)
-				}
-				if r.SequenceNo == 0 {
-					return NewControllerError("No entity found", err, http.StatusNotFound)
-				}
-				if r != nil && r.ID != "" { //get the map from the entity
-					result = r.ToMap()
-				}
-				result["weos_id"] = r.ID
-				result["sequence_no"] = r.SequenceNo
-				err = er
-				if err == nil && r.SequenceNo < int64(seqInt) && etag != "" { //if the etag is set then let's return the header
-					return ctxt.JSON(http.StatusNotModified, r.Property)
-				}
-			} else {
-				//get entity by entity_id
-
-				if projection != nil {
-					result, err = projection.GetByEntityID(ctxt.Request().Context(), entityFactory, entityID)
-				}
-
-			}
-		}
-
-		weos_id, ok := result["weos_id"].(string)
-		if errors.Is(err, gorm.ErrRecordNotFound) || (len(result) == 0) || !ok || weos_id == "" {
+		entity := model.GetEntity(newContext)
+		if entity == nil {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
-		} else if err != nil {
-			return NewControllerError(err.Error(), err, http.StatusBadRequest)
 		}
-
-		sequenceString := fmt.Sprint(result["sequence_no"])
+		weos_id := entity["weos_id"].(string)
+		sequenceString := fmt.Sprint(entity["sequence_no"])
 		sequenceNo, _ := strconv.Atoi(sequenceString)
 
-		etag = NewEtag(&model.ContentEntity{
+		etag := NewEtag(&model.ContentEntity{
 			AggregateRoot: model.AggregateRoot{
 				SequenceNo:  int64(sequenceNo),
 				BasicEntity: model.BasicEntity{ID: weos_id},
@@ -441,50 +462,67 @@ func View(api *RESTAPI, projection projections.Projection, commandDispatcher mod
 		})
 
 		//remove sequence number and weos_id from response
-		delete(result, "weos_id")
-		delete(result, "sequence_no")
-		delete(result, "table_alias")
+		delete(entity, "weos_id")
+		delete(entity, "sequence_no")
+		delete(entity, "table_alias")
 
 		//set etag
 		ctxt.Response().Header().Set("Etag", etag)
-		return ctxt.JSON(http.StatusOK, result)
+		return ctxt.JSON(http.StatusOK, entity)
 	}
 }
 
-func List(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			newContext := ctxt.Request().Context()
+			if entityFactory == nil {
+				err := errors.New("entity factory must be set")
+				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				return err
+			}
+			//gets the limit and page from context
+			limit, _ := newContext.Value("limit").(int)
+			page, _ := newContext.Value("page").(int)
+			if page == 0 {
+				page = 1
+			}
+			var count int64
+			var err error
+			var contentEntities []map[string]interface{}
+			// sort by default is by id
+			sorts := map[string]string{"id": "asc"}
+
+			if projection != nil {
+				contentEntities, count, err = projection.GetContentEntities(newContext, entityFactory, page, limit, "", sorts, nil)
+			}
+
+			if err != nil {
+				return NewControllerError(err.Error(), err, http.StatusBadRequest)
+			}
+			resp := ListApiResponse{
+				Total: count,
+				Page:  page,
+				Items: contentEntities,
+			}
+			//Add response to context for controller
+			newContext = context.WithValue(newContext, weoscontext.ENTITY_COLLECTION, resp)
+			request := ctxt.Request().WithContext(newContext)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+		}
+	}
+}
+
+func ListController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
-		if entityFactory == nil {
-			err := errors.New("entity factory must be set")
-			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
-			return err
+		resp := newContext.Value(weoscontext.ENTITY_COLLECTION)
+		if resp == nil {
+			return NewControllerError("unexpected error creating content type", nil, http.StatusBadRequest)
 		}
-		//gets the limit and page from context
-		limit, _ := newContext.Value("limit").(int)
-		page, _ := newContext.Value("page").(int)
-		if page == 0 {
-			page = 1
-		}
-		var count int64
-		var err error
-		var contentEntities []map[string]interface{}
-		// sort by default is by id
-		sorts := map[string]string{"id": "asc"}
-
-		if projection != nil {
-			contentEntities, count, err = projection.GetContentEntities(newContext, entityFactory, page, limit, "", sorts, nil)
-		}
-
-		if err != nil {
-			return NewControllerError(err.Error(), err, http.StatusBadRequest)
-		}
-		resp := ListApiResponse{
-			Total: count,
-			Page:  page,
-			Items: contentEntities,
-		}
-		return ctxt.JSON(http.StatusOK, resp)
+		return ctxt.JSON(http.StatusOK, resp.(ListApiResponse))
 	}
 }
 

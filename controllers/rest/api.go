@@ -258,14 +258,16 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
 	p.RegisterController("CreateController", CreateController)
 	p.RegisterController("UpdateController", UpdateController)
-	p.RegisterController("List", List)
-	p.RegisterController("View", View)
+	p.RegisterController("ListController", ListController)
+	p.RegisterController("ViewController", ViewController)
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("CreateBatchController", CreateBatchController)
 	//register standard middleware
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
+	p.RegisterMiddleware("ListMiddleware", ListMiddleware)
+	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
@@ -337,17 +339,19 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup middleware  - https://echo.labstack.com/middleware/
 
 	//setup global pre middleware
-	var preMiddlewares []echo.MiddlewareFunc
-	for _, middlewareName := range p.config.Rest.PreMiddleware {
-		t := reflect.ValueOf(middlewareName)
-		m := t.MethodByName(middlewareName)
-		if !m.IsValid() {
-			p.e.Logger.Fatalf("invalid handler set '%s'", middlewareName)
+	if p.config != nil && p.config.Rest != nil {
+		var preMiddlewares []echo.MiddlewareFunc
+		for _, middlewareName := range p.config.Rest.PreMiddleware {
+			t := reflect.ValueOf(middlewareName)
+			m := t.MethodByName(middlewareName)
+			if !m.IsValid() {
+				p.e.Logger.Fatalf("invalid handler set '%s'", middlewareName)
+			}
+			preMiddlewares = append(preMiddlewares, m.Interface().(func(handlerFunc echo.HandlerFunc) echo.HandlerFunc))
 		}
-		preMiddlewares = append(preMiddlewares, m.Interface().(func(handlerFunc echo.HandlerFunc) echo.HandlerFunc))
+		//all routes setup after this will use this middleware
+		p.e.Pre(preMiddlewares...)
 	}
-	//all routes setup after this will use this middleware
-	p.e.Pre(preMiddlewares...)
 
 	//setup global middleware
 	var middlewares []echo.MiddlewareFunc
