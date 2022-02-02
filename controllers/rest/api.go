@@ -263,6 +263,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("CreateBatchController", CreateBatchController)
 	//register standard middleware
+	p.RegisterMiddleware("Context", Context)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
@@ -270,6 +271,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
 	//register standard operation initializers
+	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
 	p.RegisterOperationInitializer(UserDefinedInitializer)
 	p.RegisterOperationInitializer(StandardInitializer)
@@ -331,8 +333,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		defaultCommandDispatcher := &model.DefaultCommandDispatcher{}
 		//setup default commands
 		defaultCommandDispatcher.AddSubscriber(model.Create(context.Background(), nil, "", ""), model.CreateHandler)
-		//defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), receiver.CreateBatch)
-		//defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), receiver.Update)
+		defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), model.CreateBatchHandler)
+		defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), model.UpdateHandler)
 		p.RegisterCommandDispatcher("Default", defaultCommandDispatcher)
 	}
 

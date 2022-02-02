@@ -321,7 +321,7 @@ func (w *ContentEntity) ApplyEvents(changes []*Event) error {
 				}
 
 			case "update":
-				err := json.Unmarshal(change.Payload, &w.Property)
+				err := json.Unmarshal(change.Payload, &w)
 				if err != nil {
 					return NewDomainError("invalid: error unmarshalling changed payload", change.Meta.EntityType, w.ID, err)
 				}

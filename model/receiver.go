@@ -58,9 +58,10 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	return nil
 }
 
-//CreateBatch is used for an array of payloads. It takes in the command and context which is used to dispatch and the persist the incoming request.
-func (r *Receiver) CreateBatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
-	entities, err := r.domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
+//CreateBatchHandler is used for an array of payloads. It takes in the command and context which is used to dispatch and the persist the incoming request.
+func CreateBatchHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+	domainService := NewDomainService(context.Background(), eventStore, projection, logger)
+	entities, err := domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
 		return err
 	}
@@ -74,7 +75,7 @@ func (r *Receiver) CreateBatch(ctx context.Context, command *Command, eventStore
 }
 
 //Update is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
-func (r *Receiver) UpdateHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+func UpdateHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
 	if logger == nil {
 		return fmt.Errorf("no logger set")
 	}
@@ -84,8 +85,9 @@ func (r *Receiver) UpdateHandler(ctx context.Context, command *Command, eventSto
 		logger.Error(err)
 		return err
 	}
-
-	updatedEntity, err := r.domainService.Update(ctx, command.Payload, command.Metadata.EntityType)
+	//initialize any services
+	domainService := NewDomainService(context.Background(), eventStore, projection, logger)
+	updatedEntity, err := domainService.Update(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
 		return err
 	}
@@ -104,14 +106,14 @@ func Initialize(service Service) error {
 	receiver := &Receiver{service: service}
 	//add command handlers to the application's command dispatcher
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), CreateHandler)
-	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), receiver.CreateBatch)
-	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), receiver.UpdateHandler)
+	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), CreateBatchHandler)
+	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), UpdateHandler)
 	//initialize any services
-	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil)
+	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil, nil)
 
 	for _, projection := range service.Projections() {
 		if projections, ok := projection.(Projection); ok {
-			receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), projections)
+			receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), projections, nil)
 		}
 	}
 

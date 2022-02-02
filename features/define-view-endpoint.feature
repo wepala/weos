@@ -101,7 +101,9 @@ Feature: Setup View endpoint
                description: blog id
            summary: Get Blog by id
            operationId: Get Blog
-           x-controller: View
+           x-middleware:
+             - ViewMiddleware
+           x-controller: ViewController
            responses:
              200:
                description: Blog details without any supporting collections

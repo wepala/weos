@@ -46,7 +46,7 @@ func TestDomainService_Create(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		dService := model.NewDomainService(newContext, mockEventRepository, nil)
+		dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 		blog, err := dService.Create(newContext, reqBytes, entityType)
 
 		if err != nil {
@@ -82,7 +82,7 @@ func TestDomainService_Create(t *testing.T) {
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
-		dService := model.NewDomainService(newContext, mockEventRepository, nil)
+		dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 		blog, err := dService.Create(newContext, reqBytes, entityType)
 
 		if err.Error() != "entity property title required" {
@@ -133,7 +133,7 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		dService := model.NewDomainService(newContext, mockEventRepository, nil)
+		dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 		blogs, err := dService.CreateBatch(newContext, reqBytes, entityType)
 
 		if err != nil {
@@ -214,7 +214,7 @@ func TestDomainService_Update(t *testing.T) {
 		},
 	}
 
-	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
+	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, nil)
 
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 
@@ -338,7 +338,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, nil)
+	dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
@@ -351,7 +351,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 	}
 
 	t.Run("Testing with compound PK - ID", func(t *testing.T) {
-		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
+		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, nil)
 
 		updatedPayload := map[string]interface{}{"title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)
@@ -382,7 +382,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 	})
 
 	t.Run("Testing without compound PK - ID", func(t *testing.T) {
-		dService1 := model.NewDomainService(newContext1, mockEventRepository, projectionMock)
+		dService1 := model.NewDomainService(newContext1, mockEventRepository, projectionMock, nil)
 
 		updatedPayload := map[string]interface{}{"title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)
@@ -438,7 +438,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, nil)
+	dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
@@ -452,7 +452,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 
 	t.Run("Testing with compound PK - GUID, Title", func(t *testing.T) {
 
-		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
+		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, nil)
 
 		updatedPayload := map[string]interface{}{"description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)
@@ -488,7 +488,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 	})
 
 	t.Run("Testing without compound PK - GUID, Title", func(t *testing.T) {
-		dService1 := model.NewDomainService(newContext1, mockEventRepository, projectionMock)
+		dService1 := model.NewDomainService(newContext1, mockEventRepository, projectionMock, nil)
 
 		updatedPayload := map[string]interface{}{"title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)
@@ -546,7 +546,7 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, nil)
+	dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
@@ -559,7 +559,7 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 	}
 
 	t.Run("Testing with compound PK - ID", func(t *testing.T) {
-		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
+		dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, nil)
 
 		updatedPayload := map[string]interface{}{"title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
 		updatedReqBytes, err := json.Marshal(updatedPayload)

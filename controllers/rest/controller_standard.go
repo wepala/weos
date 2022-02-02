@@ -196,6 +196,7 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 
 			err := commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
 			if err != nil {
+				api.e.Logger.Errorf("error persisting entity '%s'", err)
 				if errr, ok := err.(*model.DomainError); ok {
 					if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
 						return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
@@ -227,7 +228,7 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 		var result1 map[string]interface{}
 		newContext := ctxt.Request().Context()
 		weosID := newContext.Value(weoscontext.ENTITY_ID)
-		if weosID == nil {
+		if weosID == nil || weosID == "" {
 			//find entity based on identifiers specified
 			pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
 			json.Unmarshal(pks, &identifiers)
