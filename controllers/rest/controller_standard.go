@@ -540,15 +540,22 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 	var contentType string
 	var contentTypeSchema *openapi3.SchemaRef
 	//get the entity information based on the Content Type associated with this operation
-	for _, requestContent := range operation.RequestBody.Value.Content {
-		//use the first schema ref to determine the entity type
-		if requestContent.Schema.Ref != "" {
-			contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
-			//get the schema details from the swagger file
-			contentTypeSchema = spec.Components.Schemas[contentType]
-			break
+	contentTypeExt := path.Delete.ExtensionProps.Extensions[ContentTypeExtension]
+
+	if contentTypeExt != nil {
+		contentTypeSchema = spec.Components.Schemas[contentType]
+	} else {
+		for _, requestContent := range operation.RequestBody.Value.Content {
+			//use the first schema ref to determine the entity type
+			if requestContent.Schema.Ref != "" {
+				contentType = strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+				//get the schema details from the swagger file
+				contentTypeSchema = spec.Components.Schemas[contentType]
+				break
+			}
 		}
 	}
+
 	return func(ctxt echo.Context) error {
 		//look up the schema for the content type so that we could identify the rules
 		newContext := ctxt.Request().Context()
