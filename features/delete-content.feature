@@ -199,7 +199,7 @@ Feature: Delete content
       | 1     | <Generated ID> | 2           | Blog 1       | Some Blog      |
       | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
       | 164   | <Generated ID> | 1           | Blog 6       | Some Blog 6    |
-      | 3     | <Generated ID> | 4           | Blog 3       | Some Blog 3    |
+      | 3     | <Generated ID> | 1           | Blog 3       | Some Blog 3    |
       | 4     | <Generated ID> | 1           | Blog 4       | Some Blog 4    |
       | 5     | <Generated ID> | 1           | Blog 5       | Some Blog 5    |
       | 890   | <Generated ID> | 1           | Blog 7       | Some Blog 7    |

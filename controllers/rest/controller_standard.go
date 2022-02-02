@@ -562,12 +562,14 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 		}
 		var weosID string
 		var sequenceNo string
+		var Etag string
 
 		//getting etag from context
 		etagInterface := newContext.Value("If-Match")
 		if etagInterface != nil {
 			if etag, ok := etagInterface.(string); ok {
 				if etag != "" {
+					Etag = etag
 					weosID, sequenceNo = SplitEtag(etag)
 					seq, err := strconv.Atoi(sequenceNo)
 					if err != nil {
@@ -580,9 +582,12 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 		}
 
 		var err error
-		var Etag string
 		var identifiers []string
 		var result1 map[string]interface{}
+		var weos_id string
+		var ok bool
+
+		//Uses the identifiers to pull the weosID, to be later used to get Seq NO
 		if etagInterface == nil {
 			//find entity based on identifiers specified
 			pks, _ := json.Marshal(contentTypeSchema.Value.Extensions["x-identifier"])
@@ -610,40 +615,46 @@ func (c *StandardControllers) Delete(app model.Service, spec *openapi3.Swagger, 
 
 				}
 			}
-			weos_id, ok := result1["weos_id"].(string)
-			sequenceString := fmt.Sprint(result1["sequence_no"])
-			sequenceNo, _ := strconv.Atoi(sequenceString)
-			Etag = NewEtag(&model.ContentEntity{
-				AggregateRoot: model.AggregateRoot{
-					SequenceNo:  int64(sequenceNo),
-					BasicEntity: model.BasicEntity{ID: weos_id},
-				},
-			})
+			weos_id, ok = result1["weos_id"].(string)
+
 			if (len(result1) == 0) || !ok || weos_id == "" {
 				return NewControllerError("No entity found", err, http.StatusNotFound)
 			} else if err != nil {
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
+		}
 
-			err := app.Dispatcher().Dispatch(newContext, model.Delete(newContext, contentType, weosID))
-			if err != nil {
-				if errr, ok := err.(*model.DomainError); ok {
-					if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
-						return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
-					}
-					if strings.Contains(errr.Error(), "invalid:") {
-						return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
-					}
-					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
-				} else {
-					return NewControllerError("unexpected error deleting content type", err, http.StatusBadRequest)
+		//Dispatch the actual delete to projecitons
+		err = app.Dispatcher().Dispatch(newContext, model.Delete(newContext, contentType, weosID))
+		if err != nil {
+			if errr, ok := err.(*model.DomainError); ok {
+				if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
+					return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
 				}
+				if strings.Contains(errr.Error(), "invalid:") {
+					return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
+				}
+				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+			} else {
+				return NewControllerError("unexpected error deleting content type", err, http.StatusBadRequest)
 			}
 		}
+
+		deleteEventSeq, err := app.EventRepository().GetAggregateSequenceNumber(weos_id)
+		if err != nil {
+			return NewControllerError("No delete event found", err, http.StatusNotFound)
+		}
+
+		Etag = NewEtag(&model.ContentEntity{
+			AggregateRoot: model.AggregateRoot{
+				SequenceNo:  deleteEventSeq,
+				BasicEntity: model.BasicEntity{ID: weos_id},
+			},
+		})
+
 		ctxt.Response().Header().Set("Etag", Etag)
 
 		return ctxt.JSON(http.StatusOK, "Deleted")
-
 	}
 }
 

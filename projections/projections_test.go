@@ -2291,7 +2291,6 @@ components:
 		gormDB := app.DB()
 
 		id := ksuid.New().String()
-		gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": id, "title": "hugs"})
 
 		payload := map[string]interface{}{"id": 1, "title": "testBlog", "description": "This is a create projection test"}
 		contentEntity := &weos.ContentEntity{
@@ -2308,7 +2307,10 @@ components:
 			Name: "Blog",
 		})
 
-		event := weos.NewEntityEvent("delete", contentEntity, contentEntity.ID, &payload)
+		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
+		p.GetEventHandler()(ctxt, *event)
+
+		event = weos.NewEntityEvent("delete", contentEntity, contentEntity.ID, &payload)
 		p.GetEventHandler()(ctxt, *event)
 
 		blog := map[string]interface{}{}

@@ -458,6 +458,8 @@ func theIsSubmitted(contentType string) error {
 		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
 	} else if strings.Contains(currScreen, "update") {
 		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), body)
+	} else if strings.Contains(currScreen, "delete") {
+		request = httptest.NewRequest("DELETE", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), nil)
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -961,8 +963,14 @@ func isOnTheDeleteScreenWithId(arg1, contentType, id string) error {
 	return nil
 }
 
-func theShouldBeDeleted(arg1 string, arg2 int) error {
-	return godog.ErrPending
+func theShouldBeDeleted(contentEntity string, id int) error {
+	output := map[string]interface{}{}
+
+	API.Application.DB().Table(strings.Title(contentEntity)).Find(&output, "id = ?", id)
+	if len(output) != 0 {
+		return fmt.Errorf("the entity was not deleted")
+	}
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
@@ -1030,8 +1038,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~skipped && ~long",
-			Tags: "WEOS-1131",
+			Tags:   "~skipped && ~long",
 		},
 	}.Run()
 	if status != 0 {
