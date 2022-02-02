@@ -236,7 +236,7 @@ Feature: List content
      """
     And the service is running
     And blogs in the api
-      | id    | entity id                   | sequence no | title        | description    |
+      | id    | weos_id                     | sequence_no | title        | description    |
       | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
       | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
       | 164   | 24KjFbp82wGq4qb5LAxLdA5GbR2 | 1           | Blog 6       | Some Blog 6    |
@@ -246,7 +246,7 @@ Feature: List content
       | 890   | 24KjMP9uTPxW5Xuhziv1balYskX | 1           | Blog 7       | Some Blog 7    |
       | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
 
-  @WEOS-1133
+
   Scenario: Get list of items
 
     By default the list of items returned would be paged (for performance reasons). It will be sorted on the id by default
