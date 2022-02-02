@@ -131,6 +131,24 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			return ctxt, fmt.Errorf("unregistered controller '%s' specified on path '%s'", controllerName, path)
 		}
 		ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
+		attached := false
+		//checks if the controller explicitly stated and whether the endpoint is valid
+		if strings.ToUpper(method) == "GET" && controllerName == "ListController" {
+			if pathItem.Get.Responses != nil && pathItem.Get.Responses["200"].Value.Content != nil {
+				for _, val := range pathItem.Get.Responses["200"].Value.Content {
+					//checks if the response refers to an array schema
+					if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+						attached = true
+						break
+					}
+
+				}
+				if !attached {
+					ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, nil)
+					api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+				}
+			}
+		}
 	}
 
 	//if the controller extension is set then add controller to the context
@@ -432,25 +450,6 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			}
 		}
 		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
-	} else {
-		attached := false
-		//checks if the controller explicitly stated and whether the endpoint is valid
-		if strings.ToUpper(method) == "GET" {
-			if pathItem.Get.Responses != nil && pathItem.Get.Responses["200"].Value.Content != nil {
-				for _, val := range pathItem.Get.Responses["200"].Value.Content {
-					//checks if the response refers to an array schema
-					if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-						attached = true
-						break
-					}
-
-				}
-				if !attached {
-					ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, nil)
-					api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
-				}
-			}
-		}
 	}
 
 	return ctxt, nil
