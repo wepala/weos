@@ -171,7 +171,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 							}
 						}
 						if attach {
-							handler = "CreateBatch"
+							handler = "CreateBatchController"
+							middlewareNames["CreateBatchMiddleware"] = true
 							autoConfigure = true
 						}
 
@@ -212,7 +213,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 								}
 							}
 							if allParam {
-								handler = "Update"
+								handler = "UpdateController"
+								middlewareNames["UpdateMiddleware"] = true
 								autoConfigure = true
 								break
 							}
@@ -221,7 +223,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 							for _, param := range pathItem.Put.Parameters {
 
 								if "id" == param.Value.Name {
-									handler = "Update"
+									handler = "UpdateController"
+									middlewareNames["UpdateMiddleware"] = true
 									autoConfigure = true
 									break
 								}
@@ -230,7 +233,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 									bytesContext := interfaceContext.(json.RawMessage)
 									json.Unmarshal(bytesContext, &contextName)
 									if "id" == contextName {
-										handler = "Update"
+										handler = "UpdateController"
+										middlewareNames["UpdateMiddleware"] = true
 										autoConfigure = true
 										break
 									}
@@ -273,7 +277,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 								}
 							}
 							if allParam {
-								handler = "Update"
+								handler = "UpdateController"
+								middlewareNames["UpdateMiddleware"] = true
 								autoConfigure = true
 								break
 							}
@@ -282,7 +287,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 							for _, param := range pathItem.Patch.Parameters {
 
 								if "id" == param.Value.Name {
-									handler = "Update"
+									handler = "UpdateController"
+									middlewareNames["UpdateMiddleware"] = true
 									autoConfigure = true
 									break
 								}
@@ -291,7 +297,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 									bytesContext := interfaceContext.(json.RawMessage)
 									json.Unmarshal(bytesContext, &contextName)
 									if "id" == contextName {
-										handler = "Update"
+										handler = "UpdateController"
+										middlewareNames["UpdateMiddleware"] = true
 										autoConfigure = true
 										break
 									}

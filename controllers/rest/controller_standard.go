@@ -76,12 +76,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				weosID = ksuid.New().String()
 			}
 
-			var entityName string
-			if entityFactory != nil {
-				entityName = entityFactory.Name()
-			}
-
-			err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityName, weosID), eventSource, projection, api.EchoInstance().Logger)
+			err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -132,77 +127,109 @@ func CreateController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
-//CreateBatch is used for an array of payloads. It dispatches this to the model which then validates and creates it.
-func CreateBatch(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	return func(ctxt echo.Context) error {
-		//look up the schema for the content type so that we could identify the rules
-		newContext := ctxt.Request().Context()
-		if contentType != "" && contentTypeSchema.Value != nil {
-			newContext = context.WithValue(newContext, weoscontext.CONTENT_TYPE, &weoscontext.ContentType{
-				Name:   contentType,
-				Schema: contentTypeSchema.Value,
-			})
-		}
-		//reads the request body
-		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
-
-		err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, contentType), nil, nil, api.EchoInstance().Logger)
-		if err != nil {
-			if errr, ok := err.(*model.DomainError); ok {
-				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+//CreateBatchMiddleware is used for an array of payloads. It dispatches this to the model which then validates and creates it.
+func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			//look up the schema for the content type so that we could identify the rules
+			newContext := ctxt.Request().Context()
+			if entityFactory != nil {
+				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
-				return NewControllerError("unexpected error updating content type batch", err, http.StatusBadRequest)
+				err := errors.New("entity factory must be set")
+				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				return err
 			}
+			//reads the request body
+			payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+
+			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), nil, nil, api.EchoInstance().Logger)
+			if err != nil {
+				if errr, ok := err.(*model.DomainError); ok {
+					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+				} else {
+					return NewControllerError("unexpected error updating content type batch", err, http.StatusBadRequest)
+				}
+			}
+			return next(ctxt)
 		}
+	}
+}
+
+//CreateBatchController is used for an array of payloads. It dispatches this to the model which then validates and creates it.
+func CreateBatchController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+
 		return ctxt.JSON(http.StatusCreated, "CreatedBatch")
 	}
 }
 
-func Update(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
-	return func(ctxt echo.Context) error {
-		//look up the schema for the content type so that we could identify the rules
-		newContext := ctxt.Request().Context()
-		var weosID string
-		var sequenceNo string
-		//reads the request body
-		payload, _ := ioutil.ReadAll(ctxt.Request().Body)
-		//getting etag from context
-		etagInterface := newContext.Value("If-Match")
-		if etagInterface != nil {
-			if etag, ok := etagInterface.(string); ok {
-				if etag != "" {
-					weosID, sequenceNo = SplitEtag(etag)
-					seq, err := strconv.Atoi(sequenceNo)
-					if err != nil {
-						return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
+func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			//look up the schema for the content type so that we could identify the rules
+			newContext := ctxt.Request().Context()
+			if entityFactory != nil {
+				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
+			} else {
+				err := errors.New("entity factory must be set")
+				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				return err
+			}
+			var weosID string
+			var sequenceNo string
+			//reads the request body
+			payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+			//getting etag from context
+			etagInterface := newContext.Value("If-Match")
+			if etagInterface != nil {
+				if etag, ok := etagInterface.(string); ok {
+					if etag != "" {
+						weosID, sequenceNo = SplitEtag(etag)
+						seq, err := strconv.Atoi(sequenceNo)
+						if err != nil {
+							return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
+						}
+						newContext = context.WithValue(newContext, weoscontext.WEOS_ID, weosID)
+						newContext = context.WithValue(newContext, weoscontext.SEQUENCE_NO, seq)
 					}
-					newContext = context.WithValue(newContext, weoscontext.WEOS_ID, weosID)
-					newContext = context.WithValue(newContext, weoscontext.SEQUENCE_NO, seq)
 				}
 			}
+
+			err := commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
+			if err != nil {
+				if errr, ok := err.(*model.DomainError); ok {
+					if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
+						return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
+					}
+					if strings.Contains(errr.Error(), "invalid:") {
+						return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
+					}
+					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+				} else {
+					return NewControllerError("unexpected error updating content type", err, http.StatusBadRequest)
+				}
+			}
+			//add id to context for use by controller
+			newContext = context.WithValue(newContext, weoscontext.ENTITY_ID, weosID)
+			request := ctxt.Request().WithContext(newContext)
+			ctxt.SetRequest(request)
+			return next(ctxt)
 		}
 
-		err := commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), nil, nil, api.EchoInstance().Logger)
-		if err != nil {
-			if errr, ok := err.(*model.DomainError); ok {
-				if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
-					return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
-				}
-				if strings.Contains(errr.Error(), "invalid:") {
-					return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
-				}
-				return NewControllerError(errr.Error(), err, http.StatusBadRequest)
-			} else {
-				return NewControllerError("unexpected error updating content type", err, http.StatusBadRequest)
-			}
-		}
+	}
+}
+
+func UpdateController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		var err error
 		var Etag string
 		var identifiers []string
 		var result *model.ContentEntity
 		var result1 map[string]interface{}
-		if etagInterface == nil {
+		newContext := ctxt.Request().Context()
+		weosID := newContext.Value(weoscontext.ENTITY_ID)
+		if weosID == nil {
 			//find entity based on identifiers specified
 			pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
 			json.Unmarshal(pks, &identifiers)
@@ -220,7 +247,7 @@ func Update(api *RESTAPI, projection projections.Projection, commandDispatcher m
 
 			}
 
-			result1, err = projection.GetByKey(newContext, nil, primaryKeys)
+			result1, err = projection.GetByKey(newContext, entityFactory, primaryKeys)
 			if err != nil {
 				return err
 			}
@@ -247,7 +274,8 @@ func Update(api *RESTAPI, projection projections.Projection, commandDispatcher m
 			return ctxt.JSON(http.StatusOK, result1)
 		} else {
 			if projection != nil {
-				result, err = projection.GetContentEntity(newContext, nil, weosID)
+
+				result, err = projection.GetContentEntity(newContext, entityFactory, weosID.(string))
 				if err != nil {
 					return err
 				}
@@ -290,8 +318,12 @@ func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIt
 
 func View(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
-		cType := &weoscontext.ContentType{}
-		pks, _ := json.Marshal(cType.Schema.Extensions["x-identifier"])
+		if entityFactory == nil {
+			err := errors.New("entity factory must be set")
+			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+			return err
+		}
+		pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
 		primaryKeys := []string{}
 		json.Unmarshal(pks, &primaryKeys)
 
@@ -325,7 +357,7 @@ func View(api *RESTAPI, projection projections.Projection, commandDispatcher mod
 		//if use_entity_id is not set then let's get the item by key
 		if !useEntity {
 			if projection != nil {
-				result, err = projection.GetByKey(ctxt.Request().Context(), nil, identifiers)
+				result, err = projection.GetByKey(ctxt.Request().Context(), entityFactory, identifiers)
 			}
 		}
 		//if etag is set then let's use that info
@@ -385,7 +417,7 @@ func View(api *RESTAPI, projection projections.Projection, commandDispatcher mod
 				//get entity by entity_id
 
 				if projection != nil {
-					result, err = projection.GetByEntityID(ctxt.Request().Context(), nil, entityID)
+					result, err = projection.GetByEntityID(ctxt.Request().Context(), entityFactory, entityID)
 				}
 
 			}
@@ -423,7 +455,11 @@ func List(api *RESTAPI, projection projections.Projection, commandDispatcher mod
 
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
-		entityFactory := GetEntityFactory(newContext)
+		if entityFactory == nil {
+			err := errors.New("entity factory must be set")
+			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+			return err
+		}
 		//gets the limit and page from context
 		limit, _ := newContext.Value("limit").(int)
 		page, _ := newContext.Value("page").(int)

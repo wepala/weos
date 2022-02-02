@@ -133,7 +133,7 @@ func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
 	}
 	err = tapi.Initialize(nil)
 	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
+		t.Fatalf("unexpected error loading spec '%s'", err)
 	}
 	e := tapi.EchoInstance()
 	mockBlog := &[3]Blog{

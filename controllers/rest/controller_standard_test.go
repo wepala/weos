@@ -88,7 +88,7 @@ func TestStandardControllers_Create(t *testing.T) {
 			if blog.Url == nil {
 				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
 			}
-			//check that content type information is in the context
+			//check that entity factory information is in the context
 			entityFactory := ctx.Value(weoscontext.ENTITY_FACTORY)
 			if entityFactory == nil {
 				t.Fatal("expected a entity factory to be in the context")
@@ -115,6 +115,12 @@ func TestStandardControllers_Create(t *testing.T) {
 
 	projections := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+			if ctx == nil {
+				t.Errorf("expected to find context but got nil")
+			}
+			if weosID == "" {
+				t.Errorf("expected to get weos id but got nil")
+			}
 			return mockContentEntity, nil
 		},
 	}
@@ -141,7 +147,8 @@ func TestStandardControllers_Create(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw)
+		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -178,7 +185,8 @@ func TestStandardControllers_Create(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw)
+		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -222,6 +230,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 	//instantiate api
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
 
 	dispatcher := &CommandDispatcherMock{
 		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
@@ -252,6 +261,15 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 				if blog[2].Title != mockBlog[2].Title {
 					t.Errorf("expected the blog 3 title to be '%s', got '%s'", mockBlog[2].Title, blog[2].Title)
 				}
+				//check that entity factory information is in the context
+				entityFactory := ctx.Value(weoscontext.ENTITY_FACTORY)
+				if entityFactory == nil {
+					t.Fatal("expected a entity factory to be in the context")
+				}
+
+				if entityFactory.(*EntityFactoryMock).Name() != "Blog" {
+					t.Errorf("expected the content type to be'%s', got %s", "Blog", entityFactory.(*EntityFactoryMock).Name())
+				}
 
 			}
 			return nil
@@ -271,7 +289,11 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		return nil
 	}}
 
-	entityFactory := &EntityFactoryMock{}
+	entityFactory := &EntityFactoryMock{
+		NameFunc: func() string {
+			return "Blog"
+		},
+	}
 
 	t.Run("basic batch create based on simple content type", func(t *testing.T) {
 		reqBytes, err := json.Marshal(mockBlog)
@@ -282,12 +304,13 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 
 		accountID := "CreateHandler Blog"
 		path := swagger.Paths.Find("/blogs")
-		controller := rest.CreateBatch(restAPI, projection, dispatcher, eventRepository, entityFactory)
+		controller := rest.CreateBatchController(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw)
+		createBatchMw := rest.CreateBatchMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
+		e.POST("/blogs", controller, mw, createBatchMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -322,6 +345,7 @@ func TestStandardControllers_HealthCheck(t *testing.T) {
 	//instantiate api
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
+	restAPI.Swagger = swagger
 
 	path := swagger.Paths.Find("/health")
 	controller := rest.HealthCheck(restAPI, nil, nil, nil, nil)
@@ -371,6 +395,7 @@ func TestStandardControllers_Update(t *testing.T) {
 	//instantiate api
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
 
 	dispatcher := &CommandDispatcherMock{
 		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
@@ -398,22 +423,14 @@ func TestStandardControllers_Update(t *testing.T) {
 				t.Errorf("expected the blog weos id to be '%s', got '%s'", weosId, blog.ID)
 			}
 
-			//check that content type information is in the context
-			contentType := weoscontext.GetContentType(ctx)
-			if contentType == nil {
-				t.Fatal("expected a content type to be in the context")
+			//check that entity factory information is in the context
+			entityFactory := ctx.Value(weoscontext.ENTITY_FACTORY)
+			if entityFactory == nil {
+				t.Fatal("expected a entity factory to be in the context")
 			}
 
-			if contentType.Name != "Blog" {
-				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
-			}
-
-			if _, ok := contentType.Schema.Properties["title"]; !ok {
-				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
-			}
-
-			if _, ok := contentType.Schema.Properties["description"]; !ok {
-				t.Errorf("expected a property '%s' on content type '%s'", "description", "blog")
+			if entityFactory.(*EntityFactoryMock).Name() != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", entityFactory.(*EntityFactoryMock).Name())
 			}
 
 			id := ctx.Value("id").(string)
@@ -447,7 +464,14 @@ func TestStandardControllers_Update(t *testing.T) {
 	}
 
 	eventRepository := &EventRepositoryMock{}
-	entityFactory := &EntityFactoryMock{}
+	entityFactory := &EntityFactoryMock{
+		NameFunc: func() string {
+			return "Blog"
+		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
+	}
 
 	t.Run("basic update based on simple content type with id parameter in path and etag", func(t *testing.T) {
 		paramName := "id"
@@ -459,13 +483,14 @@ func TestStandardControllers_Update(t *testing.T) {
 
 		accountID := "Update Blog"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
-		controller := rest.Update(restAPI, projection, dispatcher, eventRepository, entityFactory)
+		controller := rest.UpdateController(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPut, "/blogs/"+weosId, body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		req.Header.Set("If-Match", weosId+".1")
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)
-		e.PUT("/blogs/:"+paramName, controller, mw)
+		updateMw := rest.UpdateMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)
+		e.PUT("/blogs/:"+paramName, controller, mw, updateMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -499,6 +524,7 @@ func TestStandardControllers_View(t *testing.T) {
 	//instantiate api
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
 
 	dispatcher := &CommandDispatcherMock{
 		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
@@ -557,7 +583,19 @@ func TestStandardControllers_View(t *testing.T) {
 			},
 		}
 
-		entityFactory := &EntityFactoryMock{}
+		entityFactory := &EntityFactoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
+				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
+				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				if err != nil {
+					return nil, err
+				}
+				return entity, nil
+			},
+		}
 
 		paramName := "id"
 		paramValue := "1"
@@ -584,12 +622,21 @@ func TestStandardControllers_View(t *testing.T) {
 	t.Run("Testing view with entity id", func(t *testing.T) {
 		projection := &ProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				if entityFactory == nil {
+					t.Errorf("expected to find entity factory got nil")
+				}
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
 				}, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+				if entityFactory == nil {
+					t.Errorf("expected to find entity factory got nil")
+				}
+				if id == "" {
+					t.Errorf("expected to find id got nil")
+				}
 				return map[string]interface{}{
 					"id":      "1",
 					"weos_id": "1234sd",
@@ -603,7 +650,19 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
 		}
-		entityFactory := &EntityFactoryMock{}
+		entityFactory := &EntityFactoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
+				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
+				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				if err != nil {
+					return nil, err
+				}
+				return entity, nil
+			},
+		}
 		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
@@ -665,7 +724,19 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
 		}
-		entityFactory := &EntityFactoryMock{}
+		entityFactory := &EntityFactoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
+				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
+				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				if err != nil {
+					return nil, err
+				}
+				return entity, nil
+			},
+		}
 		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
@@ -727,7 +798,19 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in routes", "/blogs/{"+paramName+"}")
 		}
-		entityFactory := &EntityFactoryMock{}
+		entityFactory := &EntityFactoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
+				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
+				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				if err != nil {
+					return nil, err
+				}
+				return entity, nil
+			},
+		}
 		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
@@ -786,7 +869,19 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in swagger paths", "/blogs/:"+paramName)
 		}
-		entityFactory := &EntityFactoryMock{}
+		entityFactory := &EntityFactoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
+				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
+				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				if err != nil {
+					return nil, err
+				}
+				return entity, nil
+			},
+		}
 		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=1", nil)
@@ -853,7 +948,19 @@ func TestStandardControllers_View(t *testing.T) {
 		if path == nil {
 			t.Fatalf("could not find path '%s' in swagger paths", "/blogs/:"+paramName)
 		}
-		entityFactory := &EntityFactoryMock{}
+		entityFactory := &EntityFactoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
+				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
+				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				if err != nil {
+					return nil, err
+				}
+				return entity, nil
+			},
+		}
 		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=asdf", nil)
@@ -905,7 +1012,11 @@ func TestStandardControllers_List(t *testing.T) {
 		},
 	}
 
-	entityFactory := &EntityFactoryMock{}
+	entityFactory := &EntityFactoryMock{
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
+	}
 	commandDispatcher := &CommandDispatcherMock{}
 	eventRepository := &EventRepositoryMock{}
 
@@ -978,6 +1089,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 	//instantiate api
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
 
 	dispatcher := &CommandDispatcherMock{
 		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
@@ -1007,18 +1119,14 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 			if blog.Url == nil {
 				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
 			}
-			//check that content type information is in the context
-			contentType := weoscontext.GetContentType(ctx)
-			if contentType == nil {
-				t.Fatal("expected a content type to be in the context")
+			//check that entity factory information is in the context
+			entityFactory := ctx.Value(weoscontext.ENTITY_FACTORY)
+			if entityFactory == nil {
+				t.Fatal("expected a entity factory to be in the context")
 			}
 
-			if contentType.Name != "Blog" {
-				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
-			}
-
-			if _, ok := contentType.Schema.Properties["title"]; !ok {
-				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			if entityFactory.(*EntityFactoryMock).Name() != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", entityFactory.(*EntityFactoryMock).Name())
 			}
 
 			return nil
@@ -1042,7 +1150,11 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		},
 	}
 
-	entityFactory := &EntityFactoryMock{}
+	entityFactory := &EntityFactoryMock{
+		NameFunc: func() string {
+			return "Blog"
+		},
+	}
 	eventRepository := &EventRepositoryMock{}
 
 	t.Run("basic create based on application/x-www-form-urlencoded content type", func(t *testing.T) {
@@ -1061,7 +1173,8 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw)
+		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1094,7 +1207,8 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw)
+		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1133,6 +1247,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 	//instantiate api
 	e := echo.New()
 	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
 
 	dispatcher := &CommandDispatcherMock{
 		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
@@ -1162,18 +1277,14 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 			if blog.Url == nil {
 				return model.NewDomainError("expected a blog url but got nil", command.Metadata.EntityType, "", nil)
 			}
-			//check that content type information is in the context
-			contentType := weoscontext.GetContentType(ctx)
-			if contentType == nil {
-				t.Fatal("expected a content type to be in the context")
+			//check that entity factory information is in the context
+			entityFactory := ctx.Value(weoscontext.ENTITY_FACTORY)
+			if entityFactory == nil {
+				t.Fatal("expected a entity factory to be in the context")
 			}
 
-			if contentType.Name != "Blog" {
-				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
-			}
-
-			if _, ok := contentType.Schema.Properties["title"]; !ok {
-				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			if entityFactory.(*EntityFactoryMock).Name() != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", entityFactory.(*EntityFactoryMock).Name())
 			}
 
 			return nil
@@ -1198,7 +1309,11 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 	}
 
 	eventRepository := &EventRepositoryMock{}
-	entityFactory := &EntityFactoryMock{}
+	entityFactory := &EntityFactoryMock{
+		NameFunc: func() string {
+			return "Blog"
+		},
+	}
 
 	t.Run("basic create based on multipart/form-data content type", func(t *testing.T) {
 
@@ -1216,7 +1331,8 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw)
+		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1249,7 +1365,8 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw)
+		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
