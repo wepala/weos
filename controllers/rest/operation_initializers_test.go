@@ -160,9 +160,9 @@ func TestStandardInitializer(t *testing.T) {
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("CreateController", rest.CreateController)
-	api.RegisterController("List", rest.List)
+	api.RegisterController("List", rest.ListController)
 	api.RegisterController("UpdateController", rest.UpdateController)
-	api.RegisterController("View", rest.View)
+	api.RegisterController("View", rest.ViewController)
 	t.Run("attach standard create", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {

@@ -321,7 +321,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 							bytesId := identifierExtension.(json.RawMessage)
 							err := json.Unmarshal(bytesId, &identifiers)
 							if err != nil {
-								//return err
+								return ctxt, err
 							}
 						}
 						var contextName string
@@ -361,14 +361,16 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 							}
 						}
 						if allParam {
-							handler = "View"
+							handler = "ViewController"
+							middlewareNames["ViewMiddleware"] = true
 							autoConfigure = true
 							break
 						}
 					} else {
 						//checks if the response refers to an array schema
 						if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-							handler = "List"
+							handler = "ListController"
+							middlewareNames["ListMiddleware"] = true
 							autoConfigure = true
 							break
 						} else {
@@ -381,7 +383,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 										json.Unmarshal(bytesContext, &alias)
 										if alias == "items" {
 											if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-												handler = "List"
+												handler = "ListController"
+												middlewareNames["ListMiddleware"] = true
 												autoConfigure = true
 												break
 											}

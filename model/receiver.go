@@ -74,7 +74,16 @@ func (r *Receiver) CreateBatch(ctx context.Context, command *Command, eventStore
 }
 
 //Update is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
-func (r *Receiver) Update(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+func (r *Receiver) UpdateHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+	if logger == nil {
+		return fmt.Errorf("no logger set")
+	}
+	entityFactory := GetEntityFactory(ctx)
+	if entityFactory == nil {
+		err := errors.New("no entity factory found")
+		logger.Error(err)
+		return err
+	}
 
 	updatedEntity, err := r.domainService.Update(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
@@ -96,7 +105,7 @@ func Initialize(service Service) error {
 	//add command handlers to the application's command dispatcher
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), CreateHandler)
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), receiver.CreateBatch)
-	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), receiver.Update)
+	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), receiver.UpdateHandler)
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil)
 

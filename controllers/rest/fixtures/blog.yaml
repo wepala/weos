@@ -116,6 +116,7 @@ paths:
       x-middleware:
         - Recover
       x-command-dispatcher: HealthCheck
+      x-event-dispatcher: HealthCheck
       responses:
         200:
           description: Health Response
