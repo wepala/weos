@@ -186,14 +186,16 @@ func dropDB() error {
 		os.Remove("e2e.db")
 		db, errr = sql.Open("sqlite3", "e2e.db")
 	} else if *driver == "postgres" {
-		gormDB = gormDB.Exec(`DROP SCHEMA public CASCADE;
+		r := gormDB.Exec(`DROP SCHEMA public CASCADE;
 		CREATE SCHEMA public;`)
-		errr = gormDB.Error
+		errr = r.Error
 	} else if *driver == "mysql" {
-		gormDB = gormDB.Exec(`drop database mysql;`)
-		gormDB = gormDB.Exec(`create database mysql;`)
-		errr = gormDB.Error
-
+		_, r := db.Exec(`drop DATABASE IF EXISTS mysql;`)
+		if r != nil {
+			return r
+		}
+		_, r = db.Exec(`create DATABASE IF NOT EXISTS mysql;`)
+		errr = r
 	}
 	return errr
 }
@@ -527,6 +529,13 @@ func theSpecificationIsParsed(arg1 string) error {
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
 	err = API.Initialize(context.TODO())
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMProjection)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -695,8 +704,15 @@ func theServiceIsRunning() error {
 	if err != nil {
 		return err
 	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMProjection)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
 	e = API.EchoInstance()
-	return nil
+	return err
 }
 
 func isOnTheEditScreenWithId(user, contentType, id string) error {
