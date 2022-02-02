@@ -286,3 +286,48 @@ func TestContentEntity_GetOriginalFieldName(t *testing.T) {
 		t.Errorf("expected the original field name for '%s' to be '%s', got '%s'", "Title", "title", originalName)
 	}
 }
+
+func TestContentEntity_Delete(t *testing.T) {
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
+	mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com"}
+	payload, err := json.Marshal(mockBlog)
+	if err != nil {
+		t.Fatalf("error converting payload to bytes %s", err)
+	}
+
+	existingEntity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+
+	if existingEntity.GetString("Title") != "test 1" {
+		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("Title"))
+	}
+
+	deletedEntity, err := existingEntity.Delete(payload)
+	if err != nil {
+		t.Fatalf("unexpected error updating existing entity '%s'", err)
+	}
+
+	if deletedEntity.GetString("Title") != "test 1" {
+		t.Errorf("expected the updated title to be '%s', got '%s'", "test 1", deletedEntity.GetString("Title"))
+	}
+
+	if deletedEntity.GetString("Description") != "New Description" {
+		t.Errorf("expected the updated description to be '%s', got '%s'", "New Description", deletedEntity.GetString("Description"))
+	}
+}

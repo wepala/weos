@@ -1331,3 +1331,264 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		}
 	})
 }
+
+func TestStandardControllers_DeleteEtag(t *testing.T) {
+	weosId := "123"
+	mockBlog := &Blog{
+		Title:       "Test Blog",
+		Description: "testing description",
+	}
+
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	dispatcher := &DispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+
+			if command == nil {
+				t.Fatal("no command sent")
+			}
+
+			if command.Type != "delete" {
+				t.Errorf("expected the command to be '%s', got '%s'", "delete", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			blog := &Blog{}
+			json.Unmarshal(command.Payload, &blog)
+
+			if ctx.Value(weoscontext.WEOS_ID).(string) != weosId {
+				t.Errorf("expected the blog weos id to be '%s', got '%s'", weosId, ctx.Value(weoscontext.WEOS_ID).(string))
+			}
+
+			//check that content type information is in the context
+			contentType := weoscontext.GetContentType(ctx)
+			if contentType == nil {
+				t.Fatal("expected a content type to be in the context")
+			}
+
+			if contentType.Name != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
+			}
+
+			if _, ok := contentType.Schema.Properties["title"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			}
+
+			if _, ok := contentType.Schema.Properties["description"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "description", "blog")
+			}
+
+			id := ctx.Value("id").(string)
+			if id != weosId {
+				t.Errorf("unexpected error, expected id to be %s got %s", weosId, id)
+			}
+
+			etag := ctx.Value("If-Match").(string)
+			if etag != "123.1" {
+				t.Errorf("unexpected error, expected etag to be %s got %s", "123.1", etag)
+			}
+
+			return nil
+		},
+	}
+	mockEntity := &model.ContentEntity{}
+	mockEntity.ID = weosId
+	mockEntity.SequenceNo = int64(1)
+	mockEntity.Property = mockBlog
+
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockEntity, nil
+		},
+	}
+
+	eventMock := &EventRepositoryMock{
+		GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+			return 2, nil
+		},
+	}
+
+	application := &ApplicationMock{
+		DispatcherFunc: func() model.Dispatcher {
+			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
+		},
+		EventRepositoryFunc: func() model.EventRepository {
+			return eventMock
+		},
+	}
+
+	//initialization will instantiate with application so we need to overwrite with our mock application
+	restAPI.Application = application
+
+	t.Run("basic delete based on simple content type with id parameter in path and etag", func(t *testing.T) {
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		controller := restAPI.Delete(restAPI.Application, swagger, path, path.Delete)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/"+weosId, nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("If-Match", weosId+".1")
+		mw := rest.Context(restAPI.Application, swagger, path, path.Delete)
+		e.DELETE("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_DeleteID(t *testing.T) {
+	mockBlog := &Blog{
+		Title:       "Test Blog",
+		Description: "testing description",
+	}
+
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+
+	dispatcher := &DispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command) error {
+
+			if command == nil {
+				t.Fatal("no command sent")
+			}
+
+			if command.Type != "delete" {
+				t.Errorf("expected the command to be '%s', got '%s'", "delete", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			//check that content type information is in the context
+			contentType := weoscontext.GetContentType(ctx)
+			if contentType == nil {
+				t.Fatal("expected a content type to be in the context")
+			}
+
+			if contentType.Name != "Blog" {
+				t.Errorf("expected the content type to be'%s', got %s", "Blog", contentType.Name)
+			}
+
+			if _, ok := contentType.Schema.Properties["title"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "title", "blog")
+			}
+
+			if _, ok := contentType.Schema.Properties["description"]; !ok {
+				t.Errorf("expected a property '%s' on content type '%s'", "description", "blog")
+			}
+
+			id := ctx.Value("id").(string)
+			if id != "12" {
+				t.Errorf("unexpected error, expected id to be %s got %s", "12", id)
+			}
+
+			return nil
+		},
+	}
+	mockEntity := &model.ContentEntity{}
+	mockEntity.Property = mockBlog
+
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetContentEntityFunc: func(ctx context.Context, weosID string) (*model.ContentEntity, error) {
+			return mockEntity, nil
+		},
+	}
+
+	application := &ApplicationMock{
+		DispatcherFunc: func() model.Dispatcher {
+			return dispatcher
+		},
+		ProjectionsFunc: func() []model.Projection {
+			return []model.Projection{projection}
+		},
+	}
+
+	//initialization will instantiate with application so we need to overwrite with our mock application
+	restAPI.Application = application
+
+	t.Run("basic delete based on simple content type with id parameter in path", func(t *testing.T) {
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		controller := restAPI.Delete(restAPI.Application, swagger, path, path.Delete)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI.Application, swagger, path, path.Delete)
+		e.DELETE("/blogs/:"+paramName, controller, mw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+}

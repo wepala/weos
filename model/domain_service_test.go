@@ -571,3 +571,88 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		}
 	})
 }
+
+func TestDomainService_Delete(t *testing.T) {
+
+	//load open api spec
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	newContext := context.Background()
+	newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+
+	newContext = context.WithValue(newContext, "id", uint(12))
+
+	entityType := "Blog"
+
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "id": uint(12), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	reqBytes, err := json.Marshal(existingPayload)
+	if err != nil {
+		t.Fatalf("error converting payload to bytes %s", err)
+	}
+
+	mockEventRepository := &EventRepositoryMock{
+		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+			return nil
+		},
+	}
+
+	dService := model.NewDomainService(newContext, mockEventRepository, nil)
+	existingBlog, _ := dService.Create(newContext, reqBytes, entityType)
+
+	projectionMock := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context3.Context, weosID string) (*model.ContentEntity, error) {
+			return existingBlog, nil
+		},
+		GetByKeyFunc: func(ctxt context3.Context, contentType context2.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return existingPayload, nil
+		},
+	}
+
+	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock)
+
+	t.Run("Testing delete with id in path", func(t *testing.T) {
+
+		deletedEntity, err := dService1.Delete(newContext, "", entityType)
+
+		if err != nil {
+			t.Fatalf("unexpected error deleting content type '%s'", err)
+		}
+
+		if deletedEntity == nil {
+			t.Fatalf("unexpected error deleting content type '%s'", err)
+		}
+	})
+	t.Run("Testing delete with entity ID", func(t *testing.T) {
+		deletedEntity, err := dService1.Delete(newContext, "dsafdsdfdsf", entityType)
+
+		if err != nil {
+			t.Fatalf("unexpected error deleting content type '%s'", err)
+		}
+
+		if deletedEntity == nil {
+			t.Fatalf("unexpected error deleting content type '%s'", err)
+		}
+	})
+	t.Run("Testing delete with stale item", func(t *testing.T) {
+		newContext = context.WithValue(newContext, context2.SEQUENCE_NO, 3)
+
+		deletedEntity, err := dService1.Delete(newContext, "dsafdsdfdsf", entityType)
+
+		if err == nil {
+			t.Fatalf("expected error deleting content type '%s'", err)
+		}
+
+		if deletedEntity != nil {
+			t.Fatalf("expected error deleting content type '%s'", err)
+		}
+	})
+}

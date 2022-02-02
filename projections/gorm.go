@@ -189,7 +189,33 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error creating %s, got %s", contentType.Name, db.Error)
 				}
 			}
+		case "delete":
+			contentType := weosContext.GetContentType(ctx)
 
+			payload, ok := p.Schema[strings.Title(contentType.Name)]
+			if !ok {
+				p.logger.Errorf("found no content type %s", contentType.Name)
+			} else {
+				eventPayload := payload.Build().New()
+				mapPayload := map[string]interface{}{}
+				err := json.Unmarshal(event.Payload, &mapPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+				mapPayload["sequence_no"] = event.Meta.SequenceNo
+
+				bytes, _ := json.Marshal(mapPayload)
+				err = json.Unmarshal(bytes, &eventPayload)
+				if err != nil {
+					p.logger.Errorf("error unmarshalling event '%s'", err)
+				}
+
+				//Rebuild the exact entity to be deleted
+				db := p.db.Table(contentType.Name).Delete(eventPayload)
+				if db.Error != nil {
+					p.logger.Errorf("error deleting %s, got %s", contentType.Name, db.Error)
+				}
+			}
 		}
 	}
 }

@@ -193,6 +193,102 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	return updatedEntity, nil
 }
 
+//Delete is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
+func (s *DomainService) Delete(ctx context.Context, entityID string, entityType string) (*ContentEntity, error) {
+	var existingEntity *ContentEntity
+	var deletedEntity *ContentEntity
+	var err error
+	contentType := weosContext.GetContentType(ctx)
+
+	if entityID == "" {
+		entityID, _ = ctx.Value(weosContext.WEOS_ID).(string)
+	}
+
+	var primaryKeys []string
+	identifiers := map[string]interface{}{}
+
+	if contentType.Schema.Extensions["x-identifier"] != nil {
+		identifiersFromSchema := contentType.Schema.Extensions["x-identifier"].(json.RawMessage)
+		json.Unmarshal(identifiersFromSchema, &primaryKeys)
+	}
+
+	if len(primaryKeys) == 0 {
+		primaryKeys = append(primaryKeys, "id")
+	}
+
+	for _, pk := range primaryKeys {
+		ctxtIdentifier := ctx.Value(pk)
+
+		if entityID == "" {
+			if ctxtIdentifier == nil {
+				return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
+			}
+		}
+
+		identifiers[pk] = ctxtIdentifier
+
+	}
+
+	//If there is a weosID present use this
+	if entityID != "" {
+		seqNo := -1
+		if seq, ok := ctx.Value(weosContext.SEQUENCE_NO).(int); ok {
+			seqNo = seq
+		}
+
+		existingEntity, err = s.GetContentEntity(ctx, entityID)
+		if err != nil {
+			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, entityID, err)
+		}
+
+		if seqNo != -1 && existingEntity.SequenceNo != int64(seqNo) {
+			return nil, NewDomainError("error deleting entity. This is a stale item", entityType, entityID, nil)
+		}
+
+		existingEntityPayload, err := json.Marshal(existingEntity.Property)
+		if err != nil {
+			return nil, err
+		}
+
+		deletedEntity, err = existingEntity.Delete(existingEntityPayload)
+		if err != nil {
+			return nil, err
+		}
+
+		if deletedEntity == nil {
+			return nil, NewDomainError("error deleting entity.", entityType, entityID, nil)
+		}
+
+	} else if entityID == "" {
+
+		entityInterface, err := s.GetByKey(ctx, *contentType, identifiers)
+		if err != nil {
+			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
+		}
+
+		data, err := json.Marshal(entityInterface)
+		if err != nil {
+			return nil, err
+		}
+
+		err = json.Unmarshal(data, &existingEntity)
+		if err != nil {
+			return nil, err
+		}
+
+		deletedEntity, err = existingEntity.Delete(data)
+		if err != nil {
+			return nil, err
+		}
+
+		if deletedEntity == nil {
+			return nil, NewDomainError("error deleting entity.", entityType, entityID, nil)
+		}
+
+	}
+	return deletedEntity, nil
+}
+
 func NewDomainService(ctx context.Context, eventRepository EventRepository, projections Projection) *DomainService {
 	return &DomainService{
 		eventRepository: eventRepository,
