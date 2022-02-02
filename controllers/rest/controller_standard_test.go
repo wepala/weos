@@ -1431,12 +1431,21 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 		},
 	}
 
+	eventMock := &EventRepositoryMock{
+		GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+			return 2, nil
+		},
+	}
+
 	application := &ApplicationMock{
 		DispatcherFunc: func() model.Dispatcher {
 			return dispatcher
 		},
 		ProjectionsFunc: func() []model.Projection {
 			return []model.Projection{projection}
+		},
+		EventRepositoryFunc: func() model.EventRepository {
+			return eventMock
 		},
 	}
 
