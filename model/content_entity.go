@@ -185,23 +185,8 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 	return nil
 }
 
-func (w *ContentEntity) Update(ctx context.Context, existingPayload json.RawMessage, updatedPayload json.RawMessage) (*ContentEntity, error) {
-	contentType := weosContext.GetContentType(ctx)
-
-	err := json.Unmarshal(existingPayload, &w.BasicEntity)
-	if err != nil {
-		return nil, err
-	}
-
-	c := &ContentEntity{}
-	c, err = c.FromSchemaWithValues(ctx, contentType.Schema, existingPayload)
-	if err != nil {
-		return nil, err
-	}
-	w.Property = c.Property
-	w.Schema = c.Schema
-
-	event := NewEntityEvent("update", w, w.ID, updatedPayload)
+func (w *ContentEntity) Update(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
+	event := NewEntityEvent("update", w, w.ID, payload)
 	w.NewChange(event)
 	return w, w.ApplyEvents([]*Event{event})
 }

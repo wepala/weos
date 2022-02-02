@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	ds "github.com/ompluscator/dynamic-struct"
@@ -65,7 +66,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	var updatedEntity *ContentEntity
 	existingEntity := &ContentEntity{}
 	var weosID string
-	contentType := weosContext.GetContentType(ctx)
+	entityFactory := GetEntityFactory(ctx)
+	if entityFactory == nil {
+		return nil, errors.New("entity factory must be set")
+	}
 
 	//Fetch the weosID from the payload
 	weosID, err := GetIDfromPayload(payload)
@@ -79,8 +83,8 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	var primaryKeys []string
 	identifiers := map[string]interface{}{}
 
-	if contentType.Schema.Extensions["x-identifier"] != nil {
-		identifiersFromSchema := contentType.Schema.Extensions["x-identifier"].(json.RawMessage)
+	if entityFactory.Schema().Extensions["x-identifier"] != nil {
+		identifiersFromSchema := entityFactory.Schema().Extensions["x-identifier"].(json.RawMessage)
 		json.Unmarshal(identifiersFromSchema, &primaryKeys)
 	}
 
@@ -120,7 +124,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			seqNo = seq
 		}
 
-		existingEntity, err := s.GetContentEntity(ctx, nil, weosID)
+		existingEntity, err := s.GetContentEntity(ctx, entityFactory, weosID)
 		if err != nil {
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, weosID, err)
 		}
@@ -153,7 +157,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			}
 		}
 
-		updatedEntity, err = existingEntity.Update(ctx, existingEntityPayload, newPayload)
+		updatedEntity, err = existingEntity.Update(ctx, newPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -166,7 +170,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	} else if weosID == "" {
 
 		//temporary fiv
-		entityFactory := GetEntityFactory(ctx)
+
 		entityInterface, err := s.GetByKey(ctx, entityFactory, identifiers)
 		if err != nil {
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
@@ -182,7 +186,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, err
 		}
 
-		updatedEntity, err = existingEntity.Update(ctx, data, newPayload)
+		updatedEntity, err = existingEntity.Update(ctx, newPayload)
 		if err != nil {
 			return nil, err
 		}

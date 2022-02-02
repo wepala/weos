@@ -3,6 +3,9 @@ package model_test
 import (
 	context3 "context"
 	"encoding/json"
+	"fmt"
+	"github.com/labstack/echo/v4"
+	api "github.com/wepala/weos/controllers/rest"
 	"testing"
 	"time"
 
@@ -158,19 +161,14 @@ func TestDomainService_Update(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error occured '%s'", err)
 	}
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	contentType = "Blog"
-	contentTypeSchema = swagger.Components.Schemas[contentType]
+
 	newContext := context.Background()
-	newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
-		Name:   contentType,
-		Schema: contentTypeSchema.Value,
-	})
-
-	newContext = context.WithValue(newContext, "id", uint(12))
-
 	entityType := "Blog"
+	builder := api.CreateSchema(newContext, echo.New(), swagger)
+	entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(entityType, swagger.Components.Schemas[entityType].Value, builder[entityType])
+
+	newContext = context.WithValue(newContext, context2.ENTITY_FACTORY, entityFactory)
+	newContext = context.WithValue(newContext, "id", uint(12))
 
 	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "id": uint(12), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
 	reqBytes, err := json.Marshal(existingPayload)
@@ -184,14 +182,34 @@ func TestDomainService_Update(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, nil)
-	existingBlog, _ := dService.Create(newContext, reqBytes, entityType)
+	existingBlog := &model.ContentEntity{}
+	existingBlog, err = existingBlog.FromSchemaAndBuilder(newContext, swagger.Components.Schemas[entityType].Value, builder[entityType])
+	if err != nil {
+		t.Errorf("unexpected error creating Blog: %s", err)
+	}
+	err = existingBlog.SetValueFromPayload(newContext, reqBytes)
+	if err != nil {
+		t.Errorf("unexpected error creating Blog: %s", err)
+	}
+	existingBlog.SequenceNo = int64(1)
 
 	projectionMock := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+			if entityFactory == nil {
+				return nil, fmt.Errorf("expected entity factory got nil")
+			}
+			if weosID == "" {
+				return nil, fmt.Errorf("expected weosid got nil")
+			}
 			return existingBlog, nil
 		},
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			if entityFactory == nil {
+				return nil, fmt.Errorf("expected entity factory got nil")
+			}
+			if len(identifiers) == 0 {
+				return nil, fmt.Errorf("expected identifiers got none")
+			}
 			return existingPayload, nil
 		},
 	}
