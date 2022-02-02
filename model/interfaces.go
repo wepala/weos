@@ -2,9 +2,21 @@ package model
 
 //go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
 import (
-	weosContext "github.com/wepala/weos/context"
+	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
 )
+
+type CommandDispatcher interface {
+	Dispatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error
+	AddSubscriber(command *Command, handler CommandHandler) map[string][]CommandHandler
+	GetSubscribers() map[string][]CommandHandler
+}
+
+type EventDispatcher interface {
+	AddSubscriber(handler EventHandler)
+	GetSubscribers() []EventHandler
+	Dispatch(ctx context.Context, event Event)
+}
 
 type WeOSEntity interface {
 	Entity
@@ -41,7 +53,7 @@ type UnitOfWorkRepository interface {
 
 type EventRepository interface {
 	UnitOfWorkRepository
-	Datastore
+	Migrate(ctx context.Context) error
 	Persist(ctxt context.Context, entity AggregateInterface) error
 	GetByAggregate(ID string) ([]*Event, error)
 	//GetByEntityAndAggregate returns events by entity id and type withing the context of the root aggregate
@@ -59,14 +71,14 @@ type EventRepository interface {
 }
 
 type Datastore interface {
-	Migrate(ctx context.Context) error
+	Migrate(ctx context.Context, builders map[string]ds.Builder) error
 }
 
 type Projection interface {
 	Datastore
 	GetEventHandler() EventHandler
-	GetContentEntity(ctx context.Context, weosID string) (*ContentEntity, error)
-	GetByKey(ctxt context.Context, contentType weosContext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error)
-	GetByEntityID(ctxt context.Context, contentType weosContext.ContentType, id string) (map[string]interface{}, error)
-	GetContentEntities(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
+	GetContentEntity(ctx context.Context, entityFactory EntityFactory, weosID string) (*ContentEntity, error)
+	GetByKey(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
+	GetByEntityID(ctxt context.Context, entityFactory EntityFactory, id string) (map[string]interface{}, error)
+	GetContentEntities(ctx context.Context, entityFactory EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
 }

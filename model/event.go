@@ -54,12 +54,17 @@ func NewAggregateEvent(eventType string, entity Entity, payload interface{}) *Ev
 
 //NewEntityEvent Creates an event for an entity within a root aggregate.
 //The rootID is passed in (as opposed to the root entity) to improve developer experience
-func NewEntityEvent(eventType string, entity Entity, rootID string, payload interface{}) *Event {
-	payloadBytes, _ := json.Marshal(payload)
+func NewEntityEvent(eventType string, entity Entity, rootID string, tpayload interface{}) *Event {
+	var ok bool
+	var payload json.RawMessage
+	if payload, ok = tpayload.([]byte); !ok {
+		payload, _ = json.Marshal(tpayload)
+	}
+
 	return &Event{
 		ID:      ksuid.New().String(),
 		Type:    eventType,
-		Payload: payloadBytes,
+		Payload: payload,
 		Version: 1,
 		Meta: EventMeta{
 			EntityID:   entity.GetID(),

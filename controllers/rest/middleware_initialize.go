@@ -121,14 +121,18 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 					if p.Value.Format == "date-time" {
 						defaultValue = time.Now()
 					} else {
-						defaultValue = ""
+						var strings *string
+						defaultValue = strings
 					}
 				case "number":
-					defaultValue = 0.0
+					var numbers *float32
+					defaultValue = numbers
 				case "integer":
-					defaultValue = 0
+					var integers *int
+					defaultValue = integers
 				case "boolean":
-					defaultValue = false
+					var boolean *bool
+					defaultValue = boolean
 				}
 				instance.AddField(name, defaultValue, tagString)
 
@@ -186,6 +190,11 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 					var s *bool
 					val = s
 				}
+				//default to string if nil
+				if val == nil {
+					var s *string
+					val = s
+				}
 				struc.AddField(strings.Title(name)+strings.Title(k), val, `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
 				if keystring != "" {
 					keystring += ","
@@ -212,7 +221,8 @@ func AddStandardController(e *echo.Echo, pathData *openapi3.PathItem, method str
 		//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 		for _, value := range pathData.Post.RequestBody.Value.Content {
 			if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-				operationConfig.Handler = "Create"
+
+				operationConfig.Handler = "CreateHandler"
 				autoConfigure = true
 			} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
 

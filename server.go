@@ -2,21 +2,21 @@ package main
 
 import (
 	"flag"
-	api "github.com/wepala/weos/controllers/rest"
+	weos "github.com/wepala/weos/controllers/rest"
 	"os"
 )
 
 var port = flag.String("port", "8681", "-port=8681")
-var schema = flag.String("schema", "./api.yaml", "schema for initialization")
+var schema = flag.String("spec", "./api.yaml", "schema for initialization")
 
 func main() {
 	flag.Parse()
 	apiFlag := *schema
 	var apiEnv string
-	apiEnv = os.Getenv("WEOS_SCHEMA")
+	apiEnv = os.Getenv("WEOS_SPEC")
 	if apiEnv != "" {
-		api.New(port, apiEnv)
+		weos.Start(*port, apiEnv)
 	} else if *schema != "" {
-		api.New(port, apiFlag)
+		weos.Start(*port, apiFlag)
 	}
 }

@@ -55,3 +55,11 @@ type ListApiResponse struct {
 	Page  int                      `json:"page"`
 	Items []map[string]interface{} `json:"items"`
 }
+
+//FilterProperties is the properties need to use filters
+type FilterProperties struct {
+	Field    string
+	Operator string
+	Value    string
+	Values   []string
+}

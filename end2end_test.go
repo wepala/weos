@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/wepala/weos/projections"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +23,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/utils"
@@ -54,6 +55,7 @@ var limit int
 var page int
 var contentType string
 var result api.ListApiResponse
+var scenarioContext context.Context
 
 type User struct {
 	Name      string
@@ -80,13 +82,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	result = api.ListApiResponse{}
-	e = echo.New()
-	e.Logger.SetOutput(&buf)
 	os.Remove("e2e.db")
-	_, err := api.Initialize(e, &API, "e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -123,9 +119,22 @@ x-weos-config:
 components:
   schemas:
 `
+
+	tapi, err := api.New("e2e.yaml")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
+	API = *tapi
+	e = API.EchoInstance()
+	e.Logger.SetOutput(&buf)
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	scenarioContext = context.Background()
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
@@ -203,7 +212,12 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
 	//use gorm connection to get table
-	gormDB := API.Application.DB()
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	gormDB := apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
@@ -360,9 +374,10 @@ func blogsInTheApi(details *godog.Table) error {
 		}
 
 		if seq > 1 {
-			reqBytes, _ := json.Marshal(req)
-			body := bytes.NewReader(reqBytes)
+
 			for i := 1; i < seq; i++ {
+				reqBytes, _ := json.Marshal(req)
+				body := bytes.NewReader(reqBytes)
 				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
 				request = request.WithContext(context.TODO())
 				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -420,7 +435,12 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -484,30 +504,30 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	e = echo.New()
 	os.Remove("e2e.db")
-	API = api.RESTAPI{}
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	API = *tapi
+	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
+	err = API.Initialize(scenarioContext)
 	if err != nil {
-		errs = err
+		return err
 	}
 	return nil
 }
 
 func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	schema, err := API.GetSchemas()
-	if err != nil {
-		return err
-	}
-
+	schema := API.Schemas
 	if _, ok := schema[arg1]; !ok {
 		return fmt.Errorf("no entity named '%s'", arg1)
 	}
 
 	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
-	reader := ds.NewReader(schema[arg1])
+	reader := ds.NewReader(schema[arg1].Build().New())
 
 	s := strings.TrimRight(entityString[1], "}")
 	s = strings.TrimSpace(s)
@@ -593,7 +613,7 @@ func theBinaryIsRunWithTheSpecification() error {
 		BindMounts:   map[string]string{binaryMount: binaryPath},
 		Entrypoint:   []string{binaryMount},
 		//Entrypoint: []string{"tail", "-f", "/dev/null"},
-		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
+		Env:        map[string]string{"WEOS_SPEC": openAPI},
 		WaitingFor: wait.ForLog("started"),
 	}
 	esContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -645,15 +665,16 @@ func theEndpointIsHit(method, contentType string) error {
 }
 
 func theServiceIsRunning() error {
-	e = echo.New()
 	os.Remove("e2e.db")
-	API = api.RESTAPI{}
 	buf = bytes.Buffer{}
-	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
+	tapi, err := api.New(openAPI)
+	tapi.EchoInstance().Logger.SetOutput(&buf)
+	API = *tapi
+	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
 	}
+	e = API.EchoInstance()
 	return nil
 }
 
@@ -720,7 +741,12 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -1039,6 +1065,8 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
+			//Tags: "WEOS-1176",
+			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {
