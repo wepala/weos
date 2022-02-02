@@ -1547,9 +1547,17 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 	mockEntity := &model.ContentEntity{}
 	mockEntity.Property = mockBlog
 
+	mockInterface := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "weos_id": "123456qwerty", "sequence_no": "1"}
+
+	eventMock := &EventRepositoryMock{
+		GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+			return 2, nil
+		},
+	}
+
 	projection := &ProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, contentType weoscontext.ContentType, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return nil, nil
+			return mockInterface, nil
 		},
 		GetByEntityIDFunc: func(ctxt context.Context, contentType weoscontext.ContentType, id string) (map[string]interface{}, error) {
 			return nil, nil
@@ -1565,6 +1573,9 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		},
 		ProjectionsFunc: func() []model.Projection {
 			return []model.Projection{projection}
+		},
+		EventRepositoryFunc: func() model.EventRepository {
+			return eventMock
 		},
 	}
 
