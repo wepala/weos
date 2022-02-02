@@ -32,6 +32,9 @@ const SEQUENCE_NO string = "sequence_no"
 
 //entity
 const ENTITY_ID = "_entity_id"
+const ENTITY_COLLECTION = "_entity_collection"
+const ENTITY = "_entity"
+const ERROR = "_error"
 
 //ContentType this makes it easier to access the content type information in the context
 type ContentType struct {
@@ -86,6 +89,14 @@ func GetEntityID(ctx context.Context) string {
 		return value
 	}
 	return ""
+}
+
+//Get error
+func GetError(ctx context.Context) error {
+	if value, ok := ctx.Value(ctx).(error); ok {
+		return value
+	}
+	return nil
 }
 
 //Deprecated: Context Use the Go context in the echo request instead

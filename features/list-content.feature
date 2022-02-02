@@ -240,7 +240,7 @@ Feature: List content
      """
     And the service is running
     And blogs in the api
-      | id    | entity id                   | sequence no | title        | description    |
+      | id    | weos_id                     | sequence_no | title        | description    |
       | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
       | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
       | 164   | 24KjFbp82wGq4qb5LAxLdA5GbR2 | 1           | Blog 6       | Some Blog 6    |

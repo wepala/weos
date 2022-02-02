@@ -303,7 +303,7 @@ func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
 	found := false
 	method := "GET"
 	path := "/blogs/:id"
-	middleware := "View"
+	middleware := "ViewController"
 	routes := e.Routes()
 	for _, route := range routes {
 		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
