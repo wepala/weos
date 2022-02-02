@@ -123,17 +123,6 @@ components:
   schemas:
 `
 	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
-	tapi, err := api.New("e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
-	API = *tapi
-	e = API.EchoInstance()
-	e.Logger.SetOutput(&buf)
-	err = tapi.Initialize(context.TODO())
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
@@ -189,7 +178,7 @@ components:
 	return ctx, nil
 }
 
-func dropDB(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+func dropDB() error {
 
 	var errr error
 	if *driver == "sqlite3" {
@@ -205,7 +194,7 @@ func dropDB(ctx context.Context, sc *godog.Scenario, err error) (context.Context
 		errr = gormDB.Error
 
 	}
-	return ctx, errr
+	return errr
 }
 
 func aContentTypeModeledInTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
@@ -229,18 +218,16 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 }
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
-	//use gorm connection to get table
-	gDB := API.Application.DB()
 
-	if !gDB.Migrator().HasTable(arg1) {
+	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
-		if !gDB.Migrator().HasTable(arg1) {
+		if !gormDB.Migrator().HasTable(arg1) {
 			return fmt.Errorf("%s table does not exist", arg1)
 		}
 	}
 
 	head := details.Rows[0].Cells
-	columns, _ := gDB.Migrator().ColumnTypes(arg1)
+	columns, _ := gormDB.Migrator().ColumnTypes(arg1)
 	var column gorm.ColumnType
 
 	for i := 1; i < len(details.Rows); i++ {
@@ -284,7 +271,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			}
 		}
 		if len(keys) > 1 && !strings.EqualFold(keys[0], "id") {
-			resultDB := gDB.Table(arg1).Create(payload)
+			resultDB := gormDB.Table(arg1).Create(payload)
 			if resultDB.Error == nil {
 				return fmt.Errorf("expected a missing primary key error")
 			}
@@ -989,7 +976,9 @@ func theTotalResultsShouldBe(totalResult int) error {
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
-	ctx.After(dropDB)
+	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+		return ctx, dropDB()
+	})
 	//add context steps
 	ctx.Step(`^a content type "([^"]*)" modeled in the "([^"]*)" specification$`, aContentTypeModeledInTheSpecification)
 	ctx.Step(`^a developer "([^"]*)"$`, aDeveloper)
@@ -1050,7 +1039,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1130",
+			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1310",
 		},
 	}.Run()
