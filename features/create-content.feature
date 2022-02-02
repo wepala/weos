@@ -23,8 +23,12 @@ Feature: Create content
         report-caller: true
         formatter: json
       database:
-        driver: sqlite3
-        database: e2e.db
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
       event-source:
         - title: default
           driver: service
@@ -46,8 +50,6 @@ Feature: Create content
         Blog:
            type: object
            properties:
-             id:
-               type: string
              title:
                type: string
                description: blog title
@@ -55,8 +57,6 @@ Feature: Create content
                type: string
            required:
              - title
-           x-identifier:
-             - id
         Post:
           type: object
           properties:

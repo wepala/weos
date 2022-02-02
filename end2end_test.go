@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/wepala/weos/projections"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -40,6 +40,8 @@ var rec *httptest.ResponseRecorder
 var header http.Header
 var resp *http.Response
 var db *sql.DB
+var gormDB *gorm.DB
+var dbconfig dbConfig
 var requests map[string]map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
@@ -80,7 +82,6 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	result = api.ListApiResponse{}
-	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -96,8 +97,12 @@ x-weos-config:
     report-caller: true
     formatter: json
   database:
-    driver: sqlite3
-    database: e2e.db
+    database: "%s"
+    driver: "%s"
+    host: "%s"
+    password: "%s"
+    username: "%s"
+    port: %d
   event-source:
     - title: default
       driver: service
@@ -117,18 +122,7 @@ x-weos-config:
 components:
   schemas:
 `
-
-	tapi, err := api.New("e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
-	API = *tapi
-	e = API.EchoInstance()
-	e.Logger.SetOutput(&buf)
-	err = tapi.Initialize(context.TODO())
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
@@ -140,13 +134,6 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
-	os.Remove("e2e.db")
-	var err error
-	db, err = sql.Open("sqlite3", "e2e.db")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
-	db.Exec("PRAGMA foreign_keys = ON")
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
@@ -163,8 +150,12 @@ x-weos-config:
     report-caller: true
     formatter: json
   database:
-    driver: sqlite3
-    database: e2e.db
+    database: "%s"
+    driver: "%s"
+    host: "%s"
+    password: "%s"
+    username: "%s"
+    port: %d
   event-source:
     - title: default
       driver: service
@@ -185,6 +176,25 @@ components:
   schemas:
 `
 	return ctx, nil
+}
+
+func dropDB() error {
+
+	var errr error
+	if *driver == "sqlite3" {
+		os.Remove("e2e.db")
+		db, errr = sql.Open("sqlite3", "e2e.db")
+	} else if *driver == "postgres" {
+		gormDB = gormDB.Exec(`DROP SCHEMA public CASCADE;
+		CREATE SCHEMA public;`)
+		errr = gormDB.Error
+	} else if *driver == "mysql" {
+		gormDB = gormDB.Exec(`drop database mysql;`)
+		gormDB = gormDB.Exec(`create database mysql;`)
+		errr = gormDB.Error
+
+	}
+	return errr
 }
 
 func aContentTypeModeledInTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
@@ -208,8 +218,6 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 }
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
-	//use gorm connection to get table
-	gormDB := API.Application.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
@@ -238,7 +246,11 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			case "Type":
 
 				if cell.Value == "varchar(512)" {
-					cell.Value = "text"
+					if *driver == "sqlite3" {
+						cell.Value = "text"
+					} else {
+						cell.Value = "varchar"
+					}
 					payload[column.Name()] = "hugs"
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
@@ -426,12 +438,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		apiProjection, err := API.GetProjection("Default")
-		if err != nil {
-			return fmt.Errorf("unexpected error getting projection: %s", err)
-		}
-		apiProjection1 := apiProjection.(*projections.GORMProjection)
-		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		result = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -493,16 +500,17 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	os.Remove("e2e.db")
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	if err != nil {
 		return err
 	}
+	tapi.DB = db
 	API = *tapi
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	err = API.Initialize(nil)
+	err = API.Initialize(context.TODO())
 	if err != nil {
 		return err
 	}
@@ -658,12 +666,16 @@ func theEndpointIsHit(method, contentType string) error {
 }
 
 func theServiceIsRunning() error {
-	os.Remove("e2e.db")
 	buf = bytes.Buffer{}
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
-	err = API.Initialize(nil)
+	err = API.Initialize(context.TODO())
 	if err != nil {
 		return err
 	}
@@ -964,6 +976,9 @@ func theTotalResultsShouldBe(totalResult int) error {
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
+	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+		return ctx, dropDB()
+	})
 	//add context steps
 	ctx.Step(`^a content type "([^"]*)" modeled in the "([^"]*)" specification$`, aContentTypeModeledInTheSpecification)
 	ctx.Step(`^a developer "([^"]*)"$`, aDeveloper)
@@ -1024,8 +1039,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~skipped && ~long",
-			Tags: "WEOS-1130",
+			Tags:   "~long && ~skipped",
+			//Tags: "WEOS-1310",
 		},
 	}.Run()
 	if status != 0 {
