@@ -57,6 +57,7 @@ var limit int
 var page int
 var contentType string
 var result api.ListApiResponse
+var scenarioContext context.Context
 
 type User struct {
 	Name      string
@@ -127,6 +128,7 @@ components:
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	scenarioContext = context.Background()
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
@@ -221,6 +223,13 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 }
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
+	//use gorm connection to get table
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	gormDB := apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
@@ -258,9 +267,16 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 
 				if cell.Value == "integer" {
 					if *driver == "postgres" {
-						cell.Value = "text"
-					} else {
-						cell.Value = "varchar"
+						cell.Value = "int8"
+					}
+					if *driver == "mysql" {
+						cell.Value = "bigint"
+					}
+				}
+
+				if cell.Value == "datetime" {
+					if *driver == "postgres" {
+						cell.Value = "timestamptz"
 					}
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
@@ -268,6 +284,11 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 						//string values for postgres can be both text and varchar
 						if !strings.EqualFold(column.DatabaseTypeName(), "text") {
 							return fmt.Errorf("expected to get type '%s' got '%s'", "text", column.DatabaseTypeName())
+						}
+					} else if cell.Value == "varchar" && *driver == "mysql" {
+						//string values for postgres can be both text and varchar
+						if !strings.EqualFold(column.DatabaseTypeName(), "longtext") {
+							return fmt.Errorf("expected to get type '%s' got '%s'", "longtext", column.DatabaseTypeName())
 						}
 					} else {
 						return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
@@ -528,7 +549,10 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	err = API.Initialize(context.TODO())
+	err = API.Initialize(scenarioContext)
+	if err != nil {
+		return err
+	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
 		p := proj.(*projections.GORMProjection)
@@ -543,17 +567,13 @@ func theSpecificationIsParsed(arg1 string) error {
 }
 
 func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	schema, err := API.GetSchemas()
-	if err != nil {
-		return err
-	}
-
+	schema := API.Schemas
 	if _, ok := schema[arg1]; !ok {
 		return fmt.Errorf("no entity named '%s'", arg1)
 	}
 
 	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
-	reader := ds.NewReader(schema[arg1])
+	reader := ds.NewReader(schema[arg1].Build().New())
 
 	s := strings.TrimRight(entityString[1], "}")
 	s = strings.TrimSpace(s)
@@ -700,7 +720,7 @@ func theServiceIsRunning() error {
 	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
-	err = API.Initialize(context.TODO())
+	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
 	}
@@ -1077,7 +1097,8 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1133",
+			//Tags: "WEOS-1176",
+			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {
