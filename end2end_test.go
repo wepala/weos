@@ -366,9 +366,10 @@ func blogsInTheApi(details *godog.Table) error {
 		}
 
 		if seq > 1 {
-			reqBytes, _ := json.Marshal(req)
-			body := bytes.NewReader(reqBytes)
+
 			for i := 1; i < seq; i++ {
+				reqBytes, _ := json.Marshal(req)
+				body := bytes.NewReader(reqBytes)
 				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
 				request = request.WithContext(context.TODO())
 				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -1029,8 +1030,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1133",
+			//Tags:   "~skipped && ~long",
+			Tags: "WEOS-1133",
 		},
 	}.Run()
 	if status != 0 {

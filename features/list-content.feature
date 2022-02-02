@@ -246,7 +246,7 @@ Feature: List content
       | 890   | 24KjMP9uTPxW5Xuhziv1balYskX | 1           | Blog 7       | Some Blog 7    |
       | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
 
-
+  @WEOS-1133
   Scenario: Get list of items
 
     By default the list of items returned would be paged (for performance reasons). It will be sorted on the id by default
