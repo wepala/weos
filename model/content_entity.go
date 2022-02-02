@@ -129,6 +129,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 		}
 	}
 	w.Property = instance.Build().New()
+	w.reader = ds.NewReader(w.Property)
 	return w, nil
 
 }
@@ -323,6 +324,18 @@ func (w *ContentEntity) ApplyEvents(changes []*Event) error {
 		}
 	}
 	return nil
+}
+
+//ToMap return entity has a map
+func (w *ContentEntity) ToMap() map[string]interface{} {
+	result := make(map[string]interface{})
+	//get all fields and return the map
+	fields := w.reader.GetAllFields()
+	for _, field := range fields {
+		//check if the lowercase version of the field is the same as the schema and use the scehma version instead
+		result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+	}
+	return result
 }
 
 //GetOriginalFieldName the original name of the field as defined in the schema (the field is Title cased when converted to struct)

@@ -224,6 +224,42 @@ func TestContentEntity_FromSchemaWithEvents(t *testing.T) {
 	}
 }
 
+func TestContentEntity_ToMap(t *testing.T) {
+	//load open api spec
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
+	entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+	if err != nil {
+		t.Fatalf("unexpected error instantiating content entity '%s'", err)
+	}
+
+	if entity.Property == nil {
+		t.Fatal("expected item to be returned")
+	}
+
+	result := entity.ToMap()
+	if err != nil {
+		t.Fatalf("unexpected error getting map '%s'", err)
+	}
+
+	if _, ok := result["title"]; !ok {
+		t.Errorf("expected '%s' to be in map", "title")
+	}
+}
+
 func TestContentEntity_GetOriginalFieldName(t *testing.T) {
 	//load open api spec
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
