@@ -299,7 +299,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			}
 			p.RegisterProjection("Default", defaultProjection)
 			//get the database schema
-			schemas = CreateSchema(context.Background(), p.EchoInstance(), p.Swagger)
+			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
+			p.Schemas = schemas
 			err = defaultProjection.Migrate(ctxt, schemas)
 			if err != nil {
 				p.EchoInstance().Logger.Error(err)

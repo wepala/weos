@@ -54,6 +54,7 @@ var limit int
 var page int
 var contentType string
 var result api.ListApiResponse
+var scenarioContext context.Context
 
 type User struct {
 	Name      string
@@ -132,6 +133,7 @@ components:
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	scenarioContext = context.Background()
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
@@ -209,7 +211,12 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
 	//use gorm connection to get table
-	gormDB := API.Application.DB()
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	gormDB := apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
@@ -502,7 +509,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	err = API.Initialize(nil)
+	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
 	}
@@ -510,17 +517,13 @@ func theSpecificationIsParsed(arg1 string) error {
 }
 
 func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	schema, err := API.GetSchemas()
-	if err != nil {
-		return err
-	}
-
+	schema := API.Schemas
 	if _, ok := schema[arg1]; !ok {
 		return fmt.Errorf("no entity named '%s'", arg1)
 	}
 
 	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
-	reader := ds.NewReader(schema[arg1])
+	reader := ds.NewReader(schema[arg1].Build().New())
 
 	s := strings.TrimRight(entityString[1], "}")
 	s = strings.TrimSpace(s)
@@ -663,7 +666,7 @@ func theServiceIsRunning() error {
 	tapi, err := api.New(openAPI)
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
-	err = API.Initialize(nil)
+	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
 	}
@@ -1030,7 +1033,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1133",
+			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {
