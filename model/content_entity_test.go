@@ -3,7 +3,9 @@ package model_test
 import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
 	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"testing"
@@ -108,15 +110,11 @@ func TestContentEntity_Update(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error occured '%s'", err)
 	}
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	contentType = "Blog"
-	contentTypeSchema = swagger.Components.Schemas[contentType]
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-		Name:   contentType,
-		Schema: contentTypeSchema.Value,
-	})
+	contentType := "Blog"
+	schema := swagger.Components.Schemas[contentType].Value
+	builder := rest.CreateSchema(ctx, echo.New(), swagger)
+
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
 
 	mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com"}
@@ -124,15 +122,11 @@ func TestContentEntity_Update(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
-
-	existingEntity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
+	existingEntity := &model.ContentEntity{}
+	existingEntity, err = existingEntity.FromSchemaAndBuilder(ctx, schema, builder[contentType])
+	err = existingEntity.SetValueFromPayload(ctx, payload)
 	if err != nil {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
-	}
-
-	existingEntityPayload, err := json.Marshal(existingEntity)
-	if err != nil {
-		t.Fatalf("unexpected error marshalling content entity '%s'", err)
 	}
 
 	if existingEntity.GetString("Title") != "test 1" {
@@ -145,7 +139,7 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
 
-	updatedEntity, err := existingEntity.Update(ctx, existingEntityPayload, updatedPayload)
+	updatedEntity, err := existingEntity.Update(ctx, updatedPayload)
 	if err != nil {
 		t.Fatalf("unexpected error updating existing entity '%s'", err)
 	}
@@ -284,5 +278,38 @@ func TestContentEntity_GetOriginalFieldName(t *testing.T) {
 	originalName := entity.GetOriginalFieldName("Title")
 	if originalName != "title" {
 		t.Errorf("expected the original field name for '%s' to be '%s', got '%s'", "Title", "title", originalName)
+	}
+}
+
+func TestContentEntity_SetValueFromPayload(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	contentType := "Blog"
+	entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, api.Swagger.Components.Schemas[contentType].Value, schemas[contentType])
+	if err != nil {
+		t.Fatalf("error setting up entity factory")
+	}
+	entity, err := entityFactory.NewEntity(context.TODO())
+	if err != nil {
+		t.Fatalf("error generating entity '%s'", err)
+	}
+
+	payloadData := &struct {
+		Title string `json:"title"`
+	}{
+		Title: "Test Blog",
+	}
+	payload, err := json.Marshal(payloadData)
+	if err != nil {
+		t.Fatalf("error marshalling Payload '%s'", err)
+	}
+	err = entity.SetValueFromPayload(context.TODO(), payload)
+	if err != nil {
+		t.Fatalf("error setting Payload '%s'", err)
+	}
+
+	if entity.GetString("title") != payloadData.Title {
+		t.Errorf("expected the title on the entity to be '%s', got '%s'", payloadData.Title, entity.GetString("title"))
 	}
 }

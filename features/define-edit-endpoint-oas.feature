@@ -217,7 +217,9 @@ Feature: Edit content endpoints
                 type: string
               required: true
               description: blog id
-          x-controller: Update
+          x-controller: UpdateController
+          x-middleware:
+            - UpdateMiddleware
           requestBody:
             description: Blog info that is submitted
             required: true

@@ -360,7 +360,7 @@ Feature: Create Content Types
       }
     """
 
-@skipped
+  @skipped
   Scenario: Setup validation rules for content
 
     Developers can also use Regex to define content validation for a field

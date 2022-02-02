@@ -151,7 +151,7 @@ Feature: Create content
     """
       And the service is running
       And blogs in the api
-        | id    | entity id                   | sequence no | title        | description    |
+        | id    | weos_id                     | sequence_no | title        | description    |
         | 1     | 24Kj3zfpocMlmFNV2KwkFfP2bgf | 1           | Blog 1       | Some Blog      |
         | 2     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 2       | Some Blog 2    |
 
@@ -161,12 +161,13 @@ Feature: Create content
       This is creating a basic item
       
       Given "Sojourner" is on the "Blog" create screen
+      And "Sojourner" enters "3" in the "id" field
       And "Sojourner" enters "Some Blog" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
       When the "Blog" is submitted
       Then the "Blog" is created
-        | title          | description                       |
-        | Some Blog      | Some Description                  |
+        | id    | title          | description                       |
+        | 3     | Some Blog      | Some Description                  |
       And the "Blog" should have an id
       And the "ETag" header should be "<Generated ID>.1"
 
@@ -196,7 +197,7 @@ Feature: Create content
       Given "Sojourner" is on the "Post" create screen
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
-      And "Sojourner" enters "1" in the "blog" field
+      And "Sojourner" enters "1" in the "blog_id" field
       When the "Post" form is submitted with content type "application/x-www-form-urlencoded"
       Then the "Post" is created
         | title          | description                       |
@@ -224,7 +225,7 @@ Feature: Create content
       Given "Sojourner" is on the "Post" create screen
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
-      And "Sojourner" enters "1" in the "blog" field
+      And "Sojourner" enters "1" in the "blog_id" field
       When the "Post" is submitted without content type
       Then an error should be returned
 
