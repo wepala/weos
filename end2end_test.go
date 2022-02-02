@@ -251,10 +251,24 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 					} else {
 						cell.Value = "varchar"
 					}
-					payload[column.Name()] = "hugs"
+				}
+
+				if cell.Value == "integer" {
+					if *driver == "postgres" {
+						cell.Value = "text"
+					} else {
+						cell.Value = "varchar"
+					}
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
-					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+					if cell.Value == "varchar" && *driver == "postgres" {
+						//string values for postgres can be both text and varchar
+						if !strings.EqualFold(column.DatabaseTypeName(), "text") {
+							return fmt.Errorf("expected to get type '%s' got '%s'", "text", column.DatabaseTypeName())
+						}
+					} else {
+						return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+					}
 				}
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":

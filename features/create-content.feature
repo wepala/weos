@@ -50,6 +50,8 @@ Feature: Create content
         Blog:
            type: object
            properties:
+             id:
+               type: string
              title:
                type: string
                description: blog title
@@ -57,6 +59,8 @@ Feature: Create content
                type: string
            required:
              - title
+           x-identifier:
+             - id
         Post:
           type: object
           properties:
