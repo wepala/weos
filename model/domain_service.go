@@ -76,7 +76,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	}
 
 	//Fetch the weosID from the payload
-	weosID, err := GetIDfromPayload(payload)
+	weosID, err = GetIDfromPayload(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -172,13 +172,20 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 
 		//If there is no weosID, use the id passed from the param
 	} else if weosID == "" {
-
+		seqNo := -1
+		if seq, ok := ctx.Value(weosContext.SEQUENCE_NO).(int); ok {
+			seqNo = seq
+		}
 		//temporary fiv
 
 		entityInterface, err := s.GetByKey(ctx, entityFactory, identifiers)
 		if err != nil {
 			s.logger.Errorf("error updating entity", err)
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
+		}
+
+		if seqNo != -1 && entityInterface["sequence_no"].(int64) != int64(seqNo) {
+			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
 
 		data, err := json.Marshal(entityInterface)
