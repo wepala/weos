@@ -438,8 +438,11 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		newContext := ctxt.Request().Context()
 
 		var err error
+		var weosID string
+		var ok bool
+
 		if err = weoscontext.GetError(newContext); err != nil {
-			return NewControllerError("Error occured", err, http.StatusBadRequest)
+			return NewControllerError("Error occurred", err, http.StatusBadRequest)
 		}
 		if entityFactory == nil {
 			err = errors.New("entity factory must be set")
@@ -451,14 +454,16 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		if entity == nil {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
 		}
-		weos_id := entity["weos_id"].(string)
+		if weosID, ok = entity["weos_id"].(string); !ok {
+			return NewControllerError("No entity found", err, http.StatusNotFound)
+		}
 		sequenceString := fmt.Sprint(entity["sequence_no"])
 		sequenceNo, _ := strconv.Atoi(sequenceString)
 
 		etag := NewEtag(&model.ContentEntity{
 			AggregateRoot: model.AggregateRoot{
 				SequenceNo:  int64(sequenceNo),
-				BasicEntity: model.BasicEntity{ID: weos_id},
+				BasicEntity: model.BasicEntity{ID: weosID},
 			},
 		})
 
