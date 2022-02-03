@@ -23,3 +23,6 @@ const IdentifierExtension = "x-identifier"
 
 //AliasExtension alias parameter name to a different name in the controller
 const AliasExtension = "x-alias"
+
+//SchemaExtension alias for specifying the content type instead of the request body
+const SchemaExtension = "x-schema"

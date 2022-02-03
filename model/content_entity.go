@@ -2,18 +2,22 @@ package model
 
 import (
 	"encoding/json"
+	"strings"
+	"time"
+
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/stoewer/go-strcase"
 	weosContext "github.com/wepala/weos/context"
+	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
-	"strings"
 )
 
 type ContentEntity struct {
 	AggregateRoot
 	Schema   *openapi3.Schema
 	Property interface{}
+	reader   ds.Reader
+	builder  ds.Builder
 }
 
 //IsValid checks if the property is valid using the IsNull function
@@ -55,11 +59,26 @@ func (w *ContentEntity) IsNull(name string) bool {
 	return false
 }
 
+//FromSchemaAndBuilder the entity factor uses this to initialize the content entity
+func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.Schema, builder ds.Builder) (*ContentEntity, error) {
+	w.Schema = ref
+	w.builder = builder
+	w.Property = w.builder.Build().New()
+	w.reader = ds.NewReader(w.Property)
+	return w, nil
+}
+
+//Deprecated: this duplicates the work of making the dynamic struct builder. Use FromSchemaAndBuilder instead (this is used by the EntityFactory)
 //FromSchema builds properties from the schema
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
 	w.User.ID = weosContext.GetUser(ctx)
 	w.Schema = ref
+	identifiers := w.Schema.Extensions["x-identifier"]
 	instance := ds.NewStruct()
+	if identifiers == nil {
+		name := "ID"
+		instance.AddField(name, uint(0), `json:"id"`)
+	}
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
 		name = strings.Title(name)
@@ -72,13 +91,17 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 				if t2 != "object" {
 					if t2 == "string" {
 						//format types to be added
-						instance.AddField(name, []*string{}, strcase.SnakeCase(name))
+						if p.Value.Items.Value.Format == "date-time" {
+							instance.AddField(name, time.Now(), `json:"`+utils.SnakeCase(name)+`"`)
+						} else {
+							instance.AddField(name, []*string{}, `json:"`+utils.SnakeCase(name)+`"`)
+						}
 					} else if t2 == "number" {
-						instance.AddField(name, []*float64{}, strcase.SnakeCase(name))
+						instance.AddField(name, []*float64{}, `json:"`+utils.SnakeCase(name)+`"`)
 					} else if t == "integer" {
-						instance.AddField(name, []*int{}, strcase.SnakeCase(name))
+						instance.AddField(name, []*int{}, `json:"`+utils.SnakeCase(name)+`"`)
 					} else if t == "boolean" {
-						instance.AddField(name, []*bool{}, strcase.SnakeCase(name))
+						instance.AddField(name, []*bool{}, `json:"`+utils.SnakeCase(name)+`"`)
 					}
 				} else {
 					if p.Value.Items.Ref == "" {
@@ -96,26 +119,33 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 			} else {
 				if t == "string" {
 					//format types to be added
-					var strings *string
-					instance.AddField(name, strings, strcase.SnakeCase(name))
+					if p.Value.Format == "date-time" {
+						var t *time.Time
+						instance.AddField(name, t, `json:"`+utils.SnakeCase(name)+`"`)
+					} else {
+						var strings *string
+						instance.AddField(name, strings, `json:"`+utils.SnakeCase(name)+`"`)
+					}
 				} else if t == "number" {
 					var numbers *float32
-					instance.AddField(name, numbers, strcase.SnakeCase(name))
+					instance.AddField(name, numbers, `json:"`+utils.SnakeCase(name)+`"`)
 				} else if t == "integer" {
 					var integers *int
-					instance.AddField(name, integers, strcase.SnakeCase(name))
+					instance.AddField(name, integers, `json:"`+utils.SnakeCase(name)+`"`)
 				} else if t == "boolean" {
 					var boolean *bool
-					instance.AddField(name, boolean, strcase.SnakeCase(name))
+					instance.AddField(name, boolean, `json:"`+utils.SnakeCase(name)+`"`)
 				}
 			}
 		}
 	}
 	w.Property = instance.Build().New()
+	w.reader = ds.NewReader(w.Property)
 	return w, nil
 
 }
 
+//Deprecated: 02/01/2022 Use FromSchemaAndBulider then call SetValues
 //FromSchemaWithValues builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
 	w.FromSchema(ctx, schema)
@@ -125,26 +155,56 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
 	}
 
-	w.ID = weosID
+	if w.ID == "" {
+		w.ID = weosID
+	}
+	payload, err = ParseToType(payload, schema)
+	if err != nil {
+		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
 	event := NewEntityEvent("create", w, w.ID, payload)
 	w.NewChange(event)
-	return w, w.ApplyChanges([]*Event{event})
+	return w, w.ApplyEvents([]*Event{event})
+}
+
+func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.RawMessage) error {
+	weosID, err := GetIDfromPayload(payload)
+	if err != nil {
+		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
+
+	if w.ID == "" {
+		w.ID = weosID
+	}
+
+	err = json.Unmarshal(payload, w.Property)
+	if err != nil {
+		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
+
+	return nil
+}
+
+func (w *ContentEntity) Update(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
+	event := NewEntityEvent("update", w, w.ID, payload)
+	w.NewChange(event)
+	return w, w.ApplyEvents([]*Event{event})
 }
 
 //GetString returns the string property value stored of a given the property name
 func (w *ContentEntity) GetString(name string) string {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return ""
 	}
-	reader := ds.NewReader(w.Property)
-	isValid := reader.HasField(name)
+	isValid := w.reader.HasField(name)
 	if !isValid {
 		return ""
 	}
-	if reader.GetField(name).PointerString() == nil {
+	if w.reader.GetField(name).PointerString() == nil {
 		return ""
 	}
-	return *reader.GetField(name).PointerString()
+	return *w.reader.GetField(name).PointerString()
 }
 
 //GetInteger returns the integer property value stored of a given the property name
@@ -161,6 +221,22 @@ func (w *ContentEntity) GetInteger(name string) int {
 		return 0
 	}
 	return *reader.GetField(name).PointerInt()
+}
+
+//GetUint returns the unsigned integer property value stored of a given the property name
+func (w *ContentEntity) GetUint(name string) uint {
+	if w.Property == nil {
+		return uint(0)
+	}
+	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return uint(0)
+	}
+	if reader.GetField(name).Uint() == uint(0) {
+		return uint(0)
+	}
+	return reader.GetField(name).Uint()
 }
 
 //GetBool returns the boolean property value stored of a given the property name
@@ -195,23 +271,99 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 	return *reader.GetField(name).PointerFloat64()
 }
 
-//ApplyChanges apply the new changes from payload to the entity
-func (w *ContentEntity) ApplyChanges(changes []*Event) error {
+//GetTime returns the time.Time property value stored of a given the property name
+func (w *ContentEntity) GetTime(name string) time.Time {
+	if w.Property == nil {
+		return time.Time{}
+	}
+	reader := ds.NewReader(w.Property)
+	isValid := reader.HasField(name)
+	if !isValid {
+		return time.Time{}
+	}
+	if reader.GetField(name).PointerTime() == nil {
+		return time.Time{}
+	}
+	return *reader.GetField(name).PointerTime()
+}
+
+//FromSchemaWithEvents create content entity using schema and events
+func (w *ContentEntity) FromSchemaWithEvents(ctx context.Context, ref *openapi3.Schema, changes []*Event) (*ContentEntity, error) {
+	entity, err := w.FromSchema(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	err = entity.ApplyEvents(changes)
+	if err != nil {
+		return nil, err
+	}
+	return entity, err
+}
+
+//ApplyEvents apply the new changes from payload to the entity
+func (w *ContentEntity) ApplyEvents(changes []*Event) error {
 	for _, change := range changes {
 		w.SequenceNo = change.Meta.SequenceNo
-		switch change.Type {
-		case "create":
-			err := json.Unmarshal(change.Payload, &w.BasicEntity)
-			if err != nil {
-				return err
-			}
-			err = json.Unmarshal(change.Payload, &w.Property)
-			if err != nil {
-				return err
-			}
-			w.User.BasicEntity.ID = change.Meta.User
+		w.ID = change.Meta.EntityID
+		w.User.BasicEntity.ID = change.Meta.User
+		w.User.BasicEntity.ID = change.Meta.User
 
+		if change.Payload != nil {
+			switch change.Type {
+			case "create":
+				err := json.Unmarshal(change.Payload, &w.BasicEntity)
+				if err != nil {
+					return err
+				}
+				err = json.Unmarshal(change.Payload, &w.Property)
+				if err != nil {
+					return err
+				}
+
+			case "update":
+				err := json.Unmarshal(change.Payload, &w)
+				if err != nil {
+					return NewDomainError("invalid: error unmarshalling changed payload", change.Meta.EntityType, w.ID, err)
+				}
+			}
 		}
+
 	}
 	return nil
+}
+
+//ToMap return entity has a map
+func (w *ContentEntity) ToMap() map[string]interface{} {
+	result := make(map[string]interface{})
+	//get all fields and return the map
+	if w.reader != nil {
+		fields := w.reader.GetAllFields()
+		for _, field := range fields {
+			//check if the lowercase version of the field is the same as the schema and use the scehma version instead
+			if originialFieldName := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
+				result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+			}
+		}
+	}
+
+	return result
+}
+
+//GetOriginalFieldName the original name of the field as defined in the schema (the field is Title cased when converted to struct)
+func (w *ContentEntity) GetOriginalFieldName(structName string) string {
+	if w.Schema != nil {
+		for key, _ := range w.Schema.Properties {
+			if strings.ToLower(key) == strings.ToLower(structName) {
+				return key
+			}
+		}
+	}
+
+	return ""
+}
+
+func (w *ContentEntity) UnmarshalJSON(data []byte) error {
+	err := json.Unmarshal(data, &w.AggregateRoot)
+	err = json.Unmarshal(data, &w.Property)
+	return err
 }

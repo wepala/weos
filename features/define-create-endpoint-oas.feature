@@ -112,17 +112,17 @@ Feature: Create content endpoints
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Blog"
               application/x-www-form-urlencoded:
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Blog"
               application/xml:
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Blog"
           responses:
             201:
               description: Added Blogs to Aggregator
@@ -136,17 +136,17 @@ Feature: Create content endpoints
                   schema:
                     type: array
                     items:
-                      type: "#/components/schemas/Blog"
+                      ref: "#/components/schemas/Blog"
                 application/x-www-form-urlencoded:
                   schema:
                     type: array
                     items:
-                      type: "#/components/schemas/Blog"
+                      ref: "#/components/schemas/Blog"
                 application/xml:
                   schema:
                     type: array
                     items:
-                      type: "#/components/schemas/Blog"
+                      ref: "#/components/schemas/Blog"
               400:
                 description: Invalid blog submitted
     """
@@ -231,119 +231,119 @@ Feature: Create content endpoints
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
 
-  @WEOS-1289 @skipped
+  @WEOS-1289
   Scenario: Create a create endpoint that accepts form data
 
     A developer should be able to declare and end point that will only accept form data
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blog:
-      post:
-        operationId: Add Blog
-        requestBody:
-          description: Blog info that is submitted
-          required: true
-          content:
-            application/x-www-form-urlencoded:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        responses:
-          201:
-            description: Add Blog to Aggregator
-            headers:
-              ETag:
-                schema:
-                  type: string
-                description: specific version of item
+      /blog:
+        post:
+          operationId: Add Blog
+          requestBody:
+            description: Blog info that is submitted
+            required: true
             content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
               application/x-www-form-urlencoded:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/xml:
                 schema:
                   $ref: "#/components/schemas/Blog"
           responses:
             201:
               description: Add Blog to Aggregator
+              headers:
+                ETag:
+                  schema:
+                    type: string
+                  description: specific version of item
               content:
                 application/json:
                   schema:
                     $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
+                application/x-www-form-urlencoded:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+                application/xml:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            responses:
+              201:
+                description: Add Blog to Aggregator
+                content:
+                  application/json:
+                    schema:
+                      $ref: "#/components/schemas/Blog"
+              400:
+                description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "POST" route "/blog" should be added to the api
     And a "Create" middleware should be added to the route
 
-  @WEOS-1289 @skipped
+  @WEOS-1289
   Scenario: Multiple requests are defined but the schemas are all different
 
     If the schemas are different for the different content-types then a warning should be shown
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blog:
-      post:
-        operationId: Add Blogs
-        requestBody:
-          description: List of blogs to add
-          required: true
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: "#/components/schemas/Blog"
-            application/x-www-form-urlencoded:
-              schema:
-                type: array
-                items:
-                  type: "#/components/schemas/Post"
-            application/xml:
-              schema:
-                type: array
-                items:
-                  type: "#/components/schemas/Blog"
-        responses:
-          201:
-            description: Added Blogs to Aggregator
-            headers:
-              ETag:
-                schema:
-                  type: string
-                description: specific version of item
+      /blog:
+        post:
+          operationId: Add Blogs
+          requestBody:
+            description: List of blogs to add
+            required: true
             content:
               application/json:
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Blog"
               application/x-www-form-urlencoded:
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Post"
               application/xml:
                 schema:
                   type: array
                   items:
-                    type: "#/components/schemas/Blog"
+                    $ref: "#/components/schemas/Blog"
           responses:
             201:
               description: Added Blogs to Aggregator
+              headers:
+                ETag:
+                  schema:
+                    type: string
+                  description: specific version of item
               content:
                 application/json:
                   schema:
                     type: array
                     items:
+                      $ref: "#/components/schemas/Blog"
+                application/x-www-form-urlencoded:
+                  schema:
+                    type: array
+                    items:
                       type: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
+                application/xml:
+                  schema:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Blog"
+            responses:
+              201:
+                description: Added Blogs to Aggregator
+                content:
+                  application/json:
+                    schema:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Blog"
+              400:
+                description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs

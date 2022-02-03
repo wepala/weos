@@ -7,32 +7,37 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/wepala/weos/projections"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/utils"
 	"gorm.io/gorm"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
 )
 
 var e *echo.Echo
 var API api.RESTAPI
 var openAPI string
 var Developer *User
-var Content *ContentType
 var errs error
 var buf bytes.Buffer
 var payload ContentType
 var rec *httptest.ResponseRecorder
+var header http.Header
 var resp *http.Response
 var db *sql.DB
 var requests map[string]map[string]interface{}
@@ -45,6 +50,11 @@ var binary string
 var dockerFile string
 var binaryMount string
 var esContainer testcontainers.Container
+var limit int
+var page int
+var contentType string
+var result api.ListApiResponse
+var scenarioContext context.Context
 
 type User struct {
 	Name      string
@@ -68,14 +78,10 @@ type ContentType struct {
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
+	contentTypeID = map[string]bool{}
 	Developer = &User{}
-	e = echo.New()
-	e.Logger.SetOutput(&buf)
+	result = api.ListApiResponse{}
 	os.Remove("e2e.db")
-	_, err := api.Initialize(e, &API, "e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -112,12 +118,28 @@ x-weos-config:
 components:
   schemas:
 `
+
+	tapi, err := api.New("e2e.yaml")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
+	API = *tapi
+	e = API.EchoInstance()
+	e.Logger.SetOutput(&buf)
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	scenarioContext = context.Background()
 	requests = map[string]map[string]interface{}{}
+	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	result = api.ListApiResponse{}
 	errs = nil
+	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
 	os.Remove("e2e.db")
@@ -189,7 +211,12 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
 	//use gorm connection to get table
-	gormDB := API.Application.DB()
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	gormDB := apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
@@ -316,6 +343,54 @@ func anErrorShouldBeReturned() error {
 }
 
 func blogsInTheApi(details *godog.Table) error {
+
+	head := details.Rows[0].Cells
+
+	for i := 1; i < len(details.Rows); i++ {
+		req := make(map[string]interface{})
+		seq := 0
+		for n, cell := range details.Rows[i].Cells {
+			if (head[n].Value) != "sequence_no" {
+				req[head[n].Value] = cell.Value
+			} else {
+				seq, _ = strconv.Atoi(cell.Value)
+			}
+		}
+		reqBytes, _ := json.Marshal(req)
+		body := bytes.NewReader(reqBytes)
+		var request *http.Request
+
+		request = httptest.NewRequest("POST", "/blog", body)
+
+		request = request.WithContext(context.TODO())
+		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		if rec.Code != http.StatusCreated {
+			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+		}
+
+		if seq > 1 {
+
+			for i := 1; i < seq; i++ {
+				reqBytes, _ := json.Marshal(req)
+				body := bytes.NewReader(reqBytes)
+				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
+				request = request.WithContext(context.TODO())
+				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+				request.Header = header
+				request.Close = true
+				rec = httptest.NewRecorder()
+				e.ServeHTTP(rec, request)
+				if rec.Code != http.StatusOK {
+					return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
+				}
+			}
+		}
+
+	}
 	return nil
 }
 
@@ -356,8 +431,19 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	}
 
 	contentEntity := map[string]interface{}{}
-	idEtag, seqNoEtag := api.SplitEtag(rec.Result().Header.Get("Etag"))
-	result := API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", idEtag, "sequence_no = ?", seqNoEtag)
+	var result *gorm.DB
+	//ETag would help with this
+	for key, value := range compare {
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		if contentEntity != nil {
+			break
+		}
+	}
 
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
@@ -373,6 +459,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
+	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
 
@@ -385,9 +472,15 @@ func theIsSubmitted(contentType string) error {
 
 	reqBytes, _ := json.Marshal(req)
 	body := bytes.NewReader(reqBytes)
-	request := httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
+	var request *http.Request
+	if strings.Contains(currScreen, "create") {
+		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
+	} else if strings.Contains(currScreen, "update") {
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), body)
+	}
 	request = request.WithContext(context.TODO())
-	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
 	request.Close = true
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, request)
@@ -396,11 +489,9 @@ func theIsSubmitted(contentType string) error {
 
 func theShouldHaveAnId(contentType string) error {
 
-	idEtag, _ := api.SplitEtag(rec.Result().Header.Get("Etag"))
-	if idEtag == "" {
-		return fmt.Errorf("expected the "+contentType+" to have an ID, got %s", idEtag)
+	if !contentTypeID[strings.ToLower(contentType)] {
+		return fmt.Errorf("expected the " + contentType + " to have an ID")
 	}
-
 	return nil
 }
 
@@ -410,30 +501,30 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	e = echo.New()
 	os.Remove("e2e.db")
-	API = api.RESTAPI{}
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	API = *tapi
+	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
+	err = API.Initialize(scenarioContext)
 	if err != nil {
-		errs = err
+		return err
 	}
 	return nil
 }
 
 func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	schema, err := API.GetSchemas()
-	if err != nil {
-		return err
-	}
-
+	schema := API.Schemas
 	if _, ok := schema[arg1]; !ok {
 		return fmt.Errorf("no entity named '%s'", arg1)
 	}
 
 	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
-	reader := ds.NewReader(schema[arg1])
+	reader := ds.NewReader(schema[arg1].Build().New())
 
 	s := strings.TrimRight(entityString[1], "}")
 	s = strings.TrimSpace(s)
@@ -449,16 +540,16 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 		field := reader.GetField(strings.Title(fields[1]))
 		switch fields[0] {
 		case "string":
-			if field.Interface() != "" {
+			if field.Interface() != "" && field.Interface() != field.PointerString() {
 				return fmt.Errorf("expected a string, got '%v'", field.Interface())
 			}
 
 		case "integer":
-			if field.Interface() != 0 {
+			if field.Interface() != 0 && field.Interface() != field.PointerInt() {
 				return fmt.Errorf("expected an integer, got '%v'", field.Interface())
 			}
 		case "uint":
-			if field.Interface() != uint(0) {
+			if field.Interface() != uint(0) && field.Interface() != field.PointerUint() {
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
 			}
 		case "datetime":
@@ -474,6 +565,11 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 
 	}
 
+	return nil
+}
+
+func aHeaderWithValue(key, value string) error {
+	header.Add(key, value)
 	return nil
 }
 
@@ -514,7 +610,7 @@ func theBinaryIsRunWithTheSpecification() error {
 		BindMounts:   map[string]string{binaryMount: binaryPath},
 		Entrypoint:   []string{binaryMount},
 		//Entrypoint: []string{"tail", "-f", "/dev/null"},
-		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
+		Env:        map[string]string{"WEOS_SPEC": openAPI},
 		WaitingFor: wait.ForLog("started"),
 	}
 	esContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -543,43 +639,334 @@ func isRunOnTheOperatingSystemAs(arg1 string, arg2 string) error {
 }
 
 func theEndpointIsHit(method, contentType string) error {
-	reqBytes, _ := json.Marshal(reqBody)
-	body := bytes.NewReader(reqBytes)
-	request := httptest.NewRequest(method, dockerEndpoint+contentType, body)
-	request = request.WithContext(context.TODO())
-	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	request.Close = true
-	client := http.Client{}
-	resp, errs = client.Do(request)
-	defer esContainer.Terminate(context.Background())
+	if binary != "" {
+		reqBytes, _ := json.Marshal(reqBody)
+		body := bytes.NewReader(reqBytes)
+		request := httptest.NewRequest(method, dockerEndpoint+contentType, body)
+		request = request.WithContext(context.TODO())
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		request.Close = true
+		client := http.Client{}
+		resp, errs = client.Do(request)
+		defer esContainer.Terminate(context.Background())
+	} else {
+		request := httptest.NewRequest(method, contentType, nil)
+		request = request.WithContext(context.TODO())
+		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+	}
 	return nil
 }
 
 func theServiceIsRunning() error {
-	e = echo.New()
 	os.Remove("e2e.db")
-	API = api.RESTAPI{}
 	buf = bytes.Buffer{}
-	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
+	tapi, err := api.New(openAPI)
+	tapi.EchoInstance().Logger.SetOutput(&buf)
+	API = *tapi
+	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
+	}
+	e = API.EchoInstance()
+	return nil
+}
+
+func isOnTheEditScreenWithId(user, contentType, id string) error {
+	requests[strings.ToLower(contentType+"_update")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_update")
+	requests[currScreen]["id"] = id
+	return nil
+}
+
+func theHeaderShouldBe(key, value string) error {
+	if key == "ETag" {
+		Etag := rec.Result().Header.Get(key)
+		idEtag, seqNoEtag := api.SplitEtag(Etag)
+		if Etag == "" {
+			return fmt.Errorf("expected the Etag to be added to header, got %s", Etag)
+		}
+		if idEtag == "" {
+			return fmt.Errorf("expected the Etag to contain a weos id, got %s", idEtag)
+		}
+		if seqNoEtag == "" {
+			return fmt.Errorf("expected the Etag to contain a sequence no, got %s", seqNoEtag)
+		}
+
+		if seqNoEtag != strings.Split(value, ".")[1] {
+			return fmt.Errorf("expected the Etag to contain a sequence no %s, got %s", strings.Split(value, ".")[1], seqNoEtag)
+		}
+		return nil
+	}
+
+	headers := rec.Result().Header
+	val := []string{}
+
+	for k, v := range headers {
+		if strings.EqualFold(k, key) {
+			val = v
+			break
+		}
+	}
+
+	if len(val) > 0 {
+		if strings.EqualFold(val[0], value) {
+			return nil
+		}
+	}
+	return fmt.Errorf("expected the header %s value to be %s got %v", key, value, val)
+}
+
+func theIsUpdated(contentType string, details *godog.Table) error {
+	if rec.Result().StatusCode != http.StatusOK {
+		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusOK, rec.Result().StatusCode)
+	}
+
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	contentEntity := map[string]interface{}{}
+	var result *gorm.DB
+	//ETag would help with this
+	for key, value := range compare {
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		if contentEntity != nil {
+			break
+		}
+	}
+	if contentEntity == nil {
+		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, "id = ?", requests[currScreen])
+	}
+
+	if contentEntity == nil {
+		return fmt.Errorf("unexpected error finding content type in db")
+	}
+
+	if result.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+	}
+
+	for key, value := range compare {
+		if contentEntity[key] != value {
+			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+		}
+	}
+
+	contentTypeID[strings.ToLower(contentType)] = true
+	return nil
+}
+
+func aBlogShouldBeReturned(details *godog.Table) error {
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	contentEntity := map[string]interface{}{}
+	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
+
+	if err != nil {
+		return err
+	}
+
+	for key, value := range compare {
+		if contentEntity[key] != value {
+			return fmt.Errorf("expected %s %s %s, got %s", "Blog", key, value, contentEntity[key])
+		}
+	}
+
+	return nil
+}
+
+func sojournerIsUpdatingWithId(contentType, id string) error {
+	requests[strings.ToLower(contentType+"_update")] = map[string]interface{}{"id": id}
+	currScreen = strings.ToLower(contentType + "_update")
+	return nil
+}
+
+func aWarningShouldBeOutputToLogs() error {
+	if !strings.Contains(buf.String(), "unexpected error: cannot assign different schemas for different content types") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
 }
 
-func theHeaderShouldBe(header, value string) error {
-	//Table has no value to compare against so just checking for id existance
-	Etag := rec.Result().Header.Get(header)
-	idEtag, seqNoEtag := api.SplitEtag(Etag)
-	if Etag == "" {
-		return fmt.Errorf("expected the Etag to be added to header, got %s", Etag)
+func theFormIsSubmittedWithContentType(contentEntity, contentType string) error {
+	//Used to store the key/value pairs passed in the scenario
+
+	switch contentType {
+	case "application/x-www-form-urlencoded":
+
+		data := url.Values{}
+
+		req := make(map[string]interface{})
+		for key, value := range requests[currScreen] {
+			data.Set(key, value.(string))
+		}
+
+		body := strings.NewReader(data.Encode())
+
+		var request *http.Request
+		if strings.Contains(currScreen, "create") {
+			request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+		} else if strings.Contains(currScreen, "update") {
+			request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+		}
+		request = request.WithContext(context.TODO())
+		header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		return nil
+	case "multipart/form-data":
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+
+		req := make(map[string]interface{})
+		for key, value := range requests[currScreen] {
+			writer.WriteField(key, value.(string))
+		}
+
+		writer.Close()
+
+		var request *http.Request
+		if strings.Contains(currScreen, "create") {
+			request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+		} else if strings.Contains(currScreen, "update") {
+			request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+		}
+		request = request.WithContext(context.TODO())
+		header.Set("Content-Type", writer.FormDataContentType())
+		request.Header = header
+		request.Close = true
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, request)
+		return nil
 	}
-	if idEtag == "" {
-		return fmt.Errorf("expected the Etag to contain a weos id, got %s", idEtag)
+	return fmt.Errorf("This content type is not supported: %s", contentType)
+}
+
+func theIsSubmittedWithoutContentType(contentEntity string) error {
+	req := make(map[string]interface{})
+	for key, value := range requests[currScreen] {
+		req[key] = value
 	}
-	if seqNoEtag == "" {
-		return fmt.Errorf("expected the Etag to contain a sequence no, got %s", seqNoEtag)
+
+	reqBytes, _ := json.Marshal(req)
+	body := bytes.NewReader(reqBytes)
+	var request *http.Request
+	if strings.Contains(currScreen, "create") {
+		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentEntity), body)
+	} else if strings.Contains(currScreen, "update") {
+		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentEntity)+"s/"+fmt.Sprint(req["id"]), body)
+	}
+	request = request.WithContext(context.TODO())
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theHeaderShouldBePresent(arg1 string) error {
+	header := rec.Result().Header.Get(arg1)
+	if header == "" {
+		return fmt.Errorf("no header found with the name: %s", arg1)
+	}
+	return nil
+}
+
+func isOnTheListScreen(user, content string) error {
+	contentType = content
+	requests[strings.ToLower(contentType+"_list")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_list")
+	return nil
+}
+
+func theItemsPerPageAre(pageLimit int) error {
+	limit = pageLimit
+	return nil
+}
+
+func theListResultsShouldBe(details *godog.Table) error {
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+	compareArray := []map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+		compareArray = append(compareArray, compare)
+		compare = map[string]interface{}{}
+	}
+	foundItems := 0
+
+	json.NewDecoder(rec.Body).Decode(&result)
+	for i, entity := range compareArray {
+		foundEntity := true
+		for key, value := range entity {
+			if strings.Compare(result.Items[i][key].(string), value.(string)) != 0 {
+				foundEntity = false
+				break
+			}
+		}
+		if foundEntity {
+			foundItems++
+		}
+	}
+	if foundItems != len(compareArray) {
+		return fmt.Errorf("expected to find %d, got %d", len(compareArray), foundItems)
+	}
+
+	return nil
+}
+
+func thePageInTheResultShouldBe(pageResult int) error {
+	if result.Page != pageResult {
+		return fmt.Errorf("expect page to be %d, got %d", pageResult, result.Page)
+	}
+	return nil
+}
+
+func thePageNoIs(pageNo int) error {
+	page = pageNo
+	return nil
+}
+
+func theSearchButtonIsHit() error {
+	var request *http.Request
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page), nil)
+	request = request.WithContext(context.TODO())
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theTotalResultsShouldBe(totalResult int) error {
+	if result.Total != int64(totalResult) {
+		return fmt.Errorf("expect page to be %d, got %d", totalResult, result.Total)
 	}
 	return nil
 }
@@ -607,9 +994,16 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "([^"]*)" should have an id$`, theShouldHaveAnId)
 	ctx.Step(`^the specification is$`, theSpecificationIs)
 	ctx.Step(`^the "([^"]*)" specification is parsed$`, theSpecificationIsParsed)
-	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
-	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
 	ctx.Step(`^the "([^"]*)" header should be "([^"]*)"$`, theHeaderShouldBe)
+	ctx.Step(`^a "([^"]*)" entity configuration should be setup$`, aEntityConfigurationShouldBeSetup)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" edit screen with id "([^"]*)"$`, isOnTheEditScreenWithId)
+	ctx.Step(`^the "([^"]*)" is updated$`, theIsUpdated)
+	ctx.Step(`^a header "([^"]*)" with value "([^"]*)"$`, aHeaderWithValue)
+	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
+	ctx.Step(`^the "([^"]*)" endpoint "([^"]*)" is hit$`, theEndpointIsHit)
+	ctx.Step(`^a blog should be returned$`, aBlogShouldBeReturned)
+	ctx.Step(`^Sojourner is updating "([^"]*)" with id "([^"]*)"$`, sojournerIsUpdatingWithId)
+	ctx.Step(`^a warning should be output to logs letting the developer know that a parameter for each part of the idenfier must be set$`, aWarningShouldBeOutputToLogsLettingTheDeveloperKnowThatAParameterForEachPartOfTheIdenfierMustBeSet)
 	ctx.Step(`^a "([^"]*)" route should be added to the api$`, aRouteShouldBeAddedToTheApi1)
 	ctx.Step(`^a (\d+) response should be returned$`, aResponseShouldBeReturned)
 	ctx.Step(`^request body$`, requestBody)
@@ -619,7 +1013,17 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the service is running$`, theServiceIsRunning)
 	ctx.Step(`^is run on the operating system "([^"]*)" as "([^"]*)"$`, isRunOnTheOperatingSystemAs)
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
-
+	ctx.Step(`^a warning should be output to logs$`, aWarningShouldBeOutputToLogs)
+	ctx.Step(`^the "([^"]*)" header should be present$`, theHeaderShouldBePresent)
+	ctx.Step(`^the "([^"]*)" form is submitted with content type "([^"]*)"$`, theFormIsSubmittedWithContentType)
+	ctx.Step(`^the "([^"]*)" is submitted without content type$`, theIsSubmittedWithoutContentType)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" list screen$`, isOnTheListScreen)
+	ctx.Step(`^the items per page are (\d+)$`, theItemsPerPageAre)
+	ctx.Step(`^the list results should be$`, theListResultsShouldBe)
+	ctx.Step(`^the page in the result should be (\d+)$`, thePageInTheResultShouldBe)
+	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
+	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
+	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
 }
 
 func TestBDD(t *testing.T) {
@@ -630,7 +1034,8 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "long",
+			//Tags: "WEOS-1176",
+			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

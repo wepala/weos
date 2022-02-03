@@ -6,28 +6,25 @@ has_children: true
 ---
 # Getting Started
 
-1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos/examples))
-2. Download the WeOS binary for your platform
-3. Run the API
+There are a couple of ways to get started with WeOS. 
+1. [Use the command line application](#using-the-weos-cli)
+2. Create your own binary
 
 ## Setup OpenAPI Specification
-[OpenAPI specifications](https://openapis.org) power WeOS services. For simple APIs that are basic create, read, update, delete functionality
-(CRUD), you can create a vanilla OpenAPI specification using schemas to model your data. We also provide extensions
+WeOS takes a design first approach with the [OpenAPI specifications](https://openapis.org) at it's core. For simple APIs that are basic create, read, update, delete functionality
+(CRUD). You can create a vanilla OpenAPI specification using [OpenAPI schemas](https://swagger.io/docs/specification/data-models/) to model your data. We also provide extensions
 for adding controllers and middleware to endpoints. See our [specification documentation](./specification.md) to get the complete list of
-functionality available. You can also use one of our examples as a starting point.
+functionality available. You can also use one of [our examples](../examples) as a starting point.
 
-## Download the WeOS binary
-The WeOS binary is essentially a server that uses the OpenAPI specification for configuration. We chose to build the
-server with Go because we wanted to make the server extensible, easy to deploy and maintain with no runtime required.
+## Using the WeOS CLI
+Using the CLI is by far the easiest starting point. Download and run the CLI by pointing it to your OpenAPI spec.
+By default, the API will run on port 8681 (you can configure this using the `--port` switch), and it will try to use a
+specification file named `api.yaml` (you can specify this using the `--spec` switch).
+
+The WeOS CLI is essentially a server that uses the OpenAPI specification for configuration. We chose to build the
+server with Go because we wanted to make the server extensible, easy to deploy and maintain with no serverside runtime required.
 You can download a binary for your environment on [our release page](https://github.com/wepala/weos/releases).
 
-## Run the API
-Now that you have a specification and the WeOS executable, you can run the API by using the `weos` command in the same
-folder where the specification and binary are. By default, the API will run on port 8681 (you can configure this using
-the `--port` switch), and it will try to use a specification file named `api.yaml` (you can specify this using the
-`--spec` switch). We set up the example APIs to use SQLite as the data store, but this too can be changed to use
-Postgresql, MySQL, or SQLServer.
-
-We're doing all we can to make it easy to get started with microservices.In addition to making it easy to run create and
-run APIs on your own machines; we also provide a catalog of APIs already running in the cloud so that developers can
-focus on making the user the interface for their application
+## Creating You Own Binary
+While the CLI helps you get started quickly with CRUD, if you want extend the functionality beyond the basics we got you
+covered. We've architected

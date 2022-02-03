@@ -3,6 +3,7 @@ package rest
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -194,7 +195,109 @@ func NewEtag(entity *model.ContentEntity) string {
 //SplitEtag: This takes an Etag and returns the weosID and sequence number
 func SplitEtag(Etag string) (string, string) {
 	result := strings.Split(Etag, ".")
-	weosID := result[0]
-	seqNo := result[1]
-	return weosID, seqNo
+	if len(result) == 2 {
+		return result[0], result[1]
+	}
+	return "", "-1"
+}
+
+func GetContentBySequenceNumber(eventRepository model.EventRepository, id string, sequence_no int64) (*model.ContentEntity, error) {
+	entity := &model.ContentEntity{}
+	events, err := eventRepository.GetByAggregateAndSequenceRange(id, 0, sequence_no)
+	if err != nil {
+		return nil, err
+	}
+	err = entity.ApplyEvents(events)
+	return entity, err
+}
+
+//ConvertFormToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
+func ConvertFormToJson(r *http.Request, contentType string) (json.RawMessage, error) {
+	var parsedPayload []byte
+
+	switch contentType {
+	case "application/x-www-form-urlencoded":
+		parsedForm := map[string]interface{}{}
+
+		err := r.ParseForm()
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range r.PostForm {
+			for _, value := range v {
+				parsedForm[k] = value
+			}
+		}
+
+		parsedPayload, err = json.Marshal(parsedForm)
+		if err != nil {
+			return nil, err
+		}
+	case "multipart/form-data":
+		parsedForm := map[string]interface{}{}
+
+		err := r.ParseMultipartForm(1024) //Revisit
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range r.MultipartForm.Value {
+			for _, value := range v {
+				parsedForm[k] = value
+			}
+		}
+
+		parsedPayload, err = json.Marshal(parsedForm)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return parsedPayload, nil
+}
+
+//SplitFilters splits multiple filters into array of filters
+func SplitFilters(filters string) []string {
+	if filters == "" {
+		return nil
+	}
+	result := strings.Split(filters, "&")
+	return result
+}
+
+//SplitFilter splits a filter with a single value into the field, operator, value
+func SplitFilter(filter string) *FilterProperties {
+	var property *FilterProperties
+	if filter == "" {
+		return nil
+	}
+	field := strings.Split(filter, "[")
+	if len(field) != 3 {
+		return nil
+	}
+	field[1] = strings.Replace(field[1], "]", "", -1)
+	operator := strings.Split(field[2], "=")
+	if len(operator) != 2 {
+		return nil
+	}
+	operator[0] = strings.Replace(operator[0], "]", "", -1)
+	//checks if the there are more than one values specified by checking if there is a comma
+	if strings.Contains(operator[1], ",") {
+		values := strings.Split(operator[1], ",")
+		property = &FilterProperties{
+			Field:    field[1],
+			Operator: operator[0],
+			Values:   values,
+		}
+
+	} else {
+		property = &FilterProperties{
+			Field:    field[1],
+			Operator: operator[0],
+			Value:    operator[1],
+		}
+	}
+
+	return property
 }

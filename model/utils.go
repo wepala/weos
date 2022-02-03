@@ -3,6 +3,10 @@ package model
 import (
 	"encoding/json"
 	"reflect"
+	"time"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/wepala/weos/utils"
 )
 
 func GetType(myvar interface{}) string {
@@ -46,4 +50,30 @@ func GetIDfromPayload(payload []byte) (string, error) {
 	weosID := tempPayload["weos_id"].(string)
 
 	return weosID, nil
+}
+
+//Deprecated: 02/01/2022 not sure this is needed. Marshal into Property directly
+//helper function used to parse string values to type
+func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawMessage, error) {
+
+	payload := map[string]interface{}{}
+	err := json.Unmarshal(bytes, &payload)
+	if err != nil {
+		return bytes, err
+	}
+	for name, p := range contentType.Properties {
+		if p.Value != nil && p.Value.Type == "string" {
+			if p.Value.Format == "date-time" {
+				if _, ok := payload[utils.SnakeCase(name)].(string); ok {
+					t, err := time.Parse("2006-01-02T15:04:00Z", payload[utils.SnakeCase(name)].(string))
+					payload[utils.SnakeCase(name)] = t
+					if err != nil {
+						return bytes, err
+					}
+				}
+			}
+		}
+	}
+	bytes, err = json.Marshal(payload)
+	return bytes, err
 }

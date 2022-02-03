@@ -2,13 +2,19 @@ package model
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+
+	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 
 type DomainService struct {
+	Projection
 	Repository
 	eventRepository EventRepository
+	logger          Log
 }
 
 //Create is used for a single payload. It creates a new entity via the FromSchemaWithValue func and then returns the entity
@@ -56,8 +62,162 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 
 }
 
-func NewDomainService(ctx context.Context, eventRepository EventRepository) *DomainService {
+//Update is used for a single payload. It gets an existing entity and updates it with the new payload
+func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
+	var updatedEntity *ContentEntity
+	var weosID string
+	entityFactory := GetEntityFactory(ctx)
+	if entityFactory == nil {
+		return nil, errors.New("entity factory must be set")
+	}
+	existingEntity, err := entityFactory.NewEntity(ctx)
+	if err != nil {
+		s.logger.Errorf("error creating new entity '%s'", err)
+	}
+
+	//Fetch the weosID from the payload
+	weosID, err = GetIDfromPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	if weosID == "" {
+		weosID, _ = ctx.Value(weosContext.WEOS_ID).(string)
+	}
+
+	var primaryKeys []string
+	identifiers := map[string]interface{}{}
+
+	if entityFactory.Schema().Extensions["x-identifier"] != nil {
+		identifiersFromSchema := entityFactory.Schema().Extensions["x-identifier"].(json.RawMessage)
+		json.Unmarshal(identifiersFromSchema, &primaryKeys)
+	}
+
+	var tempPayload map[string]interface{}
+	err = json.Unmarshal(payload, &tempPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(primaryKeys) == 0 {
+		primaryKeys = append(primaryKeys, "id")
+	}
+
+	for _, pk := range primaryKeys {
+		ctxtIdentifier := ctx.Value(pk)
+
+		if weosID == "" {
+			if ctxtIdentifier == nil {
+				return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
+			}
+		}
+
+		identifiers[pk] = ctxtIdentifier
+		tempPayload[pk] = identifiers[pk]
+
+	}
+
+	newPayload, err := json.Marshal(tempPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	//If there is a weosID present use this
+	if weosID != "" {
+		seqNo := -1
+		if seq, ok := ctx.Value(weosContext.SEQUENCE_NO).(int); ok {
+			seqNo = seq
+		}
+
+		existingEntity, err := s.GetContentEntity(ctx, entityFactory, weosID)
+		if err != nil {
+			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, weosID, err)
+		}
+
+		if seqNo != -1 && existingEntity.SequenceNo != int64(seqNo) {
+			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
+		}
+
+		reader := ds.NewReader(existingEntity.Property)
+		for _, f := range reader.GetAllFields() {
+			fmt.Print(f)
+			reader.GetValue()
+		}
+
+		existingEntityPayload, err := json.Marshal(existingEntity.Property)
+		if err != nil {
+			return nil, err
+		}
+
+		var tempExistingPayload map[string]interface{}
+
+		err = json.Unmarshal(existingEntityPayload, &tempExistingPayload)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, pk := range primaryKeys {
+			if fmt.Sprint(tempExistingPayload[pk]) != fmt.Sprint(tempPayload[pk]) {
+				return nil, NewDomainError("invalid: error updating entity. Primary keys cannot be updated.", entityType, weosID, nil)
+			}
+		}
+
+		updatedEntity, err = existingEntity.Update(ctx, newPayload)
+		if err != nil {
+			return nil, err
+		}
+
+		if ok := updatedEntity.IsValid(); !ok {
+			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
+		}
+
+		//If there is no weosID, use the id passed from the param
+	} else if weosID == "" {
+		seqNo := -1
+		if seq, ok := ctx.Value(weosContext.SEQUENCE_NO).(int); ok {
+			seqNo = seq
+		}
+		//temporary fiv
+
+		entityInterface, err := s.GetByKey(ctx, entityFactory, identifiers)
+		if err != nil {
+			s.logger.Errorf("error updating entity", err)
+			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
+		}
+
+		if seqNo != -1 && entityInterface["sequence_no"].(int64) != int64(seqNo) {
+			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
+		}
+
+		data, err := json.Marshal(entityInterface)
+		if err != nil {
+			s.logger.Errorf("error updating entity", err)
+			return nil, err
+		}
+
+		err = json.Unmarshal(data, &existingEntity)
+		if err != nil {
+			s.logger.Errorf("error updating entity", err)
+			return nil, err
+		}
+
+		updatedEntity, err = existingEntity.Update(ctx, newPayload)
+		if err != nil {
+			s.logger.Errorf("error updating entity", err)
+			return nil, err
+		}
+
+		if ok := updatedEntity.IsValid(); !ok {
+			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
+		}
+
+	}
+	return updatedEntity, nil
+}
+
+func NewDomainService(ctx context.Context, eventRepository EventRepository, projections Projection, logger Log) *DomainService {
 	return &DomainService{
 		eventRepository: eventRepository,
+		Projection:      projections,
+		logger:          logger,
 	}
 }

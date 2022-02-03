@@ -13,7 +13,7 @@ Build your app using microservices that combine an [OpenAPI Specification](https
 
 ## 🚀 Get Started
 1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos/examples))
-2. [Download the WeOS binary](https://github.com/wepala/weos/releases) for your platform
+2. [Download the WeOS CLI](https://github.com/wepala/weos/releases) for your platform
 3. Run the API `weos -schema=api.yaml -port=8680`
 
 ## 🎉 Features
@@ -39,7 +39,6 @@ For general help using WeOS, please refer to [the official WeOS documentation](h
 - [Developer docs](https://wepala.github.io/weos/)
 - [User guide](https://wepala.github.io/weos/getting-started/)
 - [Example Specifications](https://wepala.github.io/weos/examples/)
-- 
 
 ## License
 

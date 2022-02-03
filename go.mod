@@ -15,7 +15,6 @@ require (
 	github.com/proullon/ramsql v0.0.0-20181213202341-817cee58a244
 	github.com/segmentio/ksuid v1.0.3
 	github.com/sirupsen/logrus v1.8.1
-	github.com/stoewer/go-strcase v1.2.0
 	github.com/testcontainers/testcontainers-go v0.12.0
 	go.uber.org/zap v1.13.0
 	golang.org/x/net v0.0.0-20211108170745-6635138e15ea
