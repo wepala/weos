@@ -14,3 +14,12 @@ func SnakeCase(s string) string {
 	}
 	return strings.Join(split, "_")
 }
+
+func Contains(arr []string, s string) bool {
+	for _, a := range arr {
+		if s == a {
+			return true
+		}
+	}
+	return false
+}

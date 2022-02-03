@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/wepala/weos/projections"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +17,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/wepala/weos/projections"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -55,6 +56,7 @@ var page int
 var contentType string
 var result api.ListApiResponse
 var scenarioContext context.Context
+var blogfixtures []interface{}
 
 type User struct {
 	Name      string
@@ -81,6 +83,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	result = api.ListApiResponse{}
+	blogfixtures = []interface{}{}
 	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
 info:
@@ -142,6 +145,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
+	blogfixtures = []interface{}{}
 	os.Remove("e2e.db")
 	var err error
 	db, err = sql.Open("sqlite3", "e2e.db")
@@ -348,49 +352,14 @@ func blogsInTheApi(details *godog.Table) error {
 
 	for i := 1; i < len(details.Rows); i++ {
 		req := make(map[string]interface{})
-		seq := 0
 		for n, cell := range details.Rows[i].Cells {
-			if (head[n].Value) != "sequence_no" {
-				req[head[n].Value] = cell.Value
-			} else {
-				seq, _ = strconv.Atoi(cell.Value)
-			}
-		}
-		reqBytes, _ := json.Marshal(req)
-		body := bytes.NewReader(reqBytes)
-		var request *http.Request
-
-		request = httptest.NewRequest("POST", "/blog", body)
-
-		request = request.WithContext(context.TODO())
-		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		request.Header = header
-		request.Close = true
-		rec = httptest.NewRecorder()
-		e.ServeHTTP(rec, request)
-		if rec.Code != http.StatusCreated {
-			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			req[head[n].Value] = cell.Value
 		}
 
-		if seq > 1 {
-
-			for i := 1; i < seq; i++ {
-				reqBytes, _ := json.Marshal(req)
-				body := bytes.NewReader(reqBytes)
-				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
-				request = request.WithContext(context.TODO())
-				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-				request.Header = header
-				request.Close = true
-				rec = httptest.NewRecorder()
-				e.ServeHTTP(rec, request)
-				if rec.Code != http.StatusOK {
-					return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
-				}
-			}
-		}
+		blogfixtures = append(blogfixtures, req)
 
 	}
+
 	return nil
 }
 
@@ -672,6 +641,51 @@ func theServiceIsRunning() error {
 		return err
 	}
 	e = API.EchoInstance()
+
+	if len(blogfixtures) != 0 {
+		for _, r := range blogfixtures {
+			req := r.(map[string]interface{})
+			sequence := req["sequence_no"]
+			delete(req, "sequence_no")
+			reqBytes, _ := json.Marshal(req)
+			body := bytes.NewReader(reqBytes)
+			var request *http.Request
+			seq := 0
+			if _, ok := sequence.(string); ok {
+				seq, _ = strconv.Atoi(sequence.(string))
+			}
+			request = httptest.NewRequest("POST", "/blog", body)
+
+			request = request.WithContext(context.TODO())
+			header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			request.Header = header
+			request.Close = true
+			rec = httptest.NewRecorder()
+			e.ServeHTTP(rec, request)
+			if rec.Code != http.StatusCreated {
+				return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			}
+
+			if seq > 1 {
+
+				for i := 1; i < seq; i++ {
+					reqBytes, _ := json.Marshal(req)
+					body := bytes.NewReader(reqBytes)
+					request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
+					request = request.WithContext(context.TODO())
+					header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+					request.Header = header
+					request.Close = true
+					rec = httptest.NewRecorder()
+					e.ServeHTTP(rec, request)
+					if rec.Code != http.StatusOK {
+						return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
+					}
+				}
+			}
+
+		}
+	}
 	return nil
 }
 
@@ -1033,7 +1047,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
+			Tags:   "WEOS-1289",
 			//Tags: "WEOS-1176",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
