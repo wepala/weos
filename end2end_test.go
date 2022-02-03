@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/wepala/weos/projections"
 
@@ -42,6 +43,7 @@ var header http.Header
 var resp *http.Response
 var db *sql.DB
 var requests map[string]map[string]interface{}
+var responseBody map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
 var dockerEndpoint string
@@ -807,6 +809,7 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 		}
 	}
 
+	responseBody = contentEntity
 	return nil
 }
 
@@ -985,6 +988,163 @@ func theTotalResultsShouldBe(totalResult int) error {
 	return nil
 }
 
+func aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist() error {
+	if !strings.Contains(buf.String(), "property does not exist") {
+	}
+	return nil
+}
+
+func addsTheAttributeToTheFieldOnTheContentType(user, attribute, field, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	attributes := schemas[contentType].Value.Extensions[attribute]
+	deletedFields := []string{}
+	bytes, _ := json.Marshal(attributes)
+	json.Unmarshal(bytes, &deletedFields)
+	deletedFields = append(deletedFields, field)
+	schemas[contentType].Value.Extensions[attribute] = deletedFields
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err = swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func addsTheFieldToTheContentType(user, field, fieldType, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+	switch fieldType {
+	case "string":
+		schemas[contentType].Value.Properties[field] = &openapi3.SchemaRef{
+			Value: &openapi3.Schema{
+				Type: "string",
+			},
+		}
+	default:
+		fmt.Errorf("no logic for adding field type %s", fieldType)
+	}
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference() error {
+	if errs == nil {
+		fmt.Errorf("expected there to be an error on migrating")
+		return fmt.Errorf("expected error on migrating")
+	}
+	//TODO: add checks fo the speicific error
+	return nil
+}
+
+func removedTheFieldFromTheContentType(user, field, contentType string) error {
+
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	delete(schemas[contentType].Value.Properties, strings.ToLower(field))
+
+	pks, _ := json.Marshal(schemas[contentType].Value.Extensions["x-identifier"])
+	primayKeys := []string{}
+	json.Unmarshal(pks, &primayKeys)
+	for i, k := range primayKeys {
+		if strings.EqualFold(k, field) {
+			primayKeys[i] = primayKeys[len(primayKeys)-1]
+			primayKeys = primayKeys[:len(primayKeys)-1]
+		}
+	}
+
+	schemas[contentType].Value.Extensions["x-identifier"] = primayKeys
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func theFieldShouldBeRemovedFromTheTable(field, table string) error {
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	gormDB := apiProjection1.DB()
+	if !gormDB.Migrator().HasTable(table) {
+		return fmt.Errorf("expected there to be a table %s", table)
+	}
+	columns, err := gormDB.Migrator().ColumnTypes(table)
+	if err != nil {
+		return err
+	}
+
+	for _, c := range columns {
+		if strings.EqualFold(c.Name(), field) {
+			return fmt.Errorf("there should be no column %s", field)
+		}
+	}
+	return nil
+}
+
+func theServiceIsReset() error {
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	API = *tapi
+	e = API.EchoInstance()
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
+	errs = API.Initialize(scenarioContext)
+	return nil
+}
+
+func aBlogShouldBeReturnedWithoutField(field string) error {
+	if len(responseBody) == 0 {
+		err := json.NewDecoder(rec.Body).Decode(&responseBody)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, ok := responseBody[field]; ok {
+		return fmt.Errorf("expected to not find field %s", field)
+	}
+	return nil
+}
+
+func theServiceIsStopped() error {
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -1038,6 +1198,14 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
 	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
 	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
+	ctx.Step(`^a warning should be output to the logs telling the developer the property doesn\'t exist$`, aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist)
+	ctx.Step(`^"([^"]*)" adds the "([^"]*)" attribute to the "([^"]*)" field on the "([^"]*)" content type$`, addsTheAttributeToTheFieldOnTheContentType)
+	ctx.Step(`^"([^"]*)" adds the field "([^"]*)" type "([^"]*)" to the "([^"]*)" content type$`, addsTheFieldToTheContentType)
+	ctx.Step(`^an error should show letting the developer know that is part of a foreign key reference$`, anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference)
+	ctx.Step(`^"([^"]*)" removed the "([^"]*)" field from the "([^"]*)" content type$`, removedTheFieldFromTheContentType)
+	ctx.Step(`^the "([^"]*)" field should be removed from the "([^"]*)" table$`, theFieldShouldBeRemovedFromTheTable)
+	ctx.Step(`^a blog should be returned without field "([^"]*)"$`, aBlogShouldBeReturnedWithoutField)
+	ctx.Step(`^the service is reset$`, theServiceIsReset)
 }
 
 func TestBDD(t *testing.T) {
@@ -1047,7 +1215,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1289",
+			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1176",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
