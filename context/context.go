@@ -30,6 +30,9 @@ const FILTERS ContextKey = "_filters"
 const SORTS ContextKey = "_sorts"
 const SEQUENCE_NO string = "sequence_no"
 
+//Path initializers are run per path and can be used to configure routes that are not defined in the open api spec
+const METHODS_FOUND ContextKey = "_methods_found"
+
 //entity
 const ENTITY_ID = "_entity_id"
 const ENTITY_COLLECTION = "_entity_collection"
