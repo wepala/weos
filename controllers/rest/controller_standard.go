@@ -108,18 +108,8 @@ func CreateController(api *RESTAPI, projection projections.Projection, commandDi
 			if result == nil {
 				return NewControllerError("No entity found", err, http.StatusNotFound)
 			}
-			entity := map[string]interface{}{}
-			result.SequenceNo = 0
-			bytes, err := json.Marshal(result.Property)
-			if err != nil {
-				return err
-			}
-			err = json.Unmarshal(bytes, &entity)
-			if err != nil {
-				return err
-			}
 			ctxt.Response().Header().Set("Etag", Etag)
-			return ctxt.JSON(http.StatusCreated, entity)
+			return ctxt.JSON(http.StatusCreated, result.ToMap())
 		}
 		return ctxt.String(http.StatusCreated, "OK")
 	}
