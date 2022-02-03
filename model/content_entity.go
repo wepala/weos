@@ -348,7 +348,9 @@ func (w *ContentEntity) ToMap() map[string]interface{} {
 	fields := w.reader.GetAllFields()
 	for _, field := range fields {
 		//check if the lowercase version of the field is the same as the schema and use the scehma version instead
-		result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+		if originialFieldName := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
+			result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+		}
 	}
 	return result
 }

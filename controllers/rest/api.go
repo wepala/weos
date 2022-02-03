@@ -410,7 +410,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		}
 
 		//run post path initializers
-		pathContext = context.WithValue(pathContext, METHODS_FOUND, methodsFound)
+		pathContext = context.WithValue(pathContext, weoscontext.METHODS_FOUND, methodsFound)
 		for _, initializer := range p.GetPrePathInitializers() {
 			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
 		}
