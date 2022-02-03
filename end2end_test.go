@@ -992,9 +992,17 @@ func isOnTheDeleteScreenWithId(arg1, contentType, id string) error {
 func theShouldBeDeleted(contentEntity string, id int) error {
 	output := map[string]interface{}{}
 
-	API.Application.DB().Table(strings.Title(contentEntity)).Find(&output, "id = ?", id)
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	searchResult := apiProjection1.DB().Table(strings.Title(contentEntity)).Find(&output, "id = ?", id)
 	if len(output) != 0 {
 		return fmt.Errorf("the entity was not deleted")
+	}
+	if searchResult.Error != nil {
+		return fmt.Errorf("got error from db query: %s", err)
 	}
 	return nil
 }
@@ -1065,7 +1073,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1176",
+			//Tags: "WEOS-1131",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

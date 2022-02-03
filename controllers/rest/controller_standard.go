@@ -541,6 +541,13 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			var weosID string
 			var sequenceNo string
 
+			if entityFactory != nil {
+				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
+			} else {
+				err := errors.New("entity factory must be set")
+				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				return err
+			}
 			//getting etag from context
 			etagInterface := newContext.Value("If-Match")
 			if etagInterface != nil {
