@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	dynamicstruct "github.com/ompluscator/dynamic-struct"
 	_ "github.com/proullon/ramsql/driver"
 	"github.com/wepala/weos/controllers/rest"
@@ -223,7 +224,7 @@ func TestWeOSApp_AddProjection(t *testing.T) {
 
 			}
 		},
-		MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder) error {
+		MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, refs map[string]*openapi3.SchemaRef) error {
 			return nil
 		},
 	}
