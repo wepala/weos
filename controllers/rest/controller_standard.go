@@ -108,18 +108,8 @@ func CreateController(api *RESTAPI, projection projections.Projection, commandDi
 			if result == nil {
 				return NewControllerError("No entity found", err, http.StatusNotFound)
 			}
-			entity := map[string]interface{}{}
-			result.SequenceNo = 0
-			bytes, err := json.Marshal(result.Property)
-			if err != nil {
-				return err
-			}
-			err = json.Unmarshal(bytes, &entity)
-			if err != nil {
-				return err
-			}
 			ctxt.Response().Header().Set("Etag", Etag)
-			return ctxt.JSON(http.StatusCreated, entity)
+			return ctxt.JSON(http.StatusCreated, result.ToMap())
 		}
 		return ctxt.String(http.StatusCreated, "OK")
 	}
@@ -176,8 +166,34 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			}
 			var weosID string
 			var sequenceNo string
-			//reads the request body
-			payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+			var payload []byte
+			var err error
+
+			ct := ctxt.Request().Header.Get("Content-Type")
+
+			switch ct {
+			case "application/json":
+				payload, err = ioutil.ReadAll(ctxt.Request().Body)
+				if err != nil {
+					return err
+				}
+			case "application/x-www-form-urlencoded":
+				payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
+				if err != nil {
+					return err
+				}
+			default:
+				if strings.Contains(ct, "multipart/form-data") {
+					payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
+					if err != nil {
+						return err
+					}
+				} else if ct == "" {
+					return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
+				} else {
+					return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
+				}
+			}
 			//getting etag from context
 			etagInterface := newContext.Value("If-Match")
 			if etagInterface != nil {
@@ -194,7 +210,7 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				}
 			}
 
-			err := commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
+			err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
 			if err != nil {
 				api.e.Logger.Errorf("error persisting entity '%s'", err)
 				if errr, ok := err.(*model.DomainError); ok {
@@ -350,8 +366,9 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			useEntity, _ := newContext.Value("use_entity_id").(bool)
 			seqInt, ok = newContext.Value("sequence_no").(int)
 			if !ok {
-				seq = newContext.Value("sequence_no").(string)
-				ctxt.Logger().Debugf("invalid sequence no ")
+				if seq, ok = newContext.Value("sequence_no").(string); ok {
+					ctxt.Logger().Debugf("invalid sequence no")
+				}
 			}
 
 			//if use_entity_id is not set then let's get the item by key
@@ -438,8 +455,11 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		newContext := ctxt.Request().Context()
 
 		var err error
+		var weosID string
+		var ok bool
+
 		if err = weoscontext.GetError(newContext); err != nil {
-			return NewControllerError("Error occured", err, http.StatusBadRequest)
+			return NewControllerError("Error occurred", err, http.StatusBadRequest)
 		}
 		if entityFactory == nil {
 			err = errors.New("entity factory must be set")
@@ -451,14 +471,16 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		if entity == nil {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
 		}
-		weos_id := entity["weos_id"].(string)
+		if weosID, ok = entity["weos_id"].(string); !ok {
+			return NewControllerError("No entity found", err, http.StatusNotFound)
+		}
 		sequenceString := fmt.Sprint(entity["sequence_no"])
 		sequenceNo, _ := strconv.Atoi(sequenceString)
 
 		etag := NewEtag(&model.ContentEntity{
 			AggregateRoot: model.AggregateRoot{
 				SequenceNo:  int64(sequenceNo),
-				BasicEntity: model.BasicEntity{ID: weos_id},
+				BasicEntity: model.BasicEntity{ID: weosID},
 			},
 		})
 

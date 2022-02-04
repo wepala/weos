@@ -174,7 +174,18 @@ func TestStandardInitializer(t *testing.T) {
 		}
 	})
 
-	t.Run("attach standard list view", func(t *testing.T) {
+	t.Run("attach standard list view ", func(t *testing.T) {
+		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/posts/", http.MethodGet, api.Swagger, api.Swagger.Paths["/posts/"], api.Swagger.Paths["/posts/"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		controller := rest.GetOperationController(ctxt)
+		if controller == nil {
+			t.Fatalf("expected controller to be in the context")
+		}
+	})
+
+	t.Run("attach standard list view with alias ", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Get)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)

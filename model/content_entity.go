@@ -336,11 +336,16 @@ func (w *ContentEntity) ApplyEvents(changes []*Event) error {
 func (w *ContentEntity) ToMap() map[string]interface{} {
 	result := make(map[string]interface{})
 	//get all fields and return the map
-	fields := w.reader.GetAllFields()
-	for _, field := range fields {
-		//check if the lowercase version of the field is the same as the schema and use the scehma version instead
-		result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+	if w.reader != nil {
+		fields := w.reader.GetAllFields()
+		for _, field := range fields {
+			//check if the lowercase version of the field is the same as the schema and use the scehma version instead
+			if originialFieldName := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
+				result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+			}
+		}
 	}
+
 	return result
 }
 
