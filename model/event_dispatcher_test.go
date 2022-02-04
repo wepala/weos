@@ -17,7 +17,7 @@ func TestEventDisptacher_Dispatch(t *testing.T) {
 		},
 		Version: 1,
 	}
-	dispatcher := &weos.EventDisptacher{}
+	dispatcher := &weos.DefaultEventDisptacher{}
 	handlersCalled := 0
 	dispatcher.AddSubscriber(func(ctx context.Context, event weos.Event) {
 		handlersCalled += 1

@@ -3,6 +3,8 @@ package rest
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"net/textproto"
 	"strconv"
 	"strings"
@@ -10,12 +12,11 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	weosContext "github.com/wepala/weos/context"
-	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 )
 
-//Context Create go context and add parameter values to context
-func Context(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+//Context CreateHandler go context and add parameter values to context
+func Context(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			var err error
@@ -96,18 +97,18 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 				filters = map[string]*FilterProperties{}
 				if parameter.Value.Name == "_filters" {
 					filtersArray := SplitFilters(c.Request().URL.RawQuery)
-					if filtersArray == nil || len(filtersArray) == 0 {
-						return cc, fmt.Errorf("unexpected error filters format is incorrect")
-					}
-					for _, value := range filtersArray {
-						prop := SplitFilter(value)
-						if prop == nil {
-							return cc, fmt.Errorf("unexpected error filter format is incorrect")
+					if filtersArray != nil && len(filtersArray) > 0 {
+						for _, value := range filtersArray {
+							prop := SplitFilter(value)
+							if prop == nil {
+								return cc, fmt.Errorf("unexpected error filter format is incorrect")
+							}
+							filters[prop.Field] = prop
 						}
-						filters[prop.Field] = prop
+						val = filters
+						break
 					}
-					val = filters
-					break
+
 				}
 				if paramType != nil && paramType.Value != nil {
 					pType := paramType.Value.Type
