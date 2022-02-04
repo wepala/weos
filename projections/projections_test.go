@@ -2199,3 +2199,341 @@ components:
 
 	})
 }
+
+func TestProjections_ListFilters(t *testing.T) {
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     required:
+       - title
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: post title
+      description:
+         type: string
+      blog:
+         $ref: "#/components/schemas/Blog"
+`
+	api, err := rest.New(openAPI)
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+
+	err = p.Migrate(context.Background(), schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Fatal("expected to get a table 'Blog'")
+	}
+
+	if !gormDB.Migrator().HasTable("Post") {
+		t.Fatal("expected to get a table 'Post'")
+	}
+	blogWeosID := "abc123"
+	blogWeosID1 := "abc1234"
+	blogWeosID2 := "abc12345"
+	blogWeosID3 := "abc123456"
+	blogWeosID4 := "abc1234567"
+
+	blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "description": "first blog", "sequence_no": int64(1)}
+	blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs2", "description": "first blog", "sequence_no": int64(1)}
+	blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs3", "description": "third blog", "sequence_no": int64(1)}
+	blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs4", "sequence_no": int64(1)}
+	blog4 := map[string]interface{}{"weos_id": blogWeosID4, "id": uint(123), "title": "morehugs5", "description": "last blog", "sequence_no": int64(1)}
+
+	gormDB.Table("Blog").Create(blog)
+	gormDB.Table("Blog").Create(blog1)
+	gormDB.Table("Blog").Create(blog2)
+	gormDB.Table("Blog").Create(blog3)
+	gormDB.Table("Blog").Create(blog4)
+
+	t.Run("testing filter with the eq operator on 2 fields", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "title",
+			Operator: "eq",
+			Value:    "hugs1",
+			Values:   nil,
+		}
+		filter2 := &projections.FilterProperty{
+			Field:    "description",
+			Operator: "eq",
+			Value:    "first blog",
+			Values:   nil,
+		}
+		filters := map[string]interface{}{filter.Field: filter, filter2.Field: filter2}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Fatalf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if int(results[0]["id"].(float64)) != 1 {
+			t.Errorf("expected result id to be %d got %d", 1, int(results[0]["id"].(float64)))
+		}
+	})
+	t.Run("testing filters with the ne operator", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "id",
+			Operator: "ne",
+			Value:    "1",
+			Values:   nil,
+		}
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(4) {
+			t.Errorf("expected total to be %d got %d", int64(4), total)
+		}
+		if len(results) != 4 {
+			t.Errorf("expected length of results to be %d got %d", 4, len(results))
+		}
+	})
+	t.Run("testing filters with the like operator", func(t *testing.T) {
+		page := 1
+		limit := 2
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "id",
+			Operator: "like",
+			Value:    "1",
+			Values:   nil,
+		}
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(2) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 2 {
+			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+		}
+	})
+	t.Run("testing filters with the in operator with a single value", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		vals := []string{"hugs2"}
+		filter := &projections.FilterProperty{
+			Field:    "title",
+			Operator: "in",
+			Values:   vals,
+		}
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
+	})
+	t.Run("testing filters with the in operator with multiple values", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		arrValues := []string{"hugs1", "hugs3"}
+		filter := &projections.FilterProperty{
+			Field:    "title",
+			Operator: "in",
+			Values:   arrValues,
+		}
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(2) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 2 {
+			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+		}
+	})
+	t.Run("testing filters with the lt operator", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "id",
+			Operator: "lt",
+			Value:    "2",
+			Values:   nil,
+		}
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
+	})
+	t.Run("testing filters with the gt operator", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "id",
+			Operator: "gt",
+			Value:    "3",
+			Values:   nil,
+		}
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(2) {
+			t.Errorf("expected total to be %d got %d", int64(2), total)
+		}
+		if len(results) != 2 {
+			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+		}
+	})
+	t.Run("testing filters with the multiple operators", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "id",
+			Operator: "like",
+			Value:    "1",
+			Values:   nil,
+		}
+		filter2 := &projections.FilterProperty{
+			Field:    "title",
+			Operator: "ne",
+			Value:    "hugs1",
+			Values:   nil,
+		}
+		filters := map[string]interface{}{filter.Field: filter, filter2.Field: filter2}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
+	})
+}
