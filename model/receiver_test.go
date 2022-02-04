@@ -225,17 +225,24 @@ func TestDeleteContentType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error occured '%s'", err)
 	}
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	contentType = "Blog"
-	contentTypeSchema = swagger.Components.Schemas[contentType]
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-		Name:   contentType,
-		Schema: contentTypeSchema.Value,
-	})
+	entityType := "Blog"
+	mockEntityFactory := &EntityFactoryMock{
+		NewEntityFunc: func(ctx context3.Context) (*model.ContentEntity, error) {
+			return &model.ContentEntity{}, nil
+		},
+		NameFunc: func() string {
+			return entityType
+		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas[entityType].Value
+		},
+	}
+	ctx = context.WithValue(ctx, weosContext.ENTITY_FACTORY, mockEntityFactory)
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
 	commandDispatcher := &model.DefaultCommandDispatcher{}
+	commandDispatcher.AddSubscriber(model.Delete(context.Background(), "", ""), model.DeleteHandler)
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 			var event *model.Event
@@ -286,7 +293,6 @@ func TestDeleteContentType(t *testing.T) {
 	}
 
 	t.Run("Testing basic delete entity", func(t *testing.T) {
-		entityType := "Blog"
 		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"), mockEventRepository, projectionMock, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)

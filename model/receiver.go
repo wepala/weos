@@ -100,6 +100,16 @@ func UpdateHandler(ctx context.Context, command *Command, eventStore EventReposi
 
 //DeleteHandler is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
 func DeleteHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+	if logger == nil {
+		return fmt.Errorf("no logger set")
+	}
+	entityFactory := GetEntityFactory(ctx)
+	if entityFactory == nil {
+		err := errors.New("no entity factory found")
+		logger.Error(err)
+		return err
+	}
+
 	//initialize any services
 	domainService := NewDomainService(ctx, eventStore, projection, logger)
 	deletedEntity, err := domainService.Delete(ctx, command.Metadata.EntityID, command.Metadata.EntityType)

@@ -452,6 +452,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Delete.RequestBody.Value.Content {
 					if !strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+						api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
 						return ctxt, nil
 					}
 					identifierExtension = swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
@@ -514,8 +515,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		if handler != "" && autoConfigure {
 			controller, err := api.GetController(handler)
 			if err != nil {
-				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
 				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
 			}
 			if controller != nil {
 				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)

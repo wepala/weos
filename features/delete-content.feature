@@ -195,7 +195,7 @@ Feature: Delete content
      """
     And the service is running
     And blogs in the api
-      | id    | entity id      | sequence_no | title        | description    |
+      | id    | weos_id        | sequence_no | title        | description    |
       | 1     | <Generated ID> | 2           | Blog 1       | Some Blog      |
       | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
       | 164   | <Generated ID> | 1           | Blog 6       | Some Blog 6    |

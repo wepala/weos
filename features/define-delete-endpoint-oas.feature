@@ -92,7 +92,7 @@ Feature: Delete content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "DELETE" route should be added to the api
-    And a "Delete" middleware should be added to the route
+    And a "DeleteController" middleware should be added to the route
 
 
   Scenario: Create a basic delete endpoint with the entity explicitly declared
@@ -112,7 +112,7 @@ Feature: Delete content endpoints
                 type: string
               required: true
               description: blog id
-          x-content-type: Blog
+          x-schema: Blog
           responses:
             200:
               description: Update blog
@@ -125,7 +125,7 @@ Feature: Delete content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "DELETE" route should be added to the api
-    And a "Delete" middleware should be added to the route
+    And a "DeleteController" middleware should be added to the route
 
   Scenario: Create a basic delete endpoint with the identifier in the query string
 
@@ -160,7 +160,7 @@ Feature: Delete content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "DELETE" route should be added to the api
-    And a "Delete" middleware should be added to the route
+    And a "DeleteController" middleware should be added to the route
 
   Scenario: Create a basic delete endpoint with the identifier in the header with an alias
 
@@ -196,7 +196,7 @@ Feature: Delete content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "DELETE" route should be added to the api
-    And a "Delete" middleware should be added to the route
+    And a "DeleteController" middleware should be added to the route
 
 
   Scenario: Create a basic delete endpoint with the identifier in the path and the controller manually set
@@ -215,7 +215,7 @@ Feature: Delete content endpoints
                 type: string
               required: true
               description: blog id
-          x-controller: Delete
+          x-controller: DeleteController
           requestBody:
             description: Blog info that is submitted
             required: false
@@ -231,7 +231,7 @@ Feature: Delete content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "DELETE" route "/blogs/:id" should be added to the api
-    And a "Delete" middleware should be added to the route
+    And a "DeleteController" middleware should be added to the route
 
   Scenario: Create an endpoint that does not have parameters for all parts of identifier
 
@@ -250,7 +250,7 @@ Feature: Delete content endpoints
                 type: string
               required: true
               description: post id
-          x-content-type: Post
+          x-schema: Post
           responses:
             201:
               description: Add Blog to Aggregator
