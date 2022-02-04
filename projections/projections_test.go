@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -2244,6 +2245,9 @@ components:
          description: blog title
        description:
          type: string
+       last_updated:
+          type: string
+          format: date-time
      required:
        - title
     Post:
@@ -2287,10 +2291,13 @@ components:
 	blogWeosID2 := "abc12345"
 	blogWeosID3 := "abc123456"
 	blogWeosID4 := "abc1234567"
+	t1, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:00Z")
+	t2, _ := time.Parse(time.RFC3339, "2005-01-02T15:04:00Z")
+	t3, _ := time.Parse(time.RFC3339, "2007-01-02T13:04:00Z")
 
-	blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "description": "first blog", "sequence_no": int64(1)}
-	blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs2", "description": "first blog", "sequence_no": int64(1)}
-	blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs3", "description": "third blog", "sequence_no": int64(1)}
+	blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "description": "first blog", "sequence_no": int64(1), "last_updated": t1}
+	blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs2", "description": "first blog", "sequence_no": int64(1), "last_updated": t2}
+	blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs3", "description": "third blog", "sequence_no": int64(1), "last_updated": t3}
 	blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs4", "sequence_no": int64(1)}
 	blog4 := map[string]interface{}{"weos_id": blogWeosID4, "id": uint(123), "title": "morehugs5", "description": "last blog", "sequence_no": int64(1)}
 
@@ -2378,7 +2385,7 @@ components:
 		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
-			t.Errorf("error getting content entities: %s", err)
+			t.Fatalf("error getting content entities: %s", err)
 		}
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
@@ -2406,7 +2413,7 @@ components:
 		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
-			t.Errorf("error getting content entities: %s", err)
+			t.Fatalf("error getting content entities: %s", err)
 		}
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
@@ -2535,5 +2542,90 @@ components:
 		if len(results) != 1 {
 			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
 		}
+	})
+	t.Run("testing date time filters(less than) ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "lt",
+			Value:    "2006-01-02T15:04:00Z",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
+	})
+	t.Run("testing date time filters(greater than) ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "gt",
+			Value:    "2006-01-02T15:04:00Z",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
+	})
+	t.Run("testing invalid date time format on filter ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "lt",
+			Value:    "2006-01-02T15:04:00Z+dsujhsd",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err == nil {
+			t.Fatalf("expected a date time error but got nil")
+		}
+		if results != nil {
+			t.Errorf("unexpect error expected results to be nil ")
+		}
+		if total != int64(0) {
+			t.Errorf("expecter total to be 0 got %d", total)
+		}
+
 	})
 }
