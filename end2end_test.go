@@ -1058,7 +1058,6 @@ func anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference() 
 }
 
 func removedTheFieldFromTheContentType(user, field, contentType string) error {
-
 	loader := openapi3.NewSwaggerLoader()
 	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
 	if err != nil {
@@ -1092,6 +1091,9 @@ func removedTheFieldFromTheContentType(user, field, contentType string) error {
 }
 
 func theFieldShouldBeRemovedFromTheTable(field, table string) error {
+	if errs != nil {
+		return errs
+	}
 	apiProjection, err := API.GetProjection("Default")
 	if err != nil {
 		return fmt.Errorf("unexpected error getting projection: %s", err)
@@ -1215,7 +1217,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "WEOS-1125",
+			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1176",
 			//Tags: "WEOS-1110 && ~skipped",
 		},

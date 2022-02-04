@@ -192,17 +192,20 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 			}
 
 			//if column exists in table but not in new schema, alter column
+
+			//get columns after db drop
+			columns, err = p.db.Migrator().ColumnTypes(instance)
+			if err != nil {
+				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
+			}
 			if deleteConstraintError == nil {
 				for _, c := range columns {
 					if !utils.Contains(jsonFields, c.Name()) {
-						if p.db.Dialector.Name() == "sqlite" {
-							deleteConstraintError = fmt.Errorf("sqlite column changed")
-						} else {
-							deleteConstraintError = p.db.Debug().Migrator().AlterColumn(b, c.Name())
-							if deleteConstraintError != nil {
-								p.logger.Errorf("got error updating constraint %s", err)
-							}
+						deleteConstraintError = p.db.Debug().Migrator().AlterColumn(b, c.Name())
+						if deleteConstraintError != nil {
+							p.logger.Errorf("got error updating constraint %s", err)
 						}
+
 						if deleteConstraintError != nil {
 							break
 						}
