@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/jinzhu/inflection"
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
+	"github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -99,7 +103,7 @@ func (p *GORMProjection) Remove(entities []weos.Entity) error {
 	return nil
 }
 
-func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Builder) error {
+func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Builder, refs map[string]*openapi3.SchemaRef) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	var err error
@@ -116,6 +120,155 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 			return err
 		}
 		tables = append(tables, instance)
+
+		dfs, _ := json.Marshal(refs[name].Value.Extensions["x-remove"])
+		deletedFields := []string{}
+		json.Unmarshal(dfs, &deletedFields)
+
+		for i, f := range deletedFields {
+			deletedFields[i] = utils.SnakeCase(f)
+		}
+
+		columns, err := p.db.Migrator().ColumnTypes(instance)
+		if err != nil {
+			p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
+		}
+		if len(columns) != 0 {
+			reader := ds.NewReader(instance)
+			readerFields := reader.GetAllFields()
+			jsonFields := []string{}
+			for _, r := range readerFields {
+				jsonFields = append(jsonFields, utils.SnakeCase(r.Name()))
+			}
+
+			builder := ds.ExtendStruct(instance)
+			for _, c := range columns {
+				if !utils.Contains(jsonFields, c.Name()) && !utils.Contains(deletedFields, c.Name()) {
+					if !utils.Contains(deletedFields, c.Name()) {
+						var val interface{}
+						dType := strings.ToLower(c.DatabaseTypeName())
+						jsonString := `json:"` + c.Name() + `"`
+						switch dType {
+						case "text", "varchar", "char", "longtext":
+							var strings *string
+							val = strings
+							jsonString += `gorm:"size:512"`
+						case "integer", "int8", "int", "smallint", "bigint":
+							val = 0
+						case "real", "float8", "numeric", "float4", "double", "decimal":
+							val = 0.0
+						case "bool", "boolean":
+							val = false
+						case "timetz", "timestamptz", "date", "datetime", "timestamp":
+							val = time.Time{}
+						}
+						builder.AddField(strings.Title(c.Name()), val, jsonString)
+					}
+				}
+			}
+
+			var deleteConstraintError error
+			b := builder.Build().New()
+			json.Unmarshal([]byte(`{
+						"table_alias": "`+name+`"
+					}`), &b)
+
+			//drop columns with x-remove tag
+			columns, err := p.db.Migrator().ColumnTypes(instance)
+			if err != nil {
+				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
+			}
+
+			for _, f := range deletedFields {
+				if p.db.Migrator().HasColumn(b, f) {
+
+					deleteConstraintError = p.db.Migrator().DropColumn(b, f)
+					if deleteConstraintError != nil {
+						p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
+					}
+				} else {
+					p.logger.Errorf("unable to drop column %s from table %s.  property does not exist", f, name)
+				}
+			}
+
+			//if column exists in table but not in new schema, alter column
+
+			//get columns after db drop
+			columns, err = p.db.Migrator().ColumnTypes(instance)
+			if err != nil {
+				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
+			}
+			if deleteConstraintError == nil {
+				for _, c := range columns {
+					if !utils.Contains(jsonFields, c.Name()) {
+						deleteConstraintError = p.db.Debug().Migrator().AlterColumn(b, c.Name())
+						if deleteConstraintError != nil {
+							p.logger.Errorf("got error updating constraint %s", err)
+						}
+
+						if deleteConstraintError != nil {
+							break
+						}
+					}
+				}
+			}
+
+			//remake table if primary key constraints are changed
+			if deleteConstraintError != nil {
+
+				//check if changing primary key affects relationship tables
+				tables, err := p.db.Migrator().GetTables()
+				if err != nil {
+					p.logger.Errorf("got error getting current tables %s", err)
+					return err
+				}
+
+				//check foreign keys
+				for _, t := range tables {
+					pluralName := strings.ToLower(inflection.Plural(name))
+
+					if strings.Contains(strings.ToLower(t), name+"_") || strings.Contains(t, "_"+pluralName) {
+						return weos.NewError(fmt.Sprintf("a relationship exists that uses constraints from table %s", name), fmt.Errorf("a relationship exists that uses constraints from table %s", name))
+					}
+				}
+
+				b := builder.Build().New()
+				err = json.Unmarshal([]byte(`{
+						"table_alias": "temp"
+					}`), &b)
+				if err != nil {
+					p.logger.Errorf("unable to set the table name '%s'", err)
+					return err
+				}
+				err = p.db.Migrator().CreateTable(b)
+				if err != nil {
+					p.logger.Errorf("got error creating temporary table %s", err)
+					return err
+				}
+				tableVals := []map[string]interface{}{}
+				p.db.Table(name).Find(&tableVals)
+				if len(tableVals) != 0 {
+					db := p.db.Table("temp").Create(&tableVals)
+					if db.Error != nil {
+						p.logger.Errorf("got error transfering table values %s", db.Error)
+						return err
+					}
+				}
+
+				err = p.db.Migrator().DropTable(name)
+				if err != nil {
+					p.logger.Errorf("got error dropping table%s", err)
+					return err
+				}
+				err = p.db.Migrator().RenameTable("temp", name)
+				if err != nil {
+					p.logger.Errorf("got error renaming temporary table %s", err)
+					return err
+				}
+
+			}
+		}
+
 	}
 
 	err = p.db.Migrator().AutoMigrate(tables...)
@@ -146,7 +299,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
-				db := p.db.Table(entityFactory.Name()).Create(eventPayload)
+				db := p.db.Debug().Table(entityFactory.Name()).Create(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 				}

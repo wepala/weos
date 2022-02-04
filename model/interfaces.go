@@ -2,6 +2,7 @@ package model
 
 //go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
 import (
+	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
 )
@@ -71,7 +72,7 @@ type EventRepository interface {
 }
 
 type Datastore interface {
-	Migrate(ctx context.Context, builders map[string]ds.Builder) error
+	Migrate(ctx context.Context, builders map[string]ds.Builder, refs map[string]*openapi3.SchemaRef) error
 }
 
 type Projection interface {
