@@ -25,6 +25,7 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/projections"
 	"github.com/wepala/weos/utils"
 	"gorm.io/gorm"
 )
@@ -56,6 +57,7 @@ var limit int
 var page int
 var contentType string
 var result api.ListApiResponse
+var scenarioContext context.Context
 
 type User struct {
 	Name      string
@@ -126,6 +128,7 @@ components:
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	scenarioContext = context.Background()
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
@@ -218,6 +221,13 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 }
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
+	//use gorm connection to get table
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	gormDB := apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
@@ -378,9 +388,10 @@ func blogsInTheApi(details *godog.Table) error {
 		}
 
 		if seq > 1 {
-			reqBytes, _ := json.Marshal(req)
-			body := bytes.NewReader(reqBytes)
+
 			for i := 1; i < seq; i++ {
+				reqBytes, _ := json.Marshal(req)
+				body := bytes.NewReader(reqBytes)
 				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
 				request = request.WithContext(context.TODO())
 				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -510,7 +521,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	err = API.Initialize(context.TODO())
+	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
 	}
@@ -518,17 +529,13 @@ func theSpecificationIsParsed(arg1 string) error {
 }
 
 func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	schema, err := API.GetSchemas()
-	if err != nil {
-		return err
-	}
-
+	schema := API.Schemas
 	if _, ok := schema[arg1]; !ok {
 		return fmt.Errorf("no entity named '%s'", arg1)
 	}
 
 	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
-	reader := ds.NewReader(schema[arg1])
+	reader := ds.NewReader(schema[arg1].Build().New())
 
 	s := strings.TrimRight(entityString[1], "}")
 	s = strings.TrimSpace(s)
@@ -675,7 +682,7 @@ func theServiceIsRunning() error {
 	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
-	err = API.Initialize(context.TODO())
+	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
 	}
@@ -746,7 +753,12 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -1039,8 +1051,9 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "WEOS-1310",
+			Tags:   "~skipped && ~long",
+			//Tags: "WEOS-1176",
+			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

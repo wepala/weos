@@ -30,8 +30,14 @@ const FILTERS ContextKey = "_filters"
 const SORTS ContextKey = "_sorts"
 const SEQUENCE_NO string = "sequence_no"
 
+//Path initializers are run per path and can be used to configure routes that are not defined in the open api spec
+const METHODS_FOUND ContextKey = "_methods_found"
+
 //entity
 const ENTITY_ID = "_entity_id"
+const ENTITY_COLLECTION = "_entity_collection"
+const ENTITY = "_entity"
+const ERROR = "_error"
 
 //ContentType this makes it easier to access the content type information in the context
 type ContentType struct {
@@ -86,6 +92,14 @@ func GetEntityID(ctx context.Context) string {
 		return value
 	}
 	return ""
+}
+
+//Get error
+func GetError(ctx context.Context) error {
+	if value, ok := ctx.Value(ctx).(error); ok {
+		return value
+	}
+	return nil
 }
 
 //Deprecated: Context Use the Go context in the echo request instead

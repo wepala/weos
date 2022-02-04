@@ -160,9 +160,9 @@ func TestStandardInitializer(t *testing.T) {
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("CreateController", rest.CreateController)
-	api.RegisterController("List", rest.List)
+	api.RegisterController("ListController", rest.ListController)
 	api.RegisterController("UpdateController", rest.UpdateController)
-	api.RegisterController("View", rest.View)
+	api.RegisterController("ViewController", rest.ViewController)
 	t.Run("attach standard create", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
@@ -174,7 +174,18 @@ func TestStandardInitializer(t *testing.T) {
 		}
 	})
 
-	t.Run("attach standard list view", func(t *testing.T) {
+	t.Run("attach standard list view ", func(t *testing.T) {
+		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/posts/", http.MethodGet, api.Swagger, api.Swagger.Paths["/posts/"], api.Swagger.Paths["/posts/"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		controller := rest.GetOperationController(ctxt)
+		if controller == nil {
+			t.Fatalf("expected controller to be in the context")
+		}
+	})
+
+	t.Run("attach standard list view with alias ", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Get)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)

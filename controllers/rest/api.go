@@ -259,16 +259,20 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
 	p.RegisterController("CreateController", CreateController)
 	p.RegisterController("UpdateController", UpdateController)
-	p.RegisterController("List", List)
-	p.RegisterController("View", View)
+	p.RegisterController("ListController", ListController)
+	p.RegisterController("ViewController", ViewController)
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("CreateBatchController", CreateBatchController)
 	//register standard middleware
+	p.RegisterMiddleware("Context", Context)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
+	p.RegisterMiddleware("ListMiddleware", ListMiddleware)
+	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
 	//register standard operation initializers
+	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
 	p.RegisterOperationInitializer(UserDefinedInitializer)
 	p.RegisterOperationInitializer(StandardInitializer)
@@ -296,7 +300,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			}
 			p.RegisterProjection("Default", defaultProjection)
 			//get the database schema
-			schemas = CreateSchema(context.Background(), p.EchoInstance(), p.Swagger)
+			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
+			p.Schemas = schemas
 			err = defaultProjection.Migrate(ctxt, schemas)
 			if err != nil {
 				p.EchoInstance().Logger.Error(err)
@@ -330,25 +335,27 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		defaultCommandDispatcher := &model.DefaultCommandDispatcher{}
 		//setup default commands
 		defaultCommandDispatcher.AddSubscriber(model.Create(context.Background(), nil, "", ""), model.CreateHandler)
-		//defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), receiver.CreateBatch)
-		//defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), receiver.Update)
+		defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), model.CreateBatchHandler)
+		defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), model.UpdateHandler)
 		p.RegisterCommandDispatcher("Default", defaultCommandDispatcher)
 	}
 
 	//setup middleware  - https://echo.labstack.com/middleware/
 
 	//setup global pre middleware
-	var preMiddlewares []echo.MiddlewareFunc
-	for _, middlewareName := range p.config.Rest.PreMiddleware {
-		t := reflect.ValueOf(middlewareName)
-		m := t.MethodByName(middlewareName)
-		if !m.IsValid() {
-			p.e.Logger.Fatalf("invalid handler set '%s'", middlewareName)
+	if p.config != nil && p.config.Rest != nil {
+		var preMiddlewares []echo.MiddlewareFunc
+		for _, middlewareName := range p.config.Rest.PreMiddleware {
+			t := reflect.ValueOf(middlewareName)
+			m := t.MethodByName(middlewareName)
+			if !m.IsValid() {
+				p.e.Logger.Fatalf("invalid handler set '%s'", middlewareName)
+			}
+			preMiddlewares = append(preMiddlewares, m.Interface().(func(handlerFunc echo.HandlerFunc) echo.HandlerFunc))
 		}
-		preMiddlewares = append(preMiddlewares, m.Interface().(func(handlerFunc echo.HandlerFunc) echo.HandlerFunc))
+		//all routes setup after this will use this middleware
+		p.e.Pre(preMiddlewares...)
 	}
-	//all routes setup after this will use this middleware
-	p.e.Pre(preMiddlewares...)
 
 	//setup global middleware
 	var middlewares []echo.MiddlewareFunc
@@ -401,9 +408,13 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		}
 
 		//run post path initializers
-		pathContext = context.WithValue(pathContext, METHODS_FOUND, methodsFound)
-		for _, initializer := range p.GetPrePathInitializers() {
+		pathContext = context.WithValue(pathContext, weoscontext.METHODS_FOUND, methodsFound)
+		for _, initializer := range p.GetPostPathInitializers() {
 			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+		}
+		//output registered endpoints for debugging purposes
+		for _, route := range p.EchoInstance().Routes() {
+			p.EchoInstance().Logger.Debugf("Registered routes '%s' '%s'", route.Method, route.Path)
 		}
 	}
 	return err

@@ -14,6 +14,7 @@ type DomainService struct {
 	Projection
 	Repository
 	eventRepository EventRepository
+	logger          Log
 }
 
 //Create is used for a single payload. It creates a new entity via the FromSchemaWithValue func and then returns the entity
@@ -64,15 +65,18 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 //Update is used for a single payload. It gets an existing entity and updates it with the new payload
 func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, entityType string) (*ContentEntity, error) {
 	var updatedEntity *ContentEntity
-	existingEntity := &ContentEntity{}
 	var weosID string
 	entityFactory := GetEntityFactory(ctx)
 	if entityFactory == nil {
 		return nil, errors.New("entity factory must be set")
 	}
+	existingEntity, err := entityFactory.NewEntity(ctx)
+	if err != nil {
+		s.logger.Errorf("error creating new entity '%s'", err)
+	}
 
 	//Fetch the weosID from the payload
-	weosID, err := GetIDfromPayload(payload)
+	weosID, err = GetIDfromPayload(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -168,26 +172,37 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 
 		//If there is no weosID, use the id passed from the param
 	} else if weosID == "" {
-
+		seqNo := -1
+		if seq, ok := ctx.Value(weosContext.SEQUENCE_NO).(int); ok {
+			seqNo = seq
+		}
 		//temporary fiv
 
 		entityInterface, err := s.GetByKey(ctx, entityFactory, identifiers)
 		if err != nil {
+			s.logger.Errorf("error updating entity", err)
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
+		}
+
+		if seqNo != -1 && entityInterface["sequence_no"].(int64) != int64(seqNo) {
+			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
 
 		data, err := json.Marshal(entityInterface)
 		if err != nil {
+			s.logger.Errorf("error updating entity", err)
 			return nil, err
 		}
 
 		err = json.Unmarshal(data, &existingEntity)
 		if err != nil {
+			s.logger.Errorf("error updating entity", err)
 			return nil, err
 		}
 
 		updatedEntity, err = existingEntity.Update(ctx, newPayload)
 		if err != nil {
+			s.logger.Errorf("error updating entity", err)
 			return nil, err
 		}
 
@@ -199,9 +214,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	return updatedEntity, nil
 }
 
-func NewDomainService(ctx context.Context, eventRepository EventRepository, projections Projection) *DomainService {
+func NewDomainService(ctx context.Context, eventRepository EventRepository, projections Projection, logger Log) *DomainService {
 	return &DomainService{
 		eventRepository: eventRepository,
 		Projection:      projections,
+		logger:          logger,
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
-	weosContext "github.com/wepala/weos/context"
 	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
@@ -229,10 +228,12 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	var count int64
 	var result *gorm.DB
 	var schemes interface{}
-	contentType := weosContext.GetContentType(ctx)
+	if entityFactory == nil {
+		return nil, 0, fmt.Errorf("no entity factory found")
+	}
 	schemes = entityFactory.DynamicStruct(ctx).NewSliceOfStructs()
 	scheme := entityFactory.DynamicStruct(ctx).New()
-	result = p.db.Table(contentType.Name).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+	result = p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
 		return nil, 0, err

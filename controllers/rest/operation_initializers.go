@@ -15,6 +15,18 @@ import (
 	"strings"
 )
 
+//ContextInitializer add context middleware to path
+func ContextInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	middlewares := GetOperationMiddlewares(ctxt)
+	contextMiddleware, err := api.GetMiddleware("Context")
+	if err != nil {
+		return ctxt, err
+	}
+	middlewares = append(middlewares, contextMiddleware)
+	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	return ctxt, nil
+}
+
 //EntityFactoryInitializer setups the EntityFactory for a specific route
 func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	schemas := GetSchemaBuilders(ctxt)
@@ -119,6 +131,24 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			return ctxt, fmt.Errorf("unregistered controller '%s' specified on path '%s'", controllerName, path)
 		}
 		ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
+		attached := false
+		//checks if the controller explicitly stated and whether the endpoint is valid
+		if strings.ToUpper(method) == "GET" && controllerName == "ListController" {
+			if pathItem.Get.Responses != nil && pathItem.Get.Responses["200"].Value.Content != nil {
+				for _, val := range pathItem.Get.Responses["200"].Value.Content {
+					//checks if the response refers to an array schema
+					if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+						attached = true
+						break
+					}
+
+				}
+				if !attached {
+					ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, nil)
+					api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+				}
+			}
+		}
 	}
 
 	//if the controller extension is set then add controller to the context
@@ -126,9 +156,10 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 		var middlewareNames []string
 		err := json.Unmarshal(middlewareExtension.(json.RawMessage), &middlewareNames)
 		if err != nil {
-			return ctxt, err
+			api.EchoInstance().Logger.Errorf("unable to unmarshal middleware '%s'", err)
+			return ctxt, fmt.Errorf("middlewares in the specification should be an array of strings on '%s'", path)
 		}
-		//get the existing middleware from context and then add user defined middleare to it
+		//get the existing middleware from context and then add user defined middleware to it
 		middlewares := GetOperationMiddlewares(ctxt)
 		for _, middlewareName := range middlewareNames {
 			middleware, err := api.GetMiddleware(middlewareName)
@@ -321,7 +352,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 							bytesId := identifierExtension.(json.RawMessage)
 							err := json.Unmarshal(bytesId, &identifiers)
 							if err != nil {
-								//return err
+								return ctxt, err
 							}
 						}
 						var contextName string
@@ -361,14 +392,16 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 							}
 						}
 						if allParam {
-							handler = "View"
+							handler = "ViewController"
+							middlewareNames["ViewMiddleware"] = true
 							autoConfigure = true
 							break
 						}
 					} else {
 						//checks if the response refers to an array schema
 						if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-							handler = "List"
+							handler = "ListController"
+							middlewareNames["ListMiddleware"] = true
 							autoConfigure = true
 							break
 						} else {
@@ -381,7 +414,8 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 										json.Unmarshal(bytesContext, &alias)
 										if alias == "items" {
 											if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-												handler = "List"
+												handler = "ListController"
+												middlewareNames["ListMiddleware"] = true
 												autoConfigure = true
 												break
 											}
@@ -394,6 +428,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 				}
 			}
 		}
+
 		if handler != "" && autoConfigure {
 			controller, err := api.GetController(handler)
 			if err != nil {
@@ -416,6 +451,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		}
 		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	}
+
 	return ctxt, nil
 }
 

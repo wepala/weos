@@ -487,6 +487,7 @@ func TestStandardControllers_Update(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPut, "/blogs/"+weosId, body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("If-Match", weosId+".1")
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)
 		updateMw := rest.UpdateMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)
@@ -600,11 +601,12 @@ func TestStandardControllers_View(t *testing.T) {
 		paramName := "id"
 		paramValue := "1"
 		path := swagger.Paths.Find("/blogs/:" + paramName)
-		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
+		controller := rest.ViewController(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue, nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw)
+		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -663,11 +665,12 @@ func TestStandardControllers_View(t *testing.T) {
 				return entity, nil
 			},
 		}
-		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
+		controller := rest.ViewController(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw)
+		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -737,11 +740,12 @@ func TestStandardControllers_View(t *testing.T) {
 				return entity, nil
 			},
 		}
-		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
+		controller := rest.ViewController(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw)
+		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -811,11 +815,12 @@ func TestStandardControllers_View(t *testing.T) {
 				return entity, nil
 			},
 		}
-		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
+		controller := rest.ViewController(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw)
+		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -882,11 +887,12 @@ func TestStandardControllers_View(t *testing.T) {
 				return entity, nil
 			},
 		}
-		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
+		controller := rest.ViewController(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=1", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw)
+		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response, err := io.ReadAll(resp.Body)
@@ -961,11 +967,12 @@ func TestStandardControllers_View(t *testing.T) {
 				return entity, nil
 			},
 		}
-		controller := rest.View(restAPI, projection, dispatcher, eventRepository, entityFactory)
+		controller := rest.ViewController(restAPI, projection, dispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=asdf", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw)
+		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1023,11 +1030,12 @@ func TestStandardControllers_List(t *testing.T) {
 	t.Run("Testing the generic list endpoint with parameters", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
 
-		controller := rest.List(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
 		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs", controller, mw)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
