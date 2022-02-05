@@ -174,39 +174,31 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 					}`), &b)
 
 			//drop columns with x-remove tag
-			columns, err := p.db.Migrator().ColumnTypes(instance)
-			if err != nil {
-				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
-			}
-
 			for _, f := range deletedFields {
 				if p.db.Migrator().HasColumn(b, f) {
 
 					deleteConstraintError = p.db.Migrator().DropColumn(b, f)
 					if deleteConstraintError != nil {
 						p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
+						break
 					}
 				} else {
 					p.logger.Errorf("unable to drop column %s from table %s.  property does not exist", f, name)
 				}
 			}
 
-			//if column exists in table but not in new schema, alter column
-
 			//get columns after db drop
 			columns, err = p.db.Migrator().ColumnTypes(instance)
 			if err != nil {
 				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
 			}
+			//if column exists in table but not in new schema, alter column
 			if deleteConstraintError == nil {
 				for _, c := range columns {
 					if !utils.Contains(jsonFields, c.Name()) {
 						deleteConstraintError = p.db.Debug().Migrator().AlterColumn(b, c.Name())
 						if deleteConstraintError != nil {
 							p.logger.Errorf("got error updating constraint %s", err)
-						}
-
-						if deleteConstraintError != nil {
 							break
 						}
 					}
@@ -277,9 +269,9 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 
 func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) {
+		entityFactory := weos.GetEntityFactory(ctx)
 		switch event.Type {
 		case "create":
-			entityFactory := weos.GetEntityFactory(ctx)
 			//using the schema ensures no nested fields are left out in creation
 			if entityFactory != nil {
 				entity, err := entityFactory.NewEntity(ctx)
@@ -305,7 +297,6 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				}
 			}
 		case "update":
-			entityFactory := weos.GetEntityFactory(ctx)
 			if entityFactory != nil {
 				entity, err := entityFactory.NewEntity(ctx)
 				if err != nil {
@@ -347,7 +338,17 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 				}
 			}
-
+		case "delete":
+			if entityFactory != nil {
+				entity, err := entityFactory.NewEntity(ctx)
+				if err != nil {
+					p.logger.Errorf("error creating entity '%s'", err)
+				}
+				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.Property)
+				if db.Error != nil {
+					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
+				}
+			}
 		}
 	}
 }

@@ -52,3 +52,18 @@ func Update(ctx context.Context, payload json.RawMessage, entityType string) *Co
 	}
 	return command
 }
+
+func Delete(ctx context.Context, entityType string, entityID string) *Command {
+
+	command := &Command{
+		Type: "delete",
+		Metadata: CommandMetadata{
+			Version:    1,
+			UserID:     weoscontext.GetUser(ctx),
+			AccountID:  weoscontext.GetAccount(ctx),
+			EntityType: entityType,
+			EntityID:   entityID,
+		},
+	}
+	return command
+}

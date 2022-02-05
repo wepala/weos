@@ -1,30 +1,65 @@
-@skipped
+@WEOS-1131
 Feature: Delete content
 
-   Background:
+  Background:
 
-     Given a developer "Sojourner"
-     And "Sojourner" has an account with id "1234"
-     And "Open API 3.0" is used to model the service
-     And the specification is
+    Given a developer "Sojourner"
+    And "Sojourner" has an account with id "1234"
+    And "Open API 3.0" is used to model the service
+    And the specification is
      """
      openapi: 3.0.3
      info:
        title: Blog Aggregator Rest API
        version: 0.1.0
        description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        driver: sqlite3
+        database: e2e.db
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
      components:
        schemas:
          Blog:
            type: object
            properties:
+             id:
+               type: string
              title:
                type: string
                description: blog title
              description:
                type: string
+             lastUpdated:
+               type: string
+               format: date-time
            required:
              - title
+           x-identifier:
+             - id
          Post:
            type: object
            properties:
@@ -86,10 +121,6 @@ Feature: Delete content
                      $ref: "#/components/schemas/Blog"
              400:
                description: Invalid blog submitted
-               content:
-                 application/json:
-                   schema:
-                     $ref: "#/components/schemas/ErrorResponse"
        /blogs/{id}:
          get:
            parameters:
@@ -120,6 +151,8 @@ Feature: Delete content
                  type: string
                required: true
                description: blog id
+             - in: header
+               name: If-Match
            summary: Update blog details
            operationId: Update Blog
            requestBody:
@@ -143,23 +176,34 @@ Feature: Delete content
                  type: string
                required: true
                description: blog id
+             - in: header
+               name: If-Match
+               schema:
+                 type: string
+           requestBody:
+             description: Blog info that is submitted
+             required: false
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
            summary: Delete blog
            operationId: Delete Blog
            responses:
              200:
                description: Blog Deleted
      """
-     And blogs in the api
-       | id    | entity id      | sequence no | title        | description    |
-       | 1     | <Generated ID> | 2           | Blog 1       | Some Blog      |
-       | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
-       | 164   | <Generated ID> | 1           | Blog 6       | Some Blog 6    |
-       | 3     | <Generated ID> | 4           | Blog 3       | Some Blog 3    |
-       | 4     | <Generated ID> | 1           | Blog 4       | Some Blog 4    |
-       | 5     | <Generated ID> | 1           | Blog 5       | Some Blog 5    |
-       | 890   | <Generated ID> | 1           | Blog 7       | Some Blog 7    |
-       | 1237  | <Generated ID> | 1           | Blog 8       | Some Blog 8    |
-
+    And blogs in the api
+      | id    | weos_id        | sequence_no | title        | description    |
+      | 1     | <Generated ID> | 2           | Blog 1       | Some Blog      |
+      | 2     | <Generated ID> | 1           | Blog 2       | Some Blog 2    |
+      | 164   | <Generated ID> | 1           | Blog 6       | Some Blog 6    |
+      | 3     | <Generated ID> | 1           | Blog 3       | Some Blog 3    |
+      | 4     | <Generated ID> | 1           | Blog 4       | Some Blog 4    |
+      | 5     | <Generated ID> | 1           | Blog 5       | Some Blog 5    |
+      | 890   | <Generated ID> | 1           | Blog 7       | Some Blog 7    |
+      | 1237  | <Generated ID> | 1           | Blog 8       | Some Blog 8    |
+    And the service is running
 
    Scenario: Delete item based on id
 
