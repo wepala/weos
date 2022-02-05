@@ -1208,6 +1208,11 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "([^"]*)" field should be removed from the "([^"]*)" table$`, theFieldShouldBeRemovedFromTheTable)
 	ctx.Step(`^a blog should be returned without field "([^"]*)"$`, aBlogShouldBeReturnedWithoutField)
 	ctx.Step(`^the service is reset$`, theServiceIsReset)
+	ctx.Step(`^the "([^"]*)" form is submitted with content type "([^"]*)"$`, theFormIsSubmittedWithContentType)
+	ctx.Step(`^the "([^"]*)" is submitted without content type$`, theIsSubmittedWithoutContentType)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" list screen$`, isOnTheListScreen)
+	ctx.Step(`^the items per page are (\d+)$`, theItemsPerPageAre)
+	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
 }
 
 func TestBDD(t *testing.T) {
