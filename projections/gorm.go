@@ -174,39 +174,31 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 					}`), &b)
 
 			//drop columns with x-remove tag
-			columns, err := p.db.Migrator().ColumnTypes(instance)
-			if err != nil {
-				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
-			}
-
 			for _, f := range deletedFields {
 				if p.db.Migrator().HasColumn(b, f) {
 
 					deleteConstraintError = p.db.Migrator().DropColumn(b, f)
 					if deleteConstraintError != nil {
 						p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
+						break
 					}
 				} else {
 					p.logger.Errorf("unable to drop column %s from table %s.  property does not exist", f, name)
 				}
 			}
 
-			//if column exists in table but not in new schema, alter column
-
 			//get columns after db drop
 			columns, err = p.db.Migrator().ColumnTypes(instance)
 			if err != nil {
 				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
 			}
+			//if column exists in table but not in new schema, alter column
 			if deleteConstraintError == nil {
 				for _, c := range columns {
 					if !utils.Contains(jsonFields, c.Name()) {
 						deleteConstraintError = p.db.Debug().Migrator().AlterColumn(b, c.Name())
 						if deleteConstraintError != nil {
 							p.logger.Errorf("got error updating constraint %s", err)
-						}
-
-						if deleteConstraintError != nil {
 							break
 						}
 					}

@@ -2623,7 +2623,9 @@ components:
 	})
 
 	t.Run("Remove primary key with x-remove", func(t *testing.T) {
-
+		if *driver != "sqlite3" {
+			t.Skip()
+		}
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
