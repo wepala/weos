@@ -256,12 +256,33 @@ Feature: Hydrate database using events
       | 5     | 24KjLAP17p3KvTy5YCMWUIRlOSS | 1           | Blog 5       | Some Blog 5    |
       | 890   | 24KjMP9uTPxW5Xuhziv1balYskX | 1           | Blog 7       | Some Blog 7    |
       | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
+    And the total no. events and processed and failures should be returned
 
   @WEOS-1327
   Scenario: Repair data tables after some was deleted
 
   @WEOS-1327
   Scenario: Repair tables after some content has been deleted
+    Given a "Blog" with id "1237" was deleted
+    And a "Blog" with id "164" was deleted
+    When "Sojourner" calls the replay method on the event repository
+    Then the "Blogs" table should be populated with
+      | id    | weos_id                     | sequence_no | title        | description    |
+      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
+      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
+      | 164   | 24KjFbp82wGq4qb5LAxLdA5GbR2 | 1           | Blog 6       | Some Blog 6    |
+      | 3     | 24KjHaQbjEv0ZxfKxFup1dI6iKP | 4           | Blog 3       | Some Blog 3    |
+      | 4     | 24KjIq8KJhIhWa7d8sNJhRilGpA | 1           | Blog 4       | Some Blog 4    |
+      | 5     | 24KjLAP17p3KvTy5YCMWUIRlOSS | 1           | Blog 5       | Some Blog 5    |
+      | 890   | 24KjMP9uTPxW5Xuhziv1balYskX | 1           | Blog 7       | Some Blog 7    |
+      | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
+    And the total no. events and processed and failures should be returned
+
+  Scenario: Continue loading events if error occurs
+
+    The event that failed should be logged out WITHOUT the payload
+
+
 
   Scenario: Repair specific schemas
 
