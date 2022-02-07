@@ -2236,8 +2236,8 @@ components:
        description:
          type: string
        last_updated:
-          type: string
-          format: date-time
+         type: string 
+         format: date-time
      required:
        - title
     Post:
