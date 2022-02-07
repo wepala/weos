@@ -487,6 +487,7 @@ func TestStandardControllers_Update(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPut, "/blogs/"+weosId, body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("If-Match", weosId+".1")
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)
 		updateMw := rest.UpdateMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)

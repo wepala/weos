@@ -1007,6 +1007,26 @@ func theShouldBeDeleted(contentEntity string, id int) error {
 	return nil
 }
 
+func aWithIdWasDeleted(arg1, arg2 string) error {
+	return godog.ErrPending
+}
+
+func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
+	return godog.ErrPending
+}
+
+func sojournerDeletesTheTable(arg1 string) error {
+	return godog.ErrPending
+}
+
+func theTableShouldBePopulatedWith(arg1 string, arg2 *godog.Table) error {
+	return godog.ErrPending
+}
+
+func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -1063,6 +1083,11 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with entity id "([^"]*)" for blog with id "([^"]*)"$`, isOnTheDeleteScreenWithEntityIdForBlogWithId)
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with id "([^"]*)"$`, isOnTheDeleteScreenWithId)
 	ctx.Step(`^the "([^"]*)" "(\d+)" should be deleted$`, theShouldBeDeleted)
+	ctx.Step(`^a "([^"]*)" with id "([^"]*)" was deleted$`, aWithIdWasDeleted)
+	ctx.Step(`^"([^"]*)" calls the replay method on the event repository$`, callsTheReplayMethodOnTheEventRepository)
+	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
+	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
+	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
 }
 
 func TestBDD(t *testing.T) {
@@ -1072,8 +1097,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1131",
+			//Tags:   "~skipped && ~long",
+			Tags: "WEOS-1327",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
