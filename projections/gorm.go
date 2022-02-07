@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
@@ -18,6 +19,13 @@ type GORMProjection struct {
 	logger          weos.Log
 	migrationFolder string
 	Schema          map[string]ds.Builder
+}
+
+type FilterProperty struct {
+	Field    string   `json:"field"`
+	Operator string   `json:"operator"`
+	Value    string   `json:"value"`
+	Values   []string `json:"values"`
 }
 
 func (p *GORMProjection) DB() *gorm.DB {
@@ -229,11 +237,26 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	var result *gorm.DB
 	var schemes interface{}
 	if entityFactory == nil {
-		return nil, 0, fmt.Errorf("no entity factory found")
+		return nil, int64(0), fmt.Errorf("no entity factory found")
 	}
-	schemes = entityFactory.DynamicStruct(ctx).NewSliceOfStructs()
-	scheme := entityFactory.DynamicStruct(ctx).New()
-	result = p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+	var filtersProp map[string]FilterProperty
+	props, _ := json.Marshal(filterOptions)
+	json.Unmarshal(props, &filtersProp)
+	filtersProp, err := DateTimeCheck(entityFactory, filtersProp)
+	if err != nil {
+		return nil, int64(0), err
+	}
+	builder := entityFactory.DynamicStruct(ctx)
+	if builder != nil {
+		schemes = builder.NewSliceOfStructs()
+		scheme := builder.New()
+		if len(filterOptions) != 0 {
+			queryString := filterStringBuilder(p.db.Dialector.Name(), filtersProp)
+			result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(queryString)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+		} else {
+			result = p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+		}
+	}
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
 		return nil, 0, err
@@ -273,10 +296,107 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
+//DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
+func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
+	var err error
+	schema := entityFactory.Schema()
+	for key, value := range properties {
+		if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
+			timeP, err := time.Parse(time.RFC3339, value.Value)
+			if err != nil {
+				return nil, err
+			}
+			count := 1
+			if value.Operator == "lt" {
+				timeH := timeP.Add(time.Duration(-count) * time.Second)
+				filter := FilterProperty{
+					Field:    properties[key].Field,
+					Operator: properties[key].Operator,
+					Value:    timeH.String(),
+				}
+				properties[key] = filter
+			}
+			if value.Operator == "gt" {
+				timeH := timeP.Add(time.Duration(count) * time.Second)
+				filter := FilterProperty{
+					Field:    properties[key].Field,
+					Operator: properties[key].Operator,
+					Value:    timeH.String(),
+				}
+				properties[key] = filter
+			}
+
+		}
+	}
+
+	return properties, err
+}
+
+//filterStringBuilder is used to build the query strings
+func filterStringBuilder(dbName string, properties map[string]FilterProperty) string {
+	var query string
+	for _, prop := range properties {
+
+		switch prop.Operator {
+		case "eq":
+			if query != "" {
+				query += " AND " + prop.Field + " = '" + prop.Value + "'"
+			} else {
+				query += prop.Field + " = '" + prop.Value + "'"
+			}
+		case "ne":
+			if query != "" {
+				query += " AND " + prop.Field + " != '" + prop.Value + "'"
+			} else {
+				query += prop.Field + " != '" + prop.Value + "'"
+			}
+		case "like":
+			if dbName == "postgres" {
+				if query != "" {
+					query += " AND " + prop.Field + " ILIKE '%" + prop.Value + "%'"
+				} else {
+					query += prop.Field + " ILIKE '%" + prop.Value + "%'"
+				}
+			} else {
+				if query != "" {
+					query += " AND " + prop.Field + " LIKE '%" + prop.Value + "%'"
+				} else {
+					query += prop.Field + " LIKE '%" + prop.Value + "%'"
+				}
+			}
+		case "in":
+			vals := "'"
+			if query != "" {
+				vals += strings.Join(prop.Values, "','") + "'"
+				query += " AND " + prop.Field + " in '(" + vals + ")'"
+			} else {
+				vals += strings.Join(prop.Values, "','") + "'"
+				query += prop.Field + " in (" + vals + ")"
+			}
+		case "lt":
+			if query != "" {
+				query += " AND " + prop.Field + " < '" + prop.Value + "'"
+			} else {
+				query += prop.Field + " < '" + prop.Value + "'"
+			}
+		case "gt":
+			if query != "" {
+				query += " AND " + prop.Field + " > '" + prop.Value + "'"
+			} else {
+				query += prop.Field + " > '" + prop.Value + "'"
+			}
+		}
+	}
+
+	return query
+}
+
 //query modifier for making queries to the database
 type QueryModifier func() func(db *gorm.DB) *gorm.DB
+type QueryFilterModifier func(query string) func(db *gorm.DB) *gorm.DB
 
 var ContentQuery QueryModifier
+var FilterQuery QueryFilterModifier
 
 //NewProjection creates an instance of the projection
 func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProjection, error) {
@@ -284,6 +404,15 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProj
 	projection := &GORMProjection{
 		db:     db,
 		logger: logger,
+	}
+
+	FilterQuery = func(query string) func(db *gorm.DB) *gorm.DB {
+		return func(db *gorm.DB) *gorm.DB {
+			if query != "" {
+				return db.Where(query).Omit("weos_id, sequence_no, table")
+			}
+			return db
+		}
 	}
 
 	ContentQuery = func() func(db *gorm.DB) *gorm.DB {
