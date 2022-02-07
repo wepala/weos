@@ -2132,7 +2132,7 @@ components:
 			t.Errorf("error getting content entities: %s", err)
 		}
 		if results == nil || len(results) == 0 {
-			t.Errorf("expected to get results but got nil")
+			t.Fatalf("expected to get results but got nil")
 		}
 		if total != int64(5) {
 			t.Errorf("expected total to be %d got %d", int64(5), total)
@@ -2173,7 +2173,7 @@ components:
 			t.Errorf("error getting content entities: %s", err)
 		}
 		if results == nil || len(results) == 0 {
-			t.Errorf("expected to get results but got nil")
+			t.Fatalf("expected to get results but got nil")
 		}
 		if total != int64(2) {
 			t.Errorf("expected total to be %d got %d", int64(2), total)
@@ -2191,10 +2191,18 @@ components:
 		}
 
 	})
-	os.Remove("projection.db")
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
 }
 
 func TestProjections_ListFilters(t *testing.T) {
+	os.Remove("projection.db")
 	openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -2239,8 +2247,8 @@ components:
        description:
          type: string
        last_updated:
-         type: string 
-         format: date-time
+          type: string 
+          format: date-time
      required:
        - title
     Post:
@@ -2279,11 +2287,11 @@ components:
 	if !gormDB.Migrator().HasTable("Post") {
 		t.Fatal("expected to get a table 'Post'")
 	}
-	blogWeosID := "abc123"
-	blogWeosID1 := "abc1234"
-	blogWeosID2 := "abc12345"
-	blogWeosID3 := "abc123456"
-	blogWeosID4 := "abc1234567"
+	blogWeosID := "abc123egg"
+	blogWeosID1 := "abc1234eww"
+	blogWeosID2 := "abc12345wer"
+	blogWeosID3 := "abc123456ewrgth"
+	blogWeosID4 := "abc1234567hngtjn"
 	t1, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:00Z")
 	t2, _ := time.Parse(time.RFC3339, "2005-01-02T15:04:00Z")
 	t3, _ := time.Parse(time.RFC3339, "2007-01-02T13:04:00Z")
