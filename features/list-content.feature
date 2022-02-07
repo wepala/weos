@@ -349,7 +349,7 @@ Feature: List content
       | 4     | Blog 4       | Some Blog 4    |
       | 5     | Blog 5       | Some Blog 5    |
       | 890   | Blog 7       | Some Blog 7    |
-    And the total results should be 5
+    And the total results should be 3
     And the page in the result should be 1
 
   @WEOS-1134
@@ -368,10 +368,10 @@ Feature: List content
       | 1237  | Blog 8       | Some Blog 8    |
       | 164   | Blog 6       | Some Blog 6    |
       | 2     | Blog 2       | Some Blog 2    |
-    And the total results should be 2
+    And the total results should be 4
     And the page in the result should be 1
 
-  @WEOS-1134 @focus
+  @WEOS-1134
   Scenario: Filter list using like  operator
 
     The like operator "like" can only be used with a single value.
