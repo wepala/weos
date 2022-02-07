@@ -6,17 +6,16 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
-	"testing"
-	"time"
-
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
@@ -2287,10 +2286,11 @@ components:
 		t.Fatal("expected to get a table 'Post'")
 	}
 	blogWeosID := "abc123egg"
-	blogWeosID1 := "abc1234eww"
-	blogWeosID2 := "abc12345wer"
-	blogWeosID3 := "abc123456ewrgth"
-	blogWeosID4 := "abc1234567hngtjn"
+	blogWeosID1 := "abc123eww"
+	blogWeosID2 := "abc123wer"
+	blogWeosID3 := "abc123ewrgth"
+	blogWeosID4 := "abc123hngtjn"
+
 	t1, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:00Z")
 	t2, _ := time.Parse(time.RFC3339, "2005-01-02T15:04:00Z")
 	t3, _ := time.Parse(time.RFC3339, "2007-01-02T13:04:00Z")
@@ -2371,15 +2371,15 @@ components:
 	})
 	t.Run("testing filters with the like operator", func(t *testing.T) {
 		page := 1
-		limit := 2
+		limit := 0
 		sortOptions := map[string]string{
 			"id": "asc",
 		}
 		ctxt := context.Background()
 		filter := &projections.FilterProperty{
-			Field:    "id",
+			Field:    "weos_id",
 			Operator: "like",
-			Value:    "1",
+			Value:    "abc123e",
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
@@ -2390,11 +2390,11 @@ components:
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
 		}
-		if total != int64(2) {
-			t.Errorf("expected total to be %d got %d", int64(2), total)
+		if total != int64(3) {
+			t.Errorf("expected total to be %d got %d", int64(3), total)
 		}
-		if len(results) != 2 {
-			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+		if len(results) != 3 {
+			t.Errorf("expected length of results  to be %d got %d", 3, len(results))
 		}
 	})
 	t.Run("testing filters with the in operator with a single value", func(t *testing.T) {
@@ -2517,9 +2517,9 @@ components:
 		}
 		ctxt := context.Background()
 		filter := &projections.FilterProperty{
-			Field:    "id",
+			Field:    "description",
 			Operator: "like",
-			Value:    "1",
+			Value:    "first blog",
 			Values:   nil,
 		}
 		filter2 := &projections.FilterProperty{
@@ -2531,10 +2531,10 @@ components:
 		filters := map[string]interface{}{filter.Field: filter, filter2.Field: filter2}
 		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
-			t.Errorf("error getting content entities: %s", err)
+			t.Fatalf("error getting content entities: %s", err)
 		}
 		if results == nil || len(results) == 0 {
-			t.Errorf("expected to get results but got nil")
+			t.Fatalf("expected to get results but got nil")
 		}
 		if total != int64(1) {
 			t.Errorf("expected total to be %d got %d", int64(1), total)
@@ -2560,7 +2560,7 @@ components:
 		filters := map[string]interface{}{filter.Field: filter}
 		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
-			t.Errorf("error getting content entities: %s", err)
+			t.Fatalf("error getting content entities: %s", err)
 		}
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")

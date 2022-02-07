@@ -302,29 +302,29 @@ func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]Filte
 	schema := entityFactory.Schema()
 	for key, value := range properties {
 		if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
-			timeP, err := time.Parse(time.RFC3339, value.Value)
+			_, err := time.Parse(time.RFC3339, value.Value)
 			if err != nil {
 				return nil, err
 			}
-			count := 1
-			if value.Operator == "lt" {
-				timeH := timeP.Add(time.Duration(-count) * time.Second)
-				filter := FilterProperty{
-					Field:    properties[key].Field,
-					Operator: properties[key].Operator,
-					Value:    timeH.String(),
-				}
-				properties[key] = filter
-			}
-			if value.Operator == "gt" {
-				timeH := timeP.Add(time.Duration(count) * time.Second)
-				filter := FilterProperty{
-					Field:    properties[key].Field,
-					Operator: properties[key].Operator,
-					Value:    timeH.String(),
-				}
-				properties[key] = filter
-			}
+			//count := 1
+			//if value.Operator == "lt" {
+			//	timeH := timeP.Add(time.Duration(-count) * time.Second)
+			//	filter := FilterProperty{
+			//		Field:    properties[key].Field,
+			//		Operator: properties[key].Operator,
+			//		Value:    timeH.String(),
+			//	}
+			//	properties[key] = filter
+			//}
+			//if value.Operator == "gt" {
+			//	timeH := timeP.Add(time.Duration(count) * time.Second)
+			//	filter := FilterProperty{
+			//		Field:    properties[key].Field,
+			//		Operator: properties[key].Operator,
+			//		Value:    timeH.String(),
+			//	}
+			//	properties[key] = filter
+			//}
 
 		}
 	}
