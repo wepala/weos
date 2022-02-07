@@ -2058,6 +2058,9 @@ components:
          description: blog title
        description:
          type: string
+       last_updated:
+         type: string 
+         format: date-time
      required:
        - title
     Post:
