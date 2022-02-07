@@ -513,7 +513,12 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			if filters != nil {
 				filterOptions = map[string]interface{}{}
 				filterOptions = filters.(map[string]interface{})
-				for key, _ := range filterOptions {
+				for key, values := range filterOptions {
+					if len(values.(*FilterProperties).Values) != 0 && values.(*FilterProperties).Operator != "in" {
+						msg := "this operator " + values.(*FilterProperties).Operator + " does not support multiple values "
+						return NewControllerError(msg, nil, http.StatusBadRequest)
+					}
+					// checking if the field is valid based on schema provided
 					if schema.Properties[key] == nil {
 						if key == "id" && schema.ExtensionProps.Extensions[IdentifierExtension] == nil {
 							continue
@@ -521,6 +526,7 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 						msg := "invalid property found in filter: " + key
 						return NewControllerError(msg, nil, http.StatusBadRequest)
 					}
+
 				}
 			}
 			if page == 0 {

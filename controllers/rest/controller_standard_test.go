@@ -1198,6 +1198,31 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 		if strings.Contains(result, string(b)) {
 			t.Errorf("expected error returned to be %s got %s", result, string(b))
 		}
+	})
+	t.Run("Sending multiple values on the wrong operator in the generic list endpoint as parameters", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5_filters[fgsd][like]=123,hsh,3", nil)
+		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
+		}
+		result := "this operator like does not support multiple values "
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Errorf("unexpected error : %s", err)
+		}
+		if strings.Contains(result, string(b)) {
+			t.Errorf("expected error returned to be %s got %s", result, string(b))
+		}
 
 	})
 }

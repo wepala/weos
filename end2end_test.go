@@ -55,7 +55,14 @@ var page int
 var contentType string
 var result api.ListApiResponse
 var scenarioContext context.Context
+var filters string
 
+type FilterProperties struct {
+	Operator string
+	Field    string
+	Value    string
+	Values   []string
+}
 type User struct {
 	Name      string
 	AccountID string
@@ -80,6 +87,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = ""
 	result = api.ListApiResponse{}
 	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
@@ -137,6 +145,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = ""
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
@@ -954,7 +963,7 @@ func thePageNoIs(pageNo int) error {
 
 func theSearchButtonIsHit() error {
 	var request *http.Request
-	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page), nil)
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&"+filters, nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -968,6 +977,62 @@ func theTotalResultsShouldBe(totalResult int) error {
 	if result.Total != int64(totalResult) {
 		return fmt.Errorf("expect page to be %d, got %d", totalResult, result.Total)
 	}
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValue(field, value string) error {
+
+	filters = "_filters[" + field + "][eq]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValues(field string, values *godog.Table) error {
+	filters = "_filters[" + field + "][eq]="
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
+		}
+	}
+
+	return nil
+}
+
+func aFilterOnTheFieldGtWithValue(field, value string) error {
+	filters = "_filters[" + field + "][gt]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldInWithValues(field string, values *godog.Table) error {
+	filters = "_filters[" + field + "][in]="
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
+		}
+	}
+
+	return nil
+}
+
+func aFilterOnTheFieldLikeWithValue(field, value string) error {
+	filters = "_filters[" + field + "][like]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldLtWithValue(field, value string) error {
+	filters = "_filters[" + field + "][lt]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldNeWithValue(field, value string) error {
+	filters = "_filters[" + field + "][ne]=" + value
 	return nil
 }
 
@@ -1024,6 +1089,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
 	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
 	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with value "([^"]*)"$`, aFilterOnTheFieldEqWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with values$`, aFilterOnTheFieldEqWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "gt" with value "([^"]*)"$`, aFilterOnTheFieldGtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "in" with values$`, aFilterOnTheFieldInWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "like" with value "([^"]*)"$`, aFilterOnTheFieldLikeWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "lt" with value "([^"]*)"$`, aFilterOnTheFieldLtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "ne" with value "([^"]*)"$`, aFilterOnTheFieldNeWithValue)
 }
 
 func TestBDD(t *testing.T) {
@@ -1034,7 +1106,6 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1176",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
