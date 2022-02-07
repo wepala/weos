@@ -2218,18 +2218,18 @@ x-weos-config:
     formatter: json
   database:
     driver: sqlite3
-    database: test.db
+    database: projection.db
   event-source:
     - title: default
       driver: service
       endpoint: https://prod1.weos.sh/events/v1
     - title: event
       driver: sqlite3
-      database: test.db
+      database: projection.db
   databases:
     - title: default
       driver: sqlite3
-      database: test.db
+      database: projection.db
   rest:
     middleware:
       - RequestID
