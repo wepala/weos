@@ -2111,12 +2111,7 @@ components:
 			"id": "asc",
 		}
 		ctxt := context.Background()
-		name := "Blog"
-		scheme := api.Swagger.Components.Schemas[name]
-		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-			Name:   strings.Title(name),
-			Schema: scheme.Value,
-		})
+
 		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "sequence_no": int64(1)}
 		blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs2", "sequence_no": int64(1)}
 		blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs3", "sequence_no": int64(1)}
@@ -2164,12 +2159,6 @@ components:
 			"id": "asc",
 		}
 		ctxt := context.Background()
-		name := "Post"
-		scheme := api.Swagger.Components.Schemas[name]
-		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-			Name:   strings.Title(name),
-			Schema: scheme.Value,
-		})
 
 		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "sequence_no": int64(1)}
 		gormDB.Table("Blog").Create(blog)
@@ -2199,6 +2188,7 @@ components:
 		}
 
 	})
+	os.Remove("projection.db")
 }
 
 func TestProjections_ListFilters(t *testing.T) {
