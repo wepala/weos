@@ -55,7 +55,7 @@ var page int
 var contentType string
 var result api.ListApiResponse
 var scenarioContext context.Context
-var filters []FilterProperties
+var filters string
 
 type FilterProperties struct {
 	Operator string
@@ -87,7 +87,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
-	filters = []FilterProperties{}
+	filters = ""
 	result = api.ListApiResponse{}
 	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
@@ -145,7 +145,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
-	filters = []FilterProperties{}
+	filters = ""
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
@@ -963,12 +963,7 @@ func thePageNoIs(pageNo int) error {
 
 func theSearchButtonIsHit() error {
 	var request *http.Request
-
-	if len(filters[0].Values) == 0 {
-		request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&_filters["+filters[0].Field+"]["+filters[0].Operator+"]="+filters[0].Value, nil)
-	} else { //TODO How to parse array in query
-		//request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&_filters["+filters[0].Field+"]["+filters[0].Operator+"]="+filters[0].Values, nil)
-	}
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&"+filters, nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -986,84 +981,58 @@ func theTotalResultsShouldBe(totalResult int) error {
 }
 
 func aFilterOnTheFieldEqWithValue(field, value string) error {
-	prop := FilterProperties{
-		Operator: "eq",
-		Field:    field,
-		Value:    value,
-	}
-	filters = append(filters, prop)
+
+	filters = "_filters[" + field + "][eq]=" + value
 	return nil
 }
 
 func aFilterOnTheFieldEqWithValues(field string, values *godog.Table) error {
-	var valuesArray []string
+	filters = "_filters[" + field + "][eq]="
 	for i := 1; i < len(values.Rows); i++ {
 		for _, cell := range values.Rows[i].Cells {
-			valuesArray = append(valuesArray, cell.Value)
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
 		}
 	}
-	prop := FilterProperties{
-		Operator: "eq",
-		Field:    field,
-		Values:   valuesArray,
-	}
-	filters = append(filters, prop)
+
 	return nil
 }
 
 func aFilterOnTheFieldGtWithValue(field, value string) error {
-	prop := FilterProperties{
-		Operator: "gt",
-		Field:    field,
-		Value:    value,
-	}
-	filters = append(filters, prop)
+	filters = "_filters[" + field + "][gt]=" + value
 	return nil
 }
 
 func aFilterOnTheFieldInWithValues(field string, values *godog.Table) error {
-	var valuesArray []string
+	filters = "_filters[" + field + "][in]="
 	for i := 1; i < len(values.Rows); i++ {
 		for _, cell := range values.Rows[i].Cells {
-			valuesArray = append(valuesArray, cell.Value)
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
 		}
 	}
-	prop := FilterProperties{
-		Operator: "in",
-		Field:    field,
-		Values:   valuesArray,
-	}
-	filters = append(filters, prop)
+
 	return nil
 }
 
 func aFilterOnTheFieldLikeWithValue(field, value string) error {
-	prop := FilterProperties{
-		Operator: "like",
-		Field:    field,
-		Value:    value,
-	}
-	filters = append(filters, prop)
+	filters = "_filters[" + field + "][like]=" + value
 	return nil
 }
 
 func aFilterOnTheFieldLtWithValue(field, value string) error {
-	prop := FilterProperties{
-		Operator: "lt",
-		Field:    field,
-		Value:    value,
-	}
-	filters = append(filters, prop)
+	filters = "_filters[" + field + "][lt]=" + value
 	return nil
 }
 
 func aFilterOnTheFieldNeWithValue(field, value string) error {
-	prop := FilterProperties{
-		Operator: "ne",
-		Field:    field,
-		Value:    value,
-	}
-	filters = append(filters, prop)
+	filters = "_filters[" + field + "][ne]=" + value
 	return nil
 }
 
@@ -1137,7 +1106,6 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1176",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
