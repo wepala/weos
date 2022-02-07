@@ -287,18 +287,18 @@ func TestContext(t *testing.T) {
 			}
 			tValue := cc.Value(paramName)
 			if tValue != nil {
-				filters := tValue.(map[string]*rest.FilterProperties)
+				filters := tValue.(map[string]interface{})
 				if filters == nil {
 					t.Fatalf("expected filters got nil")
 				}
-				if filters[field].Field != field {
-					t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+				if filters[field].(*rest.FilterProperties).Field != field {
+					t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Field)
 				}
-				if filters[field].Operator != operator {
-					t.Errorf("expected the filters operator to be '%s', got '%s'", field, filters[field].Operator)
+				if filters[field].(*rest.FilterProperties).Operator != operator {
+					t.Errorf("expected the filters operator to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Operator)
 				}
-				if filters[field].Value != paramValue {
-					t.Errorf("expected the filters value to be '%s', got '%s'", field, filters[field].Value)
+				if filters[field].(*rest.FilterProperties).Value != paramValue {
+					t.Errorf("expected the filters value to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Value)
 				}
 			}
 			return nil
@@ -328,24 +328,24 @@ func TestContext(t *testing.T) {
 			if tValue != nil {
 				tValue := cc.Value(paramName)
 				if tValue != nil {
-					filters := tValue.(map[string]*rest.FilterProperties)
-					if filters[field].Field != field {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					filters := tValue.(map[string]interface{})
+					if filters[field].(*rest.FilterProperties).Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Field)
 					}
-					if filters[field].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					if filters[field].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].(*rest.FilterProperties).Operator)
 					}
-					if filters[field].Value != paramValue {
-						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue, filters[field].Value)
+					if filters[field].(*rest.FilterProperties).Value != paramValue {
+						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue, filters[field].(*rest.FilterProperties).Value)
 					}
-					if filters[field2].Field != field2 {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].Field)
+					if filters[field2].(*rest.FilterProperties).Field != field2 {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].(*rest.FilterProperties).Field)
 					}
-					if filters[field2].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].Operator)
+					if filters[field2].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].(*rest.FilterProperties).Operator)
 					}
-					if filters[field2].Value != paramValue2 {
-						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue2, filters[field2].Value)
+					if filters[field2].(*rest.FilterProperties).Value != paramValue2 {
+						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue2, filters[field2].(*rest.FilterProperties).Value)
 					}
 				}
 			}
@@ -379,24 +379,24 @@ func TestContext(t *testing.T) {
 			if tValue != nil {
 				tValue := cc.Value(paramName)
 				if tValue != nil {
-					filters := tValue.(map[string]*rest.FilterProperties)
-					if filters[field].Field != field {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					filters := tValue.(map[string]interface{})
+					if filters[field].(*rest.FilterProperties).Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Field)
 					}
-					if filters[field].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					if filters[field].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].(*rest.FilterProperties).Operator)
 					}
-					if filters[field].Value != paramValue {
-						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue, filters[field].Value)
+					if filters[field].(*rest.FilterProperties).Value != paramValue {
+						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue, filters[field].(*rest.FilterProperties).Value)
 					}
-					if filters[field2].Field != field2 {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].Field)
+					if filters[field2].(*rest.FilterProperties).Field != field2 {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].(*rest.FilterProperties).Field)
 					}
-					if filters[field2].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].Operator)
+					if filters[field2].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].(*rest.FilterProperties).Operator)
 					}
-					if len(filters[field2].Values) != 3 {
-						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field2].Values))
+					if len(filters[field2].(*rest.FilterProperties).Values) != 3 {
+						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field2].(*rest.FilterProperties).Values))
 					}
 				}
 			}
@@ -428,15 +428,15 @@ func TestContext(t *testing.T) {
 			if tValue != nil {
 				tValue := cc.Value(paramName)
 				if tValue != nil {
-					filters := tValue.(map[string]*rest.FilterProperties)
-					if filters[field].Field != field {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					filters := tValue.(map[string]interface{})
+					if filters[field].(*rest.FilterProperties).Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Field)
 					}
-					if filters[field].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					if filters[field].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].(*rest.FilterProperties).Operator)
 					}
-					if len(filters[field].Values) != 3 {
-						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field].Values))
+					if len(filters[field].(*rest.FilterProperties).Values) != 3 {
+						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field].(*rest.FilterProperties).Values))
 					}
 				}
 			}
