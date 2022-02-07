@@ -2202,7 +2202,6 @@ components:
 }
 
 func TestProjections_ListFilters(t *testing.T) {
-	os.Remove("projection.db")
 	openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -2247,8 +2246,8 @@ components:
        description:
          type: string
        last_updated:
-          type: string 
-          format: date-time
+         type: string 
+         format: date-time
      required:
        - title
     Post:
