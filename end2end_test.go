@@ -928,8 +928,9 @@ func theListResultsShouldBe(details *godog.Table) error {
 		compare = map[string]interface{}{}
 	}
 	foundItems := 0
-
-	err := json.NewDecoder(rec.Body).Decode(&result)
+	response := rec.Result()
+	defer response.Body.Close()
+	err := json.NewDecoder(response.Body).Decode(&result)
 	if err != nil {
 		return err
 	}
