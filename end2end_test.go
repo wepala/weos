@@ -929,7 +929,10 @@ func theListResultsShouldBe(details *godog.Table) error {
 	}
 	foundItems := 0
 
-	json.NewDecoder(rec.Body).Decode(&result)
+	err := json.NewDecoder(rec.Body).Decode(result)
+	if err != nil {
+		return err
+	}
 	for i, entity := range compareArray {
 		foundEntity := true
 		for key, value := range entity {
@@ -1105,8 +1108,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1110 && ~skipped",
+			//Tags:   "~skipped && ~long",
+			Tags: "WEOS-1134",
 		},
 	}.Run()
 	if status != 0 {
