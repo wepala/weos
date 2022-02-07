@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
@@ -236,11 +237,15 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	var result *gorm.DB
 	var schemes interface{}
 	if entityFactory == nil {
-		return nil, 0, fmt.Errorf("no entity factory found")
+		return nil, int64(0), fmt.Errorf("no entity factory found")
 	}
 	var filtersProp map[string]FilterProperty
 	props, _ := json.Marshal(filterOptions)
 	json.Unmarshal(props, &filtersProp)
+	filtersProp, err := DateTimeCheck(entityFactory, filtersProp)
+	if err != nil {
+		return nil, int64(0), err
+	}
 	builder := entityFactory.DynamicStruct(ctx)
 	if builder != nil {
 		schemes = builder.NewSliceOfStructs()
@@ -289,6 +294,42 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 
 		return db
 	}
+}
+
+//DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
+func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
+	var err error
+	schema := entityFactory.Schema()
+	for key, value := range properties {
+		if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
+			timeP, err := time.Parse(time.RFC3339, value.Value)
+			if err != nil {
+				return nil, err
+			}
+			count := 1
+			if value.Operator == "lt" {
+				timeH := timeP.Add(time.Duration(-count) * time.Second)
+				filter := FilterProperty{
+					Field:    properties[key].Field,
+					Operator: properties[key].Operator,
+					Value:    timeH.String(),
+				}
+				properties[key] = filter
+			}
+			if value.Operator == "gt" {
+				timeH := timeP.Add(time.Duration(count) * time.Second)
+				filter := FilterProperty{
+					Field:    properties[key].Field,
+					Operator: properties[key].Operator,
+					Value:    timeH.String(),
+				}
+				properties[key] = filter
+			}
+
+		}
+	}
+
+	return properties, err
 }
 
 //filterStringBuilder is used to build the query strings
