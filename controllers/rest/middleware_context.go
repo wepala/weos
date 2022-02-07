@@ -6,6 +6,7 @@ import (
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"net/textproto"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -93,17 +94,23 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 				}
 			case "If-Match", "If-None-Match": //default type is string
 			default:
-				var filters map[string]*FilterProperties
-				filters = map[string]*FilterProperties{}
+				var filters map[string]interface{}
+				filters = map[string]interface{}{}
 				if parameter.Value.Name == "_filters" {
-					filtersArray := SplitFilters(c.Request().URL.RawQuery)
+					decodedQuery, err := url.PathUnescape(c.Request().URL.RawQuery)
+					if err != nil {
+						return cc, fmt.Errorf("Error decoding the string %v", err)
+					}
+					filtersArray := SplitFilters(decodedQuery)
 					if filtersArray != nil && len(filtersArray) > 0 {
 						for _, value := range filtersArray {
-							prop := SplitFilter(value)
-							if prop == nil {
-								return cc, fmt.Errorf("unexpected error filter format is incorrect")
+							if strings.Contains(value, "_filters") {
+								prop := SplitFilter(value)
+								if prop == nil {
+									return cc, fmt.Errorf("unexpected error filter format is incorrect: %s", value)
+								}
+								filters[prop.Field] = prop
 							}
-							filters[prop.Field] = prop
 						}
 						val = filters
 						break

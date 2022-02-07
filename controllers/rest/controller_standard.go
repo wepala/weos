@@ -498,15 +498,31 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
+			var filterOptions map[string]interface{}
 			newContext := ctxt.Request().Context()
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
 				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
-			//gets the limit and page from context
+			//gets the filter, limit and page from context
 			limit, _ := newContext.Value("limit").(int)
 			page, _ := newContext.Value("page").(int)
+			filters := newContext.Value("_filters")
+			schema := entityFactory.Schema()
+			if filters != nil {
+				filterOptions = map[string]interface{}{}
+				filterOptions = filters.(map[string]interface{})
+				for key, _ := range filterOptions {
+					if schema.Properties[key] == nil {
+						if key == "id" && schema.ExtensionProps.Extensions[IdentifierExtension] == nil {
+							continue
+						}
+						msg := "invalid property found in filter: " + key
+						return NewControllerError(msg, nil, http.StatusBadRequest)
+					}
+				}
+			}
 			if page == 0 {
 				page = 1
 			}
@@ -517,7 +533,7 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			sorts := map[string]string{"id": "asc"}
 
 			if projection != nil {
-				contentEntities, count, err = projection.GetContentEntities(newContext, entityFactory, page, limit, "", sorts, nil)
+				contentEntities, count, err = projection.GetContentEntities(newContext, entityFactory, page, limit, "", sorts, filterOptions)
 			}
 
 			if err != nil {
