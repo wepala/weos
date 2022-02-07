@@ -357,4 +357,16 @@ func TestContentEntity_Delete(t *testing.T) {
 	if deletedEntity.GetString("Description") != "New Description" {
 		t.Errorf("expected the updated description to be '%s', got '%s'", "New Description", deletedEntity.GetString("Description"))
 	}
+
+	delEvents := deletedEntity.AggregateRoot.GetNewChanges()
+	lastEvent := delEvents[len(delEvents)-1].(*model.Event)
+
+	if lastEvent == nil {
+		t.Errorf("expected there to be events on the entity")
+	}
+
+	if lastEvent.Type != "delete" {
+		t.Errorf("expected the last event to be '%s', got '%s'", "delete", lastEvent.Type)
+	}
+
 }
