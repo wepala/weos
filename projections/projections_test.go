@@ -2565,12 +2565,22 @@ components:
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
 		}
-		if total != int64(1) {
-			t.Errorf("expected total to be %d got %d", int64(1), total)
+		if *driver == "sqlite3" {
+			if total != int64(2) {
+				t.Errorf("expected total to be %d got %d", int64(2), total)
+			}
+			if len(results) != 2 {
+				t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+			}
+		} else {
+			if total != int64(1) {
+				t.Errorf("expected total to be %d got %d", int64(1), total)
+			}
+			if len(results) != 1 {
+				t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+			}
 		}
-		if len(results) != 1 {
-			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
-		}
+
 	})
 	t.Run("testing date time filters(greater than) ", func(t *testing.T) {
 		page := 1
