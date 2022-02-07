@@ -327,10 +327,10 @@ Feature: List content
     And the list results should be
       | id    | title        | description    |
       | 1     | Blog 1       | Some Blog      |
+      | 1237  | Blog 8       | Some Blog 8    |
       | 164   | Blog 6       | Some Blog 6    |
       | 2     | Blog 2       | Some Blog 2    |
       | 4     | Blog 4       | Some Blog 4    |
-      | 5     | Blog 5       | Some Blog 5    |
     And the total results should be 7
     And the page in the result should be 1
 
