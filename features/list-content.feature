@@ -314,7 +314,7 @@ Feature: List content
     Then a 400 response should be returned
     And an error should be returned
 
-  @WEOS-1134
+  @WEOS-1134 @focus
   Scenario: Filter list using not equal operator
 
     The not equal operator "ne" can only be used with a single value.
@@ -327,10 +327,10 @@ Feature: List content
     And the list results should be
       | id    | title        | description    |
       | 1     | Blog 1       | Some Blog      |
+      | 164   | Blog 6       | Some Blog 6    |
       | 2     | Blog 2       | Some Blog 2    |
       | 4     | Blog 4       | Some Blog 4    |
       | 5     | Blog 5       | Some Blog 5    |
-      | 164   | Blog 6       | Some Blog 6    |
     And the total results should be 7
     And the page in the result should be 1
 
@@ -346,11 +346,11 @@ Feature: List content
     Then a 200 response should be returned
     And the list results should be
       | id    | title        | description    |
+      | 164   | Blog 6       | Some Blog 6    |
+      | 1237  | Blog 8       | Some Blog 8    |
       | 4     | Blog 4       | Some Blog 4    |
       | 5     | Blog 5       | Some Blog 5    |
-      | 164   | Blog 6       | Some Blog 6    |
       | 890   | Blog 7       | Some Blog 7    |
-      | 1237  | Blog 8       | Some Blog 8    |
     And the total results should be 5
     And the page in the result should be 1
 
@@ -384,8 +384,8 @@ Feature: List content
     And the list results should be
       | id    | title        | description    |
       | 1     | Blog 1       | Some Blog      |
-      | 164   | Blog 6       | Some Blog 6    |
       | 1237  | Blog 8       | Some Blog 8    |
+      | 164   | Blog 6       | Some Blog 6    |
     And the total results should be 3
     And the page in the result should be 1
 
