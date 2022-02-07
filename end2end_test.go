@@ -188,14 +188,16 @@ func dropDB() error {
 		os.Remove("e2e.db")
 		db, errr = sql.Open("sqlite3", "e2e.db")
 	} else if *driver == "postgres" {
-		gormDB = gormDB.Exec(`DROP SCHEMA public CASCADE;
+		r := gormDB.Exec(`DROP SCHEMA public CASCADE;
 		CREATE SCHEMA public;`)
-		errr = gormDB.Error
+		errr = r.Error
 	} else if *driver == "mysql" {
-		gormDB = gormDB.Exec(`drop database mysql;`)
-		gormDB = gormDB.Exec(`create database mysql;`)
-		errr = gormDB.Error
-
+		_, r := db.Exec(`drop DATABASE IF EXISTS mysql;`)
+		if r != nil {
+			return r
+		}
+		_, r = db.Exec(`create DATABASE IF NOT EXISTS mysql;`)
+		errr = r
 	}
 	return errr
 }
@@ -261,10 +263,36 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 					} else {
 						cell.Value = "varchar"
 					}
-					payload[column.Name()] = "hugs"
+				}
+
+				if cell.Value == "integer" {
+					if *driver == "postgres" {
+						cell.Value = "int8"
+					}
+					if *driver == "mysql" {
+						cell.Value = "bigint"
+					}
+				}
+
+				if cell.Value == "datetime" {
+					if *driver == "postgres" {
+						cell.Value = "timestamptz"
+					}
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
-					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+					if cell.Value == "varchar" && *driver == "postgres" {
+						//string values for postgres can be both text and varchar
+						if !strings.EqualFold(column.DatabaseTypeName(), "text") {
+							return fmt.Errorf("expected to get type '%s' got '%s'", "text", column.DatabaseTypeName())
+						}
+					} else if cell.Value == "varchar" && *driver == "mysql" {
+						//string values for postgres can be both text and varchar
+						if !strings.EqualFold(column.DatabaseTypeName(), "longtext") {
+							return fmt.Errorf("expected to get type '%s' got '%s'", "longtext", column.DatabaseTypeName())
+						}
+					} else {
+						return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+					}
 				}
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
@@ -525,6 +553,16 @@ func theSpecificationIsParsed(arg1 string) error {
 	if err != nil {
 		return err
 	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMProjection)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -686,8 +724,15 @@ func theServiceIsRunning() error {
 	if err != nil {
 		return err
 	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMProjection)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
 	e = API.EchoInstance()
-	return nil
+	return err
 }
 
 func isOnTheEditScreenWithId(user, contentType, id string) error {

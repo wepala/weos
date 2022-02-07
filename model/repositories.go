@@ -2,6 +2,8 @@ package model
 
 import (
 	"encoding/json"
+	"time"
+
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
@@ -22,16 +24,18 @@ type EventRepositoryGorm struct {
 }
 
 type GormEvent struct {
-	gorm.Model
 	ID            string
-	EntityID      string `gorm:"index"`
-	EntityType    string `gorm:"index"`
+	EntityID      string
+	EntityType    string
 	Payload       datatypes.JSON
-	Type          string `gorm:"index"`
-	RootID        string `gorm:"index"`
-	ApplicationID string `gorm:"index"`
-	User          string `gorm:"index"`
+	Type          string
+	RootID        string
+	ApplicationID string
+	User          string
 	SequenceNo    int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeletedAt     time.Time
 }
 
 //NewGormEvent converts a domain event to something that is a bit easier for Gorm to work with
