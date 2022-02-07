@@ -88,6 +88,8 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	filters = ""
+	page = 1
+	limit = 0
 	result = api.ListApiResponse{}
 	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
@@ -146,6 +148,8 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	filters = ""
+	page = 1
+	limit = 0
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
@@ -930,6 +934,7 @@ func theListResultsShouldBe(details *godog.Table) error {
 	foundItems := 0
 	response := rec.Result()
 	defer response.Body.Close()
+	result.Items = make([]map[string]interface{}, len(compareArray))
 	err := json.NewDecoder(response.Body).Decode(&result)
 	if err != nil {
 		return err
