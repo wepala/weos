@@ -929,7 +929,7 @@ func theListResultsShouldBe(details *godog.Table) error {
 	}
 	foundItems := 0
 
-	err := json.NewDecoder(rec.Body).Decode(result)
+	err := json.NewDecoder(rec.Body).Decode(&result)
 	if err != nil {
 		return err
 	}
