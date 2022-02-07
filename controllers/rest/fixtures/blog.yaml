@@ -82,11 +82,11 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         lastUpdated:
           type: string
           format: date-time
@@ -113,6 +113,10 @@ paths:
     summary: Health Check
     get:
       x-controller: HealthCheck
+      x-middleware:
+        - Recover
+      x-command-dispatcher: HealthCheck
+      x-event-dispatcher: HealthCheck
       responses:
         200:
           description: Health Response
@@ -150,6 +154,9 @@ paths:
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-projection: Default
+      x-event-dispatcher: Default
+      x-command-disptacher: Default
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -181,7 +188,7 @@ paths:
           schema:
             type: integer
         - in: query
-          name: filters
+          name: _filters
           schema:
             type: array
             items:
@@ -236,7 +243,28 @@ paths:
                     x-alias: items
                     items:
                       $ref: "#/components/schemas/Blog"
+    put:
+      operationId: Import blogs
+      requestBody:
+        content:
+          text/csv:
+            schema:
+              type: string
+              format: binary
+      responses:
+        201:
+          description: items created
+
   /blogs/{id}:
+    parameters:
+      - in: query
+        name: sequence_no
+        schema:
+          type: integer
+      - in: query
+        name: use_entity_id
+        schema:
+          type: boolean
     get:
       parameters:
         - in: path

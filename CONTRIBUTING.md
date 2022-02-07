@@ -23,7 +23,7 @@ Decided that you want to help with code, but you've ever made an open-source con
 
 ## Where Can I Go For Help?
 
-If you need help, you can ask questions on Slack or reach us on the mailing list. 
+If you need help, you can ask questions on Discord or reach us on GitHub. 
 
 
 

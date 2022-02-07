@@ -218,7 +218,21 @@ Feature: View content
      Given Sojourner is updating "Blog" with id "4567"
      And "Sojourner" enters "Some New Blog" in the "title" field
      And the "Blog" is submitted
-     When the "GET" endpoint "/blogs/22xu4iw0bWMwxqbrUvjqEqu5dof?sequence_no=1" is hit
+     When the "GET" endpoint "/blogs/4567?sequence_no=1" is hit
+     Then a 200 response should be returned
+     And a blog should be returned
+       | id    | title           | description    |
+       | 4567  | Blog 2          | Some Blog 2    |
+     And the "ETag" header should be "22xu4iw0bWMwxqbrUvjqEqu5dof.1"
+
+  Scenario: Get specific version of an entity using the entity id
+
+    A developer can pass in the specific sequence no (sequence_no) to get an entity at a specific state
+
+     Given Sojourner is updating "Blog" with id "4567"
+     And "Sojourner" enters "Some New Blog" in the "title" field
+     And the "Blog" is submitted
+     When the "GET" endpoint "/blogs/22xu4iw0bWMwxqbrUvjqEqu5dof?sequence_no=1&use_entity_id=true" is hit
      Then a 200 response should be returned
      And a blog should be returned
        | id    | title           | description    |

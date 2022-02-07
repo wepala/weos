@@ -17,11 +17,27 @@ const ACCOUNT_ID ContextKey = "ACCOUNT_ID"
 const USER_ID ContextKey = "USER_ID"
 const LOG_LEVEL ContextKey = "LOG_LEVEL"
 const REQUEST_ID ContextKey = "REQUEST_ID"
-const SEQUENCE_NO ContextKey = "SEQUENCE_NO"
 const WEOS_ID ContextKey = "WEOS_ID"
 const CONTENT_TYPE ContextKey = "_contentType"
+const ENTITY_FACTORY ContextKey = "_entityFactory"
+const MIDDLEWARES ContextKey = "_middlewares"
+const CONTROLLER ContextKey = "_controller"
+const PROJECTION ContextKey = "_projection"
+const COMMAND_DISPATCHER ContextKey = "_command_disptacher"
+const EVENT_STORE ContextKey = "_event_store"
+const SCHEMA_BUILDERS ContextKey = "_schema_builders"
 const FILTERS ContextKey = "_filters"
 const SORTS ContextKey = "_sorts"
+const SEQUENCE_NO string = "sequence_no"
+
+//Path initializers are run per path and can be used to configure routes that are not defined in the open api spec
+const METHODS_FOUND ContextKey = "_methods_found"
+
+//entity
+const ENTITY_ID = "_entity_id"
+const ENTITY_COLLECTION = "_entity_collection"
+const ENTITY = "_entity"
+const ERROR = "_error"
 
 //ContentType this makes it easier to access the content type information in the context
 type ContentType struct {
@@ -68,6 +84,22 @@ func GetRequestID(ctx context.Context) string {
 		return value
 	}
 	return ""
+}
+
+//Get entity id if it's in the context
+func GetEntityID(ctx context.Context) string {
+	if value, ok := ctx.Value(ENTITY_ID).(string); ok {
+		return value
+	}
+	return ""
+}
+
+//Get error
+func GetError(ctx context.Context) error {
+	if value, ok := ctx.Value(ctx).(error); ok {
+		return value
+	}
+	return nil
 }
 
 //Deprecated: Context Use the Go context in the echo request instead
