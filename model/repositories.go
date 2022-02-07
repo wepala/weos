@@ -7,6 +7,7 @@ import (
 	"golang.org/x/net/context"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"time"
 )
 
 type EventRepositoryGorm struct {
@@ -281,6 +282,22 @@ func (e *EventRepositoryGorm) Remove(entities []Entity) error {
 			e.DB.RollbackTo(savePointID)
 			return db.Error
 		}
+	}
+
+	return nil
+}
+
+func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time) error {
+	var events []GormEvent
+
+	if date.IsZero() {
+		result := e.DB.Table("gorm_events").Find(&events)
+		if result.Error != nil {
+			return result.Error
+		}
+
+	} else {
+		//TODO use the date to query the database
 	}
 
 	return nil
