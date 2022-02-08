@@ -153,14 +153,11 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 		if strings.Contains(relation, "[]") {
 			//many to many relationship
 			relationName := strings.Trim(relation, "[]")
-
-			relationKeys := keys[relationName]
-			tableKeys := keys[tableName]
 			inst := structs[relationName]
 			f := inst.GetField("Table")
 			f.SetTag(`json:"table_alias" gorm:"default:` + relationName + `"`)
 			instances := inst.Build().NewSliceOfStructs()
-			struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`" gorm:"many2many:`+utils.SnakeCase(tableName)+"_"+utils.SnakeCase(name)+`;foreignKey:`+strings.Join(tableKeys, ",")+`;References:`+strings.Join(relationKeys, ",")+`"`)
+			struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`" gorm:"many2many:`+utils.SnakeCase(tableName)+"_"+utils.SnakeCase(name)+`;"`)
 		} else {
 			inst := structs[relation]
 			f := inst.GetField("Table")
