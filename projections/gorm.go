@@ -22,10 +22,10 @@ type GORMProjection struct {
 }
 
 type FilterProperty struct {
-	Field    string   `json:"field"`
-	Operator string   `json:"operator"`
-	Value    string   `json:"value"`
-	Values   []string `json:"values"`
+	Field    string        `json:"field"`
+	Operator string        `json:"operator"`
+	Value    interface{}   `json:"value"`
+	Values   []interface{} `json:"values"`
 }
 
 func (p *GORMProjection) DB() *gorm.DB {
@@ -259,12 +259,7 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	if builder != nil {
 		schemes = builder.NewSliceOfStructs()
 		scheme := builder.New()
-		if len(filterOptions) != 0 {
-			queryString := filterStringBuilder(p.db.Dialector.Name(), filtersProp)
-			result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(queryString)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
-		} else {
-			result = p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
-		}
+		result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	}
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
@@ -402,7 +397,7 @@ func filterStringBuilder(dbName string, properties map[string]FilterProperty) st
 
 //query modifier for making queries to the database
 type QueryModifier func() func(db *gorm.DB) *gorm.DB
-type QueryFilterModifier func(query string) func(db *gorm.DB) *gorm.DB
+type QueryFilterModifier func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB
 
 var ContentQuery QueryModifier
 var FilterQuery QueryFilterModifier
@@ -415,10 +410,22 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProj
 		logger: logger,
 	}
 
-	FilterQuery = func(query string) func(db *gorm.DB) *gorm.DB {
+	FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {
-			if query != "" {
-				return db.Where(query).Omit("weos_id, sequence_no, table")
+			for _, filter := range options {
+				operator := "="
+				switch filter.Operator {
+				case "gt":
+					operator = ">"
+
+				}
+
+				if len(filter.Values) == 0 {
+					db.Where(filter.Field+operator+"?", filter.Value)
+				} else {
+					db.Where(filter.Field+operator+"?", filter.Values...)
+				}
+
 			}
 			return db
 		}
