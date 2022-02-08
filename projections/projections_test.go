@@ -2823,383 +2823,382 @@ components:
 	})
 
 	//TODO: Required field removal functionality without x-remove inconsistent across databases
-	// 	t.Run("Remove primary key without x-remove", func(t *testing.T) {
+	t.Run("Remove primary key without x-remove", func(t *testing.T) {
+		if *driver != "sqlite3" {
+			t.Skip()
+		}
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       guid:
+         type: string
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     x-identifier:
+       - guid
+`
 
-	// 		openAPI := `openapi: 3.0.3
-	// info:
-	//   title: Blog
-	//   description: Blog example
-	//   version: 1.0.0
-	// servers:
-	//   - url: https://prod1.weos.sh/blog/dev
-	//     description: WeOS Dev
-	//   - url: https://prod1.weos.sh/blog/v1
-	// x-weos-config:
-	//   logger:
-	//     level: warn
-	//     report-caller: true
-	//     formatter: json
-	//   database:
-	//     driver: sqlite3
-	//     database: test.db
-	//   event-source:
-	//     - title: default
-	//       driver: service
-	//       endpoint: https://prod1.weos.sh/events/v1
-	//     - title: event
-	//       driver: sqlite3
-	//       database: test.db
-	//   databases:
-	//     - title: default
-	//       driver: sqlite3
-	//       database: test.db
-	//   rest:
-	//     middleware:
-	//       - RequestID
-	//       - Recover
-	//       - ZapLogger
-	// components:
-	//   schemas:
-	//     Blog:
-	//      type: object
-	//      properties:
-	//        guid:
-	//          type: string
-	//        title:
-	//          type: string
-	//          description: blog title
-	//        description:
-	//          type: string
-	//      x-identifier:
-	//        - guid
-	// `
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
 
-	// 		loader := openapi3.NewSwaggerLoader()
-	// 		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-	// 		p, err := projections.NewProjection(context.Background(), app, schemes)
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 		err = p.Migrate(context.Background())
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
 
-	// 		gormDB := app.DB()
-	// 		if !gormDB.Migrator().HasTable("Blog") {
-	// 			t.Fatal("expected to get a table 'Blog'")
-	// 		}
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
 
-	// 		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "guid" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
 
-	// 		found := false
-	// 		found1 := false
-	// 		found2 := false
-	// 		for _, c := range columns {
-	// 			if c.Name() == "guid" {
-	// 				found = true
-	// 			}
-	// 			if c.Name() == "title" {
-	// 				found1 = true
-	// 			}
-	// 			if c.Name() == "description" {
-	// 				found2 = true
-	// 			}
-	// 		}
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
 
-	// 		if !found1 || !found2 || !found {
-	// 			t.Fatal("not all fields found")
-	// 		}
+		openAPI = `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+`
+		api, err = rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
 
-	// 		openAPI = `openapi: 3.0.3
-	// info:
-	//   title: Blog
-	//   description: Blog example
-	//   version: 1.0.0
-	// servers:
-	//   - url: https://prod1.weos.sh/blog/dev
-	//     description: WeOS Dev
-	//   - url: https://prod1.weos.sh/blog/v1
-	// x-weos-config:
-	//   logger:
-	//     level: warn
-	//     report-caller: true
-	//     formatter: json
-	//   database:
-	//     driver: sqlite3
-	//     database: test.db
-	//   event-source:
-	//     - title: default
-	//       driver: service
-	//       endpoint: https://prod1.weos.sh/events/v1
-	//     - title: event
-	//       driver: sqlite3
-	//       database: test.db
-	//   databases:
-	//     - title: default
-	//       driver: sqlite3
-	//       database: test.db
-	//   rest:
-	//     middleware:
-	//       - RequestID
-	//       - Recover
-	//       - ZapLogger
-	// components:
-	//   schemas:
-	//     Blog:
-	//      type: object
-	//      properties:
-	//        title:
-	//          type: string
-	//          description: blog title
-	//        description:
-	//          type: string
-	// `
-	// 		loader = openapi3.NewSwaggerLoader()
-	// 		swagger, err = loader.LoadSwaggerFromData([]byte(openAPI))
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 		schemes = rest.CreateSchema(context.Background(), echo.New(), swagger)
-	// 		p, err = projections.NewProjection(context.Background(), app, schemes)
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 		err = p.Migrate(context.Background())
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
 
-	// 		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
+		//expect all columns to still be in the database
+		found = false
+		found1 = false
+		found2 = false
+		for _, c := range columns {
+			if c.Name() == "guid" {
+				found = true
+			}
+			//id should be auto created
+			if c.Name() == "id" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
 
-	// 		//expect all columns to still be in the database
-	// 		found = false
-	// 		found1 = false
-	// 		found2 = false
-	// 		for _, c := range columns {
-	// 			if c.Name() == "guid" {
-	// 				found = true
-	// 			}
-	// 			//id should be auto created
-	// 			if c.Name() == "id" {
-	// 				found1 = true
-	// 			}
-	// 			if c.Name() == "description" {
-	// 				found2 = true
-	// 			}
-	// 		}
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
 
-	// 		if !found1 || !found2 || !found {
-	// 			t.Fatal("not all fields found")
-	// 		}
+		//create using auto id and not guid
+		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
+		if tresult.Error != nil {
+			t.Errorf("expected to be able to create with new primary key")
+		}
 
-	// 		//create using auto id and not guid
-	// 		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
-	// 		if tresult.Error != nil {
-	// 			t.Errorf("expected to be able to create with new primary key")
-	// 		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
 
-	// 		err = gormDB.Migrator().DropTable("Blog")
-	// 		if err != nil {
-	// 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
-	// 		}
+	})
 
-	// 	})
+	t.Run("Remove required key without x-remove", func(t *testing.T) {
 
-	// 	t.Run("Remove required key without x-remove", func(t *testing.T) {
-	// 		openAPI := `openapi: 3.0.3
-	// info:
-	//   title: Blog
-	//   description: Blog example
-	//   version: 1.0.0
-	// servers:
-	//   - url: https://prod1.weos.sh/blog/dev
-	//     description: WeOS Dev
-	//   - url: https://prod1.weos.sh/blog/v1
-	// x-weos-config:
-	//   logger:
-	//     level: warn
-	//     report-caller: true
-	//     formatter: json
-	//   database:
-	//     driver: sqlite3
-	//     database: test.db
-	//   event-source:
-	//     - title: default
-	//       driver: service
-	//       endpoint: https://prod1.weos.sh/events/v1
-	//     - title: event
-	//       driver: sqlite3
-	//       database: test.db
-	//   databases:
-	//     - title: default
-	//       driver: sqlite3
-	//       database: test.db
-	//   rest:
-	//     middleware:
-	//       - RequestID
-	//       - Recover
-	//       - ZapLogger
-	// components:
-	//   schemas:
-	//     Blog:
-	//      type: object
-	//      properties:
-	//        title:
-	//          type: string
-	//          description: blog title
-	//        description:
-	//          type: string
-	//      required:
-	//        - title
-	// `
+		t.Skip()
 
-	// 		loader := openapi3.NewSwaggerLoader()
-	// 		swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     required:
+       - title
+`
 
-	// 		schemes := rest.CreateSchema(context.Background(), echo.New(), swagger)
-	// 		p, err := projections.NewProjection(context.Background(), app, schemes)
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
 
-	// 		err = p.Migrate(context.Background())
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 		gormDB := app.DB()
-	// 		if !gormDB.Migrator().HasTable("Blog") {
-	// 			t.Errorf("expected to get a table 'Blog'")
-	// 		}
+		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Errorf("expected to get a table 'Blog'")
+		}
 
-	// 		found := false
-	// 		found1 := false
-	// 		found2 := false
-	// 		for _, c := range columns {
-	// 			if c.Name() == "id" {
-	// 				found = true
-	// 			}
-	// 			if c.Name() == "title" {
-	// 				found1 = true
-	// 			}
-	// 			if c.Name() == "description" {
-	// 				found2 = true
-	// 			}
-	// 		}
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
 
-	// 		if !found1 || !found2 || !found {
-	// 			t.Fatal("not all fields found")
-	// 		}
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
 
-	// 		openAPI = `openapi: 3.0.3
-	// info:
-	//   title: Blog
-	//   description: Blog example
-	//   version: 1.0.0
-	// servers:
-	//   - url: https://prod1.weos.sh/blog/dev
-	//     description: WeOS Dev
-	//   - url: https://prod1.weos.sh/blog/v1
-	// x-weos-config:
-	//   logger:
-	//     level: warn
-	//     report-caller: true
-	//     formatter: json
-	//   database:
-	//     driver: sqlite3
-	//     database: test.db
-	//   event-source:
-	//     - title: default
-	//       driver: service
-	//       endpoint: https://prod1.weos.sh/events/v1
-	//     - title: event
-	//       driver: sqlite3
-	//       database: test.db
-	//   databases:
-	//     - title: default
-	//       driver: sqlite3
-	//       database: test.db
-	//   rest:
-	//     middleware:
-	//       - RequestID
-	//       - Recover
-	//       - ZapLogger
-	// components:
-	//   schemas:
-	//     Blog:
-	//      type: object
-	//      properties:
-	//        description:
-	//          type: string
-	// `
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
 
-	// 		loader = openapi3.NewSwaggerLoader()
-	// 		swagger, err = loader.LoadSwaggerFromData([]byte(openAPI))
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		openAPI = `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+         description: blog title
+       description:
+         type: string
+`
+		api, err = rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
 
-	// 		schemes = rest.CreateSchema(context.Background(), echo.New(), swagger)
-	// 		p, err = projections.NewProjection(context.Background(), app, schemes)
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 		err = p.Migrate(context.Background())
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
+		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// 		if !gormDB.Migrator().HasTable("Blog") {
-	// 			t.Errorf("expected to get a table 'Blog'")
-	// 		}
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Errorf("expected to get a table 'Blog'")
+		}
 
-	// 		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
+		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
 
-	// 		//expect all columns to still be in the database
-	// 		found = false
-	// 		found1 = false
-	// 		found2 = false
-	// 		for _, c := range columns {
-	// 			if c.Name() == "id" {
-	// 				found = true
-	// 			}
-	// 			if c.Name() == "title" {
-	// 				found1 = true
-	// 			}
-	// 			if c.Name() == "description" {
-	// 				found2 = true
-	// 			}
-	// 		}
+		//expect all columns to still be in the database
+		found = false
+		found1 = false
+		found2 = false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
 
-	// 		if !found1 || !found2 || !found {
-	// 			t.Fatal("not all fields found")
-	// 		}
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
 
-	// 		//create using without title
-	// 		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"description": "hugs2"})
-	// 		if tresult.Error != nil {
-	// 			t.Errorf("expected to be able to create without title, got error %s", tresult.Error)
-	// 		}
-	// 		err = gormDB.Migrator().DropTable("Blog")
-	// 		if err != nil {
-	// 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
-	// 		}
-	// 	})
+		//create using without title
+		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"description": "hugs2"})
+		if tresult.Error != nil {
+			t.Errorf("expected to be able to create without title, got error %s", tresult.Error)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+	})
 }
 
 func TestProjections_Delete(t *testing.T) {
