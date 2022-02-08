@@ -297,36 +297,35 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time)
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
 			return result.Error
 		}
-
-		var tEvents []*Event
-
-		for _, event := range events {
-			tEvents = append(tEvents, &Event{
-				ID:      event.ID,
-				Type:    event.Type,
-				Payload: json.RawMessage(event.Payload),
-				Meta: EventMeta{
-					EntityID:   event.EntityID,
-					EntityType: event.EntityType,
-					RootID:     event.RootID,
-					Module:     event.ApplicationID,
-					User:       event.User,
-					SequenceNo: event.SequenceNo,
-				},
-				Version: 0,
-			})
-		}
-
-		for _, event := range tEvents {
-			e.eventDispatcher.Dispatch(ctxt, *event)
-		}
-
 	} else {
 		result := e.DB.Table("gorm_events").Where("created_at =  ?", date).Find(&events)
 		if result.Error != nil {
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
 			return result.Error
 		}
+	}
+
+	var tEvents []*Event
+
+	for _, event := range events {
+		tEvents = append(tEvents, &Event{
+			ID:      event.ID,
+			Type:    event.Type,
+			Payload: json.RawMessage(event.Payload),
+			Meta: EventMeta{
+				EntityID:   event.EntityID,
+				EntityType: event.EntityType,
+				RootID:     event.RootID,
+				Module:     event.ApplicationID,
+				User:       event.User,
+				SequenceNo: event.SequenceNo,
+			},
+			Version: 0,
+		})
+	}
+
+	for _, event := range tEvents {
+		e.eventDispatcher.Dispatch(ctxt, *event)
 	}
 
 	return nil
