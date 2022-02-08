@@ -132,9 +132,9 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 
 func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) {
+		entityFactory := weos.GetEntityFactory(ctx)
 		switch event.Type {
 		case "create":
-			entityFactory := weos.GetEntityFactory(ctx)
 			//using the schema ensures no nested fields are left out in creation
 			if entityFactory != nil {
 				entity, err := entityFactory.NewEntity(ctx)
@@ -160,7 +160,6 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				}
 			}
 		case "update":
-			entityFactory := weos.GetEntityFactory(ctx)
 			if entityFactory != nil {
 				entity, err := entityFactory.NewEntity(ctx)
 				if err != nil {
@@ -202,7 +201,17 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 				}
 			}
-
+		case "delete":
+			if entityFactory != nil {
+				entity, err := entityFactory.NewEntity(ctx)
+				if err != nil {
+					p.logger.Errorf("error creating entity '%s'", err)
+				}
+				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.Property)
+				if db.Error != nil {
+					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
+				}
+			}
 		}
 	}
 }

@@ -33,6 +33,7 @@ var e *echo.Echo
 var API api.RESTAPI
 var openAPI string
 var Developer *User
+var Content *ContentType
 var errs error
 var buf bytes.Buffer
 var payload ContentType
@@ -490,6 +491,8 @@ func theIsSubmitted(contentType string) error {
 		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
 	} else if strings.Contains(currScreen, "update") {
 		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), body)
+	} else if strings.Contains(currScreen, "delete") {
+		request = httptest.NewRequest("DELETE", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), nil)
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -989,6 +992,39 @@ func theTotalResultsShouldBe(totalResult int) error {
 	return nil
 }
 
+func isOnTheDeleteScreenWithEntityIdForBlogWithId(arg1, contentType, entityID, id string) error {
+	requests[strings.ToLower(contentType+"_delete")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_delete")
+	requests[currScreen]["id"] = id
+	requests[currScreen]["entityID"] = entityID
+	return nil
+}
+
+func isOnTheDeleteScreenWithId(arg1, contentType, id string) error {
+	requests[strings.ToLower(contentType+"_delete")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_delete")
+	requests[currScreen]["id"] = id
+	return nil
+}
+
+func theShouldBeDeleted(contentEntity string, id int) error {
+	output := map[string]interface{}{}
+
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	searchResult := apiProjection1.DB().Table(strings.Title(contentEntity)).Find(&output, "id = ?", id)
+	if len(output) != 0 {
+		return fmt.Errorf("the entity was not deleted")
+	}
+	if searchResult.Error != nil {
+		return fmt.Errorf("got error from db query: %s", err)
+	}
+	return nil
+}
+
 func aFilterOnTheFieldEqWithValue(field, value string) error {
 
 	filters = "_filters[" + field + "][eq]=" + value
@@ -1098,6 +1134,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
 	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
 	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with entity id "([^"]*)" for blog with id "([^"]*)"$`, isOnTheDeleteScreenWithEntityIdForBlogWithId)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with id "([^"]*)"$`, isOnTheDeleteScreenWithId)
+	ctx.Step(`^the "([^"]*)" "(\d+)" should be deleted$`, theShouldBeDeleted)
 	ctx.Step(`^a filter on the field "([^"]*)" "eq" with value "([^"]*)"$`, aFilterOnTheFieldEqWithValue)
 	ctx.Step(`^a filter on the field "([^"]*)" "eq" with values$`, aFilterOnTheFieldEqWithValues)
 	ctx.Step(`^a filter on the field "([^"]*)" "gt" with value "([^"]*)"$`, aFilterOnTheFieldGtWithValue)
@@ -1115,7 +1154,8 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "focus",
+			//Tags: "WEOS-1131",
+			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

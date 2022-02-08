@@ -2639,3 +2639,111 @@ components:
 
 	})
 }
+
+func TestProjections_Delete(t *testing.T) {
+
+	t.Run("Basic Delete", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = p.Migrate(context.Background(), schemes)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		id := ksuid.New().String()
+
+		payload := map[string]interface{}{"id": 1, "title": "testBlog", "description": "This is a create projection test"}
+		contentEntity := &weos.ContentEntity{
+			AggregateRoot: weos.AggregateRoot{
+				BasicEntity: weos.BasicEntity{
+					ID: id,
+				},
+			},
+			Property: payload,
+		}
+
+		ctxt := context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name: "Blog",
+		})
+
+		event := weos.NewEntityEvent("create", contentEntity, contentEntity.ID, &payload)
+		p.GetEventHandler()(ctxt, *event)
+
+		event = weos.NewEntityEvent("delete", contentEntity, contentEntity.ID, &payload)
+		p.GetEventHandler()(ctxt, *event)
+
+		blog := map[string]interface{}{}
+		result := gormDB.Table("Blog").Find(&blog, "weos_id = ? ", contentEntity.ID)
+		if result.Error != nil {
+			t.Fatalf("unexpected error retreiving created blog '%s'", result.Error)
+		}
+
+		if blog["title"] != nil {
+			t.Fatalf("expected title to be %v, got %s", nil, blog["title"])
+		}
+
+		if blog["description"] != nil {
+			t.Fatalf("expected desription to be %v, got %s", nil, blog["desription"])
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+	})
+}

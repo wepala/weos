@@ -260,6 +260,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("UpdateController", UpdateController)
 	p.RegisterController("ListController", ListController)
 	p.RegisterController("ViewController", ViewController)
+	p.RegisterController("DeleteController", DeleteController)
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("CreateBatchController", CreateBatchController)
 	//register standard middleware
@@ -269,6 +270,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
 	p.RegisterMiddleware("ListMiddleware", ListMiddleware)
 	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
+	p.RegisterMiddleware("DeleteMiddleware", DeleteMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
@@ -336,6 +338,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		defaultCommandDispatcher.AddSubscriber(model.Create(context.Background(), nil, "", ""), model.CreateHandler)
 		defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), model.CreateBatchHandler)
 		defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), model.UpdateHandler)
+		defaultCommandDispatcher.AddSubscriber(model.Delete(context.Background(), "", ""), model.DeleteHandler)
 		p.RegisterCommandDispatcher("Default", defaultCommandDispatcher)
 	}
 
