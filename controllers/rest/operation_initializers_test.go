@@ -163,6 +163,7 @@ func TestStandardInitializer(t *testing.T) {
 	api.RegisterController("ListController", rest.ListController)
 	api.RegisterController("UpdateController", rest.UpdateController)
 	api.RegisterController("ViewController", rest.ViewController)
+	api.RegisterController("DeleteController", rest.DeleteController)
 	t.Run("attach standard create", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
@@ -207,6 +208,16 @@ func TestStandardInitializer(t *testing.T) {
 	})
 	t.Run("attach standard update", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{}", http.MethodPut, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Put)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		controller := rest.GetOperationController(ctxt)
+		if controller == nil {
+			t.Fatalf("expected controller to be in the context")
+		}
+	})
+	t.Run("attach standard delete", func(t *testing.T) {
+		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{id}", http.MethodDelete, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Delete)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
