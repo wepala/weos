@@ -219,3 +219,87 @@ func TestUpdateContentType(t *testing.T) {
 		}
 	})
 }
+
+func TestDeleteContentType(t *testing.T) {
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	ctx := context.Background()
+	entityType := "Blog"
+	mockEntityFactory := &EntityFactoryMock{
+		NewEntityFunc: func(ctx context3.Context) (*model.ContentEntity, error) {
+			return &model.ContentEntity{}, nil
+		},
+		NameFunc: func() string {
+			return entityType
+		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas[entityType].Value
+		},
+	}
+	ctx = context.WithValue(ctx, weosContext.ENTITY_FACTORY, mockEntityFactory)
+	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+
+	commandDispatcher := &model.DefaultCommandDispatcher{}
+	commandDispatcher.AddSubscriber(model.Delete(context.Background(), "", ""), model.DeleteHandler)
+	mockEventRepository := &EventRepositoryMock{
+		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+			var event *model.Event
+			var ok bool
+			entities := entity.GetNewChanges()
+			if len(entities) != 2 {
+				t.Fatalf("expected %d event to be saved, got %d", 2, len(entities))
+			}
+
+			if event, ok = entities[0].(*model.Event); !ok {
+				t.Fatalf("the entity is not an event")
+			}
+
+			if event.Type != "delete" {
+				t.Errorf("expected event to be '%s', got '%s'", "update", event.Type)
+			}
+
+			if event.Meta.EntityType == "" {
+				t.Errorf("expected event to be '%s', got '%s'", "", event.Type)
+			}
+
+			return nil
+		},
+		AddSubscriberFunc: func(handler model.EventHandler) {
+		},
+	}
+
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	existingBlog := &model.ContentEntity{
+		AggregateRoot: model.AggregateRoot{
+			BasicEntity: model.BasicEntity{
+				ID: "dsafdsdfdsf",
+			},
+			SequenceNo: int64(0),
+		},
+		Property: existingPayload,
+	}
+	event := model.NewEntityEvent("delete", existingBlog, existingBlog.ID, existingPayload)
+	existingBlog.NewChange(event)
+
+	projectionMock := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+			return existingBlog, nil
+		},
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return existingPayload, nil
+		},
+	}
+
+	t.Run("Testing basic delete entity", func(t *testing.T) {
+		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"), mockEventRepository, projectionMock, echo.New().Logger)
+		if err1 != nil {
+			t.Fatalf("unexpected error dispatching command '%s'", err1)
+		}
+
+		if len(mockEventRepository.PersistCalls()) != 1 {
+			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 1, len(mockEventRepository.PersistCalls()))
+		}
+	})
+}

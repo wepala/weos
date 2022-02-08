@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -1386,6 +1387,335 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 
 		if response.StatusCode != 400 {
 			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_DeleteEtag(t *testing.T) {
+	weosId := "123"
+	mockBlog := &Blog{
+		Title:       "Test Blog",
+		Description: "testing description",
+	}
+
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
+
+	dispatcher := &CommandDispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+
+			if command == nil {
+				t.Fatal("no command sent")
+			}
+
+			if command.Type != "delete" {
+				t.Errorf("expected the command to be '%s', got '%s'", "delete", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			blog := &Blog{}
+			json.Unmarshal(command.Payload, &blog)
+
+			if ctx.Value(weoscontext.WEOS_ID).(string) != weosId {
+				t.Errorf("expected the blog weos id to be '%s', got '%s'", weosId, ctx.Value(weoscontext.WEOS_ID).(string))
+			}
+
+			id := ctx.Value("id").(string)
+			if id != weosId {
+				t.Errorf("unexpected error, expected id to be %s got %s", weosId, id)
+			}
+
+			etag := ctx.Value("If-Match").(string)
+			if etag != "123.1" {
+				t.Errorf("unexpected error, expected etag to be %s got %s", "123.1", etag)
+			}
+
+			return nil
+		},
+	}
+	mockEntity := &model.ContentEntity{}
+	mockEntity.ID = weosId
+	mockEntity.SequenceNo = int64(1)
+	mockEntity.Property = mockBlog
+
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+			return mockEntity, nil
+		},
+	}
+
+	eventMock := &EventRepositoryMock{
+		GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+			return 2, nil
+		},
+	}
+
+	t.Run("basic delete based on simple content type with id parameter in path and etag", func(t *testing.T) {
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+		}
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/"+weosId, nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("If-Match", weosId+".1")
+		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection, dispatcher, eventMock, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_DeleteID(t *testing.T) {
+	mockBlog := &Blog{
+		Title:       "Test Blog",
+		Description: "testing description",
+	}
+
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
+
+	dispatcher := &CommandDispatcherMock{
+		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+			if command == nil {
+				t.Fatal("no command sent")
+			}
+
+			if command.Type != "delete" {
+				t.Errorf("expected the command to be '%s', got '%s'", "delete", command.Type)
+			}
+
+			if command.Metadata.EntityType != "Blog" {
+				t.Errorf("expected the entity type to be '%s', got '%s'", "Blog", command.Metadata.EntityType)
+			}
+
+			id := ctx.Value("id").(string)
+			if id != "12" {
+				t.Errorf("unexpected error, expected id to be %s got %s", "12", id)
+			}
+
+			return nil
+		},
+	}
+	mockEntity := &model.ContentEntity{}
+	mockEntity.Property = mockBlog
+
+	mockInterface := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "weos_id": "123456qwerty", "sequence_no": "1"}
+
+	eventMock := &EventRepositoryMock{
+		GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+			return 2, nil
+		},
+	}
+
+	projection := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return mockInterface, nil
+		},
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+			return mockInterface, nil
+		},
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+			return mockEntity, nil
+		},
+	}
+
+	t.Run("basic delete based on simple content type with id parameter in path", func(t *testing.T) {
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection, dispatcher, eventMock, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
+		mockEntity1 := &model.ContentEntity{}
+		mockEntity1.Property = mockBlog
+
+		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "sequence_no": "1"}
+
+		eventMock1 := &EventRepositoryMock{
+			GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+				return 2, nil
+			},
+		}
+
+		projection1 := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return mockInterface1, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+				return mockInterface1, nil
+			},
+			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				return mockEntity1, nil
+			},
+		}
+
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection1, dispatcher, eventMock1, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection1, dispatcher, eventMock1, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 404 {
+			t.Errorf("expected response code to be %d, got %d", 404, response.StatusCode)
+		}
+	})
+
+	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
+		mockEntity1 := &model.ContentEntity{}
+		mockEntity1.Property = mockBlog
+
+		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "weos_id": "123456qwerty", "id": "12", "sequence_no": "1"}
+
+		eventMock1 := &EventRepositoryMock{
+			GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+				return 2, nil
+			},
+		}
+
+		err1 := fmt.Errorf("this is an error")
+
+		projection1 := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return nil, err1
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+				return mockInterface1, nil
+			},
+			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				return mockEntity1, nil
+			},
+		}
+
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection1, dispatcher, eventMock1, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection1, dispatcher, eventMock1, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 500 {
+			t.Errorf("expected response code to be %d, got %d", 404, response.StatusCode)
 		}
 	})
 }

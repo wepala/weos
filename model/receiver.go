@@ -98,6 +98,32 @@ func UpdateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	return nil
 }
 
+//DeleteHandler is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
+func DeleteHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+	if logger == nil {
+		return fmt.Errorf("no logger set")
+	}
+	entityFactory := GetEntityFactory(ctx)
+	if entityFactory == nil {
+		err := errors.New("no entity factory found")
+		logger.Error(err)
+		return err
+	}
+
+	//initialize any services
+	domainService := NewDomainService(ctx, eventStore, projection, logger)
+	deletedEntity, err := domainService.Delete(ctx, command.Metadata.EntityID, command.Metadata.EntityType)
+	if err != nil {
+		return err
+	}
+
+	err = eventStore.Persist(ctx, deletedEntity)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 //Deprecated: 01/30/2022 These are setup in the api initializer
 //Initialize sets up the command handlers
 func Initialize(service Service) error {
@@ -108,6 +134,7 @@ func Initialize(service Service) error {
 	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), CreateHandler)
 	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), CreateBatchHandler)
 	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), UpdateHandler)
+	service.Dispatcher().AddSubscriber(Delete(context.Background(), "", ""), DeleteHandler)
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil, nil)
 
