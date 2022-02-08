@@ -287,17 +287,46 @@ func (e *EventRepositoryGorm) Remove(entities []Entity) error {
 	return nil
 }
 
+//Content may not be applicable to this func since there would be an instance of it being called at server.go run. Therefore we won't have a "proper" content which would contain the EntityFactory
 func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time) error {
 	var events []GormEvent
 
 	if date.IsZero() {
 		result := e.DB.Table("gorm_events").Find(&events)
 		if result.Error != nil {
+			e.logger.Errorf("got error pulling events '%s'", result.Error)
 			return result.Error
 		}
 
+		var tEvents []*Event
+
+		for _, event := range events {
+			tEvents = append(tEvents, &Event{
+				ID:      event.ID,
+				Type:    event.Type,
+				Payload: json.RawMessage(event.Payload),
+				Meta: EventMeta{
+					EntityID:   event.EntityID,
+					EntityType: event.EntityType,
+					RootID:     event.RootID,
+					Module:     event.ApplicationID,
+					User:       event.User,
+					SequenceNo: event.SequenceNo,
+				},
+				Version: 0,
+			})
+		}
+
+		for _, event := range tEvents {
+			e.eventDispatcher.Dispatch(ctxt, *event)
+		}
+
 	} else {
-		//TODO use the date to query the database
+		result := e.DB.Table("gorm_events").Where("created_at =  ?", date).Find(&events)
+		if result.Error != nil {
+			e.logger.Errorf("got error pulling events '%s'", result.Error)
+			return result.Error
+		}
 	}
 
 	return nil

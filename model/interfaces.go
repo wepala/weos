@@ -4,6 +4,7 @@ package model
 import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
+	"time"
 )
 
 type CommandDispatcher interface {
@@ -68,6 +69,7 @@ type EventRepository interface {
 	GetByAggregateAndSequenceRange(ID string, start int64, end int64) ([]*Event, error)
 	AddSubscriber(handler EventHandler)
 	GetSubscribers() ([]EventHandler, error)
+	ReplayEvents(ctxt context.Context, date time.Time) error
 }
 
 type Datastore interface {
