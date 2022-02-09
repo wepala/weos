@@ -230,7 +230,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 		return fmt.Errorf("unexpected error getting projection: %s", err)
 	}
 	apiProjection1 := apiProjection.(*projections.GORMProjection)
-	gormDB := apiProjection1.DB()
+	gormDB = apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
