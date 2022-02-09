@@ -2,11 +2,13 @@ package model
 
 import (
 	"encoding/json"
+	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"time"
 )
 
 type EventRepositoryGorm struct {
@@ -32,6 +34,7 @@ type GormEvent struct {
 	ApplicationID string `gorm:"index"`
 	User          string `gorm:"index"`
 	SequenceNo    int64
+	SchemaName    string `gorm:"index"`
 }
 
 //NewGormEvent converts a domain event to something that is a bit easier for Gorm to work with
@@ -51,11 +54,15 @@ func NewGormEvent(event *Event) (GormEvent, error) {
 		ApplicationID: event.Meta.Module,
 		User:          event.Meta.User,
 		SequenceNo:    event.Meta.SequenceNo,
+		SchemaName:    event.Meta.SchemaName,
 	}, nil
 }
 
 func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInterface) error {
 	//TODO use the information in the context to get account info, module info. //didn't think it should barf if an empty list is passed
+	entityFact := ctxt.Value(context2.ENTITY_FACTORY)
+	schemaName := entityFact.(EntityFactory).Name()
+
 	var gormEvents []GormEvent
 	entities := entity.GetNewChanges()
 	savePointID := "s" + ksuid.New().String() //NOTE the save point can't start with a number
@@ -78,6 +85,9 @@ func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInte
 		}
 		if event.Meta.Group == "" {
 			event.Meta.Group = e.GroupID
+		}
+		if event.Meta.SchemaName == "" {
+			event.Meta.SchemaName = schemaName
 		}
 		if !event.IsValid() {
 			for _, terr := range event.GetErrors() {
@@ -284,6 +294,80 @@ func (e *EventRepositoryGorm) Remove(entities []Entity) error {
 	}
 
 	return nil
+}
+
+//Content may not be applicable to this func since there would be an instance of it being called at server.go run. Therefore we won't have a "proper" content which would contain the EntityFactory
+func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projections Projection) (int, int, int, error) {
+	schemas := make(map[string]ds.Builder)
+
+	for _, value := range entityFactories {
+		schemas[value.Name()] = value.Builder(context.Background())
+	}
+
+	err := projections.Migrate(ctxt, schemas)
+	if err != nil {
+		e.logger.Errorf("error migrating tables: %s", err)
+	}
+
+	var events []GormEvent
+
+	if date.IsZero() {
+		result := e.DB.Table("gorm_events").Find(&events)
+		if result.Error != nil {
+			e.logger.Errorf("got error pulling events '%s'", result.Error)
+			return 0, 0, 0, result.Error
+		}
+	} else {
+		result := e.DB.Table("gorm_events").Where("created_at =  ?", date).Find(&events)
+		if result.Error != nil {
+			e.logger.Errorf("got error pulling events '%s'", result.Error)
+			return 0, 0, 0, result.Error
+		}
+	}
+
+	var tEvents []*Event
+
+	for _, event := range events {
+		tEvents = append(tEvents, &Event{
+			ID:      event.ID,
+			Type:    event.Type,
+			Payload: json.RawMessage(event.Payload),
+			Meta: EventMeta{
+				EntityID:   event.EntityID,
+				EntityType: event.EntityType,
+				RootID:     event.RootID,
+				Module:     event.ApplicationID,
+				User:       event.User,
+				SequenceNo: event.SequenceNo,
+				SchemaName: event.SchemaName,
+			},
+			Version: 0,
+		})
+	}
+
+	totalEvents := len(tEvents)
+	successfulEvents := 0
+	failedEvents := 0
+	entity := map[string]interface{}{}
+
+	for _, event := range tEvents {
+
+		newContext := context.WithValue(ctxt, context2.ENTITY_FACTORY, entityFactories[event.Meta.SchemaName])
+
+		result := e.DB.Table(event.Meta.SchemaName).Find(&entity, "weos_id = ? and sequence_no = ?", event.Meta.EntityID, event.Meta.SequenceNo)
+		if result.Error != nil {
+			e.logger.Errorf("got error pulling events '%s'", result.Error)
+			return 0, 0, 0, result.Error
+		}
+
+		if result.RowsAffected != 0 {
+			failedEvents++
+		} else if result.RowsAffected == 0 {
+			e.eventDispatcher.Dispatch(newContext, *event)
+			successfulEvents++
+		}
+	}
+	return totalEvents, successfulEvents, failedEvents, nil
 }
 
 func NewBasicEventRepository(gormDB *gorm.DB, logger Log, useUnitOfWork bool, accountID string, applicationID string) (EventRepository, error) {

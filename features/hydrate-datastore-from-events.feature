@@ -244,9 +244,9 @@ Feature: Hydrate database using events
     A developer should be able to configure an event repository to replay all it's events on startup. This should trigger
     the associated projections
 
-    Given Sojourner" deletes the "Blogs" table
+    Given Sojourner" deletes the "Blog" table
     When "Sojourner" calls the replay method on the event repository
-    Then the "Blogs" table should be populated with
+    Then the "Blog" table should be populated with
       | id    | weos_id                     | sequence_no | title        | description    |
       | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
       | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
@@ -261,12 +261,12 @@ Feature: Hydrate database using events
   @WEOS-1327
   Scenario: Repair data tables after some was deleted
 
-  @WEOS-1327
+  @WEOS-1327 @focus
   Scenario: Repair tables after some content has been deleted
     Given a "Blog" with id "1237" was deleted
     And a "Blog" with id "164" was deleted
     When "Sojourner" calls the replay method on the event repository
-    Then the "Blogs" table should be populated with
+    Then the "Blog" table should be populated with
       | id    | weos_id                     | sequence_no | title        | description    |
       | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
       | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |

@@ -146,6 +146,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
+
 				db := p.db.Table(entityFactory.Name()).Create(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
@@ -199,6 +200,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error creating entity '%s'", err)
 				}
+
 				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.Property)
 				if db.Error != nil {
 					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
