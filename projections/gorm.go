@@ -339,10 +339,6 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProj
 					}
 
 				} else {
-					//queryString := ""
-					//for i := 0; i < len(filter.Values); i++ {
-					//	queryString += " ?"
-					//}
 					db.Where(filter.Field+" "+operator+" ?", filter.Values)
 				}
 
