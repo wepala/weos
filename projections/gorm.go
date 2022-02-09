@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"strings"
+	"time"
 )
 
 //GORMProjection interface struct
@@ -249,6 +250,10 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	var filtersProp map[string]FilterProperty
 	props, _ := json.Marshal(filterOptions)
 	json.Unmarshal(props, &filtersProp)
+	filtersProp, err := DateTimeCheck(entityFactory, filtersProp)
+	if err != nil {
+		return nil, int64(0), err
+	}
 	builder := entityFactory.DynamicStruct(ctx)
 	if builder != nil {
 		schemes = builder.NewSliceOfStructs()
@@ -262,6 +267,23 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	var entities []map[string]interface{}
 	json.Unmarshal(bytes, &entities)
 	return entities, count, result.Error
+}
+
+//DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
+func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
+	var err error
+	schema := entityFactory.Schema()
+	for key, value := range properties {
+		if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
+			_, err := time.Parse(time.RFC3339, value.Value.(string))
+			if err != nil {
+				return nil, err
+			}
+
+		}
+	}
+
+	return properties, err
 }
 
 //paginate is used for querying results

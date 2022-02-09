@@ -2614,6 +2614,33 @@ components:
 			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
 		}
 	})
+	t.Run("testing invalid date time format on filter ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "lt",
+			Value:    "2006-01-02T15:04:00Z+dsujhsd",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err == nil {
+			t.Fatalf("expected a date time error but got nil")
+		}
+		if results != nil {
+			t.Errorf("unexpect error expected results to be nil ")
+		}
+		if total != int64(0) {
+			t.Errorf("expecter total to be 0 got %d", total)
+		}
+
+	})
 }
 
 func TestProjections_Delete(t *testing.T) {
