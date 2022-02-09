@@ -337,9 +337,9 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 	successfulEvents := 0
 	failedEvents := 0
 	entity := map[string]interface{}{}
-	dispatchEntity := true
 
 	for _, event := range tEvents {
+		dispatchEntity := true
 		if entityFactories[event.Meta.SchemaName] == nil {
 			e.logger.Errorf("no entity factory found for schema %s", event.Meta.SchemaName)
 

@@ -1013,8 +1013,20 @@ func theShouldBeDeleted(contentEntity string, id int) error {
 	return nil
 }
 
-func aWithIdWasDeleted(contentType, id string) error {
-	return godog.ErrPending
+func aWithIdWasDeleted(contentEntity, id string) error {
+	output := map[string]interface{}{}
+
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+
+	searchResult := apiProjection1.DB().Table(strings.Title(contentEntity)).Where("id = ?", id).Delete(&output)
+	if searchResult.Error != nil {
+		return fmt.Errorf("got error from db query: %s", searchResult.Error)
+	}
+	return nil
 }
 
 func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
@@ -1033,15 +1045,17 @@ func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
 }
 
 func sojournerDeletesTheTable(tableName string) error {
-	repo, err := API.GetEventStore("Default")
-	if err != nil {
-		return fmt.Errorf("error getting event store: %s", err)
-	}
-	eventRepo := repo.(*model.EventRepositoryGorm)
+	//output := map[string]interface{}{}
 
-	err = eventRepo.DB.Migrator().DropTable(strings.Title(tableName))
+	apiProjection, err := API.GetProjection("Default")
 	if err != nil {
-		return fmt.Errorf("error dropping table: %s got err: %s", tableName, err)
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+
+	result := apiProjection1.DB().Migrator().DropTable(strings.Title(tableName))
+	if result != nil {
+		return fmt.Errorf("error dropping table: %s got err: %s", tableName, result)
 	}
 	return nil
 }

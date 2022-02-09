@@ -244,7 +244,7 @@ Feature: Hydrate database using events
     A developer should be able to configure an event repository to replay all it's events on startup. This should trigger
     the associated projections
 
-    Given Sojourner" deletes the "Blogs" table
+    Given Sojourner" deletes the "Blog" table
     When "Sojourner" calls the replay method on the event repository
     Then the "Blog" table should be populated with
       | id    | weos_id                     | sequence_no | title        | description    |
