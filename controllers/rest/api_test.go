@@ -164,7 +164,7 @@ func TestRESTAPI_Initialize_HealthCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	err = tapi.Initialize(nil)
+	err = tapi.Initialize(context.TODO())
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}

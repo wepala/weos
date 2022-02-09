@@ -60,6 +60,6 @@ type ListApiResponse struct {
 type FilterProperties struct {
 	Field    string
 	Operator string
-	Value    string
-	Values   []string
+	Value    interface{}
+	Values   []interface{}
 }
