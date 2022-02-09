@@ -513,7 +513,7 @@ var _ model.Projection = &ProjectionMock{}
 //             GetEventHandlerFunc: func() model.EventHandler {
 // 	               panic("mock out the GetEventHandler method")
 //             },
-//             MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, refs map[string]*openapi3.SchemaRef) error {
+//             MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
 // 	               panic("mock out the Migrate method")
 //             },
 //         }
@@ -539,7 +539,7 @@ type ProjectionMock struct {
 	GetEventHandlerFunc func() model.EventHandler
 
 	// MigrateFunc mocks the Migrate method.
-	MigrateFunc func(ctx context.Context, builders map[string]dynamicstruct.Builder, refs map[string]*openapi3.SchemaRef) error
+	MigrateFunc func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -596,8 +596,8 @@ type ProjectionMock struct {
 			Ctx context.Context
 			// Builders is the builders argument value.
 			Builders map[string]dynamicstruct.Builder
-			// Refs is the refs argument value.
-			Refs map[string]*openapi3.SchemaRef
+			// DeletedFields is the deletedFields argument value.
+			DeletedFields map[string][]string
 		}
 	}
 	lockGetByEntityID      sync.RWMutex
@@ -807,37 +807,37 @@ func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ProjectionMock) Migrate(ctx context.Context, builders map[string]dynamicstruct.Builder, refs map[string]*openapi3.SchemaRef) error {
+func (mock *ProjectionMock) Migrate(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
 	if mock.MigrateFunc == nil {
 		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
 	}
 	callInfo := struct {
-		Ctx      context.Context
-		Builders map[string]dynamicstruct.Builder
-		Refs     map[string]*openapi3.SchemaRef
+		Ctx           context.Context
+		Builders      map[string]dynamicstruct.Builder
+		DeletedFields map[string][]string
 	}{
-		Ctx:      ctx,
-		Builders: builders,
-		Refs:     refs,
+		Ctx:           ctx,
+		Builders:      builders,
+		DeletedFields: deletedFields,
 	}
 	mock.lockMigrate.Lock()
 	mock.calls.Migrate = append(mock.calls.Migrate, callInfo)
 	mock.lockMigrate.Unlock()
-	return mock.MigrateFunc(ctx, builders, refs)
+	return mock.MigrateFunc(ctx, builders, deletedFields)
 }
 
 // MigrateCalls gets all the calls that were made to Migrate.
 // Check the length with:
 //     len(mockedProjection.MigrateCalls())
 func (mock *ProjectionMock) MigrateCalls() []struct {
-	Ctx      context.Context
-	Builders map[string]dynamicstruct.Builder
-	Refs     map[string]*openapi3.SchemaRef
+	Ctx           context.Context
+	Builders      map[string]dynamicstruct.Builder
+	DeletedFields map[string][]string
 } {
 	var calls []struct {
-		Ctx      context.Context
-		Builders map[string]dynamicstruct.Builder
-		Refs     map[string]*openapi3.SchemaRef
+		Ctx           context.Context
+		Builders      map[string]dynamicstruct.Builder
+		DeletedFields map[string][]string
 	}
 	mock.lockMigrate.RLock()
 	calls = mock.calls.Migrate

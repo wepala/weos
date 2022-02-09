@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/jinzhu/inflection"
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
@@ -103,7 +102,7 @@ func (p *GORMProjection) Remove(entities []weos.Entity) error {
 	return nil
 }
 
-func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Builder, refs map[string]*openapi3.SchemaRef) error {
+func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Builder, deleted map[string][]string) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	var err error
@@ -121,9 +120,8 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 		}
 		tables = append(tables, instance)
 
-		dfs, _ := json.Marshal(refs[name].Value.Extensions["x-remove"])
-		deletedFields := []string{}
-		json.Unmarshal(dfs, &deletedFields)
+		var deletedFields []string
+		deletedFields = deleted[name]
 
 		for i, f := range deletedFields {
 			deletedFields[i] = utils.SnakeCase(f)
@@ -196,7 +194,7 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 			if deleteConstraintError == nil {
 				for _, c := range columns {
 					if !utils.Contains(jsonFields, c.Name()) {
-						deleteConstraintError = p.db.Debug().Migrator().AlterColumn(b, c.Name())
+						deleteConstraintError = p.db.Migrator().AlterColumn(b, c.Name())
 						if deleteConstraintError != nil {
 							p.logger.Errorf("got error updating constraint %s", err)
 							break
@@ -291,7 +289,7 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
-				db := p.db.Debug().Table(entityFactory.Name()).Create(eventPayload)
+				db := p.db.Table(entityFactory.Name()).Create(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 				}
