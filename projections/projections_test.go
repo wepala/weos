@@ -2150,7 +2150,10 @@ components:
 		if found != limit {
 			t.Errorf("expected to find %d blogs got %d", limit, found)
 		}
-
+		//err = gormDB.Migrator().DropTable("Blog")
+		//if err != nil {
+		//	t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		//}
 	})
 	t.Run("get a basic list with the foreign key returned", func(t *testing.T) {
 
@@ -2351,7 +2354,7 @@ components:
 		filter := &projections.FilterProperty{
 			Field:    "id",
 			Operator: "ne",
-			Value:    "1",
+			Value:    uint(1),
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
@@ -2404,7 +2407,7 @@ components:
 			"id": "asc",
 		}
 		ctxt := context.Background()
-		vals := []string{"hugs2"}
+		vals := []interface{}{"hugs2"}
 		filter := &projections.FilterProperty{
 			Field:    "title",
 			Operator: "in",
@@ -2432,7 +2435,7 @@ components:
 			"id": "asc",
 		}
 		ctxt := context.Background()
-		arrValues := []string{"hugs1", "hugs3"}
+		arrValues := []interface{}{"hugs1", "hugs3"}
 		filter := &projections.FilterProperty{
 			Field:    "title",
 			Operator: "in",
@@ -2463,7 +2466,7 @@ components:
 		filter := &projections.FilterProperty{
 			Field:    "id",
 			Operator: "lt",
-			Value:    "2",
+			Value:    uint(2),
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
@@ -2491,7 +2494,7 @@ components:
 		filter := &projections.FilterProperty{
 			Field:    "id",
 			Operator: "gt",
-			Value:    "3",
+			Value:    uint(3),
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}

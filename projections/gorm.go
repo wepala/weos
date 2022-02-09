@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"strings"
+	"time"
 )
 
 //GORMProjection interface struct
@@ -249,6 +250,10 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	var filtersProp map[string]FilterProperty
 	props, _ := json.Marshal(filterOptions)
 	json.Unmarshal(props, &filtersProp)
+	filtersProp, err := DateTimeCheck(entityFactory, filtersProp)
+	if err != nil {
+		return nil, int64(0), err
+	}
 	builder := entityFactory.DynamicStruct(ctx)
 	if builder != nil {
 		schemes = builder.NewSliceOfStructs()
@@ -264,7 +269,24 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	return entities, count, result.Error
 }
 
-//paginate to query results
+//DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
+func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
+	var err error
+	schema := entityFactory.Schema()
+	for key, value := range properties {
+		if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
+			_, err := time.Parse(time.RFC3339, value.Value.(string))
+			if err != nil {
+				return nil, err
+			}
+
+		}
+	}
+
+	return properties, err
+}
+
+//paginate is used for querying results
 func paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		actualLimit := limit
@@ -279,7 +301,7 @@ func paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
-// function that sorts the query results
+//sort is used to sort the query results
 func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		for key, value := range order {
@@ -311,26 +333,39 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProj
 
 	FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {
-			for _, filter := range options {
-				operator := "="
-				switch filter.Operator {
-				case "gt":
-					operator = ">"
-				case "lt":
-				case "ne":
-				case "like":
-				//TODO check db
-				case "in":
+			if options != nil {
+				for _, filter := range options {
+					operator := "="
+					switch filter.Operator {
+					case "gt":
+						operator = ">"
+					case "lt":
+						operator = "<"
+					case "ne":
+						operator = "!="
+					case "like":
+						if projection.db.Dialector.Name() == "postgres" {
+							operator = "ILIKE"
+						} else {
+							operator = " LIKE"
+						}
+					case "in":
+						operator = "IN"
+
+					}
+
+					if len(filter.Values) == 0 {
+						if filter.Operator == "like" {
+							db.Where(filter.Field+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+						} else {
+							db.Where(filter.Field+" "+operator+" ?", filter.Value)
+						}
+
+					} else {
+						db.Where(filter.Field+" "+operator+" ?", filter.Values)
+					}
 
 				}
-
-				if len(filter.Values) == 0 {
-					db.Where(filter.Field+operator+"?", filter.Value)
-				} else {
-					// TODO add a for loop to generate the number of ? needed
-					db.Where(filter.Field+operator+"?", filter.Values...)
-				}
-
 			}
 			return db
 		}
