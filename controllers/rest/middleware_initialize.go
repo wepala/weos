@@ -45,8 +45,8 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 
 //creates a new schema interface instance
 func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string]string, []string) {
-	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
-	dfs, _ := json.Marshal(ref.Extensions["x-remove"])
+	pks, _ := json.Marshal(ref.Extensions[IdentifierExtension])
+	dfs, _ := json.Marshal(ref.Extensions[RemoveExtension])
 
 	primaryKeys := []string{}
 	deletedFields := []string{}
