@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -1608,6 +1609,113 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 		if response.StatusCode != 200 {
 			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+	})
+	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
+		mockEntity1 := &model.ContentEntity{}
+		mockEntity1.Property = mockBlog
+
+		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "sequence_no": "1"}
+
+		eventMock1 := &EventRepositoryMock{
+			GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+				return 2, nil
+			},
+		}
+
+		projection1 := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return mockInterface1, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+				return mockInterface1, nil
+			},
+			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				return mockEntity1, nil
+			},
+		}
+
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection1, dispatcher, eventMock1, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection1, dispatcher, eventMock1, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 404 {
+			t.Errorf("expected response code to be %d, got %d", 404, response.StatusCode)
+		}
+	})
+
+	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
+		mockEntity1 := &model.ContentEntity{}
+		mockEntity1.Property = mockBlog
+
+		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "weos_id": "123456qwerty", "id": "12", "sequence_no": "1"}
+
+		eventMock1 := &EventRepositoryMock{
+			GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+				return 2, nil
+			},
+		}
+
+		err1 := fmt.Errorf("this is an error")
+
+		projection1 := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+				return nil, err1
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+				return mockInterface1, nil
+			},
+			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				return mockEntity1, nil
+			},
+		}
+
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection1, dispatcher, eventMock1, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection1, dispatcher, eventMock1, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 500 {
+			t.Errorf("expected response code to be %d, got %d", 404, response.StatusCode)
 		}
 	})
 }
