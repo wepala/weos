@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var driver = flag.String("driver", "postgres", "run database tests")
+var driver = flag.String("driver", "sqlite3", "run database tests")
 
 type dbConfig struct {
 	Host     string `json:"host"`
