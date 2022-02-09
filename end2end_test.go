@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"mime/multipart"
 	"net/http"
@@ -56,6 +57,9 @@ var page int
 var contentType string
 var result api.ListApiResponse
 var scenarioContext context.Context
+var total int
+var success int
+var failed int
 
 type User struct {
 	Name      string
@@ -82,6 +86,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	result = api.ListApiResponse{}
+	total, success, failed = 0, 0, 0
 	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
 info:
@@ -149,6 +154,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	if err != nil {
 		fmt.Errorf("unexpected error '%s'", err)
 	}
+	total, success, failed = 0, 0, 0
 	db.Exec("PRAGMA foreign_keys = ON")
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
@@ -1007,24 +1013,93 @@ func theShouldBeDeleted(contentEntity string, id int) error {
 	return nil
 }
 
-func aWithIdWasDeleted(arg1, arg2 string) error {
+func aWithIdWasDeleted(contentType, id string) error {
 	return godog.ErrPending
 }
 
 func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
-	return godog.ErrPending
+	repo, err := API.GetEventStore("Default")
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+	eventRepo := repo.(*model.EventRepositoryGorm)
+
+	factories := API.GetEntityFactories()
+	total, success, failed, err = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories)
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+	return nil
 }
 
-func sojournerDeletesTheTable(arg1 string) error {
-	return godog.ErrPending
+func sojournerDeletesTheTable(tableName string) error {
+	repo, err := API.GetEventStore("Default")
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+	eventRepo := repo.(*model.EventRepositoryGorm)
+
+	err = eventRepo.DB.Migrator().DropTable(strings.Title(tableName))
+	if err != nil {
+		return fmt.Errorf("error dropping table: %s got err: %s", tableName, err)
+	}
+	return nil
 }
 
-func theTableShouldBePopulatedWith(arg1 string, arg2 *godog.Table) error {
-	return godog.ErrPending
+func theTableShouldBePopulatedWith(contentType string, details *godog.Table) error {
+	contentEntity := map[string]interface{}{}
+	var result *gorm.DB
+
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+
+		for key, value := range compare {
+			apiProjection, err := API.GetProjection("Default")
+			if err != nil {
+				return fmt.Errorf("unexpected error getting projection: %s", err)
+			}
+			apiProjection1 := apiProjection.(*projections.GORMProjection)
+			result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+			if contentEntity != nil {
+				break
+			}
+		}
+
+		if contentEntity == nil {
+			return fmt.Errorf("unexpected error finding content type in db")
+		}
+
+		if result.Error != nil {
+			return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+		}
+
+		for key, value := range compare {
+			if key == "sequence_no" {
+				strSeq := strconv.Itoa(int(contentEntity[key].(int64)))
+				if strSeq != value {
+					return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+				}
+			} else {
+				if contentEntity[key] != value {
+					return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+				}
+			}
+		}
+
+	}
+	return nil
 }
 
 func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
-	return godog.ErrPending
+	if total == 0 && success == 0 && failed == 0 {
+		return fmt.Errorf("expected total, success and failed to be non 0 values")
+	}
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
