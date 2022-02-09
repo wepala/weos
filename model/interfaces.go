@@ -1,6 +1,6 @@
 package model
 
-//go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
+//go:generate moq -out temp_mocks_test.go -pkg model_test . EventRepository
 import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
@@ -69,7 +69,7 @@ type EventRepository interface {
 	GetByAggregateAndSequenceRange(ID string, start int64, end int64) ([]*Event, error)
 	AddSubscriber(handler EventHandler)
 	GetSubscribers() ([]EventHandler, error)
-	ReplayEvents(ctxt context.Context, date time.Time) error
+	ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory) (int, int, int, error)
 }
 
 type Datastore interface {

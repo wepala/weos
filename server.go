@@ -1,18 +1,18 @@
 package main
 
 import (
+	"context"
 	"flag"
 	weos "github.com/wepala/weos/controllers/rest"
-	"golang.org/x/net/context"
 	"os"
 	"time"
 )
 
 var port = flag.String("port", "8681", "-port=8681")
 var schema = flag.String("spec", "./api.yaml", "schema for initialization")
-var replay = flag.Bool("replay events", true, "replay events from gorm events")
+var replay = flag.Bool("replay events", false, "replay events from gorm events")
 
-//Pass flag for replay events
+//TODO Add a flag for the time
 
 func main() {
 	flag.Parse()
@@ -28,9 +28,8 @@ func main() {
 
 	if *replay == true {
 		e, _ := restAPI.GetEventStore("default")
-
-		//Entity factory will be needed in this context.
-		e.ReplayEvents(context.Background(), time.Time{})
+		factories := restAPI.GetEntityFactories()
+		e.ReplayEvents(context.Background(), time.Time{}, factories)
 	}
 
 }

@@ -51,6 +51,7 @@ type RESTAPI struct {
 	registeredPrePathInitializers  map[reflect.Value]int
 	postPathInitializers           []PathInitializer
 	registeredPostPathInitializers map[reflect.Value]int
+	entityFactories                map[string]model.EntityFactory
 }
 
 type schema struct {
@@ -172,6 +173,14 @@ func (p *RESTAPI) RegisterProjection(name string, projection projections.Project
 	p.projections[name] = projection
 }
 
+//RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
+func (p *RESTAPI) RegisterEntityFactory(name string, factory model.EntityFactory) {
+	if p.entityFactories == nil {
+		p.entityFactories = make(map[string]model.EntityFactory)
+	}
+	p.entityFactories[name] = factory
+}
+
 //GetMiddleware get middleware by name
 func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	if tmiddleware, ok := p.middlewares[name]; ok {
@@ -251,6 +260,11 @@ func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 		schemes[name] = s.Build().New()
 	}
 	return schemes, nil
+}
+
+//GetEntityFactories get event factories
+func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
+	return p.entityFactories
 }
 
 //Initialize and setup configurations for RESTAPI

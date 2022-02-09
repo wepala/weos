@@ -33,6 +33,7 @@ type GormEvent struct {
 	ApplicationID string `gorm:"index"`
 	User          string `gorm:"index"`
 	SequenceNo    int64
+	SchemaName    string `gorm:"index"`
 }
 
 //NewGormEvent converts a domain event to something that is a bit easier for Gorm to work with
@@ -52,11 +53,15 @@ func NewGormEvent(event *Event) (GormEvent, error) {
 		ApplicationID: event.Meta.Module,
 		User:          event.Meta.User,
 		SequenceNo:    event.Meta.SequenceNo,
+		SchemaName:    event.Meta.SchemaName,
 	}, nil
 }
 
 func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInterface) error {
 	//TODO use the information in the context to get account info, module info. //didn't think it should barf if an empty list is passed
+	entityFact := ctxt.Value(context2.ENTITY_FACTORY)
+	schemaName := entityFact.(EntityFactory).Name()
+
 	var gormEvents []GormEvent
 	entities := entity.GetNewChanges()
 	savePointID := "s" + ksuid.New().String() //NOTE the save point can't start with a number
@@ -79,6 +84,9 @@ func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInte
 		}
 		if event.Meta.Group == "" {
 			event.Meta.Group = e.GroupID
+		}
+		if event.Meta.SchemaName == "" {
+			event.Meta.SchemaName = schemaName
 		}
 		if !event.IsValid() {
 			for _, terr := range event.GetErrors() {
@@ -288,20 +296,20 @@ func (e *EventRepositoryGorm) Remove(entities []Entity) error {
 }
 
 //Content may not be applicable to this func since there would be an instance of it being called at server.go run. Therefore we won't have a "proper" content which would contain the EntityFactory
-func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time) error {
+func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory) (int, int, int, error) {
 	var events []GormEvent
 
 	if date.IsZero() {
 		result := e.DB.Table("gorm_events").Find(&events)
 		if result.Error != nil {
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
-			return result.Error
+			return 0, 0, 0, result.Error
 		}
 	} else {
 		result := e.DB.Table("gorm_events").Where("created_at =  ?", date).Find(&events)
 		if result.Error != nil {
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
-			return result.Error
+			return 0, 0, 0, result.Error
 		}
 	}
 
@@ -319,16 +327,50 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time)
 				Module:     event.ApplicationID,
 				User:       event.User,
 				SequenceNo: event.SequenceNo,
+				SchemaName: event.SchemaName,
 			},
 			Version: 0,
 		})
 	}
 
-	for _, event := range tEvents {
-		e.eventDispatcher.Dispatch(ctxt, *event)
-	}
+	totalEvents := len(tEvents)
+	successfulEvents := 0
+	failedEvents := 0
+	entity := map[string]interface{}{}
+	dispatchEntity := true
 
-	return nil
+	for _, event := range tEvents {
+		if entityFactories[event.Meta.SchemaName] == nil {
+			e.logger.Errorf("no entity factory found for schema %s", event.Meta.SchemaName)
+
+			failedEvents++
+		} else {
+			newContext := context.WithValue(ctxt, context2.ENTITY_FACTORY, entityFactories[event.Meta.SchemaName])
+
+			if !e.DB.Migrator().HasTable(event.Meta.SchemaName) {
+				e.eventDispatcher.Dispatch(newContext, *event)
+				successfulEvents++
+			} else {
+				result := e.DB.Table(event.Meta.SchemaName).Find(&entity, "weos_id = ? ", event.Meta.EntityID)
+				if result.Error != nil {
+					e.logger.Errorf("got error pulling events '%s'", result.Error)
+					return 0, 0, 0, result.Error
+				}
+
+				//entity["weos_id"] != event.Meta.EntityID || entity["weos_id"] == event.Meta.EntityID
+				if result.RowsAffected != 0 {
+					dispatchEntity = false
+					failedEvents++
+				}
+
+				if dispatchEntity == true {
+					e.eventDispatcher.Dispatch(newContext, *event)
+					successfulEvents++
+				}
+			}
+		}
+	}
+	return totalEvents, successfulEvents, failedEvents, nil
 }
 
 func NewBasicEventRepository(gormDB *gorm.DB, logger Log, useUnitOfWork bool, accountID string, applicationID string) (EventRepository, error) {

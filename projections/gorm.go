@@ -146,6 +146,18 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
 				}
+
+				//If the table was dropped, recreate it
+				if !p.db.Migrator().HasTable(event.Meta.SchemaName) {
+					schemas := make(map[string]ds.Builder)
+					schemas[event.Meta.SchemaName] = entityFactory.Builder(context.Background())
+
+					err := p.Migrate(context.Background(), schemas)
+					if err != nil {
+						p.logger.Errorf("error migrating table: %s", event.Meta.SchemaName)
+					}
+				}
+
 				db := p.db.Table(entityFactory.Name()).Create(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
@@ -187,6 +199,17 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 					}
 				}
 
+				//If the table was dropped, recreate it
+				if !p.db.Migrator().HasTable(event.Meta.SchemaName) {
+					schemas := make(map[string]ds.Builder)
+					schemas[event.Meta.SchemaName] = entityFactory.Builder(context.Background())
+
+					err := p.Migrate(context.Background(), schemas)
+					if err != nil {
+						p.logger.Errorf("error migrating table: %s", event.Meta.SchemaName)
+					}
+				}
+
 				//update database value
 				db := p.db.Table(entityFactory.Name()).Updates(eventPayload)
 				if db.Error != nil {
@@ -199,6 +222,18 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 				if err != nil {
 					p.logger.Errorf("error creating entity '%s'", err)
 				}
+
+				//If the table was dropped, recreate it
+				if !p.db.Migrator().HasTable(event.Meta.SchemaName) {
+					schemas := make(map[string]ds.Builder)
+					schemas[event.Meta.SchemaName] = entityFactory.Builder(context.Background())
+
+					err := p.Migrate(context.Background(), schemas)
+					if err != nil {
+						p.logger.Errorf("error migrating table: %s", event.Meta.SchemaName)
+					}
+				}
+
 				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.Property)
 				if db.Error != nil {
 					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
