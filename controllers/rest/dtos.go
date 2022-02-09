@@ -58,8 +58,8 @@ type ListApiResponse struct {
 
 //FilterProperties is the properties need to use filters
 type FilterProperties struct {
-	Field    string   `json:"field"`
-	Operator string   `json:"operator"`
-	Value    string   `json:"value"`
-	Values   []string `json:"values"`
+	Field    string        `json:"field"`
+	Operator string        `json:"operator"`
+	Value    interface{}   `json:"value"`
+	Values   []interface{} `json:"values"`
 }
