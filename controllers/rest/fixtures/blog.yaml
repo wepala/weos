@@ -113,6 +113,10 @@ paths:
     summary: Health Check
     get:
       x-controller: HealthCheck
+      x-middleware:
+        - Recover
+      x-command-dispatcher: HealthCheck
+      x-event-dispatcher: HealthCheck
       responses:
         200:
           description: Health Response
@@ -150,6 +154,9 @@ paths:
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-projection: Default
+      x-event-dispatcher: Default
+      x-command-disptacher: Default
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -181,7 +188,7 @@ paths:
           schema:
             type: integer
         - in: query
-          name: filters
+          name: _filters
           schema:
             type: array
             items:
@@ -236,7 +243,28 @@ paths:
                     x-alias: items
                     items:
                       $ref: "#/components/schemas/Blog"
+    put:
+      operationId: Import blogs
+      requestBody:
+        content:
+          text/csv:
+            schema:
+              type: string
+              format: binary
+      responses:
+        201:
+          description: items created
+
   /blogs/{id}:
+    parameters:
+      - in: query
+        name: sequence_no
+        schema:
+          type: integer
+      - in: query
+        name: use_entity_id
+        schema:
+          type: boolean
     get:
       parameters:
         - in: path
@@ -312,6 +340,17 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+      requestBody:
+        description: Blog info that is submitted
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:
@@ -430,6 +469,12 @@ paths:
           schema:
             type: string
           required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
       summary: Delete post
       responses:
         200:
@@ -528,6 +573,12 @@ paths:
           schema:
             type: string
           required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
       summary: Delete category
       responses:
         200:
@@ -643,6 +694,12 @@ paths:
             type: string
             format: email
           required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
       summary: Delete author
       responses:
         200:

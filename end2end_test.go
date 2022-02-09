@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/wepala/weos/projections"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +23,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/utils"
@@ -32,6 +33,7 @@ var e *echo.Echo
 var API api.RESTAPI
 var openAPI string
 var Developer *User
+var Content *ContentType
 var errs error
 var buf bytes.Buffer
 var payload ContentType
@@ -53,7 +55,15 @@ var limit int
 var page int
 var contentType string
 var result api.ListApiResponse
+var scenarioContext context.Context
+var filters string
 
+type FilterProperties struct {
+	Operator string
+	Field    string
+	Value    string
+	Values   []string
+}
 type User struct {
 	Name      string
 	AccountID string
@@ -78,14 +88,11 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = ""
+	page = 1
+	limit = 0
 	result = api.ListApiResponse{}
-	e = echo.New()
-	e.Logger.SetOutput(&buf)
 	os.Remove("e2e.db")
-	_, err := api.Initialize(e, &API, "e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -122,12 +129,28 @@ x-weos-config:
 components:
   schemas:
 `
+
+	tapi, err := api.New("e2e.yaml")
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
+	API = *tapi
+	e = API.EchoInstance()
+	e.Logger.SetOutput(&buf)
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		fmt.Errorf("unexpected error '%s'", err)
+	}
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	scenarioContext = context.Background()
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = ""
+	page = 1
+	limit = 0
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
@@ -202,7 +225,12 @@ func aMiddlewareShouldBeAddedToTheRoute(middleware string) error {
 
 func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error {
 	//use gorm connection to get table
-	gormDB := API.Application.DB()
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	gormDB := apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
@@ -359,9 +387,10 @@ func blogsInTheApi(details *godog.Table) error {
 		}
 
 		if seq > 1 {
-			reqBytes, _ := json.Marshal(req)
-			body := bytes.NewReader(reqBytes)
+
 			for i := 1; i < seq; i++ {
+				reqBytes, _ := json.Marshal(req)
+				body := bytes.NewReader(reqBytes)
 				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
 				request = request.WithContext(context.TODO())
 				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -419,7 +448,12 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -457,6 +491,8 @@ func theIsSubmitted(contentType string) error {
 		request = httptest.NewRequest("POST", "/"+strings.ToLower(contentType), body)
 	} else if strings.Contains(currScreen, "update") {
 		request = httptest.NewRequest("PUT", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), body)
+	} else if strings.Contains(currScreen, "delete") {
+		request = httptest.NewRequest("DELETE", "/"+strings.ToLower(contentType)+"s/"+fmt.Sprint(req["id"]), nil)
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -481,30 +517,30 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	e = echo.New()
 	os.Remove("e2e.db")
-	API = api.RESTAPI{}
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	API = *tapi
+	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
+	err = API.Initialize(scenarioContext)
 	if err != nil {
-		errs = err
+		return err
 	}
 	return nil
 }
 
 func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	schema, err := API.GetSchemas()
-	if err != nil {
-		return err
-	}
-
+	schema := API.Schemas
 	if _, ok := schema[arg1]; !ok {
 		return fmt.Errorf("no entity named '%s'", arg1)
 	}
 
 	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
-	reader := ds.NewReader(schema[arg1])
+	reader := ds.NewReader(schema[arg1].Build().New())
 
 	s := strings.TrimRight(entityString[1], "}")
 	s = strings.TrimSpace(s)
@@ -590,7 +626,7 @@ func theBinaryIsRunWithTheSpecification() error {
 		BindMounts:   map[string]string{binaryMount: binaryPath},
 		Entrypoint:   []string{binaryMount},
 		//Entrypoint: []string{"tail", "-f", "/dev/null"},
-		Env:        map[string]string{"WEOS_SCHEMA": openAPI},
+		Env:        map[string]string{"WEOS_SPEC": openAPI},
 		WaitingFor: wait.ForLog("started"),
 	}
 	esContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -642,15 +678,16 @@ func theEndpointIsHit(method, contentType string) error {
 }
 
 func theServiceIsRunning() error {
-	e = echo.New()
 	os.Remove("e2e.db")
-	API = api.RESTAPI{}
 	buf = bytes.Buffer{}
-	e.Logger.SetOutput(&buf)
-	_, err := api.Initialize(e, &API, openAPI)
+	tapi, err := api.New(openAPI)
+	tapi.EchoInstance().Logger.SetOutput(&buf)
+	API = *tapi
+	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
 	}
+	e = API.EchoInstance()
 	return nil
 }
 
@@ -717,7 +754,12 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		result = API.Application.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -893,8 +935,13 @@ func theListResultsShouldBe(details *godog.Table) error {
 		compare = map[string]interface{}{}
 	}
 	foundItems := 0
-
-	json.NewDecoder(rec.Body).Decode(&result)
+	response := rec.Result()
+	defer response.Body.Close()
+	result.Items = make([]map[string]interface{}, len(compareArray))
+	err := json.NewDecoder(response.Body).Decode(&result)
+	if err != nil {
+		return err
+	}
 	for i, entity := range compareArray {
 		foundEntity := true
 		for key, value := range entity {
@@ -928,7 +975,7 @@ func thePageNoIs(pageNo int) error {
 
 func theSearchButtonIsHit() error {
 	var request *http.Request
-	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page), nil)
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&"+filters, nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -942,6 +989,95 @@ func theTotalResultsShouldBe(totalResult int) error {
 	if result.Total != int64(totalResult) {
 		return fmt.Errorf("expect page to be %d, got %d", totalResult, result.Total)
 	}
+	return nil
+}
+
+func isOnTheDeleteScreenWithEntityIdForBlogWithId(arg1, contentType, entityID, id string) error {
+	requests[strings.ToLower(contentType+"_delete")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_delete")
+	requests[currScreen]["id"] = id
+	requests[currScreen]["entityID"] = entityID
+	return nil
+}
+
+func isOnTheDeleteScreenWithId(arg1, contentType, id string) error {
+	requests[strings.ToLower(contentType+"_delete")] = map[string]interface{}{}
+	currScreen = strings.ToLower(contentType + "_delete")
+	requests[currScreen]["id"] = id
+	return nil
+}
+
+func theShouldBeDeleted(contentEntity string, id int) error {
+	output := map[string]interface{}{}
+
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	searchResult := apiProjection1.DB().Table(strings.Title(contentEntity)).Find(&output, "id = ?", id)
+	if len(output) != 0 {
+		return fmt.Errorf("the entity was not deleted")
+	}
+	if searchResult.Error != nil {
+		return fmt.Errorf("got error from db query: %s", err)
+	}
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValue(field, value string) error {
+
+	filters = "_filters[" + field + "][eq]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValues(field string, values *godog.Table) error {
+	filters = "_filters[" + field + "][eq]="
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
+		}
+	}
+
+	return nil
+}
+
+func aFilterOnTheFieldGtWithValue(field, value string) error {
+	filters = "_filters[" + field + "][gt]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldInWithValues(field string, values *godog.Table) error {
+	filters = "_filters[" + field + "][in]="
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
+		}
+	}
+
+	return nil
+}
+
+func aFilterOnTheFieldLikeWithValue(field, value string) error {
+	filters = "_filters[" + field + "][like]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldLtWithValue(field, value string) error {
+	filters = "_filters[" + field + "][lt]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldNeWithValue(field, value string) error {
+	filters = "_filters[" + field + "][ne]=" + value
 	return nil
 }
 
@@ -998,6 +1134,16 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
 	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
 	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with entity id "([^"]*)" for blog with id "([^"]*)"$`, isOnTheDeleteScreenWithEntityIdForBlogWithId)
+	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with id "([^"]*)"$`, isOnTheDeleteScreenWithId)
+	ctx.Step(`^the "([^"]*)" "(\d+)" should be deleted$`, theShouldBeDeleted)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with value "([^"]*)"$`, aFilterOnTheFieldEqWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with values$`, aFilterOnTheFieldEqWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "gt" with value "([^"]*)"$`, aFilterOnTheFieldGtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "in" with values$`, aFilterOnTheFieldInWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "like" with value "([^"]*)"$`, aFilterOnTheFieldLikeWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "lt" with value "([^"]*)"$`, aFilterOnTheFieldLtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "ne" with value "([^"]*)"$`, aFilterOnTheFieldNeWithValue)
 }
 
 func TestBDD(t *testing.T) {
@@ -1008,6 +1154,8 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
+			//Tags: "WEOS-1131",
+			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

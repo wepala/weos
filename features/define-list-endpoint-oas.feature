@@ -78,7 +78,7 @@ Feature: Setup List endpoint
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "List" middleware should be added to the route
+    And a "ListController" middleware should be added to the route
 
   Scenario: Setup list endpoint that uses custom response fields
 
@@ -114,7 +114,7 @@ Feature: Setup List endpoint
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "List" middleware should be added to the route
+    And a "ListController" middleware should be added to the route
 
   Scenario: Setup list endpoint by specifying the controller
 
@@ -123,7 +123,7 @@ Feature: Setup List endpoint
       /blogs:
         get:
           operationId: Get Blogs
-          x-controller: List
+          x-controller: ListController
           responses:
             200:
               description: List of blogs
@@ -145,7 +145,8 @@ Feature: Setup List endpoint
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "List" middleware should be added to the route
+    And a "ListController" middleware should be added to the route
+
 
   Scenario: Setup list endpoint by specifying the controller but there is no array in the response
 
@@ -156,7 +157,7 @@ Feature: Setup List endpoint
       /blogs:
         get:
           operationId: Get Blogs
-          x-controller: List
+          x-controller: ListController
           responses:
             200:
               description: List of blogs
@@ -170,47 +171,47 @@ Feature: Setup List endpoint
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output because the endpoint is invalid
 
-  @skipped
+
   Scenario: Setup list endpoint that allows for pagination
 
     To allow for pagination in the list endpoint then the pagination parameters need to be defined
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /blogs:
-      get:
-        operationId: Get Blogs
-        parameters:
-          - in: query
-            name: page
-            schema:
-              type: integer
-          - in: query
-            name: limit
-            schema:
-              type: integer
-        responses:
-          200:
-            description: List of blogs
-            content:
-              application/json:
-                schema:
-                  type: object
-                  properties:
-                    total:
-                      type: integer
-                    page:
-                      type: integer
-                    items:
-                      type: array
+      /blogs:
+        get:
+          operationId: Get Blogs
+          parameters:
+            - in: query
+              name: page
+              schema:
+                type: integer
+            - in: query
+              name: limit
+              schema:
+                type: integer
+          responses:
+            200:
+              description: List of blogs
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
                       items:
-                        $ref: "#/components/schemas/Blog"
-          400:
-            description: Invalid blog submitted
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "List" middleware should be added to the route
+    And a "ListController" middleware should be added to the route
 
   Scenario: Setup filter endpoint
 
@@ -260,7 +261,7 @@ Feature: Setup List endpoint
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "List" middleware should be added to the route
+    And a "ListController" middleware should be added to the route
 
   Scenario: Setup list endpoint with some filter capability
 
@@ -314,7 +315,7 @@ Feature: Setup List endpoint
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "List" middleware should be added to the route
+    And a "ListController" middleware should be added to the route
 
 
   Scenario: Specify list item with an invalid filters definition
@@ -353,7 +354,7 @@ Feature: Setup List endpoint
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a "GET" route should be added to the api
-    And a "List" middleware should be added to the route
+    And a "ListController" middleware should be added to the route
 
   Scenario: Sort a list of items
 

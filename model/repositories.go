@@ -12,7 +12,7 @@ import (
 type EventRepositoryGorm struct {
 	DB              *gorm.DB
 	gormDB          *gorm.DB
-	eventDispatcher EventDisptacher
+	eventDispatcher DefaultEventDisptacher
 	logger          Log
 	unitOfWork      bool
 	AccountID       string
