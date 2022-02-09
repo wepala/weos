@@ -294,65 +294,6 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
-//filterStringBuilder is used to build the query strings
-func filterStringBuilder(dbName string, properties map[string]FilterProperty) string {
-	var query string
-	for _, prop := range properties {
-
-		switch prop.Operator {
-		case "eq":
-			if query != "" {
-				query += " AND " + prop.Field + " = '" + prop.Value + "'"
-			} else {
-				query += prop.Field + " = '" + prop.Value + "'"
-			}
-		case "ne":
-			if query != "" {
-				query += " AND " + prop.Field + " != '" + prop.Value + "'"
-			} else {
-				query += prop.Field + " != '" + prop.Value + "'"
-			}
-		case "like":
-			if dbName == "postgres" {
-				if query != "" {
-					query += " AND " + prop.Field + " ILIKE '%" + prop.Value + "%'"
-				} else {
-					query += prop.Field + " ILIKE '%" + prop.Value + "%'"
-				}
-			} else {
-				if query != "" {
-					query += " AND " + prop.Field + " LIKE '%" + prop.Value + "%'"
-				} else {
-					query += prop.Field + " LIKE '%" + prop.Value + "%'"
-				}
-			}
-		case "in":
-			vals := "'"
-			if query != "" {
-				vals += strings.Join(prop.Values, "','") + "'"
-				query += " AND " + prop.Field + " in '(" + vals + ")'"
-			} else {
-				vals += strings.Join(prop.Values, "','") + "'"
-				query += prop.Field + " in (" + vals + ")"
-			}
-		case "lt":
-			if query != "" {
-				query += " AND " + prop.Field + " < '" + prop.Value + "'"
-			} else {
-				query += prop.Field + " < '" + prop.Value + "'"
-			}
-		case "gt":
-			if query != "" {
-				query += " AND " + prop.Field + " > '" + prop.Value + "'"
-			} else {
-				query += prop.Field + " > '" + prop.Value + "'"
-			}
-		}
-	}
-
-	return query
-}
-
 //query modifier for making queries to the database
 type QueryModifier func() func(db *gorm.DB) *gorm.DB
 type QueryFilterModifier func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB
@@ -376,29 +317,35 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProj
 				case "gt":
 					operator = ">"
 				case "lt":
+					operator = "<"
 				case "ne":
+					operator = "!="
 				case "like":
-				//TODO check db
+					if projection.db.Dialector.Name() == "postgres" {
+						operator = "ILIKE"
+					} else {
+						operator = " LIKE"
+					}
 				case "in":
+					operator = "IN"
 
 				}
 
 				if len(filter.Values) == 0 {
-					db.Where(filter.Field+operator+"?", filter.Value)
+					if filter.Operator == "like" {
+						db.Where(filter.Field+" "+operator+"?", "%"+filter.Value.(string)+"%")
+					} else {
+						db.Where(filter.Field+" "+operator+"?", filter.Value)
+					}
+
 				} else {
-					// TODO add a for loop to generate the number of ? needed
-					db.Where(filter.Field+operator+"?", filter.Values...)
+					//queryString := ""
+					//for i := 0; i < len(filter.Values); i++ {
+					//	queryString += " ?"
+					//}
+					db.Where(filter.Field+" "+operator+" ?", filter.Values)
 				}
 
-			}
-			return db
-		}
-	}
-
-	FilterQuery = func(query string) func(db *gorm.DB) *gorm.DB {
-		return func(db *gorm.DB) *gorm.DB {
-			if query != "" {
-				return db.Where(query).Omit("weos_id, sequence_no, table")
 			}
 			return db
 		}
