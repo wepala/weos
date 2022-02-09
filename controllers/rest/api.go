@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -301,10 +302,21 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 				return err
 			}
 			p.RegisterProjection("Default", defaultProjection)
+
 			//get the database schema
 			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
 			p.Schemas = schemas
-			err = defaultProjection.Migrate(ctxt, schemas, p.Swagger.Components.Schemas)
+
+			//get fields to be removed during migration step
+			deletedFields := map[string][]string{}
+			for name, sch := range p.Swagger.Components.Schemas {
+				dfs, _ := json.Marshal(sch.Value.Extensions[RemoveExtension])
+				var df []string
+				json.Unmarshal(dfs, &df)
+				deletedFields[name] = df
+			}
+
+			err = defaultProjection.Migrate(ctxt, schemas, deletedFields)
 			if err != nil {
 				p.EchoInstance().Logger.Error(err)
 				return err

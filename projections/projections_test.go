@@ -239,7 +239,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -381,7 +387,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -485,7 +497,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -597,7 +615,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -743,7 +767,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -852,11 +882,16 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
-
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
 		}
@@ -1015,7 +1050,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1107,7 +1148,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1268,7 +1315,13 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+	deletedFields := map[string][]string{}
+	for name, sch := range api.Swagger.Components.Schemas {
+		dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+		json.Unmarshal(dfs, deletedFields[name])
+	}
+
+	err = p.Migrate(context.Background(), schemes, deletedFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1413,7 +1466,13 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+	deletedFields := map[string][]string{}
+	for name, sch := range api.Swagger.Components.Schemas {
+		dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+		json.Unmarshal(dfs, deletedFields[name])
+	}
+
+	err = p.Migrate(context.Background(), schemes, deletedFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1562,11 +1621,16 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
-
 		m := map[string]interface{}{"table_alias": "Blog", "title": "hugs", "posts": []map[string]interface{}{
 			{
 				"id": 1,
@@ -1714,7 +1778,13 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+	deletedFields := map[string][]string{}
+	for name, sch := range api.Swagger.Components.Schemas {
+		dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+		json.Unmarshal(dfs, deletedFields[name])
+	}
+
+	err = p.Migrate(context.Background(), schemes, deletedFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1844,7 +1914,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1978,7 +2054,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2081,7 +2163,13 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+	deletedFields := map[string][]string{}
+	for name, sch := range api.Swagger.Components.Schemas {
+		dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+		json.Unmarshal(dfs, deletedFields[name])
+	}
+
+	err = p.Migrate(context.Background(), schemes, deletedFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2267,7 +2355,15 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2362,7 +2458,15 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2473,10 +2577,19 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Errorf("expected to get a table 'Blog'")
 		}
@@ -2572,7 +2685,15 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2686,7 +2807,15 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2778,11 +2907,18 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
-
 		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
 
 		//expect all columns to still be in the database
@@ -2887,7 +3023,15 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2972,7 +3116,15 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3075,7 +3227,15 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3157,8 +3317,15 @@ components:
 		if err != nil {
 			t.Fatal(err)
 		}
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3260,7 +3427,12 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes, api.Swagger.Components.Schemas)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
