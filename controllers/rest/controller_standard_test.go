@@ -132,6 +132,9 @@ func TestStandardControllers_Create(t *testing.T) {
 		NameFunc: func() string {
 			return "Blog"
 		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
 	}
 
 	t.Run("basic create based on simple content type", func(t *testing.T) {
@@ -1138,7 +1141,7 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 				return nil, 0, errors.New("expect filter options length to be " + "2")
 
 			}
-			if filterOptions["id"] == nil || filterOptions["id"].(*rest.FilterProperties).Operator != "like" || filterOptions["id"].(*rest.FilterProperties).Value != "123" {
+			if filterOptions["id"] == nil || filterOptions["id"].(*rest.FilterProperties).Operator != "like" || filterOptions["id"].(*rest.FilterProperties).Value.(uint64) != uint64(123) {
 				t.Errorf("unexpected error trying to find id filter")
 			}
 			if filterOptions["title"] == nil || filterOptions["title"].(*rest.FilterProperties).Operator != "like" || filterOptions["title"].(*rest.FilterProperties).Value != "my first blog" {
