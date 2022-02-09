@@ -13,7 +13,7 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-/test.db
+*test.db
 *projection.db
 *e2e.db
 /.idea

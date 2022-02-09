@@ -503,7 +503,7 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
 				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
-				return err
+				return NewControllerError(err.Error(), nil, http.StatusBadRequest)
 			}
 			//gets the filter, limit and page from context
 			limit, _ := newContext.Value("limit").(int)

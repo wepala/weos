@@ -3,14 +3,12 @@ package projections
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
-
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"strings"
 )
 
 //GORMProjection interface struct
@@ -251,10 +249,6 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	var filtersProp map[string]FilterProperty
 	props, _ := json.Marshal(filterOptions)
 	json.Unmarshal(props, &filtersProp)
-	filtersProp, err := DateTimeCheck(entityFactory, filtersProp)
-	if err != nil {
-		return nil, int64(0), err
-	}
 	builder := entityFactory.DynamicStruct(ctx)
 	if builder != nil {
 		schemes = builder.NewSliceOfStructs()
@@ -300,101 +294,6 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
-//DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
-func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
-	var err error
-	schema := entityFactory.Schema()
-	for key, value := range properties {
-		if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
-			_, err := time.Parse(time.RFC3339, value.Value)
-			if err != nil {
-				return nil, err
-			}
-			//count := 1
-			//if value.Operator == "lt" {
-			//	timeH := timeP.Add(time.Duration(-count) * time.Second)
-			//	filter := FilterProperty{
-			//		Field:    properties[key].Field,
-			//		Operator: properties[key].Operator,
-			//		Value:    timeH.String(),
-			//	}
-			//	properties[key] = filter
-			//}
-			//if value.Operator == "gt" {
-			//	timeH := timeP.Add(time.Duration(count) * time.Second)
-			//	filter := FilterProperty{
-			//		Field:    properties[key].Field,
-			//		Operator: properties[key].Operator,
-			//		Value:    timeH.String(),
-			//	}
-			//	properties[key] = filter
-			//}
-
-		}
-	}
-
-	return properties, err
-}
-
-//filterStringBuilder is used to build the query strings
-func filterStringBuilder(dbName string, properties map[string]FilterProperty) string {
-	var query string
-	for _, prop := range properties {
-
-		switch prop.Operator {
-		case "eq":
-			if query != "" {
-				query += " AND " + prop.Field + " = '" + prop.Value + "'"
-			} else {
-				query += prop.Field + " = '" + prop.Value + "'"
-			}
-		case "ne":
-			if query != "" {
-				query += " AND " + prop.Field + " != '" + prop.Value + "'"
-			} else {
-				query += prop.Field + " != '" + prop.Value + "'"
-			}
-		case "like":
-			if dbName == "postgres" {
-				if query != "" {
-					query += " AND " + prop.Field + " ILIKE '%" + prop.Value + "%'"
-				} else {
-					query += prop.Field + " ILIKE '%" + prop.Value + "%'"
-				}
-			} else {
-				if query != "" {
-					query += " AND " + prop.Field + " LIKE '%" + prop.Value + "%'"
-				} else {
-					query += prop.Field + " LIKE '%" + prop.Value + "%'"
-				}
-			}
-		case "in":
-			vals := "'"
-			if query != "" {
-				vals += strings.Join(prop.Values, "','") + "'"
-				query += " AND " + prop.Field + " in '(" + vals + ")'"
-			} else {
-				vals += strings.Join(prop.Values, "','") + "'"
-				query += prop.Field + " in (" + vals + ")"
-			}
-		case "lt":
-			if query != "" {
-				query += " AND " + prop.Field + " < '" + prop.Value + "'"
-			} else {
-				query += prop.Field + " < '" + prop.Value + "'"
-			}
-		case "gt":
-			if query != "" {
-				query += " AND " + prop.Field + " > '" + prop.Value + "'"
-			} else {
-				query += prop.Field + " > '" + prop.Value + "'"
-			}
-		}
-	}
-
-	return query
-}
-
 //query modifier for making queries to the database
 type QueryModifier func() func(db *gorm.DB) *gorm.DB
 type QueryFilterModifier func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB
@@ -417,12 +316,18 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProj
 				switch filter.Operator {
 				case "gt":
 					operator = ">"
+				case "lt":
+				case "ne":
+				case "like":
+				//TODO check db
+				case "in":
 
 				}
 
 				if len(filter.Values) == 0 {
 					db.Where(filter.Field+operator+"?", filter.Value)
 				} else {
+					// TODO add a for loop to generate the number of ? needed
 					db.Where(filter.Field+operator+"?", filter.Values...)
 				}
 
