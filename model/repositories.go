@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
@@ -296,7 +297,18 @@ func (e *EventRepositoryGorm) Remove(entities []Entity) error {
 }
 
 //Content may not be applicable to this func since there would be an instance of it being called at server.go run. Therefore we won't have a "proper" content which would contain the EntityFactory
-func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory) (int, int, int, error) {
+func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projections Projection) (int, int, int, error) {
+	schemas := make(map[string]ds.Builder)
+
+	for _, value := range entityFactories {
+		schemas[value.Name()] = value.Builder(context.Background())
+	}
+
+	err := projections.Migrate(ctxt, schemas)
+	if err != nil {
+		e.logger.Errorf("error migrating tables: %s", err)
+	}
+
 	var events []GormEvent
 
 	if date.IsZero() {
@@ -339,35 +351,20 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 	entity := map[string]interface{}{}
 
 	for _, event := range tEvents {
-		dispatchEntity := true
-		if entityFactories[event.Meta.SchemaName] == nil {
-			e.logger.Errorf("no entity factory found for schema %s", event.Meta.SchemaName)
 
+		newContext := context.WithValue(ctxt, context2.ENTITY_FACTORY, entityFactories[event.Meta.SchemaName])
+
+		result := e.DB.Table(event.Meta.SchemaName).Find(&entity, "weos_id = ? and sequence_no = ?", event.Meta.EntityID, event.Meta.SequenceNo)
+		if result.Error != nil {
+			e.logger.Errorf("got error pulling events '%s'", result.Error)
+			return 0, 0, 0, result.Error
+		}
+
+		if result.RowsAffected != 0 {
 			failedEvents++
-		} else {
-			newContext := context.WithValue(ctxt, context2.ENTITY_FACTORY, entityFactories[event.Meta.SchemaName])
-
-			if !e.DB.Migrator().HasTable(event.Meta.SchemaName) {
-				e.eventDispatcher.Dispatch(newContext, *event)
-				successfulEvents++
-			} else {
-				result := e.DB.Table(event.Meta.SchemaName).Find(&entity, "weos_id = ? ", event.Meta.EntityID)
-				if result.Error != nil {
-					e.logger.Errorf("got error pulling events '%s'", result.Error)
-					return 0, 0, 0, result.Error
-				}
-
-				//entity["weos_id"] != event.Meta.EntityID || entity["weos_id"] == event.Meta.EntityID
-				if result.RowsAffected != 0 {
-					dispatchEntity = false
-					failedEvents++
-				}
-
-				if dispatchEntity == true {
-					e.eventDispatcher.Dispatch(newContext, *event)
-					successfulEvents++
-				}
-			}
+		} else if result.RowsAffected == 0 {
+			e.eventDispatcher.Dispatch(newContext, *event)
+			successfulEvents++
 		}
 	}
 	return totalEvents, successfulEvents, failedEvents, nil

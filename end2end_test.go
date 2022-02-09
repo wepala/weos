@@ -1035,9 +1035,13 @@ func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
 		return fmt.Errorf("error getting event store: %s", err)
 	}
 	eventRepo := repo.(*model.EventRepositoryGorm)
+	projection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
 
 	factories := API.GetEntityFactories()
-	total, success, failed, err = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories)
+	total, success, failed, err = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
 	if err != nil {
 		return fmt.Errorf("error getting event store: %s", err)
 	}
@@ -1187,7 +1191,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			//Tags:   "~skipped && ~long",
-			Tags: "WEOS-1327",
+			Tags: "focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

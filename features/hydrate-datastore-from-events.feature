@@ -261,7 +261,7 @@ Feature: Hydrate database using events
   @WEOS-1327
   Scenario: Repair data tables after some was deleted
 
-  @WEOS-1327
+  @WEOS-1327 @focus
   Scenario: Repair tables after some content has been deleted
     Given a "Blog" with id "1237" was deleted
     And a "Blog" with id "164" was deleted

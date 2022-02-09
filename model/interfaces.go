@@ -69,7 +69,7 @@ type EventRepository interface {
 	GetByAggregateAndSequenceRange(ID string, start int64, end int64) ([]*Event, error)
 	AddSubscriber(handler EventHandler)
 	GetSubscribers() ([]EventHandler, error)
-	ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory) (int, int, int, error)
+	ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projection Projection) (int, int, int, error)
 }
 
 type Datastore interface {

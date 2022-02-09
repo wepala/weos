@@ -55,7 +55,7 @@ var _ model.EventRepository = &EventRepositoryMock{}
 // 			PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 // 				panic("mock out the Persist method")
 // 			},
-// 			ReplayEventsFunc: func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory) (int, int, int, error) {
+// 			ReplayEventsFunc: func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, error) {
 // 				panic("mock out the ReplayEvents method")
 // 			},
 // 		}
@@ -96,7 +96,7 @@ type EventRepositoryMock struct {
 	PersistFunc func(ctxt context.Context, entity model.AggregateInterface) error
 
 	// ReplayEventsFunc mocks the ReplayEvents method.
-	ReplayEventsFunc func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory) (int, int, int, error)
+	ReplayEventsFunc func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -166,6 +166,8 @@ type EventRepositoryMock struct {
 			Date time.Time
 			// EntityFactories is the entityFactories argument value.
 			EntityFactories map[string]model.EntityFactory
+			// Projection is the projection argument value.
+			Projection model.Projection
 		}
 	}
 	lockAddSubscriber                  sync.RWMutex
@@ -506,7 +508,7 @@ func (mock *EventRepositoryMock) PersistCalls() []struct {
 }
 
 // ReplayEvents calls ReplayEventsFunc.
-func (mock *EventRepositoryMock) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory) (int, int, int, error) {
+func (mock *EventRepositoryMock) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, error) {
 	if mock.ReplayEventsFunc == nil {
 		panic("EventRepositoryMock.ReplayEventsFunc: method is nil but EventRepository.ReplayEvents was just called")
 	}
@@ -514,15 +516,17 @@ func (mock *EventRepositoryMock) ReplayEvents(ctxt context.Context, date time.Ti
 		Ctxt            context.Context
 		Date            time.Time
 		EntityFactories map[string]model.EntityFactory
+		Projection      model.Projection
 	}{
 		Ctxt:            ctxt,
 		Date:            date,
 		EntityFactories: entityFactories,
+		Projection:      projection,
 	}
 	mock.lockReplayEvents.Lock()
 	mock.calls.ReplayEvents = append(mock.calls.ReplayEvents, callInfo)
 	mock.lockReplayEvents.Unlock()
-	return mock.ReplayEventsFunc(ctxt, date, entityFactories)
+	return mock.ReplayEventsFunc(ctxt, date, entityFactories, projection)
 }
 
 // ReplayEventsCalls gets all the calls that were made to ReplayEvents.
@@ -532,11 +536,13 @@ func (mock *EventRepositoryMock) ReplayEventsCalls() []struct {
 	Ctxt            context.Context
 	Date            time.Time
 	EntityFactories map[string]model.EntityFactory
+	Projection      model.Projection
 } {
 	var calls []struct {
 		Ctxt            context.Context
 		Date            time.Time
 		EntityFactories map[string]model.EntityFactory
+		Projection      model.Projection
 	}
 	mock.lockReplayEvents.RLock()
 	calls = mock.calls.ReplayEvents
