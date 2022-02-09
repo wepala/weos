@@ -1,12 +1,15 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"github.com/wepala/weos/model"
 	"io/ioutil"
 	"os"
 	"strings"
+	"time"
 )
 
 //New instantiates and initializes the api
@@ -21,8 +24,7 @@ func New(apiConfig string) (*RESTAPI, error) {
 	return api, err
 }
 
-//Start API
-func Start(port string, apiConfig string) *RESTAPI {
+func Start(port string, apiConfig string, replay bool) *RESTAPI {
 	api, err := New(apiConfig)
 	if err != nil {
 		api.EchoInstance().Logger.Error(err)
@@ -31,6 +33,17 @@ func Start(port string, apiConfig string) *RESTAPI {
 	if err != nil {
 		api.EchoInstance().Logger.Fatal(err)
 	}
+
+	if replay == true {
+		e, _ := api.GetEventStore("Default")
+		eventRepo := e.(*model.EventRepositoryGorm)
+		projection, _ := api.GetProjection("Default")
+		factories := api.GetEntityFactories()
+
+		total, success, failed, err := eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
+		api.EchoInstance().Logger.Debugf("total: %d, success: %d, failed: %d, err: %s", total, success, failed, err)
+	}
+
 	api.EchoInstance().Logger.Fatal(api.EchoInstance().Start(":" + port))
 	return api
 }
