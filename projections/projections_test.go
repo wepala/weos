@@ -2150,10 +2150,10 @@ components:
 		if found != limit {
 			t.Errorf("expected to find %d blogs got %d", limit, found)
 		}
-		err = gormDB.Migrator().DropTable("Blog")
-		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "Blog", err)
-		}
+		//err = gormDB.Migrator().DropTable("Blog")
+		//if err != nil {
+		//	t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		//}
 	})
 	t.Run("get a basic list with the foreign key returned", func(t *testing.T) {
 

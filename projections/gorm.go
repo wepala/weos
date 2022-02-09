@@ -311,37 +311,39 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProj
 
 	FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {
-			for _, filter := range options {
-				operator := "="
-				switch filter.Operator {
-				case "gt":
-					operator = ">"
-				case "lt":
-					operator = "<"
-				case "ne":
-					operator = "!="
-				case "like":
-					if projection.db.Dialector.Name() == "postgres" {
-						operator = "ILIKE"
-					} else {
-						operator = " LIKE"
-					}
-				case "in":
-					operator = "IN"
+			if options != nil {
+				for _, filter := range options {
+					operator := "="
+					switch filter.Operator {
+					case "gt":
+						operator = ">"
+					case "lt":
+						operator = "<"
+					case "ne":
+						operator = "!="
+					case "like":
+						if projection.db.Dialector.Name() == "postgres" {
+							operator = "ILIKE"
+						} else {
+							operator = " LIKE"
+						}
+					case "in":
+						operator = "IN"
 
-				}
-
-				if len(filter.Values) == 0 {
-					if filter.Operator == "like" {
-						db.Where(filter.Field+" "+operator+"?", "%"+filter.Value.(string)+"%")
-					} else {
-						db.Where(filter.Field+" "+operator+"?", filter.Value)
 					}
 
-				} else {
-					db.Where(filter.Field+" "+operator+" ?", filter.Values)
-				}
+					if len(filter.Values) == 0 {
+						if filter.Operator == "like" {
+							db.Where(filter.Field+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+						} else {
+							db.Where(filter.Field+" "+operator+" ?", filter.Value)
+						}
 
+					} else {
+						db.Where(filter.Field+" "+operator+" ?", filter.Values)
+					}
+
+				}
 			}
 			return db
 		}
