@@ -1077,17 +1077,12 @@ func theTableShouldBePopulatedWith(contentType string, details *godog.Table) err
 			compare[head[n].Value] = cell.Value
 		}
 
-		for key, value := range compare {
-			apiProjection, err := API.GetProjection("Default")
-			if err != nil {
-				return fmt.Errorf("unexpected error getting projection: %s", err)
-			}
-			apiProjection1 := apiProjection.(*projections.GORMProjection)
-			result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
-			if contentEntity != nil {
-				break
-			}
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
 		}
+		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_ID = ?", compare["weos_id"])
 
 		if contentEntity == nil {
 			return fmt.Errorf("unexpected error finding content type in db")
@@ -1191,7 +1186,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
+			//Tags:   "~skipped && ~long",
+			Tags: "focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
