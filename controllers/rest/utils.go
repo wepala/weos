@@ -285,10 +285,14 @@ func SplitFilter(filter string) *FilterProperties {
 	//checks if the there are more than one values specified by checking if there is a comma
 	if strings.Contains(operator[1], ",") {
 		values := strings.Split(operator[1], ",")
+		vals := []interface{}{}
+		for _, val := range values {
+			vals = append(vals, val)
+		}
 		property = &FilterProperties{
 			Field:    field[1],
 			Operator: operator[0],
-			Values:   values,
+			Values:   vals,
 		}
 
 	} else {
