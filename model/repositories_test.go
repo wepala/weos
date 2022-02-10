@@ -20,10 +20,10 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	schemaName := "Blog"
+	entityType := "Blog"
 
 	factories := api.GetEntityFactories()
-	newContext := context.WithValue(ctx, weoscontext.ENTITY_FACTORY, factories[schemaName])
+	newContext := context.WithValue(ctx, weoscontext.ENTITY_FACTORY, factories[entityType])
 
 	mockPayload1 := map[string]interface{}{"weos_id": "12345", "sequence_no": int64(1), "title": "Test Blog", "url": "testing.com"}
 	entity1 := &model.ContentEntity{
@@ -105,8 +105,8 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	t.Run("replay events - existing data", func(t *testing.T) {
 
 		total, successful, failed, err := eventRepo.ReplayEvents(ctx, time.Time{}, factories, projection)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatalf("expected there to be errors (unique constraint)")
 		}
 
 		if total != 3 {
@@ -124,8 +124,6 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	t.Run("replay events - remove rows", func(t *testing.T) {
 		output := map[string]interface{}{}
 
-		//apiProjection := projection.(*projections.GORMProjection)
-
 		searchResult := eventRepo.DB.Table("Blog").Where("weos_id = ?", "12345").Delete(&output)
 		if searchResult.Error != nil {
 			t.Fatal(searchResult.Error)
@@ -137,8 +135,8 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 		}
 
 		total, successful, failed, err := eventRepo.ReplayEvents(ctx, time.Time{}, factories, projection)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatalf("expected there to be errors (unique constraint)")
 		}
 
 		if total != 3 {

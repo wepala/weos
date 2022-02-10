@@ -101,7 +101,6 @@ type EventMeta struct {
 	RootID     string `json:"root_id"`
 	Group      string `json:"group"`
 	Created    string `json:"created"`
-	SchemaName string `json:"schema_name"`
 }
 
 func (e *Event) IsValid() bool {

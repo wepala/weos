@@ -60,6 +60,7 @@ var scenarioContext context.Context
 var total int
 var success int
 var failed int
+var errArray [][]error
 
 type User struct {
 	Name      string
@@ -1041,7 +1042,7 @@ func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
 	}
 
 	factories := API.GetEntityFactories()
-	total, success, failed, err = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
+	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
 	if err != nil {
 		return fmt.Errorf("error getting event store: %s", err)
 	}
@@ -1191,7 +1192,6 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

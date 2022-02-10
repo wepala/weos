@@ -34,7 +34,6 @@ type GormEvent struct {
 	ApplicationID string `gorm:"index"`
 	User          string `gorm:"index"`
 	SequenceNo    int64
-	SchemaName    string `gorm:"index"`
 }
 
 //NewGormEvent converts a domain event to something that is a bit easier for Gorm to work with
@@ -54,7 +53,6 @@ func NewGormEvent(event *Event) (GormEvent, error) {
 		ApplicationID: event.Meta.Module,
 		User:          event.Meta.User,
 		SequenceNo:    event.Meta.SequenceNo,
-		SchemaName:    event.Meta.SchemaName,
 	}, nil
 }
 
@@ -86,8 +84,8 @@ func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInte
 		if event.Meta.Group == "" {
 			event.Meta.Group = e.GroupID
 		}
-		if event.Meta.SchemaName == "" {
-			event.Meta.SchemaName = schemaName
+		if event.Meta.EntityType == "ContentEntity" || event.Meta.EntityType == "" {
+			event.Meta.EntityType = schemaName
 		}
 		if !event.IsValid() {
 			for _, terr := range event.GetErrors() {
@@ -297,7 +295,10 @@ func (e *EventRepositoryGorm) Remove(entities []Entity) error {
 }
 
 //Content may not be applicable to this func since there would be an instance of it being called at server.go run. Therefore we won't have a "proper" content which would contain the EntityFactory
-func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projections Projection) (int, int, int, error) {
+func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projections Projection) (int, int, int, [][]error) {
+	var errors [][]error
+	var errArray []error
+
 	schemas := make(map[string]ds.Builder)
 
 	for _, value := range entityFactories {
@@ -315,13 +316,17 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 		result := e.DB.Table("gorm_events").Find(&events)
 		if result.Error != nil {
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
-			return 0, 0, 0, result.Error
+			errArray = append(errArray, result.Error)
+			errors = append(errors, errArray)
+			return 0, 0, 0, errors
 		}
 	} else {
 		result := e.DB.Table("gorm_events").Where("created_at =  ?", date).Find(&events)
 		if result.Error != nil {
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
-			return 0, 0, 0, result.Error
+			errArray = append(errArray, result.Error)
+			errors = append(errors, errArray)
+			return 0, 0, 0, errors
 		}
 	}
 
@@ -339,7 +344,6 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 				Module:     event.ApplicationID,
 				User:       event.User,
 				SequenceNo: event.SequenceNo,
-				SchemaName: event.SchemaName,
 			},
 			Version: 0,
 		})
@@ -348,26 +352,20 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 	totalEvents := len(tEvents)
 	successfulEvents := 0
 	failedEvents := 0
-	entity := map[string]interface{}{}
 
 	for _, event := range tEvents {
 
-		newContext := context.WithValue(ctxt, context2.ENTITY_FACTORY, entityFactories[event.Meta.SchemaName])
-
-		result := e.DB.Table(event.Meta.SchemaName).Find(&entity, "weos_id = ? and sequence_no = ?", event.Meta.EntityID, event.Meta.SequenceNo)
-		if result.Error != nil {
-			e.logger.Errorf("got error pulling events '%s'", result.Error)
-			return 0, 0, 0, result.Error
-		}
-
-		if result.RowsAffected != 0 {
-			failedEvents++
-		} else if result.RowsAffected == 0 {
-			e.eventDispatcher.Dispatch(newContext, *event)
+		newContext := context.WithValue(ctxt, context2.ENTITY_FACTORY, entityFactories[event.Meta.EntityType])
+		errArray = e.eventDispatcher.Dispatch(newContext, *event)
+		if len(errArray) == 0 {
 			successfulEvents++
+		} else {
+			errors = append(errors, errArray)
+			failedEvents++
 		}
+
 	}
-	return totalEvents, successfulEvents, failedEvents, nil
+	return totalEvents, successfulEvents, failedEvents, errors
 }
 
 func NewBasicEventRepository(gormDB *gorm.DB, logger Log, useUnitOfWork bool, accountID string, applicationID string) (EventRepository, error) {
