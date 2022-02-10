@@ -537,7 +537,7 @@ func theShouldHaveAnId(contentType string) error {
 }
 
 func theSpecificationIs(arg1 *godog.DocString) error {
-	openAPI = arg1.Content
+	openAPI = fmt.Sprintf(arg1.Content, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	return nil
 }
 
