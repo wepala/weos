@@ -254,7 +254,7 @@ paths:
           name: sequence_no
           required: false
           schema:
-            type: string
+            type: integer
         - in: query
           name: use_entity_id
           schema:
