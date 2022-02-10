@@ -118,7 +118,7 @@ Feature: List content
                schema:
                  type: integer
              - in: query
-               name: filters
+               name: _filters
                schema:
                  type: array
                  items:
@@ -294,8 +294,8 @@ Feature: List content
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
-      | id    | entity id                   | sequence no | title        | description    |
-      | 3     | 24KjHaQbjEv0ZxfKxFup1dI6iKP | 4           | Blog 3       | Some Blog 3    |
+      | id    | title        | description    |
+      | 3     | Blog 3       | Some Blog 3    |
     And the total results should be 1
     And the page in the result should be 1
 
@@ -325,12 +325,12 @@ Feature: List content
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
-      | id    | entity id                   | sequence no | title        | description    |
-      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
-      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
-      | 4     | 24KjIq8KJhIhWa7d8sNJhRilGpA | 1           | Blog 4       | Some Blog 4    |
-      | 5     | 24KjLAP17p3KvTy5YCMWUIRlOSS | 1           | Blog 5       | Some Blog 5    |
-      | 164   | 24KjFbp82wGq4qb5LAxLdA5GbR2 | 1           | Blog 6       | Some Blog 6    |
+      | id    | title        | description    |
+      | 1     | Blog 1       | Some Blog      |
+      | 1237  | Blog 8       | Some Blog 8    |
+      | 164   | Blog 6       | Some Blog 6    |
+      | 2     | Blog 2       | Some Blog 2    |
+      | 4     | Blog 4       | Some Blog 4    |
     And the total results should be 7
     And the page in the result should be 1
 
@@ -345,13 +345,11 @@ Feature: List content
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
-      | id    | entity id                   | sequence no | title        | description    |
-      | 4     | 24KjIq8KJhIhWa7d8sNJhRilGpA | 1           | Blog 4       | Some Blog 4    |
-      | 5     | 24KjLAP17p3KvTy5YCMWUIRlOSS | 1           | Blog 5       | Some Blog 5    |
-      | 164   | 24KjFbp82wGq4qb5LAxLdA5GbR2 | 1           | Blog 6       | Some Blog 6    |
-      | 890   | 24KjMP9uTPxW5Xuhziv1balYskX | 1           | Blog 7       | Some Blog 7    |
-      | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
-    And the total results should be 5
+      | id    | title        | description    |
+      | 4     | Blog 4       | Some Blog 4    |
+      | 5     | Blog 5       | Some Blog 5    |
+      | 890   | Blog 7       | Some Blog 7    |
+    And the total results should be 3
     And the page in the result should be 1
 
   @WEOS-1134
@@ -365,10 +363,12 @@ Feature: List content
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
-      | id    | entity id                   | sequence no | title        | description    |
-      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
-      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
-    And the total results should be 2
+      | id    | title        | description    |
+      | 1     | Blog 1       | Some Blog      |
+      | 1237  | Blog 8       | Some Blog 8    |
+      | 164   | Blog 6       | Some Blog 6    |
+      | 2     | Blog 2       | Some Blog 2    |
+    And the total results should be 4
     And the page in the result should be 1
 
   @WEOS-1134
@@ -382,10 +382,10 @@ Feature: List content
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
-      | id    | entity id                   | sequence no | title        | description    |
-      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
-      | 164   | 24KjFbp82wGq4qb5LAxLdA5GbR2 | 1           | Blog 6       | Some Blog 6    |
-      | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
+      | id    | title        | description    |
+      | 1     | Blog 1       | Some Blog      |
+      | 1237  | Blog 8       | Some Blog 8    |
+      | 164   | Blog 6       | Some Blog 6    |
     And the total results should be 3
     And the page in the result should be 1
 
@@ -403,8 +403,8 @@ Feature: List content
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
-      | id    | entity id                   | sequence no | title        | description    |
-      | 3     | 24KjHaQbjEv0ZxfKxFup1dI6iKP | 4           | Blog 3       | Some Blog 3    |
-      | 4     | 24KjIq8KJhIhWa7d8sNJhRilGpA | 1           | Blog 4       | Some Blog 4    |
+      | id    | title        | description    |
+      | 3     | Blog 3       | Some Blog 3    |
+      | 4     | Blog 4       | Some Blog 4    |
     And the total results should be 2
     And the page in the result should be 1
