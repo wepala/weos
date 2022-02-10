@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -2306,4 +2307,122 @@ components:
 			t.Errorf("error removing table '%s' '%s'", "Blog", err)
 		}
 	})
+}
+
+func TestProjections_JsonTagFields(t *testing.T) {
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       blogtitle:
+         type: string
+         description: blog title
+       blogDescription:
+         type: string
+       LastUpdated:
+         type: string 
+         format: date-time
+     required:
+       - blogtitle
+`
+	api, err := rest.New(openAPI)
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = p.Migrate(context.Background(), schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Fatal("expected to get a table 'Blog'")
+	}
+
+	if !gormDB.Migrator().HasTable("Post") {
+		t.Fatal("expected to get a table 'Post'")
+	}
+
+	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	blogWeosID := "hi12"
+	blogWeosID1 := "hello"
+
+	t1, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:00Z")
+	t2, _ := time.Parse(time.RFC3339, "2005-01-02T15:04:00Z")
+
+	blog := map[string]interface{}{"weos_id": blogWeosID, "blogtitle": "hugs1", "blogDescription": "first blog", "sequence_no": int64(1), "LastUpdated": t1}
+	blog1 := map[string]interface{}{"weos_id": blogWeosID1, "blogtitle": "hugs2", "blogDescription": "first blog", "sequence_no": int64(1), "LastUpdated": t2}
+
+	gormDB.Table("Blog").Create(blog)
+	gormDB.Table("Blog").Create(blog1)
+
+	t.Run("testing if the content entity field has the correct json tag that was passed in", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		results, _, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, nil)
+		if err != nil {
+			t.Fatalf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Fatalf("expected to get results but got nil")
+		}
+
+		b := results[0]
+
+		if b["blogtitle"] != blog["blogtitle"] {
+			t.Errorf("expected blogtitle to be %s got %s", blog["blogtitle"], b["blogtitle"])
+		}
+		if b["blogDescription"] != blog["blogDescription"] {
+			t.Errorf("expected blogDescription to be %s got %s", blog["blogDescription"], b["blogDescription"])
+		}
+		if b["LastUpdated"] != blog["LastUpdated"] {
+			t.Errorf("expected LastUpdated to be %s got %s", blog["LastUpdated"], b["LastUpdated"])
+		}
+
+	})
+
 }
