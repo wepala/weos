@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/wepala/weos/projections"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/wepala/weos/projections"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -369,6 +370,11 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				if seq, ok = newContext.Value("sequence_no").(string); ok {
 					ctxt.Logger().Debugf("invalid sequence no")
 				}
+			} else {
+				//if we sucessfully pulled a sequence number and it is zero, the entity does not exist
+				if seqInt == 0 {
+					return NewControllerError("Entity does not exist", nil, http.StatusNotFound)
+				}
 			}
 
 			//if use_entity_id is not set then let's get the item by key
@@ -382,6 +388,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				entityID, seq = SplitEtag(etag)
 				seqInt, err = strconv.Atoi(seq)
 			}
+
 			//if a sequence no. was sent BUT it could not be converted to an integer then return an error
 			if seq != "" && seqInt == 0 {
 				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
