@@ -60,7 +60,7 @@ var scenarioContext context.Context
 var total int
 var success int
 var failed int
-var errArray [][]error
+var errArray []error
 
 type User struct {
 	Name      string
@@ -1186,8 +1186,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~skipped && ~long",
-			Tags: "focus",
+			Tags:   "~skipped && ~long",
+			//Tags: "focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

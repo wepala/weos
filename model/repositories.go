@@ -295,8 +295,8 @@ func (e *EventRepositoryGorm) Remove(entities []Entity) error {
 }
 
 //Content may not be applicable to this func since there would be an instance of it being called at server.go run. Therefore we won't have a "proper" content which would contain the EntityFactory
-func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projections Projection) (int, int, int, [][]error) {
-	var errors [][]error
+func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projections Projection) (int, int, int, []error) {
+	var errors []error
 	var errArray []error
 
 	schemas := make(map[string]ds.Builder)
@@ -316,16 +316,14 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 		result := e.DB.Table("gorm_events").Find(&events)
 		if result.Error != nil {
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
-			errArray = append(errArray, result.Error)
-			errors = append(errors, errArray)
+			errors = append(errors, result.Error)
 			return 0, 0, 0, errors
 		}
 	} else {
 		result := e.DB.Table("gorm_events").Where("created_at =  ?", date).Find(&events)
 		if result.Error != nil {
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
-			errArray = append(errArray, result.Error)
-			errors = append(errors, errArray)
+			errors = append(errors, result.Error)
 			return 0, 0, 0, errors
 		}
 	}
@@ -360,7 +358,7 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 		if len(errArray) == 0 {
 			successfulEvents++
 		} else {
-			errors = append(errors, errArray)
+			errors = append(errors, errArray...)
 			failedEvents++
 		}
 
