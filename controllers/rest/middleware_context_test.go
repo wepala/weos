@@ -35,10 +35,19 @@ func TestContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error loading api specification '%s'", err)
 	}
+	entityFactory := &EntityFactoryMock{
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
+	}
+	e := echo.New()
+	restApi := &rest.RESTAPI{}
+	restApi.SetEchoInstance(e)
+
 	t.Run("check that account id is added by default", func(t *testing.T) {
 		accountID := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -60,7 +69,7 @@ func TestContext(t *testing.T) {
 		paramName := "someHeader"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -86,7 +95,7 @@ func TestContext(t *testing.T) {
 		paramName := "someOtherHeader"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -111,7 +120,7 @@ func TestContext(t *testing.T) {
 		paramName := "q"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -138,7 +147,7 @@ func TestContext(t *testing.T) {
 		if path == nil {
 			t.Fatal("could not find expected path")
 		}
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -165,7 +174,7 @@ func TestContext(t *testing.T) {
 		if path == nil {
 			t.Fatal("could not find expected path")
 		}
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -192,7 +201,7 @@ func TestContext(t *testing.T) {
 		if path == nil {
 			t.Fatal("could not find expected path")
 		}
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -216,7 +225,7 @@ func TestContext(t *testing.T) {
 		paramName := "Asdfsdgfsdfgypypadfasd"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -235,7 +244,7 @@ func TestContext(t *testing.T) {
 
 	t.Run("if no middleware is defined it should work", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			return nil
@@ -252,7 +261,7 @@ func TestContext(t *testing.T) {
 		paramValue := "2"
 		pValue := 2
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -274,11 +283,12 @@ func TestContext(t *testing.T) {
 	t.Run("a filter in query string that should be added to context", func(t *testing.T) {
 		paramName := "_filters"
 		paramValue := "2"
+		convertValue := uint64(2)
 		field := "id"
 		operator := "eq"
 		queryString := "/blogs?" + paramName + "[" + field + "][" + operator + "]=" + paramValue
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -287,18 +297,18 @@ func TestContext(t *testing.T) {
 			}
 			tValue := cc.Value(paramName)
 			if tValue != nil {
-				filters := tValue.(map[string]*rest.FilterProperties)
+				filters := tValue.(map[string]interface{})
 				if filters == nil {
 					t.Fatalf("expected filters got nil")
 				}
-				if filters[field].Field != field {
-					t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+				if filters[field].(*rest.FilterProperties).Field != field {
+					t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Field)
 				}
-				if filters[field].Operator != operator {
-					t.Errorf("expected the filters operator to be '%s', got '%s'", field, filters[field].Operator)
+				if filters[field].(*rest.FilterProperties).Operator != operator {
+					t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].(*rest.FilterProperties).Operator)
 				}
-				if filters[field].Value != paramValue {
-					t.Errorf("expected the filters value to be '%s', got '%s'", field, filters[field].Value)
+				if filters[field].(*rest.FilterProperties).Value.(uint64) != convertValue {
+					t.Errorf("expected the filters value to be '%d', got '%d'", convertValue, filters[field].(*rest.FilterProperties).Value.(uint64))
 				}
 			}
 			return nil
@@ -312,12 +322,13 @@ func TestContext(t *testing.T) {
 	t.Run("multiple filters in query string that should be added to context", func(t *testing.T) {
 		paramName := "_filters"
 		paramValue := "2"
+		convertValue := uint64(2)
 		paramValue2 := "5"
 		field := "id"
 		field2 := "title"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -328,24 +339,24 @@ func TestContext(t *testing.T) {
 			if tValue != nil {
 				tValue := cc.Value(paramName)
 				if tValue != nil {
-					filters := tValue.(map[string]*rest.FilterProperties)
-					if filters[field].Field != field {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					filters := tValue.(map[string]interface{})
+					if filters[field].(*rest.FilterProperties).Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Field)
 					}
-					if filters[field].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					if filters[field].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].(*rest.FilterProperties).Operator)
 					}
-					if filters[field].Value != paramValue {
-						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue, filters[field].Value)
+					if filters[field].(*rest.FilterProperties).Value.(uint64) != convertValue {
+						t.Errorf("expected the filters value to be '%d', got '%d'", convertValue, filters[field].(*rest.FilterProperties).Value.(uint64))
 					}
-					if filters[field2].Field != field2 {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].Field)
+					if filters[field2].(*rest.FilterProperties).Field != field2 {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].(*rest.FilterProperties).Field)
 					}
-					if filters[field2].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].Operator)
+					if filters[field2].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].(*rest.FilterProperties).Operator)
 					}
-					if filters[field2].Value != paramValue2 {
-						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue2, filters[field2].Value)
+					if filters[field2].(*rest.FilterProperties).Value.(string) != paramValue2 {
+						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue2, filters[field2].(*rest.FilterProperties).Value.(string))
 					}
 				}
 			}
@@ -361,6 +372,7 @@ func TestContext(t *testing.T) {
 	t.Run("multiple filters with a filter that has multiple values in query string that should be added to context", func(t *testing.T) {
 		paramName := "_filters"
 		paramValue := "2"
+		convertValue := uint64(2)
 		value1 := "35"
 		value2 := "54"
 		value3 := "79"
@@ -368,7 +380,7 @@ func TestContext(t *testing.T) {
 		field2 := "title"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -379,24 +391,24 @@ func TestContext(t *testing.T) {
 			if tValue != nil {
 				tValue := cc.Value(paramName)
 				if tValue != nil {
-					filters := tValue.(map[string]*rest.FilterProperties)
-					if filters[field].Field != field {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					filters := tValue.(map[string]interface{})
+					if filters[field].(*rest.FilterProperties).Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Field)
 					}
-					if filters[field].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					if filters[field].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].(*rest.FilterProperties).Operator)
 					}
-					if filters[field].Value != paramValue {
-						t.Errorf("expected the filters value to be '%s', got '%s'", paramValue, filters[field].Value)
+					if filters[field].(*rest.FilterProperties).Value.(uint64) != convertValue {
+						t.Errorf("expected the filters value to be '%d', got '%d'", convertValue, filters[field].(*rest.FilterProperties).Value.(uint64))
 					}
-					if filters[field2].Field != field2 {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].Field)
+					if filters[field2].(*rest.FilterProperties).Field != field2 {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field2, filters[field2].(*rest.FilterProperties).Field)
 					}
-					if filters[field2].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].Operator)
+					if filters[field2].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field2].(*rest.FilterProperties).Operator)
 					}
-					if len(filters[field2].Values) != 3 {
-						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field2].Values))
+					if len(filters[field2].(*rest.FilterProperties).Values) != 3 {
+						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field2].(*rest.FilterProperties).Values))
 					}
 				}
 			}
@@ -417,7 +429,7 @@ func TestContext(t *testing.T) {
 		field := "id"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(nil, nil, nil, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -428,15 +440,15 @@ func TestContext(t *testing.T) {
 			if tValue != nil {
 				tValue := cc.Value(paramName)
 				if tValue != nil {
-					filters := tValue.(map[string]*rest.FilterProperties)
-					if filters[field].Field != field {
-						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].Field)
+					filters := tValue.(map[string]interface{})
+					if filters[field].(*rest.FilterProperties).Field != field {
+						t.Errorf("expected the filters field to be '%s', got '%s'", field, filters[field].(*rest.FilterProperties).Field)
 					}
-					if filters[field].Operator != operator {
-						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].Operator)
+					if filters[field].(*rest.FilterProperties).Operator != operator {
+						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].(*rest.FilterProperties).Operator)
 					}
-					if len(filters[field].Values) != 3 {
-						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field].Values))
+					if len(filters[field].(*rest.FilterProperties).Values) != 3 {
+						t.Errorf("expected to get %d values but got %d,", 3, len(filters[field].(*rest.FilterProperties).Values))
 					}
 				}
 			}

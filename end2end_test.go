@@ -59,7 +59,14 @@ var page int
 var contentType string
 var result api.ListApiResponse
 var scenarioContext context.Context
+var filters string
 
+type FilterProperties struct {
+	Operator string
+	Field    string
+	Value    string
+	Values   []string
+}
 type User struct {
 	Name      string
 	AccountID string
@@ -84,6 +91,9 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = ""
+	page = 1
+	limit = 0
 	result = api.ListApiResponse{}
 	openAPI = `openapi: 3.0.3
 info:
@@ -133,6 +143,9 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = ""
+	page = 1
+	limit = 0
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
@@ -982,8 +995,13 @@ func theListResultsShouldBe(details *godog.Table) error {
 		compare = map[string]interface{}{}
 	}
 	foundItems := 0
-
-	json.NewDecoder(rec.Body).Decode(&result)
+	response := rec.Result()
+	defer response.Body.Close()
+	result.Items = make([]map[string]interface{}, len(compareArray))
+	err := json.NewDecoder(response.Body).Decode(&result)
+	if err != nil {
+		return err
+	}
 	for i, entity := range compareArray {
 		foundEntity := true
 		for key, value := range entity {
@@ -1017,7 +1035,7 @@ func thePageNoIs(pageNo int) error {
 
 func theSearchButtonIsHit() error {
 	var request *http.Request
-	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page), nil)
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&"+filters, nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -1064,6 +1082,62 @@ func theShouldBeDeleted(contentEntity string, id int) error {
 	if searchResult.Error != nil {
 		return fmt.Errorf("got error from db query: %s", err)
 	}
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValue(field, value string) error {
+
+	filters = "_filters[" + field + "][eq]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValues(field string, values *godog.Table) error {
+	filters = "_filters[" + field + "][eq]="
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
+		}
+	}
+
+	return nil
+}
+
+func aFilterOnTheFieldGtWithValue(field, value string) error {
+	filters = "_filters[" + field + "][gt]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldInWithValues(field string, values *godog.Table) error {
+	filters = "_filters[" + field + "][in]="
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
+		}
+	}
+
+	return nil
+}
+
+func aFilterOnTheFieldLikeWithValue(field, value string) error {
+	filters = "_filters[" + field + "][like]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldLtWithValue(field, value string) error {
+	filters = "_filters[" + field + "][lt]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldNeWithValue(field, value string) error {
+	filters = "_filters[" + field + "][ne]=" + value
 	return nil
 }
 
@@ -1126,6 +1200,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with entity id "([^"]*)" for blog with id "([^"]*)"$`, isOnTheDeleteScreenWithEntityIdForBlogWithId)
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with id "([^"]*)"$`, isOnTheDeleteScreenWithId)
 	ctx.Step(`^the "([^"]*)" "(\d+)" should be deleted$`, theShouldBeDeleted)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with value "([^"]*)"$`, aFilterOnTheFieldEqWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with values$`, aFilterOnTheFieldEqWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "gt" with value "([^"]*)"$`, aFilterOnTheFieldGtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "in" with values$`, aFilterOnTheFieldInWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "like" with value "([^"]*)"$`, aFilterOnTheFieldLikeWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "lt" with value "([^"]*)"$`, aFilterOnTheFieldLtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "ne" with value "([^"]*)"$`, aFilterOnTheFieldNeWithValue)
 }
 
 func TestBDD(t *testing.T) {
