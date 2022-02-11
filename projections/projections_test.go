@@ -6,16 +6,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
@@ -438,6 +439,113 @@ components:
 }
 
 func TestProjections_InitializeCompositeKeyTable(t *testing.T) {
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       author_id:
+         type: string
+       description:
+         type: string
+       posts:
+        type: array
+        items:
+          $ref: "#/components/schemas/Post"
+     x-identifier:
+      - title
+      - author_id
+`
+
+	api, err := rest.New(openAPI)
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+
+	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+	p, err := projections.NewProjection(context.Background(), gormDB, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = p.Migrate(context.Background(), schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Errorf("expected to get a table 'Blog'")
+	}
+
+	if !gormDB.Migrator().HasTable("Post") {
+		t.Errorf("expected to get a table 'Post'")
+	}
+
+	if !gormDB.Migrator().HasTable("blog_posts") {
+		t.Errorf("expected to get a table 'blog_posts'")
+	}
+
+	columns, _ := gormDB.Migrator().ColumnTypes("blog_posts")
+	found := false
+	found1 := false
+	found2 := false
+	for _, c := range columns {
+		if c.Name() == "author_id" {
+			found = true
+		}
+		if c.Name() == "title" {
+			found1 = true
+		}
+		if c.Name() == "id" {
+			found2 = true
+		}
+	}
+
+	if !found1 || !found2 || !found {
+		t.Fatal("not all fields found")
+	}
+
+	result := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+	if result.Error == nil {
+		t.Errorf("expected to not be able to create a blog without an author id ")
+	}
+	result = gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs", "author_id": "79"})
+	if result.Error != nil {
+		t.Errorf("expected to create a blog with both a title an author_id, got err '%s'", result.Error)
+	}
+
+	err = gormDB.Migrator().DropTable("blog_posts")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+	}
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
 }
 
 func TestProjections_CreateBasicRelationship(t *testing.T) {
@@ -1360,10 +1468,6 @@ components:
 
 func TestProjections_GetContentTypeByKeys(t *testing.T) {
 
-	// if *driver == "mysql" {
-	// 	//TODO: MYSQL bug sometimes creates join tables with compound keys out of order. Migrate functionality needs to be fixed.
-	// 	t.Skip()
-	// }
 	openAPI := `openapi: 3.0.3
 info:
   title: Blog
