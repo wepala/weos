@@ -23,6 +23,13 @@ type GORMProjection struct {
 	Schema          map[string]ds.Builder
 }
 
+type FilterProperty struct {
+	Field    string        `json:"field"`
+	Operator string        `json:"operator"`
+	Value    interface{}   `json:"value"`
+	Values   []interface{} `json:"values"`
+}
+
 func (p *GORMProjection) DB() *gorm.DB {
 	return p.db
 }
@@ -381,11 +388,21 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	var result *gorm.DB
 	var schemes interface{}
 	if entityFactory == nil {
-		return nil, 0, fmt.Errorf("no entity factory found")
+		return nil, int64(0), fmt.Errorf("no entity factory found")
 	}
-	schemes = entityFactory.DynamicStruct(ctx).NewSliceOfStructs()
-	scheme := entityFactory.DynamicStruct(ctx).New()
-	result = p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+	var filtersProp map[string]FilterProperty
+	props, _ := json.Marshal(filterOptions)
+	json.Unmarshal(props, &filtersProp)
+	filtersProp, err := DateTimeCheck(entityFactory, filtersProp)
+	if err != nil {
+		return nil, int64(0), err
+	}
+	builder := entityFactory.DynamicStruct(ctx)
+	if builder != nil {
+		schemes = builder.NewSliceOfStructs()
+		scheme := builder.New()
+		result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+	}
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
 		return nil, 0, err
@@ -395,7 +412,24 @@ func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory w
 	return entities, count, result.Error
 }
 
-//paginate to query results
+//DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
+func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
+	var err error
+	schema := entityFactory.Schema()
+	for key, value := range properties {
+		if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
+			_, err := time.Parse(time.RFC3339, value.Value.(string))
+			if err != nil {
+				return nil, err
+			}
+
+		}
+	}
+
+	return properties, err
+}
+
+//paginate is used for querying results
 func paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		actualLimit := limit
@@ -410,7 +444,7 @@ func paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
 	}
 }
 
-// function that sorts the query results
+//sort is used to sort the query results
 func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		for key, value := range order {
@@ -427,8 +461,10 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 
 //query modifier for making queries to the database
 type QueryModifier func() func(db *gorm.DB) *gorm.DB
+type QueryFilterModifier func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB
 
 var ContentQuery QueryModifier
+var FilterQuery QueryFilterModifier
 
 //NewProjection creates an instance of the projection
 func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProjection, error) {
@@ -436,6 +472,46 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProj
 	projection := &GORMProjection{
 		db:     db,
 		logger: logger,
+	}
+
+	FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {
+		return func(db *gorm.DB) *gorm.DB {
+			if options != nil {
+				for _, filter := range options {
+					operator := "="
+					switch filter.Operator {
+					case "gt":
+						operator = ">"
+					case "lt":
+						operator = "<"
+					case "ne":
+						operator = "!="
+					case "like":
+						if projection.db.Dialector.Name() == "postgres" {
+							operator = "ILIKE"
+						} else {
+							operator = " LIKE"
+						}
+					case "in":
+						operator = "IN"
+
+					}
+
+					if len(filter.Values) == 0 {
+						if filter.Operator == "like" {
+							db.Where(filter.Field+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+						} else {
+							db.Where(filter.Field+" "+operator+" ?", filter.Value)
+						}
+
+					} else {
+						db.Where(filter.Field+" "+operator+" ?", filter.Values)
+					}
+
+				}
+			}
+			return db
+		}
 	}
 
 	ContentQuery = func() func(db *gorm.DB) *gorm.DB {

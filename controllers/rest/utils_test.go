@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	rest "github.com/wepala/weos/controllers/rest"
+	api "github.com/wepala/weos/controllers/rest"
 )
 
 func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
@@ -25,7 +25,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded")
+		payload, err := api.ConvertFormToJson(req, "application/x-www-form-urlencoded")
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -59,7 +59,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err := rest.ConvertFormToJson(req, "multipart/form-data")
+		payload, err := api.ConvertFormToJson(req, "multipart/form-data")
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -82,17 +82,15 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 			t.Errorf("expected url: %s, got %s", "MyBlogUrl", compare["url"])
 		}
 	})
+
 }
-
-
-
 func TestFiltersSplit(t *testing.T) {
 	t.Run("testing splitfilters with multiple filters", func(t *testing.T) {
 		queryString := "_filters[id][eq]=2&_filters[hi][ne]=5&_filters[and][in]=6"
 		q0 := "_filters[id][eq]=2"
 		q1 := "_filters[hi][ne]=5"
 		q2 := "_filters[and][in]=6"
-		arr := rest.SplitFilters(queryString)
+		arr := api.SplitFilters(queryString)
 		if len(arr) != 3 {
 			t.Fatalf("expected %d filters to be returned got %d", 3, len(arr))
 		}
@@ -108,13 +106,13 @@ func TestFiltersSplit(t *testing.T) {
 
 	})
 	t.Run("testing splitfilters with no data", func(t *testing.T) {
-		arr := rest.SplitFilters("")
+		arr := api.SplitFilters("")
 		if arr != nil {
 			t.Errorf("expected filters to be nil got %s", arr[0])
 		}
 	})
 	t.Run("testing splitfilter with no data", func(t *testing.T) {
-		prop := rest.SplitFilter("")
+		prop := api.SplitFilter("")
 		if prop != nil {
 			t.Errorf("expected filters properties to be nil got %s, %s, %s", prop.Field, prop.Value, prop.Operator)
 		}
@@ -125,7 +123,7 @@ func TestFiltersSplit(t *testing.T) {
 		field := "id"
 		operator := "eq"
 		value := "2"
-		prop := rest.SplitFilter(queryString)
+		prop := api.SplitFilter(queryString)
 		if prop == nil {
 			t.Fatalf("expected to get a property but go nil")
 		}
@@ -144,7 +142,7 @@ func TestFiltersSplit(t *testing.T) {
 		queryString := "_filters[id][eq]=2,3,45"
 		field := "id"
 		operator := "eq"
-		prop := rest.SplitFilter(queryString)
+		prop := api.SplitFilter(queryString)
 		if prop == nil {
 			t.Fatalf("expected to get a property but go nil")
 		}
@@ -160,3 +158,4 @@ func TestFiltersSplit(t *testing.T) {
 
 	})
 }
+
