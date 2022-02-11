@@ -201,14 +201,15 @@ Feature: Edit content
      And the "Blog" is updated
        | title          | description                       |
        | Some New Title | Some Description                  |
-   
+
+     @focus1
    Scenario: Update item with invalid data
 
      If the content type validation fails then a 422 response code should be returned (the request could have a valid
      format but the contents are invalid)
 
      Given "Sojourner" is on the "Blog" edit screen with id "1234"
-     And "Sojourner" enters "Some New Title" in the "LastUpdated" field
+     And "Sojourner" enters "Some New Title" in the "lastUpdated" field
 
      When the "Blog" is submitted
      Then a 422 response should be returned
