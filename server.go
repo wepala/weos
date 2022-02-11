@@ -8,7 +8,7 @@ import (
 
 var port = flag.String("port", "8681", "-port=8681")
 var schema = flag.String("spec", "./api.yaml", "schema for initialization")
-var replay = flag.Bool("replay events", true, "replay events from gorm events")
+var replay = flag.Bool("replay events", false, "replay events from gorm events")
 
 func main() {
 	flag.Parse()
