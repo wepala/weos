@@ -1088,22 +1088,6 @@ func aFilterOnTheFieldNeWithValue(field, value string) error {
 	return nil
 }
 
-func aWithIdWasDeleted(contentEntity, id string) error {
-	output := map[string]interface{}{}
-
-	apiProjection, err := API.GetProjection("Default")
-	if err != nil {
-		return fmt.Errorf("unexpected error getting projection: %s", err)
-	}
-	apiProjection1 := apiProjection.(*projections.GORMProjection)
-
-	searchResult := apiProjection1.DB().Table(strings.Title(contentEntity)).Where("id = ?", id).Delete(&output)
-	if searchResult.Error != nil {
-		return fmt.Errorf("got error from db query: %s", searchResult.Error)
-	}
-	return nil
-}
-
 func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
 	repo, err := API.GetEventStore("Default")
 	if err != nil {
@@ -1253,7 +1237,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a filter on the field "([^"]*)" "like" with value "([^"]*)"$`, aFilterOnTheFieldLikeWithValue)
 	ctx.Step(`^a filter on the field "([^"]*)" "lt" with value "([^"]*)"$`, aFilterOnTheFieldLtWithValue)
 	ctx.Step(`^a filter on the field "([^"]*)" "ne" with value "([^"]*)"$`, aFilterOnTheFieldNeWithValue)
-	ctx.Step(`^a "([^"]*)" with id "([^"]*)" was deleted$`, aWithIdWasDeleted)
 	ctx.Step(`^"([^"]*)" calls the replay method on the event repository$`, callsTheReplayMethodOnTheEventRepository)
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
