@@ -208,7 +208,7 @@ Feature: Edit content
      format but the contents are invalid)
 
      Given "Sojourner" is on the "Blog" edit screen with id "1234"
-     And "Sojourner" enters "Some New Title" in the "last_updated" field
+     And "Sojourner" enters "Some New Title" in the "LastUpdated" field
 
      When the "Blog" is submitted
      Then a 422 response should be returned
