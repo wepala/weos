@@ -70,6 +70,8 @@ components:
           type: string
         description:
           type: string
+        active:
+          type: boolean
         status:
           type: string
           nullable: true

@@ -3,13 +3,14 @@ package projections
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
+
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"strings"
-	"time"
 )
 
 //GORMProjection interface struct
@@ -216,17 +217,17 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 }
 
 func (p *GORMProjection) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
-	row := map[string]interface{}{}
-	result := p.db.Table(entityFactory.TableName()).Find(&row, "weos_id = ? ", weosID)
-	if result.Error != nil {
-		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
-	}
-	//set result to entity
 	newEntity, err := entityFactory.NewEntity(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rowData, err := json.Marshal(row)
+
+	result := p.db.Table(entityFactory.TableName()).Find(newEntity.Property, "weos_id = ? ", weosID)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
+	}
+	//set result to entity
+	rowData, err := json.Marshal(newEntity.Property)
 	if err != nil {
 		return nil, err
 	}
