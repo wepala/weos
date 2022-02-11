@@ -77,16 +77,17 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, entityFactory weos.Entit
 }
 
 func (p *GORMProjection) GetByEntityID(ctx context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
-	scheme, err := entityFactory.NewEntity(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(scheme.Property, "weos_id = ?", id)
+	//scheme, err := entityFactory.NewEntity(ctx)
+	tstruct := entityFactory.DynamicStruct(ctx).New()
+	//if err != nil {
+	//	return nil, err
+	//}
+	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(tstruct, "weos_id = ?", id)
 
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	data, err := json.Marshal(scheme.Property)
+	data, err := json.Marshal(tstruct)
 	if err != nil {
 		return nil, err
 	}
