@@ -171,6 +171,45 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	}
 
+	if projectionExtension, ok := operation.ExtensionProps.Extensions[ProjectionExtension]; ok {
+		projectionName := ""
+		err := json.Unmarshal(projectionExtension.(json.RawMessage), &projectionName)
+		if err != nil {
+			return ctxt, err
+		}
+		projection, err := api.GetProjection(projectionName)
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered projection '%s' specified on path '%s'", projectionName, path)
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.PROJECTION, projection)
+	}
+
+	if commandDispatcherExtension, ok := operation.ExtensionProps.Extensions[CommandDispatcherExtension]; ok {
+		commandDispatcherName := ""
+		err := json.Unmarshal(commandDispatcherExtension.(json.RawMessage), &commandDispatcherName)
+		if err != nil {
+			return ctxt, err
+		}
+		commandDispatcher, err := api.GetCommandDispatcher(commandDispatcherName)
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered command dispatcher '%s' specified on path '%s'", commandDispatcherName, path)
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.COMMAND_DISPATCHER, commandDispatcher)
+	}
+
+	if eventStoreExtension, ok := operation.ExtensionProps.Extensions[EventStoreExtension]; ok {
+		eventStoreName := ""
+		err := json.Unmarshal(eventStoreExtension.(json.RawMessage), &eventStoreName)
+		if err != nil {
+			return ctxt, err
+		}
+		eventStore, err := api.GetEventStore(eventStoreName)
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered command dispatcher '%s' specified on path '%s'", eventStoreName, path)
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.EVENT_STORE, eventStore)
+	}
+
 	return ctxt, nil
 }
 
