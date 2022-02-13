@@ -165,6 +165,9 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               $ref: "#/components/schemas/Blog"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/Blog"
       responses:
         201:
           description: Add Blog to Aggregator
@@ -342,13 +345,7 @@ paths:
           name: If-Match
           schema:
             type: string
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
+      x-schema: "Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:
