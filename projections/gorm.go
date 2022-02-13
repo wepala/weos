@@ -3,13 +3,14 @@ package projections
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
+
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"strings"
-	"time"
 )
 
 //GORMDB interface struct
@@ -77,16 +78,17 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 }
 
 func (p *GORMDB) GetByEntityID(ctx context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
-	scheme, err := entityFactory.NewEntity(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(scheme.Property, "weos_id = ?", id)
+	//scheme, err := entityFactory.NewEntity(ctx)
+	tstruct := entityFactory.DynamicStruct(ctx).New()
+	//if err != nil {
+	//	return nil, err
+	//}
+	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(tstruct, "weos_id = ?", id)
 
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	data, err := json.Marshal(scheme.Property)
+	data, err := json.Marshal(tstruct)
 	if err != nil {
 		return nil, err
 	}
@@ -216,17 +218,17 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 }
 
 func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
-	row := map[string]interface{}{}
-	result := p.db.Table(entityFactory.TableName()).Find(&row, "weos_id = ? ", weosID)
-	if result.Error != nil {
-		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
-	}
-	//set result to entity
 	newEntity, err := entityFactory.NewEntity(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rowData, err := json.Marshal(row)
+
+	result := p.db.Table(entityFactory.TableName()).Find(newEntity.Property, "weos_id = ? ", weosID)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
+	}
+	//set result to entity
+	rowData, err := json.Marshal(newEntity.Property)
 	if err != nil {
 		return nil, err
 	}
