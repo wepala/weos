@@ -82,8 +82,8 @@ components:
 			t.Fatalf("unexpected error getting default projection '%s'", err)
 		}
 		var ok bool
-		var defaultGormProject *projections.GORMProjection
-		if defaultGormProject, ok = defaultProjection.(*projections.GORMProjection); !ok {
+		var defaultGormProject *projections.GORMDB
+		if defaultGormProject, ok = defaultProjection.(*projections.GORMDB); !ok {
 			t.Fatalf("unexpected error getting default projection '%s'", err)
 		}
 
@@ -359,10 +359,47 @@ func TestRESTAPI_RegisterEventDispatcher(t *testing.T) {
 
 func TestRESTAPI_RegisterProjection(t *testing.T) {
 	tapi := &api.RESTAPI{}
-	tapi.RegisterProjection("test", &projections.GORMProjection{})
+	tapi.RegisterProjection("test", &projections.GORMDB{})
 	//get dispatcher
 	_, err := tapi.GetProjection("test")
 	if err != nil {
 		t.Fatalf("unexpected error getting projection '%s'", err)
+	}
+}
+
+func TestRESTAPI_DefaultProjectionRegisteredBefore(t *testing.T) {
+	os.Remove("test.db")
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	_, gormDB, err := tapi.SQLConnectionFromConfig(tapi.Config.Database)
+	gormProjection, err := projections.NewProjection(context.TODO(), gormDB, tapi.EchoInstance().Logger)
+	if err != nil {
+		t.Fatalf("error setting up gorm projection")
+	}
+	//setup mock projection as anonymous struct
+	mockProjection := &struct {
+		*projections.GORMDB
+		Test bool
+	}{
+		gormProjection,
+		true,
+	}
+	tapi.RegisterProjection("Default", mockProjection)
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("unexpected error '%s'", err)
+	}
+	//get the projection from the api
+	defaultProjection, err := tapi.GetProjection("Default")
+	if err != nil {
+		t.Fatalf("unexpected error getting default projection '%s'", err)
+	}
+	if _, ok := defaultProjection.(*struct {
+		*projections.GORMDB
+		Test bool
+	}); !ok {
+		t.Errorf("expected the projection to be the one that was set")
 	}
 }

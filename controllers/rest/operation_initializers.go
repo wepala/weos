@@ -577,21 +577,21 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 		}
 		switch method {
 		case "GET":
-			api.EchoInstance().GET(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.EchoInstance().GET(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "POST":
-			api.e.POST(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.POST(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "PUT":
-			api.e.PUT(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.PUT(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "PATCH":
-			api.e.PATCH(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.PATCH(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "DELETE":
-			api.e.DELETE(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.DELETE(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "HEAD":
-			api.e.HEAD(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.HEAD(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "TRACE":
-			api.e.TRACE(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.TRACE(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "CONNECT":
-			api.e.CONNECT(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.CONNECT(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 
 		}
 	}
