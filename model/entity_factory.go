@@ -15,6 +15,7 @@ type EntityFactory interface {
 	Name() string
 	TableName() string
 	Schema() *openapi3.Schema
+	Builder(ctx context.Context) ds.Builder
 }
 
 type DefaultEntityFactory struct {
@@ -48,6 +49,10 @@ func (d *DefaultEntityFactory) Schema() *openapi3.Schema {
 
 func (d *DefaultEntityFactory) DynamicStruct(ctx context.Context) ds.DynamicStruct {
 	return d.builder.Build()
+}
+
+func (d *DefaultEntityFactory) Builder(ctx context.Context) ds.Builder {
+	return d.builder
 }
 
 //GetEntityFactory get entity factory from context

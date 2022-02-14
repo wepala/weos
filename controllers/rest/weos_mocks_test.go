@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // Ensure, that EventRepositoryMock does implement model.EventRepository.
@@ -54,6 +55,9 @@ var _ model.EventRepository = &EventRepositoryMock{}
 // 			PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 // 				panic("mock out the Persist method")
 // 			},
+// 			ReplayEventsFunc: func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error) {
+// 				panic("mock out the ReplayEvents method")
+// 			},
 // 		}
 //
 // 		// use mockedEventRepository in code that requires model.EventRepository
@@ -90,6 +94,9 @@ type EventRepositoryMock struct {
 
 	// PersistFunc mocks the Persist method.
 	PersistFunc func(ctxt context.Context, entity model.AggregateInterface) error
+
+	// ReplayEventsFunc mocks the ReplayEvents method.
+	ReplayEventsFunc func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -151,6 +158,17 @@ type EventRepositoryMock struct {
 			// Entity is the entity argument value.
 			Entity model.AggregateInterface
 		}
+		// ReplayEvents holds details about calls to the ReplayEvents method.
+		ReplayEvents []struct {
+			// Ctxt is the ctxt argument value.
+			Ctxt context.Context
+			// Date is the date argument value.
+			Date time.Time
+			// EntityFactories is the entityFactories argument value.
+			EntityFactories map[string]model.EntityFactory
+			// Projection is the projection argument value.
+			Projection model.Projection
+		}
 	}
 	lockAddSubscriber                  sync.RWMutex
 	lockFlush                          sync.RWMutex
@@ -162,6 +180,7 @@ type EventRepositoryMock struct {
 	lockGetSubscribers                 sync.RWMutex
 	lockMigrate                        sync.RWMutex
 	lockPersist                        sync.RWMutex
+	lockReplayEvents                   sync.RWMutex
 }
 
 // AddSubscriber calls AddSubscriberFunc.
@@ -485,6 +504,49 @@ func (mock *EventRepositoryMock) PersistCalls() []struct {
 	mock.lockPersist.RLock()
 	calls = mock.calls.Persist
 	mock.lockPersist.RUnlock()
+	return calls
+}
+
+// ReplayEvents calls ReplayEventsFunc.
+func (mock *EventRepositoryMock) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error) {
+	if mock.ReplayEventsFunc == nil {
+		panic("EventRepositoryMock.ReplayEventsFunc: method is nil but EventRepository.ReplayEvents was just called")
+	}
+	callInfo := struct {
+		Ctxt            context.Context
+		Date            time.Time
+		EntityFactories map[string]model.EntityFactory
+		Projection      model.Projection
+	}{
+		Ctxt:            ctxt,
+		Date:            date,
+		EntityFactories: entityFactories,
+		Projection:      projection,
+	}
+	mock.lockReplayEvents.Lock()
+	mock.calls.ReplayEvents = append(mock.calls.ReplayEvents, callInfo)
+	mock.lockReplayEvents.Unlock()
+	return mock.ReplayEventsFunc(ctxt, date, entityFactories, projection)
+}
+
+// ReplayEventsCalls gets all the calls that were made to ReplayEvents.
+// Check the length with:
+//     len(mockedEventRepository.ReplayEventsCalls())
+func (mock *EventRepositoryMock) ReplayEventsCalls() []struct {
+	Ctxt            context.Context
+	Date            time.Time
+	EntityFactories map[string]model.EntityFactory
+	Projection      model.Projection
+} {
+	var calls []struct {
+		Ctxt            context.Context
+		Date            time.Time
+		EntityFactories map[string]model.EntityFactory
+		Projection      model.Projection
+	}
+	mock.lockReplayEvents.RLock()
+	calls = mock.calls.ReplayEvents
+	mock.lockReplayEvents.RUnlock()
 	return calls
 }
 
@@ -2078,6 +2140,9 @@ var _ model.EntityFactory = &EntityFactoryMock{}
 //
 // 		// make and configure a mocked model.EntityFactory
 // 		mockedEntityFactory := &EntityFactoryMock{
+// 			BuilderFunc: func(ctx context.Context) ds.Builder {
+// 				panic("mock out the Builder method")
+// 			},
 // 			DynamicStructFunc: func(ctx context.Context) ds.DynamicStruct {
 // 				panic("mock out the DynamicStruct method")
 // 			},
@@ -2103,6 +2168,9 @@ var _ model.EntityFactory = &EntityFactoryMock{}
 //
 // 	}
 type EntityFactoryMock struct {
+	// BuilderFunc mocks the Builder method.
+	BuilderFunc func(ctx context.Context) ds.Builder
+
 	// DynamicStructFunc mocks the DynamicStruct method.
 	DynamicStructFunc func(ctx context.Context) ds.DynamicStruct
 
@@ -2123,6 +2191,11 @@ type EntityFactoryMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Builder holds details about calls to the Builder method.
+		Builder []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// DynamicStruct holds details about calls to the DynamicStruct method.
 		DynamicStruct []struct {
 			// Ctx is the ctx argument value.
@@ -2152,12 +2225,44 @@ type EntityFactoryMock struct {
 		TableName []struct {
 		}
 	}
+	lockBuilder              sync.RWMutex
 	lockDynamicStruct        sync.RWMutex
 	lockFromSchemaAndBuilder sync.RWMutex
 	lockName                 sync.RWMutex
 	lockNewEntity            sync.RWMutex
 	lockSchema               sync.RWMutex
 	lockTableName            sync.RWMutex
+}
+
+// Builder calls BuilderFunc.
+func (mock *EntityFactoryMock) Builder(ctx context.Context) ds.Builder {
+	if mock.BuilderFunc == nil {
+		panic("EntityFactoryMock.BuilderFunc: method is nil but EntityFactory.Builder was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockBuilder.Lock()
+	mock.calls.Builder = append(mock.calls.Builder, callInfo)
+	mock.lockBuilder.Unlock()
+	return mock.BuilderFunc(ctx)
+}
+
+// BuilderCalls gets all the calls that were made to Builder.
+// Check the length with:
+//     len(mockedEntityFactory.BuilderCalls())
+func (mock *EntityFactoryMock) BuilderCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockBuilder.RLock()
+	calls = mock.calls.Builder
+	mock.lockBuilder.RUnlock()
+	return calls
 }
 
 // DynamicStruct calls DynamicStructFunc.
@@ -2336,5 +2441,155 @@ func (mock *EntityFactoryMock) TableNameCalls() []struct {
 	mock.lockTableName.RLock()
 	calls = mock.calls.TableName
 	mock.lockTableName.RUnlock()
+	return calls
+}
+
+// Ensure, that EventDispatcherMock does implement model.EventDispatcher.
+// If this is not the case, regenerate this file with moq.
+var _ model.EventDispatcher = &EventDispatcherMock{}
+
+// EventDispatcherMock is a mock implementation of model.EventDispatcher.
+//
+// 	func TestSomethingThatUsesEventDispatcher(t *testing.T) {
+//
+// 		// make and configure a mocked model.EventDispatcher
+// 		mockedEventDispatcher := &EventDispatcherMock{
+// 			AddSubscriberFunc: func(handler model.EventHandler)  {
+// 				panic("mock out the AddSubscriber method")
+// 			},
+// 			DispatchFunc: func(ctx context.Context, event model.Event)  {
+// 				panic("mock out the Dispatch method")
+// 			},
+// 			GetSubscribersFunc: func() []model.EventHandler {
+// 				panic("mock out the GetSubscribers method")
+// 			},
+// 		}
+//
+// 		// use mockedEventDispatcher in code that requires model.EventDispatcher
+// 		// and then make assertions.
+//
+// 	}
+type EventDispatcherMock struct {
+	// AddSubscriberFunc mocks the AddSubscriber method.
+	AddSubscriberFunc func(handler model.EventHandler)
+
+	// DispatchFunc mocks the Dispatch method.
+	DispatchFunc func(ctx context.Context, event model.Event)
+
+	// GetSubscribersFunc mocks the GetSubscribers method.
+	GetSubscribersFunc func() []model.EventHandler
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// AddSubscriber holds details about calls to the AddSubscriber method.
+		AddSubscriber []struct {
+			// Handler is the handler argument value.
+			Handler model.EventHandler
+		}
+		// Dispatch holds details about calls to the Dispatch method.
+		Dispatch []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Event is the event argument value.
+			Event model.Event
+		}
+		// GetSubscribers holds details about calls to the GetSubscribers method.
+		GetSubscribers []struct {
+		}
+	}
+	lockAddSubscriber  sync.RWMutex
+	lockDispatch       sync.RWMutex
+	lockGetSubscribers sync.RWMutex
+}
+
+// AddSubscriber calls AddSubscriberFunc.
+func (mock *EventDispatcherMock) AddSubscriber(handler model.EventHandler) {
+	if mock.AddSubscriberFunc == nil {
+		panic("EventDispatcherMock.AddSubscriberFunc: method is nil but EventDispatcher.AddSubscriber was just called")
+	}
+	callInfo := struct {
+		Handler model.EventHandler
+	}{
+		Handler: handler,
+	}
+	mock.lockAddSubscriber.Lock()
+	mock.calls.AddSubscriber = append(mock.calls.AddSubscriber, callInfo)
+	mock.lockAddSubscriber.Unlock()
+	mock.AddSubscriberFunc(handler)
+}
+
+// AddSubscriberCalls gets all the calls that were made to AddSubscriber.
+// Check the length with:
+//     len(mockedEventDispatcher.AddSubscriberCalls())
+func (mock *EventDispatcherMock) AddSubscriberCalls() []struct {
+	Handler model.EventHandler
+} {
+	var calls []struct {
+		Handler model.EventHandler
+	}
+	mock.lockAddSubscriber.RLock()
+	calls = mock.calls.AddSubscriber
+	mock.lockAddSubscriber.RUnlock()
+	return calls
+}
+
+// Dispatch calls DispatchFunc.
+func (mock *EventDispatcherMock) Dispatch(ctx context.Context, event model.Event) {
+	if mock.DispatchFunc == nil {
+		panic("EventDispatcherMock.DispatchFunc: method is nil but EventDispatcher.Dispatch was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Event model.Event
+	}{
+		Ctx:   ctx,
+		Event: event,
+	}
+	mock.lockDispatch.Lock()
+	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
+	mock.lockDispatch.Unlock()
+	mock.DispatchFunc(ctx, event)
+}
+
+// DispatchCalls gets all the calls that were made to Dispatch.
+// Check the length with:
+//     len(mockedEventDispatcher.DispatchCalls())
+func (mock *EventDispatcherMock) DispatchCalls() []struct {
+	Ctx   context.Context
+	Event model.Event
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Event model.Event
+	}
+	mock.lockDispatch.RLock()
+	calls = mock.calls.Dispatch
+	mock.lockDispatch.RUnlock()
+	return calls
+}
+
+// GetSubscribers calls GetSubscribersFunc.
+func (mock *EventDispatcherMock) GetSubscribers() []model.EventHandler {
+	if mock.GetSubscribersFunc == nil {
+		panic("EventDispatcherMock.GetSubscribersFunc: method is nil but EventDispatcher.GetSubscribers was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockGetSubscribers.Lock()
+	mock.calls.GetSubscribers = append(mock.calls.GetSubscribers, callInfo)
+	mock.lockGetSubscribers.Unlock()
+	return mock.GetSubscribersFunc()
+}
+
+// GetSubscribersCalls gets all the calls that were made to GetSubscribers.
+// Check the length with:
+//     len(mockedEventDispatcher.GetSubscribersCalls())
+func (mock *EventDispatcherMock) GetSubscribersCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockGetSubscribers.RLock()
+	calls = mock.calls.GetSubscribers
+	mock.lockGetSubscribers.RUnlock()
 	return calls
 }
