@@ -556,34 +556,34 @@ var _ model.Projection = &ProjectionMock{}
 
 // ProjectionMock is a mock implementation of model.Projection.
 //
-// 	func TestSomethingThatUsesProjection(t *testing.T) {
+//     func TestSomethingThatUsesProjection(t *testing.T) {
 //
-// 		// make and configure a mocked model.Projection
-// 		mockedProjection := &ProjectionMock{
-// 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
-// 				panic("mock out the GetByEntityID method")
-// 			},
-// 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-// 				panic("mock out the GetByKey method")
-// 			},
-// 			GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-// 				panic("mock out the GetContentEntities method")
-// 			},
-// 			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
-// 				panic("mock out the GetContentEntity method")
-// 			},
-// 			GetEventHandlerFunc: func() model.EventHandler {
-// 				panic("mock out the GetEventHandler method")
-// 			},
-// 			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder) error {
-// 				panic("mock out the Migrate method")
-// 			},
-// 		}
+//         // make and configure a mocked model.Projection
+//         mockedProjection := &ProjectionMock{
+//             GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+// 	               panic("mock out the GetByEntityID method")
+//             },
+//             GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+// 	               panic("mock out the GetByKey method")
+//             },
+//             GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+// 	               panic("mock out the GetContentEntities method")
+//             },
+//             GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+// 	               panic("mock out the GetContentEntity method")
+//             },
+//             GetEventHandlerFunc: func() model.EventHandler {
+// 	               panic("mock out the GetEventHandler method")
+//             },
+//             MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
+// 	               panic("mock out the Migrate method")
+//             },
+//         }
 //
-// 		// use mockedProjection in code that requires model.Projection
-// 		// and then make assertions.
+//         // use mockedProjection in code that requires model.Projection
+//         // and then make assertions.
 //
-// 	}
+//     }
 type ProjectionMock struct {
 	// GetByEntityIDFunc mocks the GetByEntityID method.
 	GetByEntityIDFunc func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error)
@@ -601,7 +601,7 @@ type ProjectionMock struct {
 	GetEventHandlerFunc func() model.EventHandler
 
 	// MigrateFunc mocks the Migrate method.
-	MigrateFunc func(ctx context.Context, builders map[string]ds.Builder) error
+	MigrateFunc func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -658,6 +658,8 @@ type ProjectionMock struct {
 			Ctx context.Context
 			// Builders is the builders argument value.
 			Builders map[string]ds.Builder
+			// DeletedFields is the deletedFields argument value.
+			DeletedFields map[string][]string
 		}
 	}
 	lockGetByEntityID      sync.RWMutex
@@ -867,39 +869,44 @@ func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ProjectionMock) Migrate(ctx context.Context, builders map[string]ds.Builder) error {
+func (mock *ProjectionMock) Migrate(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
 	if mock.MigrateFunc == nil {
 		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
 	}
 	callInfo := struct {
-		Ctx      context.Context
-		Builders map[string]ds.Builder
+		Ctx           context.Context
+		Builders      map[string]ds.Builder
+		DeletedFields map[string][]string
 	}{
-		Ctx:      ctx,
-		Builders: builders,
+		Ctx:           ctx,
+		Builders:      builders,
+		DeletedFields: deletedFields,
 	}
 	mock.lockMigrate.Lock()
 	mock.calls.Migrate = append(mock.calls.Migrate, callInfo)
 	mock.lockMigrate.Unlock()
-	return mock.MigrateFunc(ctx, builders)
+	return mock.MigrateFunc(ctx, builders, deletedFields)
 }
 
 // MigrateCalls gets all the calls that were made to Migrate.
 // Check the length with:
 //     len(mockedProjection.MigrateCalls())
 func (mock *ProjectionMock) MigrateCalls() []struct {
-	Ctx      context.Context
-	Builders map[string]ds.Builder
+	Ctx           context.Context
+	Builders      map[string]ds.Builder
+	DeletedFields map[string][]string
 } {
 	var calls []struct {
-		Ctx      context.Context
-		Builders map[string]ds.Builder
+		Ctx           context.Context
+		Builders      map[string]ds.Builder
+		DeletedFields map[string][]string
 	}
 	mock.lockMigrate.RLock()
 	calls = mock.calls.Migrate
 	mock.lockMigrate.RUnlock()
 	return calls
 }
+
 
 // Ensure, that LogMock does implement model.Log.
 // If this is not the case, regenerate this file with moq.

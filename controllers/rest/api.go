@@ -3,8 +3,16 @@ package rest
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections/dialects"
 	"gorm.io/driver/clickhouse"
@@ -13,12 +21,6 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
-	"net/http"
-	"os"
-	"reflect"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -324,7 +326,17 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			//get the database schema
 			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
 			p.Schemas = schemas
-			err = defaultProjection.Migrate(ctxt, schemas)
+
+			//get fields to be removed during migration step
+			deletedFields := map[string][]string{}
+			for name, sch := range p.Swagger.Components.Schemas {
+				dfs, _ := json.Marshal(sch.Value.Extensions[RemoveExtension])
+				var df []string
+				json.Unmarshal(dfs, &df)
+				deletedFields[name] = df
+			}
+
+			err = defaultProjection.Migrate(ctxt, schemas, deletedFields)
 			if err != nil {
 				p.EchoInstance().Logger.Error(err)
 				return err

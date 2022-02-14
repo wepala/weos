@@ -223,7 +223,7 @@ func TestWeOSApp_AddProjection(t *testing.T) {
 				return nil
 			}
 		},
-		MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder) error {
+		MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
 			return nil
 		},
 	}

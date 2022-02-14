@@ -226,7 +226,6 @@ Feature: Hydrate database using events
              200:
                description: Blog Deleted
      """
-    And the service is running
     And blogs in the api
       | id    | weos_id                     | sequence_no | title        | description    |
       | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
@@ -237,6 +236,7 @@ Feature: Hydrate database using events
       | 5     | 24KjLAP17p3KvTy5YCMWUIRlOSS | 1           | Blog 5       | Some Blog 5    |
       | 890   | 24KjMP9uTPxW5Xuhziv1balYskX | 1           | Blog 7       | Some Blog 7    |
       | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
+    And the service is running
 
   @WEOS-1327
   Scenario: Hydrate tables based on events

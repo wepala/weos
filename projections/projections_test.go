@@ -6,16 +6,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
@@ -234,12 +235,18 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -376,12 +383,18 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -480,12 +493,18 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -592,12 +611,18 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -738,12 +763,18 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -852,11 +883,16 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
-
 		if !gormDB.Migrator().HasTable("Blog") {
 			t.Fatal("expected to get a table 'Blog'")
 		}
@@ -1010,12 +1046,18 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1102,12 +1144,18 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1263,12 +1311,18 @@ components:
 		t.Fatalf("error loading api config '%s'", err)
 	}
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-	p, err := projections.NewProjection(context.Background(), gormDB, nil)
+	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes)
+	deletedFields := map[string][]string{}
+	for name, sch := range api.Swagger.Components.Schemas {
+		dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+		json.Unmarshal(dfs, deletedFields[name])
+	}
+
+	err = p.Migrate(context.Background(), schemes, deletedFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1413,7 +1467,13 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes)
+	deletedFields := map[string][]string{}
+	for name, sch := range api.Swagger.Components.Schemas {
+		dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+		json.Unmarshal(dfs, deletedFields[name])
+	}
+
+	err = p.Migrate(context.Background(), schemes, deletedFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1557,16 +1617,21 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, nil)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
-
 		m := map[string]interface{}{"table_alias": "Blog", "title": "hugs", "posts": []map[string]interface{}{
 			{
 				"id": 1,
@@ -1714,7 +1779,13 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes)
+	deletedFields := map[string][]string{}
+	for name, sch := range api.Swagger.Components.Schemas {
+		dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+		json.Unmarshal(dfs, deletedFields[name])
+	}
+
+	err = p.Migrate(context.Background(), schemes, deletedFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1844,7 +1915,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1978,7 +2055,13 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2084,7 +2167,13 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes)
+	deletedFields := map[string][]string{}
+	for name, sch := range api.Swagger.Components.Schemas {
+		dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+		json.Unmarshal(dfs, deletedFields[name])
+	}
+
+	err = p.Migrate(context.Background(), schemes, deletedFields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2276,7 +2365,7 @@ components:
 
 	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
 
-	err = p.Migrate(context.Background(), schemes)
+	err = p.Migrate(context.Background(), schemes, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2643,6 +2732,1086 @@ components:
 	})
 }
 
+func TestProjections_InitializeContentRemove(t *testing.T) {
+
+	t.Run("Remove non-primary key without x-remove", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Errorf("expected to get a table 'Blog'")
+		}
+
+		if !gormDB.Migrator().HasTable("Post") {
+			t.Errorf("expected to get a table 'Post'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		openAPI = `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+`
+		api, err = rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !gormDB.Migrator().HasTable("Post") {
+			t.Errorf("expected to get a table 'Post'")
+		}
+
+		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
+
+		//expect all columns to still be in the database
+		found = false
+		found1 = false
+		found2 = false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+	})
+
+	t.Run("Remove non primary key with x-remove", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Errorf("expected to get a table 'Blog'")
+		}
+
+		if !gormDB.Migrator().HasTable("Post") {
+			t.Errorf("expected to get a table 'Post'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		openAPI = `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     x-remove:
+        - description
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+`
+
+		api, err = rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !gormDB.Migrator().HasTable("Post") {
+			t.Errorf("expected to get a table 'Post'")
+		}
+
+		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
+
+		//expect all columns to still be in the database
+		found = false
+		found1 = false
+		found2 = false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		if found2 {
+			t.Fatal("expected there to be no description field")
+		}
+
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+	})
+
+	t.Run("Remove primary key with x-remove", func(t *testing.T) {
+		if *driver != "sqlite3" {
+			t.Skip()
+		}
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       guid:
+         type: string
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     x-identifier:
+       - guid
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "guid" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		openAPI = `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       guid:
+         type: string
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     x-remove:
+        - guid
+     x-identifier:
+       - guid
+`
+
+		api, err = rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
+
+		//expect all columns to still be in the database
+		found = false
+		found1 = false
+		found2 = false
+		for _, c := range columns {
+			if c.Name() == "guid" {
+				found = true
+			}
+			//id should be auto created
+			if c.Name() == "id" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 {
+			t.Fatal("not all fields found")
+		}
+
+		if found {
+			t.Fatal("there should be no guid field")
+		}
+		//create using auto id and not guid
+		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
+		if tresult.Error != nil {
+			t.Errorf("expected to be able to create with new primary key")
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+
+	})
+
+	//TODO: Required field removal functionality without x-remove inconsistent across databases
+	t.Run("Remove primary key without x-remove", func(t *testing.T) {
+		if *driver != "sqlite3" {
+			t.Skip()
+		}
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       guid:
+         type: string
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     x-identifier:
+       - guid
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Fatal("expected to get a table 'Blog'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "guid" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		openAPI = `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+`
+		api, err = rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
+
+		//expect all columns to still be in the database
+		found = false
+		found1 = false
+		found2 = false
+		for _, c := range columns {
+			if c.Name() == "guid" {
+				found = true
+			}
+			//id should be auto created
+			if c.Name() == "id" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		//create using auto id and not guid
+		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
+		if tresult.Error != nil {
+			t.Errorf("expected to be able to create with new primary key")
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+
+	})
+
+	t.Run("Remove required key without x-remove", func(t *testing.T) {
+
+		t.Skip()
+
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+     required:
+       - title
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Errorf("expected to get a table 'Blog'")
+		}
+
+		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+		found := false
+		found1 := false
+		found2 := false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		openAPI = `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+         description: blog title
+       description:
+         type: string
+`
+		api, err = rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		deletedFields = map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			var df []string
+			json.Unmarshal(dfs, &df)
+			deletedFields[name] = df
+		}
+
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !gormDB.Migrator().HasTable("Blog") {
+			t.Errorf("expected to get a table 'Blog'")
+		}
+
+		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
+
+		//expect all columns to still be in the database
+		found = false
+		found1 = false
+		found2 = false
+		for _, c := range columns {
+			if c.Name() == "id" {
+				found = true
+			}
+			if c.Name() == "title" {
+				found1 = true
+			}
+			if c.Name() == "description" {
+				found2 = true
+			}
+		}
+
+		if !found1 || !found2 || !found {
+			t.Fatal("not all fields found")
+		}
+
+		//create using without title
+		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"description": "hugs2"})
+		if tresult.Error != nil {
+			t.Errorf("expected to be able to create without title, got error %s", tresult.Error)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+	})
+}
+
 func TestProjections_Delete(t *testing.T) {
 
 	t.Run("Basic Delete", func(t *testing.T) {
@@ -2702,7 +3871,12 @@ components:
 			t.Fatal(err)
 		}
 
-		err = p.Migrate(context.Background(), schemes)
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+		err = p.Migrate(context.Background(), schemes, deletedFields)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2795,7 +3969,7 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes)
+	err = p.Migrate(context.Background(), schemes, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

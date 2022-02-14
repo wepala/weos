@@ -2,13 +2,14 @@ package model
 
 import (
 	"encoding/json"
+	"time"
+
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
-	"time"
 )
 
 type EventRepositoryGorm struct {
@@ -305,7 +306,7 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 		schemas[value.Name()] = value.Builder(context.Background())
 	}
 
-	err := projections.Migrate(ctxt, schemas)
+	err := projections.Migrate(ctxt, schemas, nil)
 	if err != nil {
 		e.logger.Errorf("error migrating tables: %s", err)
 	}

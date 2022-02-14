@@ -45,10 +45,28 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 
 //creates a new schema interface instance
 func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string]string, []string) {
-	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
+	pks, _ := json.Marshal(ref.Extensions[IdentifierExtension])
+	dfs, _ := json.Marshal(ref.Extensions[RemoveExtension])
 
 	primaryKeys := []string{}
+	deletedFields := []string{}
+
 	json.Unmarshal(pks, &primaryKeys)
+	json.Unmarshal(dfs, &deletedFields)
+
+	//was a primary key removed but not removed in the x-identifier fields?
+	for i, k := range primaryKeys {
+		for _, d := range deletedFields {
+			if strings.EqualFold(k, d) {
+				if len(primaryKeys) == 1 {
+					primaryKeys = []string{}
+				} else {
+					primaryKeys[i] = primaryKeys[len(primaryKeys)-1]
+					primaryKeys = primaryKeys[:len(primaryKeys)-1]
+				}
+			}
+		}
+	}
 
 	if len(primaryKeys) == 0 {
 		primaryKeys = append(primaryKeys, "id")
@@ -58,6 +76,18 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
+		found := false
+
+		for _, n := range deletedFields {
+			if strings.EqualFold(n, name) {
+				found = true
+			}
+		}
+		//this field should not be added to the schema
+		if found {
+			break
+		}
+
 		tagString := `json:"` + name + `"`
 		var gormParts []string
 		for _, req := range ref.Required {

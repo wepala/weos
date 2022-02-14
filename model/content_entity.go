@@ -351,6 +351,8 @@ func (w *ContentEntity) ToMap() map[string]interface{} {
 			//check if the lowercase version of the field is the same as the schema and use the scehma version instead
 			if originialFieldName := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
 				result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+			} else if originialFieldName == "" && strings.EqualFold(field.Name(), "id") {
+				result["id"] = field.Interface()
 			}
 		}
 	}

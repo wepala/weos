@@ -16,6 +16,8 @@
 *test.db
 *projection.db
 *e2e.db
+*tasks.db
+*test.db
 /.idea
 .DS_Store
 server

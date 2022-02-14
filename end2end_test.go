@@ -7,9 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +17,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
@@ -43,6 +45,7 @@ var header http.Header
 var resp *http.Response
 var db *sql.DB
 var requests map[string]map[string]interface{}
+var responseBody map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
 var dockerEndpoint string
@@ -57,6 +60,7 @@ var page int
 var contentType string
 var result api.ListApiResponse
 var scenarioContext context.Context
+var blogfixtures []interface{}
 var total int
 var success int
 var failed int
@@ -97,6 +101,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	page = 1
 	limit = 0
 	result = api.ListApiResponse{}
+	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
 	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
@@ -162,6 +167,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
+	blogfixtures = []interface{}{}
 	os.Remove("e2e.db")
 	var err error
 	db, err = sql.Open("sqlite3", "e2e.db")
@@ -369,49 +375,14 @@ func blogsInTheApi(details *godog.Table) error {
 
 	for i := 1; i < len(details.Rows); i++ {
 		req := make(map[string]interface{})
-		seq := 0
 		for n, cell := range details.Rows[i].Cells {
-			if (head[n].Value) != "sequence_no" {
-				req[head[n].Value] = cell.Value
-			} else {
-				seq, _ = strconv.Atoi(cell.Value)
-			}
-		}
-		reqBytes, _ := json.Marshal(req)
-		body := bytes.NewReader(reqBytes)
-		var request *http.Request
-
-		request = httptest.NewRequest("POST", "/blog", body)
-
-		request = request.WithContext(context.TODO())
-		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		request.Header = header
-		request.Close = true
-		rec = httptest.NewRecorder()
-		e.ServeHTTP(rec, request)
-		if rec.Code != http.StatusCreated {
-			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			req[head[n].Value] = cell.Value
 		}
 
-		if seq > 1 {
-
-			for i := 1; i < seq; i++ {
-				reqBytes, _ := json.Marshal(req)
-				body := bytes.NewReader(reqBytes)
-				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
-				request = request.WithContext(context.TODO())
-				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-				request.Header = header
-				request.Close = true
-				rec = httptest.NewRecorder()
-				e.ServeHTTP(rec, request)
-				if rec.Code != http.StatusOK {
-					return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
-				}
-			}
-		}
+		blogfixtures = append(blogfixtures, req)
 
 	}
+
 	return nil
 }
 
@@ -695,6 +666,51 @@ func theServiceIsRunning() error {
 		return err
 	}
 	e = API.EchoInstance()
+
+	if len(blogfixtures) != 0 {
+		for _, r := range blogfixtures {
+			req := r.(map[string]interface{})
+			sequence := req["sequence_no"]
+			delete(req, "sequence_no")
+			reqBytes, _ := json.Marshal(req)
+			body := bytes.NewReader(reqBytes)
+			var request *http.Request
+			seq := 0
+			if _, ok := sequence.(string); ok {
+				seq, _ = strconv.Atoi(sequence.(string))
+			}
+			request = httptest.NewRequest("POST", "/blog", body)
+
+			request = request.WithContext(context.TODO())
+			header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			request.Header = header
+			request.Close = true
+			rec = httptest.NewRecorder()
+			e.ServeHTTP(rec, request)
+			if rec.Code != http.StatusCreated {
+				return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			}
+
+			if seq > 1 {
+
+				for i := 1; i < seq; i++ {
+					reqBytes, _ := json.Marshal(req)
+					body := bytes.NewReader(reqBytes)
+					request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
+					request = request.WithContext(context.TODO())
+					header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+					request.Header = header
+					request.Close = true
+					rec = httptest.NewRecorder()
+					e.ServeHTTP(rec, request)
+					if rec.Code != http.StatusOK {
+						return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
+					}
+				}
+			}
+
+		}
+	}
 	return nil
 }
 
@@ -816,6 +832,7 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 		}
 	}
 
+	responseBody = contentEntity
 	return nil
 }
 
@@ -995,6 +1012,161 @@ func theSearchButtonIsHit() error {
 func theTotalResultsShouldBe(totalResult int) error {
 	if result.Total != int64(totalResult) {
 		return fmt.Errorf("expect page to be %d, got %d", totalResult, result.Total)
+	}
+	return nil
+}
+
+func aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist() error {
+	if !strings.Contains(buf.String(), "property does not exist") {
+	}
+	return nil
+}
+
+func addsTheAttributeToTheFieldOnTheContentType(user, attribute, field, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	attributes := schemas[contentType].Value.Extensions[attribute]
+	deletedFields := []string{}
+	bytes, _ := json.Marshal(attributes)
+	json.Unmarshal(bytes, &deletedFields)
+	deletedFields = append(deletedFields, field)
+	schemas[contentType].Value.Extensions[attribute] = deletedFields
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err = swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func addsTheFieldToTheContentType(user, field, fieldType, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+	switch fieldType {
+	case "string":
+		schemas[contentType].Value.Properties[field] = &openapi3.SchemaRef{
+			Value: &openapi3.Schema{
+				Type: "string",
+			},
+		}
+	default:
+		fmt.Errorf("no logic for adding field type %s", fieldType)
+	}
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference() error {
+	if errs == nil {
+		fmt.Errorf("expected there to be an error on migrating")
+		return fmt.Errorf("expected error on migrating")
+	}
+	//TODO: add checks fo the speicific error
+	return nil
+}
+
+func removedTheFieldFromTheContentType(user, field, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	delete(schemas[contentType].Value.Properties, strings.ToLower(field))
+
+	pks, _ := json.Marshal(schemas[contentType].Value.Extensions["x-identifier"])
+	primayKeys := []string{}
+	json.Unmarshal(pks, &primayKeys)
+	for i, k := range primayKeys {
+		if strings.EqualFold(k, field) {
+			primayKeys[i] = primayKeys[len(primayKeys)-1]
+			primayKeys = primayKeys[:len(primayKeys)-1]
+		}
+	}
+
+	schemas[contentType].Value.Extensions["x-identifier"] = primayKeys
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func theFieldShouldBeRemovedFromTheTable(field, table string) error {
+	if errs != nil {
+		return errs
+	}
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMDB)
+	gormDB := apiProjection1.DB()
+	if !gormDB.Migrator().HasTable(table) {
+		return fmt.Errorf("expected there to be a table %s", table)
+	}
+	columns, err := gormDB.Migrator().ColumnTypes(table)
+	if err != nil {
+		return err
+	}
+
+	for _, c := range columns {
+		if strings.EqualFold(c.Name(), field) {
+			return fmt.Errorf("there should be no column %s", field)
+		}
+	}
+	return nil
+}
+
+func theServiceIsReset() error {
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	API = *tapi
+	e = API.EchoInstance()
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
+	errs = API.Initialize(scenarioContext)
+	return nil
+}
+
+func aBlogShouldBeReturnedWithoutField(field string) error {
+	if len(responseBody) == 0 {
+		err := json.NewDecoder(rec.Body).Decode(&responseBody)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, ok := responseBody[field]; ok {
+		return fmt.Errorf("expected to not find field %s", field)
 	}
 	return nil
 }
@@ -1218,15 +1390,23 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
 	ctx.Step(`^a warning should be output to logs$`, aWarningShouldBeOutputToLogs)
 	ctx.Step(`^the "([^"]*)" header should be present$`, theHeaderShouldBePresent)
+	ctx.Step(`^the list results should be$`, theListResultsShouldBe)
+	ctx.Step(`^the page in the result should be (\d+)$`, thePageInTheResultShouldBe)
+	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
+	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
+	ctx.Step(`^a warning should be output to the logs telling the developer the property doesn\'t exist$`, aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist)
+	ctx.Step(`^"([^"]*)" adds the "([^"]*)" attribute to the "([^"]*)" field on the "([^"]*)" content type$`, addsTheAttributeToTheFieldOnTheContentType)
+	ctx.Step(`^"([^"]*)" adds the field "([^"]*)" type "([^"]*)" to the "([^"]*)" content type$`, addsTheFieldToTheContentType)
+	ctx.Step(`^an error should show letting the developer know that is part of a foreign key reference$`, anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference)
+	ctx.Step(`^"([^"]*)" removed the "([^"]*)" field from the "([^"]*)" content type$`, removedTheFieldFromTheContentType)
+	ctx.Step(`^the "([^"]*)" field should be removed from the "([^"]*)" table$`, theFieldShouldBeRemovedFromTheTable)
+	ctx.Step(`^a blog should be returned without field "([^"]*)"$`, aBlogShouldBeReturnedWithoutField)
+	ctx.Step(`^the service is reset$`, theServiceIsReset)
 	ctx.Step(`^the "([^"]*)" form is submitted with content type "([^"]*)"$`, theFormIsSubmittedWithContentType)
 	ctx.Step(`^the "([^"]*)" is submitted without content type$`, theIsSubmittedWithoutContentType)
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" list screen$`, isOnTheListScreen)
 	ctx.Step(`^the items per page are (\d+)$`, theItemsPerPageAre)
-	ctx.Step(`^the list results should be$`, theListResultsShouldBe)
-	ctx.Step(`^the page in the result should be (\d+)$`, thePageInTheResultShouldBe)
 	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
-	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
-	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with entity id "([^"]*)" for blog with id "([^"]*)"$`, isOnTheDeleteScreenWithEntityIdForBlogWithId)
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with id "([^"]*)"$`, isOnTheDeleteScreenWithId)
 	ctx.Step(`^the "([^"]*)" "(\d+)" should be deleted$`, theShouldBeDeleted)
