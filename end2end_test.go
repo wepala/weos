@@ -1114,7 +1114,7 @@ func sojournerDeletesTheTable(tableName string) error {
 	if err != nil {
 		return fmt.Errorf("unexpected error getting projection: %s", err)
 	}
-	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	apiProjection1 := apiProjection.(*projections.GORMDB)
 
 	result := apiProjection1.DB().Migrator().DropTable(strings.Title(tableName))
 	if result != nil {
@@ -1139,7 +1139,7 @@ func theTableShouldBePopulatedWith(contentType string, details *godog.Table) err
 		if err != nil {
 			return fmt.Errorf("unexpected error getting projection: %s", err)
 		}
-		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		apiProjection1 := apiProjection.(*projections.GORMDB)
 		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_ID = ?", compare["weos_id"])
 
 		if contentEntity == nil {
