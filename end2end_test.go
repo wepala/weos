@@ -242,8 +242,8 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 	if err != nil {
 		return fmt.Errorf("unexpected error getting projection: %s", err)
 	}
-	apiProjection1 := apiProjection.(*projections.GORMProjection)
-	gormDB = apiProjection1.DB()
+	apiProjection1 := apiProjection.(*projections.GORMDB)
+	gormDB := apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
 		arg1 = utils.SnakeCase(arg1)
@@ -571,7 +571,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
-		p := proj.(*projections.GORMProjection)
+		p := proj.(*projections.GORMDB)
 		if p != nil {
 			gormDB = p.DB()
 		}
@@ -742,7 +742,7 @@ func theServiceIsRunning() error {
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
-		p := proj.(*projections.GORMProjection)
+		p := proj.(*projections.GORMDB)
 		if p != nil {
 			gormDB = p.DB()
 		}
@@ -818,7 +818,7 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 		if err != nil {
 			return fmt.Errorf("unexpected error getting projection: %s", err)
 		}
-		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		apiProjection1 := apiProjection.(*projections.GORMDB)
 		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
@@ -1074,7 +1074,7 @@ func theShouldBeDeleted(contentEntity string, id int) error {
 	if err != nil {
 		return fmt.Errorf("unexpected error getting projection: %s", err)
 	}
-	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	apiProjection1 := apiProjection.(*projections.GORMDB)
 	searchResult := apiProjection1.DB().Table(strings.Title(contentEntity)).Find(&output, "id = ?", id)
 	if len(output) != 0 {
 		return fmt.Errorf("the entity was not deleted")
@@ -1217,7 +1217,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1131",
+			//Tags: "focus1",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

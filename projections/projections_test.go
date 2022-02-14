@@ -2854,3 +2854,105 @@ components:
 		}
 	})
 }
+
+func TestProjections_GetContentWithCorrectCasing(t *testing.T) {
+	openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+components:
+  schemas:
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       lastUpdated:
+         type: string
+       posts:
+        type: array
+        items:
+          $ref: "#/components/schemas/Post"
+`
+
+	api, err := rest.New(openAPI)
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = p.Migrate(context.Background(), schemes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !gormDB.Migrator().HasTable("Blog") {
+		t.Errorf("expected to get a table 'Blog'")
+	}
+
+	if !gormDB.Migrator().HasTable("Post") {
+		t.Errorf("expected to get a table 'Post'")
+	}
+
+	if !gormDB.Migrator().HasTable("blog_posts") {
+		t.Errorf("expected to get a table 'blog_posts'")
+	}
+
+	columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+
+	found := false
+	for _, c := range columns {
+		if c.Name() == "last_updated" {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatal("not all fields found")
+	}
+	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "last_updated": "Test"})
+
+	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	r, err := p.GetByEntityID(context.Background(), blogEntityFactory, "5678")
+	if err != nil {
+		t.Fatalf("error querying '%s' '%s'", "Blog", err)
+	}
+	if r["title"] != "hugs" {
+		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
+	}
+
+	if r["lastUpdated"] != "Test" {
+		t.Errorf("expected the lastUpdated to be %s got %v", "Test", r["lastUpdated"])
+	}
+
+	err = gormDB.Migrator().DropTable("blog_posts")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+	}
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
+}
