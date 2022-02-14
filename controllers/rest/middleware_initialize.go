@@ -58,7 +58,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 
 	relations := make(map[string]string)
 	for name, p := range ref.Properties {
-		tagString := `json:"` + utils.SnakeCase(name) + `"`
+		tagString := `json:"` + name + `"`
 		var gormParts []string
 		for _, req := range ref.Required {
 			if strings.EqualFold(req, name) {
@@ -203,7 +203,7 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 				keystring += strings.Title(name) + strings.Title(k)
 			}
 
-			struc.AddField(name, instance, `json:"`+utils.SnakeCase(name)+`" gorm:"foreignKey:`+keystring+`; references `+strings.Join(key, ",")+`"`)
+			struc.AddField(name, instance, `json:"`+name+`" gorm:"foreignKey:`+keystring+`; references `+strings.Join(key, ",")+`"`)
 		}
 	}
 	return struc, nil

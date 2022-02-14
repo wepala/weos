@@ -313,6 +313,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/json")
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createBatchMw := rest.CreateBatchMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
 		e.POST("/blogs", controller, mw, createBatchMw)

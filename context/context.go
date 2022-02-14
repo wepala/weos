@@ -28,6 +28,7 @@ const EVENT_STORE ContextKey = "_event_store"
 const SCHEMA_BUILDERS ContextKey = "_schema_builders"
 const FILTERS ContextKey = "_filters"
 const SORTS ContextKey = "_sorts"
+const PAYLOAD ContextKey = "_payload"
 const SEQUENCE_NO string = "sequence_no"
 
 //Path initializers are run per path and can be used to configure routes that are not defined in the open api spec
@@ -54,7 +55,7 @@ func GetContentType(ctx context.Context) *ContentType {
 	return nil
 }
 
-//Get account info from context
+//GetAccount info from context
 func GetAccount(ctx context.Context) string {
 	if value, ok := ctx.Value(ACCOUNT_ID).(string); ok {
 		return value
@@ -62,7 +63,7 @@ func GetAccount(ctx context.Context) string {
 	return ""
 }
 
-//Get user info from context
+//GetUser info from context
 func GetUser(ctx context.Context) string {
 	if value, ok := ctx.Value(USER_ID).(string); ok {
 		return value
@@ -70,7 +71,7 @@ func GetUser(ctx context.Context) string {
 	return ""
 }
 
-//Get log level from context
+//GetLogLevel from context
 func GetLogLevel(ctx context.Context) string {
 	if value, ok := ctx.Value(LOG_LEVEL).(string); ok {
 		return value
@@ -78,7 +79,7 @@ func GetLogLevel(ctx context.Context) string {
 	return ""
 }
 
-//Get request id from context
+//GetRequestID from context
 func GetRequestID(ctx context.Context) string {
 	if value, ok := ctx.Value(REQUEST_ID).(string); ok {
 		return value
@@ -86,7 +87,7 @@ func GetRequestID(ctx context.Context) string {
 	return ""
 }
 
-//Get entity id if it's in the context
+//GetEntityID if it's in the context
 func GetEntityID(ctx context.Context) string {
 	if value, ok := ctx.Value(ENTITY_ID).(string); ok {
 		return value
@@ -94,12 +95,20 @@ func GetEntityID(ctx context.Context) string {
 	return ""
 }
 
-//Get error
+//GetError return error from context
 func GetError(ctx context.Context) error {
 	if value, ok := ctx.Value(ctx).(error); ok {
 		return value
 	}
 	return nil
+}
+
+//GetPayload returns payload from context
+func GetPayload(ctx context.Context) []byte {
+	if value, ok := ctx.Value(PAYLOAD).([]byte); ok {
+		return value
+	}
+	return []byte("")
 }
 
 //Deprecated: Context Use the Go context in the echo request instead
