@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,35 +31,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
-			var payload []byte
-			var err error
-
-			ct := ctxt.Request().Header.Get("Content-Type")
-
-			switch ct {
-			case "application/json":
-				payload, err = ioutil.ReadAll(ctxt.Request().Body)
-				if err != nil {
-					return err
-				}
-			case "application/x-www-form-urlencoded":
-				payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
-				if err != nil {
-					return err
-				}
-			default:
-				if strings.Contains(ct, "multipart/form-data") {
-					payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
-					if err != nil {
-						return err
-					}
-				} else if ct == "" {
-					return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
-				} else {
-					return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
-				}
-			}
-
+			payload := weoscontext.GetPayload(newContext)
 			//for inserting weos_id during testing
 			payMap := map[string]interface{}{}
 			var weosID string
@@ -75,7 +46,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				weosID = ksuid.New().String()
 			}
 
-			err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -129,8 +100,7 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
-			//reads the request body
-			payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+			payload := weoscontext.GetPayload(newContext)
 
 			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), nil, nil, api.EchoInstance().Logger)
 			if err != nil {
@@ -167,34 +137,10 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			}
 			var weosID string
 			var sequenceNo string
-			var payload []byte
+
 			var err error
 
-			ct := ctxt.Request().Header.Get("Content-Type")
-
-			switch ct {
-			case "application/json":
-				payload, err = ioutil.ReadAll(ctxt.Request().Body)
-				if err != nil {
-					return err
-				}
-			case "application/x-www-form-urlencoded":
-				payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
-				if err != nil {
-					return err
-				}
-			default:
-				if strings.Contains(ct, "multipart/form-data") {
-					payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
-					if err != nil {
-						return err
-					}
-				} else if ct == "" {
-					return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
-				} else {
-					return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
-				}
-			}
+			payload := weoscontext.GetPayload(newContext)
 			//getting etag from context
 			etagInterface := newContext.Value("If-Match")
 			if etagInterface != nil {

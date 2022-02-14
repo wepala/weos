@@ -15,8 +15,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-//GORMProjection interface struct
-type GORMProjection struct {
+//GORMDB interface struct
+type GORMDB struct {
 	db              *gorm.DB
 	logger          weos.Log
 	migrationFolder string
@@ -30,11 +30,11 @@ type FilterProperty struct {
 	Values   []interface{} `json:"values"`
 }
 
-func (p *GORMProjection) DB() *gorm.DB {
+func (p *GORMDB) DB() *gorm.DB {
 	return p.db
 }
 
-func (p *GORMProjection) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	scheme, err := entityFactory.NewEntity(ctxt)
 	if err != nil {
 		return nil, err
@@ -79,17 +79,18 @@ func (p *GORMProjection) GetByKey(ctxt context.Context, entityFactory weos.Entit
 
 }
 
-func (p *GORMProjection) GetByEntityID(ctx context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
-	scheme, err := entityFactory.NewEntity(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(scheme.Property, "weos_id = ?", id)
+func (p *GORMDB) GetByEntityID(ctx context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
+	//scheme, err := entityFactory.NewEntity(ctx)
+	tstruct := entityFactory.DynamicStruct(ctx).New()
+	//if err != nil {
+	//	return nil, err
+	//}
+	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(tstruct, "weos_id = ?", id)
 
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	data, err := json.Marshal(scheme.Property)
+	data, err := json.Marshal(tstruct)
 	if err != nil {
 		return nil, err
 	}
@@ -100,16 +101,16 @@ func (p *GORMProjection) GetByEntityID(ctx context.Context, entityFactory weos.E
 }
 
 //Persist save entity information in database
-func (p *GORMProjection) Persist(entities []weos.Entity) error {
+func (p *GORMDB) Persist(entities []weos.Entity) error {
 	return nil
 }
 
 //Remove entity
-func (p *GORMProjection) Remove(entities []weos.Entity) error {
+func (p *GORMDB) Remove(entities []weos.Entity) error {
 	return nil
 }
 
-func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Builder, deleted map[string][]string) error {
+func (p *GORMDB) Migrate(ctx context.Context, builders map[string]ds.Builder, deleted map[string][]string) error {
 
 	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
 	var err error
@@ -272,7 +273,7 @@ func (p *GORMProjection) Migrate(ctx context.Context, builders map[string]ds.Bui
 	return err
 }
 
-func (p *GORMProjection) GetEventHandler() weos.EventHandler {
+func (p *GORMDB) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) {
 		entityFactory := weos.GetEntityFactory(ctx)
 		switch event.Type {
@@ -358,18 +359,18 @@ func (p *GORMProjection) GetEventHandler() weos.EventHandler {
 	}
 }
 
-func (p *GORMProjection) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
-	row := map[string]interface{}{}
-	result := p.db.Table(entityFactory.TableName()).Find(&row, "weos_id = ? ", weosID)
-	if result.Error != nil {
-		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
-	}
-	//set result to entity
+func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
 	newEntity, err := entityFactory.NewEntity(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rowData, err := json.Marshal(row)
+
+	result := p.db.Table(entityFactory.TableName()).Find(newEntity.Property, "weos_id = ? ", weosID)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
+	}
+	//set result to entity
+	rowData, err := json.Marshal(newEntity.Property)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +384,7 @@ func (p *GORMProjection) GetContentEntity(ctx context.Context, entityFactory weo
 }
 
 //GetContentEntities returns a list of content entities as well as the total found
-func (p *GORMProjection) GetContentEntities(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+func (p *GORMDB) GetContentEntities(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 	var count int64
 	var result *gorm.DB
 	var schemes interface{}
@@ -467,9 +468,9 @@ var ContentQuery QueryModifier
 var FilterQuery QueryFilterModifier
 
 //NewProjection creates an instance of the projection
-func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMProjection, error) {
+func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, error) {
 
-	projection := &GORMProjection{
+	projection := &GORMDB{
 		db:     db,
 		logger: logger,
 	}

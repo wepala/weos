@@ -26,3 +26,12 @@ const AliasExtension = "x-alias"
 
 //SchemaExtension alias for specifying the content type instead of the request body
 const SchemaExtension = "x-schema"
+
+//ProjectionExtension set custom projection
+const ProjectionExtension = "x-projection"
+
+//CommandDispatcherExtension set custom command dispatcher
+const CommandDispatcherExtension = "x-command-dispatcher"
+
+//EventStoreExtension set custom event store
+const EventStoreExtension = "x-event-store"
