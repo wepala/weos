@@ -11,8 +11,10 @@ type DefaultEventDisptacher struct {
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultEventDisptacher) Dispatch(ctx context.Context, event Event) {
+func (e *DefaultEventDisptacher) Dispatch(ctx context.Context, event Event) []error {
 	//mutex helps keep state between routines
+	var errors []error
+
 	e.dispatch.Lock()
 	defer e.dispatch.Unlock()
 	var wg sync.WaitGroup
@@ -26,11 +28,16 @@ func (e *DefaultEventDisptacher) Dispatch(ctx context.Context, event Event) {
 				}
 				wg.Done()
 			}()
-			handler(ctx, event)
+
+			err := handler(ctx, event)
+			if err != nil {
+				errors = append(errors, err)
+			}
+
 		}()
 	}
-
 	wg.Wait()
+	return errors
 }
 
 func (e *DefaultEventDisptacher) AddSubscriber(handler EventHandler) {
@@ -41,4 +48,4 @@ func (e *DefaultEventDisptacher) GetSubscribers() []EventHandler {
 	return e.handlers
 }
 
-type EventHandler func(ctx context.Context, event Event)
+type EventHandler func(ctx context.Context, event Event) error

@@ -41,6 +41,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 		if builder, ok := schemas[contentType]; ok {
 			entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 			newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+			api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 			return newContext, nil
 		}
 
@@ -55,6 +56,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 					return newContext, nil
 				}
 				break
@@ -65,6 +67,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 					return newContext, nil
 				}
 			}
@@ -79,6 +82,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 					return newContext, nil
 				}
 			}
@@ -88,6 +92,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 					return newContext, nil
 				}
 			} else {
@@ -104,6 +109,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 								if builder, ok := schemas[contentType]; ok {
 									entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 									newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+									api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 									return newContext, nil
 								}
 							}
