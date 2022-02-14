@@ -1,6 +1,8 @@
 package rest_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -459,6 +461,32 @@ func TestContext(t *testing.T) {
 		queryString := "/blogs?" + paramName + "[" + field + "][" + operator + "]=" + value1 + "," + value2 + "," + value3
 		req := httptest.NewRequest(http.MethodGet, queryString, nil)
 		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
+	t.Run("json request payload should be added to context", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value(context.PAYLOAD) == nil {
+				t.Fatalf("expected a payload in context")
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		payload := &struct {
+			Title string
+		}{
+			Title: "Lorem Ipsum",
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("unexpected error marshaling payload '%s'", err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/blogs", bytes.NewBuffer(data))
+		e.POST("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
 }

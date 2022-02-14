@@ -115,8 +115,6 @@ paths:
       x-controller: HealthCheck
       x-middleware:
         - Recover
-      x-command-dispatcher: HealthCheck
-      x-event-dispatcher: HealthCheck
       responses:
         200:
           description: Health Response
@@ -165,6 +163,9 @@ paths:
             schema:
               $ref: "#/components/schemas/Blog"
           application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Blog"
+          multipart/form-data:
             schema:
               $ref: "#/components/schemas/Blog"
       responses:
@@ -344,13 +345,7 @@ paths:
           name: If-Match
           schema:
             type: string
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
+      x-schema: "Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:

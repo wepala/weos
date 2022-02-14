@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
+	"io/ioutil"
+	"net/http"
 	"net/textproto"
 	"net/url"
 	"strconv"
@@ -36,6 +38,32 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			for _, parameter := range operation.Parameters {
 				cc, err = parseParams(c, cc, parameter, entityFactory)
 			}
+
+			//parse request body based on content type
+			var payload []byte
+			ct := c.Request().Header.Get("Content-Type")
+			//split the content type on ; and use the first segment. This is based on multidata
+			ctParts := strings.Split(ct, ";")
+			ct = ctParts[0]
+
+			//check if content type was defined in the schema
+			if operation.RequestBody != nil && operation.RequestBody.Value != nil {
+				mimeType := operation.RequestBody.Value.Content.Get(ct)
+				if mimeType != nil {
+					switch ct {
+					case "application/json":
+						payload, err = ioutil.ReadAll(c.Request().Body)
+					default:
+						payload, err = ConvertFormToJson(c.Request(), ct)
+					}
+					//set payload to context
+					cc = context.WithValue(cc, weosContext.PAYLOAD, payload)
+				} else {
+					c.Logger().Debugf("content-type '%s' not supported", ct)
+					return NewControllerError(fmt.Sprintf("the content-type '%s' is not supported", ct), err, http.StatusBadRequest)
+				}
+			}
+
 			//if there are any errors
 			if err != nil {
 				c.Logger().Error(err)

@@ -34,8 +34,8 @@ type RESTAPI struct {
 	Log                            model.Log
 	DB                             *sql.DB
 	Client                         *http.Client
-	projection                     *projections.GORMProjection
-	config                         *APIConfig
+	projection                     *projections.GORMDB
+	Config                         *APIConfig
 	e                              *echo.Echo
 	PathConfigs                    map[string]*PathConfig
 	Schemas                        map[string]ds.Builder
@@ -69,11 +69,14 @@ type APIInterface interface {
 	SetEchoInstance(e *echo.Echo)
 }
 
+//Deprecated: 02/13/2022 made Config public
 func (p *RESTAPI) AddConfig(config *APIConfig) error {
-	p.config = config
+	p.Config = config
 	return nil
 }
 
+//Deprecated: 02/13/2022 This should not but actively used
+//AddPathConfig add path Config
 func (p *RESTAPI) AddPathConfig(path string, config *PathConfig) error {
 	if p.PathConfigs == nil {
 		p.PathConfigs = make(map[string]*PathConfig)
@@ -283,23 +286,27 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//these are the dynamic struct builders for the schemas in the OpenAPI
 	var schemas map[string]ds.Builder
 
-	if p.config != nil && p.config.Database != nil {
+	if p.Config != nil && p.Config.Database != nil {
 		//setup default projection
 		var gormDB *gorm.DB
 		var err error
 
-		p.DB, gormDB, err = p.SQLConnectionFromConfig(p.config.Database)
+		p.DB, gormDB, err = p.SQLConnectionFromConfig(p.Config.Database)
 		if err != nil {
 			return err
 		}
 
 		//setup default projection if gormDB is configured
 		if gormDB != nil {
-			defaultProjection, err := projections.NewProjection(ctxt, gormDB, p.EchoInstance().Logger)
-			if err != nil {
-				return err
+			//check if default projection was already set
+			defaultProjection, _ := p.GetProjection("Default")
+			if defaultProjection == nil {
+				defaultProjection, err = projections.NewProjection(ctxt, gormDB, p.EchoInstance().Logger)
+				if err != nil {
+					return err
+				}
+				p.RegisterProjection("Default", defaultProjection)
 			}
-			p.RegisterProjection("Default", defaultProjection)
 			//get the database schema
 			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
 			p.Schemas = schemas
@@ -315,7 +322,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		//if there is a projection then add the event handler as a subscriber to the event store
 		if defaultProjection, err := p.GetProjection("Default"); err == nil {
 			//only setup the gorm event repository if it's a gorm projection
-			if gormProjection, ok := defaultProjection.(*projections.GORMProjection); ok {
+			if gormProjection, ok := defaultProjection.(model.GormProjection); ok {
 				defaultEventStore, err := model.NewBasicEventRepository(gormProjection.DB(), p.EchoInstance().Logger, false, "", "")
 				if err != nil {
 					return err
@@ -345,9 +352,9 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup middleware  - https://echo.labstack.com/middleware/
 
 	//setup global pre middleware
-	if p.config != nil && p.config.Rest != nil {
+	if p.Config != nil && p.Config.Rest != nil {
 		var preMiddlewares []echo.MiddlewareFunc
-		for _, middlewareName := range p.config.Rest.PreMiddleware {
+		for _, middlewareName := range p.Config.Rest.PreMiddleware {
 			t := reflect.ValueOf(middlewareName)
 			m := t.MethodByName(middlewareName)
 			if !m.IsValid() {
@@ -362,7 +369,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup global middleware
 	var middlewares []echo.MiddlewareFunc
 	//prepend Context middleware
-	//for _, middlewareName := range p.config.Rest.Middleware {
+	//for _, middlewareName := range p.Config.Rest.Middleware {
 	//	tmiddleware, err := p.GetMiddleware(middlewareName)
 	//	if err != nil {
 	//		p.e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
@@ -422,7 +429,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	return err
 }
 
-//SQLConnectionFromConfig get db connection based on a config
+//SQLConnectionFromConfig get db connection based on a Config
 func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gorm.DB, error) {
 	var connStr string
 	var err error

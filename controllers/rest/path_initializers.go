@@ -26,7 +26,7 @@ func CORsInitializer(ctxt context.Context, api *RESTAPI, path string, swagger *o
 			AllowMethods: methodsFound,
 		})
 
-		api.EchoInstance().OPTIONS(api.config.BasePath+echoPath, func(context echo.Context) error {
+		api.EchoInstance().OPTIONS(api.Config.BasePath+echoPath, func(context echo.Context) error {
 			return nil
 		}, corsMiddleware)
 	}
