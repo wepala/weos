@@ -25,6 +25,7 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"github.com/wepala/weos/utils"
 	"gorm.io/gorm"
@@ -59,6 +60,10 @@ var page int
 var contentType string
 var result api.ListApiResponse
 var scenarioContext context.Context
+var total int
+var success int
+var failed int
+var errArray []error
 var filters string
 
 type FilterProperties struct {
@@ -95,6 +100,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	page = 1
 	limit = 0
 	result = api.ListApiResponse{}
+	total, success, failed = 0, 0, 0
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -1141,6 +1147,114 @@ func aFilterOnTheFieldNeWithValue(field, value string) error {
 	return nil
 }
 
+func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
+	repo, err := API.GetEventStore("Default")
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+	eventRepo := repo.(*model.EventRepositoryGorm)
+	projection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+
+	factories := API.GetEntityFactories()
+	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+	return nil
+}
+
+func sojournerDeletesTheTable(tableName string) error {
+	//output := map[string]interface{}{}
+
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMDB)
+	if *driver == "mysql" {
+		tables := []string{}
+		r := apiProjection1.DB().Debug().Raw(fmt.Sprintf("SELECT TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE REFERENCED_TABLE_NAME = '%s';", strings.Title(tableName))).Scan(&tables)
+		if r.Error != nil {
+			return r.Error
+		}
+		schema := API.Schemas
+		for _, t := range tables {
+			s := schema[t]
+			f := s.GetField("Table")
+			f.SetTag(`json:"table_alias" gorm:"default:` + t + `"`)
+			instance := s.Build().New()
+			json.Unmarshal([]byte(`{
+				"table_alias": "`+t+`"
+			}`), &instance)
+			r := apiProjection1.DB().Debug().Migrator().DropConstraint(instance, tableName)
+			if r != nil {
+				return r
+			}
+
+		}
+	}
+	result := apiProjection1.DB().Migrator().DropTable(strings.Title(tableName))
+	if result != nil {
+		return fmt.Errorf("error dropping table: %s got err: %s", tableName, result)
+	}
+
+	return nil
+}
+
+func theTableShouldBePopulatedWith(contentType string, details *godog.Table) error {
+	contentEntity := map[string]interface{}{}
+	var result *gorm.DB
+
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMDB)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_ID = ?", compare["weos_id"])
+
+		if contentEntity == nil {
+			return fmt.Errorf("unexpected error finding content type in db")
+		}
+
+		if result.Error != nil {
+			return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+		}
+
+		for key, value := range compare {
+			if key == "sequence_no" {
+				strSeq := strconv.Itoa(int(contentEntity[key].(int64)))
+				if strSeq != value {
+					return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+				}
+			} else {
+				if contentEntity[key] != value {
+					return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+				}
+			}
+		}
+
+	}
+	return nil
+}
+
+func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
+	if total == 0 && success == 0 && failed == 0 {
+		return fmt.Errorf("expected total, success and failed to be non 0 values")
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1207,6 +1321,10 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a filter on the field "([^"]*)" "like" with value "([^"]*)"$`, aFilterOnTheFieldLikeWithValue)
 	ctx.Step(`^a filter on the field "([^"]*)" "lt" with value "([^"]*)"$`, aFilterOnTheFieldLtWithValue)
 	ctx.Step(`^a filter on the field "([^"]*)" "ne" with value "([^"]*)"$`, aFilterOnTheFieldNeWithValue)
+	ctx.Step(`^"([^"]*)" calls the replay method on the event repository$`, callsTheReplayMethodOnTheEventRepository)
+	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
+	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
+	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
 }
 
 func TestBDD(t *testing.T) {
@@ -1216,7 +1334,7 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
+			Tags:   "~long && ~skipped",
 			//Tags: "focus1",
 			//Tags: "WEOS-1110 && ~skipped",
 		},

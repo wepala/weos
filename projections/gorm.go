@@ -132,7 +132,7 @@ func (p *GORMDB) Migrate(ctx context.Context, builders map[string]ds.Builder) er
 }
 
 func (p *GORMDB) GetEventHandler() weos.EventHandler {
-	return func(ctx context.Context, event weos.Event) {
+	return func(ctx context.Context, event weos.Event) error {
 		entityFactory := weos.GetEntityFactory(ctx)
 		switch event.Type {
 		case "create":
@@ -141,12 +141,14 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				entity, err := entityFactory.NewEntity(ctx)
 				if err != nil {
 					p.logger.Errorf("error get a copy of the entity '%s'", err)
+					return err
 				}
 				eventPayload := entity.Property
 				mapPayload := map[string]interface{}{}
 				err = json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
+					return err
 				}
 				mapPayload["sequence_no"] = event.Meta.SequenceNo
 
@@ -154,10 +156,13 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				err = json.Unmarshal(bytes, &eventPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
+					return err
 				}
+
 				db := p.db.Table(entityFactory.Name()).Create(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
+					return db.Error
 				}
 			}
 		case "update":
@@ -165,12 +170,14 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				entity, err := entityFactory.NewEntity(ctx)
 				if err != nil {
 					p.logger.Errorf("error creating entity '%s'", err)
+					return err
 				}
 				eventPayload := entity.Property
 				mapPayload := map[string]interface{}{}
 				err = json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
+					return err
 				}
 
 				//set sequence number
@@ -180,6 +187,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				err = json.Unmarshal(bytes, &eventPayload)
 				if err != nil {
 					p.logger.Errorf("error unmarshalling event '%s'", err)
+					return err
 				}
 
 				reader := ds.NewReader(eventPayload)
@@ -192,6 +200,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 						err = p.db.Model(eventPayload).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
 							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
+							return err
 						}
 					}
 				}
@@ -200,6 +209,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				db := p.db.Table(entityFactory.Name()).Updates(eventPayload)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
+					return db.Error
 				}
 			}
 		case "delete":
@@ -207,13 +217,17 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				entity, err := entityFactory.NewEntity(ctx)
 				if err != nil {
 					p.logger.Errorf("error creating entity '%s'", err)
+					return err
 				}
+
 				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.Property)
 				if db.Error != nil {
 					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
+					return db.Error
 				}
 			}
 		}
+		return nil
 	}
 }
 
