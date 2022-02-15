@@ -278,6 +278,12 @@ func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIt
 	}
 }
 
+func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		return ctxt.JSON(http.StatusOK, api.Swagger)
+	}
+}
+
 func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
