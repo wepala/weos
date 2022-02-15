@@ -423,7 +423,6 @@ Feature: Create Content Types
       }
     """
   @WEOS-1116
-  @skipped
   Scenario: Setup a content type with an enumeration
 
     A property can be defined with a list of possible options. Null is added by default since in WeOS properties are nullable
@@ -436,7 +435,6 @@ Feature: Create Content Types
           properties:
             id:
               type: string
-              format: ksuid
             title:
               type: string
             description:
