@@ -669,39 +669,36 @@ func HealthCheck(api *RESTAPI, projection projections.Projection, commandDispatc
 
 //AuthorizationMiddleware handling JWT in incoming Authorization header
 func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	var openIdConnectUrl string
+	if openIdUrl, ok := api.Swagger.Components.SecuritySchemes["Auth0"].Value.ExtensionProps.Extensions[weoscontext.OPENIDCONNECTURL]; ok {
+		err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
+		if err != nil {
+			api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
+		}
+	} else {
+		api.EchoInstance().Logger.Errorf("no open id connect url found")
+	}
+
+	algs := []string{"RS256", "RS384", "RS512", "HS256"}
+	keySet := oidc.NewRemoteKeySet(context.Background(), "https://dev-bhjqt6zc.us.auth0.com/.well-known/jwks.json")
+	tokenVerifier := oidc.NewVerifier(openIdConnectUrl, keySet, &oidc.Config{
+		ClientID:             "Y9IvGucEhViFd58GL0bBoNrgEk3ohW88",
+		SupportedSigningAlgs: algs,
+		SkipClientIDCheck:    true,
+		SkipExpiryCheck:      false,
+		SkipIssuerCheck:      true,
+		Now:                  time.Now,
+	})
+
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
-			if operation.Security != nil && len(*operation.Security) == 0 {
-				return nil
-			}
 			newContext := ctxt.Request().Context()
 			token, ok := newContext.Value(weoscontext.AUTHORIZATION).(string)
 			if !ok || token == "" {
 				api.e.Logger.Debugf("no JWT token was found")
 				return NewControllerError("no JWT token was found", nil, http.StatusUnauthorized)
 			}
-			var openIdConnectUrl string
-			if openIdUrl, ok := api.Swagger.Components.SecuritySchemes["Auth0"].Value.ExtensionProps.Extensions[weoscontext.OPENIDCONNECTURL]; ok {
-				err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
-				if err != nil {
-					api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
-					return NewControllerError("unable to unmarshal open id connect url", err, http.StatusBadRequest)
-				}
-			} else {
-				api.EchoInstance().Logger.Errorf("no open id connect url found")
-				return NewControllerError("no open id connect url found", nil, http.StatusBadRequest)
-			}
 			jwtToken := strings.Replace(token, "Bearer ", "", -1)
-			algs := []string{"RS256", "RS384", "RS512", "HS256"}
-			keySet := oidc.NewRemoteKeySet(newContext, openIdConnectUrl)
-			tokenVerifier := oidc.NewVerifier(openIdConnectUrl, keySet, &oidc.Config{
-				ClientID:             "",
-				SupportedSigningAlgs: algs,
-				SkipClientIDCheck:    true,
-				SkipExpiryCheck:      false,
-				SkipIssuerCheck:      true,
-				Now:                  time.Now,
-			})
 			idToken, err := tokenVerifier.Verify(newContext, jwtToken)
 			if err != nil {
 				api.e.Logger.Debugf(err.Error())

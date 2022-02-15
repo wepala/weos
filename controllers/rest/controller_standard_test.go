@@ -1992,14 +1992,14 @@ func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
 		if err != nil {
 			t.Fatalf("error setting up request %s", err)
 		}
-		token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbGllbnRJRCI6ImtieXVGRGlkTExtMjgwTEl3VkZpYXpPcWpPM3R5OEtIIiwiY3JlYXRlZF9hdCI6IjIwMjItMDItMTVUMDE6MTk6MDguMTE2WiIsImVtYWlsIjoic2hhbmlhaC5zaW1vbkB3ZXBhbGEuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZhbWlseV9uYW1lIjoiU2ltb24iLCJnaXZlbl9uYW1lIjoiU2hhbmlhaCIsImlkZW50aXRpZXMiOlt7InByb3ZpZGVyIjoiZ29vZ2xlLW9hdXRoMiIsInVzZXJfaWQiOiIxMDEyNTMxMjc4NTMyMDMwMTQ4NDciLCJjb25uZWN0aW9uIjoiZ29vZ2xlLW9hdXRoMiIsImlzU29jaWFsIjp0cnVlfV0sImxvY2FsZSI6ImVuIiwibmFtZSI6IlNoYW5pYWggU2ltb24iLCJuaWNrbmFtZSI6InNoYW5pYWguc2ltb24iLCJwaWN0dXJlIjoiaHR0cHM6Ly9saDMuZ29vZ2xldXNlcmNvbnRlbnQuY29tL2EtL0FPaDE0R2pyOTcyTFgxWFMzSURCdUNVVnlVWW9tVXFOUGptZmVvV0Y1MUdRPXM5Ni1jIiwidXBkYXRlZF9hdCI6IjIwMjItMDItMTVUMTQ6Mjk6NTEuMTQwWiIsInVzZXJfaWQiOiJnb29nbGUtb2F1dGgyfDEwMTI1MzEyNzg1MzIwMzAxNDg0NyIsInVzZXJfbWV0YWRhdGEiOnt9LCJhcHBfbWV0YWRhdGEiOnt9LCJpc3MiOiJodHRwczovL3NhbXBsZXMuYXV0aDAuY29tLyIsInN1YiI6Imdvb2dsZS1vYXV0aDJ8MTAxMjUzMTI3ODUzMjAzMDE0ODQ3IiwiYXVkIjoia2J5dUZEaWRMTG0yODBMSXdWRmlhek9xak8zdHk4S0giLCJpYXQiOjE2NDQ5MzUzOTgsImV4cCI6MTY0NDk3MTM5OH0.3F913gEHid9kj9jJn9_6CVI0jkOiR_G9aKY43bPQ4j4"
+		token := os.Getenv("OAUTH_TEST_KEY")
 		body := bytes.NewReader(reqBytes)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 		e.ServeHTTP(resp, req)
-		if resp.Result().StatusCode != http.StatusCreated {
+		if resp.Result().StatusCode != http.StatusOK {
 			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
 	})

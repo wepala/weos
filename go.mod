@@ -10,7 +10,6 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/labstack/echo/v4 v4.5.0
 	github.com/labstack/gommon v0.3.0
-	github.com/lestrrat-go/jwx v1.2.18
 	github.com/lib/pq v1.10.2
 	github.com/mattn/go-sqlite3 v1.14.9
 	github.com/ompluscator/dynamic-struct v1.3.0
