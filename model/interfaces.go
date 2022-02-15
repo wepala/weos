@@ -74,7 +74,7 @@ type EventRepository interface {
 }
 
 type Datastore interface {
-	Migrate(ctx context.Context, builders map[string]ds.Builder) error
+	Migrate(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error
 }
 
 type Projection interface {

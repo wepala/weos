@@ -4,9 +4,10 @@ package model
 
 import (
 	"database/sql"
-	ds "github.com/ompluscator/dynamic-struct"
 	"net/http"
 	"time"
+
+	ds "github.com/ompluscator/dynamic-struct"
 
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
@@ -118,7 +119,7 @@ func (w *BaseService) DB() *gorm.DB {
 func (w *BaseService) Migrate(ctx context.Context, builders map[string]ds.Builder) error {
 	w.logger.Infof("preparing to migrate %d projections", len(w.projections))
 	for _, projection := range w.projections {
-		err := projection.Migrate(ctx, nil)
+		err := projection.Migrate(ctx, nil, nil)
 		if err != nil {
 			return err
 		}
