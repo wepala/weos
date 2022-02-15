@@ -3,6 +3,7 @@ module github.com/wepala/weos
 go 1.16
 
 require (
+	github.com/coreos/go-oidc/v3 v3.1.0
 	github.com/cucumber/godog v0.12.2
 	github.com/getkin/kin-openapi v0.15.0
 	github.com/jinzhu/inflection v1.0.0
