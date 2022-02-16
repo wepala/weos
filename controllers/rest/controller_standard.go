@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/rakyll/statik/fs"
 	"github.com/wepala/weos/projections"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -15,6 +17,7 @@ import (
 	"github.com/segmentio/ksuid"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
+	_ "github.com/wepala/weos/swaggerui"
 	"golang.org/x/net/context"
 )
 
@@ -287,7 +290,23 @@ func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispat
 		if responseType == "application/json" {
 			return ctxt.JSON(http.StatusOK, api.Swagger)
 		} else if responseType == "application/html" {
-			return ctxt.JSON(http.StatusOK, api.Swagger)
+			bytes, err := api.Swagger.MarshalJSON()
+			if err != nil {
+				return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
+			}
+			err = ioutil.WriteFile("swagger.json", bytes, 0644)
+			if err != nil {
+				return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
+			}
+
+			statikFS, err := fs.New()
+			if err != nil {
+				return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
+			}
+			static := http.FileServer(statikFS)
+			sh := http.StripPrefix("../swaggerui/", static)
+			eh := echo.WrapHandler(sh)
+			return eh(ctxt)
 		}
 
 		return NewControllerError("No response format chosen for a valid response", nil, http.StatusBadRequest)
