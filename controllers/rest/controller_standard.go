@@ -304,7 +304,7 @@ func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispat
 				return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
 			}
 			static := http.FileServer(statikFS)
-			sh := http.StripPrefix("../swaggerui/", static)
+			sh := http.StripPrefix("/swaggerui/", static)
 			eh := echo.WrapHandler(sh)
 			return eh(ctxt)
 		}
