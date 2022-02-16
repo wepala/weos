@@ -162,7 +162,6 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	resp = nil
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
-	db.Exec("PRAGMA foreign_keys = ON")
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
