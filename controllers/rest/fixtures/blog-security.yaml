@@ -31,7 +31,7 @@ components:
   securitySchemes:
     Auth0:
       type: openIdConnect
-      openIdConnectUrl: https://samples.auth0.com/.well-known/openid-configuration
+      openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
   schemas:
     Category:
       type: object

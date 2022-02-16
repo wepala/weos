@@ -1987,7 +1987,9 @@ func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
 	})
 	t.Run("jwt token added", func(t *testing.T) {
 		description := "testing 1st blog description"
-		mockBlog := &TestBlog{Description: &description}
+		url := "www.example.com"
+		title := "example"
+		mockBlog := &TestBlog{Title: &title, Url: &url, Description: &description}
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
 			t.Fatalf("error setting up request %s", err)
@@ -1999,7 +2001,7 @@ func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 		e.ServeHTTP(resp, req)
-		if resp.Result().StatusCode != http.StatusOK {
+		if resp.Result().StatusCode != http.StatusCreated {
 			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
 	})
