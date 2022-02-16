@@ -47,6 +47,7 @@ type RESTAPI struct {
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]projections.Projection
+	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
 	registeredInitializers         map[reflect.Value]int
 	prePathInitializers            []PathInitializer
@@ -118,6 +119,20 @@ func (p *RESTAPI) RegisterEventStore(name string, repository model.EventReposito
 		p.eventStores = make(map[string]model.EventRepository)
 	}
 	p.eventStores[name] = repository
+}
+
+//RegisterGlobalInitializer add global initializer if it's not already there
+func (p *RESTAPI) RegisterGlobalInitializer(initializer GlobalInitializer) {
+	if p.registeredInitializers == nil {
+		p.registeredInitializers = make(map[reflect.Value]int)
+	}
+	//only add initializer if it doesn't already exist
+	tpoint := reflect.ValueOf(initializer)
+	if _, ok := p.registeredInitializers[tpoint]; !ok {
+		p.globalInitializers = append(p.globalInitializers, initializer)
+		p.registeredInitializers[tpoint] = len(p.globalInitializers)
+	}
+
 }
 
 //RegisterOperationInitializer add operation initializer if it's not already there
@@ -244,6 +259,11 @@ func (p *RESTAPI) GetProjection(name string) (projections.Projection, error) {
 	return nil, fmt.Errorf("projection '%s' not found", name)
 }
 
+//GetGlobalInitializers get global intializers in the order they were registered
+func (p *RESTAPI) GetGlobalInitializers() []GlobalInitializer {
+	return p.globalInitializers
+}
+
 //GetOperationInitializers get operation intializers in the order they were registered
 func (p *RESTAPI) GetOperationInitializers() []OperationInitializer {
 	return p.operationInitializers
@@ -291,6 +311,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
 	p.RegisterMiddleware("DeleteMiddleware", DeleteMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
+	//register standard global initializers
+	p.RegisterGlobalInitializer(GlobalMiddlewareInitializer)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
@@ -417,12 +439,20 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup routes
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
 	var err error
+	globalContext := context.Background()
+	//run global initializers
+	for _, initializer := range p.GetGlobalInitializers() {
+		globalContext, err = initializer(globalContext, p, p.Swagger)
+		if err != nil {
+			return err
+		}
+	}
 	for path, pathData := range p.Swagger.Paths {
 		var methodsFound []string
-		pathContext := context.Background()
+
 		//run pre path initializers
 		for _, initializer := range p.GetPrePathInitializers() {
-			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 			if err != nil {
 				return err
 			}
@@ -443,9 +473,9 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		}
 
 		//run post path initializers
-		pathContext = context.WithValue(pathContext, weoscontext.METHODS_FOUND, methodsFound)
+		globalContext = context.WithValue(globalContext, weoscontext.METHODS_FOUND, methodsFound)
 		for _, initializer := range p.GetPostPathInitializers() {
-			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 		}
 		//output registered endpoints for debugging purposes
 		for _, route := range p.EchoInstance().Routes() {
