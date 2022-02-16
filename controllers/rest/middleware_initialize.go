@@ -85,7 +85,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 		}
 		//this field should not be added to the schema
 		if found {
-			break
+			continue
 		}
 
 		tagString := `json:"` + name + `"`

@@ -278,6 +278,22 @@ func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIt
 	}
 }
 
+func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		newContext := ctxt.Request().Context()
+
+		//get content type expected for 200 response
+		responseType := newContext.Value(weoscontext.RESPONSE_PREFIX + strconv.Itoa(http.StatusOK))
+		if responseType == "application/json" {
+			return ctxt.JSON(http.StatusOK, api.Swagger)
+		} else if responseType == "application/html" {
+			return ctxt.JSON(http.StatusOK, api.Swagger)
+		}
+
+		return NewControllerError("No response format chosen for a valid response", nil, http.StatusBadRequest)
+	}
+}
+
 func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {

@@ -1346,6 +1346,20 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 	return nil
 }
 
+func theApiAsJsonShouldBeShown() error {
+	contentEntity := map[string]interface{}{}
+	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
+
+	if err != nil {
+		return err
+	}
+	return godog.ErrPending
+}
+
+func theSwaggerUiShouldBeShown() error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	//add context steps
@@ -1421,6 +1435,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^the api as json should be shown$`, theApiAsJsonShouldBeShown)
+	ctx.Step(`^the swagger ui should be shown$`, theSwaggerUiShouldBeShown)
+
 }
 
 func TestBDD(t *testing.T) {
@@ -1430,9 +1447,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
-			//Tags: "focus1",
-			//Tags: "WEOS-1110 && ~skipped",
+			//Tags:   "~skipped && ~long",
+			Tags: "WEOS-1127",
 		},
 	}.Run()
 	if status != 0 {
