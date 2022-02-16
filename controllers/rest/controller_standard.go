@@ -286,6 +286,8 @@ func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispat
 		responseType := newContext.Value(weoscontext.RESPONSE_PREFIX + strconv.Itoa(http.StatusOK))
 		if responseType == "application/json" {
 			return ctxt.JSON(http.StatusOK, api.Swagger)
+		} else if responseType == "application/html" {
+			return ctxt.JSON(http.StatusOK, api.Swagger)
 		}
 
 		return NewControllerError("No response format chosen for a valid response", nil, http.StatusBadRequest)
