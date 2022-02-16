@@ -10,7 +10,8 @@ func SnakeCase(s string) string {
 	re := regexp.MustCompile(`[A-Z]+[^A-Z]*`)
 	split := re.FindAllString(s, -1)
 	for n, s := range split {
-		split[n] = strings.ToLower(s)
+		s = strings.ToLower(s)
+		split[n] = strings.TrimSuffix(s, "_")
 	}
 	return strings.Join(split, "_")
 }
