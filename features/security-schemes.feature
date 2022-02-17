@@ -1,3 +1,4 @@
+@WEOS-1343
 Feature: Use OpenAPI Security Scheme to protect endpoints
 
   OpenID provides (security schemes)[https://swagger.io/docs/specification/authentication] that you can use to protect
@@ -25,7 +26,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
         securitySchemes:
           Auth0:
             type: openIdConnect
-            openIdConnectUrl: https://samples.auth0.com/.well-known/openid-configuration
+            openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
         schemas:
           Blog:
              type: object
@@ -83,6 +84,11 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
         /blog:
           post:
             operationId: Add Blog
+            parameters:
+              - in: header
+                name: Authorization
+                schema:
+                  type: string
             requestBody:
               description: Blog info that is submitted
               required: true
@@ -105,6 +111,87 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
                       $ref: "#/components/schemas/Blog"
               400:
                 description: Invalid blog submitted
+          get:
+           operationId: Get Blogs
+           security: []
+           summary: Get List of Blogs
+           parameters:
+             - in: query
+               name: page
+               schema:
+                 type: integer
+             - in: query
+               name: limit
+               schema:
+                 type: integer
+             - in: query
+               name: _filters
+               schema:
+                 type: array
+                 items:
+                   type: object
+                   properties:
+                     field:
+                       type: string
+                     operator:
+                       type: string
+                     value:
+                       type: array
+                       items:
+                         type: string
+
+               required: false
+               description: query string
+           responses:
+             200:
+               description: List of blogs
+               content:
+                 application/json:
+                   schema:
+                     type: object
+                     properties:
+                       total:
+                         type: integer
+                       page:
+                         type: integer
+                       items:
+                         type: array
+                         items:
+                           $ref: "#/components/schemas/Blog"
+        /blogs/{id}:
+           get:
+             parameters:
+               - in: header
+                 name: Authorization
+                 schema:
+                   type: string
+               - in: path
+                 name: id
+                 schema:
+                   type: string
+                 required: true
+                 description: blog id
+               - in: query
+                 name: sequence_no
+                 schema:
+                   type: string
+               - in: query
+                 name: use_entity_id
+                 schema:
+                   type: boolean
+               - in: header
+                 name: If-None-Match
+                 schema:
+                   type: string
+             summary: Get Blog by id
+             operationId: Get Blog
+             responses:
+               200:
+                 description: Blog details without any supporting collections
+                 content:
+                   application/json:
+                     schema:
+                       $ref: "#/components/schemas/Blog"
         /post:
           post:
             operationId: Add Post
@@ -137,6 +224,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
                 description: Invalid Category submitted
      """
     And the service is running
+    And "Sojourner" authenticated and received a JWT
     And blogs in the api
       | id    | weos_id                     | sequence_no | title        | description    |
       | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |

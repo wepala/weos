@@ -1426,6 +1426,30 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 	return nil
 }
 
+func aWarningShouldBeShown() error {
+	return godog.ErrPending
+}
+
+func anErrorShouldBeReturned1(arg1 int) error {
+	return godog.ErrPending
+}
+
+func authenticatedAndReceivedAJWT(arg1 string) error {
+	return godog.ErrPending
+}
+
+func hasAValidUserAccount(arg1 string) error {
+	return godog.ErrPending
+}
+
+func sIdIs(arg1, arg2 string) error {
+	return godog.ErrPending
+}
+
+func theUserIdOnTheEntityEventsShouldBe(arg1 string) error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1504,6 +1528,12 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^a warning should be shown$`, aWarningShouldBeShown)
+	ctx.Step(`^an (\d+) error should be returned$`, anErrorShouldBeReturned1)
+	ctx.Step(`^"([^"]*)" authenticated and received a JWT$`, authenticatedAndReceivedAJWT)
+	ctx.Step(`^"([^"]*)" has a valid user account$`, hasAValidUserAccount)
+	ctx.Step(`^"([^"]*)"\'s id is "([^"]*)"$`, sIdIs)
+	ctx.Step(`^the user id on the entity events should be "([^"]*)"$`, theUserIdOnTheEntityEventsShouldBe)
 }
 
 func TestBDD(t *testing.T) {
@@ -1513,8 +1543,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1343",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
