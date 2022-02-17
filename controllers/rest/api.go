@@ -463,7 +463,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			operationData := pathData.GetOperation(strings.ToUpper(method))
 			if operationData != nil {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
-				operationContext := context.WithValue(context.Background(), weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
+				operationContext := context.WithValue(globalContext, weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
 				for _, initializer := range p.GetOperationInitializers() {
 					operationContext, err = initializer(operationContext, p, path, method, p.Swagger, pathData, operationData)
 					if err != nil {
