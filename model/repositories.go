@@ -314,7 +314,7 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 	var events []GormEvent
 
 	if date.IsZero() {
-		result := e.DB.Table("gorm_events").Find(&events)
+		result := e.DB.Table("gorm_events").Order("created_at asc").Find(&events)
 		if result.Error != nil {
 			e.logger.Errorf("got error pulling events '%s'", result.Error)
 			errors = append(errors, result.Error)

@@ -70,11 +70,13 @@ components:
           type: string
         description:
           type: string
+        active:
+          type: boolean
         status:
           type: string
           nullable: true
           enum:
-            - null
+            - "null"
             - unpublished
             - published
         image:
@@ -252,7 +254,6 @@ paths:
           description: blog id
         - in: query
           name: sequence_no
-          required: false
           schema:
             type: integer
         - in: query
