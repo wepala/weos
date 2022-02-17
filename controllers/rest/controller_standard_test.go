@@ -115,7 +115,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		Property: mockPayload,
 	}
 
-	projections := &ProjectionMock{
+	projections := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			if ctx == nil {
 				t.Errorf("expected to find context but got nil")
@@ -281,7 +281,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		},
 	}
 
-	projection := &ProjectionMock{
+	projection := &GormProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
@@ -457,7 +457,7 @@ func TestStandardControllers_Update(t *testing.T) {
 	mockEntity.SequenceNo = int64(1)
 	mockEntity.Property = mockBlog
 
-	projection := &ProjectionMock{
+	projection := &GormProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
@@ -575,7 +575,7 @@ func TestStandardControllers_View(t *testing.T) {
 	}}
 
 	t.Run("Testing the generic view endpoint", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -628,7 +628,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("Testing view with entity id", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				if entityFactory == nil {
 					t.Errorf("expected to find entity factory got nil")
@@ -696,7 +696,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("invalid entity id should return 404", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -771,7 +771,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("invalid numeric entity id should return 404", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -846,7 +846,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("view with sequence no", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -926,7 +926,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("view with invalid sequence no", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -1019,7 +1019,7 @@ func TestStandardControllers_List(t *testing.T) {
 	array := []map[string]interface{}{}
 	array = append(array, mockBlog, mockBlog1)
 
-	mockProjection := &ProjectionMock{
+	mockProjection := &GormProjectionMock{
 		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 			return array, 2, nil
 		},
@@ -1133,7 +1133,7 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 	array := []map[string]interface{}{}
 	array = append(array, mockBlog, mockBlog1)
 
-	mockProjection := &ProjectionMock{
+	mockProjection := &GormProjectionMock{
 		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 			if entityFactory == nil {
 				t.Errorf("no entity factory found")
@@ -1382,7 +1382,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		Property: mockPayload,
 	}
 
-	projections := &ProjectionMock{
+	projections := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockContentEntity, nil
 		},
@@ -1540,7 +1540,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		Property: mockPayload,
 	}
 
-	projections := &ProjectionMock{
+	projections := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockContentEntity, nil
 		},
@@ -1690,7 +1690,7 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 	mockEntity.SequenceNo = int64(1)
 	mockEntity.Property = mockBlog
 
-	projection := &ProjectionMock{
+	projection := &GormProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
@@ -1799,7 +1799,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		},
 	}
 
-	projection := &ProjectionMock{
+	projection := &GormProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return mockInterface, nil
 		},
@@ -1852,7 +1852,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 			},
 		}
 
-		projection1 := &ProjectionMock{
+		projection1 := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return mockInterface1, nil
 			},
@@ -1907,7 +1907,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 		err1 := fmt.Errorf("this is an error")
 
-		projection1 := &ProjectionMock{
+		projection1 := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return nil, err1
 			},
@@ -1945,6 +1945,64 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 		if response.StatusCode != 500 {
 			t.Errorf("expected response code to be %d, got %d", 404, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
+	//instantiate api
+	api, err := rest.New("./fixtures/blog-security.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading api '%s'", err)
+	}
+	err = api.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error initializing api '%s'", err)
+	}
+	e := api.EchoInstance()
+
+	t.Run("no jwt token added when required", func(t *testing.T) {
+		description := "testing 1st blog description"
+		mockBlog := &TestBlog{Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusUnauthorized, resp.Result().StatusCode)
+		}
+	})
+	t.Run("security parameter array is empty", func(t *testing.T) {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusOK {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+		}
+	})
+	t.Run("jwt token added", func(t *testing.T) {
+		description := "testing 1st blog description"
+		url := "www.example.com"
+		title := "example"
+		mockBlog := &TestBlog{Title: &title, Url: &url, Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		token := os.Getenv("OAUTH_TEST_KEY")
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
 	})
 }

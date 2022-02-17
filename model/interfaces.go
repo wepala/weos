@@ -1,11 +1,11 @@
 package model
 
-//go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
+//go:generate moq -out temp_mocks_test.go -pkg model_test . GormProjection
 import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
-	"time"
 	"gorm.io/gorm"
+	"time"
 )
 
 type CommandDispatcher interface {

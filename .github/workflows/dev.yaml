@@ -13,6 +13,7 @@ env:
   SLACK_ICON: https://github.com/wepala.png?size=48
   SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
   SLACK_FOOTER: copyright 2022 Wepala
+  OAUTH_TEST_KEY: ${{ secrets.OAUTH_TEST_KEY }}
 
 jobs:
   build-api:
