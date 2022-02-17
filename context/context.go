@@ -31,7 +31,6 @@ const SORTS ContextKey = "_sorts"
 const PAYLOAD ContextKey = "_payload"
 const SEQUENCE_NO string = "sequence_no"
 const AUTHORIZATION string = "Authorization"
-const OPEN_ID_CONNECT_URL string = "openIdConnectUrl"
 const USER_ID_EXTENSION ContextKey = "X-USER-ID"
 
 //Path initializers are run per path and can be used to configure routes that are not defined in the open api spec

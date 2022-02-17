@@ -679,28 +679,43 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 	}
 	for _, schemes := range api.Swagger.Components.SecuritySchemes {
 		//get the open id connect url
-		if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[weoscontext.OPEN_ID_CONNECT_URL]; ok {
+		if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OPENIDCONNECTURLEXTENSION]; ok {
 			err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
 			if err != nil {
 				api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
 			} else {
-				//get the Jwk url
-				jwksUrl, err := GetJwkUrl(openIdConnectUrl)
-				if err != nil {
-					api.EchoInstance().Logger.Errorf("unexpected error getting the jwks url: %s", err)
+				//check if it is a valid open id connect url
+				if !strings.Contains(openIdConnectUrl, ".well-known/openid-configuration") {
+					api.EchoInstance().Logger.Warnf("invalid open id connect url: %s", openIdConnectUrl)
 				} else {
-					//create key set and verifier
-					keySet := oidc.NewRemoteKeySet(context.Background(), jwksUrl)
-					tokenVerifier := oidc.NewVerifier(openIdConnectUrl, keySet, &oidc.Config{
-						ClientID:             "",
-						SupportedSigningAlgs: algs,
-						SkipClientIDCheck:    true,
-						SkipExpiryCheck:      false,
-						SkipIssuerCheck:      true,
-						Now:                  time.Now,
-					})
-					verifiers = append(verifiers, tokenVerifier)
+					//get the Jwk url from open id connect url
+					jwksUrl, err := GetJwkUrl(openIdConnectUrl)
+					if err != nil {
+						api.EchoInstance().Logger.Errorf("unexpected error getting the jwks url: %s", err)
+					} else {
+						//by default skipExpiryCheck is false meaning it will not run an expiry check
+						skipExpiryCheck := false
+						//get skipexpirycheck that is an extension in the openapi spec
+						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SKIPEXPIRYCHECKEXTENSION]; ok {
+							err := json.Unmarshal(expireCheck.(json.RawMessage), &skipExpiryCheck)
+							if err != nil {
+								api.EchoInstance().Logger.Errorf("unable to unmarshal skip expiry '%s'", err)
+							}
+						}
+						//create key set and verifier
+						keySet := oidc.NewRemoteKeySet(context.Background(), jwksUrl)
+						tokenVerifier := oidc.NewVerifier(openIdConnectUrl, keySet, &oidc.Config{
+							ClientID:             "",
+							SupportedSigningAlgs: algs,
+							SkipClientIDCheck:    true,
+							SkipExpiryCheck:      skipExpiryCheck,
+							SkipIssuerCheck:      true,
+							Now:                  time.Now,
+						})
+						verifiers = append(verifiers, tokenVerifier)
+					}
 				}
+
 			}
 		}
 
@@ -713,13 +728,13 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 				return next(ctxt)
 			}
 			if len(verifiers) == 0 {
-				api.e.Logger.Debugf("unexpected error no verifiers were set")
+				api.e.Logger.Errorf("unexpected error no verifiers were set")
 				return NewControllerError("unexpected error no verifiers were set", nil, http.StatusBadRequest)
 			}
 			newContext := ctxt.Request().Context()
 			token, ok := newContext.Value(weoscontext.AUTHORIZATION).(string)
 			if !ok || token == "" {
-				api.e.Logger.Debugf("no JWT token was found")
+				api.e.Logger.Errorf("no JWT token was found")
 				return NewControllerError("no JWT token was found", nil, http.StatusUnauthorized)
 			}
 			jwtToken := strings.Replace(token, "Bearer ", "", -1)
@@ -727,7 +742,7 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 			for _, tokenVerifier := range verifiers {
 				idToken, err = tokenVerifier.Verify(newContext, jwtToken)
 				if err != nil || idToken == nil {
-					api.e.Logger.Debugf(err.Error())
+					api.e.Logger.Errorf(err.Error())
 					return NewControllerError("unexpected error verifying token", err, http.StatusUnauthorized)
 				}
 			}
