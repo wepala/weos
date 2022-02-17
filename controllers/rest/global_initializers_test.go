@@ -29,7 +29,7 @@ func TestGlobalMiddlewareInitializer(t *testing.T) {
 		}
 	})
 	t.Run("auth middleware was added to context", func(t *testing.T) {
-		ctxt, err := rest.GlobalMiddlewareInitializer(baseCtxt, api, api.Swagger)
+		ctxt, err := rest.Security(baseCtxt, api, api.Swagger)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
