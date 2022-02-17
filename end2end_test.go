@@ -18,16 +18,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
-
 	"github.com/cucumber/godog"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"github.com/wepala/weos/utils"
 	"gorm.io/gorm"
 )
@@ -44,6 +43,8 @@ var rec *httptest.ResponseRecorder
 var header http.Header
 var resp *http.Response
 var db *sql.DB
+var gormDB *gorm.DB
+var dbconfig dbConfig
 var requests map[string]map[string]interface{}
 var responseBody map[string]interface{}
 var currScreen string
@@ -103,7 +104,6 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
-	os.Remove("e2e.db")
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -119,8 +119,12 @@ x-weos-config:
     report-caller: true
     formatter: json
   database:
-    driver: sqlite3
-    database: e2e.db
+    database: "%s"
+    driver: "%s"
+    host: "%s"
+    password: "%s"
+    username: "%s"
+    port: %d
   event-source:
     - title: default
       driver: service
@@ -140,18 +144,7 @@ x-weos-config:
 components:
   schemas:
 `
-
-	tapi, err := api.New("e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
-	API = *tapi
-	e = API.EchoInstance()
-	e.Logger.SetOutput(&buf)
-	err = tapi.Initialize(context.TODO())
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
@@ -168,14 +161,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	rec = httptest.NewRecorder()
 	resp = nil
 	blogfixtures = []interface{}{}
-	os.Remove("e2e.db")
-	var err error
-	db, err = sql.Open("sqlite3", "e2e.db")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
 	total, success, failed = 0, 0, 0
-	db.Exec("PRAGMA foreign_keys = ON")
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
@@ -192,8 +178,12 @@ x-weos-config:
     report-caller: true
     formatter: json
   database:
-    driver: sqlite3
-    database: e2e.db
+    database: "%s"
+    driver: "%s"
+    host: "%s"
+    password: "%s"
+    username: "%s"
+    port: %d
   event-source:
     - title: default
       driver: service
@@ -214,6 +204,27 @@ components:
   schemas:
 `
 	return ctx, nil
+}
+
+func dropDB() error {
+
+	var errr error
+	if *driver == "sqlite3" {
+		os.Remove("e2e.db")
+		db, errr = sql.Open("sqlite3", "e2e.db")
+	} else if *driver == "postgres" {
+		r := gormDB.Exec(`DROP SCHEMA public CASCADE;
+		CREATE SCHEMA public;`)
+		errr = r.Error
+	} else if *driver == "mysql" {
+		_, r := db.Exec(`drop DATABASE IF EXISTS mysql;`)
+		if r != nil {
+			return r
+		}
+		_, r = db.Exec(`create DATABASE IF NOT EXISTS mysql;`)
+		errr = r
+	}
+	return errr
 }
 
 func aContentTypeModeledInTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
@@ -272,11 +283,41 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			case "Type":
 
 				if cell.Value == "varchar(512)" {
-					cell.Value = "text"
-					payload[column.Name()] = "hugs"
+					if *driver == "sqlite3" {
+						cell.Value = "text"
+					} else {
+						cell.Value = "varchar"
+					}
+				}
+
+				if cell.Value == "integer" {
+					if *driver == "postgres" {
+						cell.Value = "int8"
+					}
+					if *driver == "mysql" {
+						cell.Value = "bigint"
+					}
+				}
+
+				if cell.Value == "datetime" {
+					if *driver == "postgres" {
+						cell.Value = "timestamptz"
+					}
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
-					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+					if cell.Value == "varchar" && *driver == "postgres" {
+						//string values for postgres can be both text and varchar
+						if !strings.EqualFold(column.DatabaseTypeName(), "text") {
+							return fmt.Errorf("expected to get type '%s' got '%s'", "text", column.DatabaseTypeName())
+						}
+					} else if cell.Value == "varchar" && *driver == "mysql" {
+						//string values for postgres can be both text and varchar
+						if !strings.EqualFold(column.DatabaseTypeName(), "longtext") {
+							return fmt.Errorf("expected to get type '%s' got '%s'", "longtext", column.DatabaseTypeName())
+						}
+					} else {
+						return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+					}
 				}
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
@@ -426,12 +467,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		apiProjection, err := API.GetProjection("Default")
-		if err != nil {
-			return fmt.Errorf("unexpected error getting projection: %s", err)
-		}
-		apiProjection1 := apiProjection.(*projections.GORMDB)
-		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		result = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -495,16 +531,27 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	os.Remove("e2e.db")
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	if err != nil {
 		return err
 	}
+	tapi.DB = db
 	API = *tapi
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
 	err = API.Initialize(scenarioContext)
+	if err != nil {
+		return err
+	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMDB)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -656,14 +703,25 @@ func theEndpointIsHit(method, contentType string) error {
 }
 
 func theServiceIsRunning() error {
-	os.Remove("e2e.db")
 	buf = bytes.Buffer{}
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
 	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
+	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMDB)
+		if p != nil {
+			gormDB = p.DB()
+		}
 	}
 	e = API.EchoInstance()
 
@@ -1287,11 +1345,33 @@ func sojournerDeletesTheTable(tableName string) error {
 		return fmt.Errorf("unexpected error getting projection: %s", err)
 	}
 	apiProjection1 := apiProjection.(*projections.GORMDB)
+	if *driver == "mysql" {
+		tables := []string{}
+		r := apiProjection1.DB().Debug().Raw(fmt.Sprintf("SELECT TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE REFERENCED_TABLE_NAME = '%s';", strings.Title(tableName))).Scan(&tables)
+		if r.Error != nil {
+			return r.Error
+		}
+		schema := API.Schemas
+		for _, t := range tables {
+			s := schema[t]
+			f := s.GetField("Table")
+			f.SetTag(`json:"table_alias" gorm:"default:` + t + `"`)
+			instance := s.Build().New()
+			json.Unmarshal([]byte(`{
+				"table_alias": "`+t+`"
+			}`), &instance)
+			r := apiProjection1.DB().Debug().Migrator().DropConstraint(instance, tableName)
+			if r != nil {
+				return r
+			}
 
+		}
+	}
 	result := apiProjection1.DB().Migrator().DropTable(strings.Title(tableName))
 	if result != nil {
 		return fmt.Errorf("error dropping table: %s got err: %s", tableName, result)
 	}
+
 	return nil
 }
 
@@ -1348,6 +1428,9 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
+	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+		return ctx, dropDB()
+	})
 	//add context steps
 	ctx.Step(`^a content type "([^"]*)" modeled in the "([^"]*)" specification$`, aContentTypeModeledInTheSpecification)
 	ctx.Step(`^a developer "([^"]*)"$`, aDeveloper)
@@ -1430,8 +1513,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~skipped && ~long",
-			Tags: "WEOS-1116",
+			Tags:   "~long && ~skipped",
+			//Tags: "focus1",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
