@@ -304,6 +304,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("CreateBatchController", CreateBatchController)
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
+	p.RegisterMiddleware("AuthorizationMiddleware", AuthorizationMiddleware)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)

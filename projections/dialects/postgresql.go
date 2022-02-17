@@ -3,12 +3,13 @@ package dialects
 import (
 	"database/sql"
 	"fmt"
+	"strings"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/migrator"
 	"gorm.io/gorm/schema"
-	"strings"
 )
 
 type Postgres struct {
@@ -26,8 +27,9 @@ func (dialector Postgres) Migrator(db *gorm.DB) gorm.Migrator {
 		Migrator{
 			Migrator: migrator.Migrator{
 				Config: migrator.Config{
-					DB:        db,
-					Dialector: dialector,
+					DB:                          db,
+					Dialector:                   dialector,
+					CreateIndexAfterCreateTable: true,
 				},
 			},
 		},
