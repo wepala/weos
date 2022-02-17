@@ -201,19 +201,19 @@ paths:
             type: integer
         - in: query
           name: _filters
+          style: deepObject
+          explode: true
           schema:
-            type: array
-            items:
-              type: object
-              properties:
-                field:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              values:
+                type: array
+                items:
                   type: string
-                operator:
-                  type: string
-                values:
-                  type: array
-                  items:
-                    type: string
 
           required: false
           description: query string

@@ -170,7 +170,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 		}
 	}
 
-	if primaryKeys[0] == "id" && !instance.HasField("Id") {
+	if len(primaryKeys) == 1 && primaryKeys[0] == "id" && !instance.HasField("Id") {
 		instance.AddField("Id", uint(0), `json:"id" gorm:"primaryKey;size:512"`)
 	}
 
@@ -183,14 +183,11 @@ func addRelations(struc ds.Builder, relations map[string]string, structs map[str
 		if strings.Contains(relation, "[]") {
 			//many to many relationship
 			relationName := strings.Trim(relation, "[]")
-
-			relationKeys := keys[relationName]
-			tableKeys := keys[tableName]
 			inst := structs[relationName]
 			f := inst.GetField("Table")
 			f.SetTag(`json:"table_alias" gorm:"default:` + relationName + `"`)
 			instances := inst.Build().NewSliceOfStructs()
-			struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`" gorm:"many2many:`+utils.SnakeCase(tableName)+"_"+utils.SnakeCase(name)+`;foreignKey:`+strings.Join(tableKeys, ",")+`;References:`+strings.Join(relationKeys, ",")+`"`)
+			struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`" gorm:"many2many:`+utils.SnakeCase(tableName)+"_"+utils.SnakeCase(name)+`;"`)
 		} else {
 			inst := structs[relation]
 			f := inst.GetField("Table")

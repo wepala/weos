@@ -17,8 +17,8 @@ Feature: Run API
        description: REST API for interacting with the Blog Aggregator
      x-weos-config:
        database:
-         driver: sqlite3
-         database: e2e.db
+          driver: sqlite3
+          database: e2e.db
        rest:
          middleware:
            - RequestID
