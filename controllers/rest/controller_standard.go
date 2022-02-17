@@ -15,6 +15,7 @@ import (
 	"github.com/segmentio/ksuid"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
+	_ "github.com/wepala/weos/swaggerui"
 	"golang.org/x/net/context"
 )
 
@@ -285,9 +286,9 @@ func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispat
 		//get content type expected for 200 response
 		responseType := newContext.Value(weoscontext.RESPONSE_PREFIX + strconv.Itoa(http.StatusOK))
 		if responseType == "application/json" {
-			return ctxt.JSON(http.StatusOK, api.Swagger)
+			return ctxt.Redirect(http.StatusPermanentRedirect, SWAGGERJSONENDPOINT)
 		} else if responseType == "application/html" {
-			return ctxt.JSON(http.StatusOK, api.Swagger)
+			return ctxt.Redirect(http.StatusPermanentRedirect, SWAGGERUIENDPOINT)
 		}
 
 		return NewControllerError("No response format chosen for a valid response", nil, http.StatusBadRequest)
