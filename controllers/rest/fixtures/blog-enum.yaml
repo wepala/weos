@@ -71,9 +71,7 @@ components:
           type: string
         status:
           type: string
-          nullable: true
           enum:
-            - "null"
             - unpublished
             - published
         image:

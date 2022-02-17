@@ -151,13 +151,8 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 					if p.Value.Format == "date-time" {
 						defaultValue = time.Now()
 					} else if p.Value.Enum != nil {
-						//TODO Concatenate the options in one string which can then be split and checked in the model layer against enum options in schema
-						var optionArr []*string
-						for _, v := range p.Value.Enum {
-							pointerStr := v.(string)
-							optionArr = append(optionArr, &pointerStr)
-						}
-						defaultValue = optionArr
+						var options *string
+						defaultValue = options
 					} else {
 						var strings *string
 						defaultValue = strings

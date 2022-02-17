@@ -32,7 +32,93 @@ func (w *ContentEntity) IsValid() bool {
 			return false
 		}
 	}
+
+	EnumValid := w.IsEnumValid()
+
+	if EnumValid == false {
+		return false
+	}
 	return true
+}
+
+//IsEnumValid this loops over the properties of an entity, if the enum is not nil, it will validate if the option the user set is valid
+//If nullable == true, this means "null" can be used as an option in the enumeration
+//If statements are structured around this ^ and covers different cases.
+func (w *ContentEntity) IsEnumValid() bool {
+	for k, property := range w.Schema.Properties {
+		nullFound := false
+		enumFound := false
+		enumOptions := EnumString(property.Value.Enum)
+
+		if property.Value.Enum != nil {
+			enumProperty := w.GetString(k)
+
+			//This checks if a "null" option was provided which is needed if nullable == true
+			for _, v := range property.Value.Enum {
+				if v == "null" {
+					nullFound = true
+					break
+				}
+			}
+			//If nullable == true and null is found in the options
+			if property.Value.Nullable && nullFound == true {
+				for _, v := range property.Value.Enum {
+					if enumProperty == v {
+						enumFound = true
+						break
+					}
+				}
+
+				//Assuming if the nullable is true, the user can pass nothing in or the keyword "null"
+				if enumProperty == "" {
+					enumFound = true
+				}
+
+				if enumFound == false {
+					message := "invalid enumeration option provided. available options are: " + enumOptions
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+				}
+
+			} else if property.Value.Nullable == false {
+				if enumProperty == "null" || enumProperty == "" || nullFound == true {
+					message := "nullable is set to false, cannot use null as an option. available options are: " + enumOptions
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+				}
+
+				for _, v := range property.Value.Enum {
+					if enumProperty == v {
+						enumFound = true
+						break
+					}
+				}
+				if enumFound == false {
+					message := "invalid enumeration option provided. available options are: " + enumOptions
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+//EnumString takes the interface of enum options, ranges over them and concatenates it into one string
+//If the enum interface is empty, it will return a blank string
+func EnumString(enum []interface{}) string {
+	enumOptions := ""
+	if len(enum) > 0 {
+		for k, v := range enum {
+			if k < len(enum)-1 {
+				enumOptions = enumOptions + v.(string) + ", "
+			} else if k == len(enum)-1 {
+				enumOptions = enumOptions + v.(string)
+			}
+		}
+		return enumOptions
+	}
+	return ""
 }
 
 //IsNull checks if the value of the property is null
