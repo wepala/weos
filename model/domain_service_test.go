@@ -193,7 +193,7 @@ func TestDomainService_Update(t *testing.T) {
 	}
 	existingBlog.SequenceNo = int64(1)
 
-	projectionMock := &ProjectionMock{
+	projectionMock := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			if entityFactory == nil {
 				return nil, fmt.Errorf("expected entity factory got nil")
@@ -342,7 +342,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 	dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
-	projectionMock := &ProjectionMock{
+	projectionMock := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
@@ -444,7 +444,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 	dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
-	projectionMock := &ProjectionMock{
+	projectionMock := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
@@ -553,7 +553,7 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 	dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
-	projectionMock := &ProjectionMock{
+	projectionMock := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
@@ -631,7 +631,7 @@ func TestDomainService_Delete(t *testing.T) {
 	dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
 	existingBlog, _ := dService.Create(newContext, reqBytes, entityType)
 
-	projectionMock := &ProjectionMock{
+	projectionMock := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},

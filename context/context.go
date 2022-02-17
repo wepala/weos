@@ -30,6 +30,8 @@ const FILTERS ContextKey = "_filters"
 const SORTS ContextKey = "_sorts"
 const PAYLOAD ContextKey = "_payload"
 const SEQUENCE_NO string = "sequence_no"
+const AUTHORIZATION string = "Authorization"
+const USER_ID_EXTENSION ContextKey = "X-USER-ID"
 
 //Path initializers are run per path and can be used to configure routes that are not defined in the open api spec
 const METHODS_FOUND ContextKey = "_methods_found"
