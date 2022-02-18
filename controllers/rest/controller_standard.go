@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/wepala/weos/projections"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/wepala/weos/projections"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -31,35 +31,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
-			var payload []byte
-			var err error
-
-			ct := ctxt.Request().Header.Get("Content-Type")
-
-			switch ct {
-			case "application/json":
-				payload, err = ioutil.ReadAll(ctxt.Request().Body)
-				if err != nil {
-					return err
-				}
-			case "application/x-www-form-urlencoded":
-				payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
-				if err != nil {
-					return err
-				}
-			default:
-				if strings.Contains(ct, "multipart/form-data") {
-					payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
-					if err != nil {
-						return err
-					}
-				} else if ct == "" {
-					return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
-				} else {
-					return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
-				}
-			}
-
+			payload := weoscontext.GetPayload(newContext)
 			//for inserting weos_id during testing
 			payMap := map[string]interface{}{}
 			var weosID string
@@ -74,7 +46,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				weosID = ksuid.New().String()
 			}
 
-			err = commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -128,8 +100,7 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
-			//reads the request body
-			payload, _ := ioutil.ReadAll(ctxt.Request().Body)
+			payload := weoscontext.GetPayload(newContext)
 
 			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), nil, nil, api.EchoInstance().Logger)
 			if err != nil {
@@ -166,34 +137,10 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			}
 			var weosID string
 			var sequenceNo string
-			var payload []byte
+
 			var err error
 
-			ct := ctxt.Request().Header.Get("Content-Type")
-
-			switch ct {
-			case "application/json":
-				payload, err = ioutil.ReadAll(ctxt.Request().Body)
-				if err != nil {
-					return err
-				}
-			case "application/x-www-form-urlencoded":
-				payload, err = ConvertFormToJson(ctxt.Request(), "application/x-www-form-urlencoded")
-				if err != nil {
-					return err
-				}
-			default:
-				if strings.Contains(ct, "multipart/form-data") {
-					payload, err = ConvertFormToJson(ctxt.Request(), "multipart/form-data")
-					if err != nil {
-						return err
-					}
-				} else if ct == "" {
-					return NewControllerError("expected a content-type to be explicitly defined", err, http.StatusBadRequest)
-				} else {
-					return NewControllerError("the content-type provided is not supported", err, http.StatusBadRequest)
-				}
-			}
+			payload := weoscontext.GetPayload(newContext)
 			//getting etag from context
 			etagInterface := newContext.Value("If-Match")
 			if etagInterface != nil {
@@ -369,6 +316,11 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				if seq, ok = newContext.Value("sequence_no").(string); ok {
 					ctxt.Logger().Debugf("invalid sequence no")
 				}
+			} else {
+				//if we sucessfully pulled a sequence number and it is zero, the entity does not exist
+				if seqInt == 0 {
+					return NewControllerError("Entity does not exist", nil, http.StatusNotFound)
+				}
 			}
 
 			//if use_entity_id is not set then let's get the item by key
@@ -382,6 +334,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				entityID, seq = SplitEtag(etag)
 				seqInt, err = strconv.Atoi(seq)
 			}
+
 			//if a sequence no. was sent BUT it could not be converted to an integer then return an error
 			if seq != "" && seqInt == 0 {
 				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
@@ -498,15 +451,37 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
+			var filterOptions map[string]interface{}
 			newContext := ctxt.Request().Context()
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
 				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
-				return err
+				return NewControllerError(err.Error(), nil, http.StatusBadRequest)
 			}
-			//gets the limit and page from context
+			//gets the filter, limit and page from context
 			limit, _ := newContext.Value("limit").(int)
 			page, _ := newContext.Value("page").(int)
+			filters := newContext.Value("_filters")
+			schema := entityFactory.Schema()
+			if filters != nil {
+				filterOptions = map[string]interface{}{}
+				filterOptions = filters.(map[string]interface{})
+				for key, values := range filterOptions {
+					if len(values.(*FilterProperties).Values) != 0 && values.(*FilterProperties).Operator != "in" {
+						msg := "this operator " + values.(*FilterProperties).Operator + " does not support multiple values "
+						return NewControllerError(msg, nil, http.StatusBadRequest)
+					}
+					// checking if the field is valid based on schema provided
+					if schema.Properties[key] == nil {
+						if key == "id" && schema.ExtensionProps.Extensions[IdentifierExtension] == nil {
+							continue
+						}
+						msg := "invalid property found in filter: " + key
+						return NewControllerError(msg, nil, http.StatusBadRequest)
+					}
+
+				}
+			}
 			if page == 0 {
 				page = 1
 			}
@@ -517,7 +492,7 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			sorts := map[string]string{"id": "asc"}
 
 			if projection != nil {
-				contentEntities, count, err = projection.GetContentEntities(newContext, entityFactory, page, limit, "", sorts, nil)
+				contentEntities, count, err = projection.GetContentEntities(newContext, entityFactory, page, limit, "", sorts, filterOptions)
 			}
 
 			if err != nil {
@@ -549,10 +524,127 @@ func ListController(api *RESTAPI, projection projections.Projection, commandDisp
 	}
 }
 
-func Delete(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
-	return func(context echo.Context) error {
+//DeleteMiddleware delete entity
+func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			//look up the schema for the content type so that we could identify the rules
+			newContext := ctxt.Request().Context()
+			var weosID string
+			var sequenceNo string
 
-		return nil
+			if entityFactory != nil {
+				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
+			} else {
+				err := errors.New("entity factory must be set")
+				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				return err
+			}
+			//getting etag from context
+			etagInterface := newContext.Value("If-Match")
+			if etagInterface != nil {
+				if etag, ok := etagInterface.(string); ok {
+					if etag != "" {
+						weosID, sequenceNo = SplitEtag(etag)
+						seq, err := strconv.Atoi(sequenceNo)
+						if err != nil {
+							return NewControllerError("unexpected error deleting content type.  invalid sequence number", err, http.StatusBadRequest)
+						}
+						newContext = context.WithValue(newContext, weoscontext.WEOS_ID, weosID)
+						newContext = context.WithValue(newContext, weoscontext.SEQUENCE_NO, seq)
+					}
+				}
+			}
+
+			var err error
+			var identifiers []string
+			var result1 map[string]interface{}
+			var ok bool
+
+			//Uses the identifiers to pull the weosID, to be later used to get Seq NO
+			if etagInterface == nil {
+				//find entity based on identifiers specified
+				pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
+				json.Unmarshal(pks, &identifiers)
+
+				if len(identifiers) == 0 {
+					identifiers = append(identifiers, "id")
+				}
+
+				primaryKeys := map[string]interface{}{}
+				for _, p := range identifiers {
+
+					ctxtIdentifier := newContext.Value(p)
+
+					primaryKeys[p] = ctxtIdentifier
+
+				}
+
+				if projection != nil {
+					result1, err = projection.GetByKey(newContext, entityFactory, primaryKeys)
+					if err != nil {
+						return err
+					}
+
+				}
+				weosID, ok = result1["weos_id"].(string)
+
+				if (len(result1) == 0) || !ok || weosID == "" {
+					return NewControllerError("No entity found", err, http.StatusNotFound)
+				} else if err != nil {
+					return NewControllerError(err.Error(), err, http.StatusBadRequest)
+				}
+			}
+
+			//Dispatch the actual delete to projecitons
+			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			if err != nil {
+				if errr, ok := err.(*model.DomainError); ok {
+					if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
+						return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
+					}
+					if strings.Contains(errr.Error(), "invalid:") {
+						return NewControllerError(errr.Error(), err, http.StatusUnprocessableEntity)
+					}
+					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
+				} else {
+					return NewControllerError("unexpected error deleting content type", err, http.StatusBadRequest)
+				}
+			}
+			//Add response to context for controller
+			newContext = context.WithValue(newContext, weoscontext.WEOS_ID, weosID)
+			request := ctxt.Request().WithContext(newContext)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+		}
+	}
+}
+
+//DeleteController handle delete
+func DeleteController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		newContext := ctxt.Request().Context()
+		if weosIDRaw := newContext.Value(weoscontext.WEOS_ID); weosIDRaw != nil {
+			if weosID, ok := weosIDRaw.(string); ok {
+				deleteEventSeq, err := eventSource.GetAggregateSequenceNumber(weosID)
+				if err != nil {
+					return NewControllerError("No delete event found", err, http.StatusNotFound)
+				}
+
+				etag := NewEtag(&model.ContentEntity{
+					AggregateRoot: model.AggregateRoot{
+						SequenceNo:  deleteEventSeq,
+						BasicEntity: model.BasicEntity{ID: weosID},
+					},
+				})
+
+				ctxt.Response().Header().Set("Etag", etag)
+
+				return ctxt.JSON(http.StatusOK, "Deleted")
+			}
+		}
+
+		return ctxt.String(http.StatusBadRequest, "Item not deleted")
 	}
 }
 

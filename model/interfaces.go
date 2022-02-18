@@ -4,6 +4,8 @@ package model
 import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
+	"time"
+	"gorm.io/gorm"
 )
 
 type CommandDispatcher interface {
@@ -68,10 +70,11 @@ type EventRepository interface {
 	GetByAggregateAndSequenceRange(ID string, start int64, end int64) ([]*Event, error)
 	AddSubscriber(handler EventHandler)
 	GetSubscribers() ([]EventHandler, error)
+	ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projection Projection) (int, int, int, []error)
 }
 
 type Datastore interface {
-	Migrate(ctx context.Context, builders map[string]ds.Builder) error
+	Migrate(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error
 }
 
 type Projection interface {
@@ -81,4 +84,9 @@ type Projection interface {
 	GetByKey(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
 	GetByEntityID(ctxt context.Context, entityFactory EntityFactory, id string) (map[string]interface{}, error)
 	GetContentEntities(ctx context.Context, entityFactory EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
+}
+
+type GormProjection interface {
+	Projection
+	DB() *gorm.DB
 }

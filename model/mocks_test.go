@@ -7,11 +7,12 @@ import (
 	"context"
 	"database/sql"
 	"github.com/getkin/kin-openapi/openapi3"
-	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // Ensure, that EventRepositoryMock does implement model.EventRepository.
@@ -20,46 +21,49 @@ var _ model.EventRepository = &EventRepositoryMock{}
 
 // EventRepositoryMock is a mock implementation of model.EventRepository.
 //
-// 	func TestSomethingThatUsesEventRepository(t *testing.T) {
+//     func TestSomethingThatUsesEventRepository(t *testing.T) {
 //
-// 		// make and configure a mocked model.EventRepository
-// 		mockedEventRepository := &EventRepositoryMock{
-// 			AddSubscriberFunc: func(handler model.EventHandler)  {
-// 				panic("mock out the AddSubscriber method")
-// 			},
-// 			FlushFunc: func() error {
-// 				panic("mock out the Flush method")
-// 			},
-// 			GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
-// 				panic("mock out the GetAggregateSequenceNumber method")
-// 			},
-// 			GetByAggregateFunc: func(ID string) ([]*model.Event, error) {
-// 				panic("mock out the GetByAggregate method")
-// 			},
-// 			GetByAggregateAndSequenceRangeFunc: func(ID string, start int64, end int64) ([]*model.Event, error) {
-// 				panic("mock out the GetByAggregateAndSequenceRange method")
-// 			},
-// 			GetByAggregateAndTypeFunc: func(ID string, entityType string) ([]*model.Event, error) {
-// 				panic("mock out the GetByAggregateAndType method")
-// 			},
-// 			GetByEntityAndAggregateFunc: func(entityID string, entityType string, rootID string) ([]*model.Event, error) {
-// 				panic("mock out the GetByEntityAndAggregate method")
-// 			},
-// 			GetSubscribersFunc: func() ([]model.EventHandler, error) {
-// 				panic("mock out the GetSubscribers method")
-// 			},
-// 			MigrateFunc: func(ctx context.Context) error {
-// 				panic("mock out the Migrate method")
-// 			},
-// 			PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
-// 				panic("mock out the Persist method")
-// 			},
-// 		}
+//         // make and configure a mocked model.EventRepository
+//         mockedEventRepository := &EventRepositoryMock{
+//             AddSubscriberFunc: func(handler model.EventHandler)  {
+// 	               panic("mock out the AddSubscriber method")
+//             },
+//             FlushFunc: func() error {
+// 	               panic("mock out the Flush method")
+//             },
+//             GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
+// 	               panic("mock out the GetAggregateSequenceNumber method")
+//             },
+//             GetByAggregateFunc: func(ID string) ([]*model.Event, error) {
+// 	               panic("mock out the GetByAggregate method")
+//             },
+//             GetByAggregateAndSequenceRangeFunc: func(ID string, start int64, end int64) ([]*model.Event, error) {
+// 	               panic("mock out the GetByAggregateAndSequenceRange method")
+//             },
+//             GetByAggregateAndTypeFunc: func(ID string, entityType string) ([]*model.Event, error) {
+// 	               panic("mock out the GetByAggregateAndType method")
+//             },
+//             GetByEntityAndAggregateFunc: func(entityID string, entityType string, rootID string) ([]*model.Event, error) {
+// 	               panic("mock out the GetByEntityAndAggregate method")
+//             },
+//             GetSubscribersFunc: func() ([]model.EventHandler, error) {
+// 	               panic("mock out the GetSubscribers method")
+//             },
+//             MigrateFunc: func(ctx context.Context) error {
+// 	               panic("mock out the Migrate method")
+//             },
+//             PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+// 	               panic("mock out the Persist method")
+//             },
+//             ReplayEventsFunc: func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error) {
+// 				  panic("mock out the ReplayEvents method")
+// 			   },
+//         }
 //
-// 		// use mockedEventRepository in code that requires model.EventRepository
-// 		// and then make assertions.
+//         // use mockedEventRepository in code that requires model.EventRepository
+//         // and then make assertions.
 //
-// 	}
+//     }
 type EventRepositoryMock struct {
 	// AddSubscriberFunc mocks the AddSubscriber method.
 	AddSubscriberFunc func(handler model.EventHandler)
@@ -90,6 +94,9 @@ type EventRepositoryMock struct {
 
 	// PersistFunc mocks the Persist method.
 	PersistFunc func(ctxt context.Context, entity model.AggregateInterface) error
+
+	// ReplayEventsFunc mocks the ReplayEvents method.
+	ReplayEventsFunc func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -151,6 +158,17 @@ type EventRepositoryMock struct {
 			// Entity is the entity argument value.
 			Entity model.AggregateInterface
 		}
+		// ReplayEvents holds details about calls to the ReplayEvents method.
+		ReplayEvents []struct {
+			// Ctxt is the ctxt argument value.
+			Ctxt context.Context
+			// Date is the date argument value.
+			Date time.Time
+			// EntityFactories is the entityFactories argument value.
+			EntityFactories map[string]model.EntityFactory
+			// Projection is the projection argument value.
+			Projection model.Projection
+		}
 	}
 	lockAddSubscriber                  sync.RWMutex
 	lockFlush                          sync.RWMutex
@@ -162,6 +180,7 @@ type EventRepositoryMock struct {
 	lockGetSubscribers                 sync.RWMutex
 	lockMigrate                        sync.RWMutex
 	lockPersist                        sync.RWMutex
+	lockReplayEvents                   sync.RWMutex
 }
 
 // AddSubscriber calls AddSubscriberFunc.
@@ -488,40 +507,83 @@ func (mock *EventRepositoryMock) PersistCalls() []struct {
 	return calls
 }
 
+// ReplayEvents calls ReplayEventsFunc.
+func (mock *EventRepositoryMock) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error) {
+	if mock.ReplayEventsFunc == nil {
+		panic("EventRepositoryMock.ReplayEventsFunc: method is nil but EventRepository.ReplayEvents was just called")
+	}
+	callInfo := struct {
+		Ctxt            context.Context
+		Date            time.Time
+		EntityFactories map[string]model.EntityFactory
+		Projection      model.Projection
+	}{
+		Ctxt:            ctxt,
+		Date:            date,
+		EntityFactories: entityFactories,
+		Projection:      projection,
+	}
+	mock.lockReplayEvents.Lock()
+	mock.calls.ReplayEvents = append(mock.calls.ReplayEvents, callInfo)
+	mock.lockReplayEvents.Unlock()
+	return mock.ReplayEventsFunc(ctxt, date, entityFactories, projection)
+}
+
+// ReplayEventsCalls gets all the calls that were made to ReplayEvents.
+// Check the length with:
+//     len(mockedEventRepository.ReplayEventsCalls())
+func (mock *EventRepositoryMock) ReplayEventsCalls() []struct {
+	Ctxt            context.Context
+	Date            time.Time
+	EntityFactories map[string]model.EntityFactory
+	Projection      model.Projection
+} {
+	var calls []struct {
+		Ctxt            context.Context
+		Date            time.Time
+		EntityFactories map[string]model.EntityFactory
+		Projection      model.Projection
+	}
+	mock.lockReplayEvents.RLock()
+	calls = mock.calls.ReplayEvents
+	mock.lockReplayEvents.RUnlock()
+	return calls
+}
+
 // Ensure, that ProjectionMock does implement model.Projection.
 // If this is not the case, regenerate this file with moq.
 var _ model.Projection = &ProjectionMock{}
 
 // ProjectionMock is a mock implementation of model.Projection.
 //
-// 	func TestSomethingThatUsesProjection(t *testing.T) {
+//     func TestSomethingThatUsesProjection(t *testing.T) {
 //
-// 		// make and configure a mocked model.Projection
-// 		mockedProjection := &ProjectionMock{
-// 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
-// 				panic("mock out the GetByEntityID method")
-// 			},
-// 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-// 				panic("mock out the GetByKey method")
-// 			},
-// 			GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-// 				panic("mock out the GetContentEntities method")
-// 			},
-// 			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
-// 				panic("mock out the GetContentEntity method")
-// 			},
-// 			GetEventHandlerFunc: func() model.EventHandler {
-// 				panic("mock out the GetEventHandler method")
-// 			},
-// 			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder) error {
-// 				panic("mock out the Migrate method")
-// 			},
-// 		}
+//         // make and configure a mocked model.Projection
+//         mockedProjection := &ProjectionMock{
+//             GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+// 	               panic("mock out the GetByEntityID method")
+//             },
+//             GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+// 	               panic("mock out the GetByKey method")
+//             },
+//             GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+// 	               panic("mock out the GetContentEntities method")
+//             },
+//             GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+// 	               panic("mock out the GetContentEntity method")
+//             },
+//             GetEventHandlerFunc: func() model.EventHandler {
+// 	               panic("mock out the GetEventHandler method")
+//             },
+//             MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
+// 	               panic("mock out the Migrate method")
+//             },
+//         }
 //
-// 		// use mockedProjection in code that requires model.Projection
-// 		// and then make assertions.
+//         // use mockedProjection in code that requires model.Projection
+//         // and then make assertions.
 //
-// 	}
+//     }
 type ProjectionMock struct {
 	// GetByEntityIDFunc mocks the GetByEntityID method.
 	GetByEntityIDFunc func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error)
@@ -539,7 +601,7 @@ type ProjectionMock struct {
 	GetEventHandlerFunc func() model.EventHandler
 
 	// MigrateFunc mocks the Migrate method.
-	MigrateFunc func(ctx context.Context, builders map[string]ds.Builder) error
+	MigrateFunc func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -595,7 +657,9 @@ type ProjectionMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Builders is the builders argument value.
-			Builders map[string]ds.Builder
+			Builders map[string]dynamicstruct.Builder
+			// DeletedFields is the deletedFields argument value.
+			DeletedFields map[string][]string
 		}
 	}
 	lockGetByEntityID      sync.RWMutex
@@ -805,33 +869,37 @@ func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ProjectionMock) Migrate(ctx context.Context, builders map[string]ds.Builder) error {
+func (mock *ProjectionMock) Migrate(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
 	if mock.MigrateFunc == nil {
 		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
 	}
 	callInfo := struct {
-		Ctx      context.Context
-		Builders map[string]ds.Builder
+		Ctx           context.Context
+		Builders      map[string]dynamicstruct.Builder
+		DeletedFields map[string][]string
 	}{
-		Ctx:      ctx,
-		Builders: builders,
+		Ctx:           ctx,
+		Builders:      builders,
+		DeletedFields: deletedFields,
 	}
 	mock.lockMigrate.Lock()
 	mock.calls.Migrate = append(mock.calls.Migrate, callInfo)
 	mock.lockMigrate.Unlock()
-	return mock.MigrateFunc(ctx, builders)
+	return mock.MigrateFunc(ctx, builders, deletedFields)
 }
 
 // MigrateCalls gets all the calls that were made to Migrate.
 // Check the length with:
 //     len(mockedProjection.MigrateCalls())
 func (mock *ProjectionMock) MigrateCalls() []struct {
-	Ctx      context.Context
-	Builders map[string]ds.Builder
+	Ctx           context.Context
+	Builders      map[string]dynamicstruct.Builder
+	DeletedFields map[string][]string
 } {
 	var calls []struct {
-		Ctx      context.Context
-		Builders map[string]ds.Builder
+		Ctx           context.Context
+		Builders      map[string]dynamicstruct.Builder
+		DeletedFields map[string][]string
 	}
 	mock.lockMigrate.RLock()
 	calls = mock.calls.Migrate
@@ -839,58 +907,59 @@ func (mock *ProjectionMock) MigrateCalls() []struct {
 	return calls
 }
 
+
 // Ensure, that LogMock does implement model.Log.
 // If this is not the case, regenerate this file with moq.
 var _ model.Log = &LogMock{}
 
 // LogMock is a mock implementation of model.Log.
 //
-// 	func TestSomethingThatUsesLog(t *testing.T) {
+//     func TestSomethingThatUsesLog(t *testing.T) {
 //
-// 		// make and configure a mocked model.Log
-// 		mockedLog := &LogMock{
-// 			DebugFunc: func(args ...interface{})  {
-// 				panic("mock out the Debug method")
-// 			},
-// 			DebugfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Debugf method")
-// 			},
-// 			ErrorFunc: func(args ...interface{})  {
-// 				panic("mock out the Error method")
-// 			},
-// 			ErrorfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Errorf method")
-// 			},
-// 			FatalFunc: func(args ...interface{})  {
-// 				panic("mock out the Fatal method")
-// 			},
-// 			FatalfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Fatalf method")
-// 			},
-// 			InfoFunc: func(args ...interface{})  {
-// 				panic("mock out the Info method")
-// 			},
-// 			InfofFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Infof method")
-// 			},
-// 			PanicFunc: func(args ...interface{})  {
-// 				panic("mock out the Panic method")
-// 			},
-// 			PanicfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Panicf method")
-// 			},
-// 			PrintFunc: func(args ...interface{})  {
-// 				panic("mock out the Print method")
-// 			},
-// 			PrintfFunc: func(format string, args ...interface{})  {
-// 				panic("mock out the Printf method")
-// 			},
-// 		}
+//         // make and configure a mocked model.Log
+//         mockedLog := &LogMock{
+//             DebugFunc: func(args ...interface{})  {
+// 	               panic("mock out the Debug method")
+//             },
+//             DebugfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Debugf method")
+//             },
+//             ErrorFunc: func(args ...interface{})  {
+// 	               panic("mock out the Error method")
+//             },
+//             ErrorfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Errorf method")
+//             },
+//             FatalFunc: func(args ...interface{})  {
+// 	               panic("mock out the Fatal method")
+//             },
+//             FatalfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Fatalf method")
+//             },
+//             InfoFunc: func(args ...interface{})  {
+// 	               panic("mock out the Info method")
+//             },
+//             InfofFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Infof method")
+//             },
+//             PanicFunc: func(args ...interface{})  {
+// 	               panic("mock out the Panic method")
+//             },
+//             PanicfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Panicf method")
+//             },
+//             PrintFunc: func(args ...interface{})  {
+// 	               panic("mock out the Print method")
+//             },
+//             PrintfFunc: func(format string, args ...interface{})  {
+// 	               panic("mock out the Printf method")
+//             },
+//         }
 //
-// 		// use mockedLog in code that requires model.Log
-// 		// and then make assertions.
+//         // use mockedLog in code that requires model.Log
+//         // and then make assertions.
 //
-// 	}
+//     }
 type LogMock struct {
 	// DebugFunc mocks the Debug method.
 	DebugFunc func(args ...interface{})
@@ -1419,25 +1488,25 @@ var _ model.CommandDispatcher = &CommandDispatcherMock{}
 
 // CommandDispatcherMock is a mock implementation of model.CommandDispatcher.
 //
-// 	func TestSomethingThatUsesCommandDispatcher(t *testing.T) {
+//     func TestSomethingThatUsesCommandDispatcher(t *testing.T) {
 //
-// 		// make and configure a mocked model.CommandDispatcher
-// 		mockedCommandDispatcher := &CommandDispatcherMock{
-// 			AddSubscriberFunc: func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler {
-// 				panic("mock out the AddSubscriber method")
-// 			},
-// 			DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
-// 				panic("mock out the Dispatch method")
-// 			},
-// 			GetSubscribersFunc: func() map[string][]model.CommandHandler {
-// 				panic("mock out the GetSubscribers method")
-// 			},
-// 		}
+//         // make and configure a mocked model.CommandDispatcher
+//         mockedCommandDispatcher := &CommandDispatcherMock{
+//             AddSubscriberFunc: func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler {
+// 	               panic("mock out the AddSubscriber method")
+//             },
+//             DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+// 	               panic("mock out the Dispatch method")
+//             },
+//             GetSubscribersFunc: func() map[string][]model.CommandHandler {
+// 	               panic("mock out the GetSubscribers method")
+//             },
+//         }
 //
-// 		// use mockedCommandDispatcher in code that requires model.CommandDispatcher
-// 		// and then make assertions.
+//         // use mockedCommandDispatcher in code that requires model.CommandDispatcher
+//         // and then make assertions.
 //
-// 	}
+//     }
 type CommandDispatcherMock struct {
 	// AddSubscriberFunc mocks the AddSubscriber method.
 	AddSubscriberFunc func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler
@@ -1593,52 +1662,52 @@ var _ model.Service = &ServiceMock{}
 
 // ServiceMock is a mock implementation of model.Service.
 //
-// 	func TestSomethingThatUsesService(t *testing.T) {
+//     func TestSomethingThatUsesService(t *testing.T) {
 //
-// 		// make and configure a mocked model.Service
-// 		mockedService := &ServiceMock{
-// 			AddProjectionFunc: func(projection model.Projection) error {
-// 				panic("mock out the AddProjection method")
-// 			},
-// 			ConfigFunc: func() *model.ServiceConfig {
-// 				panic("mock out the Config method")
-// 			},
-// 			DBFunc: func() *gorm.DB {
-// 				panic("mock out the DB method")
-// 			},
-// 			DBConnectionFunc: func() *sql.DB {
-// 				panic("mock out the DBConnection method")
-// 			},
-// 			DispatcherFunc: func() model.CommandDispatcher {
-// 				panic("mock out the Dispatcher method")
-// 			},
-// 			EventRepositoryFunc: func() model.EventRepository {
-// 				panic("mock out the EventRepository method")
-// 			},
-// 			HTTPClientFunc: func() *http.Client {
-// 				panic("mock out the HTTPClient method")
-// 			},
-// 			IDFunc: func() string {
-// 				panic("mock out the ID method")
-// 			},
-// 			LoggerFunc: func() model.Log {
-// 				panic("mock out the Logger method")
-// 			},
-// 			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder) error {
-// 				panic("mock out the Migrate method")
-// 			},
-// 			ProjectionsFunc: func() []model.Projection {
-// 				panic("mock out the Projections method")
-// 			},
-// 			TitleFunc: func() string {
-// 				panic("mock out the Title method")
-// 			},
-// 		}
+//         // make and configure a mocked model.Service
+//         mockedService := &ServiceMock{
+//             AddProjectionFunc: func(projection model.Projection) error {
+// 	               panic("mock out the AddProjection method")
+//             },
+//             ConfigFunc: func() *model.ServiceConfig {
+// 	               panic("mock out the Config method")
+//             },
+//             DBFunc: func() *gorm.DB {
+// 	               panic("mock out the DB method")
+//             },
+//             DBConnectionFunc: func() *sql.DB {
+// 	               panic("mock out the DBConnection method")
+//             },
+//             DispatcherFunc: func() model.CommandDispatcher {
+// 	               panic("mock out the Dispatcher method")
+//             },
+//             EventRepositoryFunc: func() model.EventRepository {
+// 	               panic("mock out the EventRepository method")
+//             },
+//             HTTPClientFunc: func() *http.Client {
+// 	               panic("mock out the HTTPClient method")
+//             },
+//             IDFunc: func() string {
+// 	               panic("mock out the ID method")
+//             },
+//             LoggerFunc: func() model.Log {
+// 	               panic("mock out the Logger method")
+//             },
+//             MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder) error {
+// 	               panic("mock out the Migrate method")
+//             },
+//             ProjectionsFunc: func() []model.Projection {
+// 	               panic("mock out the Projections method")
+//             },
+//             TitleFunc: func() string {
+// 	               panic("mock out the Title method")
+//             },
+//         }
 //
-// 		// use mockedService in code that requires model.Service
-// 		// and then make assertions.
+//         // use mockedService in code that requires model.Service
+//         // and then make assertions.
 //
-// 	}
+//     }
 type ServiceMock struct {
 	// AddProjectionFunc mocks the AddProjection method.
 	AddProjectionFunc func(projection model.Projection) error
@@ -1668,7 +1737,7 @@ type ServiceMock struct {
 	LoggerFunc func() model.Log
 
 	// MigrateFunc mocks the Migrate method.
-	MigrateFunc func(ctx context.Context, builders map[string]ds.Builder) error
+	MigrateFunc func(ctx context.Context, builders map[string]dynamicstruct.Builder) error
 
 	// ProjectionsFunc mocks the Projections method.
 	ProjectionsFunc func() []model.Projection
@@ -1712,7 +1781,7 @@ type ServiceMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Builders is the builders argument value.
-			Builders map[string]ds.Builder
+			Builders map[string]dynamicstruct.Builder
 		}
 		// Projections holds details about calls to the Projections method.
 		Projections []struct {
@@ -1975,13 +2044,13 @@ func (mock *ServiceMock) LoggerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ServiceMock) Migrate(ctx context.Context, builders map[string]ds.Builder) error {
+func (mock *ServiceMock) Migrate(ctx context.Context, builders map[string]dynamicstruct.Builder) error {
 	if mock.MigrateFunc == nil {
 		panic("ServiceMock.MigrateFunc: method is nil but Service.Migrate was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
-		Builders map[string]ds.Builder
+		Builders map[string]dynamicstruct.Builder
 	}{
 		Ctx:      ctx,
 		Builders: builders,
@@ -1997,11 +2066,11 @@ func (mock *ServiceMock) Migrate(ctx context.Context, builders map[string]ds.Bui
 //     len(mockedService.MigrateCalls())
 func (mock *ServiceMock) MigrateCalls() []struct {
 	Ctx      context.Context
-	Builders map[string]ds.Builder
+	Builders map[string]dynamicstruct.Builder
 } {
 	var calls []struct {
 		Ctx      context.Context
-		Builders map[string]ds.Builder
+		Builders map[string]dynamicstruct.Builder
 	}
 	mock.lockMigrate.RLock()
 	calls = mock.calls.Migrate
@@ -2067,40 +2136,46 @@ var _ model.EntityFactory = &EntityFactoryMock{}
 
 // EntityFactoryMock is a mock implementation of model.EntityFactory.
 //
-// 	func TestSomethingThatUsesEntityFactory(t *testing.T) {
+//     func TestSomethingThatUsesEntityFactory(t *testing.T) {
 //
-// 		// make and configure a mocked model.EntityFactory
-// 		mockedEntityFactory := &EntityFactoryMock{
-// 			DynamicStructFunc: func(ctx context.Context) ds.DynamicStruct {
-// 				panic("mock out the DynamicStruct method")
-// 			},
-// 			FromSchemaAndBuilderFunc: func(s string, schema *openapi3.Schema, builder ds.Builder) model.EntityFactory {
-// 				panic("mock out the FromSchemaAndBuilder method")
-// 			},
-// 			NameFunc: func() string {
-// 				panic("mock out the Name method")
-// 			},
-// 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-// 				panic("mock out the NewEntity method")
-// 			},
-// 			SchemaFunc: func() *openapi3.Schema {
-// 				panic("mock out the Schema method")
-// 			},
-// 			TableNameFunc: func() string {
-// 				panic("mock out the TableName method")
-// 			},
-// 		}
+//         // make and configure a mocked model.EntityFactory
+//         mockedEntityFactory := &EntityFactoryMock{
+//	           BuilderFunc: func(ctx context.Context) ds.Builder {
+// 				  panic("mock out the Builder method")
+// 			   },
+//             DynamicStructFunc: func(ctx context.Context) dynamicstruct.DynamicStruct {
+// 	               panic("mock out the DynamicStruct method")
+//             },
+//             FromSchemaAndBuilderFunc: func(in1 string, in2 *openapi3.Schema, in3 dynamicstruct.Builder) model.EntityFactory {
+// 	               panic("mock out the FromSchemaAndBuilder method")
+//             },
+//             NameFunc: func() string {
+// 	               panic("mock out the Name method")
+//             },
+//             NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
+// 	               panic("mock out the NewEntity method")
+//             },
+//             SchemaFunc: func() *openapi3.Schema {
+// 	               panic("mock out the Schema method")
+//             },
+//             TableNameFunc: func() string {
+// 	               panic("mock out the TableName method")
+//             },
+//         }
 //
-// 		// use mockedEntityFactory in code that requires model.EntityFactory
-// 		// and then make assertions.
+//         // use mockedEntityFactory in code that requires model.EntityFactory
+//         // and then make assertions.
 //
-// 	}
+//     }
 type EntityFactoryMock struct {
+	// BuilderFunc mocks the Builder method.
+	BuilderFunc func(ctx context.Context) dynamicstruct.Builder
+
 	// DynamicStructFunc mocks the DynamicStruct method.
-	DynamicStructFunc func(ctx context.Context) ds.DynamicStruct
+	DynamicStructFunc func(ctx context.Context) dynamicstruct.DynamicStruct
 
 	// FromSchemaAndBuilderFunc mocks the FromSchemaAndBuilder method.
-	FromSchemaAndBuilderFunc func(s string, schema *openapi3.Schema, builder ds.Builder) model.EntityFactory
+	FromSchemaAndBuilderFunc func(in1 string, in2 *openapi3.Schema, in3 dynamicstruct.Builder) model.EntityFactory
 
 	// NameFunc mocks the Name method.
 	NameFunc func() string
@@ -2116,6 +2191,11 @@ type EntityFactoryMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Builder holds details about calls to the Builder method.
+		Builder []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// DynamicStruct holds details about calls to the DynamicStruct method.
 		DynamicStruct []struct {
 			// Ctx is the ctx argument value.
@@ -2123,12 +2203,12 @@ type EntityFactoryMock struct {
 		}
 		// FromSchemaAndBuilder holds details about calls to the FromSchemaAndBuilder method.
 		FromSchemaAndBuilder []struct {
-			// S is the s argument value.
-			S string
-			// Schema is the schema argument value.
-			Schema *openapi3.Schema
-			// Builder is the builder argument value.
-			Builder ds.Builder
+			// In1 is the in1 argument value.
+			In1 string
+			// In2 is the in2 argument value.
+			In2 *openapi3.Schema
+			// In3 is the in3 argument value.
+			In3 dynamicstruct.Builder
 		}
 		// Name holds details about calls to the Name method.
 		Name []struct {
@@ -2145,6 +2225,7 @@ type EntityFactoryMock struct {
 		TableName []struct {
 		}
 	}
+	lockBuilder              sync.RWMutex
 	lockDynamicStruct        sync.RWMutex
 	lockFromSchemaAndBuilder sync.RWMutex
 	lockName                 sync.RWMutex
@@ -2153,8 +2234,39 @@ type EntityFactoryMock struct {
 	lockTableName            sync.RWMutex
 }
 
+// Builder calls BuilderFunc.
+func (mock *EntityFactoryMock) Builder(ctx context.Context) dynamicstruct.Builder {
+	if mock.BuilderFunc == nil {
+		panic("EntityFactoryMock.BuilderFunc: method is nil but EntityFactory.Builder was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockBuilder.Lock()
+	mock.calls.Builder = append(mock.calls.Builder, callInfo)
+	mock.lockBuilder.Unlock()
+	return mock.BuilderFunc(ctx)
+}
+
+// BuilderCalls gets all the calls that were made to Builder.
+// Check the length with:
+//     len(mockedEntityFactory.BuilderCalls())
+func (mock *EntityFactoryMock) BuilderCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockBuilder.RLock()
+	calls = mock.calls.Builder
+	mock.lockBuilder.RUnlock()
+	return calls
+}
+
 // DynamicStruct calls DynamicStructFunc.
-func (mock *EntityFactoryMock) DynamicStruct(ctx context.Context) ds.DynamicStruct {
+func (mock *EntityFactoryMock) DynamicStruct(ctx context.Context) dynamicstruct.DynamicStruct {
 	if mock.DynamicStructFunc == nil {
 		panic("EntityFactoryMock.DynamicStructFunc: method is nil but EntityFactory.DynamicStruct was just called")
 	}
@@ -2185,37 +2297,37 @@ func (mock *EntityFactoryMock) DynamicStructCalls() []struct {
 }
 
 // FromSchemaAndBuilder calls FromSchemaAndBuilderFunc.
-func (mock *EntityFactoryMock) FromSchemaAndBuilder(s string, schema *openapi3.Schema, builder ds.Builder) model.EntityFactory {
+func (mock *EntityFactoryMock) FromSchemaAndBuilder(in1 string, in2 *openapi3.Schema, in3 dynamicstruct.Builder) model.EntityFactory {
 	if mock.FromSchemaAndBuilderFunc == nil {
 		panic("EntityFactoryMock.FromSchemaAndBuilderFunc: method is nil but EntityFactory.FromSchemaAndBuilder was just called")
 	}
 	callInfo := struct {
-		S       string
-		Schema  *openapi3.Schema
-		Builder ds.Builder
+		In1 string
+		In2 *openapi3.Schema
+		In3 dynamicstruct.Builder
 	}{
-		S:       s,
-		Schema:  schema,
-		Builder: builder,
+		In1: in1,
+		In2: in2,
+		In3: in3,
 	}
 	mock.lockFromSchemaAndBuilder.Lock()
 	mock.calls.FromSchemaAndBuilder = append(mock.calls.FromSchemaAndBuilder, callInfo)
 	mock.lockFromSchemaAndBuilder.Unlock()
-	return mock.FromSchemaAndBuilderFunc(s, schema, builder)
+	return mock.FromSchemaAndBuilderFunc(in1, in2, in3)
 }
 
 // FromSchemaAndBuilderCalls gets all the calls that were made to FromSchemaAndBuilder.
 // Check the length with:
 //     len(mockedEntityFactory.FromSchemaAndBuilderCalls())
 func (mock *EntityFactoryMock) FromSchemaAndBuilderCalls() []struct {
-	S       string
-	Schema  *openapi3.Schema
-	Builder ds.Builder
+	In1 string
+	In2 *openapi3.Schema
+	In3 dynamicstruct.Builder
 } {
 	var calls []struct {
-		S       string
-		Schema  *openapi3.Schema
-		Builder ds.Builder
+		In1 string
+		In2 *openapi3.Schema
+		In3 dynamicstruct.Builder
 	}
 	mock.lockFromSchemaAndBuilder.RLock()
 	calls = mock.calls.FromSchemaAndBuilder
@@ -2329,5 +2441,155 @@ func (mock *EntityFactoryMock) TableNameCalls() []struct {
 	mock.lockTableName.RLock()
 	calls = mock.calls.TableName
 	mock.lockTableName.RUnlock()
+	return calls
+}
+
+// Ensure, that EventDispatcherMock does implement model.EventDispatcher.
+// If this is not the case, regenerate this file with moq.
+var _ model.EventDispatcher = &EventDispatcherMock{}
+
+// EventDispatcherMock is a mock implementation of model.EventDispatcher.
+//
+// 	func TestSomethingThatUsesEventDispatcher(t *testing.T) {
+//
+// 		// make and configure a mocked model.EventDispatcher
+// 		mockedEventDispatcher := &EventDispatcherMock{
+// 			AddSubscriberFunc: func(handler model.EventHandler)  {
+// 				panic("mock out the AddSubscriber method")
+// 			},
+// 			DispatchFunc: func(ctx context.Context, event model.Event)  {
+// 				panic("mock out the Dispatch method")
+// 			},
+// 			GetSubscribersFunc: func() []model.EventHandler {
+// 				panic("mock out the GetSubscribers method")
+// 			},
+// 		}
+//
+// 		// use mockedEventDispatcher in code that requires model.EventDispatcher
+// 		// and then make assertions.
+//
+// 	}
+type EventDispatcherMock struct {
+	// AddSubscriberFunc mocks the AddSubscriber method.
+	AddSubscriberFunc func(handler model.EventHandler)
+
+	// DispatchFunc mocks the Dispatch method.
+	DispatchFunc func(ctx context.Context, event model.Event)
+
+	// GetSubscribersFunc mocks the GetSubscribers method.
+	GetSubscribersFunc func() []model.EventHandler
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// AddSubscriber holds details about calls to the AddSubscriber method.
+		AddSubscriber []struct {
+			// Handler is the handler argument value.
+			Handler model.EventHandler
+		}
+		// Dispatch holds details about calls to the Dispatch method.
+		Dispatch []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Event is the event argument value.
+			Event model.Event
+		}
+		// GetSubscribers holds details about calls to the GetSubscribers method.
+		GetSubscribers []struct {
+		}
+	}
+	lockAddSubscriber  sync.RWMutex
+	lockDispatch       sync.RWMutex
+	lockGetSubscribers sync.RWMutex
+}
+
+// AddSubscriber calls AddSubscriberFunc.
+func (mock *EventDispatcherMock) AddSubscriber(handler model.EventHandler) {
+	if mock.AddSubscriberFunc == nil {
+		panic("EventDispatcherMock.AddSubscriberFunc: method is nil but EventDispatcher.AddSubscriber was just called")
+	}
+	callInfo := struct {
+		Handler model.EventHandler
+	}{
+		Handler: handler,
+	}
+	mock.lockAddSubscriber.Lock()
+	mock.calls.AddSubscriber = append(mock.calls.AddSubscriber, callInfo)
+	mock.lockAddSubscriber.Unlock()
+	mock.AddSubscriberFunc(handler)
+}
+
+// AddSubscriberCalls gets all the calls that were made to AddSubscriber.
+// Check the length with:
+//     len(mockedEventDispatcher.AddSubscriberCalls())
+func (mock *EventDispatcherMock) AddSubscriberCalls() []struct {
+	Handler model.EventHandler
+} {
+	var calls []struct {
+		Handler model.EventHandler
+	}
+	mock.lockAddSubscriber.RLock()
+	calls = mock.calls.AddSubscriber
+	mock.lockAddSubscriber.RUnlock()
+	return calls
+}
+
+// Dispatch calls DispatchFunc.
+func (mock *EventDispatcherMock) Dispatch(ctx context.Context, event model.Event) {
+	if mock.DispatchFunc == nil {
+		panic("EventDispatcherMock.DispatchFunc: method is nil but EventDispatcher.Dispatch was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Event model.Event
+	}{
+		Ctx:   ctx,
+		Event: event,
+	}
+	mock.lockDispatch.Lock()
+	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
+	mock.lockDispatch.Unlock()
+	mock.DispatchFunc(ctx, event)
+}
+
+// DispatchCalls gets all the calls that were made to Dispatch.
+// Check the length with:
+//     len(mockedEventDispatcher.DispatchCalls())
+func (mock *EventDispatcherMock) DispatchCalls() []struct {
+	Ctx   context.Context
+	Event model.Event
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Event model.Event
+	}
+	mock.lockDispatch.RLock()
+	calls = mock.calls.Dispatch
+	mock.lockDispatch.RUnlock()
+	return calls
+}
+
+// GetSubscribers calls GetSubscribersFunc.
+func (mock *EventDispatcherMock) GetSubscribers() []model.EventHandler {
+	if mock.GetSubscribersFunc == nil {
+		panic("EventDispatcherMock.GetSubscribersFunc: method is nil but EventDispatcher.GetSubscribers was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockGetSubscribers.Lock()
+	mock.calls.GetSubscribers = append(mock.calls.GetSubscribers, callInfo)
+	mock.lockGetSubscribers.Unlock()
+	return mock.GetSubscribersFunc()
+}
+
+// GetSubscribersCalls gets all the calls that were made to GetSubscribers.
+// Check the length with:
+//     len(mockedEventDispatcher.GetSubscribersCalls())
+func (mock *EventDispatcherMock) GetSubscribersCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockGetSubscribers.RLock()
+	calls = mock.calls.GetSubscribers
+	mock.lockGetSubscribers.RUnlock()
 	return calls
 }

@@ -16,8 +16,12 @@ x-weos-config:
       driver: dynamodb
       database: events
   database:
-    driver: sqlite3
-    database: e2e.db
+      database: "%s"
+      driver: "%s"
+      host: "%s"
+      password: "%s"
+      username: "%s"
+      port: %d
   rest:
     middleware:
       - RequestID

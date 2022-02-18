@@ -219,11 +219,11 @@ func TestWeOSApp_AddProjection(t *testing.T) {
 	}
 	mockProjection := &ProjectionMock{
 		GetEventHandlerFunc: func() weos.EventHandler {
-			return func(ctx context.Context, event weos.Event) {
-
+			return func(ctx context.Context, event weos.Event) error {
+				return nil
 			}
 		},
-		MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder) error {
+		MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
 			return nil
 		},
 	}

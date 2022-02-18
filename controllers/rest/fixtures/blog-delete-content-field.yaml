@@ -7,7 +7,6 @@ servers:
   - url: https://prod1.weos.sh/blog/dev
     description: WeOS Dev
   - url: https://prod1.weos.sh/blog/v1
-  - url: http://localhost:8681
 x-weos-config:
   event-source:
     - title: default
@@ -16,13 +15,13 @@ x-weos-config:
     - title: event
       driver: sqlite3
       database: test.db
+  database:
+    driver: sqlite3
+    database: test.db
   databases:
     - title: default
       driver: sqlite3
       database: test.db
-  database:
-    driver: sqlite3
-    database: test.db
   rest:
     middleware:
       - RequestID
@@ -60,6 +59,8 @@ components:
       x-identifier:
         - id
         - email
+      x-remove:
+        - email
     Blog:
       type: object
       properties:
@@ -70,8 +71,6 @@ components:
           type: string
         description:
           type: string
-        active:
-          type: boolean
         status:
           type: string
           nullable: true
@@ -85,11 +84,11 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         lastUpdated:
           type: string
           format: date-time
@@ -108,10 +107,6 @@ components:
           type: string
         author:
           $ref: "#/components/schemas/Author"
-        categories:
-          type: array
-          items:
-            $ref: "#/components/schemas/Category"
         created:
           type: string
           format: date-time
@@ -126,6 +121,34 @@ paths:
         500:
           description: API Internal Error
   /blogs:
+    parameters:
+      - in: header
+        name: someHeader
+        schema:
+          type: string
+      - in: header
+        name: someOtherHeader
+        schema:
+          type: string
+        x-context-name: soh
+      - in: header
+        name: X-Account-Id
+        schema:
+          type: string
+        x-context-name: AccountID
+      - in: query
+        name: q
+        schema:
+          type: string
+      - in: query
+        name: cost
+        schema:
+          type: number
+      - in: query
+        name: leverage
+        schema:
+          type: number
+          format: double
     post:
       operationId: Add Blog
       summary: Create Blog
@@ -139,9 +162,6 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               $ref: "#/components/schemas/Blog"
-          multipart/form-data:
-            schema:
-              $ref: "#/components/schemas/Blog"
       responses:
         201:
           description: Add Blog to Aggregator
@@ -153,15 +173,6 @@ paths:
       operationId: Get Blogs
       summary: Get List of Blogs
       parameters:
-        - in: query
-          name: page
-          schema:
-            type: integer
-        - in: query
-          name: l
-          x-alias: limit
-          schema:
-            type: integer
         - in: query
           name: filters
           schema:
@@ -213,54 +224,34 @@ paths:
                     type: integer
                   page:
                     type: integer
-                  items:
+                  blogs:
                     type: array
+                    x-alias: items
                     items:
                       $ref: "#/components/schemas/Blog"
-    delete:
-      operationId: Delete Blog
-      parameters:
-        - in: query
-          name: id
-          schema:
-            type: string
-          required: true
-          description: blog id
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
-      responses:
-        200:
-          description: Update blog
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        400:
-          description: Invalid blog submitted
-
   /blogs/{id}:
     get:
       parameters:
         - in: path
           name: id
           schema:
-            type: integer
+            type: string
           required: true
           description: blog id
-        - in: query
-          name: sequence_no
+        - in: header
+          name: If-Match
           schema:
-            type: integer
-        - in: query
-          name: use_entity_id
-          schema:
-            type: boolean
+            type: string
           required: false
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
       summary: Get Blog by id
       operationId: Get Blog
       responses:
@@ -270,36 +261,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-        304:
-          description: Not modified
-        400:
-          description: Item doesn't exist
-
     put:
       parameters:
         - in: path
           name: id
           schema:
-            type: integer
+            type: string
           required: true
           description: blog id
         - in: header
           name: If-Match
           schema:
             type: string
-          required: false
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
       summary: Update blog details
       operationId: Update Blog
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          multipart/form-data:
             schema:
               $ref: "#/components/schemas/Blog"
       responses:
@@ -309,15 +297,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-        400:
-          description: Request is malformed
-        404:
-          description: Item doesn't exist
-        412:
-          description: The item is stale
-        422:
-          description: Invalid content data sent
-
     delete:
       parameters:
         - in: path
@@ -326,17 +305,6 @@ paths:
             type: string
           required: true
           description: blog id
-        - in: header
-          name: If-Match
-          schema:
-            type: string
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:
@@ -461,7 +429,7 @@ paths:
           description: Delete post
 
 
-  /categories:
+  /categories/:
     post:
       operationId: Create Blog Category
       summary: Create Blog Category
@@ -517,15 +485,6 @@ paths:
           schema:
             type: string
           required: true
-        - in: header
-          name: If-None-Match
-          schema:
-             type: string
-        - in: query
-          name: use_entity_id
-          schema:
-            type: boolean
-      
       summary: Get blog category by title
       responses:
         200:
@@ -541,11 +500,6 @@ paths:
           schema:
             type: string
           required: true
-        - in: header
-          name: If-Match
-          schema:
-            type: string
-          required: false
       summary: Update category
       requestBody:
         required: true
@@ -632,8 +586,9 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
-      summary: Get Author by id
+      summary: Get Author by email and id
       responses:
         200:
           description: Get author information
@@ -652,6 +607,7 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
       summary: Update Author details
       requestBody:
@@ -678,6 +634,7 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
       summary: Delete author
       responses:
