@@ -150,6 +150,9 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 				case "string":
 					if p.Value.Format == "date-time" {
 						defaultValue = time.Now()
+					} else if p.Value.Enum != nil {
+						var options *string
+						defaultValue = options
 					} else {
 						var strings *string
 						defaultValue = strings

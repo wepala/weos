@@ -451,7 +451,7 @@ Feature: Create Content Types
       | id            |              | varchar(512)   | false    | PK       | NULL        |
       | title         |              | varchar(512)   | true     |          | NULL        |
       | description   |              | varchar(512)   | true     |          | NULL        |
-      | status        |              | ENUM(null,unpublished,published)   | false    |          | unpublished |
+      | status        |              | varchar(512)   | false    |          | unpublished |
     And a "Post" entity configuration should be setup
     """
     erDiagram
