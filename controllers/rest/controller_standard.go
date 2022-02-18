@@ -286,7 +286,7 @@ func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispat
 		//get content type expected for 200 response
 		responseType := newContext.Value(weoscontext.RESPONSE_PREFIX + strconv.Itoa(http.StatusOK))
 		if responseType == "application/json" {
-			return ctxt.Redirect(http.StatusPermanentRedirect, SWAGGERJSONENDPOINT)
+			return ctxt.JSON(http.StatusOK, api.Swagger)
 		} else if responseType == "application/html" {
 			return ctxt.Redirect(http.StatusPermanentRedirect, SWAGGERUIENDPOINT)
 		}

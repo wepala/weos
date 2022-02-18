@@ -1435,9 +1435,18 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 }
 
 func theApiAsJsonShouldBeShown() error {
-	url := rec.HeaderMap.Get("Location")
-	if url != api.SWAGGERJSONENDPOINT {
-		return fmt.Errorf("the json result should have been returned")
+	contentEntity := map[string]interface{}{}
+	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
+
+	if err != nil {
+		return err
+	}
+
+	if len(contentEntity) == 0 {
+		return fmt.Errorf("expected a response to be returned")
+	}
+	if _, ok := contentEntity["openapi"]; !ok {
+		return fmt.Errorf("expected the content entity to have a content 'openapi'")
 	}
 	return nil
 }
