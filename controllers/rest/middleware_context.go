@@ -46,21 +46,23 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			ctParts := strings.Split(ct, ";")
 			ct = ctParts[0]
 
-			//check if content type was defined in the schema
-			if operation.RequestBody != nil && operation.RequestBody.Value != nil {
-				mimeType := operation.RequestBody.Value.Content.Get(ct)
-				if mimeType != nil {
-					switch ct {
-					case "application/json":
-						payload, err = ioutil.ReadAll(c.Request().Body)
-					default:
-						payload, err = ConvertFormToJson(c.Request(), ct)
+			if operation != path.Delete {
+				//check if content type was defined in the schema
+				if operation.RequestBody != nil && operation.RequestBody.Value != nil {
+					mimeType := operation.RequestBody.Value.Content.Get(ct)
+					if mimeType != nil {
+						switch ct {
+						case "application/json":
+							payload, err = ioutil.ReadAll(c.Request().Body)
+						default:
+							payload, err = ConvertFormToJson(c.Request(), ct)
+						}
+						//set payload to context
+						cc = context.WithValue(cc, weosContext.PAYLOAD, payload)
+					} else {
+						c.Logger().Debugf("content-type '%s' not supported", ct)
+						return NewControllerError(fmt.Sprintf("the content-type '%s' is not supported", ct), err, http.StatusBadRequest)
 					}
-					//set payload to context
-					cc = context.WithValue(cc, weosContext.PAYLOAD, payload)
-				} else {
-					c.Logger().Debugf("content-type '%s' not supported", ct)
-					return NewControllerError(fmt.Sprintf("the content-type '%s' is not supported", ct), err, http.StatusBadRequest)
 				}
 			}
 
