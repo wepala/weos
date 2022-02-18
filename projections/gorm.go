@@ -427,6 +427,21 @@ func (p *GORMDB) GetContentEntities(ctx context.Context, entityFactory weos.Enti
 	return entities, count, result.Error
 }
 
+func (p *GORMDB) GetByIdentifiers(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	results := entityFactory.Builder(ctxt).Build().NewSliceOfStructs()
+	result := p.db.Table(entityFactory.TableName()).Find(results, identifiers)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
+	}
+	bytes, err := json.Marshal(results)
+	if err != nil {
+		return nil, err
+	}
+	var entities []map[string]interface{}
+	json.Unmarshal(bytes, &entities)
+	return entities, nil
+}
+
 //DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
 func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
 	var err error
