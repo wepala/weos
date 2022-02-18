@@ -53,20 +53,14 @@ func (w *ContentEntity) IsEnumValid() bool {
 		if property.Value.Enum != nil {
 			enumProperty := w.GetString(k)
 
-			//This checks if a "null" option was provided which is needed if nullable == true
-			for _, v := range property.Value.Enum {
-				if v == "null" {
-					nullFound = true
-					break
-				}
+			////This checks if a "null" option was provided which is needed if nullable == true
+			if strings.Contains(enumOptions, "null") {
+				nullFound = true
 			}
 			//If nullable == true and null is found in the options
 			if property.Value.Nullable && nullFound == true {
-				for _, v := range property.Value.Enum {
-					if enumProperty == v {
-						enumFound = true
-						break
-					}
+				if strings.Contains(enumOptions, enumProperty) {
+					enumFound = true
 				}
 
 				//Assuming if the nullable is true, the user can pass nothing in or the keyword "null"
@@ -86,12 +80,8 @@ func (w *ContentEntity) IsEnumValid() bool {
 					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					return false
 				}
-
-				for _, v := range property.Value.Enum {
-					if enumProperty == v {
-						enumFound = true
-						break
-					}
+				if strings.Contains(enumOptions, enumProperty) {
+					enumFound = true
 				}
 				if enumFound == false {
 					message := "invalid enumeration option provided. available options are: " + enumOptions
