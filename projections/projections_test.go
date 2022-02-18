@@ -4265,3 +4265,100 @@ components:
 		}
 	})
 }
+
+func TestProjections_XUnique(t *testing.T) {
+
+	t.Run("Test unique fields", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+         x-unique: true
+       description:
+         type: string
+       author:
+         type: string
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		blogs := []map[string]interface{}{
+			{
+				"title":       "once",
+				"description": "twice",
+				"author":      "once",
+			},
+			{
+				"title":       "twice",
+				"description": "once",
+				"author":      "once",
+			},
+			{
+				"title":       "once",
+				"description": "once",
+				"author":      "twice",
+			},
+		}
+		result := gormDB.Table("Blog").Create(blogs)
+		if result.Error == nil {
+			t.Fatalf("expected to get unique error on title 'once'")
+		}
+
+	})
+}
