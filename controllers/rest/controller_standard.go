@@ -751,7 +751,7 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 				}
 			}
 
-			newContext = context.WithValue(newContext, weoscontext.USER_ID_EXTENSION, idToken.Subject)
+			newContext = context.WithValue(newContext, weoscontext.USER_ID, idToken.Subject)
 			request := ctxt.Request().WithContext(newContext)
 			ctxt.SetRequest(request)
 			return next(ctxt)

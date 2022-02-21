@@ -31,7 +31,6 @@ const SORTS ContextKey = "_sorts"
 const PAYLOAD ContextKey = "_payload"
 const SEQUENCE_NO string = "sequence_no"
 const AUTHORIZATION string = "Authorization"
-const USER_ID_EXTENSION ContextKey = "X-USER-ID"
 
 //Path initializers are run per path and can be used to configure routes that are not defined in the open api spec
 const METHODS_FOUND ContextKey = "_methods_found"
@@ -111,14 +110,6 @@ func GetPayload(ctx context.Context) []byte {
 		return value
 	}
 	return []byte("")
-}
-
-//GetUserExtension info from context
-func GetUserExtension(ctx context.Context) string {
-	if value, ok := ctx.Value(USER_ID_EXTENSION).(string); ok {
-		return value
-	}
-	return ""
 }
 
 //Deprecated: Context Use the Go context in the echo request instead
