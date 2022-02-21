@@ -56,8 +56,8 @@ var _ model.EventRepository = &EventRepositoryMock{}
 // 	               panic("mock out the Persist method")
 //             },
 //             ReplayEventsFunc: func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error) {
-// 				  panic("mock out the ReplayEvents method")
-// 			   },
+// 	               panic("mock out the ReplayEvents method")
+//             },
 //         }
 //
 //         // use mockedEventRepository in code that requires model.EventRepository
@@ -563,6 +563,9 @@ var _ model.Projection = &ProjectionMock{}
 //             GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 // 	               panic("mock out the GetByEntityID method")
 //             },
+//             GetByIdentifiersFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+// 	               panic("mock out the GetByIdentifiers method")
+//             },
 //             GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 // 	               panic("mock out the GetByKey method")
 //             },
@@ -587,6 +590,9 @@ var _ model.Projection = &ProjectionMock{}
 type ProjectionMock struct {
 	// GetByEntityIDFunc mocks the GetByEntityID method.
 	GetByEntityIDFunc func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error)
+
+	// GetByIdentifiersFunc mocks the GetByIdentifiers method.
+	GetByIdentifiersFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
 
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
@@ -613,6 +619,15 @@ type ProjectionMock struct {
 			EntityFactory model.EntityFactory
 			// ID is the id argument value.
 			ID string
+		}
+		// GetByIdentifiers holds details about calls to the GetByIdentifiers method.
+		GetByIdentifiers []struct {
+			// Ctxt is the ctxt argument value.
+			Ctxt context.Context
+			// EntityFactory is the entityFactory argument value.
+			EntityFactory model.EntityFactory
+			// Identifiers is the identifiers argument value.
+			Identifiers map[string]interface{}
 		}
 		// GetByKey holds details about calls to the GetByKey method.
 		GetByKey []struct {
@@ -663,6 +678,7 @@ type ProjectionMock struct {
 		}
 	}
 	lockGetByEntityID      sync.RWMutex
+	lockGetByIdentifiers   sync.RWMutex
 	lockGetByKey           sync.RWMutex
 	lockGetContentEntities sync.RWMutex
 	lockGetContentEntity   sync.RWMutex
@@ -706,6 +722,45 @@ func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 	mock.lockGetByEntityID.RLock()
 	calls = mock.calls.GetByEntityID
 	mock.lockGetByEntityID.RUnlock()
+	return calls
+}
+
+// GetByIdentifiers calls GetByIdentifiersFunc.
+func (mock *ProjectionMock) GetByIdentifiers(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	if mock.GetByIdentifiersFunc == nil {
+		panic("ProjectionMock.GetByIdentifiersFunc: method is nil but Projection.GetByIdentifiers was just called")
+	}
+	callInfo := struct {
+		Ctxt          context.Context
+		EntityFactory model.EntityFactory
+		Identifiers   map[string]interface{}
+	}{
+		Ctxt:          ctxt,
+		EntityFactory: entityFactory,
+		Identifiers:   identifiers,
+	}
+	mock.lockGetByIdentifiers.Lock()
+	mock.calls.GetByIdentifiers = append(mock.calls.GetByIdentifiers, callInfo)
+	mock.lockGetByIdentifiers.Unlock()
+	return mock.GetByIdentifiersFunc(ctxt, entityFactory, identifiers)
+}
+
+// GetByIdentifiersCalls gets all the calls that were made to GetByIdentifiers.
+// Check the length with:
+//     len(mockedProjection.GetByIdentifiersCalls())
+func (mock *ProjectionMock) GetByIdentifiersCalls() []struct {
+	Ctxt          context.Context
+	EntityFactory model.EntityFactory
+	Identifiers   map[string]interface{}
+} {
+	var calls []struct {
+		Ctxt          context.Context
+		EntityFactory model.EntityFactory
+		Identifiers   map[string]interface{}
+	}
+	mock.lockGetByIdentifiers.RLock()
+	calls = mock.calls.GetByIdentifiers
+	mock.lockGetByIdentifiers.RUnlock()
 	return calls
 }
 
@@ -2140,9 +2195,9 @@ var _ model.EntityFactory = &EntityFactoryMock{}
 //
 //         // make and configure a mocked model.EntityFactory
 //         mockedEntityFactory := &EntityFactoryMock{
-//	           BuilderFunc: func(ctx context.Context) ds.Builder {
-// 				  panic("mock out the Builder method")
-// 			   },
+//             BuilderFunc: func(ctx context.Context) dynamicstruct.Builder {
+// 	               panic("mock out the Builder method")
+//             },
 //             DynamicStructFunc: func(ctx context.Context) dynamicstruct.DynamicStruct {
 // 	               panic("mock out the DynamicStruct method")
 //             },

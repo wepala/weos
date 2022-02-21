@@ -65,6 +65,7 @@ components:
         url:
           type: string
           format: uri
+          x-unique: true
         title:
           type: string
         description:

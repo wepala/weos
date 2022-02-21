@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
@@ -24,6 +25,10 @@ func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, ent
 	newEntity, err := new(ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, payload)
 	if err != nil {
 		return nil, NewDomainError("unexpected error creating entity", entityType, "", err)
+	}
+	err = s.ValidateUnique(ctx, newEntity)
+	if err != nil {
+		return nil, err
 	}
 	if ok := newEntity.IsValid(); !ok {
 		errors := newEntity.GetErrors()
@@ -49,6 +54,10 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 			return nil, err
 		}
 		entity, err := new(ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, tpayload)
+		if err != nil {
+			return nil, err
+		}
+		err = s.ValidateUnique(ctx, entity)
 		if err != nil {
 			return nil, err
 		}
@@ -166,6 +175,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, err
 		}
 
+		err = s.ValidateUnique(ctx, updatedEntity)
+		if err != nil {
+			return nil, err
+		}
 		if ok := updatedEntity.IsValid(); !ok {
 			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
 		}
@@ -206,6 +219,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, err
 		}
 
+		err = s.ValidateUnique(ctx, updatedEntity)
+		if err != nil {
+			return nil, err
+		}
 		if ok := updatedEntity.IsValid(); !ok {
 			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
 		}
@@ -312,6 +329,35 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 
 	}
 	return deletedEntity, nil
+}
+
+func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntity) error {
+	entityFactory := GetEntityFactory(ctx)
+	reader := ds.NewReader(entity.Property)
+	for name, p := range entity.Schema.Properties {
+		uniquebytes, _ := json.Marshal(p.Value.Extensions["x-unique"])
+		if len(uniquebytes) != 0 {
+			unique := false
+			json.Unmarshal(uniquebytes, &unique)
+			if unique {
+				val := reader.GetField(strings.Title(name)).Interface()
+				result, err := s.Projection.GetByIdentifiers(ctx, entityFactory, map[string]interface{}{name: val})
+				if err != nil {
+					return err
+				}
+				if len(result) > 1 {
+					return fmt.Errorf("entity value %s should be unique but got %d entities with %s '%v'", name, len(result), name, reader.GetField(strings.Title(name)).Interface())
+				}
+				if len(result) == 1 {
+					r := result[0]
+					if r["weos_id"] != entity.GetID() {
+						return fmt.Errorf("entity value %s should be unique but an entity with %s '%v'", name, name, reader.GetField(strings.Title(name)).Interface())
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func NewDomainService(ctx context.Context, eventRepository EventRepository, projections Projection, logger Log) *DomainService {

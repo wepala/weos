@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"golang.org/x/net/context"
 )
 
@@ -35,6 +36,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		logger.Error(err)
 		return err
 	}
+
 	//use the entity id that was passed with the command
 	newEntity.ID = command.Metadata.EntityID
 	//add create event
@@ -45,6 +47,12 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		return NewDomainError(err.Error(), command.Metadata.EntityType, "", err)
 	}
 
+	domainService := NewDomainService(ctx, eventStore, projection, logger)
+	err = domainService.ValidateUnique(ctx, newEntity)
+	if err != nil {
+		logger.Error(err)
+		return err
+	}
 	if ok := newEntity.IsValid(); !ok {
 		errors := newEntity.GetErrors()
 		if len(errors) != 0 {
