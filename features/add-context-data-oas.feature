@@ -1,4 +1,4 @@
-@WEOS-1308 @skipped
+@WEOS-1308
 Feature: Add data to request context via the spec
 
   A developer can hardcode data that should be in the request context of an api

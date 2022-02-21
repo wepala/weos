@@ -1426,6 +1426,22 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 	return nil
 }
 
+func thereShouldBeAKeyInTheRequestContextWithObject(key string) error {
+	ctx := resp.Request.Context()
+	if ctx.Value(key) == nil {
+		return fmt.Errorf("expected key %s to be found got nil", key)
+	}
+	return nil
+}
+
+func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
+	ctx := resp.Request.Context()
+	if ctx.Value(key).(string) == value {
+		return fmt.Errorf("expected key %s value to be %s got %s", key, value, ctx.Value(key).(string))
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1504,6 +1520,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
+	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
+
 }
 
 func TestBDD(t *testing.T) {
@@ -1513,8 +1532,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1308",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
