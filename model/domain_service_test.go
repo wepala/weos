@@ -743,6 +743,8 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
 
+	existingPayload3 := map[string]interface{}{"weos_id": "asafdsdfdsf11", "sequence_no": int64(1), "id": uint(11), "title": "blog 2", "description": "Description testing 2", "url": "www.TestBlog2.com"}
+
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 			return nil
@@ -780,13 +782,39 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 				return []map[string]interface{}{existingPayload}, nil
 			}
 			if *identifier == existingPayload2["url"].(string) {
-				return []map[string]interface{}{existingPayload2}, nil
+				return []map[string]interface{}{existingPayload2, existingPayload3}, nil
 			}
 			return nil, nil
 		},
 	}
 
 	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, nil)
+
+	t.Run("Basic unique validation", func(t *testing.T) {
+		mockBlog := map[string]interface{}{"weos_id": "09481", "title": "New Blog", "description": "New Description", "url": "www.TestBlog2.com", "last_updated": "2106-11-02T15:04:00Z"}
+		newContext1 := context.Background()
+		newContext1 = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+			Name:   contentType,
+			Schema: contentTypeSchema.Value,
+		})
+		newContext1 = context.WithValue(newContext1, context2.ENTITY_FACTORY, entityFactory)
+		newEntity, err := entityFactory.NewEntity(newContext1)
+		if err != nil {
+			t.Fatalf("got error creating test fixture %s", err)
+		}
+		event := model.NewEntityEvent("create", newEntity, newEntity.ID, mockBlog)
+		newEntity.NewChange(event)
+		err = newEntity.ApplyEvents([]*model.Event{event})
+		if err != nil {
+			t.Fatalf("got error creating test fixture %s", err)
+		}
+
+		err = dService1.ValidateUnique(newContext, newEntity)
+		if err == nil {
+			t.Fatalf("expected to get an error validing the url")
+		}
+
+	})
 
 	t.Run("Create with unique tag", func(t *testing.T) {
 		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.TestBlog1.com", "last_updated": "2106-11-02T15:04:00Z"}
