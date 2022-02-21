@@ -192,6 +192,33 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
                    application/json:
                      schema:
                        $ref: "#/components/schemas/Blog"
+           put:
+             parameters:
+               - in: path
+                 name: id
+                 schema:
+                   type: string
+                 required: true
+                 description: blog id
+               - in: header
+                 name: Authorization
+                 schema:
+                   type: string
+             summary: Update blog details
+             operationId: Update Blog
+             requestBody:
+               required: true
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             responses:
+               200:
+                 description: Update Blog
+                 content:
+                   application/json:
+                     schema:
+                       $ref: "#/components/schemas/Blog"
         /post:
           post:
             operationId: Add Post
@@ -223,13 +250,13 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
               400:
                 description: Invalid Category submitted
      """
-    And the service is running
     And "Sojourner" authenticated and received a JWT
     And blogs in the api
       | id    | weos_id                     | sequence_no | title        | description    |
       | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
       | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
-
+    And the service is running
+  @focus
   Scenario: Set security globally
 
     If the security is set globally then that security scheme should be applied to each path

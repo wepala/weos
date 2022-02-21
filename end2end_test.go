@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	weosContext "github.com/wepala/weos/context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -67,6 +68,7 @@ var success int
 var failed int
 var errArray []error
 var filters string
+var token string
 
 type FilterProperties struct {
 	Operator string
@@ -101,6 +103,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	filters = ""
 	page = 1
 	limit = 0
+	token = ""
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
@@ -155,6 +158,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	filters = ""
 	page = 1
 	limit = 0
+	token = ""
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
@@ -510,6 +514,7 @@ func theIsSubmitted(contentType string) error {
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	//header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 	request.Header = header
 	request.Close = true
 	rec = httptest.NewRecorder()
@@ -741,6 +746,7 @@ func theServiceIsRunning() error {
 
 			request = request.WithContext(context.TODO())
 			header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 			request.Header = header
 			request.Close = true
 			rec = httptest.NewRecorder()
@@ -757,6 +763,7 @@ func theServiceIsRunning() error {
 					request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
 					request = request.WithContext(context.TODO())
 					header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+					header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 					request.Header = header
 					request.Close = true
 					rec = httptest.NewRecorder()
@@ -769,6 +776,7 @@ func theServiceIsRunning() error {
 
 		}
 	}
+	token = ""
 	return nil
 }
 
@@ -1430,16 +1438,20 @@ func aWarningShouldBeShown() error {
 	return godog.ErrPending
 }
 
-func anErrorShouldBeReturned1(arg1 int) error {
-	return godog.ErrPending
+func anErrorShouldBeReturned1(statusCode int) error {
+	if rec.Code != statusCode {
+		return fmt.Errorf("expected response status code to be %d got %d", statusCode, rec.Code)
+	}
+	return nil
 }
 
-func authenticatedAndReceivedAJWT(arg1 string) error {
-	return godog.ErrPending
+func authenticatedAndReceivedAJWT(userName string) error {
+	token = os.Getenv("OAUTH_TEST_KEY")
+	return nil
 }
 
 func hasAValidUserAccount(arg1 string) error {
-	return godog.ErrPending
+	return nil
 }
 
 func sIdIs(arg1, arg2 string) error {
@@ -1544,7 +1556,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1343",
+			Tags: "focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
