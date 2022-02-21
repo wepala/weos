@@ -724,6 +724,7 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			var err error
+			var token string
 			if !securityCheck {
 				return next(ctxt)
 			}
@@ -732,8 +733,11 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 				return NewControllerError("unexpected error no verifiers were set", nil, http.StatusBadRequest)
 			}
 			newContext := ctxt.Request().Context()
-			token, ok := newContext.Value(weoscontext.AUTHORIZATION).(string)
-			if !ok || token == "" {
+			//get the token from request header since this runs before the context middleware
+			if ctxt.Request().Header[weoscontext.AUTHORIZATION] != nil {
+				token = ctxt.Request().Header[weoscontext.AUTHORIZATION][0]
+			}
+			if token == "" {
 				api.e.Logger.Errorf("no JWT token was found")
 				return NewControllerError("no JWT token was found", nil, http.StatusUnauthorized)
 			}
