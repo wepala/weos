@@ -19,8 +19,12 @@ Feature: View content
         report-caller: true
         formatter: json
       database:
-        driver: sqlite3
-        database: e2e.db
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
       event-source:
         - title: default
           driver: service
@@ -181,11 +185,11 @@ Feature: View content
              200:
                description: Blog Deleted
      """
-     And the service is running
      And blogs in the api
        | id    | weos_id                     | sequence_no | title        | description    |
        | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
        | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
+     And the service is running
 
 
    Scenario: Get blog details

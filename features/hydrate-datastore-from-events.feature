@@ -1,8 +1,8 @@
-@WEOS-1125
-Feature: Remove field from content type
+@here
+Feature: Hydrate database using events
 
-  If a field is removed from content type it should NOT remove data stored in that field. In order to permanently remove
-  a field use the x-remove extension to permanently remove a field
+  The events generated in the API could be used to re-create tables in the base data store or to create new datastores.
+  The events could be used to do repairs as well (if the handlers on the projection are done in an idempotent way)
 
   Background:
 
@@ -60,8 +60,6 @@ Feature: Remove field from content type
                description: blog title
              description:
                type: string
-             url:
-               type: string
            required:
              - title
            x-identifier:
@@ -83,7 +81,7 @@ Feature: Remove field from content type
              categories:
                type: array
                items:
-                 $ref: "#/components/schemas/Category"
+                 $ref: "#/components/schemas/Post"
            required:
              - title
          Category:
@@ -95,20 +93,6 @@ Feature: Remove field from content type
                type: string
            required:
              - title
-           x-identifier:
-             - title
-         Tag:
-           type: object
-           properties:
-             guid:
-               type: string
-             title:
-               type: string
-           required:
-             - title
-           x-identifier:
-             - guid
-             - title
      paths:
        /:
          get:
@@ -117,6 +101,52 @@ Feature: Remove field from content type
              200:
                description: Application Homepage
        /blog:
+         get:
+           operationId: Get Blogs
+           summary: Get List of Blogs
+           parameters:
+             - in: query
+               name: page
+               schema:
+                 type: integer
+             - in: query
+               name: limit
+               schema:
+                 type: integer
+             - in: query
+               name: filters
+               schema:
+                 type: array
+                 items:
+                   type: object
+                   properties:
+                     field:
+                       type: string
+                     operator:
+                       type: string
+                     value:
+                       type: array
+                       items:
+                         type: string
+
+               required: false
+               description: query string
+           responses:
+             200:
+               description: List of blogs
+               content:
+                 application/json:
+                   schema:
+                     type: object
+                     properties:
+                       total:
+                         type: integer
+                       page:
+                         type: integer
+                       items:
+                         type: array
+                         items:
+                           $ref: "#/components/schemas/Blog"
          post:
            operationId: Add Blog
            requestBody:
@@ -201,85 +231,33 @@ Feature: Remove field from content type
                description: Blog Deleted
      """
     And blogs in the api
-      | id    | entity id                   | sequence no | title        | description    |
-      | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
-      | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
+      | id    | weos_id                     | sequence_no | title        | description    |
+      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
+      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
+      | 164   | 24KjFbp82wGq4qb5LAxLdA5GbR2 | 1           | Blog 6       | Some Blog 6    |
+      | 3     | 24KjHaQbjEv0ZxfKxFup1dI6iKP | 4           | Blog 3       | Some Blog 3    |
+      | 4     | 24KjIq8KJhIhWa7d8sNJhRilGpA | 1           | Blog 4       | Some Blog 4    |
+      | 5     | 24KjLAP17p3KvTy5YCMWUIRlOSS | 1           | Blog 5       | Some Blog 5    |
+      | 890   | 24KjMP9uTPxW5Xuhziv1balYskX | 1           | Blog 7       | Some Blog 7    |
+      | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
     And the service is running
 
-  Scenario: Remove a field that has no data
+  @WEOS-1327
+  Scenario: Hydrate tables based on events
 
-    Because the url field has been removed it should not be returned in the response
+    A developer should be able to configure an event repository to replay all it's events on startup. This should trigger
+    the associated projections
 
-    Given "Sojourner" removed the "url" field from the "Blog" content type
-    And the service is reset
-    When the "GET" endpoint "/blogs/1234" is hit
-    Then a 200 response should be returned
-    And a blog should be returned
-      | id    | title        | description    |
-      | 1234  | Blog 1       | Some Blog      |
-    And a blog should be returned without field "url"
-
-  Scenario: Remove a field that has data
-
-    If a field that is removed is added back it should still have the contents that was there before
-
-    Given "Sojourner" removed the "description" field from the "Blog" content type
-    And the service is reset
-    And the "GET" endpoint "/blogs/1234" is hit
-    And a 200 response should be returned
-    And a blog should be returned
-      | id    | title        |
-      | 1234  | Blog 1       |
-    And a blog should be returned without field "description"
-    And "Sojourner" adds the field "description" type "string" to the "Blog" content type
-    And the service is reset
-    When the "GET" endpoint "/blogs/1234" is hit
-    Then a 200 response should be returned
-    And a blog should be returned
-      | id    | title        | description    |
-      | 1234  | Blog 1       | Some Blog      |
-  
-  Scenario: Permanently remove a field
-
-    In order to permanently remove a field the "x-remove" extension should be used
-
-    Given "Sojourner" adds the "x-remove" attribute to the "description" field on the "Blog" content type
-    When the service is reset
-    Then the "description" field should be removed from the "Blog" table
-
-  Scenario: Remove a field that has already been removed
-
-    If the field was already removed (maybe because of previous run) just show a warning
-
-    Given "Sojourner" adds the "x-remove" attribute to the "description" field on the "Blog" content type
-    And the service is reset
-    And the "description" field should be removed from the "Blog" table
-    And the service is reset
-    Then a warning should be output to the logs telling the developer the property doesn't exist
-  
-@skipped
-  #this behaviour is not consistent across databases and after discussion, was decided would be handled later
-  Scenario: Remove a field that is an identifier
-
-    It's fine to remove an identifier
-
-    Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
-    Given "Sojourner" adds the "x-remove" attribute to the "title" field on the "Tag" content type
-    When the service is reset
-    Then the "title" field should be removed from the "Tag" table
-    And the "guid" field should be removed from the "Tag" table
-
-  
-  Scenario: Remove a field that is part of an identifier
-
-    It's fine to remove a part of an identifier
-
-    Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
-    When the service is reset
-    Then the "guid" field should be removed from the "Tag" table
-
-  Scenario: Remove a field that is part of a foreign key reference
-
-    Given "Sojourner" adds the "x-remove" attribute to the "title" field on the "Category" content type
-    When the service is reset
-    Then an error should show letting the developer know that is part of a foreign key reference
+    Given Sojourner" deletes the "Blog" table
+    When "Sojourner" calls the replay method on the event repository
+    Then the "Blog" table should be populated with
+      | id    | weos_id                     | sequence_no | title        | description    |
+      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 2           | Blog 1       | Some Blog      |
+      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
+      | 164   | 24KjFbp82wGq4qb5LAxLdA5GbR2 | 1           | Blog 6       | Some Blog 6    |
+      | 3     | 24KjHaQbjEv0ZxfKxFup1dI6iKP | 4           | Blog 3       | Some Blog 3    |
+      | 4     | 24KjIq8KJhIhWa7d8sNJhRilGpA | 1           | Blog 4       | Some Blog 4    |
+      | 5     | 24KjLAP17p3KvTy5YCMWUIRlOSS | 1           | Blog 5       | Some Blog 5    |
+      | 890   | 24KjMP9uTPxW5Xuhziv1balYskX | 1           | Blog 7       | Some Blog 7    |
+      | 1237  | 24KjNifBFHrIQcfEe2QCaiHXd22 | 1           | Blog 8       | Some Blog 8    |
+    And the total no. events and processed and failures should be returned

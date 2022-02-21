@@ -7,8 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/wepala/weos/projections"
+	weosContext "github.com/wepala/weos/context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -21,10 +20,14 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	api "github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"github.com/wepala/weos/utils"
 	"gorm.io/gorm"
 )
@@ -41,7 +44,10 @@ var rec *httptest.ResponseRecorder
 var header http.Header
 var resp *http.Response
 var db *sql.DB
+var gormDB *gorm.DB
+var dbconfig dbConfig
 var requests map[string]map[string]interface{}
+var responseBody map[string]interface{}
 var currScreen string
 var contentTypeID map[string]bool
 var dockerEndpoint string
@@ -56,7 +62,20 @@ var page int
 var contentType string
 var result api.ListApiResponse
 var scenarioContext context.Context
+var blogfixtures []interface{}
+var total int
+var success int
+var failed int
+var errArray []error
+var filters string
+var token string
 
+type FilterProperties struct {
+	Operator string
+	Field    string
+	Value    string
+	Values   []string
+}
 type User struct {
 	Name      string
 	AccountID string
@@ -81,8 +100,13 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = ""
+	page = 1
+	limit = 0
+	token = ""
 	result = api.ListApiResponse{}
-	os.Remove("e2e.db")
+	blogfixtures = []interface{}{}
+	total, success, failed = 0, 0, 0
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -98,8 +122,12 @@ x-weos-config:
     report-caller: true
     formatter: json
   database:
-    driver: sqlite3
-    database: e2e.db
+    database: "%s"
+    driver: "%s"
+    host: "%s"
+    password: "%s"
+    username: "%s"
+    port: %d
   event-source:
     - title: default
       driver: service
@@ -119,18 +147,7 @@ x-weos-config:
 components:
   schemas:
 `
-
-	tapi, err := api.New("e2e.yaml")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
-	API = *tapi
-	e = API.EchoInstance()
-	e.Logger.SetOutput(&buf)
-	err = tapi.Initialize(context.TODO())
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
@@ -138,18 +155,17 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
+	filters = ""
+	page = 1
+	limit = 0
+	token = ""
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
-	os.Remove("e2e.db")
-	var err error
-	db, err = sql.Open("sqlite3", "e2e.db")
-	if err != nil {
-		fmt.Errorf("unexpected error '%s'", err)
-	}
-	db.Exec("PRAGMA foreign_keys = ON")
+	blogfixtures = []interface{}{}
+	total, success, failed = 0, 0, 0
 	e = echo.New()
 	openAPI = `openapi: 3.0.3
 info:
@@ -166,8 +182,12 @@ x-weos-config:
     report-caller: true
     formatter: json
   database:
-    driver: sqlite3
-    database: e2e.db
+    database: "%s"
+    driver: "%s"
+    host: "%s"
+    password: "%s"
+    username: "%s"
+    port: %d
   event-source:
     - title: default
       driver: service
@@ -188,6 +208,27 @@ components:
   schemas:
 `
 	return ctx, nil
+}
+
+func dropDB() error {
+
+	var errr error
+	if *driver == "sqlite3" {
+		os.Remove("e2e.db")
+		db, errr = sql.Open("sqlite3", "e2e.db")
+	} else if *driver == "postgres" {
+		r := gormDB.Exec(`DROP SCHEMA public CASCADE;
+		CREATE SCHEMA public;`)
+		errr = r.Error
+	} else if *driver == "mysql" {
+		_, r := db.Exec(`drop DATABASE IF EXISTS mysql;`)
+		if r != nil {
+			return r
+		}
+		_, r = db.Exec(`create DATABASE IF NOT EXISTS mysql;`)
+		errr = r
+	}
+	return errr
 }
 
 func aContentTypeModeledInTheSpecification(arg1, arg2 string, arg3 *godog.DocString) error {
@@ -216,7 +257,7 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 	if err != nil {
 		return fmt.Errorf("unexpected error getting projection: %s", err)
 	}
-	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	apiProjection1 := apiProjection.(*projections.GORMDB)
 	gormDB := apiProjection1.DB()
 
 	if !gormDB.Migrator().HasTable(arg1) {
@@ -246,11 +287,41 @@ func aModelShouldBeAddedToTheProjection(arg1 string, details *godog.Table) error
 			case "Type":
 
 				if cell.Value == "varchar(512)" {
-					cell.Value = "text"
-					payload[column.Name()] = "hugs"
+					if *driver == "sqlite3" {
+						cell.Value = "text"
+					} else {
+						cell.Value = "varchar"
+					}
+				}
+
+				if cell.Value == "integer" {
+					if *driver == "postgres" {
+						cell.Value = "int8"
+					}
+					if *driver == "mysql" {
+						cell.Value = "bigint"
+					}
+				}
+
+				if cell.Value == "datetime" {
+					if *driver == "postgres" {
+						cell.Value = "timestamptz"
+					}
 				}
 				if !strings.EqualFold(column.DatabaseTypeName(), cell.Value) {
-					return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+					if cell.Value == "varchar" && *driver == "postgres" {
+						//string values for postgres can be both text and varchar
+						if !strings.EqualFold(column.DatabaseTypeName(), "text") {
+							return fmt.Errorf("expected to get type '%s' got '%s'", "text", column.DatabaseTypeName())
+						}
+					} else if cell.Value == "varchar" && *driver == "mysql" {
+						//string values for postgres can be both text and varchar
+						if !strings.EqualFold(column.DatabaseTypeName(), "longtext") {
+							return fmt.Errorf("expected to get type '%s' got '%s'", "longtext", column.DatabaseTypeName())
+						}
+					} else {
+						return fmt.Errorf("expected to get type '%s' got '%s'", cell.Value, column.DatabaseTypeName())
+					}
 				}
 			//ignore this for now.  gorm does not set to nullable, rather defaulting to the null value of that interface
 			case "Null", "Default":
@@ -349,49 +420,14 @@ func blogsInTheApi(details *godog.Table) error {
 
 	for i := 1; i < len(details.Rows); i++ {
 		req := make(map[string]interface{})
-		seq := 0
 		for n, cell := range details.Rows[i].Cells {
-			if (head[n].Value) != "sequence_no" {
-				req[head[n].Value] = cell.Value
-			} else {
-				seq, _ = strconv.Atoi(cell.Value)
-			}
-		}
-		reqBytes, _ := json.Marshal(req)
-		body := bytes.NewReader(reqBytes)
-		var request *http.Request
-
-		request = httptest.NewRequest("POST", "/blog", body)
-
-		request = request.WithContext(context.TODO())
-		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		request.Header = header
-		request.Close = true
-		rec = httptest.NewRecorder()
-		e.ServeHTTP(rec, request)
-		if rec.Code != http.StatusCreated {
-			return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			req[head[n].Value] = cell.Value
 		}
 
-		if seq > 1 {
-
-			for i := 1; i < seq; i++ {
-				reqBytes, _ := json.Marshal(req)
-				body := bytes.NewReader(reqBytes)
-				request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
-				request = request.WithContext(context.TODO())
-				header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-				request.Header = header
-				request.Close = true
-				rec = httptest.NewRecorder()
-				e.ServeHTTP(rec, request)
-				if rec.Code != http.StatusOK {
-					return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
-				}
-			}
-		}
+		blogfixtures = append(blogfixtures, req)
 
 	}
+
 	return nil
 }
 
@@ -435,12 +471,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
-		apiProjection, err := API.GetProjection("Default")
-		if err != nil {
-			return fmt.Errorf("unexpected error getting projection: %s", err)
-		}
-		apiProjection1 := apiProjection.(*projections.GORMProjection)
-		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
+		result = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
 		}
@@ -483,6 +514,7 @@ func theIsSubmitted(contentType string) error {
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 	request.Header = header
 	request.Close = true
 	rec = httptest.NewRecorder()
@@ -504,16 +536,27 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	os.Remove("e2e.db")
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	if err != nil {
 		return err
 	}
+	tapi.DB = db
 	API = *tapi
 	e = API.EchoInstance()
 	buf = bytes.Buffer{}
 	e.Logger.SetOutput(&buf)
 	err = API.Initialize(scenarioContext)
+	if err != nil {
+		return err
+	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMDB)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -656,6 +699,7 @@ func theEndpointIsHit(method, contentType string) error {
 		request := httptest.NewRequest(method, contentType, nil)
 		request = request.WithContext(context.TODO())
 		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 		request.Header = header
 		request.Close = true
 		rec = httptest.NewRecorder()
@@ -665,16 +709,75 @@ func theEndpointIsHit(method, contentType string) error {
 }
 
 func theServiceIsRunning() error {
-	os.Remove("e2e.db")
 	buf = bytes.Buffer{}
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
 	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
 	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMDB)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
 	e = API.EchoInstance()
+
+	if len(blogfixtures) != 0 {
+		for _, r := range blogfixtures {
+			req := r.(map[string]interface{})
+			sequence := req["sequence_no"]
+			delete(req, "sequence_no")
+			reqBytes, _ := json.Marshal(req)
+			body := bytes.NewReader(reqBytes)
+			var request *http.Request
+			seq := 0
+			if _, ok := sequence.(string); ok {
+				seq, _ = strconv.Atoi(sequence.(string))
+			}
+			request = httptest.NewRequest("POST", "/blog", body)
+
+			request = request.WithContext(context.TODO())
+			header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
+			request.Header = header
+			request.Close = true
+			rec = httptest.NewRecorder()
+			e.ServeHTTP(rec, request)
+			if rec.Code != http.StatusCreated {
+				return fmt.Errorf("expected the status to be %d got %d", http.StatusCreated, rec.Code)
+			}
+
+			if seq > 1 {
+
+				for i := 1; i < seq; i++ {
+					reqBytes, _ := json.Marshal(req)
+					body := bytes.NewReader(reqBytes)
+					request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
+					request = request.WithContext(context.TODO())
+					header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+					header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
+					request.Header = header
+					request.Close = true
+					rec = httptest.NewRecorder()
+					e.ServeHTTP(rec, request)
+					if rec.Code != http.StatusOK {
+						return fmt.Errorf("expected the status to be %d got %d", http.StatusOK, rec.Code)
+					}
+				}
+			}
+
+		}
+	}
+	token = ""
 	return nil
 }
 
@@ -745,7 +848,7 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 		if err != nil {
 			return fmt.Errorf("unexpected error getting projection: %s", err)
 		}
-		apiProjection1 := apiProjection.(*projections.GORMProjection)
+		apiProjection1 := apiProjection.(*projections.GORMDB)
 		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
 		if contentEntity != nil {
 			break
@@ -796,6 +899,7 @@ func aBlogShouldBeReturned(details *godog.Table) error {
 		}
 	}
 
+	responseBody = contentEntity
 	return nil
 }
 
@@ -922,8 +1026,13 @@ func theListResultsShouldBe(details *godog.Table) error {
 		compare = map[string]interface{}{}
 	}
 	foundItems := 0
-
-	json.NewDecoder(rec.Body).Decode(&result)
+	response := rec.Result()
+	defer response.Body.Close()
+	result.Items = make([]map[string]interface{}, len(compareArray))
+	err := json.NewDecoder(response.Body).Decode(&result)
+	if err != nil {
+		return err
+	}
 	for i, entity := range compareArray {
 		foundEntity := true
 		for key, value := range entity {
@@ -957,7 +1066,7 @@ func thePageNoIs(pageNo int) error {
 
 func theSearchButtonIsHit() error {
 	var request *http.Request
-	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page), nil)
+	request = httptest.NewRequest("GET", "/"+strings.ToLower(contentType)+"?limit="+strconv.Itoa(limit)+"&page="+strconv.Itoa(page)+"&"+filters, nil)
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	request.Header = header
@@ -970,6 +1079,161 @@ func theSearchButtonIsHit() error {
 func theTotalResultsShouldBe(totalResult int) error {
 	if result.Total != int64(totalResult) {
 		return fmt.Errorf("expect page to be %d, got %d", totalResult, result.Total)
+	}
+	return nil
+}
+
+func aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist() error {
+	if !strings.Contains(buf.String(), "property does not exist") {
+	}
+	return nil
+}
+
+func addsTheAttributeToTheFieldOnTheContentType(user, attribute, field, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	attributes := schemas[contentType].Value.Extensions[attribute]
+	deletedFields := []string{}
+	bytes, _ := json.Marshal(attributes)
+	json.Unmarshal(bytes, &deletedFields)
+	deletedFields = append(deletedFields, field)
+	schemas[contentType].Value.Extensions[attribute] = deletedFields
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err = swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func addsTheFieldToTheContentType(user, field, fieldType, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+	switch fieldType {
+	case "string":
+		schemas[contentType].Value.Properties[field] = &openapi3.SchemaRef{
+			Value: &openapi3.Schema{
+				Type: "string",
+			},
+		}
+	default:
+		fmt.Errorf("no logic for adding field type %s", fieldType)
+	}
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference() error {
+	if errs == nil {
+		fmt.Errorf("expected there to be an error on migrating")
+		return fmt.Errorf("expected error on migrating")
+	}
+	//TODO: add checks fo the speicific error
+	return nil
+}
+
+func removedTheFieldFromTheContentType(user, field, contentType string) error {
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData([]byte(openAPI))
+	if err != nil {
+		return err
+	}
+
+	schemas := swagger.Components.Schemas
+
+	delete(schemas[contentType].Value.Properties, strings.ToLower(field))
+
+	pks, _ := json.Marshal(schemas[contentType].Value.Extensions["x-identifier"])
+	primayKeys := []string{}
+	json.Unmarshal(pks, &primayKeys)
+	for i, k := range primayKeys {
+		if strings.EqualFold(k, field) {
+			primayKeys[i] = primayKeys[len(primayKeys)-1]
+			primayKeys = primayKeys[:len(primayKeys)-1]
+		}
+	}
+
+	schemas[contentType].Value.Extensions["x-identifier"] = primayKeys
+
+	swagger.Components.Schemas = schemas
+
+	bytes, err := swagger.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	openAPI = string(bytes)
+	return nil
+}
+
+func theFieldShouldBeRemovedFromTheTable(field, table string) error {
+	if errs != nil {
+		return errs
+	}
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMDB)
+	gormDB := apiProjection1.DB()
+	if !gormDB.Migrator().HasTable(table) {
+		return fmt.Errorf("expected there to be a table %s", table)
+	}
+	columns, err := gormDB.Migrator().ColumnTypes(table)
+	if err != nil {
+		return err
+	}
+
+	for _, c := range columns {
+		if strings.EqualFold(c.Name(), field) {
+			return fmt.Errorf("there should be no column %s", field)
+		}
+	}
+	return nil
+}
+
+func theServiceIsReset() error {
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	API = *tapi
+	e = API.EchoInstance()
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
+	errs = API.Initialize(scenarioContext)
+	return nil
+}
+
+func aBlogShouldBeReturnedWithoutField(field string) error {
+	if len(responseBody) == 0 {
+		err := json.NewDecoder(rec.Body).Decode(&responseBody)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, ok := responseBody[field]; ok {
+		return fmt.Errorf("expected to not find field %s", field)
 	}
 	return nil
 }
@@ -996,7 +1260,7 @@ func theShouldBeDeleted(contentEntity string, id int) error {
 	if err != nil {
 		return fmt.Errorf("unexpected error getting projection: %s", err)
 	}
-	apiProjection1 := apiProjection.(*projections.GORMProjection)
+	apiProjection1 := apiProjection.(*projections.GORMDB)
 	searchResult := apiProjection1.DB().Table(strings.Title(contentEntity)).Find(&output, "id = ?", id)
 	if len(output) != 0 {
 		return fmt.Errorf("the entity was not deleted")
@@ -1007,8 +1271,219 @@ func theShouldBeDeleted(contentEntity string, id int) error {
 	return nil
 }
 
+func aFilterOnTheFieldEqWithValue(field, value string) error {
+
+	filters = "_filters[" + field + "][eq]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldEqWithValues(field string, values *godog.Table) error {
+	filters = "_filters[" + field + "][eq]="
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
+		}
+	}
+
+	return nil
+}
+
+func aFilterOnTheFieldGtWithValue(field, value string) error {
+	filters = "_filters[" + field + "][gt]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldInWithValues(field string, values *godog.Table) error {
+	filters = "_filters[" + field + "][in]="
+	for i := 1; i < len(values.Rows); i++ {
+		for _, cell := range values.Rows[i].Cells {
+			if i == len(values.Rows)-1 {
+				filters += cell.Value
+			} else {
+				filters += cell.Value + ","
+			}
+		}
+	}
+
+	return nil
+}
+
+func aFilterOnTheFieldLikeWithValue(field, value string) error {
+	filters = "_filters[" + field + "][like]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldLtWithValue(field, value string) error {
+	filters = "_filters[" + field + "][lt]=" + value
+	return nil
+}
+
+func aFilterOnTheFieldNeWithValue(field, value string) error {
+	filters = "_filters[" + field + "][ne]=" + value
+	return nil
+}
+
+func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
+	repo, err := API.GetEventStore("Default")
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+	eventRepo := repo.(*model.EventRepositoryGorm)
+	projection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+
+	factories := API.GetEntityFactories()
+	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
+	if err != nil {
+		return fmt.Errorf("error getting event store: %s", err)
+	}
+	return nil
+}
+
+func sojournerDeletesTheTable(tableName string) error {
+	//output := map[string]interface{}{}
+
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMDB)
+	if *driver == "mysql" {
+		tables := []string{}
+		r := apiProjection1.DB().Debug().Raw(fmt.Sprintf("SELECT TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE REFERENCED_TABLE_NAME = '%s';", strings.Title(tableName))).Scan(&tables)
+		if r.Error != nil {
+			return r.Error
+		}
+		schema := API.Schemas
+		for _, t := range tables {
+			s := schema[t]
+			f := s.GetField("Table")
+			f.SetTag(`json:"table_alias" gorm:"default:` + t + `"`)
+			instance := s.Build().New()
+			json.Unmarshal([]byte(`{
+				"table_alias": "`+t+`"
+			}`), &instance)
+			r := apiProjection1.DB().Debug().Migrator().DropConstraint(instance, tableName)
+			if r != nil {
+				return r
+			}
+
+		}
+	}
+	result := apiProjection1.DB().Migrator().DropTable(strings.Title(tableName))
+	if result != nil {
+		return fmt.Errorf("error dropping table: %s got err: %s", tableName, result)
+	}
+
+	return nil
+}
+
+func theTableShouldBePopulatedWith(contentType string, details *godog.Table) error {
+	contentEntity := map[string]interface{}{}
+	var result *gorm.DB
+
+	head := details.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(details.Rows); i++ {
+		for n, cell := range details.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+
+		apiProjection, err := API.GetProjection("Default")
+		if err != nil {
+			return fmt.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMDB)
+		result = apiProjection1.DB().Table(strings.Title(contentType)).Find(&contentEntity, "weos_ID = ?", compare["weos_id"])
+
+		if contentEntity == nil {
+			return fmt.Errorf("unexpected error finding content type in db")
+		}
+
+		if result.Error != nil {
+			return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+		}
+
+		for key, value := range compare {
+			if key == "sequence_no" {
+				strSeq := strconv.Itoa(int(contentEntity[key].(int64)))
+				if strSeq != value {
+					return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+				}
+			} else {
+				if contentEntity[key] != value {
+					return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+				}
+			}
+		}
+
+	}
+	return nil
+}
+
+func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
+	if total == 0 && success == 0 && failed == 0 {
+		return fmt.Errorf("expected total, success and failed to be non 0 values")
+	}
+	return nil
+}
+
+func aWarningShouldBeShown() error {
+	if !strings.Contains(buf.String(), "invalid open id connect url:") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func anErrorShouldBeReturned1(statusCode int) error {
+	if rec.Code != statusCode {
+		return fmt.Errorf("expected response status code to be %d got %d", statusCode, rec.Code)
+	}
+	return nil
+}
+
+func authenticatedAndReceivedAJWT(userName string) error {
+	token = os.Getenv("OAUTH_TEST_KEY")
+	return nil
+}
+
+func hasAValidUserAccount(arg1 string) error {
+	return nil
+}
+
+func sIdIs(userName, userID string) error {
+	return nil
+}
+
+func theUserIdOnTheEntityEventsShouldBe(userID string) error {
+	var events []map[string]interface{}
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMDB)
+	eventResult := apiProjection1.DB().Table("gorm_events").Find(&events, "type = ?", "create")
+	if eventResult.Error != nil {
+		return fmt.Errorf("unexpected error finding events: %s", eventResult.Error)
+	}
+	if events[len(events)-1]["user"] == "" {
+		return fmt.Errorf("expected to find user but got nil")
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
+	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
+		return ctx, dropDB()
+	})
 	//add context steps
 	ctx.Step(`^a content type "([^"]*)" modeled in the "([^"]*)" specification$`, aContentTypeModeledInTheSpecification)
 	ctx.Step(`^a developer "([^"]*)"$`, aDeveloper)
@@ -1051,18 +1526,43 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a warning should be output because the endpoint is invalid$`, aWarningShouldBeOutputBecauseTheEndpointIsInvalid)
 	ctx.Step(`^a warning should be output to logs$`, aWarningShouldBeOutputToLogs)
 	ctx.Step(`^the "([^"]*)" header should be present$`, theHeaderShouldBePresent)
+	ctx.Step(`^the list results should be$`, theListResultsShouldBe)
+	ctx.Step(`^the page in the result should be (\d+)$`, thePageInTheResultShouldBe)
+	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
+	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
+	ctx.Step(`^a warning should be output to the logs telling the developer the property doesn\'t exist$`, aWarningShouldBeOutputToTheLogsTellingTheDeveloperThePropertyDoesntExist)
+	ctx.Step(`^"([^"]*)" adds the "([^"]*)" attribute to the "([^"]*)" field on the "([^"]*)" content type$`, addsTheAttributeToTheFieldOnTheContentType)
+	ctx.Step(`^"([^"]*)" adds the field "([^"]*)" type "([^"]*)" to the "([^"]*)" content type$`, addsTheFieldToTheContentType)
+	ctx.Step(`^an error should show letting the developer know that is part of a foreign key reference$`, anErrorShouldShowLettingTheDeveloperKnowThatIsPartOfAForeignKeyReference)
+	ctx.Step(`^"([^"]*)" removed the "([^"]*)" field from the "([^"]*)" content type$`, removedTheFieldFromTheContentType)
+	ctx.Step(`^the "([^"]*)" field should be removed from the "([^"]*)" table$`, theFieldShouldBeRemovedFromTheTable)
+	ctx.Step(`^a blog should be returned without field "([^"]*)"$`, aBlogShouldBeReturnedWithoutField)
+	ctx.Step(`^the service is reset$`, theServiceIsReset)
 	ctx.Step(`^the "([^"]*)" form is submitted with content type "([^"]*)"$`, theFormIsSubmittedWithContentType)
 	ctx.Step(`^the "([^"]*)" is submitted without content type$`, theIsSubmittedWithoutContentType)
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" list screen$`, isOnTheListScreen)
 	ctx.Step(`^the items per page are (\d+)$`, theItemsPerPageAre)
-	ctx.Step(`^the list results should be$`, theListResultsShouldBe)
-	ctx.Step(`^the page in the result should be (\d+)$`, thePageInTheResultShouldBe)
 	ctx.Step(`^the page no\. is (\d+)$`, thePageNoIs)
-	ctx.Step(`^the search button is hit$`, theSearchButtonIsHit)
-	ctx.Step(`^the total results should be (\d+)$`, theTotalResultsShouldBe)
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with entity id "([^"]*)" for blog with id "([^"]*)"$`, isOnTheDeleteScreenWithEntityIdForBlogWithId)
 	ctx.Step(`^"([^"]*)" is on the "([^"]*)" delete screen with id "([^"]*)"$`, isOnTheDeleteScreenWithId)
 	ctx.Step(`^the "([^"]*)" "(\d+)" should be deleted$`, theShouldBeDeleted)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with value "([^"]*)"$`, aFilterOnTheFieldEqWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "eq" with values$`, aFilterOnTheFieldEqWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "gt" with value "([^"]*)"$`, aFilterOnTheFieldGtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "in" with values$`, aFilterOnTheFieldInWithValues)
+	ctx.Step(`^a filter on the field "([^"]*)" "like" with value "([^"]*)"$`, aFilterOnTheFieldLikeWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "lt" with value "([^"]*)"$`, aFilterOnTheFieldLtWithValue)
+	ctx.Step(`^a filter on the field "([^"]*)" "ne" with value "([^"]*)"$`, aFilterOnTheFieldNeWithValue)
+	ctx.Step(`^"([^"]*)" calls the replay method on the event repository$`, callsTheReplayMethodOnTheEventRepository)
+	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
+	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
+	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^a warning should be shown$`, aWarningShouldBeShown)
+	ctx.Step(`^an (\d+) error should be returned$`, anErrorShouldBeReturned1)
+	ctx.Step(`^"([^"]*)" authenticated and received a JWT$`, authenticatedAndReceivedAJWT)
+	ctx.Step(`^"([^"]*)" has a valid user account$`, hasAValidUserAccount)
+	ctx.Step(`^"([^"]*)"\'s id is "([^"]*)"$`, sIdIs)
+	ctx.Step(`^the user id on the entity events should be "([^"]*)"$`, theUserIdOnTheEntityEventsShouldBe)
 }
 
 func TestBDD(t *testing.T) {
@@ -1072,8 +1572,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~skipped && ~long",
-			//Tags: "WEOS-1131",
+			Tags:   "~long && ~skipped",
+			//Tags: "WEOS-1343",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

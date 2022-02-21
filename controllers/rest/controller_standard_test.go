@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -114,7 +115,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		Property: mockPayload,
 	}
 
-	projections := &ProjectionMock{
+	projections := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			if ctx == nil {
 				t.Errorf("expected to find context but got nil")
@@ -130,6 +131,9 @@ func TestStandardControllers_Create(t *testing.T) {
 	entityFactory := &EntityFactoryMock{
 		NameFunc: func() string {
 			return "Blog"
+		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
 		},
 	}
 
@@ -277,7 +281,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		},
 	}
 
-	projection := &ProjectionMock{
+	projection := &GormProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
@@ -309,6 +313,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		req.Header.Set("Content-Type", "application/json")
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createBatchMw := rest.CreateBatchMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
 		e.POST("/blogs", controller, mw, createBatchMw)
@@ -452,7 +457,7 @@ func TestStandardControllers_Update(t *testing.T) {
 	mockEntity.SequenceNo = int64(1)
 	mockEntity.Property = mockBlog
 
-	projection := &ProjectionMock{
+	projection := &GormProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
@@ -570,7 +575,7 @@ func TestStandardControllers_View(t *testing.T) {
 	}}
 
 	t.Run("Testing the generic view endpoint", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -623,7 +628,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("Testing view with entity id", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				if entityFactory == nil {
 					t.Errorf("expected to find entity factory got nil")
@@ -691,7 +696,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("invalid entity id should return 404", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -766,7 +771,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("invalid numeric entity id should return 404", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -841,7 +846,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("view with sequence no", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -921,7 +926,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 	})
 	t.Run("view with invalid sequence no", func(t *testing.T) {
-		projection := &ProjectionMock{
+		projection := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return map[string]interface{}{
 					"id":      "1",
@@ -1014,7 +1019,7 @@ func TestStandardControllers_List(t *testing.T) {
 	array := []map[string]interface{}{}
 	array = append(array, mockBlog, mockBlog1)
 
-	mockProjection := &ProjectionMock{
+	mockProjection := &GormProjectionMock{
 		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 			return array, 2, nil
 		},
@@ -1073,6 +1078,230 @@ func TestStandardControllers_List(t *testing.T) {
 		}
 
 	})
+	t.Run("sending page = 0 ", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=0&l=5", nil)
+		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+		var result rest.ListApiResponse
+		json.NewDecoder(response.Body).Decode(&result)
+		if result.Page != 1 {
+			t.Errorf("expected page to be %d, got %d", 1, result.Page)
+		}
+
+	})
+}
+
+func TestStandardControllers_ListFilters(t *testing.T) {
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
+
+	mockBlog := map[string]interface{}{"id": "123", "title": "my first blog", "description": "description"}
+	mockBlog1 := map[string]interface{}{"id": "1234", "title": "my first blog1", "description": "description1"}
+
+	array := []map[string]interface{}{}
+	array = append(array, mockBlog, mockBlog1)
+
+	mockProjection := &GormProjectionMock{
+		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+			if entityFactory == nil {
+				t.Errorf("no entity factory found")
+			}
+			if len(filterOptions) != 2 {
+				return nil, 0, errors.New("expect filter options length to be " + "2")
+
+			}
+			if filterOptions["id"] == nil || filterOptions["id"].(*rest.FilterProperties).Operator != "like" || filterOptions["id"].(*rest.FilterProperties).Value.(uint64) != uint64(123) {
+				t.Errorf("unexpected error trying to find id filter")
+			}
+			if filterOptions["title"] == nil || filterOptions["title"].(*rest.FilterProperties).Operator != "like" || filterOptions["title"].(*rest.FilterProperties).Value != "my first blog" {
+				t.Errorf("unexpected error trying to find title filter")
+			}
+			return array, 2, nil
+		},
+	}
+
+	entityFactory := &EntityFactoryMock{
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
+	}
+	commandDispatcher := &CommandDispatcherMock{}
+	eventRepository := &EventRepositoryMock{}
+
+	t.Run("Testing the generic list endpoint with parameters", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5&_filters[id][like]=123&_filters[title][like]=my%20first%20blog", nil)
+		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+		//check response body is a list of content entities
+		var result rest.ListApiResponse
+		json.NewDecoder(response.Body).Decode(&result)
+		if len(result.Items) != 2 {
+			t.Fatal("expected entities found")
+		}
+		if result.Total != 2 {
+			t.Errorf("expected total to be %d got %d", 2, result.Total)
+		}
+		if result.Page != 1 {
+			t.Errorf("expected page to be %d got %d", 1, result.Page)
+		}
+		found := 0
+		for _, blog := range result.Items {
+			if blog["id"] == "123" && blog["title"] == "my first blog" && blog["description"] == "description" {
+				found++
+				continue
+			}
+			if blog["id"] == "1234" && blog["title"] == "my first blog1" && blog["description"] == "description1" {
+				found++
+				continue
+			}
+		}
+		if found != 2 {
+			t.Errorf("expected to find %d got %d", 2, found)
+		}
+
+	})
+	t.Run("Sending invalid property on filters in the generic list endpoint as parameters", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5&_filters[fgsd][like]=123&_filters[title][like]=my%20first%20blog", nil)
+		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
+		}
+		result := "invalid property found in filter: fgsd"
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Errorf("unexpected error : %s", err)
+		}
+		if strings.Contains(result, string(b)) {
+			t.Errorf("expected error returned to be %s got %s", result, string(b))
+		}
+	})
+	t.Run("Sending multiple values on the wrong operator in the generic list endpoint as parameters", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5&_filters[fgsd][like]=123,hsh,3", nil)
+		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
+		}
+		result := "this operator like does not support multiple values "
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Errorf("unexpected error : %s", err)
+		}
+		if strings.Contains(result, string(b)) {
+			t.Errorf("expected error returned to be %s got %s", result, string(b))
+		}
+
+	})
+	t.Run("sending a nil entityfactory ", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
+		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, nil, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+		if response.StatusCode != 400 {
+			t.Errorf("expected response code to be %d, got %d", 400, response.StatusCode)
+		}
+		result := "entity factory must be set "
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Errorf("unexpected error : %s", err)
+		}
+		if strings.Contains(result, string(b)) {
+			t.Errorf("expected error returned to be %s got %s", result, string(b))
+		}
+
+	})
+	t.Run("Testing getting back errors", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
+		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected response code to be %d, got %d", http.StatusBadRequest, response.StatusCode)
+		}
+
+	})
+
 }
 
 func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
@@ -1153,7 +1382,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		Property: mockPayload,
 	}
 
-	projections := &ProjectionMock{
+	projections := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockContentEntity, nil
 		},
@@ -1311,7 +1540,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		Property: mockPayload,
 	}
 
-	projections := &ProjectionMock{
+	projections := &GormProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return mockContentEntity, nil
 		},
@@ -1461,7 +1690,7 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 	mockEntity.SequenceNo = int64(1)
 	mockEntity.Property = mockBlog
 
-	projection := &ProjectionMock{
+	projection := &GormProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return nil, nil
 		},
@@ -1570,7 +1799,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		},
 	}
 
-	projection := &ProjectionMock{
+	projection := &GormProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return mockInterface, nil
 		},
@@ -1623,7 +1852,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 			},
 		}
 
-		projection1 := &ProjectionMock{
+		projection1 := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return mockInterface1, nil
 			},
@@ -1678,7 +1907,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 		err1 := fmt.Errorf("this is an error")
 
-		projection1 := &ProjectionMock{
+		projection1 := &GormProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 				return nil, err1
 			},
@@ -1716,6 +1945,64 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 		if response.StatusCode != 500 {
 			t.Errorf("expected response code to be %d, got %d", 404, response.StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
+	//instantiate api
+	api, err := rest.New("./fixtures/blog-security.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading api '%s'", err)
+	}
+	err = api.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error initializing api '%s'", err)
+	}
+	e := api.EchoInstance()
+
+	t.Run("no jwt token added when required", func(t *testing.T) {
+		description := "testing 1st blog description"
+		mockBlog := &TestBlog{Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusUnauthorized, resp.Result().StatusCode)
+		}
+	})
+	t.Run("security parameter array is empty", func(t *testing.T) {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusOK {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+		}
+	})
+	t.Run("jwt token added", func(t *testing.T) {
+		description := "testing 1st blog description"
+		url := "www.example.com"
+		title := "example"
+		mockBlog := &TestBlog{Title: &title, Url: &url, Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		token := os.Getenv("OAUTH_TEST_KEY")
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
 	})
 }

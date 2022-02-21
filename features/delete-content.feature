@@ -23,8 +23,12 @@ Feature: Delete content
         report-caller: true
         formatter: json
       database:
-        driver: sqlite3
-        database: e2e.db
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
       event-source:
         - title: default
           driver: service
@@ -193,7 +197,6 @@ Feature: Delete content
              200:
                description: Blog Deleted
      """
-    And the service is running
     And blogs in the api
       | id    | weos_id        | sequence_no | title        | description    |
       | 1     | <Generated ID> | 2           | Blog 1       | Some Blog      |
@@ -204,7 +207,7 @@ Feature: Delete content
       | 5     | <Generated ID> | 1           | Blog 5       | Some Blog 5    |
       | 890   | <Generated ID> | 1           | Blog 7       | Some Blog 7    |
       | 1237  | <Generated ID> | 1           | Blog 8       | Some Blog 8    |
-
+    And the service is running
 
    Scenario: Delete item based on id
 

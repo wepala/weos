@@ -23,8 +23,12 @@ Feature: Edit content
         report-caller: true
         formatter: json
       database:
-        driver: sqlite3
-        database: e2e.db
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
       event-source:
         - title: default
           driver: service
@@ -182,12 +186,12 @@ Feature: Edit content
              200:
                description: Blog Deleted
      """
-     And the service is running
      And blogs in the api
        | id    | weos_id        | sequence_no | title        | description    |
        | 1234  | 986888285      | 1           | Blog 1       | Some Blog      |
        | 4567  | 5uhq85nal      | 1           | Blog 2       | Some Blog 2    |
-
+     And the service is running
+     
    Scenario: Edit item
 
      Updating an item leads to a new sequence no. being created and returned
@@ -201,14 +205,15 @@ Feature: Edit content
      And the "Blog" is updated
        | title          | description                       |
        | Some New Title | Some Description                  |
-   
+
+     @focus1
    Scenario: Update item with invalid data
 
      If the content type validation fails then a 422 response code should be returned (the request could have a valid
      format but the contents are invalid)
 
      Given "Sojourner" is on the "Blog" edit screen with id "1234"
-     And "Sojourner" enters "Some New Title" in the "last_updated" field
+     And "Sojourner" enters "Some New Title" in the "lastUpdated" field
 
      When the "Blog" is submitted
      Then a 422 response should be returned

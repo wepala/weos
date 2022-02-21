@@ -3,8 +3,16 @@ package rest
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections/dialects"
 	"gorm.io/driver/clickhouse"
@@ -13,12 +21,6 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
-	"net/http"
-	"os"
-	"reflect"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -34,8 +36,8 @@ type RESTAPI struct {
 	Log                            model.Log
 	DB                             *sql.DB
 	Client                         *http.Client
-	projection                     *projections.GORMProjection
-	config                         *APIConfig
+	projection                     *projections.GORMDB
+	Config                         *APIConfig
 	e                              *echo.Echo
 	PathConfigs                    map[string]*PathConfig
 	Schemas                        map[string]ds.Builder
@@ -45,12 +47,14 @@ type RESTAPI struct {
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]projections.Projection
+	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
 	registeredInitializers         map[reflect.Value]int
 	prePathInitializers            []PathInitializer
 	registeredPrePathInitializers  map[reflect.Value]int
 	postPathInitializers           []PathInitializer
 	registeredPostPathInitializers map[reflect.Value]int
+	entityFactories                map[string]model.EntityFactory
 }
 
 type schema struct {
@@ -69,11 +73,14 @@ type APIInterface interface {
 	SetEchoInstance(e *echo.Echo)
 }
 
+//Deprecated: 02/13/2022 made Config public
 func (p *RESTAPI) AddConfig(config *APIConfig) error {
-	p.config = config
+	p.Config = config
 	return nil
 }
 
+//Deprecated: 02/13/2022 This should not but actively used
+//AddPathConfig add path Config
 func (p *RESTAPI) AddPathConfig(path string, config *PathConfig) error {
 	if p.PathConfigs == nil {
 		p.PathConfigs = make(map[string]*PathConfig)
@@ -112,6 +119,20 @@ func (p *RESTAPI) RegisterEventStore(name string, repository model.EventReposito
 		p.eventStores = make(map[string]model.EventRepository)
 	}
 	p.eventStores[name] = repository
+}
+
+//RegisterGlobalInitializer add global initializer if it's not already there
+func (p *RESTAPI) RegisterGlobalInitializer(initializer GlobalInitializer) {
+	if p.registeredInitializers == nil {
+		p.registeredInitializers = make(map[reflect.Value]int)
+	}
+	//only add initializer if it doesn't already exist
+	tpoint := reflect.ValueOf(initializer)
+	if _, ok := p.registeredInitializers[tpoint]; !ok {
+		p.globalInitializers = append(p.globalInitializers, initializer)
+		p.registeredInitializers[tpoint] = len(p.globalInitializers)
+	}
+
 }
 
 //RegisterOperationInitializer add operation initializer if it's not already there
@@ -172,6 +193,14 @@ func (p *RESTAPI) RegisterProjection(name string, projection projections.Project
 	p.projections[name] = projection
 }
 
+//RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
+func (p *RESTAPI) RegisterEntityFactory(name string, factory model.EntityFactory) {
+	if p.entityFactories == nil {
+		p.entityFactories = make(map[string]model.EntityFactory)
+	}
+	p.entityFactories[name] = factory
+}
+
 //GetMiddleware get middleware by name
 func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	if tmiddleware, ok := p.middlewares[name]; ok {
@@ -230,6 +259,11 @@ func (p *RESTAPI) GetProjection(name string) (projections.Projection, error) {
 	return nil, fmt.Errorf("projection '%s' not found", name)
 }
 
+//GetGlobalInitializers get global intializers in the order they were registered
+func (p *RESTAPI) GetGlobalInitializers() []GlobalInitializer {
+	return p.globalInitializers
+}
+
 //GetOperationInitializers get operation intializers in the order they were registered
 func (p *RESTAPI) GetOperationInitializers() []OperationInitializer {
 	return p.operationInitializers
@@ -253,6 +287,11 @@ func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 	return schemes, nil
 }
 
+//GetEntityFactories get event factories
+func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
+	return p.entityFactories
+}
+
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
@@ -265,6 +304,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("CreateBatchController", CreateBatchController)
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
+	p.RegisterMiddleware("AuthorizationMiddleware", AuthorizationMiddleware)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
@@ -272,6 +312,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
 	p.RegisterMiddleware("DeleteMiddleware", DeleteMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
+	//register standard global initializers
+	p.RegisterGlobalInitializer(Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
@@ -283,27 +325,41 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//these are the dynamic struct builders for the schemas in the OpenAPI
 	var schemas map[string]ds.Builder
 
-	if p.config != nil && p.config.Database != nil {
+	if p.Config != nil && p.Config.Database != nil {
 		//setup default projection
 		var gormDB *gorm.DB
 		var err error
 
-		p.DB, gormDB, err = p.SQLConnectionFromConfig(p.config.Database)
+		p.DB, gormDB, err = p.SQLConnectionFromConfig(p.Config.Database)
 		if err != nil {
 			return err
 		}
 
 		//setup default projection if gormDB is configured
 		if gormDB != nil {
-			defaultProjection, err := projections.NewProjection(ctxt, gormDB, p.EchoInstance().Logger)
-			if err != nil {
-				return err
+			//check if default projection was already set
+			defaultProjection, _ := p.GetProjection("Default")
+			if defaultProjection == nil {
+				defaultProjection, err = projections.NewProjection(ctxt, gormDB, p.EchoInstance().Logger)
+				if err != nil {
+					return err
+				}
+				p.RegisterProjection("Default", defaultProjection)
 			}
-			p.RegisterProjection("Default", defaultProjection)
 			//get the database schema
 			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
 			p.Schemas = schemas
-			err = defaultProjection.Migrate(ctxt, schemas)
+
+			//get fields to be removed during migration step
+			deletedFields := map[string][]string{}
+			for name, sch := range p.Swagger.Components.Schemas {
+				dfs, _ := json.Marshal(sch.Value.Extensions[RemoveExtension])
+				var df []string
+				json.Unmarshal(dfs, &df)
+				deletedFields[name] = df
+			}
+
+			err = defaultProjection.Migrate(ctxt, schemas, deletedFields)
 			if err != nil {
 				p.EchoInstance().Logger.Error(err)
 				return err
@@ -315,7 +371,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		//if there is a projection then add the event handler as a subscriber to the event store
 		if defaultProjection, err := p.GetProjection("Default"); err == nil {
 			//only setup the gorm event repository if it's a gorm projection
-			if gormProjection, ok := defaultProjection.(*projections.GORMProjection); ok {
+			if gormProjection, ok := defaultProjection.(model.GormProjection); ok {
 				defaultEventStore, err := model.NewBasicEventRepository(gormProjection.DB(), p.EchoInstance().Logger, false, "", "")
 				if err != nil {
 					return err
@@ -345,9 +401,9 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup middleware  - https://echo.labstack.com/middleware/
 
 	//setup global pre middleware
-	if p.config != nil && p.config.Rest != nil {
+	if p.Config != nil && p.Config.Rest != nil {
 		var preMiddlewares []echo.MiddlewareFunc
-		for _, middlewareName := range p.config.Rest.PreMiddleware {
+		for _, middlewareName := range p.Config.Rest.PreMiddleware {
 			t := reflect.ValueOf(middlewareName)
 			m := t.MethodByName(middlewareName)
 			if !m.IsValid() {
@@ -362,7 +418,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup global middleware
 	var middlewares []echo.MiddlewareFunc
 	//prepend Context middleware
-	//for _, middlewareName := range p.config.Rest.Middleware {
+	//for _, middlewareName := range p.Config.Rest.Middleware {
 	//	tmiddleware, err := p.GetMiddleware(middlewareName)
 	//	if err != nil {
 	//		p.e.Logger.Fatalf("invalid middleware set '%s'. Must be of type rest.Middleware", middlewareName)
@@ -384,12 +440,20 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup routes
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
 	var err error
+	globalContext := context.Background()
+	//run global initializers
+	for _, initializer := range p.GetGlobalInitializers() {
+		globalContext, err = initializer(globalContext, p, p.Swagger)
+		if err != nil {
+			return err
+		}
+	}
 	for path, pathData := range p.Swagger.Paths {
 		var methodsFound []string
-		pathContext := context.Background()
+
 		//run pre path initializers
 		for _, initializer := range p.GetPrePathInitializers() {
-			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 			if err != nil {
 				return err
 			}
@@ -399,7 +463,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			operationData := pathData.GetOperation(strings.ToUpper(method))
 			if operationData != nil {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
-				operationContext := context.WithValue(context.Background(), weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
+				operationContext := context.WithValue(globalContext, weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
 				for _, initializer := range p.GetOperationInitializers() {
 					operationContext, err = initializer(operationContext, p, path, method, p.Swagger, pathData, operationData)
 					if err != nil {
@@ -410,9 +474,9 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		}
 
 		//run post path initializers
-		pathContext = context.WithValue(pathContext, weoscontext.METHODS_FOUND, methodsFound)
+		globalContext = context.WithValue(globalContext, weoscontext.METHODS_FOUND, methodsFound)
 		for _, initializer := range p.GetPostPathInitializers() {
-			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 		}
 		//output registered endpoints for debugging purposes
 		for _, route := range p.EchoInstance().Routes() {
@@ -422,7 +486,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	return err
 }
 
-//SQLConnectionFromConfig get db connection based on a config
+//SQLConnectionFromConfig get db connection based on a Config
 func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gorm.DB, error) {
 	var connStr string
 	var err error

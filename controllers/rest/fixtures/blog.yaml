@@ -115,8 +115,6 @@ paths:
       x-controller: HealthCheck
       x-middleware:
         - Recover
-      x-command-dispatcher: HealthCheck
-      x-event-dispatcher: HealthCheck
       responses:
         200:
           description: Health Response
@@ -167,6 +165,9 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               $ref: "#/components/schemas/Blog"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/Blog"
       responses:
         201:
           description: Add Blog to Aggregator
@@ -189,19 +190,19 @@ paths:
             type: integer
         - in: query
           name: _filters
+          style: deepObject
+          explode: true
           schema:
-            type: array
-            items:
-              type: object
-              properties:
-                field:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              values:
+                type: array
+                items:
                   type: string
-                operator:
-                  type: string
-                values:
-                  type: array
-                  items:
-                    type: string
 
           required: false
           description: query string
@@ -344,13 +345,7 @@ paths:
           name: If-Match
           schema:
             type: string
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
+      x-schema: "Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:

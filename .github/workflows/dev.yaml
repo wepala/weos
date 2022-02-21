@@ -13,6 +13,7 @@ env:
   SLACK_ICON: https://github.com/wepala.png?size=48
   SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
   SLACK_FOOTER: copyright 2022 Wepala
+  OAUTH_TEST_KEY: ${{ secrets.OAUTH_TEST_KEY }}
 
 jobs:
   build-api:
@@ -29,6 +30,10 @@ jobs:
           go-version: 1.16.x
       - name: Run unit tests
         run: go test -v ./...
+      - name: Run Postgres end to end tests
+        run: go test -v -driver=postgres
+      - name: Run MySQL end to end tests
+        run: go test -v -driver=mysql
       - name: Run Postgres projections tests
         run: go test -v ./projections -driver=postgres
       - name: Run Mysql projections tests

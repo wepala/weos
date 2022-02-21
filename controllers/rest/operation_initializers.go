@@ -41,6 +41,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 		if builder, ok := schemas[contentType]; ok {
 			entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 			newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+			api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 			return newContext, nil
 		}
 
@@ -55,6 +56,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 					return newContext, nil
 				}
 				break
@@ -65,6 +67,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 					return newContext, nil
 				}
 			}
@@ -79,6 +82,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 					return newContext, nil
 				}
 			}
@@ -88,6 +92,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 				if builder, ok := schemas[contentType]; ok {
 					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 					return newContext, nil
 				}
 			} else {
@@ -104,6 +109,7 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 								if builder, ok := schemas[contentType]; ok {
 									entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
 									newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+									api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
 									return newContext, nil
 								}
 							}
@@ -169,6 +175,45 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			middlewares = append(middlewares, middleware)
 		}
 		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	}
+
+	if projectionExtension, ok := operation.ExtensionProps.Extensions[ProjectionExtension]; ok {
+		projectionName := ""
+		err := json.Unmarshal(projectionExtension.(json.RawMessage), &projectionName)
+		if err != nil {
+			return ctxt, err
+		}
+		projection, err := api.GetProjection(projectionName)
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered projection '%s' specified on path '%s'", projectionName, path)
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.PROJECTION, projection)
+	}
+
+	if commandDispatcherExtension, ok := operation.ExtensionProps.Extensions[CommandDispatcherExtension]; ok {
+		commandDispatcherName := ""
+		err := json.Unmarshal(commandDispatcherExtension.(json.RawMessage), &commandDispatcherName)
+		if err != nil {
+			return ctxt, err
+		}
+		commandDispatcher, err := api.GetCommandDispatcher(commandDispatcherName)
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered command dispatcher '%s' specified on path '%s'", commandDispatcherName, path)
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.COMMAND_DISPATCHER, commandDispatcher)
+	}
+
+	if eventStoreExtension, ok := operation.ExtensionProps.Extensions[EventStoreExtension]; ok {
+		eventStoreName := ""
+		err := json.Unmarshal(eventStoreExtension.(json.RawMessage), &eventStoreName)
+		if err != nil {
+			return ctxt, err
+		}
+		eventStore, err := api.GetEventStore(eventStoreName)
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered command dispatcher '%s' specified on path '%s'", eventStoreName, path)
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.EVENT_STORE, eventStore)
 	}
 
 	return ctxt, nil
@@ -577,21 +622,21 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 		}
 		switch method {
 		case "GET":
-			api.EchoInstance().GET(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.EchoInstance().GET(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "POST":
-			api.e.POST(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.POST(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "PUT":
-			api.e.PUT(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.PUT(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "PATCH":
-			api.e.PATCH(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.PATCH(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "DELETE":
-			api.e.DELETE(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.DELETE(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "HEAD":
-			api.e.HEAD(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.HEAD(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "TRACE":
-			api.e.TRACE(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.TRACE(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 		case "CONNECT":
-			api.e.CONNECT(api.config.BasePath+echoPath, handler, pathMiddleware...)
+			api.e.CONNECT(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 
 		}
 	}

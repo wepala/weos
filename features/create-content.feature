@@ -23,8 +23,12 @@ Feature: Create content
         report-caller: true
         formatter: json
       database:
-        driver: sqlite3
-        database: e2e.db
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
       event-source:
         - title: default
           driver: service
@@ -149,12 +153,11 @@ Feature: Create content
             400:
               description: Invalid Category submitted
     """
-      And the service is running
       And blogs in the api
         | id    | weos_id                     | sequence_no | title        | description    |
         | 1     | 24Kj3zfpocMlmFNV2KwkFfP2bgf | 1           | Blog 1       | Some Blog      |
         | 2     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 2       | Some Blog 2    |
-
+      And the service is running
 
     Scenario: Create a basic item
 
