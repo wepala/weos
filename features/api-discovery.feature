@@ -1,4 +1,4 @@
-@skipped
+@WEOS-1127
 Feature: Get API Details
 
   The OpenAPI details can be made available via the API
@@ -15,6 +15,34 @@ Feature: Get API Details
       title: Blog Aggregator Rest API
       version: 0.1.0
       description: REST API for interacting with the Blog Aggregator
+    x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
     components:
       schemas:
         Blog:
@@ -99,22 +127,22 @@ Feature: Get API Details
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /api:
-      get:
-        operationId: Get API Details
-        x-controller: APIDiscovery
-        responses:
-          200:
-            description: API Details
-            content:
-              application/html:
-                schema:
-                  type: string
+      /api:
+        get:
+          operationId: Get API Details
+          x-controller: APIDiscovery
+          responses:
+            200:
+              description: API Details
+              content:
+                application/html:
+                  schema:
+                    type: string
     """
     And the "OpenAPI 3.0" specification is parsed
     And a "GET" route should be added to the api
-    When the "POST" endpoint "/blog" is hit
-    Then a 201 response should be returned
+    When the "GET" endpoint "/api" is hit
+    Then a 200 response should be returned
     And the swagger ui should be shown
 
   Scenario: Get the api info as json
@@ -124,20 +152,20 @@ Feature: Get API Details
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
-    /api:
-      get:
-        operationId: Get API Details
-        x-controller: APIDiscovery
-        responses:
-          200:
-            description: API Details
-            content:
-              application/json:
-                schema:
-                  type: string
+      /api:
+        get:
+          operationId: Get API Details
+          x-controller: APIDiscovery
+          responses:
+            200:
+              description: API Details
+              content:
+                application/json:
+                  schema:
+                    type: string
     """
     And the "OpenAPI 3.0" specification is parsed
     And a "GET" route should be added to the api
-    When the "POST" endpoint "/blog" is hit
-    Then a 201 response should be returned
+    When the "GET" endpoint "/api" is hit
+    Then a 200 response should be returned
     And the api as json should be shown
