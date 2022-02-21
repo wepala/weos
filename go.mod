@@ -15,6 +15,7 @@ require (
 	github.com/ompluscator/dynamic-struct v1.3.0
 	github.com/ory/dockertest/v3 v3.6.0
 	github.com/proullon/ramsql v0.0.0-20181213202341-817cee58a244
+	github.com/rakyll/statik v0.1.7 // indirect
 	github.com/segmentio/ksuid v1.0.3
 	github.com/testcontainers/testcontainers-go v0.12.0
 	go.uber.org/zap v1.13.0
