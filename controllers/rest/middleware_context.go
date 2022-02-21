@@ -34,6 +34,14 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			for _, parameter := range path.Parameters {
 				cc, err = parseParams(c, cc, parameter, entityFactory)
 			}
+			//use x-context to get parameter
+			if tcontextParams, ok := operation.ExtensionProps.Extensions[ContextExtension]; ok {
+				var contextParams map[string]interface{}
+				err = json.Unmarshal(tcontextParams.(json.RawMessage), &contextParams)
+				if err == nil {
+					cc, err = parseContextExtension(c, cc, contextParams, entityFactory)
+				}
+			}
 			//use the operation information to get the parameter values and add them to the context
 			for _, parameter := range operation.Parameters {
 				cc, err = parseParams(c, cc, parameter, entityFactory)
@@ -377,4 +385,103 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 		}
 	}
 	return properties, nil
+}
+
+//parseContextExtension takes the parameters from x-context andadds it to the context
+func parseContextExtension(c echo.Context, cc context.Context, params map[string]interface{}, entityFactory model.EntityFactory) (context.Context, error) {
+	schema := entityFactory.Schema()
+	if params == nil {
+		return cc, nil
+	}
+	for key, value := range params {
+		var contextValue interface{}
+		switch key {
+		case "sequence_no": //default type is integer
+			contextValue = int(value.(float64))
+		case "page", "limit":
+			contextValue = int(value.(float64))
+		case "use_entity_id": //default type is boolean
+			v, err := strconv.ParseBool(value.(string))
+			if err == nil {
+				contextValue = v
+			}
+		case "_filters":
+			if value == nil {
+				return cc, fmt.Errorf("unexpected error no filters specified")
+			}
+			var tfilters map[string]*FilterProperties
+			tfilters = map[string]*FilterProperties{}
+			var filters map[string]interface{}
+			filters = map[string]interface{}{}
+			for _, filterProp := range value.([]interface{}) {
+				if filterProp.(map[string]interface{})["operator"] == nil || filterProp.(map[string]interface{})["field"] == nil || (filterProp.(map[string]interface{})["value"] == nil && filterProp.(map[string]interface{})["values"] == nil) {
+					return cc, fmt.Errorf("unexpected error all filter fields are not filled out")
+				}
+				if filterProp.(map[string]interface{})["values"] != nil {
+					tfilters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
+						Field:    filterProp.(map[string]interface{})["field"].(string),
+						Operator: filterProp.(map[string]interface{})["operator"].(string),
+						Values:   filterProp.(map[string]interface{})["values"].([]interface{}),
+					}
+				} else {
+					tfilters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
+						Field:    filterProp.(map[string]interface{})["field"].(string),
+						Operator: filterProp.(map[string]interface{})["operator"].(string),
+						Value:    filterProp.(map[string]interface{})["value"],
+					}
+				}
+
+			}
+			marshalledFilter, err := json.Marshal(tfilters)
+			if err != nil {
+				return cc, err
+			}
+			err = json.Unmarshal(marshalledFilter, &filters)
+			if err != nil {
+				return cc, err
+			}
+			filters, err = convertProperties(filters, entityFactory.Schema())
+			if err != nil {
+				return cc, err
+			}
+			contextValue = filters
+
+		case "If-Match", "If-None-Match": //default type is string
+			contextValue = value.(string)
+		case "sorts":
+			sortOptions := map[string]string{}
+			for _, sortOption := range value.([]interface{}) {
+				if sortOption.(map[string]interface{})["field"] == nil || sortOption.(map[string]interface{})["order"] == nil {
+					return cc, fmt.Errorf("unexpected error all sort fields are not filled out")
+				}
+				sortOptions[sortOption.(map[string]interface{})["field"].(string)] = sortOption.(map[string]interface{})["field"].(string)
+			}
+			contextValue = sortOptions
+		default:
+			if schema.Properties[key] != nil {
+				pType := schema.Properties[key].Value.Type
+				switch strings.ToLower(pType) {
+				case "integer":
+					contextValue = int(value.(float64))
+				case "boolean":
+					v, err := strconv.ParseBool(value.(string))
+					if err == nil {
+						contextValue = v
+					}
+				case "number":
+					format := schema.Properties[key].Value.Format
+					if format == "float" || format == "double" {
+						contextValue = value.(float64)
+					} else {
+						contextValue = int(value.(float64))
+					}
+
+				}
+			} else if schema.Properties[key] == nil && key == "id" {
+				contextValue = int(value.(float64))
+			}
+		}
+		cc = context.WithValue(cc, key, contextValue)
+	}
+	return cc, nil
 }

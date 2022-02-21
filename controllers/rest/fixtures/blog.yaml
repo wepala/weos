@@ -207,10 +207,10 @@ paths:
           required: false
           description: query string
       x-context:
-        filters:
+        _filters:
           - field: status
             operator: eq
-            values:
+            value:
               - Active
           - field: lastUpdated
             operator: between
@@ -288,6 +288,8 @@ paths:
           schema:
             type: number
             format: double
+      x-context:
+        id: 2
       summary: Get Blog by id
       operationId: Get Blog
       responses:
