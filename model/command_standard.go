@@ -14,7 +14,7 @@ func Create(ctx context.Context, payload json.RawMessage, entityType string, ent
 		Payload: payload,
 		Metadata: CommandMetadata{
 			Version:    1,
-			UserID:     weoscontext.GetUser(ctx),
+			UserID:     weoscontext.GetUserExtension(ctx),
 			AccountID:  weoscontext.GetAccount(ctx),
 			EntityType: entityType,
 			EntityID:   entityID,
@@ -30,7 +30,7 @@ func CreateBatch(ctx context.Context, payload json.RawMessage, entityType string
 		Payload: payload,
 		Metadata: CommandMetadata{
 			Version:    1,
-			UserID:     weoscontext.GetUser(ctx),
+			UserID:     weoscontext.GetUserExtension(ctx),
 			AccountID:  weoscontext.GetAccount(ctx),
 			EntityType: entityType,
 		},
@@ -45,7 +45,7 @@ func Update(ctx context.Context, payload json.RawMessage, entityType string) *Co
 		Payload: payload,
 		Metadata: CommandMetadata{
 			Version:    1,
-			UserID:     weoscontext.GetUser(ctx),
+			UserID:     weoscontext.GetUserExtension(ctx),
 			AccountID:  weoscontext.GetAccount(ctx),
 			EntityType: entityType,
 		},
@@ -59,7 +59,7 @@ func Delete(ctx context.Context, entityType string, entityID string) *Command {
 		Type: "delete",
 		Metadata: CommandMetadata{
 			Version:    1,
-			UserID:     weoscontext.GetUser(ctx),
+			UserID:     weoscontext.GetUserExtension(ctx),
 			AccountID:  weoscontext.GetAccount(ctx),
 			EntityType: entityType,
 			EntityID:   entityID,
