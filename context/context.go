@@ -113,6 +113,14 @@ func GetPayload(ctx context.Context) []byte {
 	return []byte("")
 }
 
+//GetUserExtension info from context
+func GetUserExtension(ctx context.Context) string {
+	if value, ok := ctx.Value(USER_ID_EXTENSION).(string); ok {
+		return value
+	}
+	return ""
+}
+
 //Deprecated: Context Use the Go context in the echo request instead
 type Context struct {
 	echo.Context

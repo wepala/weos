@@ -514,7 +514,7 @@ func theIsSubmitted(contentType string) error {
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	//header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
+	header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 	request.Header = header
 	request.Close = true
 	rec = httptest.NewRecorder()
@@ -699,6 +699,7 @@ func theEndpointIsHit(method, contentType string) error {
 		request := httptest.NewRequest(method, contentType, nil)
 		request = request.WithContext(context.TODO())
 		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 		request.Header = header
 		request.Close = true
 		rec = httptest.NewRecorder()
@@ -1435,7 +1436,10 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 }
 
 func aWarningShouldBeShown() error {
-	return godog.ErrPending
+	if !strings.Contains(buf.String(), "invalid open id connect url:") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
 }
 
 func anErrorShouldBeReturned1(statusCode int) error {
@@ -1454,12 +1458,25 @@ func hasAValidUserAccount(arg1 string) error {
 	return nil
 }
 
-func sIdIs(arg1, arg2 string) error {
-	return godog.ErrPending
+func sIdIs(userName, userID string) error {
+	return nil
 }
 
-func theUserIdOnTheEntityEventsShouldBe(arg1 string) error {
-	return godog.ErrPending
+func theUserIdOnTheEntityEventsShouldBe(userID string) error {
+	var events []map[string]interface{}
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMDB)
+	eventResult := apiProjection1.DB().Table("gorm_events").Find(&events, "type = ?", "create")
+	if eventResult.Error != nil {
+		return fmt.Errorf("unexpected error finding events: %s", eventResult.Error)
+	}
+	if events[len(events)-1]["user"] == "" {
+		return fmt.Errorf("expected to find user but got nil")
+	}
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {

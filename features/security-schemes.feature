@@ -256,7 +256,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
       | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
       | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
     And the service is running
-  @focus
+
   Scenario: Set security globally
 
     If the security is set globally then that security scheme should be applied to each path
@@ -274,19 +274,23 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
     empty array as the value
 
     Given "Sojourner" is on the "Blog" list screen
+    And "Sojourner" authenticated and received a JWT
     And blogs in the api
       | id    | weos_id                     | sequence_no | title        | description    |
-      | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
-      | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
+      | 1     | 22xu1Xa5CS3DK1Om2tB7OJDHDSF | 2           | Blog 4       | Some Blog 4    |
+      | 164   | 55xu4iw0bWMwxqbrUvjqEEGGdfg | 1           | Blog 6       | Some Blog 6    |
+      | 2     | u6xu4iw0bWMwxqbrUvjqEEGGdfg | 1           | Blog 5       | Some Blog 5    |
+      | 3     | 43xu4iw0bWMwxqbrUvjqEEGGdfg | 1           | Blog 3       | Some Blog 3    |
+    And the service is running
     And the items per page are 5
     When the search button is hit
     Then a 200 response should be returned
     And the list results should be
       | id    | title        | description    |
-      | 1     | Blog 1       | Some Blog      |
-      | 1237  | Blog 8       | Some Blog 8    |
+      | 1     | Blog 4       | Some Blog 4    |
+      | 1234  | Blog 1       | Some Blog      |
       | 164   | Blog 6       | Some Blog 6    |
-      | 2     | Blog 2       | Some Blog 2    |
+      | 2     | Blog 5       | Some Blog 5    |
       | 3     | Blog 3       | Some Blog 3    |
 
   Scenario: Valid JWT with request on path protected by OpenID
@@ -301,7 +305,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
       | id    | title        | description    |
       | 1234  | Blog 1       | Some Blog      |
     And the "ETag" header should be "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
-
+  @focus
   Scenario: Valid JWT subject stored with command events
 
     If a user logs in with a valid JWT then the header X-USER-ID should be set with the value in the "sub" field of the token
