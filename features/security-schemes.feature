@@ -19,9 +19,28 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
       servers:
         - url: 'http://localhost:8681'
       x-weos-config:
+        logger:
+          level: warn
+          report-caller: true
+          formatter: json
         database:
-          driver: sqlite3
-          database: e2e.db
+          database: "%s"
+          driver: "%s"
+          host: "%s"
+          password: "%s"
+          username: "%s"
+          port: %d
+        event-source:
+          - title: default
+            driver: service
+            endpoint: https://prod1.weos.sh/events/v1
+          - title: event
+            driver: sqlite3
+            database: e2e.db
+        databases:
+          - title: default
+            driver: sqlite3
+            database: e2e.db
       components:
         securitySchemes:
           Auth0:
@@ -343,9 +362,28 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
       servers:
         - url: 'http://localhost:8681'
       x-weos-config:
+        logger:
+          level: warn
+          report-caller: true
+          formatter: json
         database:
-          driver: sqlite3
-          database: e2e.db
+          database: "%s"
+          driver: "%s"
+          host: "%s"
+          password: "%s"
+          username: "%s"
+          port: %d
+        event-source:
+          - title: default
+            driver: service
+            endpoint: https://prod1.weos.sh/events/v1
+          - title: event
+            driver: sqlite3
+            database: e2e.db
+        databases:
+          - title: default
+            driver: sqlite3
+            database: e2e.db
       components:
         securitySchemes:
           Auth0:
