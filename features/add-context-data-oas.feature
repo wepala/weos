@@ -30,8 +30,12 @@ Feature: Add data to request context via the spec
         report-caller: true
         formatter: json
       database:
-        driver: sqlite3
-        database: e2e.db
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
       event-source:
         - title: default
           driver: service
@@ -125,8 +129,12 @@ Feature: Add data to request context via the spec
         report-caller: true
         formatter: json
       database:
-        driver: sqlite3
-        database: e2e.db
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
       event-source:
         - title: default
           driver: service
