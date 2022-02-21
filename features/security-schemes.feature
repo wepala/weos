@@ -27,6 +27,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
           Auth0:
             type: openIdConnect
             openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
+            skipExpiryCheck: true
         schemas:
           Blog:
              type: object
@@ -305,7 +306,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
       | id    | title        | description    |
       | 1234  | Blog 1       | Some Blog      |
     And the "ETag" header should be "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
-  @focus
+
   Scenario: Valid JWT subject stored with command events
 
     If a user logs in with a valid JWT then the header X-USER-ID should be set with the value in the "sub" field of the token
@@ -460,7 +461,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
               400:
                 description: Invalid Category submitted
      """
-    When the service is running
+    When the "OpenAPI 3.0" specification is parsed
     Then a warning should be shown
 
   Scenario: Request with missing required scope
