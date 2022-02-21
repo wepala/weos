@@ -120,6 +120,17 @@ paths:
           description: Health Response
         500:
           description: API Internal Error
+  /api:
+      get:
+        operationId: Get API Details
+        x-controller: APIDiscovery
+        responses:
+          200:
+            description: API Details
+            content:
+              application/json:
+                schema:
+                  type: string
   /blogs:
     parameters:
       - in: header

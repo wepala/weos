@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rakyll/statik/fs"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections/dialects"
 	"gorm.io/driver/clickhouse"
@@ -272,6 +273,31 @@ func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
 	return p.entityFactories
 }
 
+const SWAGGERUIENDPOINT = "/_discover/"
+const SWAGGERJSONENDPOINT = "/_discover_json"
+
+//RegisterSwaggerAPI creates default swagger api from binary
+func (p *RESTAPI) RegisterDefaultSwaggerAPI() error {
+	statikFS, err := fs.New()
+	if err != nil {
+		return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
+	}
+	static := http.FileServer(statikFS)
+	sh := http.StripPrefix(SWAGGERUIENDPOINT, static)
+	handler := echo.WrapHandler(sh)
+	p.e.GET(SWAGGERUIENDPOINT+"*", handler)
+
+	return nil
+}
+
+//RegisterDefaultSwaggerJson registers a default swagger json response
+func (p *RESTAPI) RegisterDefaultSwaggerJSON() error {
+	p.e.GET(SWAGGERJSONENDPOINT, func(c echo.Context) error {
+		return c.JSON(http.StatusOK, p.Swagger)
+	})
+	return nil
+}
+
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
@@ -282,6 +308,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("DeleteController", DeleteController)
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("CreateBatchController", CreateBatchController)
+	p.RegisterController("APIDiscovery", APIDiscovery)
+
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
@@ -299,6 +327,11 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterOperationInitializer(RouteInitializer)
 	//register standard post path initializers
 	p.RegisterPostPathInitializer(CORsInitializer)
+
+	//make default endpoints for returning swagger configuration to user
+	p.RegisterDefaultSwaggerAPI()
+	p.RegisterDefaultSwaggerJSON()
+
 	//these are the dynamic struct builders for the schemas in the OpenAPI
 	var schemas map[string]ds.Builder
 
