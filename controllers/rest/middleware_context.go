@@ -39,7 +39,7 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 				var contextParams map[string]interface{}
 				err = json.Unmarshal(tcontextParams.(json.RawMessage), &contextParams)
 				if err == nil {
-					cc, err = parseContextExtension(c, cc, contextParams, entityFactory)
+					cc, err = parseContextExtension(c, cc, contextParams, entityFactory, api)
 				}
 			}
 			//use the operation information to get the parameter values and add them to the context
@@ -388,7 +388,7 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 }
 
 //parseContextExtension takes the parameters from x-context andadds it to the context
-func parseContextExtension(c echo.Context, cc context.Context, params map[string]interface{}, entityFactory model.EntityFactory) (context.Context, error) {
+func parseContextExtension(c echo.Context, cc context.Context, params map[string]interface{}, entityFactory model.EntityFactory, api *RESTAPI) (context.Context, error) {
 	schema := entityFactory.Schema()
 	if params == nil {
 		return cc, nil
@@ -468,6 +468,9 @@ func parseContextExtension(c echo.Context, cc context.Context, params map[string
 				}
 			} else if schema.Properties[key] == nil && key == "id" {
 				contextValue = int(value.(float64))
+			} else {
+				api.e.Logger.Warnf("parameter is not apart of default parameters: %s", key)
+				contextValue = value
 			}
 		}
 		cc = context.WithValue(cc, key, contextValue)
