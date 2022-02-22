@@ -68,7 +68,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 
 //CreateBatchHandler is used for an array of payloads. It takes in the command and context which is used to dispatch and the persist the incoming request.
 func CreateBatchHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
-	domainService := NewDomainService(context.Background(), eventStore, projection, logger)
+	domainService := NewDomainService(ctx, eventStore, projection, logger)
 	entities, err := domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
 		return err

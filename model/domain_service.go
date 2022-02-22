@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
@@ -47,20 +48,41 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 		return nil, err
 	}
 	newEntityArr := []*ContentEntity{}
-	contentType := weosContext.GetContentType(ctx)
 	for _, titem := range titems {
-		tpayload, err := json.Marshal(titem)
+
+		entityFactory := GetEntityFactory(ctx)
+		if entityFactory == nil {
+			err = errors.New("no entity factory found")
+			s.logger.Error(err)
+			return nil, err
+		}
+
+		entity, err := entityFactory.NewEntity(ctx)
 		if err != nil {
 			return nil, err
 		}
-		entity, err := new(ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, tpayload)
+		if id, ok := titem.(map[string]interface{})["weos_id"]; ok {
+			if i, ok := id.(string); ok && i != "" {
+				entity.ID = i
+			}
+		}
+		if entity.ID == "" {
+			entity.ID = ksuid.New().String()
+			titem.(map[string]interface{})["weos_id"] = entity.ID
+		}
+
+		event := NewEntityEvent("create", entity, entity.ID, titem)
+		entity.NewChange(event)
+		err = entity.ApplyEvents([]*Event{event})
 		if err != nil {
 			return nil, err
 		}
+
 		err = s.ValidateUnique(ctx, entity)
 		if err != nil {
 			return nil, err
 		}
+
 		if ok := entity.IsValid(); !ok {
 			return nil, NewDomainError("unexpected error entity is invalid", entityType, entity.ID, nil)
 		}
@@ -343,15 +365,17 @@ func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntit
 				val := reader.GetField(strings.Title(name)).Interface()
 				result, err := s.Projection.GetByIdentifiers(ctx, entityFactory, map[string]interface{}{name: val})
 				if err != nil {
-					return err
+					return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
 				}
 				if len(result) > 1 {
-					return fmt.Errorf("entity value %s should be unique but got %d entities with %s '%v'", name, len(result), name, reader.GetField(strings.Title(name)).Interface())
+					err := fmt.Errorf("entity value %s should be unique but an entity with %s value", name, name)
+					return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
 				}
 				if len(result) == 1 {
 					r := result[0]
 					if r["weos_id"] != entity.GetID() {
-						return fmt.Errorf("entity value %s should be unique but an entity with %s '%v'", name, name, reader.GetField(strings.Title(name)).Interface())
+						err := fmt.Errorf("entity value %s should be unique but an entity with %s value", name, name)
+						return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
 					}
 				}
 			}

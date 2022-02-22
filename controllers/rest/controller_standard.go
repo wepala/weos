@@ -102,7 +102,7 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 			}
 			payload := weoscontext.GetPayload(newContext)
 
-			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), nil, nil, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)

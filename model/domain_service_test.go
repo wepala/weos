@@ -130,6 +130,10 @@ func TestDomainService_CreateBatch(t *testing.T) {
 		Name:   contentType,
 		Schema: contentTypeSchema.Value,
 	})
+	builder := api.CreateSchema(newContext, echo.New(), swagger)
+	entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder[contentType])
+
+	newContext = context.WithValue(newContext, context2.ENTITY_FACTORY, entityFactory)
 
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 
