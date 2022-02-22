@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,12 +67,12 @@ func (w *ContentEntity) IsEnumValid() bool {
 					if enumProperty == "" {
 						enumFound = true
 						//The user may only use a blank string to indicate a null field, not the actual keyword
-					} else if enumProperty == "null" {
-						enumFound = false
+					} else if enumFound == false {
+						enumFound = strings.Contains(enumOptions, enumProperty)
 					}
 
-					if enumFound == false {
-						enumFound = strings.Contains(enumOptions, enumProperty)
+					if enumProperty == "null" {
+						enumFound = false
 					}
 
 					if enumFound == false {
@@ -96,7 +97,45 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 				}
 			case "integer":
+				enumProperty := w.GetNumber(k)
 
+				////This checks if a "0" option was provided which is needed if nullable == true
+				if strings.Contains(enumOptions, "0") {
+					nullFound = true
+				}
+
+				//If nullable == true and null is found in the options
+				if property.Value.Nullable && nullFound == true {
+					//Assuming if the nullable is true, the user can pass a blank string
+					if enumProperty == 0 {
+						enumFound = true
+					}
+
+					if enumFound == false {
+						enumFound = strings.Contains(enumOptions, strconv.Itoa(int(enumProperty)))
+					}
+
+					if enumFound == false {
+						message := "invalid enumeration option provided. available options are: " + enumOptions
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+
+				} else if property.Value.Nullable == false {
+					if enumProperty == 0 || nullFound == true {
+						message := "nullable is set to false, cannot use null/blank string as an option. available options are: " + enumOptions
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+					if strings.Contains(enumOptions, strconv.Itoa(int(enumProperty))) {
+						enumFound = true
+					}
+					if enumFound == false {
+						message := "invalid enumeration option provided. available options are: " + enumOptions
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+				}
 			}
 		}
 	}
@@ -109,10 +148,19 @@ func EnumString(enum []interface{}) string {
 	enumOptions := ""
 	if len(enum) > 0 {
 		for k, v := range enum {
-			if k < len(enum)-1 {
-				enumOptions = enumOptions + v.(string) + ", "
-			} else if k == len(enum)-1 {
-				enumOptions = enumOptions + v.(string)
+			switch v.(type) {
+			case string:
+				if k < len(enum)-1 {
+					enumOptions = enumOptions + v.(string) + ", "
+				} else if k == len(enum)-1 {
+					enumOptions = enumOptions + v.(string)
+				}
+			case float64:
+				if k < len(enum)-1 {
+					enumOptions = enumOptions + strconv.Itoa(int(v.(float64))) + ", "
+				} else if k == len(enum)-1 {
+					enumOptions = enumOptions + strconv.Itoa(int(v.(float64)))
+				}
 			}
 		}
 		return enumOptions
