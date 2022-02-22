@@ -35,3 +35,6 @@ const CommandDispatcherExtension = "x-command-dispatcher"
 
 //EventStoreExtension set custom event store
 const EventStoreExtension = "x-event-store"
+
+//ContextExtension set parameters directly in the context
+const ContextExtension = "x-context"
