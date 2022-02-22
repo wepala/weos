@@ -67,6 +67,7 @@ var success int
 var failed int
 var errArray []error
 var filters string
+var contextWithValues context.Context
 
 type FilterProperties struct {
 	Operator string
@@ -99,7 +100,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	filters = ""
-	page = 1
+	page = 0
 	limit = 0
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
@@ -153,7 +154,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	filters = ""
-	page = 1
+	page = 0
 	limit = 0
 	result = api.ListApiResponse{}
 	errs = nil
@@ -712,6 +713,15 @@ func theServiceIsRunning() error {
 	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
+	API.RegisterMiddleware("Handler", func(api *api.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				contextWithValues = c.Request().Context()
+
+				return nil
+			}
+		}
+	})
 	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
@@ -1427,18 +1437,25 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 }
 
 func thereShouldBeAKeyInTheRequestContextWithObject(key string) error {
-	ctx := resp.Request.Context()
-	if ctx.Value(key) == nil {
+	if contextWithValues.Value(key) == nil {
 		return fmt.Errorf("expected key %s to be found got nil", key)
 	}
 	return nil
 }
 
 func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
-	ctx := resp.Request.Context()
-	if ctx.Value(key).(string) == value {
-		return fmt.Errorf("expected key %s value to be %s got %s", key, value, ctx.Value(key).(string))
+	val, _ := strconv.Atoi(value)
+	switch contextWithValues.Value(key).(type) {
+	case int:
+		if contextWithValues.Value(key).(int) != val {
+			return fmt.Errorf("expected key %s value to be %d got %d", key, val, contextWithValues.Value(key).(int))
+		}
+	case string:
+		if contextWithValues.Value(key).(string) != value {
+			return fmt.Errorf("expected key %s value to be %s got %s", key, value, contextWithValues.Value(key).(string))
+		}
 	}
+
 	return nil
 }
 
@@ -1533,7 +1550,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1308",
+			//Tags: "focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

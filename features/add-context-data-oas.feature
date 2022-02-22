@@ -62,6 +62,8 @@ Feature: Add data to request context via the spec
                description: blog title
              description:
                type: string
+             status:
+               type: string
            required:
              - title
     paths:
@@ -75,6 +77,8 @@ Feature: Add data to request context via the spec
        get:
          operationId: Get Blogs
          summary: Get List of Blogs
+         x-middleware:
+            - Handler
          x-context:
            page: 1
            limit: 10
@@ -177,6 +181,8 @@ Feature: Add data to request context via the spec
              name: sequence_no
              schema:
                type: string
+         x-middleware:
+            - Handler
          x-content:
            id: 2
          summary: Get Blog by id
@@ -190,6 +196,5 @@ Feature: Add data to request context via the spec
                    $ref: "#/components/schemas/Blog"
     """
     And the service is running
-    And "Sojourner" is on the "Blog" edit screen with id "1234"
-    When the "Blog" is submitted
+    When the "GET" endpoint "/blogs/1234" is hit
     Then there should be a key "id" in the request context with value "1234"

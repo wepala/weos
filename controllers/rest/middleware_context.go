@@ -409,22 +409,19 @@ func parseContextExtension(c echo.Context, cc context.Context, params map[string
 			if value == nil {
 				return cc, fmt.Errorf("unexpected error no filters specified")
 			}
-			var tfilters map[string]*FilterProperties
-			tfilters = map[string]*FilterProperties{}
-			var filters map[string]interface{}
-			filters = map[string]interface{}{}
+			filters := map[string]interface{}{}
 			for _, filterProp := range value.([]interface{}) {
 				if filterProp.(map[string]interface{})["operator"] == nil || filterProp.(map[string]interface{})["field"] == nil || (filterProp.(map[string]interface{})["value"] == nil && filterProp.(map[string]interface{})["values"] == nil) {
 					return cc, fmt.Errorf("unexpected error all filter fields are not filled out")
 				}
 				if filterProp.(map[string]interface{})["values"] != nil {
-					tfilters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
+					filters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
 						Field:    filterProp.(map[string]interface{})["field"].(string),
 						Operator: filterProp.(map[string]interface{})["operator"].(string),
 						Values:   filterProp.(map[string]interface{})["values"].([]interface{}),
 					}
 				} else {
-					tfilters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
+					filters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
 						Field:    filterProp.(map[string]interface{})["field"].(string),
 						Operator: filterProp.(map[string]interface{})["operator"].(string),
 						Value:    filterProp.(map[string]interface{})["value"],
@@ -432,15 +429,7 @@ func parseContextExtension(c echo.Context, cc context.Context, params map[string
 				}
 
 			}
-			marshalledFilter, err := json.Marshal(tfilters)
-			if err != nil {
-				return cc, err
-			}
-			err = json.Unmarshal(marshalledFilter, &filters)
-			if err != nil {
-				return cc, err
-			}
-			filters, err = convertProperties(filters, entityFactory.Schema())
+			filters, err := convertProperties(filters, entityFactory.Schema())
 			if err != nil {
 				return cc, err
 			}
