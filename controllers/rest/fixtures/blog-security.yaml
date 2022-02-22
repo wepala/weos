@@ -124,7 +124,7 @@ paths:
       x-controller: HealthCheck
       x-middleware:
         - Recover
-        - AuthorizationMiddleware
+        - OpenIDMiddleware
       responses:
         200:
           description: Health Response
