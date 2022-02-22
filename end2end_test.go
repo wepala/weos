@@ -618,8 +618,16 @@ func aHeaderWithValue(key, value string) error {
 func aResponseShouldBeReturned(statusCode int) error {
 	//check resp first
 	if resp != nil && resp.StatusCode != statusCode {
+		if statusCode == http.StatusOK && resp.StatusCode > 300 && resp.StatusCode < 310 {
+			//redirected
+			return nil
+		}
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, resp.StatusCode)
 	} else if rec != nil && rec.Result().StatusCode != statusCode {
+		if statusCode == http.StatusOK && rec.Result().StatusCode > 300 && rec.Result().StatusCode < 310 {
+			//redirected
+			return nil
+		}
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, rec.Result().StatusCode)
 	}
 	return nil
@@ -1436,6 +1444,31 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 	return nil
 }
 
+func theApiAsJsonShouldBeShown() error {
+	contentEntity := map[string]interface{}{}
+	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
+
+	if err != nil {
+		return err
+	}
+
+	if len(contentEntity) == 0 {
+		return fmt.Errorf("expected a response to be returned")
+	}
+	if _, ok := contentEntity["openapi"]; !ok {
+		return fmt.Errorf("expected the content entity to have a content 'openapi'")
+	}
+	return nil
+}
+
+func theSwaggerUiShouldBeShown() error {
+	url := rec.HeaderMap.Get("Location")
+	if url != api.SWAGGERUIENDPOINT {
+		return fmt.Errorf("the html result should have been returned")
+	}
+	return nil
+}
+
 func thereShouldBeAKeyInTheRequestContextWithObject(key string) error {
 	if contextWithValues.Value(key) == nil {
 		return fmt.Errorf("expected key %s to be found got nil", key)
@@ -1537,6 +1570,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^the api as json should be shown$`, theApiAsJsonShouldBeShown)
+	ctx.Step(`^the swagger ui should be shown$`, theSwaggerUiShouldBeShown)
+
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
 
@@ -1550,7 +1586,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "focus",
+			//Tags: "focus1",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
