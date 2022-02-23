@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -487,6 +488,25 @@ func TestContext(t *testing.T) {
 		}
 		req := httptest.NewRequest(http.MethodPost, "/blogs", bytes.NewBuffer(data))
 		e.POST("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
+
+	t.Run("check that resonse type is added to the context", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			responseType := cc.Value(context.RESPONSE_PREFIX + strconv.Itoa(http.StatusOK))
+			if responseType != "application/json" {
+				t.Errorf("expected the response type to be '%s', got '%s'", "application/json", responseType)
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
 	t.Run("x-content extension should be used to add data to the request context", func(t *testing.T) {

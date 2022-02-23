@@ -67,6 +67,7 @@ var success int
 var failed int
 var errArray []error
 var filters string
+var contextWithValues context.Context
 
 type FilterProperties struct {
 	Operator string
@@ -99,7 +100,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	filters = ""
-	page = 1
+	page = 0
 	limit = 0
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
@@ -153,7 +154,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	filters = ""
-	page = 1
+	page = 0
 	limit = 0
 	result = api.ListApiResponse{}
 	errs = nil
@@ -617,8 +618,16 @@ func aHeaderWithValue(key, value string) error {
 func aResponseShouldBeReturned(statusCode int) error {
 	//check resp first
 	if resp != nil && resp.StatusCode != statusCode {
+		if statusCode == http.StatusOK && resp.StatusCode > 300 && resp.StatusCode < 310 {
+			//redirected
+			return nil
+		}
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, resp.StatusCode)
 	} else if rec != nil && rec.Result().StatusCode != statusCode {
+		if statusCode == http.StatusOK && rec.Result().StatusCode > 300 && rec.Result().StatusCode < 310 {
+			//redirected
+			return nil
+		}
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", statusCode, rec.Result().StatusCode)
 	}
 	return nil
@@ -712,6 +721,15 @@ func theServiceIsRunning() error {
 	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
+	API.RegisterMiddleware("Handler", func(api *api.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				contextWithValues = c.Request().Context()
+
+				return nil
+			}
+		}
+	})
 	err = API.Initialize(scenarioContext)
 	if err != nil {
 		return err
@@ -1426,6 +1444,54 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 	return nil
 }
 
+func theApiAsJsonShouldBeShown() error {
+	contentEntity := map[string]interface{}{}
+	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
+
+	if err != nil {
+		return err
+	}
+
+	if len(contentEntity) == 0 {
+		return fmt.Errorf("expected a response to be returned")
+	}
+	if _, ok := contentEntity["openapi"]; !ok {
+		return fmt.Errorf("expected the content entity to have a content 'openapi'")
+	}
+	return nil
+}
+
+func theSwaggerUiShouldBeShown() error {
+	url := rec.HeaderMap.Get("Location")
+	if url != api.SWAGGERUIENDPOINT {
+		return fmt.Errorf("the html result should have been returned")
+	}
+	return nil
+}
+
+func thereShouldBeAKeyInTheRequestContextWithObject(key string) error {
+	if contextWithValues.Value(key) == nil {
+		return fmt.Errorf("expected key %s to be found got nil", key)
+	}
+	return nil
+}
+
+func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
+	val, _ := strconv.Atoi(value)
+	switch contextWithValues.Value(key).(type) {
+	case int:
+		if contextWithValues.Value(key).(int) != val {
+			return fmt.Errorf("expected key %s value to be %d got %d", key, val, contextWithValues.Value(key).(int))
+		}
+	case string:
+		if contextWithValues.Value(key).(string) != value {
+			return fmt.Errorf("expected key %s value to be %s got %s", key, value, contextWithValues.Value(key).(string))
+		}
+	}
+
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1504,6 +1570,12 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^the api as json should be shown$`, theApiAsJsonShouldBeShown)
+	ctx.Step(`^the swagger ui should be shown$`, theSwaggerUiShouldBeShown)
+
+	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
+	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
+
 }
 
 func TestBDD(t *testing.T) {
