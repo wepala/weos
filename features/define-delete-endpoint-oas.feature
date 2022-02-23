@@ -337,3 +337,35 @@ Feature: Delete content endpoints
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be output to logs letting the developer know that a handler needs to be set
+
+  Scenario: Create a basic delete endpoint with the full path in x-schema
+
+  A developer should be able to declare what the entity type is explicitly (as an alternative to using the requestBody
+  to indicate what it is)
+
+    Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
+    """
+      /blogs/{id}:
+        delete:
+          operationId: Delete Blog
+          parameters:
+            - in: path
+              name: id
+              schema:
+                type: string
+              required: true
+              description: blog id
+          x-schema: "#/components/schemas/Blog"
+          responses:
+            200:
+              description: Update blog
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a "DELETE" route should be added to the api
+    And a "DeleteController" middleware should be added to the route

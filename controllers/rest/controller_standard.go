@@ -15,6 +15,7 @@ import (
 	"github.com/segmentio/ksuid"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
+	_ "github.com/wepala/weos/swaggerui"
 	"golang.org/x/net/context"
 )
 
@@ -275,6 +276,22 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		return nil
+	}
+}
+
+func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		newContext := ctxt.Request().Context()
+
+		//get content type expected for 200 response
+		responseType := newContext.Value(weoscontext.RESPONSE_PREFIX + strconv.Itoa(http.StatusOK))
+		if responseType == "application/json" {
+			return ctxt.JSON(http.StatusOK, api.Swagger)
+		} else if responseType == "application/html" {
+			return ctxt.Redirect(http.StatusPermanentRedirect, SWAGGERUIENDPOINT)
+		}
+
+		return NewControllerError("No response format chosen for a valid response", nil, http.StatusBadRequest)
 	}
 }
 
