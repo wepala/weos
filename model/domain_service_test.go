@@ -757,7 +757,7 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 
 	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 		return nil, nil
-	}}, nil)
+	}}, echo.New().Logger)
 	existingBlog, _ := dService.Create(newContext, reqBytes, contentType)
 	existingBlog2, _ := dService.Create(newContext, reqBytes2, contentType)
 
@@ -792,7 +792,7 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 		},
 	}
 
-	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, nil)
+	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, echo.New().Logger)
 
 	t.Run("Basic unique validation", func(t *testing.T) {
 		mockBlog := map[string]interface{}{"weos_id": "09481", "title": "New Blog", "description": "New Description", "url": "www.TestBlog2.com", "last_updated": "2106-11-02T15:04:00Z"}

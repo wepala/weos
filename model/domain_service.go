@@ -369,12 +369,14 @@ func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntit
 				}
 				if len(result) > 1 {
 					err := fmt.Errorf("entity value %s should be unique but an entity exists with this %s value", name, name)
+					s.logger.Debug(err)
 					return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
 				}
 				if len(result) == 1 {
 					r := result[0]
 					if r["weos_id"] != entity.GetID() {
 						err := fmt.Errorf("entity value %s should be unique but an entity exists with this %s value", name, name)
+						s.logger.Debug(err)
 						return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
 					}
 				}
