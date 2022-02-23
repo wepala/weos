@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"time"
 
@@ -23,6 +24,18 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 		var instance ds.Builder
 		instance, relations[name], keys[name] = newSchema(scheme.Value, e.Logger)
 		builders[name] = instance
+
+		//This will check the enum types on run and output an error
+		for pName, p := range scheme.Value.Properties {
+			if p.Value.Enum != nil {
+				t := p.Value.Type
+				for _, v := range p.Value.Enum {
+					if t != reflect.TypeOf(v).String() {
+						e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+					}
+				}
+			}
+		}
 	}
 
 	//rearrange so schemas without primary keys are first
@@ -150,9 +163,6 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 				case "string":
 					if p.Value.Format == "date-time" {
 						defaultValue = time.Now()
-					} else if p.Value.Enum != nil {
-						var options *string
-						defaultValue = options
 					} else {
 						var strings *string
 						defaultValue = strings

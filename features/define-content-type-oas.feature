@@ -467,7 +467,7 @@ Feature: Create Content Types
       | description   |              | varchar(512)   | true     |          | NULL        |
       | status        |              | integer        | false    |          | unpublished |
 
-  @WEOS-1116
+  @focus-1116
   Scenario: Setup a content type with an enumeration but the options don't match the type
 
     The options should match the type of the property i.e if the type is an integer then the options should be integers.

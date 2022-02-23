@@ -1426,6 +1426,14 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 	return nil
 }
 
+func anErrorShouldBeReturnedOnRunningToShowThatTheEnumValuesAreInvalid() error {
+
+	if !strings.Contains(buf.String(), "Expected field: status, of type integer, to have enum options of the same type") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1504,6 +1512,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^an error should be returned on running to show that the enum values are invalid$`, anErrorShouldBeReturnedOnRunningToShowThatTheEnumValuesAreInvalid)
 }
 
 func TestBDD(t *testing.T) {
@@ -1514,7 +1523,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags: "focus-1116",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

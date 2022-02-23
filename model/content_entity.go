@@ -54,7 +54,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 		if property.Value.Enum != nil {
 			switch property.Value.Type {
 			case "string":
-				enumProperty := w.GetString(k)
+				enumProperty := w.GetString(strings.Title(k))
 
 				////This checks if a "null" option was provided which is needed if nullable == true
 				if strings.Contains(enumOptions, "null") {
@@ -97,7 +97,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 				}
 			case "integer":
-				enumProperty := w.GetNumber(k)
+				enumProperty := w.GetInteger(strings.Title(k))
 
 				////This checks if a "0" option was provided which is needed if nullable == true
 				if strings.Contains(enumOptions, "0") {
