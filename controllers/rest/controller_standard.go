@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/coreos/go-oidc/v3/oidc"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/segmentio/ksuid"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
+	_ "github.com/wepala/weos/swaggerui"
 	"golang.org/x/net/context"
 )
 
@@ -278,6 +278,22 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		return nil
+	}
+}
+
+func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		newContext := ctxt.Request().Context()
+
+		//get content type expected for 200 response
+		responseType := newContext.Value(weoscontext.RESPONSE_PREFIX + strconv.Itoa(http.StatusOK))
+		if responseType == "application/json" {
+			return ctxt.JSON(http.StatusOK, api.Swagger)
+		} else if responseType == "application/html" {
+			return ctxt.Redirect(http.StatusPermanentRedirect, SWAGGERUIENDPOINT)
+		}
+
+		return NewControllerError("No response format chosen for a valid response", nil, http.StatusBadRequest)
 	}
 }
 
@@ -668,8 +684,8 @@ func HealthCheck(api *RESTAPI, projection projections.Projection, commandDispatc
 
 }
 
-//AuthorizationMiddleware handling JWT in incoming Authorization header
-func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+//OpenIDMiddleware handling JWT in incoming Authorization header
+func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	var openIdConnectUrl string
 	securityCheck := true
 	var verifiers []*oidc.IDTokenVerifier
@@ -678,20 +694,18 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 		securityCheck = false
 	}
 	for _, schemes := range api.Swagger.Components.SecuritySchemes {
-		//get the open id connect url
-		if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OPENIDCONNECTURLEXTENSION]; ok {
-			err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
-			if err != nil {
-				api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
-			} else {
-				//check if it is a valid open id connect url
-				if !strings.Contains(openIdConnectUrl, ".well-known/openid-configuration") {
-					api.EchoInstance().Logger.Warnf("invalid open id connect url: %s", openIdConnectUrl)
+		//checks if the security scheme type is openIdConnect
+		if schemes.Value.Type == "openIdConnect" {
+			//get the open id connect url
+			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OPENIDCONNECTURLEXTENSION]; ok {
+				err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
+				if err != nil {
+					api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
 				} else {
-					//get the Jwk url from open id connect url
+					//get the Jwk url from open id connect url and validate url
 					jwksUrl, err := GetJwkUrl(openIdConnectUrl)
 					if err != nil {
-						api.EchoInstance().Logger.Errorf("unexpected error getting the jwks url: %s", err)
+						api.EchoInstance().Logger.Warnf("invalid open id connect url: %s", err)
 					} else {
 						//by default skipExpiryCheck is false meaning it will not run an expiry check
 						skipExpiryCheck := false
@@ -714,11 +728,11 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 						})
 						verifiers = append(verifiers, tokenVerifier)
 					}
+
 				}
-
 			}
-		}
 
+		}
 	}
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -729,7 +743,7 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 				return next(ctxt)
 			}
 			if len(verifiers) == 0 {
-				api.e.Logger.Errorf("unexpected error no verifiers were set")
+				api.e.Logger.Debugf("unexpected error no verifiers were set")
 				return NewControllerError("unexpected error no verifiers were set", nil, http.StatusBadRequest)
 			}
 			newContext := ctxt.Request().Context()
@@ -738,7 +752,7 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 				token = ctxt.Request().Header[weoscontext.AUTHORIZATION][0]
 			}
 			if token == "" {
-				api.e.Logger.Errorf("no JWT token was found")
+				api.e.Logger.Debugf("no JWT token was found")
 				return NewControllerError("no JWT token was found", nil, http.StatusUnauthorized)
 			}
 			jwtToken := strings.Replace(token, "Bearer ", "", -1)
@@ -746,7 +760,7 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 			for _, tokenVerifier := range verifiers {
 				idToken, err = tokenVerifier.Verify(newContext, jwtToken)
 				if err != nil || idToken == nil {
-					api.e.Logger.Errorf(err.Error())
+					api.e.Logger.Debugf(err.Error())
 					return NewControllerError("unexpected error verifying token", err, http.StatusUnauthorized)
 				}
 			}
@@ -758,33 +772,4 @@ func AuthorizationMiddleware(api *RESTAPI, projection projections.Projection, co
 
 		}
 	}
-}
-
-//GetJwkUrl fetches the jwk url from the open id connect url
-func GetJwkUrl(openIdUrl string) (string, error) {
-	//fetches the response from the connect id url
-	resp, err := http.Get(openIdUrl)
-	if err != nil || resp == nil {
-		return "", fmt.Errorf("unexpected error fetching open id connect url: %s", err)
-	}
-	defer resp.Body.Close()
-	// reads the body
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("unable to read response body: %v", err)
-	}
-	//check the response status
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("expected open id connect url response code to be %d got %d ", http.StatusOK, resp.StatusCode)
-	}
-	// unmarshall the body to a struct we can use to find the jwk uri
-	var info map[string]interface{}
-	err = json.Unmarshal(body, &info)
-	if err != nil {
-		return "", fmt.Errorf("unexpected error unmarshalling open id connect url response %s", err)
-	}
-	if info["jwks_uri"] == nil || info["jwks_uri"].(string) == "" {
-		return "", fmt.Errorf("no jwks uri found")
-	}
-	return info["jwks_uri"].(string), nil
 }

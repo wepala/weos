@@ -124,7 +124,7 @@ paths:
       x-controller: HealthCheck
       x-middleware:
         - Recover
-        - AuthorizationMiddleware
+        - OpenIDMiddleware
       responses:
         200:
           description: Health Response
@@ -171,7 +171,7 @@ paths:
           schema:
             type: string
       x-middleware:
-        - AuthorizationMiddleware
+        - OpenIDMiddleware
       requestBody:
         description: Blog info that is submitted
         required: true
