@@ -678,19 +678,14 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 					if len(resp.Value.Content) == 1 {
 						for mediaType, content := range resp.Value.Content {
 							if content.Example != nil {
-								if mediaType == "application/json" {
-									return ctxt.JSON(respCode, content.Example)
-								}
-								if mediaType == "text/html" {
-									return ctxt.HTML(respCode, content.Example.(string))
-								}
-								if mediaType == "text/javascript" {
-									return ctxt.String(respCode, content.Example.(string))
-								}
-								if mediaType == "text/plain" {
-									return ctxt.String(respCode, resp.Value.Content[mediaType].Example.(string))
-								}
+								var bytesArray []byte
+								bytesArray, err := json.Marshal(content.Example)
+								if err != nil {
+									api.e.Logger.Errorf("unexpected error %s ", err)
+									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 
+								}
+								return ctxt.Blob(respCode, mediaType, bytesArray)
 							}
 						}
 						//check for if there are multiple mediatype
@@ -706,19 +701,14 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 							return NewControllerError(fmt.Sprintf("unexpected error %s media type not found", mediaType), nil, http.StatusBadRequest)
 						} else {
 							if resp.Value.Content[mediaType].Example != nil {
-								if mediaType == "application/json" {
-									return ctxt.JSON(respCode, resp.Value.Content[mediaType].Example)
-								}
-								if mediaType == "text/html" {
-									return ctxt.HTML(respCode, resp.Value.Content[mediaType].Example.(string))
-								}
-								if mediaType == "text/javascript" {
-									return ctxt.String(respCode, resp.Value.Content[mediaType].Example.(string))
-								}
-								if mediaType == "text/plain" {
-									return ctxt.String(respCode, resp.Value.Content[mediaType].Example.(string))
-								}
+								var bytesArray []byte
+								bytesArray, err := json.Marshal(resp.Value.Content[mediaType].Example)
+								if err != nil {
+									api.e.Logger.Errorf("unexpected error %s ", err)
+									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 
+								}
+								return ctxt.Blob(respCode, mediaType, bytesArray)
 							}
 						}
 					}
