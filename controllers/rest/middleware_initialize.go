@@ -96,7 +96,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 			}
 		}
 
-		uniquebytes, _ := json.Marshal(p.Value.Extensions["x-unique"])
+		uniquebytes, _ := json.Marshal(p.Value.Extensions[UniqueExtension])
 		if len(uniquebytes) != 0 {
 			unique := false
 			json.Unmarshal(uniquebytes, &unique)

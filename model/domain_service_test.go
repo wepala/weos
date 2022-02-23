@@ -4,10 +4,12 @@ import (
 	context3 "context"
 	"encoding/json"
 	"fmt"
-	"github.com/labstack/echo/v4"
-	api "github.com/wepala/weos/controllers/rest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/labstack/echo/v4"
+	api "github.com/wepala/weos/controllers/rest"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	context2 "github.com/wepala/weos/context"
@@ -20,6 +22,11 @@ func TestDomainService_Create(t *testing.T) {
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 			return nil
+		},
+	}
+	mockProjections := &ProjectionMock{
+		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			return nil, nil
 		},
 	}
 	//load open api spec
@@ -46,7 +53,7 @@ func TestDomainService_Create(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
+		dService := model.NewDomainService(newContext, mockEventRepository, mockProjections, nil)
 		blog, err := dService.Create(newContext, reqBytes, entityType)
 
 		if err != nil {
@@ -82,7 +89,7 @@ func TestDomainService_Create(t *testing.T) {
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
-		dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
+		dService := model.NewDomainService(newContext, mockEventRepository, mockProjections, nil)
 		blog, err := dService.Create(newContext, reqBytes, entityType)
 
 		if err.Error() != "entity property title required" {
@@ -103,6 +110,11 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			return nil
 		},
 	}
+	mockProjections := &ProjectionMock{
+		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			return nil, nil
+		},
+	}
 
 	//load open api spec
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
@@ -118,6 +130,10 @@ func TestDomainService_CreateBatch(t *testing.T) {
 		Name:   contentType,
 		Schema: contentTypeSchema.Value,
 	})
+	builder := api.CreateSchema(newContext, echo.New(), swagger)
+	entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder[contentType])
+
+	newContext = context.WithValue(newContext, context2.ENTITY_FACTORY, entityFactory)
 
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 
@@ -133,7 +149,7 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
+		dService := model.NewDomainService(newContext, mockEventRepository, mockProjections, nil)
 		blogs, err := dService.CreateBatch(newContext, reqBytes, entityType)
 
 		if err != nil {
@@ -211,6 +227,9 @@ func TestDomainService_Update(t *testing.T) {
 				return nil, fmt.Errorf("expected identifiers got none")
 			}
 			return existingPayload, nil
+		},
+		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{existingPayload}, nil
 		},
 	}
 
@@ -349,6 +368,9 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
+		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{existingPayload}, nil
+		},
 	}
 
 	t.Run("Testing with compound PK - ID", func(t *testing.T) {
@@ -451,6 +473,9 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
+		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{existingPayload}, nil
+		},
 	}
 
 	t.Run("Testing with compound PK - GUID, Title", func(t *testing.T) {
@@ -550,7 +575,9 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, nil, nil)
+	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		return nil, nil
+	}}, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
 
 	projectionMock := &ProjectionMock{
@@ -559,6 +586,9 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		},
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
+		},
+		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{existingPayload}, nil
 		},
 	}
 
@@ -638,6 +668,9 @@ func TestDomainService_Delete(t *testing.T) {
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
+		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{existingPayload}, nil
+		},
 	}
 
 	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, nil)
@@ -676,6 +709,159 @@ func TestDomainService_Delete(t *testing.T) {
 
 		if deletedEntity != nil {
 			t.Fatalf("expected error deleting content type '%s'", err)
+		}
+	})
+}
+
+func TestDomainService_ValidateUnique(t *testing.T) {
+
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	var contentType string
+	var contentTypeSchema *openapi3.SchemaRef
+	contentType = "Blog"
+	contentTypeSchema = swagger.Components.Schemas[contentType]
+	newContext := context.Background()
+	newContext = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+		Name:   contentType,
+		Schema: contentTypeSchema.Value,
+	})
+
+	builder := api.CreateSchema(newContext, echo.New(), swagger)
+	entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder[contentType])
+
+	newContext = context.WithValue(newContext, context2.ENTITY_FACTORY, entityFactory)
+	newContext = context.WithValue(newContext, "id", uint(12))
+
+	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "id": uint(12), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	reqBytes, err := json.Marshal(existingPayload)
+	if err != nil {
+		t.Fatalf("error converting payload to bytes %s", err)
+	}
+
+	existingPayload2 := map[string]interface{}{"weos_id": "dsafdsdfdsf11", "sequence_no": int64(1), "id": uint(13), "title": "blog 2", "description": "Description testing 2", "url": "www.TestBlog2.com"}
+	reqBytes2, err := json.Marshal(existingPayload2)
+	if err != nil {
+		t.Fatalf("error converting payload to bytes %s", err)
+	}
+
+	existingPayload3 := map[string]interface{}{"weos_id": "asafdsdfdsf11", "sequence_no": int64(1), "id": uint(11), "title": "blog 2", "description": "Description testing 2", "url": "www.TestBlog2.com"}
+
+	mockEventRepository := &EventRepositoryMock{
+		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+			return nil
+		},
+	}
+
+	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		return nil, nil
+	}}, nil)
+	existingBlog, _ := dService.Create(newContext, reqBytes, contentType)
+	existingBlog2, _ := dService.Create(newContext, reqBytes2, contentType)
+
+	projectionMock := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+			if existingBlog.GetID() == weosID {
+				return existingBlog, nil
+			}
+			if existingBlog2.GetID() == weosID {
+				return existingBlog2, nil
+			}
+			return nil, nil
+		},
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			if existingPayload["id"] == identifiers["id"] {
+				return existingPayload, nil
+			}
+			if existingPayload2["id"] == identifiers["id"] {
+				return existingPayload2, nil
+			}
+			return nil, nil
+		},
+		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			identifier := identifiers["url"].(*string)
+			if *identifier == existingPayload["url"].(string) {
+				return []map[string]interface{}{existingPayload}, nil
+			}
+			if *identifier == existingPayload2["url"].(string) {
+				return []map[string]interface{}{existingPayload2, existingPayload3}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	dService1 := model.NewDomainService(newContext, mockEventRepository, projectionMock, nil)
+
+	t.Run("Basic unique validation", func(t *testing.T) {
+		mockBlog := map[string]interface{}{"weos_id": "09481", "title": "New Blog", "description": "New Description", "url": "www.TestBlog2.com", "last_updated": "2106-11-02T15:04:00Z"}
+		newContext1 := context.Background()
+		newContext1 = context.WithValue(newContext, context2.CONTENT_TYPE, &context2.ContentType{
+			Name:   contentType,
+			Schema: contentTypeSchema.Value,
+		})
+		newContext1 = context.WithValue(newContext1, context2.ENTITY_FACTORY, entityFactory)
+		newEntity, err := entityFactory.NewEntity(newContext1)
+		if err != nil {
+			t.Fatalf("got error creating test fixture %s", err)
+		}
+		event := model.NewEntityEvent("create", newEntity, newEntity.ID, mockBlog)
+		newEntity.NewChange(event)
+		err = newEntity.ApplyEvents([]*model.Event{event})
+		if err != nil {
+			t.Fatalf("got error creating test fixture %s", err)
+		}
+
+		err = dService1.ValidateUnique(newContext, newEntity)
+		if err == nil {
+			t.Fatalf("expected to get an error validing the url")
+		}
+
+	})
+
+	t.Run("Create with unique tag", func(t *testing.T) {
+		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.TestBlog1.com", "last_updated": "2106-11-02T15:04:00Z"}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+		_, err = dService1.Create(newContext, reqBytes, contentType)
+		if err == nil {
+			t.Fatalf("expected a unique entity error to be thrown")
+		}
+		if !strings.Contains(err.Error(), "unique") {
+			t.Fatalf("expected a unique entity error to be thrown")
+		}
+	})
+
+	t.Run("Update with unique tag", func(t *testing.T) {
+
+		//valid update
+		mockBlog := map[string]interface{}{"id": uint(12), "title": "New Blog", "description": "New Description", "url": "www.TestBlog1.com", "last_updated": "2106-11-02T15:04:00Z"}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+		_, err = dService1.Update(newContext, reqBytes, contentType)
+		if err != nil {
+			t.Fatalf("expected to be able to update blog, got error %s", err.Error())
+		}
+
+		//invalid upate
+
+		mockBlog = map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.TestBlog1.com", "last_updated": "2106-11-02T15:04:00Z"}
+		reqBytes, err = json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+		newContext = context.WithValue(newContext, "id", uint(13))
+		_, err = dService1.Update(newContext, reqBytes, contentType)
+		if err == nil {
+			t.Fatalf("expected a unique entity error to be thrown")
+		}
+		if !strings.Contains(err.Error(), "unique") {
+			t.Fatalf("expected a unique entity error to be thrown")
 		}
 	})
 }
