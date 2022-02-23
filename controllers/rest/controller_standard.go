@@ -687,6 +687,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 								if mediaType == "text/javascript" {
 									return ctxt.String(respCode, content.Example.(string))
 								}
+								if mediaType == "text/plain" {
+									return ctxt.String(respCode, resp.Value.Content[mediaType].Example.(string))
+								}
 
 							}
 						}
@@ -710,6 +713,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 									return ctxt.HTML(respCode, resp.Value.Content[mediaType].Example.(string))
 								}
 								if mediaType == "text/javascript" {
+									return ctxt.String(respCode, resp.Value.Content[mediaType].Example.(string))
+								}
+								if mediaType == "text/plain" {
 									return ctxt.String(respCode, resp.Value.Content[mediaType].Example.(string))
 								}
 
