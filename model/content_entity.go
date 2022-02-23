@@ -59,7 +59,9 @@ func (w *ContentEntity) IsEnumValid() bool {
 				////This checks if a "null" option was provided which is needed if nullable == true
 				for _, v := range property.Value.Enum {
 					nullFound = v.(string) == "null"
-					break
+					if nullFound == true {
+						break
+					}
 				}
 
 				//If nullable == true and null is found in the options
@@ -71,6 +73,9 @@ func (w *ContentEntity) IsEnumValid() bool {
 					} else if enumFound == false {
 						for _, v := range property.Value.Enum {
 							enumFound = enumProperty == v.(string)
+							if enumFound == true {
+								break
+							}
 						}
 					}
 
@@ -84,14 +89,22 @@ func (w *ContentEntity) IsEnumValid() bool {
 						return false
 					}
 
+				} else if property.Value.Nullable == true && nullFound == false {
+					message := `"if nullable is set to true, "null" is needed as an enum option"`
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+
 				} else if property.Value.Nullable == false {
 					if enumProperty == "null" || enumProperty == "" || nullFound == true {
 						message := "nullable is set to false, cannot use null/blank string nor have it as an enum option."
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}
-					if strings.Contains(enumOptions, enumProperty) {
-						enumFound = true
+					for _, v := range property.Value.Enum {
+						enumFound = enumProperty == v.(string)
+						if enumFound == true {
+							break
+						}
 					}
 					if enumFound == false {
 						message := "invalid enumeration option provided. available options are: " + enumOptions
@@ -105,7 +118,9 @@ func (w *ContentEntity) IsEnumValid() bool {
 				////This checks if a "0" option was provided which is needed if nullable == true
 				for _, v := range property.Value.Enum {
 					nullFound = int(v.(float64)) == 0
-					break
+					if nullFound == true {
+						break
+					}
 				}
 
 				//If nullable == true and null is found in the options
@@ -118,8 +133,10 @@ func (w *ContentEntity) IsEnumValid() bool {
 					if enumFound == false {
 						for _, v := range property.Value.Enum {
 							enumFound = enumProperty == (int(v.(float64)))
+							if enumFound == true {
+								break
+							}
 						}
-						enumFound = strings.Contains(enumOptions, strconv.Itoa(int(enumProperty)))
 					}
 
 					if enumFound == false {
@@ -127,6 +144,11 @@ func (w *ContentEntity) IsEnumValid() bool {
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}
+
+				} else if property.Value.Nullable == true && nullFound == false {
+					message := `"if nullable is set to true, 0 is needed as an enum option"`
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
 
 				} else if property.Value.Nullable == false {
 					if enumProperty == 0 || nullFound == true {
@@ -134,8 +156,11 @@ func (w *ContentEntity) IsEnumValid() bool {
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}
-					if strings.Contains(enumOptions, strconv.Itoa(int(enumProperty))) {
-						enumFound = true
+					for _, v := range property.Value.Enum {
+						enumFound = enumProperty == (int(v.(float64)))
+						if enumFound == true {
+							break
+						}
 					}
 					if enumFound == false {
 						message := "invalid enumeration option provided. available options are: " + enumOptions
@@ -143,6 +168,111 @@ func (w *ContentEntity) IsEnumValid() bool {
 						return false
 					}
 				}
+			case "boolean":
+				enumProperty := w.GetBool(strings.Title(k))
+
+				////This checks if a "null" option was provided which is needed if nullable == true
+				for _, v := range property.Value.Enum {
+					nullFound = v.(string) == "null"
+					if nullFound == true {
+						break
+					}
+				}
+
+				//If nullable == true and null is found in the options
+				if property.Value.Nullable && nullFound == true {
+					for _, v := range property.Value.Enum {
+						enumFound = enumProperty == v.(bool)
+						if enumFound == true {
+							break
+						}
+					}
+
+					if enumFound == false {
+						message := "invalid enumeration option provided. available options are: " + enumOptions + " (for the null option, use a blank string, not the keyword null)"
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+
+				} else if property.Value.Nullable == true && nullFound == false {
+					message := `"if nullable is set to true, "null" is needed as an enum option"`
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+				} else if property.Value.Nullable == false {
+					if nullFound == true {
+						message := "nullable is set to false, cannot have null as an enum option."
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+					for _, v := range property.Value.Enum {
+						enumFound = enumProperty == v.(bool)
+						if enumFound == true {
+							break
+						}
+					}
+					if enumFound == false {
+						message := "invalid enumeration option provided. available options are: " + enumOptions
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+				}
+			case "float":
+				enumProperty := w.GetNumber(strings.Title(k))
+
+				////This checks if a "0" option was provided which is needed if nullable == true
+				for _, v := range property.Value.Enum {
+					nullFound = int(v.(float64)) == 0.0
+					if nullFound == true {
+						break
+					}
+				}
+
+				//If nullable == true and null is found in the options
+				if property.Value.Nullable && nullFound == true {
+					//Assuming if the nullable is true, the user can pass a blank string
+					if enumProperty == 0.0 {
+						enumFound = true
+					}
+
+					if enumFound == false {
+						for _, v := range property.Value.Enum {
+							enumFound = enumProperty == v.(float64)
+							if enumFound == true {
+								break
+							}
+						}
+					}
+
+					if enumFound == false {
+						message := "invalid enumeration option provided. available options are: " + enumOptions
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+
+				} else if property.Value.Nullable == true && nullFound == false {
+					message := `"if nullable is set to true, 0.0 is needed as an enum option"`
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+
+				} else if property.Value.Nullable == false {
+					if enumProperty == 0.0 || nullFound == true {
+						message := "nullable is set to false, cannot use null/blank integer nor have it as an enum option."
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+					for _, v := range property.Value.Enum {
+						enumFound = enumProperty == v.(float64)
+						if enumFound == true {
+							break
+						}
+					}
+					if enumFound == false {
+						message := "invalid enumeration option provided. available options are: " + enumOptions
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+						return false
+					}
+				}
+			case "date/time":
 			}
 		}
 	}

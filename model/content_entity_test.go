@@ -371,7 +371,7 @@ func TestContentEntity_Delete(t *testing.T) {
 
 }
 
-func TestContentEntity_Enumeration(t *testing.T) {
+func TestContentEntity_EnumerationString(t *testing.T) {
 	//load open api spec
 	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
@@ -490,7 +490,7 @@ func TestContentEntity_Enumeration(t *testing.T) {
 	})
 }
 
-func TestContentEntity_Enumeration2(t *testing.T) {
+func TestContentEntity_EnumerationString2(t *testing.T) {
 	//load open api spec
 	api, err := rest.New("../controllers/rest/fixtures/blog-enum.yaml")
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
@@ -556,7 +556,7 @@ func TestContentEntity_Enumeration2(t *testing.T) {
 	})
 }
 
-func TestContentEntity_Enumeration_Integer(t *testing.T) {
+func TestContentEntity_EnumerationInteger(t *testing.T) {
 	//load open api spec
 	api, err := rest.New("../controllers/rest/fixtures/blog-enum-integer.yaml")
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
