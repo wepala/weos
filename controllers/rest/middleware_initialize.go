@@ -30,9 +30,17 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 			if p.Value.Enum != nil {
 				t := p.Value.Type
 				for _, v := range p.Value.Enum {
-					if t != reflect.TypeOf(v).String() {
-						e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+					switch t {
+					case "string":
+						if reflect.TypeOf(v).String() != "string" {
+							e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+						}
+					case "integer":
+						if reflect.TypeOf(v).String() != "float64" {
+							e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+						}
 					}
+
 				}
 			}
 		}

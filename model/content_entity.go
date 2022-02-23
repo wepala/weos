@@ -57,8 +57,9 @@ func (w *ContentEntity) IsEnumValid() bool {
 				enumProperty := w.GetString(strings.Title(k))
 
 				////This checks if a "null" option was provided which is needed if nullable == true
-				if strings.Contains(enumOptions, "null") {
-					nullFound = true
+				for _, v := range property.Value.Enum {
+					nullFound = v.(string) == "null"
+					break
 				}
 
 				//If nullable == true and null is found in the options
@@ -68,7 +69,9 @@ func (w *ContentEntity) IsEnumValid() bool {
 						enumFound = true
 						//The user may only use a blank string to indicate a null field, not the actual keyword
 					} else if enumFound == false {
-						enumFound = strings.Contains(enumOptions, enumProperty)
+						for _, v := range property.Value.Enum {
+							enumFound = enumProperty == v.(string)
+						}
 					}
 
 					if enumProperty == "null" {
@@ -83,7 +86,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 
 				} else if property.Value.Nullable == false {
 					if enumProperty == "null" || enumProperty == "" || nullFound == true {
-						message := "nullable is set to false, cannot use null/blank string as an option. available options are: " + enumOptions
+						message := "nullable is set to false, cannot use null/blank string nor have it as an enum option."
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}
@@ -100,8 +103,9 @@ func (w *ContentEntity) IsEnumValid() bool {
 				enumProperty := w.GetInteger(strings.Title(k))
 
 				////This checks if a "0" option was provided which is needed if nullable == true
-				if strings.Contains(enumOptions, "0") {
-					nullFound = true
+				for _, v := range property.Value.Enum {
+					nullFound = int(v.(float64)) == 0
+					break
 				}
 
 				//If nullable == true and null is found in the options
@@ -112,6 +116,9 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 
 					if enumFound == false {
+						for _, v := range property.Value.Enum {
+							enumFound = enumProperty == (int(v.(float64)))
+						}
 						enumFound = strings.Contains(enumOptions, strconv.Itoa(int(enumProperty)))
 					}
 
@@ -123,7 +130,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 
 				} else if property.Value.Nullable == false {
 					if enumProperty == 0 || nullFound == true {
-						message := "nullable is set to false, cannot use null/blank string as an option. available options are: " + enumOptions
+						message := "nullable is set to false, cannot use null/blank integer nor have it as an enum option."
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}

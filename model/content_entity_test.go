@@ -470,6 +470,24 @@ func TestContentEntity_Enumeration(t *testing.T) {
 			t.Fatalf("expected entity to be invalid")
 		}
 	})
+	t.Run("Testing enum with null enum", func(t *testing.T) {
+		//Pass in values to the content entity
+		entity, err := entityFactory.NewEntity(context.TODO())
+		if err != nil {
+			t.Fatalf("error generating entity '%s'", err)
+		}
+
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": 0}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		err = entity.SetValueFromPayload(context.TODO(), payload)
+		if err == nil {
+			t.Fatalf("Expected there to be an unmarshall error")
+		}
+	})
 }
 
 func TestContentEntity_Enumeration2(t *testing.T) {
