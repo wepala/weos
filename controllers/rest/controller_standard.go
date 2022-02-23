@@ -743,7 +743,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				return next(ctxt)
 			}
 			if len(verifiers) == 0 {
-				api.e.Logger.Errorf("unexpected error no verifiers were set")
+				api.e.Logger.Debugf("unexpected error no verifiers were set")
 				return NewControllerError("unexpected error no verifiers were set", nil, http.StatusBadRequest)
 			}
 			newContext := ctxt.Request().Context()
@@ -752,7 +752,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				token = ctxt.Request().Header[weoscontext.AUTHORIZATION][0]
 			}
 			if token == "" {
-				api.e.Logger.Errorf("no JWT token was found")
+				api.e.Logger.Debugf("no JWT token was found")
 				return NewControllerError("no JWT token was found", nil, http.StatusUnauthorized)
 			}
 			jwtToken := strings.Replace(token, "Bearer ", "", -1)
@@ -760,7 +760,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			for _, tokenVerifier := range verifiers {
 				idToken, err = tokenVerifier.Verify(newContext, jwtToken)
 				if err != nil || idToken == nil {
-					api.e.Logger.Errorf(err.Error())
+					api.e.Logger.Debugf(err.Error())
 					return NewControllerError("unexpected error verifying token", err, http.StatusUnauthorized)
 				}
 			}
