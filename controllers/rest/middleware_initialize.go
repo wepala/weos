@@ -41,6 +41,9 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 						}
 					case "boolean":
 					case "float":
+						if reflect.TypeOf(v).String() != "float64" {
+							e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+						}
 					case "date/time":
 					}
 				}

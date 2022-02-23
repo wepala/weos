@@ -2,15 +2,15 @@ package model
 
 import (
 	"encoding/json"
-	"strconv"
-	"strings"
-	"time"
-
+	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type ContentEntity struct {
@@ -173,7 +173,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 
 				////This checks if a "null" option was provided which is needed if nullable == true
 				for _, v := range property.Value.Enum {
-					nullFound = v.(string) == "null"
+					nullFound = strconv.FormatBool(v.(bool)) == "null"
 					if nullFound == true {
 						break
 					}
@@ -195,7 +195,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 
 				} else if property.Value.Nullable == true && nullFound == false {
-					message := `"if nullable is set to true, "null" is needed as an enum option"`
+					message := "if nullable is set to true, null is needed as an enum option"
 					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					return false
 				} else if property.Value.Nullable == false {
@@ -216,7 +216,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 						return false
 					}
 				}
-			case "float":
+			case "number":
 				enumProperty := w.GetNumber(strings.Title(k))
 
 				////This checks if a "0" option was provided which is needed if nullable == true
@@ -236,9 +236,13 @@ func (w *ContentEntity) IsEnumValid() bool {
 
 					if enumFound == false {
 						for _, v := range property.Value.Enum {
-							enumFound = enumProperty == v.(float64)
+							temp := fmt.Sprintf("%.4f", enumProperty)
+							temp2 := fmt.Sprintf("%.4f", v.(float64))
+							enumFound = fmt.Sprintf("%.4f", enumProperty) == fmt.Sprintf("%.4f", v.(float64))
 							if enumFound == true {
 								break
+							}
+							if temp != "" || temp2 != "" {
 							}
 						}
 					}
@@ -294,11 +298,18 @@ func EnumString(enum []interface{}) string {
 				}
 			case float64:
 				if k < len(enum)-1 {
-					enumOptions = enumOptions + strconv.Itoa(int(v.(float64))) + ", "
+					enumOptions = enumOptions + fmt.Sprintf("%g", v.(float64)) + ", "
 				} else if k == len(enum)-1 {
-					enumOptions = enumOptions + strconv.Itoa(int(v.(float64)))
+					enumOptions = enumOptions + fmt.Sprintf("%g", v.(float64))
+				}
+			case bool:
+				if k < len(enum)-1 {
+					enumOptions = enumOptions + strconv.FormatBool(v.(bool)) + ", "
+				} else if k == len(enum)-1 {
+					enumOptions = enumOptions + strconv.FormatBool(v.(bool))
 				}
 			}
+
 		}
 		return enumOptions
 	}
