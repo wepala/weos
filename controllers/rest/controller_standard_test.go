@@ -1948,3 +1948,131 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		}
 	})
 }
+
+func TestStandardControllers_DefaultResponse(t *testing.T) {
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
+
+	t.Run("sending a request where there is one content type in responses ", func(t *testing.T) {
+		path := swagger.Paths.Find("/")
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		e.GET("/", nil, mw, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+	})
+	t.Run("sending a request where there is more than one content type in responses and has an accept header ", func(t *testing.T) {
+		path := swagger.Paths.Find("/page")
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		req.Header.Set(weoscontext.ACCEPT, "text/html")
+		mw := rest.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		e.GET("/page", nil, mw, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+	})
+	t.Run("sending a request where there is more than one content type in responses and has an incorrect accept header ", func(t *testing.T) {
+		path := swagger.Paths.Find("/page")
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		req.Header.Set(weoscontext.ACCEPT, "exam")
+		mw := rest.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		e.GET("/page", nil, mw, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected response code to be %d, got %d", http.StatusBadRequest, response.StatusCode)
+		}
+	})
+	t.Run("sending a request where there is more than one content type in responses and no accept header ", func(t *testing.T) {
+		path := swagger.Paths.Find("/page")
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		e.GET("/page", nil, mw, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected response code to be %d, got %d", http.StatusBadRequest, response.StatusCode)
+		}
+	})
+}

@@ -665,6 +665,65 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
+//DefaultResponseMiddleware returns content type based on content type in example
+func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			ctx := ctxt.Request().Context()
+			for code, resp := range operation.Responses {
+				respCode, _ := strconv.Atoi(code)
+				if resp.Value.Content != nil {
+					//check for if there is one mediatype
+					if len(resp.Value.Content) == 1 {
+						for mediaType, content := range resp.Value.Content {
+							if content.Example != nil {
+								if mediaType == "application/json" {
+									return ctxt.JSON(respCode, content.Example)
+								}
+								if mediaType == "text/html" {
+									return ctxt.HTML(respCode, content.Example.(string))
+								}
+								if mediaType == "text/javascript" {
+									return ctxt.String(respCode, content.Example.(string))
+								}
+
+							}
+						}
+						//check for if there are multiple mediatype
+					} else if len(resp.Value.Content) > 1 {
+						var mediaType string
+						mediaType, ok := ctx.Value(weoscontext.ACCEPT).(string)
+						if !ok {
+							api.e.Logger.Debugf("unexpected error accept header was not found")
+							return NewControllerError("unexpected error accept header was not found", nil, http.StatusBadRequest)
+						}
+						if resp.Value.Content[mediaType] == nil {
+							api.e.Logger.Debugf("unexpected error %s media type not found", mediaType)
+							return NewControllerError(fmt.Sprintf("unexpected error %s media type not found", mediaType), nil, http.StatusBadRequest)
+						} else {
+							if resp.Value.Content[mediaType].Example != nil {
+								if mediaType == "application/json" {
+									return ctxt.JSON(respCode, resp.Value.Content[mediaType].Example)
+								}
+								if mediaType == "text/html" {
+									return ctxt.HTML(respCode, resp.Value.Content[mediaType].Example.(string))
+								}
+								if mediaType == "text/javascript" {
+									return ctxt.String(respCode, resp.Value.Content[mediaType].Example.(string))
+								}
+
+							}
+						}
+					}
+
+				}
+			}
+			return nil
+		}
+	}
+}
+
 func Get(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//TODO call GetByID
