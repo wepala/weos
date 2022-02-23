@@ -50,7 +50,6 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	domainService := NewDomainService(ctx, eventStore, projection, logger)
 	err = domainService.ValidateUnique(ctx, newEntity)
 	if err != nil {
-		logger.Error(err)
 		return err
 	}
 	if ok := newEntity.IsValid(); !ok {
