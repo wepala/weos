@@ -233,7 +233,7 @@ paths:
             values:
               - Technology
               - Javascript
-        sorts:
+        _sorts:
           - field: title
             order: asc
         page: 1

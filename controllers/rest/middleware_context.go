@@ -34,7 +34,7 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			//use the path information to get the parameter values
 			contextValues, err := parseParams(c, path.Parameters, nil, entityFactory)
 			//add parameter values to the context
-			cc = AddToContext(cc, contextValues)
+			cc = AddToContext(c, cc, contextValues, entityFactory)
 
 			//use x-context to get parameter
 			if tcontextParams, ok := operation.ExtensionProps.Extensions[ContextExtension]; ok {
@@ -44,7 +44,7 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 					//use the operation information to get the parameter values
 					contextValues, err = parseParams(c, operation.Parameters, contextParams, entityFactory)
 					//add parameter values to the context
-					cc = AddToContext(cc, contextValues)
+					cc = AddToContext(c, cc, contextValues, entityFactory)
 				}
 			}
 
@@ -104,11 +104,7 @@ func parseResponses(c echo.Context, cc context.Context, operation *openapi3.Oper
 
 //parseParams uses the parameter type to determine where to pull the value from
 func parseParams(c echo.Context, parameters openapi3.Parameters, params map[string]interface{}, entityFactory model.EntityFactory) (map[string]interface{}, error) {
-	if entityFactory == nil {
-		c.Logger().Error("no entity factory found")
-		return nil, fmt.Errorf("no entity factory found ")
-	}
-	schema := entityFactory.Schema()
+
 	var errors error
 	contextValues := map[string]interface{}{}
 	//getting the parameters from x-context
@@ -161,7 +157,7 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, params map[stri
 
 		case "If-Match", "If-None-Match": //default type is string
 			contextValue = value.(string)
-		case "sorts":
+		case "_sorts":
 			sortOptions := map[string]string{}
 			for _, sortOption := range value.([]interface{}) {
 				if sortOption.(map[string]interface{})["field"] == nil || sortOption.(map[string]interface{})["order"] == nil {
@@ -172,31 +168,7 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, params map[stri
 			}
 			contextValue = sortOptions
 		default:
-			if schema.Properties[key] != nil {
-				pType := schema.Properties[key].Value.Type
-				switch strings.ToLower(pType) {
-				case "integer":
-					contextValue = int(value.(float64))
-				case "boolean":
-					v, err := strconv.ParseBool(value.(string))
-					if err == nil {
-						contextValue = v
-					}
-				case "number":
-					format := schema.Properties[key].Value.Format
-					if format == "float" || format == "double" {
-						contextValue = value.(float64)
-					} else {
-						contextValue = int(value.(float64))
-					}
-
-				}
-			} else if schema.Properties[key] == nil && key == "id" {
-				contextValue = int(value.(float64))
-			} else {
-				c.Logger().Warnf("parameter is not apart of default parameters: %s", key)
-				contextValue = value
-			}
+			contextValue = value
 		}
 		contextValues[key] = contextValue
 	}
@@ -204,7 +176,6 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, params map[stri
 	for _, parameter := range parameters {
 		if parameter.Value != nil {
 			contextName := parameter.Value.Name
-			paramType := parameter.Value.Schema
 			//if there is a context name specified use that instead. The value is a json.RawMessage (not a string)
 			if tcontextName, ok := parameter.Value.ExtensionProps.Extensions[ContextNameExtension]; ok {
 				err := json.Unmarshal(tcontextName.(json.RawMessage), &contextName)
@@ -237,8 +208,8 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, params map[stri
 			}
 
 			if _, ok := val.(string); ok {
-				switch parameter.Value.Name {
-				case "sequence_no": //default type is integer
+				switch contextName {
+				case "sequence_no", "page", "limit": //default type is integer
 					v, err := strconv.Atoi(val.(string))
 					if err == nil {
 						val = v
@@ -278,36 +249,6 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, params map[stri
 							contextValues[contextName] = filters
 							continue
 						}
-
-					}
-					if paramType != nil && paramType.Value != nil {
-						pType := paramType.Value.Type
-						switch strings.ToLower(pType) {
-						case "integer":
-							v, err := strconv.Atoi(val.(string))
-							if err == nil {
-								val = v
-							}
-						case "boolean":
-							v, err := strconv.ParseBool(val.(string))
-							if err == nil {
-								val = v
-							}
-						case "number":
-							format := paramType.Value.Format
-							if format == "float" || format == "double" {
-								v, err := strconv.ParseFloat(val.(string), 64)
-								if err == nil {
-									val = v
-								}
-							} else {
-								v, err := strconv.Atoi(val.(string))
-								if err == nil {
-									val = v
-								}
-							}
-
-						}
 					}
 				}
 			}
@@ -319,9 +260,59 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, params map[stri
 	return contextValues, errors
 }
 
-func AddToContext(cc context.Context, contextValues map[string]interface{}) context.Context {
+func AddToContext(c echo.Context, cc context.Context, contextValues map[string]interface{}, entityFactory model.EntityFactory) context.Context {
 	if contextValues == nil {
 		return cc
+	}
+	if entityFactory == nil {
+		c.Logger().Error("no entity factory found")
+		return cc
+	}
+	schema := entityFactory.Schema()
+	for key, value := range contextValues {
+		if schema.Properties[key] != nil {
+			switch schema.Properties[key].Value.Type {
+			case "integer":
+				switch value.(type) {
+				case float64:
+					value = int(value.(float64))
+				case string:
+					v, err := strconv.Atoi(value.(string))
+					if err == nil {
+						value = v
+					}
+				}
+
+			case "boolean":
+				v, err := strconv.ParseBool(value.(string))
+				if err == nil {
+					value = v
+				}
+			case "number":
+				format := schema.Properties[key].Value.Format
+				if format == "float" || format == "double" {
+					switch value.(type) {
+					case string:
+						v, err := strconv.ParseFloat(value.(string), 64)
+						if err == nil {
+							value = v
+						}
+					}
+
+				} else {
+					switch value.(type) {
+					case float64:
+						value = int(value.(float64))
+					case string:
+						v, err := strconv.Atoi(value.(string))
+						if err == nil {
+							value = v
+						}
+					}
+				}
+
+			}
+		}
 	}
 	for key, value := range contextValues {
 		cc = context.WithValue(cc, key, value)
