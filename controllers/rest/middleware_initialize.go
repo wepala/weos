@@ -16,35 +16,19 @@ import (
 //CreateSchema creates the table schemas for gorm syntax
 func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]ds.Builder {
 	builders := make(map[string]ds.Builder)
-	relations := make(map[string]map[string]string)
-	keys := make(map[string][]string)
 	schemas := s.Components.Schemas
 	for name, scheme := range schemas {
 		var instance ds.Builder
-		instance, relations[name], keys[name] = newSchema(scheme.Value, e.Logger)
+		instance, _ = newSchema(scheme.Value, schemas, e.Logger)
 		builders[name] = instance
 	}
 
-	//rearrange so schemas without primary keys are first
-
-	for name, scheme := range builders {
-		if relations, ok := relations[name]; ok {
-			if len(relations) != 0 {
-				var err error
-				scheme, err = addRelations(scheme, relations, builders, name, keys, e.Logger)
-				if err != nil {
-					e.Logger.Fatalf("Got an error creating the application schema '%s'", err.Error())
-				}
-			}
-		}
-		builders[name] = scheme
-	}
 	return builders
 
 }
 
 //creates a new schema interface instance
-func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string]string, []string) {
+func newSchema(ref *openapi3.Schema, schemaRefs map[string]*openapi3.SchemaRef, logger echo.Logger) (ds.Builder, []string) {
 	pks, _ := json.Marshal(ref.Extensions[IdentifierExtension])
 	dfs, _ := json.Marshal(ref.Extensions[RemoveExtension])
 
@@ -74,7 +58,6 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 
 	instance := ds.ExtendStruct(&projections.DefaultProjection{})
 
-	relations := make(map[string]string)
 	for name, p := range ref.Properties {
 		found := false
 
@@ -111,7 +94,29 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 		}
 
 		if p.Ref != "" {
-			relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
+			structName := strings.TrimPrefix(p.Ref, "#/components/schemas/")
+			r, rKeys := newSchema(schemaRefs[structName].Value, schemaRefs, logger)
+			rStruct := r.Build().New()
+			keystring := ""
+			reader := ds.NewReader(rStruct)
+
+			//add key references
+			for _, k := range rKeys {
+				instance.AddField(strings.Title(name)+strings.Title(k), reader.GetField(strings.Title(k)).Interface(), `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
+				if keystring != "" {
+					keystring += ","
+				}
+
+				keystring += strings.Title(name) + strings.Title(k)
+			}
+
+			if len(gormParts) == 0 {
+				tagString += `gorm:"foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",")
+			} else {
+				tagString += `;foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",")
+			}
+
+			instance.AddField(name, rStruct, tagString)
 		} else {
 			t := p.Value.Type
 			if strings.EqualFold(t, "array") {
@@ -135,7 +140,10 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 						//add as json object
 					} else {
 						//add reference to the object to the map
-						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
+						structName := strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
+						r, _ := newSchema(schemaRefs[structName].Value, schemaRefs, logger)
+						rArray := r.Build().NewSliceOfStructs()
+						instance.AddField(name, rArray, tagString)
 
 					}
 				}
@@ -174,64 +182,64 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 		instance.AddField("Id", uint(0), `json:"id" gorm:"primaryKey;size:512"`)
 	}
 
-	return instance, relations, primaryKeys
+	return instance, primaryKeys
 }
 
-func addRelations(struc ds.Builder, relations map[string]string, structs map[string]ds.Builder, tableName string, keys map[string][]string, logger echo.Logger) (ds.Builder, error) {
+// func addRelations(struc ds.Builder, relations map[string]string, structs map[string]ds.Builder, tableName string, keys map[string][]string, logger echo.Logger) (ds.Builder, error) {
 
-	for name, relation := range relations {
-		if strings.Contains(relation, "[]") {
-			//many to many relationship
-			relationName := strings.Trim(relation, "[]")
-			inst := structs[relationName]
-			f := inst.GetField("Table")
-			f.SetTag(`json:"table_alias" gorm:"default:` + relationName + `"`)
-			instances := inst.Build().NewSliceOfStructs()
-			struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`" gorm:"many2many:`+utils.SnakeCase(tableName)+"_"+utils.SnakeCase(name)+`;"`)
-		} else {
-			inst := structs[relation]
-			f := inst.GetField("Table")
-			f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
-			instance := inst.Build().New()
-			key := keys[relation]
-			bytes, _ := json.Marshal(instance)
-			s := map[string]interface{}{}
-			json.Unmarshal(bytes, &s)
-			keystring := ""
-			for _, k := range key {
-				val := s[k]
-				//foreign key references must be nullable
-				if _, ok := val.(string); ok {
-					var s *string
-					val = s
-				} else if _, ok := val.(uint); ok {
-					var s *uint
-					val = s
-				} else if _, ok := val.(int); ok {
-					var s *int
-					val = s
-				} else if _, ok := val.(float64); ok {
-					var s *float64
-					val = s
-				} else if _, ok := val.(bool); ok {
-					var s *bool
-					val = s
-				}
-				//default to string if nil
-				if val == nil {
-					var s *string
-					val = s
-				}
-				struc.AddField(strings.Title(name)+strings.Title(k), val, `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
-				if keystring != "" {
-					keystring += ","
-				}
+// 	for name, relation := range relations {
+// 		if strings.Contains(relation, "[]") {
+// 			//many to many relationship
+// 			relationName := strings.Trim(relation, "[]")
+// 			inst := structs[relationName]
+// 			f := inst.GetField("Table")
+// 			f.SetTag(`json:"table_alias" gorm:"default:` + relationName + `"`)
+// 			instances := inst.Build().NewSliceOfStructs()
+// 			struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`" gorm:"many2many:`+utils.SnakeCase(tableName)+"_"+utils.SnakeCase(name)+`;"`)
+// 		} else {
+// 			inst := structs[relation]
+// 			f := inst.GetField("Table")
+// 			f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
+// 			instance := inst.Build().New()
+// 			key := keys[relation]
+// 			bytes, _ := json.Marshal(instance)
+// 			s := map[string]interface{}{}
+// 			json.Unmarshal(bytes, &s)
+// 			keystring := ""
+// 			for _, k := range key {
+// 				val := s[k]
+// 				//foreign key references must be nullable
+// 				if _, ok := val.(string); ok {
+// 					var s *string
+// 					val = s
+// 				} else if _, ok := val.(uint); ok {
+// 					var s *uint
+// 					val = s
+// 				} else if _, ok := val.(int); ok {
+// 					var s *int
+// 					val = s
+// 				} else if _, ok := val.(float64); ok {
+// 					var s *float64
+// 					val = s
+// 				} else if _, ok := val.(bool); ok {
+// 					var s *bool
+// 					val = s
+// 				}
+// 				//default to string if nil
+// 				if val == nil {
+// 					var s *string
+// 					val = s
+// 				}
+// 				struc.AddField(strings.Title(name)+strings.Title(k), val, `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
+// 				if keystring != "" {
+// 					keystring += ","
+// 				}
 
-				keystring += strings.Title(name) + strings.Title(k)
-			}
+// 				keystring += strings.Title(name) + strings.Title(k)
+// 			}
 
-			struc.AddField(name, instance, `json:"`+name+`" gorm:"foreignKey:`+keystring+`; references `+strings.Join(key, ",")+`"`)
-		}
-	}
-	return struc, nil
-}
+// 			struc.AddField(name, instance, `json:"`+name+`" gorm:"foreignKey:`+keystring+`; references `+strings.Join(key, ",")+`"`)
+// 		}
+// 	}
+// 	return struc, nil
+// }
