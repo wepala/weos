@@ -46,6 +46,11 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 					//add parameter values to the context
 					cc = AddToContext(c, cc, contextValues, entityFactory)
 				}
+			} else {
+				//use the operation information to get the parameter values
+				contextValues, err = parseParams(c, operation.Parameters, nil, entityFactory)
+				//add parameter values to the context
+				cc = AddToContext(c, cc, contextValues, entityFactory)
 			}
 
 			//use the operation information to get the parameter values and add them to the context
