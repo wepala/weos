@@ -323,6 +323,36 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 				}
 				p.RegisterProjection("Default", defaultProjection)
 			}
+
+			//This will check the enum types on run and output an error
+			for _, scheme := range p.Swagger.Components.Schemas {
+				for pName, prop := range scheme.Value.Properties {
+					if prop.Value.Enum != nil {
+						t := prop.Value.Type
+						for _, v := range prop.Value.Enum {
+							switch t {
+							case "string":
+								if reflect.TypeOf(v).String() != "string" {
+									//p.e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+								}
+							case "integer":
+								if reflect.TypeOf(v).String() != "float64" {
+									//p.e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+								}
+							case "number":
+								if reflect.TypeOf(v).String() != "float64" {
+									//p.e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+								}
+							case "date/time":
+							}
+						}
+					}
+				}
+			}
+
 			//get the database schema
 			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
 			p.Schemas = schemas

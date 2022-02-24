@@ -67,6 +67,7 @@ var success int
 var failed int
 var errArray []error
 var filters string
+var enumErr error
 
 type FilterProperties struct {
 	Operator string
@@ -543,7 +544,11 @@ func theSpecificationIsParsed(arg1 string) error {
 	e.Logger.SetOutput(&buf)
 	err = API.Initialize(scenarioContext)
 	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "to have enum options of the same type") {
+			enumErr = err
+		} else {
+			return err
+		}
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
@@ -1428,8 +1433,8 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 
 func anErrorShouldBeReturnedOnRunningToShowThatTheEnumValuesAreInvalid() error {
 
-	if !strings.Contains(buf.String(), "Expected field: status, of type integer, to have enum options of the same type") {
-		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	if enumErr == nil {
+		return fmt.Errorf("expected an enum error")
 	}
 	return nil
 }

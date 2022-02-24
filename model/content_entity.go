@@ -168,54 +168,6 @@ func (w *ContentEntity) IsEnumValid() bool {
 						return false
 					}
 				}
-			case "boolean":
-				enumProperty := w.GetBool(strings.Title(k))
-
-				////This checks if a "null" option was provided which is needed if nullable == true
-				for _, v := range property.Value.Enum {
-					nullFound = strconv.FormatBool(v.(bool)) == "null"
-					if nullFound == true {
-						break
-					}
-				}
-
-				//If nullable == true and null is found in the options
-				if property.Value.Nullable && nullFound == true {
-					for _, v := range property.Value.Enum {
-						enumFound = enumProperty == v.(bool)
-						if enumFound == true {
-							break
-						}
-					}
-
-					if enumFound == false {
-						message := "invalid enumeration option provided. available options are: " + enumOptions + " (for the null option, use a blank string, not the keyword null)"
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
-
-				} else if property.Value.Nullable == true && nullFound == false {
-					message := "if nullable is set to true, null is needed as an enum option"
-					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-					return false
-				} else if property.Value.Nullable == false {
-					if nullFound == true {
-						message := "nullable is set to false, cannot have null as an enum option."
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
-					for _, v := range property.Value.Enum {
-						enumFound = enumProperty == v.(bool)
-						if enumFound == true {
-							break
-						}
-					}
-					if enumFound == false {
-						message := "invalid enumeration option provided. available options are: " + enumOptions
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
-				}
 			case "number":
 				enumProperty := w.GetNumber(strings.Title(k))
 
@@ -236,13 +188,9 @@ func (w *ContentEntity) IsEnumValid() bool {
 
 					if enumFound == false {
 						for _, v := range property.Value.Enum {
-							temp := fmt.Sprintf("%.4f", enumProperty)
-							temp2 := fmt.Sprintf("%.4f", v.(float64))
-							enumFound = fmt.Sprintf("%.4f", enumProperty) == fmt.Sprintf("%.4f", v.(float64))
+							enumFound = fmt.Sprintf("%.3f", enumProperty) == fmt.Sprintf("%.3f", v.(float64))
 							if enumFound == true {
 								break
-							}
-							if temp != "" || temp2 != "" {
 							}
 						}
 					}
@@ -265,7 +213,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 						return false
 					}
 					for _, v := range property.Value.Enum {
-						enumFound = enumProperty == v.(float64)
+						enumFound = fmt.Sprintf("%.3f", enumProperty) == fmt.Sprintf("%.3f", v.(float64))
 						if enumFound == true {
 							break
 						}

@@ -74,10 +74,9 @@ components:
           type: boolean
         status:
           type: number
-          nullable: true
+          nullable: false
           enum:
-            - 0.0
-            - 1.3
+            - dfgf
             - 2.2
         image:
           type: string
