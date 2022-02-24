@@ -297,7 +297,7 @@ const SWAGGERUIENDPOINT = "/_discover/"
 const SWAGGERJSONENDPOINT = "/_discover_json"
 
 //RegisterSwaggerAPI creates default swagger api from binary
-func (p *RESTAPI) RegisterDefaultSwaggerAPI() error {
+func (p *RESTAPI) RegisterDefaultSwaggerAPI(pathMiddleware []echo.MiddlewareFunc) error {
 	statikFS, err := fs.New()
 	if err != nil {
 		return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
@@ -305,16 +305,16 @@ func (p *RESTAPI) RegisterDefaultSwaggerAPI() error {
 	static := http.FileServer(statikFS)
 	sh := http.StripPrefix(SWAGGERUIENDPOINT, static)
 	handler := echo.WrapHandler(sh)
-	p.e.GET(SWAGGERUIENDPOINT+"*", handler)
+	p.e.GET(SWAGGERUIENDPOINT+"*", handler, pathMiddleware...)
 
 	return nil
 }
 
 //RegisterDefaultSwaggerJson registers a default swagger json response
-func (p *RESTAPI) RegisterDefaultSwaggerJSON() error {
+func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFunc) error {
 	p.e.GET(SWAGGERJSONENDPOINT, func(c echo.Context) error {
 		return c.JSON(http.StatusOK, p.Swagger)
-	})
+	}, pathMiddleware...)
 	return nil
 }
 
@@ -350,10 +350,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterOperationInitializer(RouteInitializer)
 	//register standard post path initializers
 	p.RegisterPostPathInitializer(CORsInitializer)
-
-	//make default endpoints for returning swagger configuration to user
-	p.RegisterDefaultSwaggerAPI()
-	p.RegisterDefaultSwaggerJSON()
 
 	//these are the dynamic struct builders for the schemas in the OpenAPI
 	var schemas map[string]ds.Builder
