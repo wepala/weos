@@ -9,6 +9,7 @@ import (
 	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"testing"
+	"time"
 )
 
 func TestContentEntity_FromSchema(t *testing.T) {
@@ -625,6 +626,189 @@ func TestContentEntity_EnumerationInteger(t *testing.T) {
 
 		if entity.GetInteger("Status") != 1 {
 			t.Errorf("expected the status on the entity to be '%d', got '%v'", 1, entity.GetInteger("Status"))
+		}
+
+		if entity.Property == nil {
+			t.Fatal("expected item to be returned")
+		}
+
+		isValid := entity.IsValid()
+		if !isValid {
+			t.Fatalf("unexpected error expected entity to be valid got invalid")
+		}
+	})
+	t.Run("Testing enum with wrong option -status3", func(t *testing.T) {
+		//Pass in values to the content entity
+		entity, err := entityFactory.NewEntity(context.TODO())
+		if err != nil {
+			t.Fatalf("error generating entity '%s'", err)
+		}
+
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": 3}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		err = entity.SetValueFromPayload(context.TODO(), payload)
+		if err != nil {
+			t.Fatalf("error setting Payload '%s'", err)
+		}
+
+		if entity.Property == nil {
+			t.Fatal("expected item to be returned")
+		}
+
+		isValid := entity.IsValid()
+		if isValid {
+			t.Fatalf("expected entity to be invalid")
+		}
+	})
+}
+
+func TestContentEntity_EnumerationDateTime(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("../controllers/rest/fixtures/blog-x-schema.yaml")
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	contentType := "Blog"
+	entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, api.Swagger.Components.Schemas[contentType].Value, schemas[contentType])
+	if err != nil {
+		t.Fatalf("error setting up entity factory")
+	}
+
+	t.Run("Testing enum with all the required fields", func(t *testing.T) {
+		//Pass in values to the content entity
+		entity, err := entityFactory.NewEntity(context.TODO())
+		if err != nil {
+			t.Fatalf("error generating entity '%s'", err)
+		}
+
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": "0001-02-01T00:00:00Z", "guid": "123dsada"}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		err = entity.SetValueFromPayload(context.TODO(), payload)
+		if err != nil {
+			t.Fatalf("error setting Payload '%s'", err)
+		}
+
+		tt, err := time.Parse("2006-01-02T15:04:00Z", "0001-02-01T00:00:00Z")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entity.GetTime("Status") != tt {
+			t.Fatalf("expected status time to be %s got %s", tt, entity.GetTime("Status"))
+		}
+
+		if entity.Property == nil {
+			t.Fatal("expected item to be returned")
+		}
+
+		isValid := entity.IsValid()
+		if !isValid {
+			t.Fatalf("unexpected error expected entity to be valid got invalid")
+		}
+	})
+	t.Run("Testing enum with wrong option", func(t *testing.T) {
+		//Pass in values to the content entity
+		entity, err := entityFactory.NewEntity(context.TODO())
+		if err != nil {
+			t.Fatalf("error generating entity '%s'", err)
+		}
+
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": "0001-04-01T00:00:00Z", "guid": "123dsada"}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		err = entity.SetValueFromPayload(context.TODO(), payload)
+		if err != nil {
+			t.Fatalf("error setting Payload '%s'", err)
+		}
+
+		if entity.Property == nil {
+			t.Fatal("expected item to be returned")
+		}
+
+		isValid := entity.IsValid()
+		if isValid {
+			t.Fatalf("expected entity to be invalid")
+		}
+	})
+}
+
+func TestContentEntity_EnumerationFloat(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("../controllers/rest/fixtures/blog-pk-id.yaml")
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	contentType := "Blog"
+	entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, api.Swagger.Components.Schemas[contentType].Value, schemas[contentType])
+	if err != nil {
+		t.Fatalf("error setting up entity factory")
+	}
+
+	t.Run("Testing enum with all the required fields -status0", func(t *testing.T) {
+		//Pass in values to the content entity
+		entity, err := entityFactory.NewEntity(context.TODO())
+		if err != nil {
+			t.Fatalf("error generating entity '%s'", err)
+		}
+
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": 0.0}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		err = entity.SetValueFromPayload(context.TODO(), payload)
+		if err != nil {
+			t.Fatalf("error setting Payload '%s'", err)
+		}
+
+		if entity.GetString("title") != "test 1" {
+			t.Errorf("expected the title on the entity to be '%s', got '%s'", "test 1", entity.GetString("title"))
+		}
+
+		if entity.GetNumber("status") != 0.0 {
+			t.Errorf("expected the status on the entity to be '%f', got '%v'", 0.0, entity.GetNumber("status"))
+		}
+
+		if entity.Property == nil {
+			t.Fatal("expected item to be returned")
+		}
+
+		isValid := entity.IsValid()
+		if !isValid {
+			t.Fatalf("unexpected error expected entity to be valid got invalid")
+		}
+	})
+	t.Run("Testing enum with all the required fields -status1", func(t *testing.T) {
+		//Pass in values to the content entity
+		entity, err := entityFactory.NewEntity(context.TODO())
+		if err != nil {
+			t.Fatalf("error generating entity '%s'", err)
+		}
+
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": 1.5}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		err = entity.SetValueFromPayload(context.TODO(), payload)
+		if err != nil {
+			t.Fatalf("error setting Payload '%s'", err)
+		}
+
+		if entity.GetString("title") != "test 1" {
+			t.Errorf("expected the title on the entity to be '%s', got '%s'", "test 1", entity.GetString("title"))
+		}
+
+		if entity.GetNumber("Status") != 1.5 {
+			t.Errorf("expected the status on the entity to be '%f', got '%v'", 1.5, entity.GetNumber("Status"))
 		}
 
 		if entity.Property == nil {

@@ -366,20 +366,16 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 							switch t {
 							case "string":
 								if reflect.TypeOf(v).String() != "string" {
-									//p.e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
 									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
 								}
 							case "integer":
 								if reflect.TypeOf(v).String() != "float64" {
-									//p.e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
 									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
 								}
 							case "number":
 								if reflect.TypeOf(v).String() != "float64" {
-									//p.e.Logger.Fatalf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
 									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
 								}
-							case "date/time":
 							}
 						}
 					}

@@ -147,7 +147,8 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 				switch t {
 				case "string":
 					if p.Value.Format == "date-time" {
-						defaultValue = time.Now()
+						timeNow := time.Now()
+						defaultValue = &timeNow
 					} else {
 						var strings *string
 						defaultValue = strings
