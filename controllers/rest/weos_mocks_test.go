@@ -552,6 +552,8 @@ func (mock *EventRepositoryMock) ReplayEventsCalls() []struct {
 
 // Ensure, that ProjectionMock does implement model.Projection.
 // If this is not the case, regenerate this file with moq.
+// Ensure, that ProjectionMock does implement model.Projection.
+// If this is not the case, regenerate this file with moq.
 var _ model.Projection = &ProjectionMock{}
 
 // ProjectionMock is a mock implementation of model.Projection.
@@ -563,11 +565,11 @@ var _ model.Projection = &ProjectionMock{}
 //             GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 // 	               panic("mock out the GetByEntityID method")
 //             },
-//             GetByIdentifiersFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-// 	               panic("mock out the GetByIdentifiers method")
-//             },
 //             GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 // 	               panic("mock out the GetByKey method")
+//             },
+//             GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+// 	               panic("mock out the GetByProperties method")
 //             },
 //             GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 // 	               panic("mock out the GetContentEntities method")
@@ -591,11 +593,11 @@ type ProjectionMock struct {
 	// GetByEntityIDFunc mocks the GetByEntityID method.
 	GetByEntityIDFunc func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error)
 
-	// GetByIdentifiersFunc mocks the GetByIdentifiers method.
-	GetByIdentifiersFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
-
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
+
+	// GetByPropertiesFunc mocks the GetByProperties method.
+	GetByPropertiesFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
 
 	// GetContentEntitiesFunc mocks the GetContentEntities method.
 	GetContentEntitiesFunc func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
@@ -620,8 +622,8 @@ type ProjectionMock struct {
 			// ID is the id argument value.
 			ID string
 		}
-		// GetByIdentifiers holds details about calls to the GetByIdentifiers method.
-		GetByIdentifiers []struct {
+		// GetByKey holds details about calls to the GetByKey method.
+		GetByKey []struct {
 			// Ctxt is the ctxt argument value.
 			Ctxt context.Context
 			// EntityFactory is the entityFactory argument value.
@@ -629,8 +631,8 @@ type ProjectionMock struct {
 			// Identifiers is the identifiers argument value.
 			Identifiers map[string]interface{}
 		}
-		// GetByKey holds details about calls to the GetByKey method.
-		GetByKey []struct {
+		// GetByProperties holds details about calls to the GetByProperties method.
+		GetByProperties []struct {
 			// Ctxt is the ctxt argument value.
 			Ctxt context.Context
 			// EntityFactory is the entityFactory argument value.
@@ -678,8 +680,8 @@ type ProjectionMock struct {
 		}
 	}
 	lockGetByEntityID      sync.RWMutex
-	lockGetByIdentifiers   sync.RWMutex
 	lockGetByKey           sync.RWMutex
+	lockGetByProperties    sync.RWMutex
 	lockGetContentEntities sync.RWMutex
 	lockGetContentEntity   sync.RWMutex
 	lockGetEventHandler    sync.RWMutex
@@ -725,45 +727,6 @@ func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 	return calls
 }
 
-// GetByIdentifiers calls GetByIdentifiersFunc.
-func (mock *ProjectionMock) GetByIdentifiers(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-	if mock.GetByIdentifiersFunc == nil {
-		panic("ProjectionMock.GetByIdentifiersFunc: method is nil but Projection.GetByIdentifiers was just called")
-	}
-	callInfo := struct {
-		Ctxt          context.Context
-		EntityFactory model.EntityFactory
-		Identifiers   map[string]interface{}
-	}{
-		Ctxt:          ctxt,
-		EntityFactory: entityFactory,
-		Identifiers:   identifiers,
-	}
-	mock.lockGetByIdentifiers.Lock()
-	mock.calls.GetByIdentifiers = append(mock.calls.GetByIdentifiers, callInfo)
-	mock.lockGetByIdentifiers.Unlock()
-	return mock.GetByIdentifiersFunc(ctxt, entityFactory, identifiers)
-}
-
-// GetByIdentifiersCalls gets all the calls that were made to GetByIdentifiers.
-// Check the length with:
-//     len(mockedProjection.GetByIdentifiersCalls())
-func (mock *ProjectionMock) GetByIdentifiersCalls() []struct {
-	Ctxt          context.Context
-	EntityFactory model.EntityFactory
-	Identifiers   map[string]interface{}
-} {
-	var calls []struct {
-		Ctxt          context.Context
-		EntityFactory model.EntityFactory
-		Identifiers   map[string]interface{}
-	}
-	mock.lockGetByIdentifiers.RLock()
-	calls = mock.calls.GetByIdentifiers
-	mock.lockGetByIdentifiers.RUnlock()
-	return calls
-}
-
 // GetByKey calls GetByKeyFunc.
 func (mock *ProjectionMock) GetByKey(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	if mock.GetByKeyFunc == nil {
@@ -800,6 +763,45 @@ func (mock *ProjectionMock) GetByKeyCalls() []struct {
 	mock.lockGetByKey.RLock()
 	calls = mock.calls.GetByKey
 	mock.lockGetByKey.RUnlock()
+	return calls
+}
+
+// GetByProperties calls GetByPropertiesFunc.
+func (mock *ProjectionMock) GetByProperties(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	if mock.GetByPropertiesFunc == nil {
+		panic("ProjectionMock.GetByPropertiesFunc: method is nil but Projection.GetByProperties was just called")
+	}
+	callInfo := struct {
+		Ctxt          context.Context
+		EntityFactory model.EntityFactory
+		Identifiers   map[string]interface{}
+	}{
+		Ctxt:          ctxt,
+		EntityFactory: entityFactory,
+		Identifiers:   identifiers,
+	}
+	mock.lockGetByProperties.Lock()
+	mock.calls.GetByProperties = append(mock.calls.GetByProperties, callInfo)
+	mock.lockGetByProperties.Unlock()
+	return mock.GetByPropertiesFunc(ctxt, entityFactory, identifiers)
+}
+
+// GetByPropertiesCalls gets all the calls that were made to GetByProperties.
+// Check the length with:
+//     len(mockedProjection.GetByPropertiesCalls())
+func (mock *ProjectionMock) GetByPropertiesCalls() []struct {
+	Ctxt          context.Context
+	EntityFactory model.EntityFactory
+	Identifiers   map[string]interface{}
+} {
+	var calls []struct {
+		Ctxt          context.Context
+		EntityFactory model.EntityFactory
+		Identifiers   map[string]interface{}
+	}
+	mock.lockGetByProperties.RLock()
+	calls = mock.calls.GetByProperties
+	mock.lockGetByProperties.RUnlock()
 	return calls
 }
 
@@ -961,6 +963,7 @@ func (mock *ProjectionMock) MigrateCalls() []struct {
 	mock.lockMigrate.RUnlock()
 	return calls
 }
+
 
 
 // Ensure, that LogMock does implement model.Log.

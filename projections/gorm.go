@@ -427,7 +427,7 @@ func (p *GORMDB) GetContentEntities(ctx context.Context, entityFactory weos.Enti
 	return entities, count, result.Error
 }
 
-func (p *GORMDB) GetByIdentifiers(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 	results := entityFactory.Builder(ctxt).Build().NewSliceOfStructs()
 	result := p.db.Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
 	if result.Error != nil {

@@ -4130,7 +4130,7 @@ components:
 	}
 }
 
-func TestProjections_GetByIdentifiers(t *testing.T) {
+func TestProjections_GetByProperties(t *testing.T) {
 
 	t.Run("Get By Identifiers", func(t *testing.T) {
 		openAPI := `openapi: 3.0.3
@@ -4227,7 +4227,7 @@ components:
 		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"]))
 
 		blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
-		r, err := p.GetByIdentifiers(ctxt, blogEntityFactory, map[string]interface{}{"author": "twice"})
+		r, err := p.GetByProperties(ctxt, blogEntityFactory, map[string]interface{}{"author": "twice"})
 		if err != nil {
 			t.Errorf("got error retrieving blogs '%s'", err)
 		}
@@ -4239,7 +4239,7 @@ components:
 			t.Errorf("expected blog to be %v got %v", blogs[2], r[0])
 		}
 
-		r, err = p.GetByIdentifiers(ctxt, blogEntityFactory, map[string]interface{}{"description": "twice"})
+		r, err = p.GetByProperties(ctxt, blogEntityFactory, map[string]interface{}{"description": "twice"})
 		if err != nil {
 			t.Errorf("got error retrieving blogs '%s'", err)
 		}
@@ -4251,7 +4251,7 @@ components:
 			t.Errorf("expected blog to be %v got %v", blogs[2], r[0])
 		}
 
-		r, err = p.GetByIdentifiers(ctxt, blogEntityFactory, map[string]interface{}{"title": "once"})
+		r, err = p.GetByProperties(ctxt, blogEntityFactory, map[string]interface{}{"title": "once"})
 		if err != nil {
 			t.Errorf("got error retrieving blogs '%s'", err)
 		}

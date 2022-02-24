@@ -25,7 +25,7 @@ func TestDomainService_Create(t *testing.T) {
 		},
 	}
 	mockProjections := &ProjectionMock{
-		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 			return nil, nil
 		},
 	}
@@ -111,7 +111,7 @@ func TestDomainService_CreateBatch(t *testing.T) {
 		},
 	}
 	mockProjections := &ProjectionMock{
-		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 			return nil, nil
 		},
 	}
@@ -228,7 +228,7 @@ func TestDomainService_Update(t *testing.T) {
 			}
 			return existingPayload, nil
 		},
-		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{existingPayload}, nil
 		},
 	}
@@ -368,7 +368,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
-		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{existingPayload}, nil
 		},
 	}
@@ -473,7 +473,7 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
-		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{existingPayload}, nil
 		},
 	}
@@ -575,7 +575,7 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 		return nil, nil
 	}}, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
@@ -587,7 +587,7 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
-		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{existingPayload}, nil
 		},
 	}
@@ -668,7 +668,7 @@ func TestDomainService_Delete(t *testing.T) {
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 			return existingPayload, nil
 		},
-		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{existingPayload}, nil
 		},
 	}
@@ -755,7 +755,7 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 		return nil, nil
 	}}, echo.New().Logger)
 	existingBlog, _ := dService.Create(newContext, reqBytes, contentType)
@@ -780,7 +780,7 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 			}
 			return nil, nil
 		},
-		GetByIdentifiersFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 			identifier := identifiers["url"].(*string)
 			if *identifier == existingPayload["url"].(string) {
 				return []map[string]interface{}{existingPayload}, nil

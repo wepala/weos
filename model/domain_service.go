@@ -363,7 +363,7 @@ func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntit
 			json.Unmarshal(uniquebytes, &unique)
 			if unique {
 				val := reader.GetField(strings.Title(name)).Interface()
-				result, err := s.Projection.GetByIdentifiers(ctx, entityFactory, map[string]interface{}{name: val})
+				result, err := s.Projection.GetByProperties(ctx, entityFactory, map[string]interface{}{name: val})
 				if err != nil {
 					return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
 				}

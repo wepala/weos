@@ -85,7 +85,7 @@ type Projection interface {
 	GetByKey(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
 	GetByEntityID(ctxt context.Context, entityFactory EntityFactory, id string) (map[string]interface{}, error)
 	GetContentEntities(ctx context.Context, entityFactory EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
-	GetByIdentifiers(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
+	GetByProperties(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
 }
 
 type GormProjection interface {
