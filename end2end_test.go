@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -1459,6 +1460,35 @@ func theSwaggerUiShouldBeShown() error {
 	return nil
 }
 
+func theContentTypeShouldBe(mediaType string) error {
+	if rec.Header().Get("Content-Type") != mediaType {
+		return fmt.Errorf("expect content type to be %s got %s", mediaType, rec.Header().Get("Content-Type"))
+	}
+	return nil
+}
+
+func theHeaderIsSetWithValue(key, value string) error {
+
+	return godog.ErrPending
+}
+
+func theResponseBodyShouldBe(expectResp *godog.DocString) error {
+	defer rec.Result().Body.Close()
+	var actualResp string
+	results, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(results, &actualResp)
+	if err != nil {
+		return err
+	}
+	if actualResp != expectResp.Content {
+		return fmt.Errorf("expected response to be %s, got %s", expectResp.Content, actualResp)
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1539,6 +1569,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
 	ctx.Step(`^the api as json should be shown$`, theApiAsJsonShouldBeShown)
 	ctx.Step(`^the swagger ui should be shown$`, theSwaggerUiShouldBeShown)
+	ctx.Step(`^the content type should be "([^"]*)"$`, theContentTypeShouldBe)
+	ctx.Step(`^the header "([^"]*)" is set with value "([^"]*)"$`, theHeaderIsSetWithValue)
+	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
 
 }
 
@@ -1549,8 +1582,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags:   "~long && ~skipped",
+			Tags: "focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
