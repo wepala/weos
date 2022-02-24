@@ -1975,20 +1975,12 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 
 	t.Run("sending a request where there is one content type in responses ", func(t *testing.T) {
 		path := swagger.Paths.Find("/")
-		entityFactory := &EntityFactoryMock{
-			NameFunc: func() string {
-				return "Blog"
-			},
-			SchemaFunc: func() *openapi3.Schema {
-				return swagger.Components.Schemas["Blog"].Value
-			},
-		}
-
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		mw := rest.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
-		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, entityFactory, path, path.Get)
-		e.GET("/", nil, mw, defaultMiddleware)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/", controller, mw, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2000,21 +1992,13 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 	})
 	t.Run("sending a request where there is more than one content type in responses and has an accept header ", func(t *testing.T) {
 		path := swagger.Paths.Find("/page")
-		entityFactory := &EntityFactoryMock{
-			NameFunc: func() string {
-				return "Blog"
-			},
-			SchemaFunc: func() *openapi3.Schema {
-				return swagger.Components.Schemas["Blog"].Value
-			},
-		}
-
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/page", nil)
 		req.Header.Set(weoscontext.ACCEPT, "text/html")
-		mw := rest.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
-		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, entityFactory, path, path.Get)
-		e.GET("/page", nil, mw, defaultMiddleware)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/page", controller, mw, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2026,21 +2010,14 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 	})
 	t.Run("sending a request where there is more than one content type in responses and has an incorrect accept header ", func(t *testing.T) {
 		path := swagger.Paths.Find("/page")
-		entityFactory := &EntityFactoryMock{
-			NameFunc: func() string {
-				return "Blog"
-			},
-			SchemaFunc: func() *openapi3.Schema {
-				return swagger.Components.Schemas["Blog"].Value
-			},
-		}
 
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/page", nil)
 		req.Header.Set(weoscontext.ACCEPT, "exam")
-		mw := rest.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
-		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, entityFactory, path, path.Get)
-		e.GET("/page", nil, mw, defaultMiddleware)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/page", controller, mw, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2052,20 +2029,13 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 	})
 	t.Run("sending a request where there is more than one content type in responses and no accept header ", func(t *testing.T) {
 		path := swagger.Paths.Find("/page")
-		entityFactory := &EntityFactoryMock{
-			NameFunc: func() string {
-				return "Blog"
-			},
-			SchemaFunc: func() *openapi3.Schema {
-				return swagger.Components.Schemas["Blog"].Value
-			},
-		}
 
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/page", nil)
-		mw := rest.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
-		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, entityFactory, path, path.Get)
-		e.GET("/page", nil, mw, defaultMiddleware)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/page", controller, mw, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
