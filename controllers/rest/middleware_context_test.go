@@ -519,13 +519,13 @@ func TestContext(t *testing.T) {
 				t.Fatalf("expected a page in context")
 			}
 			if cc.Value("limit") == nil {
-				t.Fatalf("expected a page in context")
+				t.Fatalf("expected a limit in context")
 			}
-			if cc.Value("sorts") == nil {
-				t.Fatalf("expected a page in context")
+			if cc.Value("_sorts") == nil {
+				t.Fatalf("expected a sort in context")
 			}
 			if cc.Value("_filters") == nil {
-				t.Fatalf("expected a page in context")
+				t.Fatalf("expected a filter in context")
 			}
 			return nil
 		})

@@ -298,6 +298,9 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		NameFunc: func() string {
 			return "Blog"
 		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
 	}
 
 	t.Run("basic batch create based on simple content type", func(t *testing.T) {
@@ -1392,6 +1395,9 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		NameFunc: func() string {
 			return "Blog"
 		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
 	}
 	eventRepository := &EventRepositoryMock{}
 
@@ -1550,6 +1556,9 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 	entityFactory := &EntityFactoryMock{
 		NameFunc: func() string {
 			return "Blog"
+		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
 		},
 	}
 
@@ -1716,6 +1725,9 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 		entityFactory := &EntityFactoryMock{
 			NameFunc: func() string {
 				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
 			},
 		}
 		resp := httptest.NewRecorder()
