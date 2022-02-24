@@ -81,41 +81,43 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 
 	if operation.Responses.Get(http.StatusOK) != nil {
 		for _, respContent := range operation.Responses.Get(http.StatusOK).Value.Content {
-			//use the first schema ref to determine the entity type
-			if respContent.Schema.Ref != "" {
-				contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
-				if builder, ok := schemas[contentType]; ok {
-					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
-					return newContext, nil
+			if respContent.Schema != nil {
+				//use the first schema ref to determine the entity type
+				if respContent.Schema.Ref != "" {
+					contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
+					if builder, ok := schemas[contentType]; ok {
+						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						return newContext, nil
+					}
 				}
-			}
-			//use the first schema ref to determine the entity type
-			if respContent.Schema.Value.Properties["items"] != nil && respContent.Schema.Value.Properties["items"].Value.Items != nil {
-				contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
-				if builder, ok := schemas[contentType]; ok {
-					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
-					return newContext, nil
-				}
-			} else {
-				//if items are named differently the alias is checked
-				var alias string
-				for _, prop := range respContent.Schema.Value.Properties {
-					aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
-					if aliasInterface != nil {
-						bytesContext := aliasInterface.(json.RawMessage)
-						json.Unmarshal(bytesContext, &alias)
-						if alias == "items" {
-							if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-								contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
-								if builder, ok := schemas[contentType]; ok {
-									entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-									newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-									api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
-									return newContext, nil
+				//use the first schema ref to determine the entity type
+				if respContent.Schema.Value.Properties["items"] != nil && respContent.Schema.Value.Properties["items"].Value.Items != nil {
+					contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
+					if builder, ok := schemas[contentType]; ok {
+						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						return newContext, nil
+					}
+				} else {
+					//if items are named differently the alias is checked
+					var alias string
+					for _, prop := range respContent.Schema.Value.Properties {
+						aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
+						if aliasInterface != nil {
+							bytesContext := aliasInterface.(json.RawMessage)
+							json.Unmarshal(bytesContext, &alias)
+							if alias == "items" {
+								if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
+									contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
+									if builder, ok := schemas[contentType]; ok {
+										entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+										newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+										api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+										return newContext, nil
+									}
 								}
 							}
 						}
@@ -395,79 +397,81 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			//checks if the response refers to a schema
 			if pathItem.Get.Responses != nil && pathItem.Get.Responses["200"].Value.Content != nil {
 				for _, val := range pathItem.Get.Responses["200"].Value.Content {
-					if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
-						var identifiers []string
-						identifierExtension := swagger.Components.Schemas[strings.Replace(val.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
-						if identifierExtension != nil {
-							bytesId := identifierExtension.(json.RawMessage)
-							err := json.Unmarshal(bytesId, &identifiers)
-							if err != nil {
-								return ctxt, err
+					if val.Schema != nil {
+						if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
+							var identifiers []string
+							identifierExtension := swagger.Components.Schemas[strings.Replace(val.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
+							if identifierExtension != nil {
+								bytesId := identifierExtension.(json.RawMessage)
+								err := json.Unmarshal(bytesId, &identifiers)
+								if err != nil {
+									return ctxt, err
+								}
 							}
-						}
-						var contextName string
-						if identifiers != nil && len(identifiers) > 0 {
-							for _, identifier := range identifiers {
-								foundIdentifier := false
-								//check the parameters
-								for _, param := range pathItem.Get.Parameters {
-									cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-									if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
-										foundIdentifier = true
+							var contextName string
+							if identifiers != nil && len(identifiers) > 0 {
+								for _, identifier := range identifiers {
+									foundIdentifier := false
+									//check the parameters
+									for _, param := range pathItem.Get.Parameters {
+										cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+										if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
+											foundIdentifier = true
+											break
+										}
+									}
+									if !foundIdentifier {
+										allParam = false
+										api.e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
 										break
 									}
 								}
-								if !foundIdentifier {
-									allParam = false
-									api.e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-									break
-								}
-							}
-						} else {
-							//check the parameters for id
-							if pathItem.Get.Parameters != nil && len(pathItem.Get.Parameters) != 0 {
-								for _, param := range pathItem.Get.Parameters {
-									if "id" == param.Value.Name {
-										allParam = true
-									}
-									contextInterface := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-									if contextInterface != nil {
-										bytesContext := contextInterface.(json.RawMessage)
-										json.Unmarshal(bytesContext, &contextName)
-										if "id" == contextName {
+							} else {
+								//check the parameters for id
+								if pathItem.Get.Parameters != nil && len(pathItem.Get.Parameters) != 0 {
+									for _, param := range pathItem.Get.Parameters {
+										if "id" == param.Value.Name {
 											allParam = true
+										}
+										contextInterface := param.Value.ExtensionProps.Extensions[ContextNameExtension]
+										if contextInterface != nil {
+											bytesContext := contextInterface.(json.RawMessage)
+											json.Unmarshal(bytesContext, &contextName)
+											if "id" == contextName {
+												allParam = true
+											}
 										}
 									}
 								}
 							}
-						}
-						if allParam {
-							handler = "ViewController"
-							middlewareNames["ViewMiddleware"] = true
-							autoConfigure = true
-							break
-						}
-					} else {
-						//checks if the response refers to an array schema
-						if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-							handler = "ListController"
-							middlewareNames["ListMiddleware"] = true
-							autoConfigure = true
-							break
+							if allParam {
+								handler = "ViewController"
+								middlewareNames["ViewMiddleware"] = true
+								autoConfigure = true
+								break
+							}
 						} else {
-							if val.Schema.Value.Properties != nil {
-								var alias string
-								for _, prop := range val.Schema.Value.Properties {
-									aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
-									if aliasInterface != nil {
-										bytesContext := aliasInterface.(json.RawMessage)
-										json.Unmarshal(bytesContext, &alias)
-										if alias == "items" {
-											if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-												handler = "ListController"
-												middlewareNames["ListMiddleware"] = true
-												autoConfigure = true
-												break
+							//checks if the response refers to an array schema
+							if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+								handler = "ListController"
+								middlewareNames["ListMiddleware"] = true
+								autoConfigure = true
+								break
+							} else {
+								if val.Schema.Value.Properties != nil {
+									var alias string
+									for _, prop := range val.Schema.Value.Properties {
+										aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
+										if aliasInterface != nil {
+											bytesContext := aliasInterface.(json.RawMessage)
+											json.Unmarshal(bytesContext, &alias)
+											if alias == "items" {
+												if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
+													handler = "ListController"
+													middlewareNames["ListMiddleware"] = true
+													autoConfigure = true
+													break
+												}
 											}
 										}
 									}
@@ -579,6 +583,26 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		} else {
 			//this should not return an error it should log
 			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+			controller, err := api.GetController("DefaultResponseController")
+			if err != nil {
+				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
+			}
+			if controller != nil {
+				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
+			}
+			for _, resp := range operation.Responses {
+				if resp.Value.Content != nil {
+					for _, content := range resp.Value.Content {
+						if content.Example != nil {
+							middlewareNames["DefaultResponseMiddleware"] = true
+							break
+						}
+					}
+
+				}
+			}
+
 		}
 		middlewares := GetOperationMiddlewares(ctxt)
 		//there are middlewareNames let's add them

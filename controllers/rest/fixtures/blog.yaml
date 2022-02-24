@@ -158,8 +158,7 @@ paths:
                     "url": "www.example.com",
                     "email": "testing@example.com"
                   }
-              schema:
-                $ref: "#/components/schemas/Blog"
+
   /health:
     summary: Health Check
     get:

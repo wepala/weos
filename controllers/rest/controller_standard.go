@@ -690,9 +690,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 						}
 						//check for if there are multiple mediatype
 					} else if len(resp.Value.Content) > 1 {
-						var mediaType string
-						mediaType, ok := ctx.Value(weoscontext.ACCEPT).(string)
-						if !ok {
+						//take media type from the request since the context wouldnt add it because there is no entity factory to use
+						mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+						if mediaType == "" {
 							api.e.Logger.Debugf("unexpected error accept header was not found")
 							return NewControllerError("unexpected error accept header was not found", nil, http.StatusBadRequest)
 						}
@@ -708,15 +708,31 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 
 								}
-								return ctxt.Blob(respCode, mediaType, bytesArray)
+								//Add response to context for controller
+								ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, mediaType, bytesArray))
+								request := ctxt.Request().WithContext(ctx)
+								ctxt.SetRequest(request)
+								return next(ctxt)
 							}
 						}
 					}
 
 				}
 			}
-			return nil
+			return NewControllerError("unexpected error all responses were parsed, nothing was found", nil, http.StatusBadRequest)
+
 		}
+	}
+}
+
+func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		newContext := context.Request().Context()
+		value := newContext.Value("resp")
+		if value == nil {
+			return NewControllerError("unexpected error all responses were parsed, nothing was found", nil, http.StatusBadRequest)
+		}
+		return value.(error)
 	}
 }
 
