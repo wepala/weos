@@ -599,8 +599,8 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
 			}
 		case "datetime":
-			dateTime := field.Time()
-			if dateTime != *new(time.Time) {
+			dateTime := field.PointerTime()
+			if field.Interface() != new(time.Time) && field.Interface() != dateTime {
 				fmt.Printf("date interface is '%v'", field.Interface())
 				fmt.Printf("empty date interface is '%v'", new(time.Time))
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
