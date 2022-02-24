@@ -665,6 +665,61 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
+//DefaultResponseMiddleware returns content type based on content type in example
+func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			ctx := ctxt.Request().Context()
+			for code, resp := range operation.Responses {
+				respCode, _ := strconv.Atoi(code)
+				if resp.Value.Content != nil {
+					//check for if there is one mediatype
+					if len(resp.Value.Content) == 1 {
+						for mediaType, content := range resp.Value.Content {
+							if content.Example != nil {
+								var bytesArray []byte
+								bytesArray, err := json.Marshal(content.Example)
+								if err != nil {
+									api.e.Logger.Errorf("unexpected error %s ", err)
+									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+								}
+								return ctxt.Blob(respCode, mediaType, bytesArray)
+							}
+						}
+						//check for if there are multiple mediatype
+					} else if len(resp.Value.Content) > 1 {
+						var mediaType string
+						mediaType, ok := ctx.Value(weoscontext.ACCEPT).(string)
+						if !ok {
+							api.e.Logger.Debugf("unexpected error accept header was not found")
+							return NewControllerError("unexpected error accept header was not found", nil, http.StatusBadRequest)
+						}
+						if resp.Value.Content[mediaType] == nil {
+							api.e.Logger.Debugf("unexpected error %s media type not found", mediaType)
+							return NewControllerError(fmt.Sprintf("unexpected error %s media type not found", mediaType), nil, http.StatusBadRequest)
+						} else {
+							if resp.Value.Content[mediaType].Example != nil {
+								var bytesArray []byte
+								bytesArray, err := json.Marshal(resp.Value.Content[mediaType].Example)
+								if err != nil {
+									api.e.Logger.Errorf("unexpected error %s ", err)
+									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+								}
+								return ctxt.Blob(respCode, mediaType, bytesArray)
+							}
+						}
+					}
+
+				}
+			}
+			return nil
+		}
+	}
+}
+
 func Get(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//TODO call GetByID
