@@ -93,9 +93,14 @@ components:
         lastUpdated:
           type: string
           format: date-time
+          x-update: 
+            - Add Blog
+            - Update Blog
         created:
           type: string
           format: date-time
+          x-update: 
+            - Add Blog
       required:
         - title
         - url

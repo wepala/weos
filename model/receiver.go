@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 
@@ -35,6 +37,14 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		logger.Error(err)
 		return err
 	}
+
+	//update default timr update values based on routes
+	operation := ctx.Value(weosContext.OPERATION_ID).(string)
+	payload, err = newEntity.UpdateTime(operation, payload)
+	if err != nil {
+		return err
+	}
+
 	//use the entity id that was passed with the command
 	newEntity.ID = command.Metadata.EntityID
 	//add create event
