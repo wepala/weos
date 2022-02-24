@@ -298,6 +298,9 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		NameFunc: func() string {
 			return "Blog"
 		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
 	}
 
 	t.Run("basic batch create based on simple content type", func(t *testing.T) {
