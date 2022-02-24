@@ -1468,8 +1468,8 @@ func theContentTypeShouldBe(mediaType string) error {
 }
 
 func theHeaderIsSetWithValue(key, value string) error {
-
-	return godog.ErrPending
+	header.Set(key, value)
+	return nil
 }
 
 func theResponseBodyShouldBe(expectResp *godog.DocString) error {
@@ -1583,7 +1583,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			//Tags:   "~long && ~skipped",
-			Tags: "focus",
+			Tags: "WEOS-1365",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

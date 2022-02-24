@@ -684,8 +684,8 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 				}
 				respCode, _ = strconv.Atoi(code)
 				if resp.Value.Content != nil {
-					//check for if there is one mediatype or if h=there is no accept value
-					if len(resp.Value.Content) == 1 || mediaType == "" {
+					//check for if there is one mediatype or if there is no accept value or if the accept value is all
+					if len(resp.Value.Content) == 1 || mediaType == "" || strings.Replace(mediaType, "*", "", -1) == "/" {
 						for key, content := range resp.Value.Content {
 							if content.Example != nil {
 								bytesArray, err = json.Marshal(content.Example)
@@ -702,17 +702,23 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 						//check for if there are multiple mediatype
 					} else if len(resp.Value.Content) > 1 {
 						if resp.Value.Content[mediaType] == nil {
+							//check for wild card
 							if strings.Contains(mediaType, "*") {
 								mediaT := strings.Replace(mediaType, "*", "", -1)
-								if resp.Value.Content[mediaT] != nil && resp.Value.Content[mediaT].Example != nil {
-									bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
-									if err != nil {
-										api.e.Logger.Debugf("unexpected error %s ", err)
-										return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+								for key, content := range resp.Value.Content {
+									if strings.Contains(key, mediaT) {
+										if content.Example != nil {
+											bytesArray, err = json.Marshal(content.Example)
+											if err != nil {
+												api.e.Logger.Debugf("unexpected error %s ", err)
+												return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+											}
+											contentType = key
+											found = true
+											break
+										}
 									}
-									contentType = mediaType
-									found = true
-									break
+
 								}
 							}
 							//search all the responses to find if the mediatype is there

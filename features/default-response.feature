@@ -65,7 +65,7 @@ Feature: Hardcode the response for an endpoint
     <html> <head><title>Test</title></head><body>This is a test page</body></html>
 
     """
-  @WEOS-1365 @focus
+  @WEOS-1365
   Scenario: Send Accept header to hit at content of expected response
 
     If there are multiple content types you can send an [Accept header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept)
