@@ -38,7 +38,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		return err
 	}
 
-	//update default timr update values based on routes
+	//update default time update values based on routes
 	operation := ctx.Value(weosContext.OPERATION_ID).(string)
 	payload, err = newEntity.UpdateTime(operation, payload)
 	if err != nil {

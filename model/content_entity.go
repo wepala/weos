@@ -384,7 +384,7 @@ func (w *ContentEntity) UpdateTime(operationID string, data []byte) ([]byte, err
 	scheme := w.Schema
 	payload := map[string]interface{}{}
 	json.Unmarshal(data, &payload)
-	for _, p := range scheme.Properties {
+	for key, p := range scheme.Properties {
 		routes := []string{}
 		routeBytes, _ := json.Marshal(p.Value.Extensions["x-update"])
 		json.Unmarshal(routeBytes, &routes)
