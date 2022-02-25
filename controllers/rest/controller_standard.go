@@ -685,7 +685,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 				respCode, _ = strconv.Atoi(code)
 				if resp.Value.Content != nil {
 					//check for if there is one mediatype or if there is no accept value or if the accept value is all
-					if len(resp.Value.Content) == 1 || mediaType == "" || strings.Replace(mediaType, "*", "", -1) == "/" {
+					if len(resp.Value.Content) == 1 || mediaType == "" || strings.Replace(mediaType, "*", "", -1) == "/" || mediaType == "/" {
 						for key, content := range resp.Value.Content {
 							if content.Example != nil {
 								bytesArray, err = json.Marshal(content.Example)
