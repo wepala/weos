@@ -19,7 +19,7 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 	schemas := s.Components.Schemas
 	for name, scheme := range schemas {
 		var instance ds.Builder
-		instance, _ = newSchema(scheme.Value, schemas, e.Logger)
+		instance, _ = newSchema(name, scheme.Value, schemas, 0, e.Logger)
 		builders[name] = instance
 	}
 
@@ -28,7 +28,10 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 }
 
 //creates a new schema interface instance
-func newSchema(ref *openapi3.Schema, schemaRefs map[string]*openapi3.SchemaRef, logger echo.Logger) (ds.Builder, []string) {
+func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*openapi3.SchemaRef, count int, logger echo.Logger) (ds.Builder, []string) {
+	if count > 1 {
+		return nil, nil
+	}
 	pks, _ := json.Marshal(ref.Extensions[IdentifierExtension])
 	dfs, _ := json.Marshal(ref.Extensions[RemoveExtension])
 
@@ -95,28 +98,32 @@ func newSchema(ref *openapi3.Schema, schemaRefs map[string]*openapi3.SchemaRef, 
 
 		if p.Ref != "" {
 			structName := strings.TrimPrefix(p.Ref, "#/components/schemas/")
-			r, rKeys := newSchema(schemaRefs[structName].Value, schemaRefs, logger)
-			rStruct := r.Build().New()
-			keystring := ""
-			reader := ds.NewReader(rStruct)
+			r, rKeys := newSchema(structName, schemaRefs[structName].Value, schemaRefs, count+1, logger)
+			if r != nil {
+				f := r.GetField("Table")
+				f.SetTag(`json:"table_alias" gorm:"default:` + structName + `"`)
+				rStruct := r.Build().New()
+				keystring := ""
+				reader := ds.NewReader(rStruct)
 
-			//add key references
-			for _, k := range rKeys {
-				instance.AddField(strings.Title(name)+strings.Title(k), reader.GetField(strings.Title(k)).Interface(), `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
-				if keystring != "" {
-					keystring += ","
+				//add key references
+				for _, k := range rKeys {
+					instance.AddField(strings.Title(name)+strings.Title(k), reader.GetField(strings.Title(k)).Interface(), `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
+					if keystring != "" {
+						keystring += ","
+					}
+
+					keystring += strings.Title(name) + strings.Title(k)
 				}
 
-				keystring += strings.Title(name) + strings.Title(k)
-			}
+				if len(gormParts) == 0 {
+					tagString += ` gorm:"foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",") + `"`
+				} else {
+					tagString += `;foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",") + `"`
+				}
 
-			if len(gormParts) == 0 {
-				tagString += `gorm:"foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",")
-			} else {
-				tagString += `;foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",")
+				instance.AddField(name, rStruct, tagString)
 			}
-
-			instance.AddField(name, rStruct, tagString)
 		} else {
 			t := p.Value.Type
 			if strings.EqualFold(t, "array") {
@@ -141,10 +148,18 @@ func newSchema(ref *openapi3.Schema, schemaRefs map[string]*openapi3.SchemaRef, 
 					} else {
 						//add reference to the object to the map
 						structName := strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
-						r, _ := newSchema(schemaRefs[structName].Value, schemaRefs, logger)
-						rArray := r.Build().NewSliceOfStructs()
-						instance.AddField(name, rArray, tagString)
-
+						r, _ := newSchema(structName, schemaRefs[structName].Value, schemaRefs, count+1, logger)
+						if r != nil {
+							f := r.GetField("Table")
+							f.SetTag(`json:"table_alias" gorm:"default:` + structName + `"`)
+							rArray := r.Build().NewSliceOfStructs()
+							if len(gormParts) == 0 {
+								tagString += ` gorm:"many2many:` + utils.SnakeCase(currTable) + "_" + utils.SnakeCase(name) + `;"`
+							} else {
+								tagString += `;many2many:` + utils.SnakeCase(currTable) + "_" + utils.SnakeCase(name) + `;"`
+							}
+							instance.AddField(name, rArray, tagString)
+						}
 					}
 				}
 
@@ -184,62 +199,3 @@ func newSchema(ref *openapi3.Schema, schemaRefs map[string]*openapi3.SchemaRef, 
 
 	return instance, primaryKeys
 }
-
-// func addRelations(struc ds.Builder, relations map[string]string, structs map[string]ds.Builder, tableName string, keys map[string][]string, logger echo.Logger) (ds.Builder, error) {
-
-// 	for name, relation := range relations {
-// 		if strings.Contains(relation, "[]") {
-// 			//many to many relationship
-// 			relationName := strings.Trim(relation, "[]")
-// 			inst := structs[relationName]
-// 			f := inst.GetField("Table")
-// 			f.SetTag(`json:"table_alias" gorm:"default:` + relationName + `"`)
-// 			instances := inst.Build().NewSliceOfStructs()
-// 			struc.AddField(name, instances, `json:"`+utils.SnakeCase(name)+`" gorm:"many2many:`+utils.SnakeCase(tableName)+"_"+utils.SnakeCase(name)+`;"`)
-// 		} else {
-// 			inst := structs[relation]
-// 			f := inst.GetField("Table")
-// 			f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
-// 			instance := inst.Build().New()
-// 			key := keys[relation]
-// 			bytes, _ := json.Marshal(instance)
-// 			s := map[string]interface{}{}
-// 			json.Unmarshal(bytes, &s)
-// 			keystring := ""
-// 			for _, k := range key {
-// 				val := s[k]
-// 				//foreign key references must be nullable
-// 				if _, ok := val.(string); ok {
-// 					var s *string
-// 					val = s
-// 				} else if _, ok := val.(uint); ok {
-// 					var s *uint
-// 					val = s
-// 				} else if _, ok := val.(int); ok {
-// 					var s *int
-// 					val = s
-// 				} else if _, ok := val.(float64); ok {
-// 					var s *float64
-// 					val = s
-// 				} else if _, ok := val.(bool); ok {
-// 					var s *bool
-// 					val = s
-// 				}
-// 				//default to string if nil
-// 				if val == nil {
-// 					var s *string
-// 					val = s
-// 				}
-// 				struc.AddField(strings.Title(name)+strings.Title(k), val, `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
-// 				if keystring != "" {
-// 					keystring += ","
-// 				}
-
-// 				keystring += strings.Title(name) + strings.Title(k)
-// 			}
-
-// 			struc.AddField(name, instance, `json:"`+name+`" gorm:"foreignKey:`+keystring+`; references `+strings.Join(key, ",")+`"`)
-// 		}
-// 	}
-// 	return struc, nil
-// }
