@@ -671,55 +671,83 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			ctx := ctxt.Request().Context()
+			//take media type from the request since the context wouldnt add it because there is no entity factory to use
+			mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+			var bytesArray []byte
+			var err error
+			contentType := ""
+			var respCode int
+			found := false
 			for code, resp := range operation.Responses {
-				respCode, _ := strconv.Atoi(code)
+				if found {
+					break
+				}
+				respCode, _ = strconv.Atoi(code)
 				if resp.Value.Content != nil {
-					//check for if there is one mediatype
-					if len(resp.Value.Content) == 1 {
-						for mediaType, content := range resp.Value.Content {
+					//check for if there is one mediatype or if there is no accept value or if the accept value is all
+					if len(resp.Value.Content) == 1 || mediaType == "" || strings.Replace(mediaType, "*", "", -1) == "/" || mediaType == "/" {
+						for key, content := range resp.Value.Content {
 							if content.Example != nil {
-								var bytesArray []byte
-								bytesArray, err := json.Marshal(content.Example)
+								bytesArray, err = json.Marshal(content.Example)
 								if err != nil {
-									api.e.Logger.Errorf("unexpected error %s ", err)
+									api.e.Logger.Debugf("unexpected error %s ", err)
 									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 
 								}
-								return ctxt.Blob(respCode, mediaType, bytesArray)
+								contentType = key
+								found = true
+								break
 							}
 						}
 						//check for if there are multiple mediatype
 					} else if len(resp.Value.Content) > 1 {
-						//take media type from the request since the context wouldnt add it because there is no entity factory to use
-						mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
-						if mediaType == "" {
-							api.e.Logger.Debugf("unexpected error accept header was not found")
-							return NewControllerError("unexpected error accept header was not found", nil, http.StatusBadRequest)
-						}
 						if resp.Value.Content[mediaType] == nil {
-							api.e.Logger.Debugf("unexpected error %s media type not found", mediaType)
-							return NewControllerError(fmt.Sprintf("unexpected error %s media type not found", mediaType), nil, http.StatusBadRequest)
-						} else {
-							if resp.Value.Content[mediaType].Example != nil {
-								var bytesArray []byte
-								bytesArray, err := json.Marshal(resp.Value.Content[mediaType].Example)
-								if err != nil {
-									api.e.Logger.Errorf("unexpected error %s ", err)
-									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+							//check for wild card
+							if strings.Contains(mediaType, "*") {
+								mediaT := strings.Replace(mediaType, "*", "", -1)
+								for key, content := range resp.Value.Content {
+									if strings.Contains(key, mediaT) {
+										if content.Example != nil {
+											bytesArray, err = json.Marshal(content.Example)
+											if err != nil {
+												api.e.Logger.Debugf("unexpected error %s ", err)
+												return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+											}
+											contentType = key
+											found = true
+											break
+										}
+									}
 
 								}
-								//Add response to context for controller
-								ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, mediaType, bytesArray))
-								request := ctxt.Request().WithContext(ctx)
-								ctxt.SetRequest(request)
-								return next(ctxt)
+							}
+							//search all the responses to find if the mediatype is there
+							continue
+						} else {
+							if resp.Value.Content[mediaType].Example != nil {
+								bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+								if err != nil {
+									api.e.Logger.Debugf("unexpected error %s ", err)
+									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+								}
+								contentType = mediaType
+								found = true
+								break
 							}
 						}
 					}
 
 				}
 			}
-			return NewControllerError("unexpected error all responses were parsed, nothing was found", nil, http.StatusBadRequest)
+			if found {
+				//Add response to context for controller
+				ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
+				request := ctxt.Request().WithContext(ctx)
+				ctxt.SetRequest(request)
+				return next(ctxt)
+			}
+
+			return NewControllerError(fmt.Sprintf("unexpected error all responses were parsed,content type %s was not found", mediaType), nil, http.StatusBadRequest)
 
 		}
 	}

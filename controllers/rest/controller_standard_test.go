@@ -2041,7 +2041,7 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 		response := resp.Result()
 		defer response.Body.Close()
 
-		if response.StatusCode != http.StatusBadRequest {
+		if response.StatusCode != http.StatusOK {
 			t.Errorf("expected response code to be %d, got %d", http.StatusBadRequest, response.StatusCode)
 		}
 	})

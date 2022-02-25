@@ -26,6 +26,7 @@ Feature: Hardcode the response for an endpoint
                   example: |
                     <html> <head><title>Test</title></head><body>This is a test page</body></html>
     """
+    And the service is running
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
     And the content type should be "text/html"
@@ -55,12 +56,14 @@ Feature: Hardcode the response for an endpoint
                   example: |
                     <html> <head><title>Page Not Found</title></head><body>Some not found page</body></html>
     """
+    And the service is running
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
     And the content type should be "text/html"
     And the response body should be
     """
     <html> <head><title>Test</title></head><body>This is a test page</body></html>
+
     """
   @WEOS-1365
   Scenario: Send Accept header to hit at content of expected response
@@ -84,6 +87,7 @@ Feature: Hardcode the response for an endpoint
                   example: |
                     <page><title>Test</title></page>
     """
+    And the service is running
     And the header "Accept" is set with value "application/*"
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
