@@ -390,9 +390,16 @@ func (w *ContentEntity) UpdateTime(operationID string, data []byte) ([]byte, err
 		json.Unmarshal(routeBytes, &routes)
 		for _, r := range routes {
 			if r == operationID {
-
+				if p.Value.Format == "date-time" {
+					payload[key] = time.Now()
+				}
 			}
 		}
 	}
-	return data, nil
+	newPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return newPayload, nil
 }
