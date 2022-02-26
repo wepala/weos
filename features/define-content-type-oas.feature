@@ -438,8 +438,7 @@ Feature: Create Content Types
   @WEOS-1116
   Scenario: Setup a content type with an enumeration that is an integer
 
-    The column should match the content type of the property and the nullable equivalent should be the null value for that
-    type (for an integer that is 0)
+    The column should match the content type of the property. To signal that the property could be omitted use the "null" option
 
     Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
@@ -456,6 +455,7 @@ Feature: Create Content Types
               type: integer
               nullable: true
               enum:
+                - "null"
                 - 0
                 - 1
     """
