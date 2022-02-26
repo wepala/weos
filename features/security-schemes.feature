@@ -502,6 +502,161 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
     When the "OpenAPI 3.0" specification is parsed
     Then a warning should be shown
 
+  Scenario: Invalid security scheme set
+
+    If the developer references a security scheme that is not defined then an error should be shown so that the developer
+    knows that security was not correctly configured.
+
+    And the specification is
+     """
+      openapi: 3.0.3
+      info:
+        title: Tasks API
+        description: Tasks API
+        version: 1.0.0
+      servers:
+        - url: 'http://localhost:8681'
+      x-weos-config:
+        logger:
+          level: warn
+          report-caller: true
+          formatter: json
+        database:
+          database: "%s"
+          driver: "%s"
+          host: "%s"
+          password: "%s"
+          username: "%s"
+          port: %d
+        event-source:
+          - title: default
+            driver: service
+            endpoint: https://prod1.weos.sh/events/v1
+          - title: event
+            driver: sqlite3
+            database: e2e.db
+        databases:
+          - title: default
+            driver: sqlite3
+            database: e2e.db
+      components:
+        securitySchemes:
+          Auth0:
+            type: openIdConnect
+            openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
+        schemas:
+          Blog:
+             type: object
+             properties:
+               id:
+                 type: string
+               title:
+                 type: string
+                 description: blog title
+               description:
+                 type: string
+             required:
+               - title
+             x-identifier:
+               - id
+          Post:
+            type: object
+            properties:
+              title:
+                type: string
+              description:
+                type: string
+              blog:
+                $ref: "#/components/schemas/Blog"
+              publishedDate:
+                type: string
+                format: date-time
+              views:
+                type: integer
+              categories:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+            required:
+              - title
+          Category:
+            type: object
+            properties:
+              title:
+                type: string
+              description:
+                type: string
+            required:
+              - title
+      security:
+        - Foo: ["email","name"]
+      paths:
+        /:
+          get:
+            operationId: Homepage
+            security: []
+            responses:
+              200:
+                description: Application Homepage
+        /blog:
+          post:
+            operationId: Add Blog
+            requestBody:
+              description: Blog info that is submitted
+              required: true
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+                application/x-www-form-urlencoded:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+                application/xml:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            responses:
+              201:
+                description: Add Blog to Aggregator
+                content:
+                  application/json:
+                    schema:
+                      $ref: "#/components/schemas/Blog"
+              400:
+                description: Invalid blog submitted
+        /post:
+          post:
+            operationId: Add Post
+            requestBody:
+              description: Blog info that is submitted
+              required: true
+              content:
+                application/x-www-form-urlencoded:
+                  schema:
+                    $ref: "#/components/schemas/Post"
+            responses:
+              201:
+                description: Add Blog to Aggregator
+              400:
+                description: Invalid blog submitted
+        /category:
+          post:
+            operationId: Add Category
+            requestBody:
+              description: Category info that is submitted
+              required: true
+              content:
+                multipart/form-data:
+                  schema:
+                    $ref: "#/components/schemas/Category"
+            responses:
+              201:
+                description: Add Category
+              400:
+                description: Invalid Category submitted
+     """
+    When the "OpenAPI 3.0" specification is parsed
+    Then an error to be returned
+
   Scenario: Request with missing required scope
 
   Scenario: Set security on a specific path
