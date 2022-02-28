@@ -215,23 +215,23 @@ func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
 			t.Errorf("expected the response code to be %d, got %d", http.StatusBadRequest, resp.Result().StatusCode)
 		}
 	})
-	t.Run("sending blog without a description which is not a required field", func(t *testing.T) {
-		title := "blog title"
-		url := "ww.blogtest.com"
-		mockBlog := &TestBlog{Title: &title, Url: &url}
-		reqBytes, err := json.Marshal(mockBlog)
-		if err != nil {
-			t.Fatalf("error setting up request %s", err)
-		}
-		body := bytes.NewReader(reqBytes)
-		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
-		req.Header.Set("Content-Type", "application/json")
-		e.ServeHTTP(resp, req)
-		if resp.Result().StatusCode != http.StatusCreated {
-			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
-		}
-	})
+	//t.Run("sending blog without a description which is not a required field", func(t *testing.T) {
+	//	title := "blog title"
+	//	url := "ww.blogtest.com"
+	//	mockBlog := &TestBlog{Title: &title, Url: &url}
+	//	reqBytes, err := json.Marshal(mockBlog)
+	//	if err != nil {
+	//		t.Fatalf("error setting up request %s", err)
+	//	}
+	//	body := bytes.NewReader(reqBytes)
+	//	resp := httptest.NewRecorder()
+	//	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+	//	req.Header.Set("Content-Type", "application/json")
+	//	e.ServeHTTP(resp, req)
+	//	if resp.Result().StatusCode != http.StatusCreated {
+	//		t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+	//	}
+	//})
 }
 
 func TestRESTAPI_Initialize_UpdateAddedToPut(t *testing.T) {
