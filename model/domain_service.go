@@ -162,8 +162,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		}
 
 		//update default time update values based on routes
-		operation := ctx.Value(weosContext.OPERATION_ID).(string)
-		newPayload, err = existingEntity.UpdateTime(operation, newPayload)
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			newPayload, err = existingEntity.UpdateTime(operation, newPayload)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -208,10 +210,12 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		}
 
 		//update default time update values based on routes
-		operation := ctx.Value(weosContext.OPERATION_ID).(string)
-		newPayload, err = existingEntity.UpdateTime(operation, newPayload)
-		if err != nil {
-			return nil, err
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			newPayload, err = existingEntity.UpdateTime(operation, newPayload)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		updatedEntity, err = existingEntity.Update(ctx, newPayload)
@@ -290,10 +294,12 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 		}
 
 		//update default time update values based on routes
-		operation := ctx.Value(weosContext.OPERATION_ID).(string)
-		existingEntityPayload, err = existingEntity.UpdateTime(operation, existingEntityPayload)
-		if err != nil {
-			return nil, err
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			existingEntityPayload, err = existingEntity.UpdateTime(operation, existingEntityPayload)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		deletedEntity, err = existingEntity.Delete(existingEntityPayload)
@@ -323,10 +329,12 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 		}
 
 		//update default time update values based on routes
-		operation := ctx.Value(weosContext.OPERATION_ID).(string)
-		data, err = existingEntity.UpdateTime(operation, data)
-		if err != nil {
-			return nil, err
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			data, err = existingEntity.UpdateTime(operation, data)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		deletedEntity, err = existingEntity.Delete(data)

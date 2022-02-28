@@ -39,10 +39,12 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	}
 
 	//update default time update values based on routes
-	operation := ctx.Value(weosContext.OPERATION_ID).(string)
-	payload, err = newEntity.UpdateTime(operation, payload)
-	if err != nil {
-		return err
+	operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+	if ok {
+		payload, err = newEntity.UpdateTime(operation, payload)
+		if err != nil {
+			return err
+		}
 	}
 
 	//use the entity id that was passed with the command
