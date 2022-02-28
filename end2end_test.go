@@ -539,7 +539,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	if err != nil {
-		return err
+		errs = err
 	}
 	tapi.DB = db
 	API = *tapi
@@ -548,7 +548,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	e.Logger.SetOutput(&buf)
 	err = API.Initialize(scenarioContext)
 	if err != nil {
-		return err
+		errs = err
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
@@ -558,7 +558,7 @@ func theSpecificationIsParsed(arg1 string) error {
 		}
 	}
 	if err != nil {
-		return err
+		errs = err
 	}
 	return nil
 }
@@ -1608,7 +1608,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags: "WEOS-1343",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
