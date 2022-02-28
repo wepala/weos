@@ -73,12 +73,11 @@ components:
         active:
           type: boolean
         status:
-          type: string
-          nullable: true
+          type: number
+          nullable: false
           enum:
-            - "null"
-            - published
-            - unpublished
+            - 1.5
+            - 2.9
         image:
           type: string
           format: byte

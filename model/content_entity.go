@@ -8,6 +8,7 @@ import (
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -115,7 +116,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 				} else {
 					enumProperty := w.GetString(strings.Title(k))
 
-					////This checks if a "null" option was provided which is needed if nullable == true
+					//This checks if a "null" option was provided which is needed if nullable == true
 					for _, v := range property.Value.Enum {
 						nullFound = v.(string) == "null"
 						if nullFound == true {
@@ -173,28 +174,51 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 				}
 			case "integer":
-				enumProperty := w.GetInteger(strings.Title(k))
+				var enumProperty *int
+				reader := ds.NewReader(w.Property)
+				isValid := reader.HasField(strings.Title(k))
+				if !isValid {
+					message := "this content entity does not contain the field: " + strings.Title(k)
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+				}
+				if reader.GetField(strings.Title(k)).PointerInt() == nil {
+					enumProperty = nil
+				} else {
+					enumProperty = reader.GetField(strings.Title(k)).PointerInt()
+				}
 
-				////This checks if a "0" option was provided which is needed if nullable == true
+				//This checks if a "null" option was provided which is needed if nullable == true
 				for _, v := range property.Value.Enum {
-					nullFound = int(v.(float64)) == 0
-					if nullFound == true {
-						break
+					switch reflect.TypeOf(v).String() {
+					case "string":
+						if v.(string) == "null" {
+							nullFound = true
+						}
 					}
 				}
 
 				//If nullable == true and null is found in the options
 				if property.Value.Nullable && nullFound == true {
 					//Assuming if the nullable is true, the user can pass a blank string
-					if enumProperty == 0 {
+					if enumProperty == nil {
 						enumFound = true
 					}
 
 					if enumFound == false {
+					findIntEnum:
 						for _, v := range property.Value.Enum {
-							enumFound = enumProperty == (int(v.(float64)))
-							if enumFound == true {
-								break
+							switch reflect.TypeOf(v).String() {
+							case "string":
+								if v.(string) == "null" {
+									continue
+								}
+							case "float64":
+								enumFound = *enumProperty == (int(v.(float64)))
+
+								if enumFound == true {
+									break findIntEnum
+								}
 							}
 						}
 					}
@@ -206,51 +230,83 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 
 				} else if property.Value.Nullable == true && nullFound == false {
-					message := `"if nullable is set to true, 0 is needed as an enum option"`
+					message := `"if nullable is set to true, "null" is needed as an enum option"`
 					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					return false
 
 				} else if property.Value.Nullable == false {
-					if enumProperty == 0 || nullFound == true {
-						message := "nullable is set to false, cannot use null/blank integer nor have it as an enum option."
+					if nullFound == true || enumProperty == nil {
+						message := "nullable is set to false, cannot use null nor have it as an enum option."
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}
+
+				findIntEnum1:
 					for _, v := range property.Value.Enum {
-						enumFound = enumProperty == (int(v.(float64)))
-						if enumFound == true {
-							break
+						switch reflect.TypeOf(v).String() {
+						case "float64":
+							enumFound = *enumProperty == (int(v.(float64)))
+
+							if enumFound == true {
+								break findIntEnum1
+							}
 						}
 					}
-					if enumFound == false {
-						message := "invalid enumeration option provided. available options are: " + enumOptions
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
 				}
+
+				if enumFound == false {
+					message := "invalid enumeration option provided. available options are: " + enumOptions
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+				}
+
 			case "number":
-				enumProperty := w.GetNumber(strings.Title(k))
+				//enumProperty := w.GetNumber(strings.Title(k))
+				var enumProperty *float64
+				reader := ds.NewReader(w.Property)
+				isValid := reader.HasField(strings.Title(k))
+				if !isValid {
+					message := "this content entity does not contain the field: " + strings.Title(k)
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
+				}
+				if reader.GetField(strings.Title(k)).PointerFloat64() == nil {
+					enumProperty = nil
+				} else {
+					enumProperty = reader.GetField(strings.Title(k)).PointerFloat64()
+				}
 
-				////This checks if a "0" option was provided which is needed if nullable == true
+				//This checks if a "null" option was provided which is needed if nullable == true
 				for _, v := range property.Value.Enum {
-					nullFound = int(v.(float64)) == 0.0
-					if nullFound == true {
-						break
+					switch reflect.TypeOf(v).String() {
+					case "string":
+						if v.(string) == "null" {
+							nullFound = true
+						}
 					}
 				}
 
 				//If nullable == true and null is found in the options
 				if property.Value.Nullable && nullFound == true {
 					//Assuming if the nullable is true, the user can pass a blank string
-					if enumProperty == 0.0 {
+					if enumProperty == nil {
 						enumFound = true
 					}
 
 					if enumFound == false {
+					findFloatEnum:
 						for _, v := range property.Value.Enum {
-							enumFound = fmt.Sprintf("%.3f", enumProperty) == fmt.Sprintf("%.3f", v.(float64))
-							if enumFound == true {
-								break
+							switch reflect.TypeOf(v).String() {
+							case "string":
+								if v.(string) == "null" {
+									continue
+								}
+							case "float64":
+								enumFound = fmt.Sprintf("%.3f", *enumProperty) == fmt.Sprintf("%.3f", v.(float64))
+
+								if enumFound == true {
+									break findFloatEnum
+								}
 							}
 						}
 					}
@@ -262,27 +318,32 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 
 				} else if property.Value.Nullable == true && nullFound == false {
-					message := `"if nullable is set to true, 0.0 is needed as an enum option"`
+					message := `"if nullable is set to true, null is needed as an enum option"`
 					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					return false
 
 				} else if property.Value.Nullable == false {
-					if enumProperty == 0.0 || nullFound == true {
-						message := "nullable is set to false, cannot use null/blank integer nor have it as an enum option."
+					if enumProperty == nil || nullFound == true {
+						message := "nullable is set to false, cannot use null nor have it as an enum option."
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}
+				findFloatEnum1:
 					for _, v := range property.Value.Enum {
-						enumFound = fmt.Sprintf("%.3f", enumProperty) == fmt.Sprintf("%.3f", v.(float64))
-						if enumFound == true {
-							break
+						switch reflect.TypeOf(v).String() {
+						case "float64":
+							enumFound = fmt.Sprintf("%.3f", *enumProperty) == fmt.Sprintf("%.3f", v.(float64))
+
+							if enumFound == true {
+								break findFloatEnum1
+							}
 						}
 					}
-					if enumFound == false {
-						message := "invalid enumeration option provided. available options are: " + enumOptions
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
+				}
+				if enumFound == false {
+					message := "invalid enumeration option provided. available options are: " + enumOptions
+					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					return false
 				}
 			}
 		}

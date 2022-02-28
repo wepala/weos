@@ -370,11 +370,19 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 								}
 							case "integer":
 								if reflect.TypeOf(v).String() != "float64" {
-									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									if v.(string) == "null" {
+										continue
+									} else {
+										return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									}
 								}
 							case "number":
 								if reflect.TypeOf(v).String() != "float64" {
-									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									if v.(string) == "null" {
+										continue
+									} else {
+										return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									}
 								}
 							}
 						}
