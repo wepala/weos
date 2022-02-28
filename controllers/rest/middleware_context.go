@@ -32,9 +32,9 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 				cc = context.WithValue(cc, weosContext.ACCOUNT_ID, accountID)
 			}
 			//use the path information to get the parameter values
-			contextValues, err := parseParams(c, path.Parameters, nil, entityFactory)
+			contextValues, err := parseParams(c, path.Parameters, entityFactory)
 			//add parameter values to the context
-			cc = AddToContext(c, cc, contextValues, entityFactory)
+			cc, err = AddToContext(c, cc, contextValues, entityFactory)
 
 			//use x-context to get parameter
 			if tcontextParams, ok := operation.ExtensionProps.Extensions[ContextExtension]; ok {
@@ -42,16 +42,13 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 				err = json.Unmarshal(tcontextParams.(json.RawMessage), &contextParams)
 				if err == nil {
 					//use the operation information to get the parameter values
-					contextValues, err = parseParams(c, operation.Parameters, contextParams, entityFactory)
-					//add parameter values to the context
-					cc = AddToContext(c, cc, contextValues, entityFactory)
+					cc, err = AddToContext(c, cc, contextParams, entityFactory)
 				}
-			} else {
-				//use the operation information to get the parameter values
-				contextValues, err = parseParams(c, operation.Parameters, nil, entityFactory)
-				//add parameter values to the context
-				cc = AddToContext(c, cc, contextValues, entityFactory)
 			}
+			//use the operation information to get the parameter values
+			contextValues, err = parseParams(c, operation.Parameters, entityFactory)
+			//add parameter values to the context
+			cc, err = AddToContext(c, cc, contextValues, entityFactory)
 
 			//use the operation information to get the parameter values and add them to the context
 
@@ -108,79 +105,14 @@ func parseResponses(c echo.Context, cc context.Context, operation *openapi3.Oper
 }
 
 //parseParams uses the parameter type to determine where to pull the value from
-func parseParams(c echo.Context, parameters openapi3.Parameters, params map[string]interface{}, entityFactory model.EntityFactory) (map[string]interface{}, error) {
-
+func parseParams(c echo.Context, parameters openapi3.Parameters, entityFactory model.EntityFactory) (map[string]interface{}, error) {
 	var errors error
 	contextValues := map[string]interface{}{}
-	//getting the parameters from x-context
-	for key, value := range params {
-		var contextValue interface{}
-		switch key {
-		case "sequence_no": //default type is integer
-			contextValue = int(value.(float64))
-		case "page", "limit":
-			contextValue = int(value.(float64))
-		case "use_entity_id": //default type is boolean
-			v, err := strconv.ParseBool(value.(string))
-			if err == nil {
-				contextValue = v
-			}
-		case "_filters":
-			if value == nil {
-				errors = fmt.Errorf("unexpected error no filters specified")
-				continue
-			}
-			filters := map[string]interface{}{}
-			for _, filterProp := range value.([]interface{}) {
-				if filterProp.(map[string]interface{})["operator"] == nil || filterProp.(map[string]interface{})["field"] == nil || (filterProp.(map[string]interface{})["value"] == nil && filterProp.(map[string]interface{})["values"] == nil) {
-					errors = fmt.Errorf("unexpected error all filter fields are not filled out")
-					break
-				}
-				if filterProp.(map[string]interface{})["values"] != nil {
-					filters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
-						Field:    filterProp.(map[string]interface{})["field"].(string),
-						Operator: filterProp.(map[string]interface{})["operator"].(string),
-						Values:   filterProp.(map[string]interface{})["values"].([]interface{}),
-					}
-				} else {
-					filters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
-						Field:    filterProp.(map[string]interface{})["field"].(string),
-						Operator: filterProp.(map[string]interface{})["operator"].(string),
-						Value:    filterProp.(map[string]interface{})["value"],
-					}
-				}
-			}
-			if len(value.([]interface{})) != len(filters) {
-				continue
-			}
-			filters, err := convertProperties(filters, entityFactory.Schema())
-			if err != nil {
-				errors = err
-				continue
-			}
-			contextValue = filters
-
-		case "If-Match", "If-None-Match": //default type is string
-			contextValue = value.(string)
-		case "_sorts":
-			sortOptions := map[string]string{}
-			for _, sortOption := range value.([]interface{}) {
-				if sortOption.(map[string]interface{})["field"] == nil || sortOption.(map[string]interface{})["order"] == nil {
-					errors = fmt.Errorf("unexpected error all sort fields are not filled out")
-					continue
-				}
-				sortOptions[sortOption.(map[string]interface{})["field"].(string)] = sortOption.(map[string]interface{})["field"].(string)
-			}
-			contextValue = sortOptions
-		default:
-			contextValue = value
-		}
-		contextValues[key] = contextValue
-	}
 	//get the parameters from the requests
 	for _, parameter := range parameters {
 		if parameter.Value != nil {
 			contextName := parameter.Value.Name
+			paramType := parameter.Value.Schema
 			//if there is a context name specified use that instead. The value is a json.RawMessage (not a string)
 			if tcontextName, ok := parameter.Value.ExtensionProps.Extensions[ContextNameExtension]; ok {
 				err := json.Unmarshal(tcontextName.(json.RawMessage), &contextName)
@@ -214,45 +146,39 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, params map[stri
 
 			if _, ok := val.(string); ok {
 				switch contextName {
-				case "sequence_no", "page", "limit": //default type is integer
-					v, err := strconv.Atoi(val.(string))
-					if err == nil {
-						val = v
+				case "_filters":
+					val = c.Request().URL.RawQuery
+					if val.(string) == "" {
+						delete(contextValues, contextName)
 					}
-				case "use_entity_id": //default type is boolean
-					v, err := strconv.ParseBool(val.(string))
-					if err == nil {
-						val = v
-					}
-				case "If-Match", "If-None-Match": //default type is string
 				default:
-					var filters map[string]interface{}
-					filters = map[string]interface{}{}
-					if parameter.Value.Name == "_filters" {
-						decodedQuery, err := url.PathUnescape(c.Request().URL.RawQuery)
-						if err != nil {
-							errors = fmt.Errorf("Error decoding the string %v", err)
-							continue
-						}
-						filtersArray := SplitFilters(decodedQuery)
-						if filtersArray != nil && len(filtersArray) > 0 {
-							for _, value := range filtersArray {
-								if strings.Contains(value, "_filters") {
-									prop := SplitFilter(value)
-									if prop == nil {
-										errors = fmt.Errorf("unexpected error filter format is incorrect: %s", value)
-										break
-									}
-									filters[prop.Field] = prop
+					if paramType != nil && paramType.Value != nil {
+						pType := paramType.Value.Type
+						switch strings.ToLower(pType) {
+						case "integer":
+							v, err := strconv.Atoi(val.(string))
+							if err == nil {
+								val = v
+							}
+						case "boolean":
+							v, err := strconv.ParseBool(val.(string))
+							if err == nil {
+								val = v
+							}
+						case "number":
+							format := paramType.Value.Format
+							if format == "float" || format == "double" {
+								v, err := strconv.ParseFloat(val.(string), 64)
+								if err == nil {
+									val = v
+								}
+							} else {
+								v, err := strconv.Atoi(val.(string))
+								if err == nil {
+									val = v
 								}
 							}
-							filters, err = convertProperties(filters, entityFactory.Schema())
-							if err != nil {
-								errors = err
-								continue
-							}
-							contextValues[contextName] = filters
-							continue
+
 						}
 					}
 				}
@@ -265,64 +191,117 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, params map[stri
 	return contextValues, errors
 }
 
-func AddToContext(c echo.Context, cc context.Context, contextValues map[string]interface{}, entityFactory model.EntityFactory) context.Context {
+func AddToContext(c echo.Context, cc context.Context, contextValues map[string]interface{}, entityFactory model.EntityFactory) (context.Context, error) {
 	if contextValues == nil {
-		return cc
+		return cc, nil
 	}
-	if entityFactory == nil {
-		c.Logger().Error("no entity factory found")
-		return cc
-	}
-	schema := entityFactory.Schema()
+	var errors error
 	for key, value := range contextValues {
-		if schema.Properties[key] != nil {
-			switch schema.Properties[key].Value.Type {
-			case "integer":
-				switch value.(type) {
-				case float64:
-					value = int(value.(float64))
-				case string:
-					v, err := strconv.Atoi(value.(string))
-					if err == nil {
-						value = v
-					}
-				}
-
-			case "boolean":
-				v, err := strconv.ParseBool(value.(string))
+		switch key {
+		case "sequence_no", "page", "limit": //default type is integer
+			switch value.(type) {
+			case float64:
+				contextValues[key] = int(value.(float64))
+			case string:
+				v, err := strconv.Atoi(value.(string))
 				if err == nil {
-					value = v
+					contextValues[key] = v
 				}
-			case "number":
-				format := schema.Properties[key].Value.Format
-				if format == "float" || format == "double" {
-					switch value.(type) {
-					case string:
-						v, err := strconv.ParseFloat(value.(string), 64)
-						if err == nil {
-							value = v
-						}
-					}
-
-				} else {
-					switch value.(type) {
-					case float64:
-						value = int(value.(float64))
-					case string:
-						v, err := strconv.Atoi(value.(string))
-						if err == nil {
-							value = v
-						}
-					}
-				}
-
 			}
+		case "use_entity_id":
+			if val, ok := value.(string); ok {
+				//default type is boolean
+				v, err := strconv.ParseBool(val)
+				if err == nil {
+					contextValues[key] = v
+				}
+			}
+		case "_filters":
+			if value == nil {
+				errors = fmt.Errorf("unexpected error no filters specified")
+				continue
+			}
+			if val, ok := value.(string); ok {
+				//if the filter comes from x-context do this conversion
+				filters := map[string]interface{}{}
+				decodedQuery, err := url.PathUnescape(val)
+				if err != nil {
+					errors = fmt.Errorf("Error decoding the string %v", err)
+					continue
+				}
+				filtersArray := SplitFilters(decodedQuery)
+				if filtersArray != nil && len(filtersArray) > 0 {
+					for _, value := range filtersArray {
+						if strings.Contains(value, "_filters") {
+							prop := SplitFilter(value)
+							if prop == nil {
+								errors = fmt.Errorf("unexpected error filter format is incorrect: %s", value)
+								break
+							}
+							filters[prop.Field] = prop
+						}
+					}
+					filters, err = convertProperties(filters, entityFactory.Schema())
+					if err != nil {
+						errors = err
+						continue
+					}
+					contextValues[key] = filters
+					continue
+				}
+
+			} else {
+				//if the filter comes from request do this conversion
+				filters := map[string]interface{}{}
+				for _, filterProp := range value.([]interface{}) {
+					if filterProp.(map[string]interface{})["operator"] == nil || filterProp.(map[string]interface{})["field"] == nil || (filterProp.(map[string]interface{})["value"] == nil && filterProp.(map[string]interface{})["values"] == nil) {
+						errors = fmt.Errorf("unexpected error all filter fields are not filled out")
+						break
+					}
+					if filterProp.(map[string]interface{})["values"] != nil {
+						filters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
+							Field:    filterProp.(map[string]interface{})["field"].(string),
+							Operator: filterProp.(map[string]interface{})["operator"].(string),
+							Values:   filterProp.(map[string]interface{})["values"].([]interface{}),
+						}
+					} else {
+						filters[filterProp.(map[string]interface{})["field"].(string)] = &FilterProperties{
+							Field:    filterProp.(map[string]interface{})["field"].(string),
+							Operator: filterProp.(map[string]interface{})["operator"].(string),
+							Value:    filterProp.(map[string]interface{})["value"],
+						}
+					}
+				}
+				if len(value.([]interface{})) != len(filters) {
+					continue
+				}
+				filters, err := convertProperties(filters, entityFactory.Schema())
+				if err != nil {
+					errors = err
+					continue
+				}
+				contextValues[key] = filters
+			}
+		case "If-Match", "If-None-Match": //default type is string
+			if value != nil {
+				contextValues[key] = value.(string)
+			}
+		case "_sorts":
+			sortOptions := map[string]string{}
+			for _, sortOption := range value.([]interface{}) {
+				if sortOption.(map[string]interface{})["field"] == nil || sortOption.(map[string]interface{})["order"] == nil {
+					errors = fmt.Errorf("unexpected error all sort fields are not filled out")
+					continue
+				}
+				sortOptions[sortOption.(map[string]interface{})["field"].(string)] = sortOption.(map[string]interface{})["field"].(string)
+			}
+			contextValues[key] = sortOptions
 		}
 	}
 	for key, value := range contextValues {
 		cc = context.WithValue(cc, key, value)
 	}
-	return cc
+	return cc, errors
 }
 
 //convertProperties is used to convert the filter value to the correct data type based on the schema
