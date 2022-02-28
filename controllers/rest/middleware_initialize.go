@@ -148,7 +148,6 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 						//add as json object
 					} else {
 						//add reference to the object to the map
-						tagString := `json:"` + name + `"`
 						structName := strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
 						r, _ := newSchema(structName, schemaRefs[structName].Value, schemaRefs, count+1, logger)
 						if r != nil {
