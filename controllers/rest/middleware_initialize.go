@@ -98,6 +98,7 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 
 		if p.Ref != "" {
 			structName := strings.TrimPrefix(p.Ref, "#/components/schemas/")
+			tagString := `json:"` + name + `"`
 			r, rKeys := newSchema(structName, schemaRefs[structName].Value, schemaRefs, count+1, logger)
 			if r != nil {
 				f := r.GetField("Table")
@@ -119,7 +120,7 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 				if len(gormParts) == 0 {
 					tagString += ` gorm:"foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",") + `"`
 				} else {
-					tagString += `;foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",") + `"`
+					tagString += `;foreignKey:` + keystring + `; references: ` + strings.Join(rKeys, ",") + `"`
 				}
 
 				instance.AddField(name, rStruct, tagString)
@@ -147,6 +148,7 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 						//add as json object
 					} else {
 						//add reference to the object to the map
+						tagString := `json:"` + name + `"`
 						structName := strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
 						r, _ := newSchema(structName, schemaRefs[structName].Value, schemaRefs, count+1, logger)
 						if r != nil {
