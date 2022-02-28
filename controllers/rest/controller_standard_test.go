@@ -1986,8 +1986,8 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 		response := resp.Result()
 		defer response.Body.Close()
 
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		if response.StatusCode != http.StatusCreated {
+			t.Errorf("expected response code to be %d, got %d", http.StatusCreated, response.StatusCode)
 		}
 	})
 	t.Run("sending a request where there is more than one content type in responses and has an accept header ", func(t *testing.T) {
