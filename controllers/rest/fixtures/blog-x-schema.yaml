@@ -62,10 +62,11 @@ components:
     Blog:
       type: object
       properties:
+        guid:
+          type: string
         url:
           type: string
           format: uri
-          x-unique: true
         title:
           type: string
         description:
@@ -83,11 +84,11 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         lastUpdated:
           type: string
           format: date-time
@@ -97,6 +98,10 @@ components:
       required:
         - title
         - url
+        - guid
+      x-identifier:
+        - guid
+        - title
     Post:
       type: object
       properties:
@@ -114,24 +119,11 @@ paths:
     summary: Health Check
     get:
       x-controller: HealthCheck
-      x-middleware:
-        - Recover
       responses:
         200:
           description: Health Response
         500:
           description: API Internal Error
-  /api:
-      get:
-        operationId: Get API Details
-        x-controller: APIDiscovery
-        responses:
-          200:
-            description: API Details
-            content:
-              application/json:
-                schema:
-                  type: string
   /blogs:
     parameters:
       - in: header
@@ -152,34 +144,13 @@ paths:
         name: q
         schema:
           type: string
-      - in: query
-        name: cost
-        schema:
-          type: number
-      - in: query
-        name: leverage
-        schema:
-          type: number
-          format: double
     post:
       operationId: Add Blog
       summary: Create Blog
       x-projection: Default
       x-event-dispatcher: Default
       x-command-disptacher: Default
-      requestBody:
-        description: Blog info that is submitted
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          multipart/form-data:
-            schema:
-              $ref: "#/components/schemas/Blog"
+      x-schema: "#/components/schemas/Blog"
       responses:
         201:
           description: Add Blog to Aggregator
@@ -192,37 +163,28 @@ paths:
       summary: Get List of Blogs
       parameters:
         - in: query
-          name: page
+          name: filters
           schema:
-            type: integer
-        - in: query
-          name: l
-          x-alias: limit
-          schema:
-            type: integer
-        - in: query
-          name: _filters
-          style: deepObject
-          explode: true
-          schema:
-            type: object
-            properties:
-              field:
-                type: string
-              operator:
-                type: string
-              values:
-                type: array
-                items:
+            type: array
+            items:
+              type: object
+              properties:
+                field:
                   type: string
+                operator:
+                  type: string
+                values:
+                  type: array
+                  items:
+                    type: string
 
           required: false
           description: query string
       x-context:
-        _filters:
+        filters:
           - field: status
             operator: eq
-            value:
+            values:
               - Active
           - field: lastUpdated
             operator: between
@@ -234,7 +196,7 @@ paths:
             values:
               - Technology
               - Javascript
-        _sorts:
+        sorts:
           - field: title
             order: asc
         page: 1
@@ -251,58 +213,23 @@ paths:
                     type: integer
                   page:
                     type: integer
-                  blogs:
-                    type: array
-                    x-alias: items
-                    items:
-                      $ref: "#/components/schemas/Blog"
-    put:
-      operationId: Import blogs
-      requestBody:
-        content:
-          text/csv:
-            schema:
-              type: string
-              format: binary
-      responses:
-        201:
-          description: items created
-
-  /blogs/{id}:
-    parameters:
-      - in: query
-        name: sequence_no
-        schema:
-          type: integer
-      - in: query
-        name: use_entity_id
-        schema:
-          type: boolean
+                  items:
+                    $ref: "#/components/schemas/Blog"
+  /blogs/{guid}:
     get:
       parameters:
         - in: path
-          name: id
+          name: guid
           schema:
             type: string
           required: true
           description: blog id
         - in: header
-          name: If-Match
+          name: title
           schema:
             type: string
-          required: false
-        - in: query
-          name: cost
-          schema:
-            type: number
-        - in: query
-          name: leverage
-          schema:
-            type: number
-            format: double
-      x-context:
-        id: 2
-      summary: Get Blog by id
+          required: true
+      summary: Get Blog by id and title
       operationId: Get Blog
       responses:
         200:
@@ -314,24 +241,16 @@ paths:
     put:
       parameters:
         - in: path
-          name: id
+          name: guid
           schema:
             type: string
           required: true
           description: blog id
         - in: header
-          name: If-Match
+          name: title
           schema:
             type: string
-        - in: query
-          name: cost
-          schema:
-            type: number
-        - in: query
-          name: leverage
-          schema:
-            type: number
-            format: double
+          required: true
       summary: Update blog details
       operationId: Update Blog
       requestBody:
@@ -350,16 +269,16 @@ paths:
     delete:
       parameters:
         - in: path
-          name: id
+          name: guid
           schema:
             type: string
           required: true
           description: blog id
         - in: header
-          name: If-Match
+          name: title
           schema:
             type: string
-      x-schema: "Blog"
+          required: true
       summary: Delete blog
       operationId: Delete Blog
       responses:
@@ -430,9 +349,7 @@ paths:
                   page:
                     type: integer
                   items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Post"
+                    $ref: "#/components/schemas/Post"
 
   /posts/{id}:
     get:
@@ -478,12 +395,6 @@ paths:
           schema:
             type: string
           required: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Post"
       summary: Delete post
       responses:
         200:
@@ -534,9 +445,7 @@ paths:
                   page:
                     type: integer
                   items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Category"
+                    $ref: "#/components/schemas/Category"
 
   /categories/{title}:
     get:
@@ -582,12 +491,6 @@ paths:
           schema:
             type: string
           required: true
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Category"
       summary: Delete category
       responses:
         200:
@@ -637,9 +540,7 @@ paths:
                   page:
                     type: integer
                   items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Author"
+                    $ref: "#/components/schemas/Author"
 
   /authors/{id}:
     get:
@@ -653,9 +554,8 @@ paths:
           name: email
           schema:
             type: string
-            format: email
           required: true
-      summary: Get Author by email and id
+      summary: Get Author by id and email
       responses:
         200:
           description: Get author information
@@ -674,7 +574,6 @@ paths:
           name: email
           schema:
             type: string
-            format: email
           required: true
       summary: Update Author details
       requestBody:
@@ -701,14 +600,7 @@ paths:
           name: email
           schema:
             type: string
-            format: email
           required: true
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Author"
       summary: Delete author
       responses:
         200:
