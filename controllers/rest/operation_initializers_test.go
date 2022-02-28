@@ -170,7 +170,7 @@ paths:
 			return nil
 		}})
 	api.RegisterEventStore("HealthCheck", &EventRepositoryMock{})
-	api.RegisterProjection("HealthCheck", &GormProjectionMock{})
+	api.RegisterProjection("HealthCheck", &ProjectionMock{})
 
 	t.Run("attach user defined controller", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)

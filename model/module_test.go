@@ -217,7 +217,7 @@ func TestWeOSApp_AddProjection(t *testing.T) {
 			Formatter:    "text",
 		},
 	}
-	mockProjection := &GormProjectionMock{
+	mockProjection := &ProjectionMock{
 		GetEventHandlerFunc: func() weos.EventHandler {
 			return func(ctx context.Context, event weos.Event) error {
 				return nil
