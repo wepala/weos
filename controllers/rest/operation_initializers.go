@@ -398,7 +398,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			allParam := true
 			//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 			//checks if the response refers to a schema
-			if pathItem.Get != nil && pathItem.Get.Responses != nil && pathItem.Get.Responses["200"].Value.Content != nil {
+			if pathItem.Get != nil && pathItem.Get.Responses != nil && pathItem.Get.Responses["200"] != nil && pathItem.Get.Responses["200"].Value.Content != nil {
 				for _, val := range pathItem.Get.Responses["200"].Value.Content {
 					if val.Schema != nil && strings.Contains(val.Schema.Ref, "#/components/schemas/") {
 						var identifiers []string

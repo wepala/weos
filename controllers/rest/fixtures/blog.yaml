@@ -113,7 +113,7 @@ paths:
     get:
       operationId: Homepage
       responses:
-        200:
+        201:
           description: Application Homepage
           content:
             text/html:
