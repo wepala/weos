@@ -173,7 +173,7 @@ func TestUpdateContentType(t *testing.T) {
 	event := model.NewEntityEvent("update", existingBlog, existingBlog.ID, existingPayload)
 	existingBlog.NewChange(event)
 
-	projectionMock := &GormProjectionMock{
+	projectionMock := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
@@ -283,7 +283,7 @@ func TestDeleteContentType(t *testing.T) {
 	event := model.NewEntityEvent("delete", existingBlog, existingBlog.ID, existingPayload)
 	existingBlog.NewChange(event)
 
-	projectionMock := &GormProjectionMock{
+	projectionMock := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
