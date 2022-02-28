@@ -544,6 +544,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
           Auth0:
             type: openIdConnect
             openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
+            skipExpiryCheck: true
         schemas:
           Blog:
              type: object
@@ -655,7 +656,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
                 description: Invalid Category submitted
      """
     When the "OpenAPI 3.0" specification is parsed
-    Then an error to be returned
+    Then an error should be returned
 
   Scenario: Request with missing required scope
 
