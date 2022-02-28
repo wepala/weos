@@ -118,9 +118,9 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 				}
 
 				if len(gormParts) == 0 {
-					tagString += ` gorm:"foreignKey:` + keystring + `; references ` + strings.Join(rKeys, ",") + `"`
+					tagString += ` gorm:"foreignKey:` + keystring + `; References: ` + strings.Join(rKeys, ",") + `"`
 				} else {
-					tagString += `;foreignKey:` + keystring + `; references: ` + strings.Join(rKeys, ",") + `"`
+					tagString += `;foreignKey:` + keystring + `; References: ` + strings.Join(rKeys, ",") + `"`
 				}
 
 				instance.AddField(name, rStruct, tagString)
