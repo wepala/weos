@@ -31,7 +31,7 @@ func Security(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (co
 		}
 		ctxt = context.WithValue(ctxt, weosContext.MIDDLEWARES, middlewares)
 	} else {
-		if swagger.Components.SecuritySchemes != nil {
+		if swagger.Components.SecuritySchemes != nil || swagger.Security != nil {
 			api.EchoInstance().Logger.Errorf("unexpected error: security defined does not match any security schemes")
 			return ctxt, fmt.Errorf("unexpected error: security defined does not match any security schemes")
 		}
