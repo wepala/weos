@@ -74,8 +74,9 @@ components:
           type: boolean
         status:
           type: string
-          nullable: false
+          nullable: true
           enum:
+            - "null"
             - one
             - two
         image:

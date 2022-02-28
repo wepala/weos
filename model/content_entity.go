@@ -102,7 +102,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 						}
 
 						if enumFound == false {
-							message := "invalid enumeration option provided. available options are: " + enumOptions
+							message := "invalid enumeration option provided. available options are: " + enumOptions + "(for the null option, use the keyword null(without quotes))"
 							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 							return false
 						}
@@ -137,19 +137,8 @@ func (w *ContentEntity) IsEnumValid() bool {
 						}
 					}
 				} else {
-					var enumProperty *string
-					reader := ds.NewReader(w.Property)
-					isValid := reader.HasField(strings.Title(k))
-					if !isValid {
-						message := "this content entity does not contain the field: " + strings.Title(k)
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
-					if reader.GetField(strings.Title(k)).PointerString() == nil {
-						enumProperty = nil
-					} else {
-						enumProperty = reader.GetField(strings.Title(k)).PointerString()
-					}
+					//var enumProperty *string
+					enumProperty := w.GetString(strings.Title(k))
 
 					//This checks if a "null" option was provided which is needed if nullable == true
 					for _, v := range property.Value.Enum {
@@ -164,20 +153,20 @@ func (w *ContentEntity) IsEnumValid() bool {
 					//If nullable == true and null is found in the options
 					if property.Value.Nullable && nullFound == true {
 						//Assuming if the nullable is true, the user can pass a blank string
-						if enumProperty == nil || *enumProperty == "" {
+						if enumProperty == "" {
 							enumFound = true
 							//The user may only use a blank string to indicate a null field, not the actual keyword
 						} else if enumFound == false {
 							for _, v := range property.Value.Enum {
-								enumFound = *enumProperty == v.(string)
+								enumFound = enumProperty == v.(string)
 								if enumFound == true {
 									break
 								}
 							}
 						}
 
-						if enumFound == false || *enumProperty == "null" {
-							message := "invalid enumeration option provided. available options are: " + enumOptions + " (for the null option, use a blank string, not the keyword null)"
+						if enumFound == false || enumProperty == "null" {
+							message := "invalid enumeration option provided. available options are: " + enumOptions + " (for the null option, use a blank string, or the keyword null(without quotes))"
 							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 							return false
 						}
@@ -188,13 +177,13 @@ func (w *ContentEntity) IsEnumValid() bool {
 						return false
 
 					} else if property.Value.Nullable == false {
-						if *enumProperty == "null" || *enumProperty == "" || enumProperty == nil || nullFound == true {
+						if enumProperty == "null" || enumProperty == "" || nullFound == true {
 							message := "nullable is set to false, cannot use null/blank string nor have it as an enum option."
 							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 							return false
 						}
 						for _, v := range property.Value.Enum {
-							enumFound = *enumProperty == v.(string)
+							enumFound = enumProperty == v.(string)
 							if enumFound == true {
 								break
 							}
@@ -257,7 +246,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 
 					if enumFound == false {
-						message := "invalid enumeration option provided. available options are: " + enumOptions
+						message := "invalid enumeration option provided. available options are: " + enumOptions + "(for the null option, use a blank string, or the keyword null(without quotes))"
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}
@@ -345,7 +334,7 @@ func (w *ContentEntity) IsEnumValid() bool {
 					}
 
 					if enumFound == false {
-						message := "invalid enumeration option provided. available options are: " + enumOptions
+						message := "invalid enumeration option provided. available options are: " + enumOptions + "(for the null option, use a blank string, or the keyword null(without quotes))"
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 						return false
 					}
