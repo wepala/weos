@@ -35,3 +35,5 @@ const CommandDispatcherExtension = "x-command-dispatcher"
 
 //EventStoreExtension set custom event store
 const EventStoreExtension = "x-event-store"
+
+const UniqueExtension = "x-unique"

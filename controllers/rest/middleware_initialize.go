@@ -96,6 +96,15 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 			}
 		}
 
+		uniquebytes, _ := json.Marshal(p.Value.Extensions[UniqueExtension])
+		if len(uniquebytes) != 0 {
+			unique := false
+			json.Unmarshal(uniquebytes, &unique)
+			if unique {
+				gormParts = append(gormParts, "unique")
+			}
+		}
+
 		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(name)) {
 			gormParts = append(gormParts, "primaryKey", "size:512")
 			//only add NOT null if it's not already in the array to avoid issue if a user also add the field to the required array
