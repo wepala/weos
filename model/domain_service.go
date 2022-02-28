@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
@@ -25,6 +27,10 @@ func (s *DomainService) Create(ctx context.Context, payload json.RawMessage, ent
 	if err != nil {
 		return nil, NewDomainError("unexpected error creating entity", entityType, "", err)
 	}
+	err = s.ValidateUnique(ctx, newEntity)
+	if err != nil {
+		return nil, err
+	}
 	if ok := newEntity.IsValid(); !ok {
 		errors := newEntity.GetErrors()
 		if len(errors) != 0 {
@@ -42,16 +48,41 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 		return nil, err
 	}
 	newEntityArr := []*ContentEntity{}
-	contentType := weosContext.GetContentType(ctx)
 	for _, titem := range titems {
-		tpayload, err := json.Marshal(titem)
+
+		entityFactory := GetEntityFactory(ctx)
+		if entityFactory == nil {
+			err = errors.New("no entity factory found")
+			s.logger.Error(err)
+			return nil, err
+		}
+
+		entity, err := entityFactory.NewEntity(ctx)
 		if err != nil {
 			return nil, err
 		}
-		entity, err := new(ContentEntity).FromSchemaWithValues(ctx, contentType.Schema, tpayload)
+		if id, ok := titem.(map[string]interface{})["weos_id"]; ok {
+			if i, ok := id.(string); ok && i != "" {
+				entity.ID = i
+			}
+		}
+		if entity.ID == "" {
+			entity.ID = ksuid.New().String()
+			titem.(map[string]interface{})["weos_id"] = entity.ID
+		}
+
+		event := NewEntityEvent("create", entity, entity.ID, titem)
+		entity.NewChange(event)
+		err = entity.ApplyEvents([]*Event{event})
 		if err != nil {
 			return nil, err
 		}
+
+		err = s.ValidateUnique(ctx, entity)
+		if err != nil {
+			return nil, err
+		}
+
 		if ok := entity.IsValid(); !ok {
 			return nil, NewDomainError("unexpected error entity is invalid", entityType, entity.ID, nil)
 		}
@@ -166,6 +197,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, err
 		}
 
+		err = s.ValidateUnique(ctx, updatedEntity)
+		if err != nil {
+			return nil, err
+		}
 		if ok := updatedEntity.IsValid(); !ok {
 			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
 		}
@@ -206,6 +241,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, err
 		}
 
+		err = s.ValidateUnique(ctx, updatedEntity)
+		if err != nil {
+			return nil, err
+		}
 		if ok := updatedEntity.IsValid(); !ok {
 			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
 		}
@@ -312,6 +351,39 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 
 	}
 	return deletedEntity, nil
+}
+
+func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntity) error {
+	entityFactory := GetEntityFactory(ctx)
+	reader := ds.NewReader(entity.Property)
+	for name, p := range entity.Schema.Properties {
+		uniquebytes, _ := json.Marshal(p.Value.Extensions["x-unique"])
+		if len(uniquebytes) != 0 {
+			unique := false
+			json.Unmarshal(uniquebytes, &unique)
+			if unique {
+				val := reader.GetField(strings.Title(name)).Interface()
+				result, err := s.Projection.GetByProperties(ctx, entityFactory, map[string]interface{}{name: val})
+				if err != nil {
+					return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
+				}
+				if len(result) > 1 {
+					err := fmt.Errorf("entity value %s should be unique but an entity exists with this %s value", name, name)
+					s.logger.Debug(err)
+					return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
+				}
+				if len(result) == 1 {
+					r := result[0]
+					if r["weos_id"] != entity.GetID() {
+						err := fmt.Errorf("entity value %s should be unique but an entity exists with this %s value", name, name)
+						s.logger.Debug(err)
+						return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func NewDomainService(ctx context.Context, eventRepository EventRepository, projections Projection, logger Log) *DomainService {

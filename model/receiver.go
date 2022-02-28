@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"golang.org/x/net/context"
 )
 
@@ -35,6 +36,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		logger.Error(err)
 		return err
 	}
+
 	//use the entity id that was passed with the command
 	newEntity.ID = command.Metadata.EntityID
 	//add create event
@@ -47,6 +49,11 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		return NewDomainError(err.Error(), command.Metadata.EntityType, "", err)
 	}
 
+	domainService := NewDomainService(ctx, eventStore, projection, logger)
+	err = domainService.ValidateUnique(ctx, newEntity)
+	if err != nil {
+		return err
+	}
 	if ok := newEntity.IsValid(); !ok {
 		errors := newEntity.GetErrors()
 		if len(errors) != 0 {
@@ -62,7 +69,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 
 //CreateBatchHandler is used for an array of payloads. It takes in the command and context which is used to dispatch and the persist the incoming request.
 func CreateBatchHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
-	domainService := NewDomainService(context.Background(), eventStore, projection, logger)
+	domainService := NewDomainService(ctx, eventStore, projection, logger)
 	entities, err := domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
 		return err

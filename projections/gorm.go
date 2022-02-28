@@ -427,6 +427,21 @@ func (p *GORMDB) GetContentEntities(ctx context.Context, entityFactory weos.Enti
 	return entities, count, result.Error
 }
 
+func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	results := entityFactory.Builder(ctxt).Build().NewSliceOfStructs()
+	result := p.db.Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
+	if result.Error != nil {
+		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
+	}
+	bytes, err := json.Marshal(results)
+	if err != nil {
+		return nil, err
+	}
+	var entities []map[string]interface{}
+	json.Unmarshal(bytes, &entities)
+	return entities, nil
+}
+
 //DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
 func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
 	var err error
@@ -532,7 +547,7 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 	ContentQuery = func() func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {
 			if projection.db.Dialector.Name() == "sqlite" {
-				//gorm sqlite generates the query incorrectly if there are composite keys when preloading
+				//gorm sqlite generates the query incorrectly if there are composite keys when preloading.  This may cause panics.
 				//https://github.com/go-gorm/gorm/issues/3585
 				return db
 			} else {

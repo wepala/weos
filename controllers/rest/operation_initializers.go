@@ -37,6 +37,11 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 		if err != nil {
 			return ctxt, err
 		}
+
+		if strings.Contains(contentType, "#/components/schemas/") {
+			contentType = strings.Replace(contentType, "#/components/schemas/", "", -1)
+		}
+
 		//get the schema details from the swagger file
 		if builder, ok := schemas[contentType]; ok {
 			entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
@@ -492,7 +497,12 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 					api.e.Logger.Errorf("error on path '%s' '%s' ", path, err)
 					return ctxt, err
 				}
-				identifierExtension = swagger.Components.Schemas[strContentType].Value.ExtensionProps.Extensions[IdentifierExtension]
+
+				if strings.Contains(strContentType, "#/components/schemas/") {
+					identifierExtension = swagger.Components.Schemas[strings.Replace(strContentType, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
+				} else {
+					identifierExtension = swagger.Components.Schemas[strContentType].Value.ExtensionProps.Extensions[IdentifierExtension]
+				}
 			} else {
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Delete.RequestBody.Value.Content {

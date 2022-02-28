@@ -56,8 +56,8 @@ var _ model.EventRepository = &EventRepositoryMock{}
 // 	               panic("mock out the Persist method")
 //             },
 //             ReplayEventsFunc: func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error) {
-// 				  panic("mock out the ReplayEvents method")
-// 			   },
+// 	               panic("mock out the ReplayEvents method")
+//             },
 //         }
 //
 //         // use mockedEventRepository in code that requires model.EventRepository
@@ -550,52 +550,91 @@ func (mock *EventRepositoryMock) ReplayEventsCalls() []struct {
 	return calls
 }
 
-// Ensure, that GormProjectionMock does implement model.GormProjection.
+// Ensure, that ProjectionMock does implement model.Projection.
 // If this is not the case, regenerate this file with moq.
-var _ model.GormProjection = &GormProjectionMock{}
+var _ model.Projection = &ProjectionMock{}
 
-// GormProjectionMock is a mock implementation of model.GormProjection.
+// ProjectionMock is a mock implementation of model.Projection.
 //
-// 	func TestSomethingThatUsesGormProjection(t *testing.T) {
+//     func TestSomethingThatUsesProjection(t *testing.T) {
 //
-// 		// make and configure a mocked model.GormProjection
-// 		mockedGormProjection := &GormProjectionMock{
-// 			DBFunc: func() *gorm.DB {
-// 				panic("mock out the DB method")
-// 			},
-// 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
-// 				panic("mock out the GetByEntityID method")
-// 			},
-// 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-// 				panic("mock out the GetByKey method")
-// 			},
-// 			GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-// 				panic("mock out the GetContentEntities method")
-// 			},
-// 			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
-// 				panic("mock out the GetContentEntity method")
-// 			},
-// 			GetEventHandlerFunc: func() model.EventHandler {
-// 				panic("mock out the GetEventHandler method")
-// 			},
-// 			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
-// 				panic("mock out the Migrate method")
-// 			},
-// 		}
+//         // make and configure a mocked model.Projection
+//         mockedProjection := &ProjectionMock{
+//             GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+// 	               panic("mock out the GetByEntityID method")
+//             },
+//             GetByIdentifiersFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+// 	               panic("mock out the GetByIdentifiers method")
+//             },
+//             GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+// 	               panic("mock out the GetByKey method")
+//             },
+//             GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+// 	               panic("mock out the GetContentEntities method")
+//             },
+//             GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+// 	               panic("mock out the GetContentEntity method")
+//             },
+//             GetEventHandlerFunc: func() model.EventHandler {
+// 	               panic("mock out the GetEventHandler method")
+//             },
+//             MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
+// 	               panic("mock out the Migrate method")
+//             },
+//         }
 //
-// 		// use mockedGormProjection in code that requires model.GormProjection
-// 		// and then make assertions.
+//         // use mockedProjection in code that requires model.Projection
+//         // and then make assertions.
 //
-// 	}
-type GormProjectionMock struct {
-	// DBFunc mocks the DB method.
-	DBFunc func() *gorm.DB
+//     }
+// Ensure, that ProjectionMock does implement model.Projection.
+// If this is not the case, regenerate this file with moq.
+// Ensure, that ProjectionMock does implement model.Projection.
+// If this is not the case, regenerate this file with moq.
+var _ model.Projection = &ProjectionMock{}
 
+// ProjectionMock is a mock implementation of model.Projection.
+//
+//     func TestSomethingThatUsesProjection(t *testing.T) {
+//
+//         // make and configure a mocked model.Projection
+//         mockedProjection := &ProjectionMock{
+//             GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+// 	               panic("mock out the GetByEntityID method")
+//             },
+//             GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+// 	               panic("mock out the GetByKey method")
+//             },
+//             GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+// 	               panic("mock out the GetByProperties method")
+//             },
+//             GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+// 	               panic("mock out the GetContentEntities method")
+//             },
+//             GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+// 	               panic("mock out the GetContentEntity method")
+//             },
+//             GetEventHandlerFunc: func() model.EventHandler {
+// 	               panic("mock out the GetEventHandler method")
+//             },
+//             MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
+// 	               panic("mock out the Migrate method")
+//             },
+//         }
+//
+//         // use mockedProjection in code that requires model.Projection
+//         // and then make assertions.
+//
+//     }
+type ProjectionMock struct {
 	// GetByEntityIDFunc mocks the GetByEntityID method.
 	GetByEntityIDFunc func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error)
 
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
+
+	// GetByPropertiesFunc mocks the GetByProperties method.
+	GetByPropertiesFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
 
 	// GetContentEntitiesFunc mocks the GetContentEntities method.
 	GetContentEntitiesFunc func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
@@ -611,9 +650,6 @@ type GormProjectionMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// DB holds details about calls to the DB method.
-		DB []struct {
-		}
 		// GetByEntityID holds details about calls to the GetByEntityID method.
 		GetByEntityID []struct {
 			// Ctxt is the ctxt argument value.
@@ -625,6 +661,15 @@ type GormProjectionMock struct {
 		}
 		// GetByKey holds details about calls to the GetByKey method.
 		GetByKey []struct {
+			// Ctxt is the ctxt argument value.
+			Ctxt context.Context
+			// EntityFactory is the entityFactory argument value.
+			EntityFactory model.EntityFactory
+			// Identifiers is the identifiers argument value.
+			Identifiers map[string]interface{}
+		}
+		// GetByProperties holds details about calls to the GetByProperties method.
+		GetByProperties []struct {
 			// Ctxt is the ctxt argument value.
 			Ctxt context.Context
 			// EntityFactory is the entityFactory argument value.
@@ -671,45 +716,19 @@ type GormProjectionMock struct {
 			DeletedFields map[string][]string
 		}
 	}
-	lockDB                 sync.RWMutex
 	lockGetByEntityID      sync.RWMutex
 	lockGetByKey           sync.RWMutex
+	lockGetByProperties    sync.RWMutex
 	lockGetContentEntities sync.RWMutex
 	lockGetContentEntity   sync.RWMutex
 	lockGetEventHandler    sync.RWMutex
 	lockMigrate            sync.RWMutex
 }
 
-// DB calls DBFunc.
-func (mock *GormProjectionMock) DB() *gorm.DB {
-	if mock.DBFunc == nil {
-		panic("GormProjectionMock.DBFunc: method is nil but GormProjection.DB was just called")
-	}
-	callInfo := struct {
-	}{}
-	mock.lockDB.Lock()
-	mock.calls.DB = append(mock.calls.DB, callInfo)
-	mock.lockDB.Unlock()
-	return mock.DBFunc()
-}
-
-// DBCalls gets all the calls that were made to DB.
-// Check the length with:
-//     len(mockedGormProjection.DBCalls())
-func (mock *GormProjectionMock) DBCalls() []struct {
-} {
-	var calls []struct {
-	}
-	mock.lockDB.RLock()
-	calls = mock.calls.DB
-	mock.lockDB.RUnlock()
-	return calls
-}
-
 // GetByEntityID calls GetByEntityIDFunc.
-func (mock *GormProjectionMock) GetByEntityID(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 	if mock.GetByEntityIDFunc == nil {
-		panic("GormProjectionMock.GetByEntityIDFunc: method is nil but GormProjection.GetByEntityID was just called")
+		panic("ProjectionMock.GetByEntityIDFunc: method is nil but Projection.GetByEntityID was just called")
 	}
 	callInfo := struct {
 		Ctxt          context.Context
@@ -728,8 +747,8 @@ func (mock *GormProjectionMock) GetByEntityID(ctxt context.Context, entityFactor
 
 // GetByEntityIDCalls gets all the calls that were made to GetByEntityID.
 // Check the length with:
-//     len(mockedGormProjection.GetByEntityIDCalls())
-func (mock *GormProjectionMock) GetByEntityIDCalls() []struct {
+//     len(mockedProjection.GetByEntityIDCalls())
+func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 	Ctxt          context.Context
 	EntityFactory model.EntityFactory
 	ID            string
@@ -746,9 +765,9 @@ func (mock *GormProjectionMock) GetByEntityIDCalls() []struct {
 }
 
 // GetByKey calls GetByKeyFunc.
-func (mock *GormProjectionMock) GetByKey(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByKey(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	if mock.GetByKeyFunc == nil {
-		panic("GormProjectionMock.GetByKeyFunc: method is nil but GormProjection.GetByKey was just called")
+		panic("ProjectionMock.GetByKeyFunc: method is nil but Projection.GetByKey was just called")
 	}
 	callInfo := struct {
 		Ctxt          context.Context
@@ -767,8 +786,8 @@ func (mock *GormProjectionMock) GetByKey(ctxt context.Context, entityFactory mod
 
 // GetByKeyCalls gets all the calls that were made to GetByKey.
 // Check the length with:
-//     len(mockedGormProjection.GetByKeyCalls())
-func (mock *GormProjectionMock) GetByKeyCalls() []struct {
+//     len(mockedProjection.GetByKeyCalls())
+func (mock *ProjectionMock) GetByKeyCalls() []struct {
 	Ctxt          context.Context
 	EntityFactory model.EntityFactory
 	Identifiers   map[string]interface{}
@@ -784,10 +803,49 @@ func (mock *GormProjectionMock) GetByKeyCalls() []struct {
 	return calls
 }
 
+// GetByProperties calls GetByPropertiesFunc.
+func (mock *ProjectionMock) GetByProperties(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	if mock.GetByPropertiesFunc == nil {
+		panic("ProjectionMock.GetByPropertiesFunc: method is nil but Projection.GetByProperties was just called")
+	}
+	callInfo := struct {
+		Ctxt          context.Context
+		EntityFactory model.EntityFactory
+		Identifiers   map[string]interface{}
+	}{
+		Ctxt:          ctxt,
+		EntityFactory: entityFactory,
+		Identifiers:   identifiers,
+	}
+	mock.lockGetByProperties.Lock()
+	mock.calls.GetByProperties = append(mock.calls.GetByProperties, callInfo)
+	mock.lockGetByProperties.Unlock()
+	return mock.GetByPropertiesFunc(ctxt, entityFactory, identifiers)
+}
+
+// GetByPropertiesCalls gets all the calls that were made to GetByProperties.
+// Check the length with:
+//     len(mockedProjection.GetByPropertiesCalls())
+func (mock *ProjectionMock) GetByPropertiesCalls() []struct {
+	Ctxt          context.Context
+	EntityFactory model.EntityFactory
+	Identifiers   map[string]interface{}
+} {
+	var calls []struct {
+		Ctxt          context.Context
+		EntityFactory model.EntityFactory
+		Identifiers   map[string]interface{}
+	}
+	mock.lockGetByProperties.RLock()
+	calls = mock.calls.GetByProperties
+	mock.lockGetByProperties.RUnlock()
+	return calls
+}
+
 // GetContentEntities calls GetContentEntitiesFunc.
-func (mock *GormProjectionMock) GetContentEntities(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+func (mock *ProjectionMock) GetContentEntities(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 	if mock.GetContentEntitiesFunc == nil {
-		panic("GormProjectionMock.GetContentEntitiesFunc: method is nil but GormProjection.GetContentEntities was just called")
+		panic("ProjectionMock.GetContentEntitiesFunc: method is nil but Projection.GetContentEntities was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
@@ -814,8 +872,8 @@ func (mock *GormProjectionMock) GetContentEntities(ctx context.Context, entityFa
 
 // GetContentEntitiesCalls gets all the calls that were made to GetContentEntities.
 // Check the length with:
-//     len(mockedGormProjection.GetContentEntitiesCalls())
-func (mock *GormProjectionMock) GetContentEntitiesCalls() []struct {
+//     len(mockedProjection.GetContentEntitiesCalls())
+func (mock *ProjectionMock) GetContentEntitiesCalls() []struct {
 	Ctx           context.Context
 	EntityFactory model.EntityFactory
 	Page          int
@@ -840,9 +898,9 @@ func (mock *GormProjectionMock) GetContentEntitiesCalls() []struct {
 }
 
 // GetContentEntity calls GetContentEntityFunc.
-func (mock *GormProjectionMock) GetContentEntity(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+func (mock *ProjectionMock) GetContentEntity(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 	if mock.GetContentEntityFunc == nil {
-		panic("GormProjectionMock.GetContentEntityFunc: method is nil but GormProjection.GetContentEntity was just called")
+		panic("ProjectionMock.GetContentEntityFunc: method is nil but Projection.GetContentEntity was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
@@ -861,8 +919,8 @@ func (mock *GormProjectionMock) GetContentEntity(ctx context.Context, entityFact
 
 // GetContentEntityCalls gets all the calls that were made to GetContentEntity.
 // Check the length with:
-//     len(mockedGormProjection.GetContentEntityCalls())
-func (mock *GormProjectionMock) GetContentEntityCalls() []struct {
+//     len(mockedProjection.GetContentEntityCalls())
+func (mock *ProjectionMock) GetContentEntityCalls() []struct {
 	Ctx           context.Context
 	EntityFactory model.EntityFactory
 	WeosID        string
@@ -879,9 +937,9 @@ func (mock *GormProjectionMock) GetContentEntityCalls() []struct {
 }
 
 // GetEventHandler calls GetEventHandlerFunc.
-func (mock *GormProjectionMock) GetEventHandler() model.EventHandler {
+func (mock *ProjectionMock) GetEventHandler() model.EventHandler {
 	if mock.GetEventHandlerFunc == nil {
-		panic("GormProjectionMock.GetEventHandlerFunc: method is nil but GormProjection.GetEventHandler was just called")
+		panic("ProjectionMock.GetEventHandlerFunc: method is nil but Projection.GetEventHandler was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -893,8 +951,8 @@ func (mock *GormProjectionMock) GetEventHandler() model.EventHandler {
 
 // GetEventHandlerCalls gets all the calls that were made to GetEventHandler.
 // Check the length with:
-//     len(mockedGormProjection.GetEventHandlerCalls())
-func (mock *GormProjectionMock) GetEventHandlerCalls() []struct {
+//     len(mockedProjection.GetEventHandlerCalls())
+func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
 } {
 	var calls []struct {
 	}
@@ -905,9 +963,9 @@ func (mock *GormProjectionMock) GetEventHandlerCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *GormProjectionMock) Migrate(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
+func (mock *ProjectionMock) Migrate(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
 	if mock.MigrateFunc == nil {
-		panic("GormProjectionMock.MigrateFunc: method is nil but GormProjection.Migrate was just called")
+		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
@@ -926,8 +984,8 @@ func (mock *GormProjectionMock) Migrate(ctx context.Context, builders map[string
 
 // MigrateCalls gets all the calls that were made to Migrate.
 // Check the length with:
-//     len(mockedGormProjection.MigrateCalls())
-func (mock *GormProjectionMock) MigrateCalls() []struct {
+//     len(mockedProjection.MigrateCalls())
+func (mock *ProjectionMock) MigrateCalls() []struct {
 	Ctx           context.Context
 	Builders      map[string]dynamicstruct.Builder
 	DeletedFields map[string][]string
@@ -942,6 +1000,9 @@ func (mock *GormProjectionMock) MigrateCalls() []struct {
 	mock.lockMigrate.RUnlock()
 	return calls
 }
+
+
+
 
 // Ensure, that LogMock does implement model.Log.
 // If this is not the case, regenerate this file with moq.
@@ -2175,9 +2236,9 @@ var _ model.EntityFactory = &EntityFactoryMock{}
 //
 //         // make and configure a mocked model.EntityFactory
 //         mockedEntityFactory := &EntityFactoryMock{
-//	           BuilderFunc: func(ctx context.Context) ds.Builder {
-// 				  panic("mock out the Builder method")
-// 			   },
+//             BuilderFunc: func(ctx context.Context) dynamicstruct.Builder {
+// 	               panic("mock out the Builder method")
+//             },
 //             DynamicStructFunc: func(ctx context.Context) dynamicstruct.DynamicStruct {
 // 	               panic("mock out the DynamicStruct method")
 //             },

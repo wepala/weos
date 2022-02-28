@@ -7,7 +7,6 @@ servers:
   - url: https://prod1.weos.sh/blog/dev
     description: WeOS Dev
   - url: https://prod1.weos.sh/blog/v1
-  - url: http://localhost:8681
 x-weos-config:
   event-source:
     - title: default
@@ -16,13 +15,13 @@ x-weos-config:
     - title: event
       driver: sqlite3
       database: test.db
+  database:
+    driver: sqlite3
+    database: test.db
   databases:
     - title: default
       driver: sqlite3
       database: test.db
-  database:
-    driver: sqlite3
-    database: test.db
   rest:
     middleware:
       - RequestID
@@ -63,16 +62,15 @@ components:
     Blog:
       type: object
       properties:
+        guid:
+          type: string
         url:
           type: string
           format: uri
-          x-unique: true
         title:
           type: string
         description:
           type: string
-        active:
-          type: boolean
         status:
           type: string
           nullable: true
@@ -86,11 +84,11 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         lastUpdated:
           type: string
           format: date-time
@@ -100,6 +98,10 @@ components:
       required:
         - title
         - url
+        - guid
+      x-identifier:
+        - guid
+        - title
     Post:
       type: object
       properties:
@@ -109,10 +111,6 @@ components:
           type: string
         author:
           $ref: "#/components/schemas/Author"
-        categories:
-          type: array
-          items:
-            $ref: "#/components/schemas/Category"
         created:
           type: string
           format: date-time
@@ -126,45 +124,33 @@ paths:
           description: Health Response
         500:
           description: API Internal Error
-  /api/json:
-        get:
-          operationId: Get API Details
-          x-controller: APIDiscovery
-          responses:
-            200:
-              description: API Details
-              content:
-                application/json:
-                  schema:
-                    type: string
-  /api/html:
-        get:
-          operationId: Get API Details
-          x-controller: APIDiscovery
-          responses:
-            200:
-              description: API Details
-              content:
-                application/html:
-                  schema:
-                    type: string
   /blogs:
+    parameters:
+      - in: header
+        name: someHeader
+        schema:
+          type: string
+      - in: header
+        name: someOtherHeader
+        schema:
+          type: string
+        x-context-name: soh
+      - in: header
+        name: X-Account-Id
+        schema:
+          type: string
+        x-context-name: AccountID
+      - in: query
+        name: q
+        schema:
+          type: string
     post:
       operationId: Add Blog
       summary: Create Blog
-      requestBody:
-        description: Blog info that is submitted
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          multipart/form-data:
-            schema:
-              $ref: "#/components/schemas/Blog"
+      x-projection: Default
+      x-event-dispatcher: Default
+      x-command-disptacher: Default
+      x-schema: "#/components/schemas/Blog"
       responses:
         201:
           description: Add Blog to Aggregator
@@ -176,15 +162,6 @@ paths:
       operationId: Get Blogs
       summary: Get List of Blogs
       parameters:
-        - in: query
-          name: page
-          schema:
-            type: integer
-        - in: query
-          name: l
-          x-alias: limit
-          schema:
-            type: integer
         - in: query
           name: filters
           schema:
@@ -237,54 +214,22 @@ paths:
                   page:
                     type: integer
                   items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Blog"
-    delete:
-      operationId: Delete Blog
+                    $ref: "#/components/schemas/Blog"
+  /blogs/{guid}:
+    get:
       parameters:
-        - in: query
-          name: id
+        - in: path
+          name: guid
           schema:
             type: string
           required: true
           description: blog id
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
-      responses:
-        200:
-          description: Update blog
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        400:
-          description: Invalid blog submitted
-
-  /blogs/{id}:
-    get:
-      parameters:
-        - in: path
-          name: id
+        - in: header
+          name: title
           schema:
-            type: integer
+            type: string
           required: true
-          description: blog id
-        - in: query
-          name: sequence_no
-          schema:
-            type: integer
-        - in: query
-          name: use_entity_id
-          schema:
-            type: boolean
-          required: false
-      summary: Get Blog by id
+      summary: Get Blog by id and title
       operationId: Get Blog
       responses:
         200:
@@ -293,36 +238,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-        304:
-          description: Not modified
-        400:
-          description: Item doesn't exist
-
     put:
       parameters:
         - in: path
-          name: id
+          name: guid
           schema:
-            type: integer
+            type: string
           required: true
           description: blog id
         - in: header
-          name: If-Match
+          name: title
           schema:
             type: string
-          required: false
+          required: true
       summary: Update blog details
       operationId: Update Blog
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          multipart/form-data:
             schema:
               $ref: "#/components/schemas/Blog"
       responses:
@@ -332,34 +266,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-        400:
-          description: Request is malformed
-        404:
-          description: Item doesn't exist
-        412:
-          description: The item is stale
-        422:
-          description: Invalid content data sent
-
     delete:
       parameters:
         - in: path
-          name: id
+          name: guid
           schema:
             type: string
           required: true
           description: blog id
         - in: header
-          name: If-Match
+          name: title
           schema:
             type: string
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
+          required: true
       summary: Delete blog
       operationId: Delete Blog
       responses:
@@ -430,9 +349,7 @@ paths:
                   page:
                     type: integer
                   items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Post"
+                    $ref: "#/components/schemas/Post"
 
   /posts/{id}:
     get:
@@ -484,7 +401,7 @@ paths:
           description: Delete post
 
 
-  /categories:
+  /categories/:
     post:
       operationId: Create Blog Category
       summary: Create Blog Category
@@ -528,9 +445,7 @@ paths:
                   page:
                     type: integer
                   items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Category"
+                    $ref: "#/components/schemas/Category"
 
   /categories/{title}:
     get:
@@ -540,15 +455,6 @@ paths:
           schema:
             type: string
           required: true
-        - in: header
-          name: If-None-Match
-          schema:
-             type: string
-        - in: query
-          name: use_entity_id
-          schema:
-            type: boolean
-      
       summary: Get blog category by title
       responses:
         200:
@@ -564,11 +470,6 @@ paths:
           schema:
             type: string
           required: true
-        - in: header
-          name: If-Match
-          schema:
-            type: string
-          required: false
       summary: Update category
       requestBody:
         required: true
@@ -639,9 +540,7 @@ paths:
                   page:
                     type: integer
                   items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Author"
+                    $ref: "#/components/schemas/Author"
 
   /authors/{id}:
     get:
@@ -656,7 +555,7 @@ paths:
           schema:
             type: string
           required: true
-      summary: Get Author by id
+      summary: Get Author by id and email
       responses:
         200:
           description: Get author information

@@ -105,7 +105,7 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 			}
 			payload := weoscontext.GetPayload(newContext)
 
-			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), nil, nil, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -196,7 +196,7 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 		weosID := newContext.Value(weoscontext.ENTITY_ID)
 		if weosID == nil || weosID == "" {
 			//find entity based on identifiers specified
-			pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
+			pks, _ := json.Marshal(entityFactory.Schema().Extensions[IdentifierExtension])
 			json.Unmarshal(pks, &identifiers)
 
 			if len(identifiers) == 0 {
@@ -305,7 +305,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
-			pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
+			pks, _ := json.Marshal(entityFactory.Schema().Extensions[IdentifierExtension])
 			primaryKeys := []string{}
 			json.Unmarshal(pks, &primaryKeys)
 
@@ -583,7 +583,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			//Uses the identifiers to pull the weosID, to be later used to get Seq NO
 			if etagInterface == nil {
 				//find entity based on identifiers specified
-				pks, _ := json.Marshal(entityFactory.Schema().Extensions["x-identifier"])
+				pks, _ := json.Marshal(entityFactory.Schema().Extensions[IdentifierExtension])
 				json.Unmarshal(pks, &identifiers)
 
 				if len(identifiers) == 0 {

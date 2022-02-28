@@ -36,6 +36,8 @@ const CommandDispatcherExtension = "x-command-dispatcher"
 //EventStoreExtension set custom event store
 const EventStoreExtension = "x-event-store"
 
+const UniqueExtension = "x-unique"
+
 //OPENIDCONNECTURLEXTENSION set the open id connect url
 const OPENIDCONNECTURLEXTENSION = "openIdConnectUrl"
 
