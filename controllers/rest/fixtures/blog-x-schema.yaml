@@ -76,7 +76,7 @@ components:
           format: date-time
           nullable: true
           enum:
-            - 0001-01-01T00:00:00Z
+            - "null"
             - 0001-02-01T00:00:00Z
             - 0001-03-01T00:00:00Z
         image:

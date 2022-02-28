@@ -73,8 +73,9 @@ components:
           type: integer
           nullable: true
           enum:
-            - 0
+            - "null"
             - 1
+            - 2
         image:
           type: string
           format: byte

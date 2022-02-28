@@ -73,11 +73,11 @@ components:
         active:
           type: boolean
         status:
-          type: number
+          type: string
           nullable: false
           enum:
-            - 1.5
-            - 2.9
+            - one
+            - two
         image:
           type: string
           format: byte
