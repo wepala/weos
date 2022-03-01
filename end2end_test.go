@@ -67,6 +67,7 @@ var success int
 var failed int
 var errArray []error
 var filters string
+var enumErr error
 
 type FilterProperties struct {
 	Operator string
@@ -543,7 +544,11 @@ func theSpecificationIsParsed(arg1 string) error {
 	e.Logger.SetOutput(&buf)
 	err = API.Initialize(scenarioContext)
 	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "to have enum options of the same type") {
+			enumErr = err
+		} else {
+			return err
+		}
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
@@ -594,8 +599,8 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
 			}
 		case "datetime":
-			dateTime := field.Time()
-			if dateTime != *new(time.Time) {
+			dateTime := field.PointerTime()
+			if field.Interface() != new(time.Time) && field.Interface() != dateTime {
 				fmt.Printf("date interface is '%v'", field.Interface())
 				fmt.Printf("empty date interface is '%v'", new(time.Time))
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
@@ -1434,6 +1439,14 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 	return nil
 }
 
+func anErrorShouldBeReturnedOnRunningToShowThatTheEnumValuesAreInvalid() error {
+
+	if enumErr == nil {
+		return fmt.Errorf("expected an enum error")
+	}
+	return nil
+}
+
 func theApiAsJsonShouldBeShown() error {
 	contentEntity := map[string]interface{}{}
 	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
@@ -1537,6 +1550,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^an error should be returned on running to show that the enum values are invalid$`, anErrorShouldBeReturnedOnRunningToShowThatTheEnumValuesAreInvalid)
 	ctx.Step(`^the api as json should be shown$`, theApiAsJsonShouldBeShown)
 	ctx.Step(`^the swagger ui should be shown$`, theSwaggerUiShouldBeShown)
 
