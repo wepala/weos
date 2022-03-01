@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	weosLogs "github.com/wepala/weos/log"
 	"github.com/wepala/weos/model"
 	"io/ioutil"
 	"os"
@@ -63,6 +64,9 @@ func Initialize(e *echo.Echo, api *RESTAPI, apiConfig string) (*echo.Echo, error
 	if apiConfig == "" {
 		apiConfig = "./api.yaml"
 	}
+
+	//setting the default logger in echo as zap where log level is error by default
+	e.Logger, _ = weosLogs.NewZap("error")
 
 	//set echo instance because the instance may not already be in the api that is passed in but the handlers must have access to it
 	api.SetEchoInstance(e)

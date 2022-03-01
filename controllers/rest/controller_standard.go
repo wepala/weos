@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/labstack/gommon/log"
+	logs "github.com/wepala/weos/log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -47,7 +49,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				weosID = ksuid.New().String()
 			}
 
-			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -680,4 +682,64 @@ func HealthCheck(api *RESTAPI, projection projections.Projection, commandDispatc
 		return context.JSON(http.StatusOK, response)
 	}
 
+}
+
+func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			newContext := c.Request().Context()
+			req := c.Request()
+			res := c.Response()
+			level := req.Header.Get(weoscontext.HeaderXLogLevel)
+			if level == "" {
+				level = "error"
+			}
+
+			res.Header().Set(weoscontext.HeaderXLogLevel, level)
+
+			//Set the log.level in context based on what is passed into the header
+			switch level {
+			case "debug":
+				c.Logger().SetLevel(log.DEBUG)
+			case "info":
+				c.Logger().SetLevel(log.INFO)
+			case "warn":
+				c.Logger().SetLevel(log.WARN)
+			case "error":
+				c.Logger().SetLevel(log.ERROR)
+			}
+
+			//Sets the logger on the application object
+			if api.Config == nil {
+				api.Config = &APIConfig{}
+			}
+
+			if api.Config.Log == nil {
+				api.Config.Log = &model.LogConfig{}
+			}
+
+			api.Config.Log.Level = level
+
+			//Assigns the log level to context
+			newContext = context.WithValue(newContext, weoscontext.HeaderXLogLevel, level)
+			request := c.Request().WithContext(newContext)
+			c.SetRequest(request)
+			return next(c)
+		}
+	}
+}
+
+//ZapLogger switch to using ZapLogger
+func ZapLogger(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			//setting the default logger in the context as zap with the default mode being error
+			zapLogger, err := logs.NewZap("error")
+			if err != nil {
+				c.Logger().Errorf("Unexpected error setting the context logger : %s", err)
+			}
+			c.SetLogger(zapLogger)
+			return next(c)
+		}
+	}
 }
