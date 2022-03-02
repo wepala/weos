@@ -403,27 +403,8 @@ Feature: Create Content Types
       | Field       | Comment      | Type           | Null     | Key      | Default     |
       | post_id     |              | varchar(512)   | false    | PK       | NULL        |
       | category_id |              | varchar(512)   | false    | PK       | NULL        |
-    And a "Post" entity configuration should be setup
-    """
-    erDiagram
-      Blog ||--o{ Post : contains
-      Blog {
-        string id
-        string title
-        string description
-      }
-      Category ||--o{ Post : contains
-      Post {
-        string id
-        string title
-        string description
-        string email
-        datetime publishedDate
-        integer views
-      }
-    """
+
   @WEOS-1116
-  @skipped
   Scenario: Setup a content type with an enumeration
 
     A property can be defined with a list of possible options. Null is added by default since in WeOS properties are nullable
@@ -436,7 +417,6 @@ Feature: Create Content Types
           properties:
             id:
               type: string
-              format: ksuid
             title:
               type: string
             description:
@@ -453,24 +433,65 @@ Feature: Create Content Types
       | id            |              | varchar(512)   | false    | PK       | NULL        |
       | title         |              | varchar(512)   | true     |          | NULL        |
       | description   |              | varchar(512)   | true     |          | NULL        |
-      | status        |              | ENUM(null,unpublished,published)   | false    |          | unpublished |
-    And a "Post" entity configuration should be setup
+      | status        |              | varchar(512)   | false    |          | unpublished |
+
+  @WEOS-1116
+  Scenario: Setup a content type with an enumeration that is an integer
+
+    The column should match the content type of the property. To signal that the property could be omitted use the "null" option
+
+    Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
-    erDiagram
-      Blog ||--o{ Post : contains
-      Blog {
-        string id
-        string title
-        string description
-      }
-      Category ||--o{ Post : contains
-      Post {
-        string id
-        string title
-        string description
-        string status
-      }
+        Post:
+          type: object
+          properties:
+            id:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+            status:
+              type: integer
+              nullable: true
+              enum:
+                - "null"
+                - 0
+                - 1
     """
+    When the "OpenAPI 3.0" specification is parsed
+    Then a model "Post" should be added to the projection
+      | Field         | Comment      | Type           | Null     | Key      | Default     |
+      | id            |              | varchar(512)   | false    | PK       | NULL        |
+      | title         |              | varchar(512)   | true     |          | NULL        |
+      | description   |              | varchar(512)   | true     |          | NULL        |
+      | status        |              | integer        | false    |          | unpublished |
+
+  @focus-1116
+  Scenario: Setup a content type with an enumeration but the options don't match the type
+
+    The options should match the type of the property i.e if the type is an integer then the options should be integers.
+
+    Given "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
+    """
+        Post:
+          type: object
+          properties:
+            id:
+              type: string
+            title:
+              type: string
+            description:
+              type: string
+            status:
+              type: integer
+              enum:
+                - unpublished
+                - published
+    """
+    When the "OpenAPI 3.0" specification is parsed
+    Then an error should be returned on running to show that the enum values are invalid
+
 
   Scenario: Create a content type that already exists
 
