@@ -314,5 +314,7 @@ func JSONMarshal(t interface{}) ([]byte, error) {
 	err := encoder.Encode(t)
 	result := bytes.ReplaceAll(buffer.Bytes(), []byte(`\n`), []byte(""))
 	result = bytes.ReplaceAll(result, []byte(`"`), []byte(""))
+	result = bytes.ReplaceAll(result, []byte(`\r`), []byte(""))
+	result = bytes.ReplaceAll(result, []byte(`\t`), []byte(""))
 	return result, err
 }
