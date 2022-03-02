@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	weosContext "github.com/wepala/weos/context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -67,6 +68,8 @@ var success int
 var failed int
 var errArray []error
 var filters string
+var enumErr error
+var token string
 var contextWithValues context.Context
 
 type FilterProperties struct {
@@ -102,6 +105,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	filters = ""
 	page = 0
 	limit = 0
+	token = ""
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
@@ -156,6 +160,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	filters = ""
 	page = 0
 	limit = 0
+	token = ""
 	result = api.ListApiResponse{}
 	errs = nil
 	header = make(http.Header)
@@ -511,6 +516,7 @@ func theIsSubmitted(contentType string) error {
 	}
 	request = request.WithContext(context.TODO())
 	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 	request.Header = header
 	request.Close = true
 	rec = httptest.NewRecorder()
@@ -535,7 +541,7 @@ func theSpecificationIsParsed(arg1 string) error {
 	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	if err != nil {
-		return err
+		errs = err
 	}
 	tapi.DB = db
 	API = *tapi
@@ -544,7 +550,11 @@ func theSpecificationIsParsed(arg1 string) error {
 	e.Logger.SetOutput(&buf)
 	err = API.Initialize(scenarioContext)
 	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "to have enum options of the same type") {
+			enumErr = err
+		} else {
+			errs = err
+		}
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
@@ -554,7 +564,7 @@ func theSpecificationIsParsed(arg1 string) error {
 		}
 	}
 	if err != nil {
-		return err
+		errs = err
 	}
 	return nil
 }
@@ -595,8 +605,8 @@ func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
 			}
 		case "datetime":
-			dateTime := field.Time()
-			if dateTime != *new(time.Time) {
+			dateTime := field.PointerTime()
+			if field.Interface() != new(time.Time) && field.Interface() != dateTime {
 				fmt.Printf("date interface is '%v'", field.Interface())
 				fmt.Printf("empty date interface is '%v'", new(time.Time))
 				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
@@ -703,6 +713,7 @@ func theEndpointIsHit(method, contentType string) error {
 		request := httptest.NewRequest(method, contentType, nil)
 		request = request.WithContext(context.TODO())
 		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 		request.Header = header
 		request.Close = true
 		rec = httptest.NewRecorder()
@@ -759,6 +770,7 @@ func theServiceIsRunning() error {
 
 			request = request.WithContext(context.TODO())
 			header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 			request.Header = header
 			request.Close = true
 			rec = httptest.NewRecorder()
@@ -775,6 +787,7 @@ func theServiceIsRunning() error {
 					request = httptest.NewRequest("PUT", "/blogs/"+req["id"].(string), body)
 					request = request.WithContext(context.TODO())
 					header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+					header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
 					request.Header = header
 					request.Close = true
 					rec = httptest.NewRecorder()
@@ -787,6 +800,7 @@ func theServiceIsRunning() error {
 
 		}
 	}
+	token = ""
 	return nil
 }
 
@@ -1444,6 +1458,14 @@ func theTotalNoEventsAndProcessedAndFailuresShouldBeReturned() error {
 	return nil
 }
 
+func anErrorShouldBeReturnedOnRunningToShowThatTheEnumValuesAreInvalid() error {
+
+	if enumErr == nil {
+		return fmt.Errorf("expected an enum error")
+	}
+	return nil
+}
+
 func theApiAsJsonShouldBeShown() error {
 	contentEntity := map[string]interface{}{}
 	err := json.NewDecoder(rec.Body).Decode(&contentEntity)
@@ -1465,6 +1487,50 @@ func theSwaggerUiShouldBeShown() error {
 	url := rec.HeaderMap.Get("Location")
 	if url != api.SWAGGERUIENDPOINT {
 		return fmt.Errorf("the html result should have been returned")
+	}
+	return nil
+}
+
+func aWarningShouldBeShown() error {
+	if !strings.Contains(buf.String(), "invalid open id connect url:") {
+		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
+	}
+	return nil
+}
+
+func anErrorShouldBeReturned1(statusCode int) error {
+	if rec.Code != statusCode {
+		return fmt.Errorf("expected response status code to be %d got %d", statusCode, rec.Code)
+	}
+	return nil
+}
+
+func authenticatedAndReceivedAJWT(userName string) error {
+	token = os.Getenv("OAUTH_TEST_KEY")
+	return nil
+}
+
+func hasAValidUserAccount(arg1 string) error {
+	return nil
+}
+
+func sIdIs(userName, userID string) error {
+	return nil
+}
+
+func theUserIdOnTheEntityEventsShouldBe(userID string) error {
+	var events []map[string]interface{}
+	apiProjection, err := API.GetProjection("Default")
+	if err != nil {
+		return fmt.Errorf("unexpected error getting projection: %s", err)
+	}
+	apiProjection1 := apiProjection.(*projections.GORMDB)
+	eventResult := apiProjection1.DB().Table("gorm_events").Find(&events, "type = ?", "create")
+	if eventResult.Error != nil {
+		return fmt.Errorf("unexpected error finding events: %s", eventResult.Error)
+	}
+	if events[len(events)-1]["user"] == "" {
+		return fmt.Errorf("expected to find user but got nil")
 	}
 	return nil
 }
@@ -1570,8 +1636,15 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Sojourner" deletes the "([^"]*)" table$`, sojournerDeletesTheTable)
 	ctx.Step(`^the "([^"]*)" table should be populated with$`, theTableShouldBePopulatedWith)
 	ctx.Step(`^the total no\. events and processed and failures should be returned$`, theTotalNoEventsAndProcessedAndFailuresShouldBeReturned)
+	ctx.Step(`^an error should be returned on running to show that the enum values are invalid$`, anErrorShouldBeReturnedOnRunningToShowThatTheEnumValuesAreInvalid)
 	ctx.Step(`^the api as json should be shown$`, theApiAsJsonShouldBeShown)
 	ctx.Step(`^the swagger ui should be shown$`, theSwaggerUiShouldBeShown)
+	ctx.Step(`^a warning should be shown$`, aWarningShouldBeShown)
+	ctx.Step(`^an (\d+) error should be returned$`, anErrorShouldBeReturned1)
+	ctx.Step(`^"([^"]*)" authenticated and received a JWT$`, authenticatedAndReceivedAJWT)
+	ctx.Step(`^"([^"]*)" has a valid user account$`, hasAValidUserAccount)
+	ctx.Step(`^"([^"]*)"\'s id is "([^"]*)"$`, sIdIs)
+	ctx.Step(`^the user id on the entity events should be "([^"]*)"$`, theUserIdOnTheEntityEventsShouldBe)
 
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)

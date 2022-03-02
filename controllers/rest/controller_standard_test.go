@@ -1960,3 +1960,61 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		}
 	})
 }
+
+func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
+	//instantiate api
+	api, err := rest.New("./fixtures/blog-security.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading api '%s'", err)
+	}
+	err = api.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error initializing api '%s'", err)
+	}
+	e := api.EchoInstance()
+
+	t.Run("no jwt token added when required", func(t *testing.T) {
+		description := "testing 1st blog description"
+		mockBlog := &TestBlog{Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusUnauthorized, resp.Result().StatusCode)
+		}
+	})
+	t.Run("security parameter array is empty", func(t *testing.T) {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusOK {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+		}
+	})
+	t.Run("jwt token added", func(t *testing.T) {
+		description := "testing 1st blog description"
+		url := "www.example.com"
+		title := "example"
+		mockBlog := &TestBlog{Title: &title, Url: &url, Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		token := os.Getenv("OAUTH_TEST_KEY")
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
+	})
+}

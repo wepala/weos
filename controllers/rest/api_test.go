@@ -209,6 +209,7 @@ func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
 		body := bytes.NewReader(reqBytes)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
 		e.ServeHTTP(resp, req)
 		if resp.Result().StatusCode != http.StatusBadRequest {
 			t.Errorf("expected the response code to be %d, got %d", http.StatusBadRequest, resp.Result().StatusCode)

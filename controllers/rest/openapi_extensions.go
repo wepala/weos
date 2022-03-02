@@ -38,5 +38,11 @@ const EventStoreExtension = "x-event-store"
 
 const UniqueExtension = "x-unique"
 
+//OPENIDCONNECTURLEXTENSION set the open id connect url
+const OPENIDCONNECTURLEXTENSION = "openIdConnectUrl"
+
+//SKIPEXPIRYCHECKEXTENSION set the expiry check
+const SKIPEXPIRYCHECKEXTENSION = "skipExpiryCheck"
+
 //ContextExtension set parameters directly in the context
 const ContextExtension = "x-context"
