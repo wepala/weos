@@ -329,6 +329,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("CreateBatchController", CreateBatchController)
 	p.RegisterController("APIDiscovery", APIDiscovery)
+	p.RegisterController("DefaultResponseController", DefaultResponseController)
 
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
@@ -342,6 +343,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("Recover", Recover)
 	//register standard global initializers
 	p.RegisterGlobalInitializer(Security)
+	p.RegisterMiddleware("DefaultResponseMiddleware", DefaultResponseMiddleware)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)

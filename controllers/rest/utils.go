@@ -334,3 +334,16 @@ func GetJwkUrl(openIdUrl string) (string, error) {
 	}
 	return info["jwks_uri"].(string), nil
 }
+
+//JSONMarshal this marshals data without using html.escape
+func JSONMarshal(t interface{}) ([]byte, error) {
+	buffer := &bytes.Buffer{}
+	encoder := json.NewEncoder(buffer)
+	encoder.SetEscapeHTML(false)
+	err := encoder.Encode(t)
+	result := bytes.ReplaceAll(buffer.Bytes(), []byte(`\n`), []byte(""))
+	result = bytes.ReplaceAll(result, []byte(`"`), []byte(""))
+	result = bytes.ReplaceAll(result, []byte(`\r`), []byte(""))
+	result = bytes.ReplaceAll(result, []byte(`\t`), []byte(""))
+	return result, err
+}

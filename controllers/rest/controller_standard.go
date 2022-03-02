@@ -667,6 +667,102 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
+//DefaultResponseMiddleware returns content type based on content type in example
+func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			ctx := ctxt.Request().Context()
+			//take media type from the request since the context wouldnt add it because there is no entity factory to use
+			mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+			var bytesArray []byte
+			var err error
+			contentType := ""
+			var respCode int
+			found := false
+			if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
+				for code, resp := range operation.Responses {
+					respCode, _ = strconv.Atoi(code)
+					if resp.Value.Content[mediaType] == nil {
+						//check for wild card
+						if strings.Contains(mediaType, "*") {
+							mediaT := strings.Replace(mediaType, "*", "", -1)
+							for key, content := range resp.Value.Content {
+								if strings.Contains(key, mediaT) {
+									if content.Example != nil {
+										bytesArray, err = JSONMarshal(content.Example)
+										if err != nil {
+											api.e.Logger.Debugf("unexpected error %s ", err)
+											return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+										}
+										contentType = key + "; " + "charset=UTF-8"
+										found = true
+										break
+									}
+								}
+
+							}
+						}
+						if found {
+							break
+						}
+					} else {
+						if resp.Value.Content[mediaType].Example != nil {
+							bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error %s ", err)
+								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+							}
+							contentType = mediaType + "; " + "charset=UTF-8"
+							found = true
+							break
+						}
+					}
+				}
+			}
+			if !found { //if using the accept header nothing is found, use the first content type
+				for code, resp := range operation.Responses {
+					respCode, _ = strconv.Atoi(code)
+					for key, content := range resp.Value.Content {
+						if content.Example != nil {
+							bytesArray, err = JSONMarshal(content.Example)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error %s ", err)
+								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+							}
+							contentType = key + "; " + "charset=UTF-8"
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+			}
+
+			//Add response to context for controller
+			ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
+			request := ctxt.Request().WithContext(ctx)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+
+		}
+	}
+}
+
+func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		newContext := context.Request().Context()
+		value := newContext.Value("resp")
+		if value == nil {
+			return NewControllerError("unexpected error all responses were parsed, nothing was found", nil, http.StatusBadRequest)
+		}
+		return value.(error)
+	}
+}
+
 func Get(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//TODO call GetByID
