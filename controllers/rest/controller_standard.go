@@ -31,7 +31,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			payload := weoscontext.GetPayload(newContext)
@@ -100,12 +100,12 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			payload := weoscontext.GetPayload(newContext)
 
-			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -135,7 +135,7 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			var weosID string
@@ -160,9 +160,9 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				}
 			}
 
-			err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
+			err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, ctxt.Logger())
 			if err != nil {
-				api.e.Logger.Errorf("error persisting entity '%s'", err)
+				ctxt.Logger().Errorf("error persisting entity '%s'", err)
 				if errr, ok := err.(*model.DomainError); ok {
 					if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
 						return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
@@ -302,7 +302,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 		return func(ctxt echo.Context) error {
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			pks, _ := json.Marshal(entityFactory.Schema().Extensions[IdentifierExtension])
@@ -435,7 +435,7 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		}
 		if entityFactory == nil {
 			err = errors.New("entity factory must be set")
-			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+			ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 			return err
 		}
 
@@ -474,7 +474,7 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			newContext := ctxt.Request().Context()
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return NewControllerError(err.Error(), nil, http.StatusBadRequest)
 			}
 			//gets the filter, limit and page from context
@@ -556,7 +556,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			//getting etag from context
@@ -616,7 +616,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			}
 
 			//Dispatch the actual delete to projecitons
-			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
