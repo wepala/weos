@@ -678,7 +678,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 			contentType := ""
 			var respCode int
 			found := false
-			if mediaType != "" || strings.Replace(mediaType, "*", "", -1) != "/" || mediaType != "/" {
+			if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
 				for code, resp := range operation.Responses {
 					respCode, _ = strconv.Atoi(code)
 					if resp.Value.Content[mediaType] == nil {
@@ -688,12 +688,12 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 							for key, content := range resp.Value.Content {
 								if strings.Contains(key, mediaT) {
 									if content.Example != nil {
-										bytesArray, err = json.Marshal(content.Example)
+										bytesArray, err = JSONMarshal(content.Example)
 										if err != nil {
 											api.e.Logger.Debugf("unexpected error %s ", err)
 											return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 										}
-										contentType = key
+										contentType = key + "; " + "charset=UTF-8"
 										found = true
 										break
 									}
@@ -711,7 +711,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 								api.e.Logger.Debugf("unexpected error %s ", err)
 								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 							}
-							contentType = mediaType
+							contentType = mediaType + "; " + "charset=UTF-8"
 							found = true
 							break
 						}
@@ -723,13 +723,13 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 					respCode, _ = strconv.Atoi(code)
 					for key, content := range resp.Value.Content {
 						if content.Example != nil {
-							bytesArray, err = json.Marshal(content.Example)
+							bytesArray, err = JSONMarshal(content.Example)
 							if err != nil {
 								api.e.Logger.Debugf("unexpected error %s ", err)
 								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 
 							}
-							contentType = key
+							contentType = key + "; " + "charset=UTF-8"
 							found = true
 							break
 						}

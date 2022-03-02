@@ -130,8 +130,8 @@ paths:
                   <head>
                       <title>Health</title>
                   </head>
-                  <body>
-                    This is a landing page
+                  <body> 
+                   This is a landing page 
                   </body>
                 </html>
   /page:
@@ -153,7 +153,7 @@ paths:
                       <title>Test Page</title>
                   </head>
                   <body>
-                    This is a test page
+                    This is a test page 
                   </body>
                 </html>
               schema:

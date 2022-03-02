@@ -1474,18 +1474,18 @@ func theHeaderIsSetWithValue(key, value string) error {
 
 func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 	defer rec.Result().Body.Close()
-	var actualResp string
 	results, err := io.ReadAll(rec.Result().Body)
 	if err != nil {
 		return err
 	}
-	err = json.Unmarshal(results, &actualResp)
+	exp, err := api.JSONMarshal(expectResp.Content)
 	if err != nil {
 		return err
 	}
-	if actualResp != expectResp.Content {
-		return fmt.Errorf("expected response to be %s, got %s", expectResp.Content, actualResp)
+	if bytes.Compare(results, exp) != 0 {
+		return fmt.Errorf("expected response to be %s, got %s", results, exp)
 	}
+
 	return nil
 }
 

@@ -29,7 +29,7 @@ Feature: Hardcode the response for an endpoint
     And the service is running
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
-    And the content type should be "text/html"
+    And the content type should be "text/html; charset=UTF-8"
     And the response body should be
     """
     <html> <head><title>Test</title></head><body>This is a test page</body></html>
@@ -59,7 +59,7 @@ Feature: Hardcode the response for an endpoint
     And the service is running
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
-    And the content type should be "text/html"
+    And the content type should be "text/html; charset=UTF-8"
     And the response body should be
     """
     <html> <head><title>Test</title></head><body>This is a test page</body></html>
@@ -91,7 +91,7 @@ Feature: Hardcode the response for an endpoint
     And the header "Accept" is set with value "application/*"
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
-    And the content type should be "application/xml"
+    And the content type should be "application/xml; charset=UTF-8"
     And the response body should be
     """
     <page><title>Test</title></page>
