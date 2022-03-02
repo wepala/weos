@@ -117,6 +117,18 @@ components:
           type: string
           format: date-time
 paths:
+  /:
+    get:
+      x-middleware:
+        - Static
+        - File
+      x-folder: "./static"
+      x-file: "./static/index.html"
+      responses:
+        200:
+          description: file found
+        404:
+          description: file not found
   /health:
     summary: Health Check
     get:
