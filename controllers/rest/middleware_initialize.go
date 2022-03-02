@@ -24,9 +24,7 @@ func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[st
 		instance, relations[name], keys[name] = newSchema(scheme.Value, e.Logger)
 		builders[name] = instance
 	}
-
 	//rearrange so schemas without primary keys are first
-
 	for name, scheme := range builders {
 		if relations, ok := relations[name]; ok {
 			if len(relations) != 0 {
@@ -158,7 +156,8 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 				switch t {
 				case "string":
 					if p.Value.Format == "date-time" {
-						defaultValue = time.Now()
+						timeNow := time.Now()
+						defaultValue = &timeNow
 					} else {
 						var strings *string
 						defaultValue = strings

@@ -73,11 +73,12 @@ components:
           type: string
         status:
           type: string
+          format: date-time
           nullable: true
           enum:
-            - null
-            - unpublished
-            - published
+            - "null"
+            - 0001-02-01T00:00:00Z
+            - 0001-03-01T00:00:00Z
         image:
           type: string
           format: byte
