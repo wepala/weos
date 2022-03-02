@@ -678,76 +678,70 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 			contentType := ""
 			var respCode int
 			found := false
-			for code, resp := range operation.Responses {
-				if found {
-					break
-				}
-				respCode, _ = strconv.Atoi(code)
-				if resp.Value.Content != nil {
-					//check for if there is one mediatype or if there is no accept value or if the accept value is all
-					if len(resp.Value.Content) == 1 || mediaType == "" || strings.Replace(mediaType, "*", "", -1) == "/" || mediaType == "/" {
-						for key, content := range resp.Value.Content {
-							if content.Example != nil {
-								bytesArray, err = json.Marshal(content.Example)
-								if err != nil {
-									api.e.Logger.Debugf("unexpected error %s ", err)
-									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
-
+			if mediaType != "" || strings.Replace(mediaType, "*", "", -1) != "/" || mediaType != "/" {
+				for code, resp := range operation.Responses {
+					respCode, _ = strconv.Atoi(code)
+					if resp.Value.Content[mediaType] == nil {
+						//check for wild card
+						if strings.Contains(mediaType, "*") {
+							mediaT := strings.Replace(mediaType, "*", "", -1)
+							for key, content := range resp.Value.Content {
+								if strings.Contains(key, mediaT) {
+									if content.Example != nil {
+										bytesArray, err = json.Marshal(content.Example)
+										if err != nil {
+											api.e.Logger.Debugf("unexpected error %s ", err)
+											return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+										}
+										contentType = key
+										found = true
+										break
+									}
 								}
-								contentType = key
-								found = true
-								break
+
 							}
 						}
-						//check for if there are multiple mediatype
-					} else if len(resp.Value.Content) > 1 {
-						if resp.Value.Content[mediaType] == nil {
-							//check for wild card
-							if strings.Contains(mediaType, "*") {
-								mediaT := strings.Replace(mediaType, "*", "", -1)
-								for key, content := range resp.Value.Content {
-									if strings.Contains(key, mediaT) {
-										if content.Example != nil {
-											bytesArray, err = json.Marshal(content.Example)
-											if err != nil {
-												api.e.Logger.Debugf("unexpected error %s ", err)
-												return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
-											}
-											contentType = key
-											found = true
-											break
-										}
-									}
-
-								}
+						if found {
+							break
+						}
+					} else {
+						if resp.Value.Content[mediaType].Example != nil {
+							bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error %s ", err)
+								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 							}
-							//search all the responses to find if the mediatype is there
-							continue
-						} else {
-							if resp.Value.Content[mediaType].Example != nil {
-								bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
-								if err != nil {
-									api.e.Logger.Debugf("unexpected error %s ", err)
-									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
-								}
-								contentType = mediaType
-								found = true
-								break
-							}
+							contentType = mediaType
+							found = true
+							break
 						}
 					}
-
 				}
 			}
-			if found {
-				//Add response to context for controller
-				ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
-				request := ctxt.Request().WithContext(ctx)
-				ctxt.SetRequest(request)
-				return next(ctxt)
+			if !found { //if using the accept header nothing is found, use the first content type
+				for code, resp := range operation.Responses {
+					respCode, _ = strconv.Atoi(code)
+					for key, content := range resp.Value.Content {
+						if content.Example != nil {
+							bytesArray, err = json.Marshal(content.Example)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error %s ", err)
+								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+							}
+							contentType = key
+							found = true
+							break
+						}
+					}
+				}
 			}
 
-			return NewControllerError(fmt.Sprintf("unexpected error all responses were parsed,content type %s was not found", mediaType), nil, http.StatusBadRequest)
+			//Add response to context for controller
+			ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
+			request := ctxt.Request().WithContext(ctx)
+			ctxt.SetRequest(request)
+			return next(ctxt)
 
 		}
 	}
