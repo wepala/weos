@@ -33,7 +33,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	newEntity, err := entityFactory.NewEntity(ctx)
 	if err != nil {
 		err = NewDomainError("unexpected error creating entity", command.Metadata.EntityType, "", err)
-		logger.Error(err)
+		logger.Debug(err)
 		return err
 	}
 
@@ -46,7 +46,9 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	newEntity.NewChange(event)
 	err = newEntity.ApplyEvents([]*Event{event})
 	if err != nil {
-		return NewDomainError(err.Error(), command.Metadata.EntityType, "", err)
+		err = NewDomainError("unexpected error creating entity: "+err.Error(), command.Metadata.EntityType, "", err)
+		logger.Debug(err.Error())
+		return err
 	}
 
 	domainService := NewDomainService(ctx, eventStore, projection, logger)
