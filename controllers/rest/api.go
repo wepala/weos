@@ -48,6 +48,7 @@ type RESTAPI struct {
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]projections.Projection
+	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
 	registeredInitializers         map[reflect.Value]int
 	prePathInitializers            []PathInitializer
@@ -119,6 +120,20 @@ func (p *RESTAPI) RegisterEventStore(name string, repository model.EventReposito
 		p.eventStores = make(map[string]model.EventRepository)
 	}
 	p.eventStores[name] = repository
+}
+
+//RegisterGlobalInitializer add global initializer if it's not already there
+func (p *RESTAPI) RegisterGlobalInitializer(initializer GlobalInitializer) {
+	if p.registeredInitializers == nil {
+		p.registeredInitializers = make(map[reflect.Value]int)
+	}
+	//only add initializer if it doesn't already exist
+	tpoint := reflect.ValueOf(initializer)
+	if _, ok := p.registeredInitializers[tpoint]; !ok {
+		p.globalInitializers = append(p.globalInitializers, initializer)
+		p.registeredInitializers[tpoint] = len(p.globalInitializers)
+	}
+
 }
 
 //RegisterOperationInitializer add operation initializer if it's not already there
@@ -245,6 +260,11 @@ func (p *RESTAPI) GetProjection(name string) (projections.Projection, error) {
 	return nil, fmt.Errorf("projection '%s' not found", name)
 }
 
+//GetGlobalInitializers get global intializers in the order they were registered
+func (p *RESTAPI) GetGlobalInitializers() []GlobalInitializer {
+	return p.globalInitializers
+}
+
 //GetOperationInitializers get operation intializers in the order they were registered
 func (p *RESTAPI) GetOperationInitializers() []OperationInitializer {
 	return p.operationInitializers
@@ -277,7 +297,7 @@ const SWAGGERUIENDPOINT = "/_discover/"
 const SWAGGERJSONENDPOINT = "/_discover_json"
 
 //RegisterSwaggerAPI creates default swagger api from binary
-func (p *RESTAPI) RegisterDefaultSwaggerAPI() error {
+func (p *RESTAPI) RegisterDefaultSwaggerAPI(pathMiddleware []echo.MiddlewareFunc) error {
 	statikFS, err := fs.New()
 	if err != nil {
 		return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
@@ -285,16 +305,16 @@ func (p *RESTAPI) RegisterDefaultSwaggerAPI() error {
 	static := http.FileServer(statikFS)
 	sh := http.StripPrefix(SWAGGERUIENDPOINT, static)
 	handler := echo.WrapHandler(sh)
-	p.e.GET(SWAGGERUIENDPOINT+"*", handler)
+	p.e.GET(SWAGGERUIENDPOINT+"*", handler, pathMiddleware...)
 
 	return nil
 }
 
 //RegisterDefaultSwaggerJson registers a default swagger json response
-func (p *RESTAPI) RegisterDefaultSwaggerJSON() error {
+func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFunc) error {
 	p.e.GET(SWAGGERJSONENDPOINT, func(c echo.Context) error {
 		return c.JSON(http.StatusOK, p.Swagger)
-	})
+	}, pathMiddleware...)
 	return nil
 }
 
@@ -312,6 +332,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
+	p.RegisterMiddleware("OpenIDMiddleware", OpenIDMiddleware)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
@@ -319,6 +340,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
 	p.RegisterMiddleware("DeleteMiddleware", DeleteMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
+	//register standard global initializers
+	p.RegisterGlobalInitializer(Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
@@ -327,10 +350,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterOperationInitializer(RouteInitializer)
 	//register standard post path initializers
 	p.RegisterPostPathInitializer(CORsInitializer)
-
-	//make default endpoints for returning swagger configuration to user
-	p.RegisterDefaultSwaggerAPI()
-	p.RegisterDefaultSwaggerJSON()
 
 	//these are the dynamic struct builders for the schemas in the OpenAPI
 	var schemas map[string]ds.Builder
@@ -484,12 +503,20 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup routes
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
 	var err error
+	globalContext := context.Background()
+	//run global initializers
+	for _, initializer := range p.GetGlobalInitializers() {
+		globalContext, err = initializer(globalContext, p, p.Swagger)
+		if err != nil {
+			return err
+		}
+	}
 	for path, pathData := range p.Swagger.Paths {
 		var methodsFound []string
-		pathContext := context.Background()
+
 		//run pre path initializers
 		for _, initializer := range p.GetPrePathInitializers() {
-			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 			if err != nil {
 				return err
 			}
@@ -499,7 +526,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			operationData := pathData.GetOperation(strings.ToUpper(method))
 			if operationData != nil {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
-				operationContext := context.WithValue(context.Background(), weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
+				operationContext := context.WithValue(globalContext, weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
 				for _, initializer := range p.GetOperationInitializers() {
 					operationContext, err = initializer(operationContext, p, path, method, p.Swagger, pathData, operationData)
 					if err != nil {
@@ -510,9 +537,9 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		}
 
 		//run post path initializers
-		pathContext = context.WithValue(pathContext, weoscontext.METHODS_FOUND, methodsFound)
+		globalContext = context.WithValue(globalContext, weoscontext.METHODS_FOUND, methodsFound)
 		for _, initializer := range p.GetPostPathInitializers() {
-			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 		}
 		//output registered endpoints for debugging purposes
 		for _, route := range p.EchoInstance().Routes() {

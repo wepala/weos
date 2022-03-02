@@ -630,6 +630,19 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 			//Not sure if CORS middleware and any other middlewares needs to be added
 			pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
 		}
+		if controllerExtension, ok := operation.ExtensionProps.Extensions[ControllerExtension]; ok {
+			controllerName := ""
+			err := json.Unmarshal(controllerExtension.(json.RawMessage), &controllerName)
+			if err != nil {
+				return ctxt, err
+			}
+			if controllerName == "APIDiscovery" {
+				//make default endpoints for returning swagger configuration to user
+				api.RegisterDefaultSwaggerAPI(pathMiddleware)
+				api.RegisterDefaultSwaggerJSON(pathMiddleware)
+			}
+
+		}
 		switch method {
 		case "GET":
 			api.EchoInstance().GET(api.Config.BasePath+echoPath, handler, pathMiddleware...)
