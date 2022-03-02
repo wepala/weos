@@ -734,6 +734,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 							break
 						}
 					}
+					if found {
+						break
+					}
 				}
 			}
 
