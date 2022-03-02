@@ -306,6 +306,35 @@ func SplitFilter(filter string) *FilterProperties {
 	return property
 }
 
+//GetJwkUrl fetches the jwk url from the open id connect url
+func GetJwkUrl(openIdUrl string) (string, error) {
+	//fetches the response from the connect id url
+	resp, err := http.Get(openIdUrl)
+	if err != nil || resp == nil {
+		return "", fmt.Errorf("unexpected error fetching open id connect url: %s", err)
+	}
+	defer resp.Body.Close()
+	// reads the body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("unable to read response body: %v", err)
+	}
+	//check the response status
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("expected open id connect url response code to be %d got %d ", http.StatusOK, resp.StatusCode)
+	}
+	// unmarshall the body to a struct we can use to find the jwk uri
+	var info map[string]interface{}
+	err = json.Unmarshal(body, &info)
+	if err != nil {
+		return "", fmt.Errorf("unexpected error unmarshalling open id connect url response %s", err)
+	}
+	if info["jwks_uri"] == nil || info["jwks_uri"].(string) == "" {
+		return "", fmt.Errorf("no jwks uri found")
+	}
+	return info["jwks_uri"].(string), nil
+}
+
 //JSONMarshal this marshals data without using html.escape
 func JSONMarshal(t interface{}) ([]byte, error) {
 	buffer := &bytes.Buffer{}

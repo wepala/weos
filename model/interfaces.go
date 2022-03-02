@@ -1,6 +1,6 @@
 package model
 
-//go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
+//go:generate moq -out temp_mocks_test.go -pkg model_test . GormProjection
 import (
 	"time"
 
