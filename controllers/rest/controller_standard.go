@@ -690,7 +690,11 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 							for key, content := range resp.Value.Content {
 								if strings.Contains(key, mediaT) {
 									if content.Example != nil {
-										bytesArray, err = JSONMarshal(content.Example)
+										if strings.Contains(mediaType, "json") {
+											bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+										} else {
+											bytesArray, err = JSONMarshal(resp.Value.Content[mediaType].Example)
+										}
 										if err != nil {
 											api.e.Logger.Debugf("unexpected error %s ", err)
 											return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
@@ -708,7 +712,11 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 						}
 					} else {
 						if resp.Value.Content[mediaType].Example != nil {
-							bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+							if strings.Contains(mediaType, "json") {
+								bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+							} else {
+								bytesArray, err = JSONMarshal(resp.Value.Content[mediaType].Example)
+							}
 							if err != nil {
 								api.e.Logger.Debugf("unexpected error %s ", err)
 								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
@@ -725,7 +733,12 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 					respCode, _ = strconv.Atoi(code)
 					for key, content := range resp.Value.Content {
 						if content.Example != nil {
-							bytesArray, err = JSONMarshal(content.Example)
+							if strings.Contains(key, "json") {
+								bytesArray, err = json.Marshal(content.Example)
+							} else {
+								bytesArray, err = JSONMarshal(content.Example)
+							}
+
 							if err != nil {
 								api.e.Logger.Debugf("unexpected error %s ", err)
 								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
