@@ -56,9 +56,9 @@ Feature: Upload file
              banner:
                type: string
                format: binary
-               x-file:
-                 basePath: ./files
-                 baseUrl: /files
+               x-upload:
+                 folder: ./files
+                 limit: 10000
            required:
              - title
            x-identifier:
@@ -87,6 +87,12 @@ Feature: Upload file
              200:
                description: Application Homepage
        /files:
+         get:
+           operationId: getFiles
+           responses:
+             200:
+               description: Files
+               x-folder: "./files"
          post:
            operationId: uploadFile
            requestBody:
@@ -95,10 +101,9 @@ Feature: Upload file
                  schema:
                    type: string
                    format: binary
-                   x-file:
-                      basePath: ./files
-                      baseUrl: /files
-
+                   x-upload:
+                      folder: ./files
+                      limit: 10000
            responses:
              201:
                description: File successfully uploaded
@@ -195,7 +200,7 @@ Feature: Upload file
     And the service is running
 
 
-    Scenario: Upload file to folder on same machine as service
+    Scenario: Upload file using an upload path
 
       You can configure an endpoint to receive a file and move it to a folder on the same machine that the service is
       running on
@@ -207,3 +212,46 @@ Feature: Upload file
       | test             | ./fixtures/files/test.csv |
       When the file is uploaded to "/files"
       Then the file should be available at "/files/test.csv"
+
+    Scenario: Upload file as a property on a schema
+
+      You can configure a property on a schema to be a file upload.
+
+      Given "Sojourner" is on the "Blog" create screen
+      And "Sojourner" enters "3" in the "id" field
+      And "Sojourner" enters "Some Blog" in the "title" field
+      And "Sojourner" enters "Some Description" in the "description" field
+      And "Sojourner" selects a file for the "banner" field
+        | title            | path                      |
+        | test             | ./fixtures/files/test.csv |
+      When the "Blog" is submitted
+      Then the "Blog" is created
+        | id    | title          | description                       | banner        |
+        | 3     | Some Blog      | Some Description                  | test.csv      |
+
+    Scenario: Upload file that is above the default file size limit
+
+      The default file size limit is 10MB
+
+      Given "Sojourner" is on page that has a file input
+      And the folder "./files" exists
+      And "Sojourner" selects the file
+        | title            | path                      |
+        | test             | ./fixtures/files/test.csv |
+      And the file is "20"mb
+      When the file is uploaded to "/files"
+      Then an error should be returned
+
+    Scenario: Upload file that is above the user defined limit
+
+      The developer could set the file limit in bytes
+
+      Given "Sojourner" is on page that has a file input
+      And the folder "./files" exists
+      And "Sojourner" selects the file
+        | title            | path                      |
+        | test             | ./fixtures/files/test.csv |
+      And the file is "20"mb
+      When the file is uploaded to "/files"
+      Then an error should be returned
+
