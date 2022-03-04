@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"io/ioutil"
 	"net/http"
 	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -38,6 +39,10 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			for _, parameter := range operation.Parameters {
 				cc, err = parseParams(c, cc, parameter, entityFactory)
 			}
+
+			//use the operation information to get the parameter values and add them to the context
+
+			cc, err = parseResponses(c, cc, operation)
 
 			//parse request body based on content type
 			var payload []byte
@@ -75,6 +80,18 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			return next(c)
 		}
 	}
+}
+
+//parseResponses gets the expected response for cases where different valid responses are possible
+func parseResponses(c echo.Context, cc context.Context, operation *openapi3.Operation) (context.Context, error) {
+	for code, r := range operation.Responses {
+		if r.Value != nil {
+			for contentName, _ := range r.Value.Content {
+				cc = context.WithValue(cc, weosContext.RESPONSE_PREFIX+code, contentName)
+			}
+		}
+	}
+	return cc, nil
 }
 
 //parseParams uses the parameter type to determine where to pull the value from
@@ -127,7 +144,7 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 				if err == nil {
 					val = v
 				}
-			case "If-Match", "If-None-Match": //default type is string
+			case "If-Match", "If-None-Match", "Authorization": //default type is string
 			default:
 				var filters map[string]interface{}
 				filters = map[string]interface{}{}

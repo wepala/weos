@@ -1948,3 +1948,159 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		}
 	})
 }
+
+func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
+	//instantiate api
+	api, err := rest.New("./fixtures/blog-security.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading api '%s'", err)
+	}
+	err = api.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error initializing api '%s'", err)
+	}
+	e := api.EchoInstance()
+
+	t.Run("no jwt token added when required", func(t *testing.T) {
+		description := "testing 1st blog description"
+		mockBlog := &TestBlog{Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusUnauthorized, resp.Result().StatusCode)
+		}
+	})
+	t.Run("security parameter array is empty", func(t *testing.T) {
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusOK {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+		}
+	})
+	t.Run("jwt token added", func(t *testing.T) {
+		description := "testing 1st blog description"
+		url := "www.example.com"
+		title := "example"
+		mockBlog := &TestBlog{Title: &title, Url: &url, Description: &description}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		token := os.Getenv("OAUTH_TEST_KEY")
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
+	})
+}
+
+func TestStandardControllers_DefaultResponse(t *testing.T) {
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
+
+	t.Run("sending a request where there is one content type in responses ", func(t *testing.T) {
+		path := swagger.Paths.Find("/")
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/", controller, mw, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusCreated {
+			t.Errorf("expected response code to be %d, got %d", http.StatusCreated, response.StatusCode)
+		}
+	})
+	t.Run("sending a request where there is more than one content type in responses and has an accept header ", func(t *testing.T) {
+		path := swagger.Paths.Find("/page")
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		req.Header.Set(weoscontext.ACCEPT, "text/html")
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/page", controller, mw, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+	})
+	t.Run("sending a request where there is more than one content type in responses and has an incorrect accept header ", func(t *testing.T) {
+		path := swagger.Paths.Find("/page")
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		req.Header.Set(weoscontext.ACCEPT, "exam")
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/page", controller, mw, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+	})
+	t.Run("sending a request where there is more than one content type in responses and no accept header ", func(t *testing.T) {
+		path := swagger.Paths.Find("/page")
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/page", controller, mw, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+	})
+}

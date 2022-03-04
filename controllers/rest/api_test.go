@@ -3,15 +3,16 @@ package rest_test
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
-	"golang.org/x/net/context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
+	"golang.org/x/net/context"
 
 	api "github.com/wepala/weos/controllers/rest"
 )
@@ -208,6 +209,7 @@ func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
 		body := bytes.NewReader(reqBytes)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
 		e.ServeHTTP(resp, req)
 		if resp.Result().StatusCode != http.StatusBadRequest {
 			t.Errorf("expected the response code to be %d, got %d", http.StatusBadRequest, resp.Result().StatusCode)
@@ -402,4 +404,56 @@ func TestRESTAPI_DefaultProjectionRegisteredBefore(t *testing.T) {
 	}); !ok {
 		t.Errorf("expected the projection to be the one that was set")
 	}
+}
+
+func TestRESTAPI_Initialize_DiscoveryAddedToGet(t *testing.T) {
+	os.Remove("test.db")
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(nil)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
+
+	found := false
+	method := "GET"
+	path := "/api"
+	middleware := "APIDiscovery"
+	routes := e.Routes()
+	for _, route := range routes {
+		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected to find get path")
+	}
+}
+
+func TestRESTAPI_Initialize_DefaultResponseMiddlware(t *testing.T) {
+	//make sure Default middleware is added
+	os.Remove("test.db")
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("unexpected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is not 404
+	if resp.Result().StatusCode == http.StatusNotFound {
+		t.Errorf("expected the response code to not be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
 }

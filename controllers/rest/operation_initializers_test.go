@@ -67,6 +67,23 @@ func TestEntityFactoryInitializer(t *testing.T) {
 			t.Errorf("expected the factory name to be '%s', got '%s'", "Blog", entityFactory.Name())
 		}
 	})
+	t.Run("use the x-schema extension (with content path) to specify schema", func(t *testing.T) {
+		api, err = rest.New("./fixtures/blog-x-schema.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		entityFactory := rest.GetEntityFactory(ctxt)
+		if entityFactory == nil {
+			t.Fatalf("expected entity factory to be in the context")
+		}
+		if entityFactory.Name() != "Blog" {
+			t.Errorf("expected the factory name to be '%s', got '%s'", "Blog", entityFactory.Name())
+		}
+	})
 
 }
 

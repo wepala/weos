@@ -66,6 +66,7 @@ components:
         url:
           type: string
           format: uri
+          x-unique: true
         title:
           type: string
         description:
@@ -76,9 +77,9 @@ components:
           type: string
           nullable: true
           enum:
-            - null
-            - unpublished
-            - published
+            - "null"
+            - one
+            - two
         image:
           type: string
           format: byte
@@ -116,6 +117,55 @@ components:
           type: string
           format: date-time
 paths:
+  /:
+    get:
+      operationId: Homepage
+      responses:
+        200:
+          description: Application Homepage
+          content:
+            text/html:
+              example: |
+                <html>
+                  <head>
+                      <title>Health</title>
+                  </head>
+                  <body> 
+                   This is a landing page 
+                  </body>
+                </html>
+  /page:
+    get:
+      summary: Test
+      parameters:
+        - in: header
+          name: Accept
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Test Page
+          content:
+            text/html:
+              example: |
+                <html>
+                  <head>
+                      <title>Test Page</title>
+                  </head>
+                  <body>
+                    This is a test page 
+                  </body>
+                </html>
+              schema:
+                type: string
+            application/json:
+              example:
+                blog:
+                  value: {
+                    "title": "API Testing",
+                    "url": "www.example.com",
+                    "email": "testing@example.com"
+                  }
   /health:
     summary: Health Check
     get:
@@ -125,6 +175,28 @@ paths:
           description: Health Response
         500:
           description: API Internal Error
+  /api/json:
+        get:
+          operationId: Get API Details
+          x-controller: APIDiscovery
+          responses:
+            200:
+              description: API Details
+              content:
+                application/json:
+                  schema:
+                    type: string
+  /api/html:
+        get:
+          operationId: Get API Details
+          x-controller: APIDiscovery
+          responses:
+            200:
+              description: API Details
+              content:
+                application/html:
+                  schema:
+                    type: string
   /blogs:
     post:
       operationId: Add Blog

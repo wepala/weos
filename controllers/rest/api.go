@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rakyll/statik/fs"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections/dialects"
 	"gorm.io/driver/clickhouse"
@@ -47,6 +48,7 @@ type RESTAPI struct {
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]projections.Projection
+	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
 	registeredInitializers         map[reflect.Value]int
 	prePathInitializers            []PathInitializer
@@ -118,6 +120,20 @@ func (p *RESTAPI) RegisterEventStore(name string, repository model.EventReposito
 		p.eventStores = make(map[string]model.EventRepository)
 	}
 	p.eventStores[name] = repository
+}
+
+//RegisterGlobalInitializer add global initializer if it's not already there
+func (p *RESTAPI) RegisterGlobalInitializer(initializer GlobalInitializer) {
+	if p.registeredInitializers == nil {
+		p.registeredInitializers = make(map[reflect.Value]int)
+	}
+	//only add initializer if it doesn't already exist
+	tpoint := reflect.ValueOf(initializer)
+	if _, ok := p.registeredInitializers[tpoint]; !ok {
+		p.globalInitializers = append(p.globalInitializers, initializer)
+		p.registeredInitializers[tpoint] = len(p.globalInitializers)
+	}
+
 }
 
 //RegisterOperationInitializer add operation initializer if it's not already there
@@ -244,6 +260,11 @@ func (p *RESTAPI) GetProjection(name string) (projections.Projection, error) {
 	return nil, fmt.Errorf("projection '%s' not found", name)
 }
 
+//GetGlobalInitializers get global intializers in the order they were registered
+func (p *RESTAPI) GetGlobalInitializers() []GlobalInitializer {
+	return p.globalInitializers
+}
+
 //GetOperationInitializers get operation intializers in the order they were registered
 func (p *RESTAPI) GetOperationInitializers() []OperationInitializer {
 	return p.operationInitializers
@@ -272,6 +293,31 @@ func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
 	return p.entityFactories
 }
 
+const SWAGGERUIENDPOINT = "/_discover/"
+const SWAGGERJSONENDPOINT = "/_discover_json"
+
+//RegisterSwaggerAPI creates default swagger api from binary
+func (p *RESTAPI) RegisterDefaultSwaggerAPI(pathMiddleware []echo.MiddlewareFunc) error {
+	statikFS, err := fs.New()
+	if err != nil {
+		return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
+	}
+	static := http.FileServer(statikFS)
+	sh := http.StripPrefix(SWAGGERUIENDPOINT, static)
+	handler := echo.WrapHandler(sh)
+	p.e.GET(SWAGGERUIENDPOINT+"*", handler, pathMiddleware...)
+
+	return nil
+}
+
+//RegisterDefaultSwaggerJson registers a default swagger json response
+func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFunc) error {
+	p.e.GET(SWAGGERJSONENDPOINT, func(c echo.Context) error {
+		return c.JSON(http.StatusOK, p.Swagger)
+	}, pathMiddleware...)
+	return nil
+}
+
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
@@ -282,8 +328,12 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("DeleteController", DeleteController)
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("CreateBatchController", CreateBatchController)
+	p.RegisterController("APIDiscovery", APIDiscovery)
+	p.RegisterController("DefaultResponseController", DefaultResponseController)
+
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
+	p.RegisterMiddleware("OpenIDMiddleware", OpenIDMiddleware)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
@@ -291,6 +341,9 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
 	p.RegisterMiddleware("DeleteMiddleware", DeleteMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
+	//register standard global initializers
+	p.RegisterGlobalInitializer(Security)
+	p.RegisterMiddleware("DefaultResponseMiddleware", DefaultResponseMiddleware)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
@@ -299,6 +352,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterOperationInitializer(RouteInitializer)
 	//register standard post path initializers
 	p.RegisterPostPathInitializer(CORsInitializer)
+
 	//these are the dynamic struct builders for the schemas in the OpenAPI
 	var schemas map[string]ds.Builder
 
@@ -323,6 +377,40 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 				}
 				p.RegisterProjection("Default", defaultProjection)
 			}
+
+			//This will check the enum types on run and output an error
+			for _, scheme := range p.Swagger.Components.Schemas {
+				for pName, prop := range scheme.Value.Properties {
+					if prop.Value.Enum != nil {
+						t := prop.Value.Type
+						for _, v := range prop.Value.Enum {
+							switch t {
+							case "string":
+								if reflect.TypeOf(v).String() != "string" {
+									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+								}
+							case "integer":
+								if reflect.TypeOf(v).String() != "float64" {
+									if v.(string) == "null" {
+										continue
+									} else {
+										return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									}
+								}
+							case "number":
+								if reflect.TypeOf(v).String() != "float64" {
+									if v.(string) == "null" {
+										continue
+									} else {
+										return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
 			//get the database schema
 			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
 			p.Schemas = schemas
@@ -417,12 +505,20 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//setup routes
 	knownActions := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"}
 	var err error
+	globalContext := context.Background()
+	//run global initializers
+	for _, initializer := range p.GetGlobalInitializers() {
+		globalContext, err = initializer(globalContext, p, p.Swagger)
+		if err != nil {
+			return err
+		}
+	}
 	for path, pathData := range p.Swagger.Paths {
 		var methodsFound []string
-		pathContext := context.Background()
+
 		//run pre path initializers
 		for _, initializer := range p.GetPrePathInitializers() {
-			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 			if err != nil {
 				return err
 			}
@@ -432,7 +528,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			operationData := pathData.GetOperation(strings.ToUpper(method))
 			if operationData != nil {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
-				operationContext := context.WithValue(context.Background(), weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
+				operationContext := context.WithValue(globalContext, weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
 				for _, initializer := range p.GetOperationInitializers() {
 					operationContext, err = initializer(operationContext, p, path, method, p.Swagger, pathData, operationData)
 					if err != nil {
@@ -443,9 +539,9 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		}
 
 		//run post path initializers
-		pathContext = context.WithValue(pathContext, weoscontext.METHODS_FOUND, methodsFound)
+		globalContext = context.WithValue(globalContext, weoscontext.METHODS_FOUND, methodsFound)
 		for _, initializer := range p.GetPostPathInitializers() {
-			pathContext, err = initializer(pathContext, p, path, p.Swagger, pathData)
+			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 		}
 		//output registered endpoints for debugging purposes
 		for _, route := range p.EchoInstance().Routes() {

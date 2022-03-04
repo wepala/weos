@@ -1,10 +1,11 @@
 package model
 
-//go:generate moq -out temp_mocks_test.go -pkg model_test . Projection
+//go:generate moq -out temp_mocks_test.go -pkg model_test . GormProjection
 import (
+	"time"
+
 	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
-	"time"
 	"gorm.io/gorm"
 )
 
@@ -84,6 +85,7 @@ type Projection interface {
 	GetByKey(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
 	GetByEntityID(ctxt context.Context, entityFactory EntityFactory, id string) (map[string]interface{}, error)
 	GetContentEntities(ctx context.Context, entityFactory EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
+	GetByProperties(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
 }
 
 type GormProjection interface {

@@ -37,6 +37,11 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 		if err != nil {
 			return ctxt, err
 		}
+
+		if strings.Contains(contentType, "#/components/schemas/") {
+			contentType = strings.Replace(contentType, "#/components/schemas/", "", -1)
+		}
+
 		//get the schema details from the swagger file
 		if builder, ok := schemas[contentType]; ok {
 			entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
@@ -49,26 +54,28 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 	if operation.RequestBody != nil {
 		//get the entity information based on the Content Type associated with this operation
 		for _, requestContent := range operation.RequestBody.Value.Content {
-			//use the first schema ref to determine the entity type
-			if requestContent.Schema.Ref != "" {
-				contentType := strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
-				//get the schema details from the swagger file
-				if builder, ok := schemas[contentType]; ok {
-					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
-					return newContext, nil
+			if requestContent.Schema != nil {
+				//use the first schema ref to determine the entity type
+				if requestContent.Schema.Ref != "" {
+					contentType := strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
+					//get the schema details from the swagger file
+					if builder, ok := schemas[contentType]; ok {
+						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						return newContext, nil
+					}
+					break
 				}
-				break
-			}
-			//use the first schema ref to determine the entity type
-			if requestContent.Schema.Value.Items != nil && strings.Contains(requestContent.Schema.Value.Items.Ref, "#/components/schemas/") {
-				contentType := strings.Replace(requestContent.Schema.Value.Items.Ref, "#/components/schemas/", "", -1)
-				if builder, ok := schemas[contentType]; ok {
-					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
-					return newContext, nil
+				//use the first schema ref to determine the entity type
+				if requestContent.Schema.Value.Items != nil && strings.Contains(requestContent.Schema.Value.Items.Ref, "#/components/schemas/") {
+					contentType := strings.Replace(requestContent.Schema.Value.Items.Ref, "#/components/schemas/", "", -1)
+					if builder, ok := schemas[contentType]; ok {
+						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						return newContext, nil
+					}
 				}
 			}
 		}
@@ -76,41 +83,43 @@ func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, m
 
 	if operation.Responses.Get(http.StatusOK) != nil {
 		for _, respContent := range operation.Responses.Get(http.StatusOK).Value.Content {
-			//use the first schema ref to determine the entity type
-			if respContent.Schema.Ref != "" {
-				contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
-				if builder, ok := schemas[contentType]; ok {
-					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
-					return newContext, nil
+			if respContent.Schema != nil {
+				//use the first schema ref to determine the entity type
+				if respContent.Schema.Ref != "" {
+					contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
+					if builder, ok := schemas[contentType]; ok {
+						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						return newContext, nil
+					}
 				}
-			}
-			//use the first schema ref to determine the entity type
-			if respContent.Schema.Value.Properties["items"] != nil && respContent.Schema.Value.Properties["items"].Value.Items != nil {
-				contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
-				if builder, ok := schemas[contentType]; ok {
-					entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-					newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-					api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
-					return newContext, nil
-				}
-			} else {
-				//if items are named differently the alias is checked
-				var alias string
-				for _, prop := range respContent.Schema.Value.Properties {
-					aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
-					if aliasInterface != nil {
-						bytesContext := aliasInterface.(json.RawMessage)
-						json.Unmarshal(bytesContext, &alias)
-						if alias == "items" {
-							if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-								contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
-								if builder, ok := schemas[contentType]; ok {
-									entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
-									newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-									api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
-									return newContext, nil
+				//use the first schema ref to determine the entity type
+				if respContent.Schema.Value.Properties["items"] != nil && respContent.Schema.Value.Properties["items"].Value.Items != nil {
+					contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
+					if builder, ok := schemas[contentType]; ok {
+						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						return newContext, nil
+					}
+				} else {
+					//if items are named differently the alias is checked
+					var alias string
+					for _, prop := range respContent.Schema.Value.Properties {
+						aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
+						if aliasInterface != nil {
+							bytesContext := aliasInterface.(json.RawMessage)
+							json.Unmarshal(bytesContext, &alias)
+							if alias == "items" {
+								if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
+									contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
+									if builder, ok := schemas[contentType]; ok {
+										entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, swagger.Components.Schemas[contentType].Value, builder)
+										newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
+										api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+										return newContext, nil
+									}
 								}
 							}
 						}
@@ -233,7 +242,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			} else {
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Post.RequestBody.Value.Content {
-					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+					if value.Schema != nil && strings.Contains(value.Schema.Ref, "#/components/schemas/") {
 						handler = "CreateController"
 						middlewareNames["CreateMiddleware"] = true
 						autoConfigure = true
@@ -253,6 +262,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 						}
 
 					}
+
 				}
 			}
 		case "PUT":
@@ -262,7 +272,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			} else {
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Put.RequestBody.Value.Content {
-					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+					if value.Schema != nil && strings.Contains(value.Schema.Ref, "#/components/schemas/") {
 						var identifiers []string
 						identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
 						if identifierExtension != nil {
@@ -328,7 +338,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			} else {
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Patch.RequestBody.Value.Content {
-					if strings.Contains(value.Schema.Ref, "#/components/schemas/") {
+					if value.Schema != nil && strings.Contains(value.Schema.Ref, "#/components/schemas/") {
 						var identifiers []string
 						identifierExtension := swagger.Components.Schemas[strings.Replace(value.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
 						if identifierExtension != nil {
@@ -388,9 +398,9 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			allParam := true
 			//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 			//checks if the response refers to a schema
-			if pathItem.Get.Responses != nil && pathItem.Get.Responses["200"].Value.Content != nil {
+			if pathItem.Get != nil && pathItem.Get.Responses != nil && pathItem.Get.Responses["200"] != nil && pathItem.Get.Responses["200"].Value.Content != nil {
 				for _, val := range pathItem.Get.Responses["200"].Value.Content {
-					if strings.Contains(val.Schema.Ref, "#/components/schemas/") {
+					if val.Schema != nil && strings.Contains(val.Schema.Ref, "#/components/schemas/") {
 						var identifiers []string
 						identifierExtension := swagger.Components.Schemas[strings.Replace(val.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
 						if identifierExtension != nil {
@@ -444,13 +454,13 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 						}
 					} else {
 						//checks if the response refers to an array schema
-						if val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
+						if val.Schema != nil && val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
 							handler = "ListController"
 							middlewareNames["ListMiddleware"] = true
 							autoConfigure = true
 							break
 						} else {
-							if val.Schema.Value.Properties != nil {
+							if val.Schema != nil && val.Schema.Value.Properties != nil {
 								var alias string
 								for _, prop := range val.Schema.Value.Properties {
 									aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
@@ -470,6 +480,7 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 							}
 						}
 					}
+
 				}
 			}
 		case "DELETE":
@@ -492,7 +503,12 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 					api.e.Logger.Errorf("error on path '%s' '%s' ", path, err)
 					return ctxt, err
 				}
-				identifierExtension = swagger.Components.Schemas[strContentType].Value.ExtensionProps.Extensions[IdentifierExtension]
+
+				if strings.Contains(strContentType, "#/components/schemas/") {
+					identifierExtension = swagger.Components.Schemas[strings.Replace(strContentType, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
+				} else {
+					identifierExtension = swagger.Components.Schemas[strContentType].Value.ExtensionProps.Extensions[IdentifierExtension]
+				}
 			} else {
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Delete.RequestBody.Value.Content {
@@ -569,6 +585,26 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		} else {
 			//this should not return an error it should log
 			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+			controller, err := api.GetController("DefaultResponseController")
+			if err != nil {
+				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
+			}
+			if controller != nil {
+				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
+			}
+			for _, resp := range operation.Responses {
+				if resp.Value.Content != nil {
+					for _, content := range resp.Value.Content {
+						if content.Example != nil {
+							middlewareNames["DefaultResponseMiddleware"] = true
+							break
+						}
+					}
+
+				}
+			}
+
 		}
 		middlewares := GetOperationMiddlewares(ctxt)
 		//there are middlewareNames let's add them
@@ -619,6 +655,19 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 		for _, tmiddleware := range middlewares {
 			//Not sure if CORS middleware and any other middlewares needs to be added
 			pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
+		}
+		if controllerExtension, ok := operation.ExtensionProps.Extensions[ControllerExtension]; ok {
+			controllerName := ""
+			err := json.Unmarshal(controllerExtension.(json.RawMessage), &controllerName)
+			if err != nil {
+				return ctxt, err
+			}
+			if controllerName == "APIDiscovery" {
+				//make default endpoints for returning swagger configuration to user
+				api.RegisterDefaultSwaggerAPI(pathMiddleware)
+				api.RegisterDefaultSwaggerJSON(pathMiddleware)
+			}
+
 		}
 		switch method {
 		case "GET":
