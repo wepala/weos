@@ -755,11 +755,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		newContext := context.Request().Context()
-		value := newContext.Value("resp")
-		if value == nil {
-			return NewControllerError("unexpected error all responses were parsed, nothing was found", nil, http.StatusBadRequest)
-		}
-		return value.(error)
+		return newContext.Value("resp").(error)
 	}
 }
 
