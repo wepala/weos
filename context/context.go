@@ -32,6 +32,7 @@ const PAYLOAD ContextKey = "_payload"
 const SEQUENCE_NO string = "sequence_no"
 const RESPONSE_PREFIX string = "_httpstatus"
 const AUTHORIZATION string = "Authorization"
+const ACCEPT string = "Accept"
 
 //Path initializers are run per path and can be used to configure routes that are not defined in the open api spec
 const METHODS_FOUND ContextKey = "_methods_found"
