@@ -690,10 +690,10 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 							for key, content := range resp.Value.Content {
 								if strings.Contains(key, mediaT) {
 									if content.Example != nil {
-										if strings.Contains(mediaType, "json") {
-											bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+										if strings.Contains(key, "json") {
+											bytesArray, err = json.Marshal(resp.Value.Content[key].Example)
 										} else {
-											bytesArray, err = JSONMarshal(resp.Value.Content[mediaType].Example)
+											bytesArray, err = JSONMarshal(resp.Value.Content[key].Example)
 										}
 										if err != nil {
 											api.e.Logger.Debugf("unexpected error %s ", err)
