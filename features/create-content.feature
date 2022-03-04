@@ -393,7 +393,7 @@ Feature: Create content
       | 52e48c2d-1583-47a5-a056-d09275c5bbaa  | Some Blog      | Some Description                  |
     And the "Blog" should have an id
     And the "Blog" id should be a "uuid"
-  @WEOS-1382
+
   Scenario: Automatically generate id on create
 
     If the id of a schema is an integer then generate an integer
