@@ -755,7 +755,11 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		newContext := context.Request().Context()
-		return newContext.Value("resp").(error)
+		value := newContext.Value("resp")
+		if value == nil {
+			return nil
+		}
+		return value.(error)
 	}
 }
 
