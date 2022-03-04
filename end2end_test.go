@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	weosContext "github.com/wepala/weos/context"
 	"mime/multipart"
 	"net/http"
@@ -1525,6 +1526,35 @@ func theUserIdOnTheEntityEventsShouldBe(userID string) error {
 	return nil
 }
 
+func theContentTypeShouldBe(mediaType string) error {
+	if rec.Header().Get("Content-Type") != mediaType {
+		return fmt.Errorf("expect content type to be %s got %s", mediaType, rec.Header().Get("Content-Type"))
+	}
+	return nil
+}
+
+func theHeaderIsSetWithValue(key, value string) error {
+	header.Set(key, value)
+	return nil
+}
+
+func theResponseBodyShouldBe(expectResp *godog.DocString) error {
+	defer rec.Result().Body.Close()
+	results, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		return err
+	}
+	exp, err := api.JSONMarshal(expectResp.Content)
+	if err != nil {
+		return err
+	}
+	if bytes.Compare(results, exp) != 0 {
+		return fmt.Errorf("expected response to be %s, got %s", results, exp)
+	}
+
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1612,6 +1642,10 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^"([^"]*)" has a valid user account$`, hasAValidUserAccount)
 	ctx.Step(`^"([^"]*)"\'s id is "([^"]*)"$`, sIdIs)
 	ctx.Step(`^the user id on the entity events should be "([^"]*)"$`, theUserIdOnTheEntityEventsShouldBe)
+	ctx.Step(`^the content type should be "([^"]*)"$`, theContentTypeShouldBe)
+	ctx.Step(`^the header "([^"]*)" is set with value "([^"]*)"$`, theHeaderIsSetWithValue)
+	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
+
 }
 
 func TestBDD(t *testing.T) {

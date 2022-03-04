@@ -436,6 +436,30 @@ func TestRESTAPI_Initialize_DiscoveryAddedToGet(t *testing.T) {
 	}
 }
 
+func TestRESTAPI_Initialize_DefaultResponseMiddlware(t *testing.T) {
+	//make sure Default middleware is added
+	os.Remove("test.db")
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("unexpected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is not 404
+	if resp.Result().StatusCode == http.StatusNotFound {
+		t.Errorf("expected the response code to not be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+}
+
 func TestRESTAPI_Integration_AutomaticallyUpdateDateTime(t *testing.T) {
 	tapi, err := api.New("./fixtures/blog.yaml")
 	if err != nil {
