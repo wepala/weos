@@ -1,0 +1,358 @@
+openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  database:
+    driver: sqlite3
+    database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Category:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+      required:
+        - title
+      x-identifier:
+        - title
+    Author:
+      type: object
+      properties:
+        id:
+          type: string
+          format: ksuid
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+      required:
+        - firstName
+        - lastName
+      x-identifier:
+        - id
+        - email
+    Blog:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          x-unique: true
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          nullable: true
+          enum:
+            - "null"
+            - unpublished
+            - published
+        image:
+          type: string
+          format: byte
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+        posts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
+        lastUpdated:
+          type: string
+          format: date-time
+        created:
+          type: string
+          format: date-time
+      required:
+        - title
+        - url
+    Post:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        author:
+          $ref: "#/components/schemas/Author"
+        created:
+          type: string
+          format: date-time
+paths:
+  /health:
+    summary: Health Check
+    get:
+      x-controller: HealthCheck
+      x-middleware:
+        - Recover
+      responses:
+        200:
+          description: Health Response
+        500:
+          description: API Internal Error
+
+  /blogs:
+    parameters:
+      - in: header
+        name: someHeader
+        schema:
+          type: string
+      - in: header
+        name: someOtherHeader
+        schema:
+          type: string
+        x-context-name: soh
+      - in: header
+        name: X-Account-Id
+        schema:
+          type: string
+        x-context-name: AccountID
+      - in: query
+        name: q
+        schema:
+          type: string
+      - in: query
+        name: cost
+        schema:
+          type: number
+      - in: query
+        name: leverage
+        schema:
+          type: number
+          format: double
+    post:
+      operationId: Add Blog
+      summary: Create Blog
+      x-projection: Default
+      x-event-dispatcher: Default
+      x-command-disptacher: Default
+      requestBody:
+        description: Blog info that is submitted
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Blog"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/Blog"
+      responses:
+        201:
+          description: Add Blog to Aggregator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+    get:
+      operationId: Get Blogs
+      summary: Get List of Blogs
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: l
+          x-alias: limit
+          schema:
+            type: integer
+        - in: query
+          name: _filters
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              values:
+                type: array
+                items:
+                  type: string
+
+          required: false
+          description: query string
+      x-context:
+        filters:
+          - field: status
+            operator: eq
+            values:
+              - Active
+          - field: lastUpdated
+            operator: between
+            values:
+              - 2021-12-17 15:46:00
+              - 2021-12-18 15:46:00
+          - field: categories
+            operator: in
+            values:
+              - Technology
+              - Javascript
+        sorts:
+          - field: title
+            order: asc
+        page: 1
+        limit: 10
+      responses:
+        200:
+          description: List of blogs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  blogs:
+                    type: array
+                    x-alias: items
+                    items:
+                      $ref: "#/components/schemas/Blog"
+    put:
+      operationId: Import blogs
+      requestBody:
+        content:
+          text/csv:
+            schema:
+              type: string
+              format: binary
+      responses:
+        201:
+          description: items created
+
+  /blogs/{id}:
+    parameters:
+      - in: query
+        name: sequence_no
+        schema:
+          type: integer
+      - in: query
+        name: use_entity_id
+        schema:
+          type: boolean
+    get:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+          required: false
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
+      summary: Get Blog by id
+      operationId: Get Blog
+      x-projections:
+        - Custom
+        - Default
+      responses:
+        200:
+          description: Blog details without any supporting collections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+    put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
+      summary: Update blog details
+      operationId: Update Blog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
+      responses:
+        200:
+          description: Update Blog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+    delete:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+      x-schema: "Blog"
+      summary: Delete blog
+      operationId: Delete Blog
+      responses:
+        200:
+          description: Blog Deleted

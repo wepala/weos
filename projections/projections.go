@@ -75,15 +75,44 @@ func (m *MetaProjection) GetEventHandler() weos.EventHandler {
 
 //GetContentEntity returns the first not nil Entity
 func (m *MetaProjection) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
-	//TODO implement me
-	panic("implement me")
+	runErrors := new(MetaError)
+	for _, projection := range m.ordinalProjections {
+		result, err := projection.GetContentEntity(ctx, entityFactory, weosID)
+		if result != nil {
+			return result, err
+		}
+		if err != nil {
+			runErrors.Add(err)
+		}
+
+	}
+	if runErrors.HasErrors() {
+		return nil, runErrors
+	}
+	return nil, nil
 }
 
+//GetByKey get entity by identifier
 func (m *MetaProjection) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-	//TODO implement me
-	panic("implement me")
+	runErrors := new(MetaError)
+	for _, projection := range m.ordinalProjections {
+		result, err := projection.GetByKey(ctxt, entityFactory, identifiers)
+		if result != nil {
+			return result, err
+		}
+		if err != nil {
+			runErrors.Add(err)
+		}
+
+	}
+	if runErrors.HasErrors() {
+		return nil, runErrors
+	}
+	return nil, nil
 }
 
+//Deprecated: should use GetContentEntity
+//GetByEntityID returns entity based on entity id
 func (m *MetaProjection) GetByEntityID(ctxt context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
 	runErrors := new(MetaError)
 	for _, projection := range m.ordinalProjections {
@@ -103,13 +132,40 @@ func (m *MetaProjection) GetByEntityID(ctxt context.Context, entityFactory weos.
 }
 
 func (m *MetaProjection) GetContentEntities(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-	//TODO implement me
-	panic("implement me")
+	runErrors := new(MetaError)
+	for _, projection := range m.ordinalProjections {
+		result, count, err := projection.GetContentEntities(ctx, entityFactory, page, limit, query, sortOptions, filterOptions)
+		if result != nil {
+			return result, count, err
+		}
+		if err != nil {
+			runErrors.Add(err)
+		}
+
+	}
+	if runErrors.HasErrors() {
+		return nil, 0, runErrors
+	}
+	return nil, 0, nil
 }
 
+//GetByProperties get
 func (m *MetaProjection) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-	//TODO implement me
-	panic("implement me")
+	runErrors := new(MetaError)
+	for _, projection := range m.ordinalProjections {
+		result, err := projection.GetByProperties(ctxt, entityFactory, identifiers)
+		if result != nil {
+			return result, err
+		}
+		if err != nil {
+			runErrors.Add(err)
+		}
+
+	}
+	if runErrors.HasErrors() {
+		return nil, runErrors
+	}
+	return nil, nil
 }
 
 //MetaError error that contains all the errors returned by the projections within a meta projection
