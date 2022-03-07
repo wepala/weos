@@ -156,16 +156,28 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, entityFactory m
 						pType := paramType.Value.Type
 						switch strings.ToLower(pType) {
 						case "integer":
+							if val.(string) == "" {
+								delete(contextValues, contextName)
+								break
+							}
 							v, err := strconv.Atoi(val.(string))
 							if err == nil {
 								val = v
 							}
 						case "boolean":
+							if val.(string) == "" {
+								delete(contextValues, contextName)
+								break
+							}
 							v, err := strconv.ParseBool(val.(string))
 							if err == nil {
 								val = v
 							}
 						case "number":
+							if val.(string) == "" {
+								delete(contextValues, contextName)
+								break
+							}
 							format := paramType.Value.Format
 							if format == "float" || format == "double" {
 								v, err := strconv.ParseFloat(val.(string), 64)
@@ -203,6 +215,10 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 			case float64:
 				contextValues[key] = int(value.(float64))
 			case string:
+				if value.(string) == "" {
+					delete(contextValues, key)
+					break
+				}
 				v, err := strconv.Atoi(value.(string))
 				if err == nil {
 					contextValues[key] = v
@@ -211,6 +227,10 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 		case "use_entity_id":
 			if val, ok := value.(string); ok {
 				//default type is boolean
+				if value.(string) == "" {
+					delete(contextValues, key)
+					break
+				}
 				v, err := strconv.ParseBool(val)
 				if err == nil {
 					contextValues[key] = v
@@ -222,6 +242,11 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 				continue
 			}
 			if val, ok := value.(string); ok {
+				if value.(string) == "" {
+					delete(contextValues, key)
+					break
+
+				}
 				//if the filter comes from x-context do this conversion
 				filters := map[string]interface{}{}
 				decodedQuery, err := url.PathUnescape(val)
@@ -252,6 +277,10 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 
 			} else {
 				//if the filter comes from request do this conversion
+				if value.([]interface{}) == nil {
+					delete(contextValues, key)
+					break
+				}
 				filters := map[string]interface{}{}
 				for _, filterProp := range value.([]interface{}) {
 					if filterProp.(map[string]interface{})["operator"] == nil || filterProp.(map[string]interface{})["field"] == nil || (filterProp.(map[string]interface{})["value"] == nil && filterProp.(map[string]interface{})["values"] == nil) {
@@ -284,9 +313,17 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 			}
 		case "If-Match", "If-None-Match": //default type is string
 			if value != nil {
+				if value.(string) == "" {
+					delete(contextValues, key)
+					break
+				}
 				contextValues[key] = value.(string)
 			}
 		case "_sorts":
+			if value.([]interface{}) == nil {
+				delete(contextValues, key)
+				break
+			}
 			sortOptions := map[string]string{}
 			for _, sortOption := range value.([]interface{}) {
 				if sortOption.(map[string]interface{})["field"] == nil || sortOption.(map[string]interface{})["order"] == nil {
