@@ -8,7 +8,6 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos/context"
-	logs "github.com/wepala/weos/log"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"net/http"
@@ -34,21 +33,6 @@ func RequestID(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIte
 func Recover(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return middleware.Recover()(next)
-	}
-}
-
-//ZapLogger switch to using ZapLogger
-func ZapLogger(app model.Service, spec *openapi3.Swagger, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			//setting the default logger in the context as zap with the default mode being error
-			zapLogger, err := logs.NewZap("error")
-			if err != nil {
-				c.Logger().Errorf("Unexpected error setting the context logger : %s", err)
-			}
-			c.SetLogger(zapLogger)
-			return next(c)
-		}
 	}
 }
 

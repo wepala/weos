@@ -28,6 +28,7 @@ x-weos-config:
       - RequestID
       - Recover
       - ZapLogger
+      - LogLevel
 components:
   schemas:
     Category:
@@ -201,6 +202,10 @@ paths:
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-middleware:
+        - Recover
+        - ZapLogger
+        - LogLevel
       requestBody:
         description: Blog info that is submitted
         required: true
