@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/labstack/gommon/log"
+	logs "github.com/wepala/weos/log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,7 +33,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			payload := weoscontext.GetPayload(newContext)
@@ -49,7 +51,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				weosID = ksuid.New().String()
 			}
 
-			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -100,12 +102,12 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			payload := weoscontext.GetPayload(newContext)
 
-			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -135,7 +137,7 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			var weosID string
@@ -160,9 +162,9 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				}
 			}
 
-			err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
+			err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, ctxt.Logger())
 			if err != nil {
-				api.e.Logger.Errorf("error persisting entity '%s'", err)
+				ctxt.Logger().Errorf("error persisting entity '%s'", err)
 				if errr, ok := err.(*model.DomainError); ok {
 					if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
 						return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
@@ -302,7 +304,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 		return func(ctxt echo.Context) error {
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			pks, _ := json.Marshal(entityFactory.Schema().Extensions[IdentifierExtension])
@@ -435,7 +437,7 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		}
 		if entityFactory == nil {
 			err = errors.New("entity factory must be set")
-			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+			ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 			return err
 		}
 
@@ -474,7 +476,7 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			newContext := ctxt.Request().Context()
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return NewControllerError(err.Error(), nil, http.StatusBadRequest)
 			}
 			//gets the filter, limit and page from context
@@ -556,7 +558,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			//getting etag from context
@@ -616,7 +618,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			}
 
 			//Dispatch the actual delete to projecitons
-			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
@@ -904,6 +906,66 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			ctxt.SetRequest(request)
 			return next(ctxt)
 
+		}
+	}
+}
+
+func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			newContext := c.Request().Context()
+			req := c.Request()
+			res := c.Response()
+			level := req.Header.Get(weoscontext.HeaderXLogLevel)
+			if level == "" {
+				level = "error"
+			}
+
+			res.Header().Set(weoscontext.HeaderXLogLevel, level)
+
+			//Set the log.level in context based on what is passed into the header
+			switch level {
+			case "debug":
+				c.Logger().SetLevel(log.DEBUG)
+			case "info":
+				c.Logger().SetLevel(log.INFO)
+			case "warn":
+				c.Logger().SetLevel(log.WARN)
+			case "error":
+				c.Logger().SetLevel(log.ERROR)
+			}
+
+			//Sets the logger on the application object
+			if api.Config == nil {
+				api.Config = &APIConfig{}
+			}
+
+			if api.Config.Log == nil {
+				api.Config.Log = &model.LogConfig{}
+			}
+
+			api.Config.Log.Level = level
+
+			//Assigns the log level to context
+			newContext = context.WithValue(newContext, weoscontext.HeaderXLogLevel, level)
+			request := c.Request().WithContext(newContext)
+			c.SetRequest(request)
+			return next(c)
+		}
+	}
+}
+
+//ZapLogger switch to using ZapLogger
+func ZapLogger(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			//setting the default logger in the context as zap with the default mode being error
+			zapLogger, err := logs.NewZap("error")
+			if err != nil {
+				c.Logger().Errorf("Unexpected error setting the context logger : %s", err)
+			}
+			c.SetLogger(zapLogger)
+			return next(c)
 		}
 	}
 }
