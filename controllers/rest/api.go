@@ -341,11 +341,13 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
 	p.RegisterMiddleware("DeleteMiddleware", DeleteMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
+	p.RegisterMiddleware("ContentTypeResponseMiddleware", ContentTypeResponseMiddleware)
 	//register standard global initializers
 	p.RegisterGlobalInitializer(Security)
 	p.RegisterMiddleware("DefaultResponseMiddleware", DefaultResponseMiddleware)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
+	p.RegisterOperationInitializer(ContentTypeResponseInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
 	p.RegisterOperationInitializer(UserDefinedInitializer)
 	p.RegisterOperationInitializer(StandardInitializer)
