@@ -304,11 +304,6 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 				if len(value.([]interface{})) != len(filters) {
 					continue
 				}
-				filters, err := convertProperties(filters, entityFactory.Schema())
-				if err != nil {
-					errors = err
-					continue
-				}
 				contextValues[key] = filters
 			}
 		case "If-Match", "If-None-Match": //default type is string
