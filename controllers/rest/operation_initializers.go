@@ -605,15 +605,20 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 			if controller != nil {
 				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
 			}
+			found := false
 			for _, resp := range operation.Responses {
 				if resp.Value.Content != nil {
 					for _, content := range resp.Value.Content {
 						if content.Example != nil {
 							middlewareNames["DefaultResponseMiddleware"] = true
+							found = true
 							break
 						}
 					}
 
+				}
+				if found {
+					break
 				}
 			}
 
