@@ -677,6 +677,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 			var ok bool
 			var bytesArray []byte
 			var err error
+			found := false
+			acceptHeader := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+			mediaTypes := strings.Split(acceptHeader, ",")
 			//take response type from the context
 			if responseType, ok = ctx.Value(weoscontext.CONTENT_TYPE_RESPONSE).(*CResponseType); !ok {
 				api.e.Logger.Debugf("unexpected error content type response not set")
@@ -694,6 +697,86 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 				if err != nil {
 					api.e.Logger.Debugf("unexpected error %s ", err)
 					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+				}
+				found = true
+			}
+			//if the response given from the context does not have an example specified then go find one
+			if !found {
+				for _, mediaType := range mediaTypes {
+					if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
+						for code, resp := range operation.Responses {
+							respCode, _ = strconv.Atoi(code)
+							if resp.Value.Content[mediaType] == nil {
+								//check for wild card
+								if strings.Contains(mediaType, "*") {
+									mediaT := strings.Replace(mediaType, "*", "", -1)
+									for key, content := range resp.Value.Content {
+										if strings.Contains(key, mediaT) {
+											if content.Example != nil {
+												if strings.Contains(key, "json") {
+													bytesArray, err = json.Marshal(resp.Value.Content[key].Example)
+												} else {
+													bytesArray, err = JSONMarshal(resp.Value.Content[key].Example)
+												}
+												if err != nil {
+													api.e.Logger.Debugf("unexpected error %s ", err)
+													return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+												}
+												responseType.Type = key
+												found = true
+												break
+											}
+										}
+
+									}
+								}
+								if found {
+									break
+								}
+							} else {
+								if resp.Value.Content[mediaType].Example != nil {
+									if strings.Contains(mediaType, "json") {
+										bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+									} else {
+										bytesArray, err = JSONMarshal(resp.Value.Content[mediaType].Example)
+									}
+									if err != nil {
+										api.e.Logger.Debugf("unexpected error %s ", err)
+										return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+									}
+									responseType.Type = mediaType
+									found = true
+									break
+								}
+							}
+						}
+					}
+				}
+				if !found { //if using the accept header nothing is found, use the first content type
+					for code, resp := range operation.Responses {
+						respCode, _ = strconv.Atoi(code)
+						for key, content := range resp.Value.Content {
+							if content.Example != nil {
+								if strings.Contains(key, "json") {
+									bytesArray, err = json.Marshal(content.Example)
+								} else {
+									bytesArray, err = JSONMarshal(content.Example)
+								}
+
+								if err != nil {
+									api.e.Logger.Debugf("unexpected error %s ", err)
+									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+								}
+								responseType.Type = key
+								found = true
+								break
+							}
+						}
+						if found {
+							break
+						}
+					}
 				}
 			}
 
@@ -831,33 +914,39 @@ func ContentTypeResponseMiddleware(api *RESTAPI, projection projections.Projecti
 		return func(ctxt echo.Context) error {
 			ctx := ctxt.Request().Context()
 			//take media type from the request since the context wouldnt add it because there is no entity factory to use
-			mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+			acceptHeader := ctxt.Request().Header.Get(weoscontext.ACCEPT)
 			found := false
 			response := &CResponseType{}
-			if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
-				for code, resp := range operation.Responses {
-					response.Status = code
-					if resp.Value.Content[mediaType] == nil {
-						//check for wild card
-						if strings.Contains(mediaType, "*") {
-							mediaT := strings.Replace(mediaType, "*", "", -1)
-							for key, _ := range resp.Value.Content {
-								if strings.Contains(key, mediaT) {
-									response.Type = key
-									found = true
-									break
+			//if the accept header comes with an array of content type we should split the string to get the by a comma
+			mediaTypes := strings.Split(acceptHeader, ",")
+			for _, mediaType := range mediaTypes {
+				if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
+					for code, resp := range operation.Responses {
+						response.Status = code
+						if resp.Value.Content[mediaType] == nil {
+							//check for wild card
+							if strings.Contains(mediaType, "*") {
+								mediaT := strings.Replace(mediaType, "*", "", -1)
+								for key, _ := range resp.Value.Content {
+									if strings.Contains(key, mediaT) {
+										response.Type = key
+										found = true
+										break
+									}
 								}
 							}
-						}
-						if found {
+							if found {
+								break
+							}
+						} else {
+							response.Type = mediaType
+							found = true
 							break
 						}
-					} else {
-						response.Type = mediaType
-						found = true
-						break
-
 					}
+				}
+				if found {
+					break
 				}
 			}
 			if !found { //if using the accept header nothing is found, use the first content type
