@@ -344,6 +344,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard global initializers
 	p.RegisterGlobalInitializer(Security)
 	p.RegisterMiddleware("DefaultResponseMiddleware", DefaultResponseMiddleware)
+	p.RegisterMiddleware("LogLevel", LogLevel)
+	p.RegisterMiddleware("ZapLogger", ZapLogger)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
