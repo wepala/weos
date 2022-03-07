@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	weosContext "github.com/wepala/weos/context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -1555,6 +1555,14 @@ func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 	return nil
 }
 
+func andTheSpecificationIs(arg1 *godog.DocString) error {
+	return godog.ErrPending
+}
+
+func theIdShouldBeA(arg1, arg2 string) error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1645,6 +1653,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the content type should be "([^"]*)"$`, theContentTypeShouldBe)
 	ctx.Step(`^the header "([^"]*)" is set with value "([^"]*)"$`, theHeaderIsSetWithValue)
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
+	ctx.Step(`^And the specification is$`, andTheSpecificationIs)
+	ctx.Step(`^the "([^"]*)" id should be a "([^"]*)"$`, theIdShouldBeA)
 
 }
 
@@ -1655,8 +1665,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1382",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
