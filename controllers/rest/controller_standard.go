@@ -687,12 +687,12 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 
 			}
 			respCode, _ := strconv.Atoi(responseType.Status)
-			content := operation.Responses[responseType.Status].Value.Content
-			if content != nil && content[responseType.Type] != nil && content[responseType.Type].Example != nil {
+			contents := operation.Responses[responseType.Status].Value.Content
+			if contents != nil && contents[responseType.Type] != nil && contents[responseType.Type].Example != nil {
 				if strings.Contains(responseType.Type, "json") {
-					bytesArray, err = json.Marshal(content)
+					bytesArray, err = json.Marshal(contents[responseType.Type].Example)
 				} else {
-					bytesArray, err = JSONMarshal(content)
+					bytesArray, err = JSONMarshal(contents[responseType.Type].Example)
 				}
 				if err != nil {
 					api.e.Logger.Debugf("unexpected error %s ", err)
