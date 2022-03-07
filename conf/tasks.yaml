@@ -1,0 +1,64 @@
+openapi: 3.0.3
+info:
+  title: Tasks API
+  description: Tasks API
+  version: 1.0.0
+servers:
+  - url: 'http://localhost:8681'
+x-weos-config:
+  database:
+    driver: sqlite3
+    database: e2e.db
+components:
+  securitySchemes:
+    Auth0:
+      type: openIdConnect
+      openIdConnectUrl: https://samples.auth0.com/.well-known/openid-configuration
+  schemas:
+    Task:
+      type: object
+      properties:
+        title:
+          type: string
+security:
+  - Auth0: ["email","name"]
+paths:
+  /tasks:
+    get:
+      description: Get a list of tasks
+      operationId: getTasks
+      security:
+        - Auth0: []
+      responses:
+        200:
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  items:
+                    $ref: "#/components/schemas/Task"
+
+    post:
+      description: Create task
+      operationId: createTask
+      requestBody:
+        description: Task
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Task"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Task"
+      responses:
+        201:
+          description: Created task
+
+  

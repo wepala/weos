@@ -144,7 +144,7 @@ func parseParams(c echo.Context, cc context.Context, parameter *openapi3.Paramet
 				if err == nil {
 					val = v
 				}
-			case "If-Match", "If-None-Match": //default type is string
+			case "If-Match", "If-None-Match", "Authorization": //default type is string
 			default:
 				var filters map[string]interface{}
 				filters = map[string]interface{}{}

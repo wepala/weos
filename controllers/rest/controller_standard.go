@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wepala/weos/projections"
 
@@ -665,6 +667,102 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
+//DefaultResponseMiddleware returns content type based on content type in example
+func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			ctx := ctxt.Request().Context()
+			//take media type from the request since the context wouldnt add it because there is no entity factory to use
+			mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+			var bytesArray []byte
+			var err error
+			contentType := ""
+			var respCode int
+			found := false
+			if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
+				for code, resp := range operation.Responses {
+					respCode, _ = strconv.Atoi(code)
+					if resp.Value.Content[mediaType] == nil {
+						//check for wild card
+						if strings.Contains(mediaType, "*") {
+							mediaT := strings.Replace(mediaType, "*", "", -1)
+							for key, content := range resp.Value.Content {
+								if strings.Contains(key, mediaT) {
+									if content.Example != nil {
+										bytesArray, err = JSONMarshal(content.Example)
+										if err != nil {
+											api.e.Logger.Debugf("unexpected error %s ", err)
+											return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+										}
+										contentType = key + "; " + "charset=UTF-8"
+										found = true
+										break
+									}
+								}
+
+							}
+						}
+						if found {
+							break
+						}
+					} else {
+						if resp.Value.Content[mediaType].Example != nil {
+							bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error %s ", err)
+								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+							}
+							contentType = mediaType + "; " + "charset=UTF-8"
+							found = true
+							break
+						}
+					}
+				}
+			}
+			if !found { //if using the accept header nothing is found, use the first content type
+				for code, resp := range operation.Responses {
+					respCode, _ = strconv.Atoi(code)
+					for key, content := range resp.Value.Content {
+						if content.Example != nil {
+							bytesArray, err = JSONMarshal(content.Example)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error %s ", err)
+								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+							}
+							contentType = key + "; " + "charset=UTF-8"
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+			}
+
+			//Add response to context for controller
+			ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
+			request := ctxt.Request().WithContext(ctx)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+
+		}
+	}
+}
+
+func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		newContext := context.Request().Context()
+		value := newContext.Value("resp")
+		if value == nil {
+			return NewControllerError("unexpected error all responses were parsed, nothing was found", nil, http.StatusBadRequest)
+		}
+		return value.(error)
+	}
+}
+
 func Get(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//TODO call GetByID
@@ -680,4 +778,94 @@ func HealthCheck(api *RESTAPI, projection projections.Projection, commandDispatc
 		return context.JSON(http.StatusOK, response)
 	}
 
+}
+
+//OpenIDMiddleware handling JWT in incoming Authorization header
+func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	var openIdConnectUrl string
+	securityCheck := true
+	var verifiers []*oidc.IDTokenVerifier
+	algs := []string{"RS256", "RS384", "RS512", "HS256"}
+	if operation.Security != nil && len(*operation.Security) == 0 {
+		securityCheck = false
+	}
+	for _, schemes := range api.Swagger.Components.SecuritySchemes {
+		//checks if the security scheme type is openIdConnect
+		if schemes.Value.Type == "openIdConnect" {
+			//get the open id connect url
+			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OPENIDCONNECTURLEXTENSION]; ok {
+				err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
+				if err != nil {
+					api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
+				} else {
+					//get the Jwk url from open id connect url and validate url
+					jwksUrl, err := GetJwkUrl(openIdConnectUrl)
+					if err != nil {
+						api.EchoInstance().Logger.Warnf("invalid open id connect url: %s", err)
+					} else {
+						//by default skipExpiryCheck is false meaning it will not run an expiry check
+						skipExpiryCheck := false
+						//get skipexpirycheck that is an extension in the openapi spec
+						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SKIPEXPIRYCHECKEXTENSION]; ok {
+							err := json.Unmarshal(expireCheck.(json.RawMessage), &skipExpiryCheck)
+							if err != nil {
+								api.EchoInstance().Logger.Errorf("unable to unmarshal skip expiry '%s'", err)
+							}
+						}
+						//create key set and verifier
+						keySet := oidc.NewRemoteKeySet(context.Background(), jwksUrl)
+						tokenVerifier := oidc.NewVerifier(openIdConnectUrl, keySet, &oidc.Config{
+							ClientID:             "",
+							SupportedSigningAlgs: algs,
+							SkipClientIDCheck:    true,
+							SkipExpiryCheck:      skipExpiryCheck,
+							SkipIssuerCheck:      true,
+							Now:                  time.Now,
+						})
+						verifiers = append(verifiers, tokenVerifier)
+					}
+
+				}
+			}
+
+		}
+	}
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			var err error
+			var token string
+			if !securityCheck {
+				return next(ctxt)
+			}
+			if len(verifiers) == 0 {
+				api.e.Logger.Debugf("unexpected error no verifiers were set")
+				return NewControllerError("unexpected error no verifiers were set", nil, http.StatusBadRequest)
+			}
+			newContext := ctxt.Request().Context()
+			//get the token from request header since this runs before the context middleware
+			if ctxt.Request().Header[weoscontext.AUTHORIZATION] != nil {
+				token = ctxt.Request().Header[weoscontext.AUTHORIZATION][0]
+			}
+			if token == "" {
+				api.e.Logger.Debugf("no JWT token was found")
+				return NewControllerError("no JWT token was found", nil, http.StatusUnauthorized)
+			}
+			jwtToken := strings.Replace(token, "Bearer ", "", -1)
+			var idToken *oidc.IDToken
+			for _, tokenVerifier := range verifiers {
+				idToken, err = tokenVerifier.Verify(newContext, jwtToken)
+				if err != nil || idToken == nil {
+					api.e.Logger.Debugf(err.Error())
+					return NewControllerError("unexpected error verifying token", err, http.StatusUnauthorized)
+				}
+			}
+
+			newContext = context.WithValue(newContext, weoscontext.USER_ID, idToken.Subject)
+			request := ctxt.Request().WithContext(newContext)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+
+		}
+	}
 }

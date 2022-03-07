@@ -28,6 +28,11 @@ x-weos-config:
       - Recover
       - ZapLogger
 components:
+  securitySchemes:
+    Auth0:
+      type: openIdConnect
+      openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
+      skipExpiryCheck: true
   schemas:
     Category:
       type: object
@@ -65,7 +70,6 @@ components:
         url:
           type: string
           format: uri
-          x-unique: true
         title:
           type: string
         description:
@@ -109,79 +113,23 @@ components:
         created:
           type: string
           format: date-time
-paths:
-  /:
-    get:
-      operationId: Homepage
-      responses:
-        201:
-          description: Application Homepage
-          content:
-            text/html:
-              example: |
-                <html>
-                  <head>
-                      <title>Health</title>
-                  </head>
-                  <body>
-                    This is a landing page
-                  </body>
-                </html>
-  /page:
-    get:
-      summary: Test
-      parameters:
-        - in: header
-          name: Accept
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Test Page
-          content:
-            text/html:
-              example: |
-                <html>
-                  <head>
-                      <title>Test Page</title>
-                  </head>
-                  <body>
-                    This is a test page
-                  </body>
-                </html>
-              schema:
-                type: string
-            application/json:
-              example:
-                blog:
-                  value: {
-                    "title": "API Testing",
-                    "url": "www.example.com",
-                    "email": "testing@example.com"
-                  }
+security:
+  - Auth0: ["email","name"]
 
+paths:
   /health:
     summary: Health Check
     get:
+      security: []
       x-controller: HealthCheck
       x-middleware:
         - Recover
+        - OpenIDMiddleware
       responses:
         200:
           description: Health Response
         500:
           description: API Internal Error
-  /api:
-      get:
-        operationId: Get API Details
-        x-controller: APIDiscovery
-        responses:
-          200:
-            description: API Details
-            content:
-              application/json:
-                schema:
-                  type: string
   /blogs:
     parameters:
       - in: header
@@ -217,6 +165,13 @@ paths:
       x-projection: Default
       x-event-dispatcher: Default
       x-command-disptacher: Default
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+      x-middleware:
+        - OpenIDMiddleware
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -252,19 +207,19 @@ paths:
             type: integer
         - in: query
           name: _filters
-          style: deepObject
-          explode: true
           schema:
-            type: object
-            properties:
-              field:
-                type: string
-              operator:
-                type: string
-              values:
-                type: array
-                items:
+            type: array
+            items:
+              type: object
+              properties:
+                field:
                   type: string
+                operator:
+                  type: string
+                values:
+                  type: array
+                  items:
+                    type: string
 
           required: false
           description: query string
