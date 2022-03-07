@@ -687,8 +687,8 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 
 			}
 			respCode, _ := strconv.Atoi(responseType.Status)
-			content := operation.Responses[responseType.Status].Value.Content[responseType.Type].Example
-			if content != nil {
+			content := operation.Responses[responseType.Status].Value.Content
+			if content != nil && content[responseType.Type] != nil && content[responseType.Type].Example != nil {
 				if strings.Contains(responseType.Type, "json") {
 					bytesArray, err = json.Marshal(content)
 				} else {
