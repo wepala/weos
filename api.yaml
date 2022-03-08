@@ -120,14 +120,10 @@ components:
 paths:
   /:
     get:
-      x-middleware:
-        - Static
-        - File
-      x-folder: "./static"
-      x-file: "./static/index.html"
       responses:
         200:
           description: file found
+          x-folder: "./staticF"
         404:
           description: file not found
   /health:

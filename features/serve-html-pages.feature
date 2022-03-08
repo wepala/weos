@@ -20,8 +20,8 @@ Feature: Serve HTML Content
   @WEOS-1383
   Scenario: Folder configured to return static content at a specific endpoint
 
-    Developers can configure an endpoint to serve content from a folder defined using the "x-folder" extension. The
-    extension should automatically add the "Static" middleware
+  Developers can configure an endpoint to serve content from a folder defined using the "x-folder" extension. The
+  extension should automatically add the "Static" middleware
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
@@ -40,7 +40,7 @@ Feature: Serve HTML Content
     And the service is running
     When the "GET" endpoint "/asset/some.css" is hit
     Then a 200 response should be returned
-    And the content type should be "text/css"
+    And the content type should be "text/css; charset=utf-8"
     And the response body should be
     """
     #id {
@@ -68,7 +68,7 @@ Feature: Serve HTML Content
     And the service is running
     When the "GET" endpoint "/some.css" is hit
     Then a 200 response should be returned
-    And the content type should be "text/css"
+    And the content type should be "text/css; charset=utf-8"
     And the response body should be
     """
     #id {
@@ -76,12 +76,12 @@ Feature: Serve HTML Content
     }
     """
 
-  @WEOS-1383
+  @skipped
   Scenario: Specify specific file to be served by an endpoint
 
-    A developer can also specify that a specific file should be served from an endpoint using the x-file extension
-    (e.g. serving index.html for a specific endpoint). The "File" middleware is automatically applied when the x-file
-    extension is used
+  A developer can also specify that a specific file should be served from an endpoint using the x-file extension
+  (e.g. serving index.html for a specific endpoint). The "File" middleware is automatically applied when the x-file
+  extension is used
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """

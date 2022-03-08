@@ -11,6 +11,7 @@ import (
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -225,6 +226,22 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 		ctxt = context.WithValue(ctxt, weoscontext.EVENT_STORE, eventStore)
 	}
 
+	for _, resp := range operation.Responses {
+		if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
+			folderPath := ""
+			err := json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
+			if err != nil {
+				return ctxt, err
+			}
+
+			_, err = os.Stat(folderPath)
+			if os.IsNotExist(err) {
+				return ctxt, fmt.Errorf("error finding folder: '%s' specified on path: '%s'", folderPath, path)
+			}
+
+			api.e.Static(path, folderPath)
+		}
+	}
 	return ctxt, nil
 }
 
