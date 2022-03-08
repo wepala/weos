@@ -44,5 +44,11 @@ const OPENIDCONNECTURLEXTENSION = "openIdConnectUrl"
 //SKIPEXPIRYCHECKEXTENSION set the expiry check
 const SKIPEXPIRYCHECKEXTENSION = "skipExpiryCheck"
 
+//FolderExtension set staticFolder folder
+const FolderExtension = "x-folder"
+
+//FileExtension set staticFolder file
+const FileExtension = "x-file"
+
 //ContextExtension set parameters directly in the context
 const ContextExtension = "x-context"
