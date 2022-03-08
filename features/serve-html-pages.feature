@@ -40,7 +40,7 @@ Feature: Serve HTML Content
     And the service is running
     When the "GET" endpoint "/asset/some.css" is hit
     Then a 200 response should be returned
-    And the content type should be "text/css"
+    And the content type should be "text/css; charset=utf-8"
     And the response body should be
     """
     #id {
@@ -68,7 +68,7 @@ Feature: Serve HTML Content
     And the service is running
     When the "GET" endpoint "/some.css" is hit
     Then a 200 response should be returned
-    And the content type should be "text/css"
+    And the content type should be "text/css; charset=utf-8"
     And the response body should be
     """
     #id {
@@ -76,7 +76,7 @@ Feature: Serve HTML Content
     }
     """
 
-  @WEOS-1383
+  @WEOS-1383-File
   Scenario: Specify specific file to be served by an endpoint
 
   A developer can also specify that a specific file should be served from an endpoint using the x-file extension

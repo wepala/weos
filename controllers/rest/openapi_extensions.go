@@ -44,8 +44,8 @@ const OPENIDCONNECTURLEXTENSION = "openIdConnectUrl"
 //SKIPEXPIRYCHECKEXTENSION set the expiry check
 const SKIPEXPIRYCHECKEXTENSION = "skipExpiryCheck"
 
-//FolderExtension set static folder
+//FolderExtension set staticFolder folder
 const FolderExtension = "x-folder"
 
-//FileExtension set static file
+//FileExtension set staticFolder file
 const FileExtension = "x-file"

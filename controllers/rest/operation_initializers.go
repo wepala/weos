@@ -248,6 +248,11 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			return ctxt, err
 		}
 
+		_, err = os.Stat(filePath)
+		if os.IsNotExist(err) {
+			return ctxt, fmt.Errorf("error finding file: '%s' specified on path: '%s'", filePath, path)
+		}
+
 		api.e.File(path, filePath)
 	}
 

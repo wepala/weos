@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	weosContext "github.com/wepala/weos/context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -71,6 +71,8 @@ var errArray []error
 var filters string
 var enumErr error
 var token string
+var xfolderError error
+var xfolderName string
 
 type FilterProperties struct {
 	Operator string
@@ -169,6 +171,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
 	e = echo.New()
+	os.Remove(xfolderName)
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -734,7 +737,11 @@ func theServiceIsRunning() error {
 	API = *tapi
 	err = API.Initialize(scenarioContext)
 	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "error finding folder") {
+			xfolderError = err
+		} else {
+			return err
+		}
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
@@ -1548,8 +1555,40 @@ func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 	if err != nil {
 		return err
 	}
-	if bytes.Compare(results, exp) != 0 {
-		return fmt.Errorf("expected response to be %s, got %s", results, exp)
+
+	if !strings.Contains(expectResp.Content, string(results)) {
+		if bytes.Compare(results, exp) != 0 {
+			return fmt.Errorf("expected response to be %s, got %s", results, exp)
+		}
+	}
+
+	return nil
+}
+
+func aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist() error {
+	if xfolderError == nil {
+		return fmt.Errorf("expected an error finding the specified folder")
+	}
+	return nil
+}
+
+func thereIsAFile(filePathName string, fileContent *godog.DocString) error {
+	directory := filepath.Dir(filePathName)
+
+	_, err := os.Stat(directory)
+
+	if os.IsNotExist(err) {
+		xfolderName = directory
+		err := os.MkdirAll(directory, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = os.Stat(filePathName)
+
+	if os.IsNotExist(err) {
+		os.WriteFile(filePathName, []byte(fileContent.Content), os.ModePerm)
 	}
 
 	return nil
@@ -1645,7 +1684,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the content type should be "([^"]*)"$`, theContentTypeShouldBe)
 	ctx.Step(`^the header "([^"]*)" is set with value "([^"]*)"$`, theHeaderIsSetWithValue)
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
-
+	ctx.Step(`^a warning should be shown informing the developer that the folder doesn\'t exist$`, aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist)
+	ctx.Step(`^there is a file "([^"]*)"$`, thereIsAFile)
 }
 
 func TestBDD(t *testing.T) {
@@ -1655,8 +1695,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1383",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

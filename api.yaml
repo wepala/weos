@@ -119,7 +119,7 @@ components:
 paths:
   /:
     get:
-      x-folder: "./static"
+      x-folder: "./staticF"
       responses:
         200:
           description: file found
