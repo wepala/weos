@@ -28,10 +28,10 @@ Feature: Serve HTML Content
       /asset:
         get:
           operationId: getAsset
-          x-folder: "./static"
           responses:
             200:
               description: File Found
+              x-folder: "./static"
             404:
               description: File not found
             400:
@@ -56,10 +56,10 @@ Feature: Serve HTML Content
       /:
         get:
           operationId: getAsset
-          x-folder: "./static"
           responses:
             200:
               description: File Found
+              x-folder: "./static"
             404:
               description: File not found
             400:
@@ -76,7 +76,7 @@ Feature: Serve HTML Content
     }
     """
 
-  @WEOS-1383-File
+  @skipped
   Scenario: Specify specific file to be served by an endpoint
 
   A developer can also specify that a specific file should be served from an endpoint using the x-file extension
@@ -88,10 +88,10 @@ Feature: Serve HTML Content
       /:
         get:
           operationId: getAsset
-          x-file: "./static/index.html"
           responses:
             200:
               description: File Found
+              x-file: "./static/index.html"
             404:
               description: File not found
             402:
@@ -114,10 +114,10 @@ Feature: Serve HTML Content
       /:
         get:
           operationId: getAsset
-          x-folder: "./foobar"
           responses:
             200:
               description: File Found
+              x-folder: "./foobar"
             404:
               description: File not found
             400:

@@ -119,10 +119,10 @@ components:
 paths:
   /:
     get:
-      x-folder: "./staticF"
       responses:
         200:
           description: file found
+          x-folder: "./staticF"
         404:
           description: file not found
   /health:

@@ -757,7 +757,7 @@ func DefaultResponseController(api *RESTAPI, projection projections.Projection, 
 		newContext := context.Request().Context()
 		value := newContext.Value("resp")
 		if value == nil {
-			return NewControllerError("unexpected error all responses were parsed, nothing was found", nil, http.StatusBadRequest)
+			return nil
 		}
 		return value.(error)
 	}
