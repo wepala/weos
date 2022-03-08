@@ -1,4 +1,5 @@
-Feature: Hardcode the response for an endpoint 
+@skipped
+Feature: Hardcode the response for an endpoint
   
   There are times when we want to be able to return a fixed response on a specific endpoint. 
   To do this you can create an example response and if there is not controller specified for that endpoint
