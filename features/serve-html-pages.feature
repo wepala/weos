@@ -241,7 +241,7 @@ Feature: Serve HTML Content
       </body>
     </html>
     """
-
+@skipped
   Scenario: Invalid Go template
 
     if the template returns an error while rendering then return a 500 error
