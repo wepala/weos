@@ -1,3 +1,4 @@
+@WEOS-1315
 Feature: Manage Projections
 
   In WeOS a projection is a data representation of an event stream. A developer can create a projection that takes events
@@ -8,8 +9,6 @@ Feature: Manage Projections
     Given a developer "Sojourner"
     And "Sojourner" has a valid user account
     And "Open API 3.0" is used to model the service
-    And "Sojourner" defines a projection "Custom"
-    And "Sojourner" defines a projection "CSV"
     And the specification is
     """
     openapi: 3.0.3
@@ -44,7 +43,7 @@ Feature: Manage Projections
            type: object
            properties:
              id:
-               type: integer
+               type: string
              title:
                type: string
                description: blog title
@@ -61,42 +60,30 @@ Feature: Manage Projections
           responses:
             200:
               description: Application Homepage
+      /blogs/{id}:
+        get:
+          parameters:
+            - in: path
+              name: id
+              schema:
+                type: string
+              required: true
+              description: blog id
+          summary: Get Blog by id
+          operationId: Get Blog
+          responses:
+            200:
+              description: Blog details without any supporting collections
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
       /blog:
-        /blogs/{id}:
-         get:
-           parameters:
-             - in: path
-               name: id
-               schema:
-                 type: string
-               required: true
-               description: blog id
-             - in: query
-               name: sequence_no
-               schema:
-                 type: string
-             - in: query
-               name: use_entity_id
-               schema:
-                 type: boolean
-             - in: header
-               name: If-None-Match
-               schema:
-                 type: string
-           summary: Get Blog by id
-           operationId: Get Blog
-           responses:
-             200:
-               description: Blog details without any supporting collections
-               content:
-                 application/json:
-                   schema:
-                     $ref: "#/components/schemas/Blog"
         post:
           operationId: Add Blog
           x-projections:
             - Custom
-            - QR
+            - CSV
             - Default
           requestBody:
             description: Blog info that is submitted
@@ -121,15 +108,32 @@ Feature: Manage Projections
             400:
               description: Invalid blog submitted
     """
+    And "Sojourner" defines a projection "Custom"
+    And "Sojourner" defines a projection "CSV"
+    And "Sojourner" defines an event store "Custom"
 
   Scenario: Set custom projection as the default projection
 
+    Developers can set a default projection of their choosing. The default projection WeOS provides is used to setup
+    a default event store. If a custom default projection is set, a default event store will also need to be configured
+
     Given "Sojourner" set the default projection as "Custom"
+    And "Sojourner" set the default event store as "Custom"
+    And the service is running
     When the "GET" endpoint "/blogs/1234" is hit
     Then the projection "Custom" is called
 
   Scenario: Set projections to use on a specific operation
 
-    Developer can set multiple projections to be used on an endpoint. The multiple projections is wrapped in a
-    "MetaProjection" that has logic for co-ordinating multiple projections
+    Developers can set multiple projections to be used on an endpoint. The projections are wrapped in a
+    "MetaProjection" that has logic for co-ordinating multiple projections. On "post" all the projections are called
+
+    Given the service is running
+    And "Sojourner" is on the "Blog" create screen
+    And "Sojourner" enters "3" in the "id" field
+    And "Sojourner" enters "Some Blog" in the "title" field
+    And "Sojourner" enters "Some Description" in the "description" field
+    When the "Blog" is submitted
+    Then the projection "Custom" is called
+    And the projection "CSV" is called
 
