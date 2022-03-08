@@ -28,6 +28,7 @@ x-weos-config:
       - RequestID
       - Recover
       - ZapLogger
+      - LogLevel
 components:
   schemas:
     Category:
@@ -164,6 +165,10 @@ paths:
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-middleware:
+        - Recover
+        - ZapLogger
+        - LogLevel
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -216,24 +221,10 @@ paths:
           required: false
           description: query string
       x-context:
-        filters:
-          - field: status
+        _filters:
+          - field: active
             operator: eq
-            values:
-              - Active
-          - field: lastUpdated
-            operator: between
-            values:
-              - 2021-12-17 15:46:00
-              - 2021-12-18 15:46:00
-          - field: categories
-            operator: in
-            values:
-              - Technology
-              - Javascript
-        sorts:
-          - field: title
-            order: asc
+            value: true
         page: 1
         limit: 10
       responses:
