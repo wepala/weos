@@ -172,7 +172,8 @@ paths:
       responses:
         200:
           description: file found
-          x-file: "./static/index.html"
+          x-folder: "./staticF"
+          x-file: "./staticF/index"
         404:
           description: file not found
   /health:

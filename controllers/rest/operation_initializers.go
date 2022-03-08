@@ -241,6 +241,21 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 
 			api.e.Static(path, folderPath)
 		}
+
+		if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
+			filePath := ""
+			err := json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
+			if err != nil {
+				return ctxt, err
+			}
+
+			_, err = os.Stat(filePath)
+			if os.IsNotExist(err) {
+				return ctxt, fmt.Errorf("error finding file: '%s' specified on path: '%s'", filePath, path)
+			}
+
+			api.e.File(path, filePath)
+		}
 	}
 	return ctxt, nil
 }
@@ -600,20 +615,20 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
 			}
 		} else {
-			//this should not return an error it should log
-			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
-			controller, err := api.GetController("DefaultResponseController")
-			if err != nil {
-				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
-				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
-			}
-			if controller != nil {
-				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
-			}
 			for _, resp := range operation.Responses {
 				if resp.Value.Content != nil {
 					for _, content := range resp.Value.Content {
 						if content.Example != nil {
+							//this should not return an error it should log
+							api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+							controller, err := api.GetController("DefaultResponseController")
+							if err != nil {
+								api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+								return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
+							}
+							if controller != nil {
+								ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
+							}
 							middlewareNames["DefaultResponseMiddleware"] = true
 							break
 						}
