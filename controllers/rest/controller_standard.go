@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/labstack/gommon/log"
+	logs "github.com/wepala/weos/log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wepala/weos/projections"
 
@@ -29,7 +33,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			payload := weoscontext.GetPayload(newContext)
@@ -47,7 +51,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				weosID = ksuid.New().String()
 			}
 
-			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -98,12 +102,12 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			payload := weoscontext.GetPayload(newContext)
 
-			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
+			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
@@ -133,7 +137,7 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			var weosID string
@@ -158,9 +162,9 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				}
 			}
 
-			err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, api.EchoInstance().Logger)
+			err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), eventSource, projection, ctxt.Logger())
 			if err != nil {
-				api.e.Logger.Errorf("error persisting entity '%s'", err)
+				ctxt.Logger().Errorf("error persisting entity '%s'", err)
 				if errr, ok := err.(*model.DomainError); ok {
 					if strings.Contains(errr.Error(), "error updating entity. This is a stale item") {
 						return NewControllerError(errr.Error(), err, http.StatusPreconditionFailed)
@@ -300,7 +304,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 		return func(ctxt echo.Context) error {
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			pks, _ := json.Marshal(entityFactory.Schema().Extensions[IdentifierExtension])
@@ -433,7 +437,7 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		}
 		if entityFactory == nil {
 			err = errors.New("entity factory must be set")
-			api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+			ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 			return err
 		}
 
@@ -472,7 +476,7 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			newContext := ctxt.Request().Context()
 			if entityFactory == nil {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return NewControllerError(err.Error(), nil, http.StatusBadRequest)
 			}
 			//gets the filter, limit and page from context
@@ -554,7 +558,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
 				err := errors.New("entity factory must be set")
-				api.EchoInstance().Logger.Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
+				ctxt.Logger().Errorf("no entity factory detected for '%s'", ctxt.Request().RequestURI)
 				return err
 			}
 			//getting etag from context
@@ -614,7 +618,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			}
 
 			//Dispatch the actual delete to projecitons
-			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, api.EchoInstance().Logger)
+			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {
@@ -665,6 +669,102 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
+//DefaultResponseMiddleware returns content type based on content type in example
+func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			ctx := ctxt.Request().Context()
+			//take media type from the request since the context wouldnt add it because there is no entity factory to use
+			mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+			var bytesArray []byte
+			var err error
+			contentType := ""
+			var respCode int
+			found := false
+			if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
+				for code, resp := range operation.Responses {
+					respCode, _ = strconv.Atoi(code)
+					if resp.Value.Content[mediaType] == nil {
+						//check for wild card
+						if strings.Contains(mediaType, "*") {
+							mediaT := strings.Replace(mediaType, "*", "", -1)
+							for key, content := range resp.Value.Content {
+								if strings.Contains(key, mediaT) {
+									if content.Example != nil {
+										bytesArray, err = JSONMarshal(content.Example)
+										if err != nil {
+											api.e.Logger.Debugf("unexpected error %s ", err)
+											return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+										}
+										contentType = key + "; " + "charset=UTF-8"
+										found = true
+										break
+									}
+								}
+
+							}
+						}
+						if found {
+							break
+						}
+					} else {
+						if resp.Value.Content[mediaType].Example != nil {
+							bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error %s ", err)
+								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+							}
+							contentType = mediaType + "; " + "charset=UTF-8"
+							found = true
+							break
+						}
+					}
+				}
+			}
+			if !found { //if using the accept header nothing is found, use the first content type
+				for code, resp := range operation.Responses {
+					respCode, _ = strconv.Atoi(code)
+					for key, content := range resp.Value.Content {
+						if content.Example != nil {
+							bytesArray, err = JSONMarshal(content.Example)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error %s ", err)
+								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+							}
+							contentType = key + "; " + "charset=UTF-8"
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+			}
+
+			//Add response to context for controller
+			ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
+			request := ctxt.Request().WithContext(ctx)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+
+		}
+	}
+}
+
+func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		newContext := context.Request().Context()
+		value := newContext.Value("resp")
+		if value == nil {
+			return nil
+		}
+		return value.(error)
+	}
+}
+
 func Get(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//TODO call GetByID
@@ -680,4 +780,154 @@ func HealthCheck(api *RESTAPI, projection projections.Projection, commandDispatc
 		return context.JSON(http.StatusOK, response)
 	}
 
+}
+
+//OpenIDMiddleware handling JWT in incoming Authorization header
+func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	var openIdConnectUrl string
+	securityCheck := true
+	var verifiers []*oidc.IDTokenVerifier
+	algs := []string{"RS256", "RS384", "RS512", "HS256"}
+	if operation.Security != nil && len(*operation.Security) == 0 {
+		securityCheck = false
+	}
+	for _, schemes := range api.Swagger.Components.SecuritySchemes {
+		//checks if the security scheme type is openIdConnect
+		if schemes.Value.Type == "openIdConnect" {
+			//get the open id connect url
+			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OPENIDCONNECTURLEXTENSION]; ok {
+				err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
+				if err != nil {
+					api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
+				} else {
+					//get the Jwk url from open id connect url and validate url
+					jwksUrl, err := GetJwkUrl(openIdConnectUrl)
+					if err != nil {
+						api.EchoInstance().Logger.Warnf("invalid open id connect url: %s", err)
+					} else {
+						//by default skipExpiryCheck is false meaning it will not run an expiry check
+						skipExpiryCheck := false
+						//get skipexpirycheck that is an extension in the openapi spec
+						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SKIPEXPIRYCHECKEXTENSION]; ok {
+							err := json.Unmarshal(expireCheck.(json.RawMessage), &skipExpiryCheck)
+							if err != nil {
+								api.EchoInstance().Logger.Errorf("unable to unmarshal skip expiry '%s'", err)
+							}
+						}
+						//create key set and verifier
+						keySet := oidc.NewRemoteKeySet(context.Background(), jwksUrl)
+						tokenVerifier := oidc.NewVerifier(openIdConnectUrl, keySet, &oidc.Config{
+							ClientID:             "",
+							SupportedSigningAlgs: algs,
+							SkipClientIDCheck:    true,
+							SkipExpiryCheck:      skipExpiryCheck,
+							SkipIssuerCheck:      true,
+							Now:                  time.Now,
+						})
+						verifiers = append(verifiers, tokenVerifier)
+					}
+
+				}
+			}
+
+		}
+	}
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			var err error
+			var token string
+			if !securityCheck {
+				return next(ctxt)
+			}
+			if len(verifiers) == 0 {
+				api.e.Logger.Debugf("unexpected error no verifiers were set")
+				return NewControllerError("unexpected error no verifiers were set", nil, http.StatusBadRequest)
+			}
+			newContext := ctxt.Request().Context()
+			//get the token from request header since this runs before the context middleware
+			if ctxt.Request().Header[weoscontext.AUTHORIZATION] != nil {
+				token = ctxt.Request().Header[weoscontext.AUTHORIZATION][0]
+			}
+			if token == "" {
+				api.e.Logger.Debugf("no JWT token was found")
+				return NewControllerError("no JWT token was found", nil, http.StatusUnauthorized)
+			}
+			jwtToken := strings.Replace(token, "Bearer ", "", -1)
+			var idToken *oidc.IDToken
+			for _, tokenVerifier := range verifiers {
+				idToken, err = tokenVerifier.Verify(newContext, jwtToken)
+				if err != nil || idToken == nil {
+					api.e.Logger.Debugf(err.Error())
+					return NewControllerError("unexpected error verifying token", err, http.StatusUnauthorized)
+				}
+			}
+
+			newContext = context.WithValue(newContext, weoscontext.USER_ID, idToken.Subject)
+			request := ctxt.Request().WithContext(newContext)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+
+		}
+	}
+}
+
+func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			newContext := c.Request().Context()
+			req := c.Request()
+			res := c.Response()
+			level := req.Header.Get(weoscontext.HeaderXLogLevel)
+			if level == "" {
+				level = "error"
+			}
+
+			res.Header().Set(weoscontext.HeaderXLogLevel, level)
+
+			//Set the log.level in context based on what is passed into the header
+			switch level {
+			case "debug":
+				c.Logger().SetLevel(log.DEBUG)
+			case "info":
+				c.Logger().SetLevel(log.INFO)
+			case "warn":
+				c.Logger().SetLevel(log.WARN)
+			case "error":
+				c.Logger().SetLevel(log.ERROR)
+			}
+
+			//Sets the logger on the application object
+			if api.Config == nil {
+				api.Config = &APIConfig{}
+			}
+
+			if api.Config.Log == nil {
+				api.Config.Log = &model.LogConfig{}
+			}
+
+			api.Config.Log.Level = level
+
+			//Assigns the log level to context
+			newContext = context.WithValue(newContext, weoscontext.HeaderXLogLevel, level)
+			request := c.Request().WithContext(newContext)
+			c.SetRequest(request)
+			return next(c)
+		}
+	}
+}
+
+//ZapLogger switch to using ZapLogger
+func ZapLogger(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			//setting the default logger in the context as zap with the default mode being error
+			zapLogger, err := logs.NewZap("error")
+			if err != nil {
+				c.Logger().Errorf("Unexpected error setting the context logger : %s", err)
+			}
+			c.SetLogger(zapLogger)
+			return next(c)
+		}
+	}
 }
