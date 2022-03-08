@@ -49,3 +49,6 @@ const FolderExtension = "x-folder"
 
 //FileExtension set staticFolder file
 const FileExtension = "x-file"
+
+//ContextExtension set parameters directly in the context
+const ContextExtension = "x-context"

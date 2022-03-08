@@ -73,6 +73,7 @@ var enumErr error
 var token string
 var xfolderError error
 var xfolderName string
+var contextWithValues context.Context
 
 type FilterProperties struct {
 	Operator string
@@ -105,7 +106,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	filters = ""
-	page = 1
+	page = 0
 	limit = 0
 	token = ""
 	result = api.ListApiResponse{}
@@ -160,7 +161,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	contentTypeID = map[string]bool{}
 	Developer = &User{}
 	filters = ""
-	page = 1
+	page = 0
 	limit = 0
 	token = ""
 	result = api.ListApiResponse{}
@@ -735,6 +736,15 @@ func theServiceIsRunning() error {
 	tapi.DB = db
 	tapi.EchoInstance().Logger.SetOutput(&buf)
 	API = *tapi
+	API.RegisterMiddleware("Handler", func(api *api.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				contextWithValues = c.Request().Context()
+
+				return nil
+			}
+		}
+	})
 	err = API.Initialize(scenarioContext)
 	if err != nil {
 		if strings.Contains(err.Error(), "error finding folder") {
@@ -1594,6 +1604,29 @@ func thereIsAFile(filePathName string, fileContent *godog.DocString) error {
 	return nil
 }
 
+func thereShouldBeAKeyInTheRequestContextWithObject(key string) error {
+	if contextWithValues.Value(key) == nil {
+		return fmt.Errorf("expected key %s to be found got nil", key)
+	}
+	return nil
+}
+
+func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
+	val, _ := strconv.Atoi(value)
+	switch contextWithValues.Value(key).(type) {
+	case int:
+		if contextWithValues.Value(key).(int) != val {
+			return fmt.Errorf("expected key %s value to be %d got %d", key, val, contextWithValues.Value(key).(int))
+		}
+	case string:
+		if contextWithValues.Value(key).(string) != value {
+			return fmt.Errorf("expected key %s value to be %s got %s", key, value, contextWithValues.Value(key).(string))
+		}
+	}
+
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1686,6 +1719,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
 	ctx.Step(`^a warning should be shown informing the developer that the folder doesn\'t exist$`, aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist)
 	ctx.Step(`^there is a file "([^"]*)"$`, thereIsAFile)
+	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
+	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
+
 }
 
 func TestBDD(t *testing.T) {
@@ -1696,7 +1732,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "WEOS-1383",
+			//Tags: "focus1",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
