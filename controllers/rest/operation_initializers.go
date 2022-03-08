@@ -595,21 +595,21 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
 			}
 		} else {
-			//this should not return an error it should log
-			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
-			controller, err := api.GetController("DefaultResponseController")
-			if err != nil {
-				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
-				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
-			}
-			if controller != nil {
-				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
-			}
 			found := false
 			for _, resp := range operation.Responses {
 				if resp.Value.Content != nil {
 					for _, content := range resp.Value.Content {
 						if content != nil && content.Example != nil {
+							//this should not return an error it should log
+							api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
+							controller, err := api.GetController("DefaultResponseController")
+							if err != nil {
+								api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+								return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
+							}
+							if controller != nil {
+								ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
+							}
 							middlewareNames["DefaultResponseMiddleware"] = true
 							found = true
 							break
