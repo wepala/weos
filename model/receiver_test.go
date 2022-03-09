@@ -40,8 +40,8 @@ func TestCreateContentType(t *testing.T) {
 	ctx1 = context.WithValue(ctx1, weosContext.ENTITY_FACTORY, entityFactory1)
 	ctx1 = context.WithValue(ctx1, weosContext.USER_ID, "123")
 	entityFactory2 := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentEntity2, swagger.Components.Schemas[contentEntity2].Value, builder[contentEntity2])
-	ctx2 = context.WithValue(ctx1, weosContext.ENTITY_FACTORY, entityFactory2)
-	ctx2 = context.WithValue(ctx1, weosContext.USER_ID, "123")
+	ctx2 = context.WithValue(ctx2, weosContext.ENTITY_FACTORY, entityFactory2)
+	ctx2 = context.WithValue(ctx2, weosContext.USER_ID, "123")
 	commandDispatcher := &model.DefaultCommandDispatcher{}
 	commandDispatcher.AddSubscriber(model.Create(context.Background(), nil, contentEntity, ""), model.CreateHandler)
 	commandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, contentEntity), model.CreateBatchHandler)
@@ -129,12 +129,12 @@ func TestCreateContentType(t *testing.T) {
 		}
 
 		err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity2), mockEventRepository, projectionMock, echo.New().Logger)
-		if err1 != nil {
-			t.Fatalf("unexpected error dispatching command '%s'", err1)
+		if err1 == nil {
+			t.Fatalf("expected error dispatching command but got nil")
 		}
 
-		if len(mockEventRepository.PersistCalls()) != 5 {
-			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 5, len(mockEventRepository.PersistCalls()))
+		if len(mockEventRepository.PersistCalls()) != 2 {
+			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 2, len(mockEventRepository.PersistCalls()))
 		}
 	})
 }

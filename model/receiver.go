@@ -39,7 +39,6 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	//Generate id for entity
 	payload, err = GenerateID(payload, entityFactory)
 	if err != nil {
-		err = NewDomainError("unexpected error generating id for entity", command.Metadata.EntityType, "", err)
 		logger.Debug(err)
 		return err
 	}

@@ -10,7 +10,6 @@ import (
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
-	"math/rand"
 	"reflect"
 	"strconv"
 	"strings"
@@ -755,27 +754,34 @@ func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 
 //GenerateID adds a generated id to the payload based on the schema
 func GenerateID(payload []byte, entityFactory EntityFactory) ([]byte, error) {
-	property := entityFactory.Schema().Properties["id"]
+	schema := entityFactory.Schema()
+	properties := entityFactory.Schema().ExtensionProps.Extensions["x-identifier"]
 	entity := map[string]interface{}{}
 	err := json.Unmarshal(payload, &entity)
 	if err != nil {
 		return payload, err
 	}
-	if property != nil {
-		if entity["id"] == nil {
-			if property.Value.Format != "" { //if the format is specified
-				switch property.Value.Format {
-				case "ksuid":
-					entity["id"] = ksuid.New().String()
-				case "uuid":
-					entity["id"] = uuid.NewString()
-				}
-			} else { //if the format is not specified
-				switch property.Value.Type {
-				case "string":
-					entity["id"] = ksuid.New().String()
-				case "integer":
-					entity["id"] = rand.Int()
+	if properties != nil {
+		propArray := []string{}
+		err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+		if err != nil {
+			return payload, fmt.Errorf("unexpected error unmarshalling identifiers: %s", err)
+		}
+		if len(propArray) == 1 { // if there is only one x-identifier specified then it should auto generate the identifier
+			property := propArray[0]
+			if entity[property] == nil {
+				if schema.Properties[property].Value.Format != "" { //if the format is specified
+					if schema.Properties[property].Value.Type == "string" {
+						switch schema.Properties[property].Value.Format {
+						case "ksuid":
+							entity[property] = ksuid.New().String()
+						case "uuid":
+							entity[property] = uuid.NewString()
+						}
+					}
+				} else { //if the format is not specified
+					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+					return payload, NewDomainError(errr, entityFactory.Name(), "", nil)
 				}
 			}
 		}
