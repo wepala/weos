@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"github.com/google/uuid"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -72,6 +74,7 @@ var filters string
 var enumErr error
 var token string
 var contextWithValues context.Context
+var contentEntity map[string]interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -107,6 +110,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	page = 0
 	limit = 0
 	token = ""
+	contentEntity = map[string]interface{}{}
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
@@ -164,6 +168,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	token = ""
 	result = api.ListApiResponse{}
 	errs = nil
+	contentEntity = map[string]interface{}{}
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
@@ -460,6 +465,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	if rec.Result().StatusCode != http.StatusCreated {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
+	etag := rec.Header().Get("Etag")
+	weosID, _ := api.SplitEtag(etag)
 
 	head := details.Rows[0].Cells
 	compare := map[string]interface{}{}
@@ -470,26 +477,23 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentEntity := map[string]interface{}{}
-	var result *gorm.DB
-	//ETag would help with this
-	for key, value := range compare {
-		result = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
-		if contentEntity != nil {
-			break
-		}
-	}
-
+	contentEntity = map[string]interface{}{}
+	var resultdb *gorm.DB
+	resultdb = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", weosID)
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
 	}
 
-	if result.Error != nil {
-		return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+	if resultdb.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
 	}
 
 	for key, value := range compare {
 		if contentEntity[key] != value {
+			v, ok := value.(string)
+			if ok && v == "<Generated>" && contentEntity[key] != nil {
+				continue
+			}
 			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
 		}
 	}
@@ -1588,6 +1592,61 @@ func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
 	return nil
 }
 
+func andTheSpecificationIs(arg1 *godog.DocString) error {
+	dropDB()
+	openAPI = arg1.Content
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		errs = err
+	}
+	tapi.DB = db
+	API = *tapi
+	e = API.EchoInstance()
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
+	err = API.Initialize(scenarioContext)
+	if err != nil {
+		if strings.Contains(err.Error(), "to have enum options of the same type") {
+			enumErr = err
+		} else {
+			errs = err
+		}
+	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMDB)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
+	if err != nil {
+		errs = err
+	}
+	return nil
+}
+
+func theIdShouldBeA(arg1, format string) error {
+	switch format {
+	case "uuid":
+		_, err := uuid.Parse(contentEntity["id"].(string))
+		if err != nil {
+			fmt.Errorf("unexpected error parsing id as uuid: %s", err)
+		}
+	case "integer":
+		_, ok := contentEntity["id"].(int)
+		if !ok {
+			fmt.Errorf("unexpected error parsing id as int")
+		}
+	case "ksuid":
+		_, err := ksuid.Parse(contentEntity["id"].(string))
+		if err != nil {
+			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
+		}
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1680,6 +1739,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
+	ctx.Step(`^And the specification is$`, andTheSpecificationIs)
+	ctx.Step(`^the "([^"]*)" id should be a "([^"]*)"$`, theIdShouldBeA)
 
 }
 
