@@ -28,6 +28,11 @@ x-weos-config:
       - Recover
       - ZapLogger
 components:
+  securitySchemes:
+    Auth0:
+      type: openIdConnect
+      openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
+      skipExpiryCheck: true
   schemas:
     Category:
       type: object
@@ -62,8 +67,6 @@ components:
     Blog:
       type: object
       properties:
-        id:
-          type: string
         url:
           type: string
           format: uri
@@ -72,23 +75,23 @@ components:
         description:
           type: string
         status:
-          type: number
+          type: string
           nullable: true
           enum:
             - "null"
-            - 1.3
-            - 1.5
+            - unpublished
+            - published
         image:
           type: string
           format: byte
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         lastUpdated:
           type: string
           format: date-time
@@ -98,8 +101,6 @@ components:
       required:
         - title
         - url
-      x-identifier:
-        - id
     Post:
       type: object
       properties:
@@ -112,11 +113,18 @@ components:
         created:
           type: string
           format: date-time
+security:
+  - Auth0: ["email","name"]
+
 paths:
   /health:
     summary: Health Check
     get:
+      security: []
       x-controller: HealthCheck
+      x-middleware:
+        - Recover
+        - OpenIDMiddleware
       responses:
         200:
           description: Health Response
@@ -142,9 +150,28 @@ paths:
         name: q
         schema:
           type: string
+      - in: query
+        name: cost
+        schema:
+          type: number
+      - in: query
+        name: leverage
+        schema:
+          type: number
+          format: double
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-projection: Default
+      x-event-dispatcher: Default
+      x-command-disptacher: Default
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+      x-middleware:
+        - OpenIDMiddleware
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -153,6 +180,9 @@ paths:
             schema:
               $ref: "#/components/schemas/Blog"
           application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Blog"
+          multipart/form-data:
             schema:
               $ref: "#/components/schemas/Blog"
       responses:
@@ -167,7 +197,16 @@ paths:
       summary: Get List of Blogs
       parameters:
         - in: query
-          name: filters
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: l
+          x-alias: limit
+          schema:
+            type: integer
+        - in: query
+          name: _filters
           schema:
             type: array
             items:
@@ -217,9 +256,33 @@ paths:
                     type: integer
                   page:
                     type: integer
-                  items:
-                    $ref: "#/components/schemas/Blog"
+                  blogs:
+                    type: array
+                    x-alias: items
+                    items:
+                      $ref: "#/components/schemas/Blog"
+    put:
+      operationId: Import blogs
+      requestBody:
+        content:
+          text/csv:
+            schema:
+              type: string
+              format: binary
+      responses:
+        201:
+          description: items created
+
   /blogs/{id}:
+    parameters:
+      - in: query
+        name: sequence_no
+        schema:
+          type: integer
+      - in: query
+        name: use_entity_id
+        schema:
+          type: boolean
     get:
       parameters:
         - in: path
@@ -228,6 +291,20 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+          required: false
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
       summary: Get Blog by id
       operationId: Get Blog
       responses:
@@ -245,6 +322,19 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
       summary: Update blog details
       operationId: Update Blog
       requestBody:
@@ -268,6 +358,11 @@ paths:
             type: string
           required: true
           description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+      x-schema: "Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:
@@ -338,7 +433,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Post"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
 
   /posts/{id}:
     get:
@@ -384,6 +481,12 @@ paths:
           schema:
             type: string
           required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
       summary: Delete post
       responses:
         200:
@@ -434,7 +537,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Category"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
 
   /categories/{title}:
     get:
@@ -480,6 +585,12 @@ paths:
           schema:
             type: string
           required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
       summary: Delete category
       responses:
         200:
@@ -529,7 +640,9 @@ paths:
                   page:
                     type: integer
                   items:
-                    $ref: "#/components/schemas/Author"
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Author"
 
   /authors/{id}:
     get:
@@ -543,8 +656,9 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
-      summary: Get Author by id and email
+      summary: Get Author by email and id
       responses:
         200:
           description: Get author information
@@ -563,6 +677,7 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
       summary: Update Author details
       requestBody:
@@ -589,7 +704,14 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
       summary: Delete author
       responses:
         200:

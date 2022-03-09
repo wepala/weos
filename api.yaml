@@ -28,6 +28,7 @@ x-weos-config:
       - RequestID
       - Recover
       - ZapLogger
+      - LogLevel
 components:
   schemas:
     Category:
@@ -66,6 +67,7 @@ components:
         url:
           type: string
           format: uri
+          x-unique: true
         title:
           type: string
         description:
@@ -76,9 +78,9 @@ components:
           type: string
           nullable: true
           enum:
-            - null
-            - unpublished
-            - published
+            - "null"
+            - one
+            - two
         image:
           type: string
           format: byte
@@ -116,6 +118,55 @@ components:
           type: string
           format: date-time
 paths:
+  /:
+    get:
+      operationId: Homepage
+      responses:
+        200:
+          description: Application Homepage
+          content:
+            text/html:
+              example: |
+                <html>
+                  <head>
+                      <title>Health</title>
+                  </head>
+                  <body> 
+                   This is a landing page 
+                  </body>
+                </html>
+  /page:
+    get:
+      summary: Test
+      parameters:
+        - in: header
+          name: Accept
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Test Page
+          content:
+            text/html:
+              example: |
+                <html>
+                  <head>
+                      <title>Test Page</title>
+                  </head>
+                  <body>
+                    This is a test page 
+                  </body>
+                </html>
+              schema:
+                type: string
+            application/json:
+              example:
+                blog:
+                  value: {
+                    "title": "API Testing",
+                    "url": "www.example.com",
+                    "email": "testing@example.com"
+                  }
   /health:
     summary: Health Check
     get:
@@ -151,6 +202,10 @@ paths:
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-middleware:
+        - Recover
+        - ZapLogger
+        - LogLevel
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -203,24 +258,10 @@ paths:
           required: false
           description: query string
       x-context:
-        filters:
-          - field: status
+        _filters:
+          - field: active
             operator: eq
-            values:
-              - Active
-          - field: lastUpdated
-            operator: between
-            values:
-              - 2021-12-17 15:46:00
-              - 2021-12-18 15:46:00
-          - field: categories
-            operator: in
-            values:
-              - Technology
-              - Javascript
-        sorts:
-          - field: title
-            order: asc
+            value: true
         page: 1
         limit: 10
       responses:

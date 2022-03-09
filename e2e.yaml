@@ -65,6 +65,12 @@ components:
           type: string
         description:
           type: string
+        status:
+          type: number
+          nullable: false
+          enum:
+            - 0
+            - 1
         image:
           type: string
           format: byte

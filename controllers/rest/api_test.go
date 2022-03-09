@@ -209,6 +209,7 @@ func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
 		body := bytes.NewReader(reqBytes)
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
 		e.ServeHTTP(resp, req)
 		if resp.Result().StatusCode != http.StatusBadRequest {
 			t.Errorf("expected the response code to be %d, got %d", http.StatusBadRequest, resp.Result().StatusCode)
@@ -431,4 +432,28 @@ func TestRESTAPI_Initialize_DiscoveryAddedToGet(t *testing.T) {
 	if !found {
 		t.Errorf("expected to find get path")
 	}
+}
+
+func TestRESTAPI_Initialize_DefaultResponseMiddlware(t *testing.T) {
+	//make sure Default middleware is added
+	os.Remove("test.db")
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("unexpected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	e.ServeHTTP(resp, req)
+	//confirm that the response is not 404
+	if resp.Result().StatusCode == http.StatusNotFound {
+		t.Errorf("expected the response code to not be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
 }

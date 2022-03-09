@@ -4129,3 +4129,236 @@ components:
 		t.Errorf("error removing table '%s' '%s'", "Blog", err)
 	}
 }
+
+func TestProjections_GetByProperties(t *testing.T) {
+
+	t.Run("Get By Identifiers", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+       description:
+         type: string
+       author:
+         type: string
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		blogs := []map[string]interface{}{
+			{
+				"title":       "once",
+				"description": "twice",
+				"author":      "once",
+			},
+			{
+				"title":       "twice",
+				"description": "once",
+				"author":      "once",
+			},
+			{
+				"title":       "once",
+				"description": "once",
+				"author":      "twice",
+			},
+		}
+		result := gormDB.Table("Blog").Create(blogs)
+		if result.Error != nil {
+			t.Fatalf("got error creating fixtures '%s'", err)
+		}
+
+		ctxt := context.Background()
+		ctxt = context.WithValue(ctxt, weosContext.ENTITY_FACTORY, new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"]))
+
+		blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+		r, err := p.GetByProperties(ctxt, blogEntityFactory, map[string]interface{}{"author": "twice"})
+		if err != nil {
+			t.Errorf("got error retrieving blogs '%s'", err)
+		}
+		if len(r) != 1 {
+			t.Errorf("expected to get %d blogs, got %d", 1, len(r))
+		}
+
+		if r[0]["title"] != blogs[2]["title"] || r[0]["description"] != blogs[2]["description"] || r[0]["author"] != blogs[2]["author"] {
+			t.Errorf("expected blog to be %v got %v", blogs[2], r[0])
+		}
+
+		r, err = p.GetByProperties(ctxt, blogEntityFactory, map[string]interface{}{"description": "twice"})
+		if err != nil {
+			t.Errorf("got error retrieving blogs '%s'", err)
+		}
+		if len(r) != 1 {
+			t.Errorf("expected to get %d blogs, got %d", 1, len(r))
+		}
+
+		if r[0]["title"] != blogs[0]["title"] || r[0]["description"] != blogs[0]["description"] || r[0]["author"] != blogs[0]["author"] {
+			t.Errorf("expected blog to be %v got %v", blogs[2], r[0])
+		}
+
+		r, err = p.GetByProperties(ctxt, blogEntityFactory, map[string]interface{}{"title": "once"})
+		if err != nil {
+			t.Errorf("got error retrieving blogs '%s'", err)
+		}
+		if len(r) != 2 {
+			t.Errorf("expected to get %d blogs, got %d", 2, len(r))
+		}
+
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+	})
+}
+
+func TestProjections_XUnique(t *testing.T) {
+
+	t.Run("Test unique fields", func(t *testing.T) {
+		openAPI := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Blog:
+     type: object
+     properties:
+       title:
+         type: string
+         description: blog title
+         x-unique: true
+       description:
+         type: string
+       author:
+         type: string
+`
+
+		api, err := rest.New(openAPI)
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		deletedFields := map[string][]string{}
+		for name, sch := range api.Swagger.Components.Schemas {
+			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
+			json.Unmarshal(dfs, deletedFields[name])
+		}
+		err = p.Migrate(context.Background(), schemes, deletedFields)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		blogs := []map[string]interface{}{
+			{
+				"title":       "once",
+				"description": "twice",
+				"author":      "once",
+			},
+			{
+				"title":       "twice",
+				"description": "once",
+				"author":      "once",
+			},
+			{
+				"title":       "once",
+				"description": "once",
+				"author":      "twice",
+			},
+		}
+		result := gormDB.Table("Blog").Create(blogs)
+		if result.Error == nil {
+			t.Fatalf("expected to get unique error on title 'once'")
+		}
+
+	})
+}
