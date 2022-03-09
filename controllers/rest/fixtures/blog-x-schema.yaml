@@ -32,14 +32,15 @@ components:
     Category:
       type: object
       properties:
-        title:
+        id:
           type: string
+          format: uuid
         description:
           type: string
       required:
-        - title
+        - id
       x-identifier:
-        - title
+        - id
     Author:
       type: object
       properties:
@@ -115,6 +116,22 @@ components:
         created:
           type: string
           format: date-time
+    Archives:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+    Pages:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
 paths:
   /health:
     summary: Health Check
@@ -606,3 +623,37 @@ paths:
       responses:
         200:
           description: Delete author
+  /archives:
+    parameters:
+      - in: header
+        name: someHeader
+        schema:
+          type: string
+      - in: header
+        name: someOtherHeader
+        schema:
+          type: string
+        x-context-name: soh
+      - in: header
+        name: X-Account-Id
+        schema:
+          type: string
+        x-context-name: AccountID
+      - in: query
+        name: q
+        schema:
+          type: string
+    post:
+      operationId: Add Archives
+      summary: Create Archives
+      x-projection: Default
+      x-event-dispatcher: Default
+      x-command-disptacher: Default
+      x-schema: "#/components/schemas/Archives"
+      responses:
+        201:
+          description: Add Archives to Aggregator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Archives"

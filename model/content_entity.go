@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/google/uuid"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
+	"math/rand"
 	"reflect"
 	"strconv"
 	"strings"
@@ -748,4 +751,38 @@ func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 	err := json.Unmarshal(data, &w.AggregateRoot)
 	err = json.Unmarshal(data, &w.Property)
 	return err
+}
+
+//GenerateID adds a generated id to the payload based on the schema
+func GenerateID(payload []byte, entityFactory EntityFactory) ([]byte, error) {
+	property := entityFactory.Schema().Properties["id"]
+	entity := map[string]interface{}{}
+	err := json.Unmarshal(payload, &entity)
+	if err != nil {
+		return payload, err
+	}
+	if property != nil {
+		if entity["id"] == nil {
+			if property.Value.Format != "" { //if the format is specified
+				switch property.Value.Format {
+				case "ksuid":
+					entity["id"] = ksuid.New().String()
+				case "uuid":
+					entity["id"] = uuid.NewString()
+				}
+			} else { //if the format is not specified
+				switch property.Value.Type {
+				case "string":
+					entity["id"] = ksuid.New().String()
+				case "integer":
+					entity["id"] = rand.Int()
+				}
+			}
+		}
+	}
+	payload, err = json.Marshal(entity)
+	if err != nil {
+		return payload, err
+	}
+	return payload, nil
 }
