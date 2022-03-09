@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	"io"
 	"mime/multipart"
@@ -71,6 +73,7 @@ var errArray []error
 var filters string
 var enumErr error
 var token string
+var contentEntity map[string]interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -106,6 +109,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	page = 1
 	limit = 0
 	token = ""
+	contentEntity = map[string]interface{}{}
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
@@ -163,6 +167,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	token = ""
 	result = api.ListApiResponse{}
 	errs = nil
+	contentEntity = map[string]interface{}{}
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
@@ -471,7 +476,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentEntity := map[string]interface{}{}
+	contentEntity = map[string]interface{}{}
 	var resultdb *gorm.DB
 	resultdb = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", weosID)
 	if contentEntity == nil {
@@ -1587,8 +1592,25 @@ func andTheSpecificationIs(arg1 *godog.DocString) error {
 	return nil
 }
 
-func theIdShouldBeA(arg1, arg2 string) error {
-	return godog.ErrPending
+func theIdShouldBeA(arg1, format string) error {
+	switch format {
+	case "uuid":
+		_, err := uuid.Parse(contentEntity["id"].(string))
+		if err != nil {
+			fmt.Errorf("unexpected error parsing id as uuid: %s", err)
+		}
+	case "integer":
+		_, ok := contentEntity["id"].(int)
+		if !ok {
+			fmt.Errorf("unexpected error parsing id as int")
+		}
+	case "ksuid":
+		_, err := ksuid.Parse(contentEntity["id"].(string))
+		if err != nil {
+			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
+		}
+	}
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
@@ -1693,8 +1715,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1382",
+			Tags:   "~long && ~skipped",
+			//Tags: "WEOS-1382",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
