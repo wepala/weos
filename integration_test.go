@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -148,7 +149,7 @@ func TestIntegration_XUnique(t *testing.T) {
 }
 
 func TestIntegration_Update(t *testing.T) {
-	dropDB()
+	os.Remove("kollectables.db")
 	content, err := ioutil.ReadFile("./controllers/rest/fixtures/kollectables-api.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -236,5 +237,5 @@ func TestIntegration_Update(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dropDB()
+	os.Remove("kollectables.db")
 }
