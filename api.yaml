@@ -45,8 +45,8 @@ components:
       type: object
       properties:
         id:
-          type: string
-          format: ksuid
+          type: integer
+          format: uint
         firstName:
           type: string
         lastName:
@@ -59,7 +59,6 @@ components:
         - lastName
       x-identifier:
         - id
-        - email
     Blog:
       type: object
       properties:
