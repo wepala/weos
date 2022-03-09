@@ -294,8 +294,8 @@ Feature: Create content
       And "Sojourner" enters "Some Description" in the "description" field
       When the "Blog" is submitted
       Then the "Blog" is created
-        | id                              | title          | description                       |
-        | 25v11ONCL447uIeM7BE0gfgNGGo     | Some Blog      | Some Description                  |
+        | id               | title          | description                       |
+        | <Generated>      | Some Blog      | Some Description                  |
       And the "Blog" should have an id
       And the "Blog" id should be a "ksuid"
 
@@ -389,11 +389,12 @@ Feature: Create content
     And "Sojourner" enters "Some Description" in the "description" field
     When the "Blog" is submitted
     Then the "Blog" is created
-      | id                                    | title          | description                       |
-      | 52e48c2d-1583-47a5-a056-d09275c5bbaa  | Some Blog      | Some Description                  |
+      | id           | title          | description                       |
+      | <Generated>  | Some Blog      | Some Description                  |
     And the "Blog" should have an id
     And the "Blog" id should be a "uuid"
 
+  @WEOS-1382
   Scenario: Automatically generate id on create
 
     If the id of a schema is an integer then generate an integer
@@ -481,8 +482,8 @@ Feature: Create content
     And "Sojourner" enters "Some Description" in the "description" field
     When the "Blog" is submitted
     Then the "Blog" is created
-      | id    | title          | description                       |
-      | 3     | Some Blog      | Some Description                  |
+      | id             | title          | description                       |
+      | <Generated>    | Some Blog      | Some Description                  |
     And the "Blog" should have an id
     And the "Blog" id should be a "integer"
 

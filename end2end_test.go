@@ -459,6 +459,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	if rec.Result().StatusCode != http.StatusCreated {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
+	etag := rec.Header().Get("Etag")
+	weosID, _ := api.SplitEtag(etag)
 
 	head := details.Rows[0].Cells
 	compare := map[string]interface{}{}
@@ -470,25 +472,22 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	}
 
 	contentEntity := map[string]interface{}{}
-	var result *gorm.DB
-	//ETag would help with this
-	for key, value := range compare {
-		result = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
-		if contentEntity != nil {
-			break
-		}
-	}
-
+	var resultdb *gorm.DB
+	resultdb = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", weosID)
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
 	}
 
-	if result.Error != nil {
-		return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+	if resultdb.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
 	}
 
 	for key, value := range compare {
 		if contentEntity[key] != value {
+			v, ok := value.(string)
+			if ok && v == "<Generated>" && contentEntity[key] != nil {
+				continue
+			}
 			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
 		}
 	}
@@ -1556,7 +1555,36 @@ func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 }
 
 func andTheSpecificationIs(arg1 *godog.DocString) error {
-	return godog.ErrPending
+	openAPI = arg1.Content
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		errs = err
+	}
+	tapi.DB = db
+	API = *tapi
+	e = API.EchoInstance()
+	buf = bytes.Buffer{}
+	e.Logger.SetOutput(&buf)
+	err = API.Initialize(scenarioContext)
+	if err != nil {
+		if strings.Contains(err.Error(), "to have enum options of the same type") {
+			enumErr = err
+		} else {
+			errs = err
+		}
+	}
+	proj, err := API.GetProjection("Default")
+	if err == nil {
+		p := proj.(*projections.GORMDB)
+		if p != nil {
+			gormDB = p.DB()
+		}
+	}
+	if err != nil {
+		errs = err
+	}
+	return nil
 }
 
 func theIdShouldBeA(arg1, arg2 string) error {
