@@ -76,6 +76,7 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 		}
 		mItem, err = GenerateID(mItem, entityFactory)
 		if err != nil {
+			s.logger.Errorf(err.Error())
 			return nil, err
 		}
 		err = json.Unmarshal(mItem, &titem)
