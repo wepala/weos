@@ -257,24 +257,10 @@ paths:
           required: false
           description: query string
       x-context:
-        filters:
-          - field: status
+        _filters:
+          - field: active
             operator: eq
-            values:
-              - Active
-          - field: lastUpdated
-            operator: between
-            values:
-              - 2021-12-17 15:46:00
-              - 2021-12-18 15:46:00
-          - field: categories
-            operator: in
-            values:
-              - Technology
-              - Javascript
-        sorts:
-          - field: title
-            order: asc
+            value: true
         page: 1
         limit: 10
       responses:

@@ -509,4 +509,56 @@ func TestContext(t *testing.T) {
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
+	t.Run("x-content extension should be used to add data to the request context", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value("page") == nil {
+				t.Fatalf("expected a page in context")
+			}
+			if cc.Value("limit") == nil {
+				t.Fatalf("expected a limit in context")
+			}
+			if cc.Value("_sorts") == nil {
+				t.Fatalf("expected a sort in context")
+			}
+			if cc.Value("_filters") == nil {
+				t.Fatalf("expected a filter in context")
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
+	t.Run("the request parameter value should take preference over x-context parameters values", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs/:id")
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			if cc.Value("id").(string) != "123" {
+				t.Fatalf("expected an id in context to be %s got %s", "123", cc.Value("id").(string))
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		payload := &struct {
+			Title string
+		}{
+			Title: "Lorem Ipsum",
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("unexpected error marshaling payload '%s'", err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/blogs/123", bytes.NewBuffer(data))
+		e.GET("/blogs/:id", handler)
+		e.ServeHTTP(resp, req)
+	})
 }
