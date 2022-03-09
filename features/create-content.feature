@@ -561,7 +561,7 @@ Feature: Create content
     And "Sojourner" enters "Some Description" in the "description" field
     When the "Blog" is submitted
     Then the "Blog" is created
-      | id             | title          | description                       |
+      | custom_id             | title          | description                       |
       | <Generated>    | Some Blog      | Some Description                  |
     And the "Blog" should have an id
     And the "Blog" id should be a "integer"
