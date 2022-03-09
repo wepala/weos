@@ -70,7 +70,19 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 			entity.ID = ksuid.New().String()
 			titem.(map[string]interface{})["weos_id"] = entity.ID
 		}
-
+		mItem, err := json.Marshal(titem)
+		if err != nil {
+			return nil, err
+		}
+		mItem, err = GenerateID(mItem, entityFactory)
+		if err != nil {
+			s.logger.Errorf(err.Error())
+			return nil, err
+		}
+		err = json.Unmarshal(mItem, &titem)
+		if err != nil {
+			return nil, err
+		}
 		event := NewEntityEvent("create", entity, entity.ID, titem)
 		entity.NewChange(event)
 		err = entity.ApplyEvents([]*Event{event})

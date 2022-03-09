@@ -36,7 +36,12 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		logger.Debug(err)
 		return err
 	}
-
+	//Generate id for entity
+	payload, err = GenerateID(payload, entityFactory)
+	if err != nil {
+		logger.Debug(err)
+		return err
+	}
 	//use the entity id that was passed with the command
 	newEntity.ID = command.Metadata.EntityID
 	//add create event

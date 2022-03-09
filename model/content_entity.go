@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/google/uuid"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
@@ -748,4 +750,45 @@ func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 	err := json.Unmarshal(data, &w.AggregateRoot)
 	err = json.Unmarshal(data, &w.Property)
 	return err
+}
+
+//GenerateID adds a generated id to the payload based on the schema
+func GenerateID(payload []byte, entityFactory EntityFactory) ([]byte, error) {
+	schema := entityFactory.Schema()
+	properties := entityFactory.Schema().ExtensionProps.Extensions["x-identifier"]
+	entity := map[string]interface{}{}
+	err := json.Unmarshal(payload, &entity)
+	if err != nil {
+		return payload, err
+	}
+	if properties != nil {
+		propArray := []string{}
+		err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+		if err != nil {
+			return payload, fmt.Errorf("unexpected error unmarshalling identifiers: %s", err)
+		}
+		if len(propArray) == 1 { // if there is only one x-identifier specified then it should auto generate the identifier
+			property := propArray[0]
+			if entity[property] == nil {
+				if schema.Properties[property].Value.Format != "" { //if the format is specified
+					if schema.Properties[property].Value.Type == "string" {
+						switch schema.Properties[property].Value.Format {
+						case "ksuid":
+							entity[property] = ksuid.New().String()
+						case "uuid":
+							entity[property] = uuid.NewString()
+						}
+					}
+				} else { //if the format is not specified
+					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+					return payload, NewDomainError(errr, entityFactory.Name(), "", nil)
+				}
+			}
+		}
+	}
+	payload, err = json.Marshal(entity)
+	if err != nil {
+		return payload, err
+	}
+	return payload, nil
 }
