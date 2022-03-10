@@ -172,8 +172,8 @@ paths:
       responses:
         200:
           description: file found
-          x-folder: "./staticF"
-          x-file: "./staticF/index"
+          x-folder: "./controllers/rest/fixtures/staticF"
+          x-file: "./controllers/rest/fixtures/staticF/index"
         404:
           description: file not found
   /health:

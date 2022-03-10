@@ -515,7 +515,7 @@ paths:
       responses:
         200:
           description: file found
-          x-folder: "../../staticF"
+          x-folder: "./fixtures/staticF"
         404:
           description: file not found
 `
@@ -614,7 +614,7 @@ paths:
       responses:
         200:
           description: file found
-          x-file: "../../staticF/index"
+          x-file: "./fixtures/staticF/index"
         404:
           description: file not found
 `

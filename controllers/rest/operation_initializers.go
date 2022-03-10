@@ -225,38 +225,6 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 		}
 		ctxt = context.WithValue(ctxt, weoscontext.EVENT_STORE, eventStore)
 	}
-
-	for _, resp := range operation.Responses {
-		if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
-			folderPath := ""
-			err := json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
-			if err != nil {
-				return ctxt, err
-			}
-
-			_, err = os.Stat(folderPath)
-			if os.IsNotExist(err) {
-				return ctxt, fmt.Errorf("error finding folder: '%s' specified on path: '%s'", folderPath, path)
-			}
-
-			api.e.Static(path, folderPath)
-		}
-
-		if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
-			filePath := ""
-			err := json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
-			if err != nil {
-				return ctxt, err
-			}
-
-			_, err = os.Stat(filePath)
-			if os.IsNotExist(err) {
-				return ctxt, fmt.Errorf("error finding file: '%s' specified on path: '%s'", filePath, path)
-			}
-
-			api.e.File(path, filePath)
-		}
-	}
 	return ctxt, nil
 }
 
@@ -719,6 +687,38 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 		case "CONNECT":
 			api.e.CONNECT(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 
+		}
+	}
+
+	for _, resp := range operation.Responses {
+		if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
+			folderPath := ""
+			err := json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
+			if err != nil {
+				return ctxt, err
+			}
+
+			_, err = os.Stat(folderPath)
+			if os.IsNotExist(err) {
+				return ctxt, fmt.Errorf("error finding folder: '%s' specified on path: '%s'", folderPath, path)
+			}
+
+			api.e.Static(path, folderPath)
+		}
+
+		if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
+			filePath := ""
+			err := json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
+			if err != nil {
+				return ctxt, err
+			}
+
+			_, err = os.Stat(filePath)
+			if os.IsNotExist(err) {
+				return ctxt, fmt.Errorf("error finding file: '%s' specified on path: '%s'", filePath, path)
+			}
+
+			api.e.File(path, filePath)
 		}
 	}
 
