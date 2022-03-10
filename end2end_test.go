@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	weosContext "github.com/wepala/weos/context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -1588,6 +1588,14 @@ func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
 	return nil
 }
 
+func anErrorIsReturned() error {
+	return godog.ErrPending
+}
+
+func theFieldShouldHaveTodaysDate(arg1 string) error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1680,7 +1688,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
-
+	ctx.Step(`^an error is returned$`, anErrorIsReturned)
+	ctx.Step(`^the "([^"]*)" field should have today\'s date$`, theFieldShouldHaveTodaysDate)
 }
 
 func TestBDD(t *testing.T) {
@@ -1691,7 +1700,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags: "WEOS-1342",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
