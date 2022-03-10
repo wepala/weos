@@ -824,7 +824,7 @@ Feature: Create Content Types
       | Some New Title | Some Description                  |
     And the "updated" field should have today's date
 
-  @WEOS-1342
+  @WEOS-1342-Err
   Scenario: Reference invalid operation id
 
     If an invalid operation id is referenced then return an error to the developer when starting up the API

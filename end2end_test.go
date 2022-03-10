@@ -72,6 +72,8 @@ var filters string
 var enumErr error
 var token string
 var contextWithValues context.Context
+var createdDate string
+var updatedDate string
 
 type FilterProperties struct {
 	Operator string
@@ -494,6 +496,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
+	createdDate = contentEntity["created"].(string)
+
 	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
@@ -895,6 +899,8 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
 		}
 	}
+
+	updatedDate = contentEntity["updated"].(string)
 
 	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
@@ -1592,8 +1598,23 @@ func anErrorIsReturned() error {
 	return godog.ErrPending
 }
 
-func theFieldShouldHaveTodaysDate(arg1 string) error {
-	return godog.ErrPending
+func theFieldShouldHaveTodaysDate(field string) error {
+
+	timeNow := time.Now()
+	todaysDate := timeNow.Format("2006-01-02")
+
+	switch field {
+	case "created":
+		if !strings.Contains(createdDate, todaysDate) {
+			return fmt.Errorf("expected the created date: %s to contain the current date: %s ", createdDate, todaysDate)
+		}
+	case "updated":
+		if !strings.Contains(updatedDate, todaysDate) {
+			return fmt.Errorf("expected the created date: %s to contain the current date: %s ", updatedDate, todaysDate)
+		}
+	}
+
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
@@ -1699,8 +1720,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "WEOS-1342",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1342-Err",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

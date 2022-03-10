@@ -413,6 +413,10 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 				}
 			}
 
+			//TODO loop over paths and pull operation ids out and save in string arr
+			//TODO then loop over schemas -> properties -> check for x-update.
+			//TODO if there is x-update, compare against operation ids, fail if none match.
+
 			//get the database schema
 			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
 			p.Schemas = schemas
