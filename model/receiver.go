@@ -41,11 +41,13 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	newEntity.ID = command.Metadata.EntityID
 	//add create event
 	event := NewEntityEvent("create", newEntity, newEntity.ID, payload)
+	//ddd userid to event
+	event.Meta.User = command.Metadata.UserID
 	newEntity.NewChange(event)
 	err = newEntity.ApplyEvents([]*Event{event})
 	if err != nil {
 		err = NewDomainError("unexpected error creating entity: "+err.Error(), command.Metadata.EntityType, "", err)
-		logger.Debug(err.Error())
+		logger.Debugf(err.Error())
 		return err
 	}
 

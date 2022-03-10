@@ -7,7 +7,6 @@ servers:
   - url: https://prod1.weos.sh/blog/dev
     description: WeOS Dev
   - url: https://prod1.weos.sh/blog/v1
-  - url: http://localhost:8681
 x-weos-config:
   event-source:
     - title: default
@@ -16,20 +15,24 @@ x-weos-config:
     - title: event
       driver: sqlite3
       database: test.db
+  database:
+    driver: sqlite3
+    database: test.db
   databases:
     - title: default
       driver: sqlite3
       database: test.db
-  database:
-    driver: sqlite3
-    database: test.db
   rest:
     middleware:
       - RequestID
       - Recover
       - ZapLogger
-      - LogLevel
 components:
+  securitySchemes:
+    Auth0:
+      type: openIdConnect
+      openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
+      skipExpiryCheck: true
   schemas:
     Category:
       type: object
@@ -67,20 +70,17 @@ components:
         url:
           type: string
           format: uri
-          x-unique: true
         title:
           type: string
         description:
           type: string
-        active:
-          type: boolean
         status:
           type: string
           nullable: true
           enum:
             - "null"
-            - one
-            - two
+            - unpublished
+            - published
         image:
           type: string
           format: byte
@@ -110,114 +110,68 @@ components:
           type: string
         author:
           $ref: "#/components/schemas/Author"
-        categories:
-          type: array
-          items:
-            $ref: "#/components/schemas/Category"
         created:
           type: string
           format: date-time
+security:
+  - Auth0: ["email","name"]
+
 paths:
-  /:
-    get:
-      operationId: Homepage
-      responses:
-        200:
-          description: Application Homepage
-          content:
-            text/html:
-              example: |
-                <html>
-                  <head>
-                      <title>Health</title>
-                  </head>
-                  <body> 
-                   This is a landing page 
-                  </body>
-                </html>
-  /page:
-    get:
-      summary: Test
-      parameters:
-        - in: header
-          name: Accept
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Test Page
-          content:
-            text/html:
-              example: |
-                <html>
-                  <head>
-                      <title>Test Page</title>
-                  </head>
-                  <body>
-                    This is a test page 
-                  </body>
-                </html>
-              schema:
-                type: string
-            application/json:
-              example:
-                blog:
-                  value: {
-                    "title": "API Testing",
-                    "url": "www.example.com",
-                    "email": "testing@example.com"
-                  }
-  /file:
-    get:
-      x-middleware:
-        - Static
-        - File
-      x-folder: "./static"
-      x-file: "./static/index.html"
-      responses:
-        200:
-          description: file found
-        404:
-          description: file not found
   /health:
     summary: Health Check
     get:
+      security: []
       x-controller: HealthCheck
+      x-middleware:
+        - Recover
+        - OpenIDMiddleware
       responses:
         200:
           description: Health Response
         500:
           description: API Internal Error
-  /api/json:
-        get:
-          operationId: Get API Details
-          x-controller: APIDiscovery
-          responses:
-            200:
-              description: API Details
-              content:
-                application/json:
-                  schema:
-                    type: string
-  /api/html:
-        get:
-          operationId: Get API Details
-          x-controller: APIDiscovery
-          responses:
-            200:
-              description: API Details
-              content:
-                application/html:
-                  schema:
-                    type: string
   /blogs:
+    parameters:
+      - in: header
+        name: someHeader
+        schema:
+          type: string
+      - in: header
+        name: someOtherHeader
+        schema:
+          type: string
+        x-context-name: soh
+      - in: header
+        name: X-Account-Id
+        schema:
+          type: string
+        x-context-name: AccountID
+      - in: query
+        name: q
+        schema:
+          type: string
+      - in: query
+        name: cost
+        schema:
+          type: number
+      - in: query
+        name: leverage
+        schema:
+          type: number
+          format: double
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-projection: Default
+      x-event-dispatcher: Default
+      x-command-disptacher: Default
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
       x-middleware:
-        - Recover
-        - ZapLogger
-        - LogLevel
+        - OpenIDMiddleware
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -252,7 +206,7 @@ paths:
           schema:
             type: integer
         - in: query
-          name: filters
+          name: _filters
           schema:
             type: array
             items:
@@ -270,10 +224,24 @@ paths:
           required: false
           description: query string
       x-context:
-        _filters:
-          - field: active
+        filters:
+          - field: status
             operator: eq
-            value: true
+            values:
+              - Active
+          - field: lastUpdated
+            operator: between
+            values:
+              - 2021-12-17 15:46:00
+              - 2021-12-18 15:46:00
+          - field: categories
+            operator: in
+            values:
+              - Technology
+              - Javascript
+        sorts:
+          - field: title
+            order: asc
         page: 1
         limit: 10
       responses:
@@ -288,54 +256,55 @@ paths:
                     type: integer
                   page:
                     type: integer
-                  items:
+                  blogs:
                     type: array
+                    x-alias: items
                     items:
                       $ref: "#/components/schemas/Blog"
-    delete:
-      operationId: Delete Blog
-      parameters:
-        - in: query
-          name: id
-          schema:
-            type: string
-          required: true
-          description: blog id
+    put:
+      operationId: Import blogs
       requestBody:
-        description: Blog info that is submitted
-        required: false
         content:
-          application/json:
+          text/csv:
             schema:
-              $ref: "#/components/schemas/Blog"
+              type: string
+              format: binary
       responses:
-        200:
-          description: Update blog
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        400:
-          description: Invalid blog submitted
+        201:
+          description: items created
 
   /blogs/{id}:
+    parameters:
+      - in: query
+        name: sequence_no
+        schema:
+          type: integer
+      - in: query
+        name: use_entity_id
+        schema:
+          type: boolean
     get:
       parameters:
         - in: path
           name: id
           schema:
-            type: integer
+            type: string
           required: true
           description: blog id
-        - in: query
-          name: sequence_no
+        - in: header
+          name: If-Match
           schema:
-            type: integer
-        - in: query
-          name: use_entity_id
-          schema:
-            type: boolean
+            type: string
           required: false
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
       summary: Get Blog by id
       operationId: Get Blog
       responses:
@@ -345,36 +314,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-        304:
-          description: Not modified
-        400:
-          description: Item doesn't exist
-
     put:
       parameters:
         - in: path
           name: id
           schema:
-            type: integer
+            type: string
           required: true
           description: blog id
         - in: header
           name: If-Match
           schema:
             type: string
-          required: false
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
       summary: Update blog details
       operationId: Update Blog
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: "#/components/schemas/Blog"
-          multipart/form-data:
             schema:
               $ref: "#/components/schemas/Blog"
       responses:
@@ -384,15 +350,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Blog"
-        400:
-          description: Request is malformed
-        404:
-          description: Item doesn't exist
-        412:
-          description: The item is stale
-        422:
-          description: Invalid content data sent
-
     delete:
       parameters:
         - in: path
@@ -405,13 +362,7 @@ paths:
           name: If-Match
           schema:
             type: string
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
+      x-schema: "Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:
@@ -530,13 +481,19 @@ paths:
           schema:
             type: string
           required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
       summary: Delete post
       responses:
         200:
           description: Delete post
 
 
-  /categories:
+  /categories/:
     post:
       operationId: Create Blog Category
       summary: Create Blog Category
@@ -592,15 +549,6 @@ paths:
           schema:
             type: string
           required: true
-        - in: header
-          name: If-None-Match
-          schema:
-             type: string
-        - in: query
-          name: use_entity_id
-          schema:
-            type: boolean
-      
       summary: Get blog category by title
       responses:
         200:
@@ -616,11 +564,6 @@ paths:
           schema:
             type: string
           required: true
-        - in: header
-          name: If-Match
-          schema:
-            type: string
-          required: false
       summary: Update category
       requestBody:
         required: true
@@ -642,6 +585,12 @@ paths:
           schema:
             type: string
           required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
       summary: Delete category
       responses:
         200:
@@ -707,8 +656,9 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
-      summary: Get Author by id
+      summary: Get Author by email and id
       responses:
         200:
           description: Get author information
@@ -727,6 +677,7 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
       summary: Update Author details
       requestBody:
@@ -753,7 +704,14 @@ paths:
           name: email
           schema:
             type: string
+            format: email
           required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
       summary: Delete author
       responses:
         200:
