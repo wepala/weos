@@ -747,11 +747,7 @@ func theServiceIsRunning() error {
 	})
 	err = API.Initialize(scenarioContext)
 	if err != nil {
-		if strings.Contains(err.Error(), "error finding folder") {
-			xfolderError = err
-		} else {
-			return err
-		}
+		return err
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
@@ -1576,7 +1572,7 @@ func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 }
 
 func aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist() error {
-	if xfolderError == nil {
+	if !strings.Contains(buf.String(), "error finding folder") {
 		return fmt.Errorf("expected an error finding the specified folder")
 	}
 	return nil
@@ -1732,7 +1728,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "WEOS-1383",
+			//Tags: "WEOS-1365",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

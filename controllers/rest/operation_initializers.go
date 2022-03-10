@@ -11,7 +11,6 @@ import (
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 )
@@ -585,25 +584,16 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		} else {
 			//this should not return an error it should log
 			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
-			for _, resp := range operation.Responses {
-				if resp.Value.Content != nil {
-					for _, content := range resp.Value.Content {
-						if content.Example != nil {
-							controller, err := api.GetController("DefaultResponseController")
-							if err != nil {
-								api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
-								return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
-							}
-							if controller != nil {
-								ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
-							}
-							middlewareNames["DefaultResponseMiddleware"] = true
-							break
-						}
-					}
-
-				}
+			//once no controller is set, the default controller and middleware is added to the path
+			controller, err := api.GetController("DefaultResponseController")
+			if err != nil {
+				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
 			}
+			if controller != nil {
+				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
+			}
+			middlewareNames["DefaultResponseMiddleware"] = true
 
 		}
 		middlewares := GetOperationMiddlewares(ctxt)
@@ -687,38 +677,6 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 		case "CONNECT":
 			api.e.CONNECT(api.Config.BasePath+echoPath, handler, pathMiddleware...)
 
-		}
-	}
-
-	for _, resp := range operation.Responses {
-		if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
-			folderPath := ""
-			err := json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
-			if err != nil {
-				return ctxt, err
-			}
-
-			_, err = os.Stat(folderPath)
-			if os.IsNotExist(err) {
-				return ctxt, fmt.Errorf("error finding folder: '%s' specified on path: '%s'", folderPath, path)
-			}
-
-			api.e.Static(path, folderPath)
-		}
-
-		if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
-			filePath := ""
-			err := json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
-			if err != nil {
-				return ctxt, err
-			}
-
-			_, err = os.Stat(filePath)
-			if os.IsNotExist(err) {
-				return ctxt, fmt.Errorf("error finding file: '%s' specified on path: '%s'", filePath, path)
-			}
-
-			api.e.File(path, filePath)
 		}
 	}
 

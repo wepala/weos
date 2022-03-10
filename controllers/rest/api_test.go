@@ -641,15 +641,13 @@ paths:
 			t.Errorf("expected categories table to exist")
 		}
 
-		found := false
-		yamlRoutes := tapi.EchoInstance().Routes()
-		for _, route := range yamlRoutes {
-			if strings.Contains(route.Name, "file") {
-				found = true
-			}
-		}
-		if found == false {
-			t.Errorf("expected the file to be present on routes")
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/file", nil)
+		tapi.EchoInstance().ServeHTTP(resp, req)
+
+		respBody := resp.Body
+		if respBody.String() != "<html><head><title>Test Page</title></head><body>Test Page</body></html>" {
+			t.Errorf("expected the response to be: %s, got %s", "<html><head><title>Test Page</title></head><body>Test Page</body></html>", respBody.String())
 		}
 	})
 	os.Remove("test.db")

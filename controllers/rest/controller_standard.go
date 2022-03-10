@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/gommon/log"
 	logs "github.com/wepala/weos/log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -671,85 +672,143 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 
 //DefaultResponseMiddleware returns content type based on content type in example
 func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	activatedResponse := map[string]bool{}
+	for _, resp := range operation.Responses {
+		if resp.Value.Content != nil {
+			for _, content := range resp.Value.Content {
+				if content.Example != nil {
+					activatedResponse["example"] = true
+				}
+			}
+		}
+	}
+
+	fileName := ""
+
+	if api.Swagger != nil {
+		for pathName, pathData := range api.Swagger.Paths {
+			if pathData == path {
+				for _, resp := range operation.Responses {
+					if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
+						folderPath := ""
+						err := json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
+						if err != nil {
+							api.e.Logger.Error(err)
+						} else {
+							_, err = os.Stat(folderPath)
+							if os.IsNotExist(err) {
+								api.e.Logger.Warnf("error finding folder: '%s' specified on path: '%s'", folderPath, pathName)
+							} else if err != nil {
+								api.e.Logger.Error(err)
+							} else {
+								api.e.Static(pathName, folderPath)
+							}
+						}
+					}
+					if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
+						filePath := ""
+						err := json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
+						if err != nil {
+							api.e.Logger.Error(err)
+						} else {
+							_, err = os.Stat(filePath)
+							if os.IsNotExist(err) {
+								api.e.Logger.Warnf("error finding file: '%s' specified on path: '%s'", filePath, pathName)
+							} else if err != nil {
+								api.e.Logger.Error(err)
+							} else {
+								fileName = filePath
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			ctx := ctxt.Request().Context()
-			//take media type from the request since the context wouldnt add it because there is no entity factory to use
-			mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
-			var bytesArray []byte
-			var err error
-			contentType := ""
-			var respCode int
-			found := false
-			if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
-				for code, resp := range operation.Responses {
-					respCode, _ = strconv.Atoi(code)
-					if resp.Value.Content[mediaType] == nil {
-						//check for wild card
-						if strings.Contains(mediaType, "*") {
-							mediaT := strings.Replace(mediaType, "*", "", -1)
-							for key, content := range resp.Value.Content {
-								if strings.Contains(key, mediaT) {
-									if content.Example != nil {
-										bytesArray, err = JSONMarshal(content.Example)
-										if err != nil {
-											api.e.Logger.Debugf("unexpected error %s ", err)
-											return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+			if activatedResponse["example"] == true {
+				//take media type from the request since the context wouldnt add it because there is no entity factory to use
+				mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+				var bytesArray []byte
+				var err error
+				contentType := ""
+				var respCode int
+				found := false
+				if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
+					for code, resp := range operation.Responses {
+						respCode, _ = strconv.Atoi(code)
+						if resp.Value.Content[mediaType] == nil {
+							//check for wild card
+							if strings.Contains(mediaType, "*") {
+								mediaT := strings.Replace(mediaType, "*", "", -1)
+								for key, content := range resp.Value.Content {
+									if strings.Contains(key, mediaT) {
+										if content.Example != nil {
+											bytesArray, err = JSONMarshal(content.Example)
+											if err != nil {
+												api.e.Logger.Debugf("unexpected error %s ", err)
+												return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+											}
+											contentType = key + "; " + "charset=UTF-8"
+											found = true
+											break
 										}
-										contentType = key + "; " + "charset=UTF-8"
-										found = true
-										break
 									}
-								}
 
+								}
+							}
+							if found {
+								break
+							}
+						} else {
+							if resp.Value.Content[mediaType].Example != nil {
+								bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+								if err != nil {
+									api.e.Logger.Debugf("unexpected error %s ", err)
+									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+								}
+								contentType = mediaType + "; " + "charset=UTF-8"
+								found = true
+								break
+							}
+						}
+					}
+				}
+				if !found { //if using the accept header nothing is found, use the first content type
+					for code, resp := range operation.Responses {
+						respCode, _ = strconv.Atoi(code)
+						for key, content := range resp.Value.Content {
+							if content.Example != nil {
+								bytesArray, err = JSONMarshal(content.Example)
+								if err != nil {
+									api.e.Logger.Debugf("unexpected error %s ", err)
+									return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+								}
+								contentType = key + "; " + "charset=UTF-8"
+								found = true
+								break
 							}
 						}
 						if found {
 							break
 						}
-					} else {
-						if resp.Value.Content[mediaType].Example != nil {
-							bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
-							if err != nil {
-								api.e.Logger.Debugf("unexpected error %s ", err)
-								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
-							}
-							contentType = mediaType + "; " + "charset=UTF-8"
-							found = true
-							break
-						}
 					}
 				}
-			}
-			if !found { //if using the accept header nothing is found, use the first content type
-				for code, resp := range operation.Responses {
-					respCode, _ = strconv.Atoi(code)
-					for key, content := range resp.Value.Content {
-						if content.Example != nil {
-							bytesArray, err = JSONMarshal(content.Example)
-							if err != nil {
-								api.e.Logger.Debugf("unexpected error %s ", err)
-								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 
-							}
-							contentType = key + "; " + "charset=UTF-8"
-							found = true
-							break
-						}
-					}
-					if found {
-						break
-					}
-				}
+				//Add response to context for controller
+				ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
+				request := ctxt.Request().WithContext(ctx)
+				ctxt.SetRequest(request)
+				return next(ctxt)
+			} else if fileName != "" {
+				ctxt.File(fileName)
 			}
 
-			//Add response to context for controller
-			ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
-			request := ctxt.Request().WithContext(ctx)
-			ctxt.SetRequest(request)
 			return next(ctxt)
-
 		}
 	}
 }
