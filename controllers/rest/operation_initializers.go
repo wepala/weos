@@ -584,17 +584,6 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		} else {
 			//this should not return an error it should log
 			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
-			//once no controller is set, the default controller and middleware is added to the path
-			controller, err := api.GetController("DefaultResponseController")
-			if err != nil {
-				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
-				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
-			}
-			if controller != nil {
-				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
-			}
-			middlewareNames["DefaultResponseMiddleware"] = true
-
 		}
 		middlewares := GetOperationMiddlewares(ctxt)
 		//there are middlewareNames let's add them
@@ -636,6 +625,23 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 	if entityFactory == nil {
 
 	}
+
+	if controller == nil {
+		//once no controller is set, the default controller and middleware is added to the path
+		controller, err = api.GetController("DefaultResponseController")
+		if err != nil {
+			api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+			return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", "DefaultResponseController", path)
+		}
+
+		middlewares := GetOperationMiddlewares(ctxt)
+		//there are middlewareNames let's add them
+		if middleware, _ := api.GetMiddleware("DefaultResponseMiddleware"); middleware != nil {
+			middlewares = append(middlewares, middleware)
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	}
+
 	//only set up routes if controller is set because echo returns an error if the handler for a route is nil
 	if controller != nil {
 		var handler echo.HandlerFunc

@@ -1728,7 +1728,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "WEOS-1365",
+			//Tags: "WEOS-1295",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
