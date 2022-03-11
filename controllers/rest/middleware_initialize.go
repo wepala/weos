@@ -82,6 +82,15 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 			}
 		}
 
+		uniquebytes, _ := json.Marshal(p.Value.Extensions[UniqueExtension])
+		if len(uniquebytes) != 0 {
+			unique := false
+			json.Unmarshal(uniquebytes, &unique)
+			if unique {
+				gormParts = append(gormParts, "unique")
+			}
+		}
+
 		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(name)) {
 			gormParts = append(gormParts, "primaryKey", "size:512")
 			//only add NOT null if it's not already in the array to avoid issue if a user also add the field to the required array
@@ -173,7 +182,8 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 				switch t {
 				case "string":
 					if p.Value.Format == "date-time" {
-						defaultValue = time.Now()
+						timeNow := time.Now()
+						defaultValue = &timeNow
 					} else {
 						var strings *string
 						defaultValue = strings

@@ -28,10 +28,21 @@ const AliasExtension = "x-alias"
 const SchemaExtension = "x-schema"
 
 //ProjectionExtension set custom projection
-const ProjectionExtension = "x-projection"
+const ProjectionExtension = "x-projections"
 
 //CommandDispatcherExtension set custom command dispatcher
 const CommandDispatcherExtension = "x-command-dispatcher"
 
 //EventStoreExtension set custom event store
 const EventStoreExtension = "x-event-store"
+
+const UniqueExtension = "x-unique"
+
+//OPENIDCONNECTURLEXTENSION set the open id connect url
+const OPENIDCONNECTURLEXTENSION = "openIdConnectUrl"
+
+//SKIPEXPIRYCHECKEXTENSION set the expiry check
+const SKIPEXPIRYCHECKEXTENSION = "skipExpiryCheck"
+
+//ContextExtension set parameters directly in the context
+const ContextExtension = "x-context"
