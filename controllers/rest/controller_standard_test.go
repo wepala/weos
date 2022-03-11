@@ -153,7 +153,8 @@ func TestStandardControllers_Create(t *testing.T) {
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw, createMw)
+		defaultMw := rest.DefaultResponseMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
+		e.POST("/blogs", controller, mw, defaultMw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()

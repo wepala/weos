@@ -27,6 +27,18 @@ func ContextInitializer(ctxt context.Context, api *RESTAPI, path string, method 
 	return ctxt, nil
 }
 
+//DefaultResponseInitializer add default desponse middleware to path
+func DefaultResponseInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	middlewares := GetOperationMiddlewares(ctxt)
+	defaultMiddleware, err := api.GetMiddleware("DefaultResponseMiddleware")
+	if err != nil {
+		return ctxt, err
+	}
+	middlewares = append(middlewares, defaultMiddleware)
+	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	return ctxt, nil
+}
+
 //ContentTypeResponseInitializer add ContentTypeResponseMiddleware middleware to path
 func ContentTypeResponseInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	middlewares := GetOperationMiddlewares(ctxt)
@@ -659,13 +671,6 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 			api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
 			return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", "DefaultResponseController", path)
 		}
-
-		middlewares := GetOperationMiddlewares(ctxt)
-		//there are middlewareNames let's add them
-		if middleware, _ := api.GetMiddleware("DefaultResponseMiddleware"); middleware != nil {
-			middlewares = append(middlewares, middleware)
-		}
-		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	}
 
 	//only set up routes if controller is set because echo returns an error if the handler for a route is nil

@@ -676,7 +676,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	for _, resp := range operation.Responses {
 		if resp.Value.Content != nil {
 			for _, content := range resp.Value.Content {
-				if content.Example != nil {
+				if content != nil && content.Example != nil {
 					activatedResponse["example"] = true
 				}
 			}
