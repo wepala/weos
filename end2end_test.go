@@ -72,8 +72,8 @@ var filters string
 var enumErr error
 var token string
 var contextWithValues context.Context
-var createdDate string
-var updatedDate string
+var createdDate interface{}
+var updatedDate interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -496,7 +496,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	createdDate = contentEntity["created"].(string)
+	createdDate = contentEntity["created"]
 
 	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
@@ -904,7 +904,7 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	updatedDate = contentEntity["updated"].(string)
+	updatedDate = contentEntity["updated"]
 
 	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
@@ -1610,14 +1610,32 @@ func theFieldShouldHaveTodaysDate(field string) error {
 	timeNow := time.Now()
 	todaysDate := timeNow.Format("2006-01-02")
 
-	switch field {
-	case "created":
-		if !strings.Contains(createdDate, todaysDate) {
-			return fmt.Errorf("expected the created date: %s to contain the current date: %s ", createdDate, todaysDate)
+	switch dbconfig.Driver {
+	case "postgres":
+		switch field {
+		case "created":
+			crDate := createdDate.(time.Time).Format("2006-01-02")
+			if !strings.Contains(crDate, todaysDate) {
+				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", crDate, todaysDate)
+			}
+		case "updated":
+			upDate := updatedDate.(time.Time).Format("2006-01-02")
+			if !strings.Contains(upDate, todaysDate) {
+				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", upDate, todaysDate)
+			}
 		}
-	case "updated":
-		if !strings.Contains(updatedDate, todaysDate) {
-			return fmt.Errorf("expected the created date: %s to contain the current date: %s ", updatedDate, todaysDate)
+	default:
+		switch field {
+		case "created":
+			crDate := createdDate.(string)
+			if !strings.Contains(crDate, todaysDate) {
+				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", crDate, todaysDate)
+			}
+		case "updated":
+			upDate := updatedDate.(string)
+			if !strings.Contains(upDate, todaysDate) {
+				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", upDate, todaysDate)
+			}
 		}
 	}
 
@@ -1727,8 +1745,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1342",
+			Tags:   "~long && ~skipped",
+			//Tags: "WEOS-1342-Focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
