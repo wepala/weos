@@ -478,7 +478,7 @@ Feature: Create content
     the integer.
 
 
-    Given And the specification is
+    Given the specification is
     """
     openapi: 3.0.3
     info:

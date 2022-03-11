@@ -1592,40 +1592,6 @@ func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
 	return nil
 }
 
-func andTheSpecificationIs(arg1 *godog.DocString) error {
-	dropDB()
-	openAPI = arg1.Content
-	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
-	tapi, err := api.New(openAPI)
-	if err != nil {
-		errs = err
-	}
-	tapi.DB = db
-	API = *tapi
-	e = API.EchoInstance()
-	buf = bytes.Buffer{}
-	e.Logger.SetOutput(&buf)
-	err = API.Initialize(scenarioContext)
-	if err != nil {
-		if strings.Contains(err.Error(), "to have enum options of the same type") {
-			enumErr = err
-		} else {
-			errs = err
-		}
-	}
-	proj, err := API.GetProjection("Default")
-	if err == nil {
-		p := proj.(*projections.GORMDB)
-		if p != nil {
-			gormDB = p.DB()
-		}
-	}
-	if err != nil {
-		errs = err
-	}
-	return nil
-}
-
 func theIdShouldBeA(arg1, format string) error {
 	switch format {
 	case "uuid":
@@ -1739,7 +1705,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
-	ctx.Step(`^And the specification is$`, andTheSpecificationIs)
 	ctx.Step(`^the "([^"]*)" id should be a "([^"]*)"$`, theIdShouldBeA)
 
 }
