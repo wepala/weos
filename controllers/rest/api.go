@@ -413,9 +413,36 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 				}
 			}
 
-			//TODO loop over paths and pull operation ids out and save in string arr
-			//TODO then loop over schemas -> properties -> check for x-update.
-			//TODO if there is x-update, compare against operation ids, fail if none match.
+			//this ranges over the paths and pulls out the operationIDs into an array
+			opIDs := []string{}
+			idFound := false
+			for _, pathData := range p.Swagger.Paths {
+				for _, op := range pathData.Operations() {
+					if op.OperationID != "" {
+						opIDs = append(opIDs, op.OperationID)
+					}
+				}
+			}
+
+			//this ranges over the properties, pulls the x-update and them compares it against the valid operation ids in the yaml
+			for _, scheme := range p.Swagger.Components.Schemas {
+				for _, prop := range scheme.Value.Properties {
+					xUpdate := []string{}
+					xUpdateBytes, _ := json.Marshal(prop.Value.Extensions["x-update"])
+					json.Unmarshal(xUpdateBytes, &xUpdate)
+					for _, r := range xUpdate {
+						idFound = false
+						for _, id := range opIDs {
+							if r == id {
+								idFound = true
+							}
+						}
+						if !idFound {
+							return fmt.Errorf("provided x-update operation id: %s is invalid", r)
+						}
+					}
+				}
+			}
 
 			//get the database schema
 			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)

@@ -748,7 +748,11 @@ func theServiceIsRunning() error {
 	})
 	err = API.Initialize(scenarioContext)
 	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "provided x-update operation id") {
+			errs = err
+		} else {
+			return err
+		}
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
@@ -1595,7 +1599,10 @@ func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
 }
 
 func anErrorIsReturned() error {
-	return godog.ErrPending
+	if !strings.Contains(errs.Error(), "provided x-update operation id") {
+		return fmt.Errorf("expected the error to contain: %s, got %s", "provided x-update operation id", errs.Error())
+	}
+	return nil
 }
 
 func theFieldShouldHaveTodaysDate(field string) error {
@@ -1721,7 +1728,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1342-Err",
+			Tags: "WEOS-1342",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
