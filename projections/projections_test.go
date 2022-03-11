@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -4360,5 +4361,548 @@ components:
 			t.Fatalf("expected to get unique error on title 'once'")
 		}
 
+	})
+}
+
+func TestMetaProjectionError_Add(t *testing.T) {
+	err := new(projections.MetaError)
+	err.Add(errors.New("foo"))
+	err.Add(errors.New("bar"))
+	if err.Error() != "foo,bar" {
+		t.Errorf("expected the error to be '%s',got '%s'", "foo,bar", err.Error())
+	}
+}
+
+func TestMetaProjection_Migrate(t *testing.T) {
+	t.Run("successful migration", func(t *testing.T) {
+		mockProjection1 := &ProjectionMock{
+			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+				return nil
+			},
+		}
+		mockProjection2 := &ProjectionMock{
+			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+				return nil
+			},
+		}
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		err := metaProjection.Migrate(context.TODO(), nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error running migrate '%s'", err.Error())
+		}
+
+		if len(mockProjection1.MigrateCalls()) != 1 {
+			t.Errorf("expected the migrate function to be called on projection 1 %d time, called %d times", 1, len(mockProjection1.MigrateCalls()))
+		}
+
+		if len(mockProjection2.MigrateCalls()) != 1 {
+			t.Errorf("expected the migrate function to be called on projection 1 %d time, called %d times", 1, len(mockProjection2.MigrateCalls()))
+		}
+	})
+	t.Run("migration with errors", func(t *testing.T) {
+		mockProjection1 := &ProjectionMock{
+			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+				return errors.New("some error")
+			},
+		}
+		mockProjection2 := &ProjectionMock{
+			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+				return nil
+			},
+		}
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		err := metaProjection.Migrate(context.TODO(), nil, nil)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+
+		if err.Error() != "some error" {
+			t.Errorf("expected the error to be '%s', got '%s'", "some error", err.Error())
+		}
+		//all the migrations should still run
+		if len(mockProjection1.MigrateCalls()) != 1 {
+			t.Errorf("expected the migrate function to be called on projection 1 %d time, called %d times", 1, len(mockProjection1.MigrateCalls()))
+		}
+
+		if len(mockProjection2.MigrateCalls()) != 1 {
+			t.Errorf("expected the migrate function to be called on projection 1 %d time, called %d times", 1, len(mockProjection2.MigrateCalls()))
+		}
+	})
+}
+
+func TestMetaProjection_GetEventHandler(t *testing.T) {
+	t.Run("send event", func(t *testing.T) {
+		var projection1Handled bool
+		var projection2Handled bool
+		mockProjection1 := &ProjectionMock{
+			GetEventHandlerFunc: func() weos.EventHandler {
+				return func(ctx context.Context, event weos.Event) error {
+					switch event.Type {
+					case "Test":
+						projection1Handled = true
+
+					}
+					return nil
+				}
+			},
+		}
+
+		mockProjection2 := &ProjectionMock{
+			GetEventHandlerFunc: func() weos.EventHandler {
+				return func(ctx context.Context, event weos.Event) error {
+					return nil
+				}
+			},
+		}
+
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		event := weos.NewEntityEvent("Test", &weos.BasicEntity{}, "123", &weos.BasicEntity{})
+		err := metaProjection.GetEventHandler()(context.TODO(), *event)
+		if err != nil {
+			t.Fatalf("unexpected error running event handler '%s'", err.Error())
+		}
+
+		if len(mockProjection1.GetEventHandlerCalls()) != 1 {
+			t.Errorf("expecgted get event handler to be called %d time, called %d times", 1, len(mockProjection1.GetEventHandlerCalls()))
+		}
+
+		if len(mockProjection2.GetEventHandlerCalls()) != 1 {
+			t.Errorf("expecgted get event handler to be called %d time, called %d times", 2, len(mockProjection1.GetEventHandlerCalls()))
+		}
+
+		if !projection1Handled {
+			t.Error("expected the projection1 to handle the event")
+		}
+
+		if projection2Handled {
+			t.Error("expected the projection2 to NOT handle the event")
+		}
+	})
+}
+
+func TestMetaProjection_GetByEntityID(t *testing.T) {
+	//setup mock projections
+	mockProjection1 := &ProjectionMock{
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
+			if id == "123" {
+				entity := make(map[string]interface{})
+				entity["title"] = "Foo"
+				return entity, nil
+			}
+			return nil, nil
+		},
+	}
+
+	mockProjection2 := &ProjectionMock{
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
+			if id == "456" {
+				entity := make(map[string]interface{})
+				entity["title"] = "Bar"
+				return entity, nil
+			}
+
+			if id == "789" {
+				return nil, errors.New("some error")
+			}
+			return nil, nil
+		},
+	}
+
+	//if the entity is found in the first one it should stop
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entity, err := metaProjection.GetByEntityID(context.TODO(), nil, "123")
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if _, ok := entity["title"]; !ok {
+			t.Errorf("expected the entity to have a title")
+		}
+
+		if len(mockProjection2.GetByEntityIDCalls()) > 0 {
+			t.Errorf("didn't expect the second projection to be hit")
+		}
+	})
+
+	//if the entity is not found in the first projection it should go to the next one until it get's a not nil response
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entity, err := metaProjection.GetByEntityID(context.TODO(), nil, "456")
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if _, ok := entity["title"]; !ok {
+			t.Errorf("expected the entity to have a title")
+		}
+	})
+
+	t.Run("should return meta error if no entity is found", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		_, err := metaProjection.GetByEntityID(context.TODO(), nil, "789")
+		if err == nil {
+			t.Fatal("expected error to be returned")
+		}
+		if err.Error() != "some error" {
+			t.Errorf("expected the error string to be '%s', got '%s'", "some error", err.Error())
+		}
+	})
+
+	t.Run("should return nil if nothing ", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entity, err := metaProjection.GetByEntityID(context.TODO(), nil, "798797")
+		if err != nil {
+			t.Errorf("unexpected error '%s'", err)
+		}
+
+		if entity != nil {
+			t.Errorf("expected no entity to be found, got '%v'", entity)
+		}
+	})
+}
+
+func TestMetaProjection_GetContentEntity(t *testing.T) {
+	//setup mock projections
+	mockProjection1 := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context.Context, entityFactory weos.EntityFactory, id string) (*weos.ContentEntity, error) {
+			if id == "123" {
+				entity := &weos.ContentEntity{}
+				properties := make(map[string]interface{})
+				properties["title"] = "Test"
+				entity.Property = properties
+				return entity, nil
+			}
+			return nil, nil
+		},
+	}
+
+	mockProjection2 := &ProjectionMock{
+		GetContentEntityFunc: func(ctx context.Context, entityFactory weos.EntityFactory, id string) (*weos.ContentEntity, error) {
+			if id == "456" {
+				entity := &weos.ContentEntity{}
+				properties := make(map[string]interface{})
+				properties["title"] = "Bar"
+				entity.Property = properties
+				return entity, nil
+			}
+
+			if id == "789" {
+				return nil, errors.New("some error")
+			}
+			return nil, nil
+		},
+	}
+
+	//if the entity is found in the first one it should stop
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entity, err := metaProjection.GetContentEntity(context.TODO(), nil, "123")
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if entity == nil {
+			t.Errorf("expected entity")
+		}
+
+		if len(mockProjection2.GetContentEntityCalls()) > 0 {
+			t.Errorf("didn't expect the second projection to be hit")
+		}
+	})
+
+	//if the entity is not found in the first projection it should go to the next one until it get's a not nil response
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entity, err := metaProjection.GetContentEntity(context.TODO(), nil, "456")
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if entity == nil {
+			t.Errorf("expected entity")
+		}
+	})
+
+	t.Run("should return meta error if no entity is found", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		_, err := metaProjection.GetContentEntity(context.TODO(), nil, "789")
+		if err == nil {
+			t.Fatal("expected error to be returned")
+		}
+		if err.Error() != "some error" {
+			t.Errorf("expected the error string to be '%s', got '%s'", "some error", err.Error())
+		}
+	})
+
+	t.Run("should return nil if nothing ", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entity, err := metaProjection.GetContentEntity(context.TODO(), nil, "798797")
+		if err != nil {
+			t.Errorf("unexpected error '%s'", err)
+		}
+
+		if entity != nil {
+			t.Errorf("expected no entity to be found, got '%v'", entity)
+		}
+	})
+}
+
+func TestMetaProjection_GetContentEntities(t *testing.T) {
+	//setup mock projections
+	mockProjection1 := &ProjectionMock{
+		GetContentEntitiesFunc: func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+			if query == "123" {
+				entity := make(map[string]interface{})
+				entity["title"] = "Foo"
+				return []map[string]interface{}{entity}, 1, nil
+			}
+			return nil, 0, nil
+		},
+	}
+
+	mockProjection2 := &ProjectionMock{
+		GetContentEntitiesFunc: func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+			if query == "456" {
+				entity := make(map[string]interface{})
+				entity["title"] = "Bar"
+				return []map[string]interface{}{entity}, 1, nil
+			}
+			if query == "789" {
+				return nil, 0, errors.New("some error")
+			}
+			return nil, 0, nil
+		},
+	}
+
+	//if the entity is found in the first one it should stop
+	t.Run("get entities from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entities, _, err := metaProjection.GetContentEntities(context.TODO(), nil, 1, 0, "123", nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if len(entities) == 0 {
+			t.Errorf("expected entity")
+		}
+
+		if len(mockProjection2.GetContentEntitiesCalls()) > 0 {
+			t.Errorf("didn't expect the second projection to be hit")
+		}
+	})
+
+	//if the entity is not found in the first projection it should go to the next one until it get's a not nil response
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entities, _, err := metaProjection.GetContentEntities(context.TODO(), nil, 1, 0, "456", nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if len(entities) == 0 {
+			t.Errorf("expected entity")
+		}
+	})
+
+	t.Run("should return meta error if no entity is found", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		_, _, err := metaProjection.GetContentEntities(context.TODO(), nil, 1, 0, "789", nil, nil)
+		if err == nil {
+			t.Fatal("expected error to be returned")
+		}
+		if err.Error() != "some error" {
+			t.Errorf("expected the error string to be '%s', got '%s'", "some error", err.Error())
+		}
+	})
+
+	t.Run("should return nil if nothing ", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		entities, _, err := metaProjection.GetContentEntities(context.TODO(), nil, 1, 0, "798797", nil, nil)
+		if err != nil {
+			t.Errorf("unexpected error '%s'", err)
+		}
+
+		if len(entities) != 0 {
+			t.Errorf("expected no entity to be found, got %d", len(entities))
+		}
+	})
+}
+
+func TestMetaProjection_GetByKey(t *testing.T) {
+	//setup mock projections
+	mockProjection1 := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			if id, ok := identifiers["id"]; ok {
+				if id == "123" {
+					entity := make(map[string]interface{})
+					entity["title"] = "Foo"
+					return entity, nil
+				}
+			}
+			return nil, nil
+		},
+	}
+
+	mockProjection2 := &ProjectionMock{
+		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			if id, ok := identifiers["id"]; ok {
+				if id == "456" {
+					entity := make(map[string]interface{})
+					entity["title"] = "Bar"
+					return entity, nil
+				}
+
+				if id == "789" {
+					return nil, errors.New("some error")
+				}
+			}
+			return nil, nil
+		},
+	}
+
+	//if the entity is found in the first one it should stop
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		identifiers := make(map[string]interface{})
+		identifiers["id"] = "123"
+		entity, err := metaProjection.GetByKey(context.TODO(), nil, identifiers)
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if _, ok := entity["title"]; !ok {
+			t.Errorf("expected the entity to have a title")
+		}
+
+		if len(mockProjection2.GetByEntityIDCalls()) > 0 {
+			t.Errorf("didn't expect the second projection to be hit")
+		}
+	})
+
+	//if the entity is not found in the first projection it should go to the next one until it get's a not nil response
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		identifiers := make(map[string]interface{})
+		identifiers["id"] = "456"
+		entity, err := metaProjection.GetByKey(context.TODO(), nil, identifiers)
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if _, ok := entity["title"]; !ok {
+			t.Errorf("expected the entity to have a title")
+		}
+	})
+
+	t.Run("should return meta error if no entity is found", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		identifiers := make(map[string]interface{})
+		identifiers["id"] = "789"
+		_, err := metaProjection.GetByKey(context.TODO(), nil, identifiers)
+		if err == nil {
+			t.Fatal("expected error to be returned")
+		}
+		if err.Error() != "some error" {
+			t.Errorf("expected the error string to be '%s', got '%s'", "some error", err.Error())
+		}
+	})
+
+	t.Run("should return nil if nothing ", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		identifiers := make(map[string]interface{})
+		identifiers["id"] = "798797"
+		entity, err := metaProjection.GetByKey(context.TODO(), nil, identifiers)
+		if err != nil {
+			t.Errorf("unexpected error '%s'", err)
+		}
+
+		if entity != nil {
+			t.Errorf("expected no entity to be found, got '%v'", entity)
+		}
+	})
+}
+
+func TestMetaProjection_GetByProperties(t *testing.T) {
+	//setup mock projections
+	mockProjection1 := &ProjectionMock{
+		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			if id, ok := identifiers["id"]; ok {
+				if id == "123" {
+					entity := make(map[string]interface{})
+					entity["title"] = "Foo"
+					return []map[string]interface{}{entity}, nil
+				}
+			}
+			return nil, nil
+		},
+	}
+
+	mockProjection2 := &ProjectionMock{
+		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			if id, ok := identifiers["id"]; ok {
+				if id == "456" {
+					entity := make(map[string]interface{})
+					entity["title"] = "Bar"
+					return []map[string]interface{}{entity}, nil
+				}
+
+				if id == "789" {
+					return nil, errors.New("some error")
+				}
+			}
+			return nil, nil
+		},
+	}
+
+	//if the entity is found in the first one it should stop
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		identifiers := make(map[string]interface{})
+		identifiers["id"] = "123"
+		entities, err := metaProjection.GetByProperties(context.TODO(), nil, identifiers)
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if len(entities) < 0 {
+			t.Errorf("expected there to be entities")
+		}
+
+		if len(mockProjection2.GetByPropertiesCalls()) > 0 {
+			t.Errorf("didn't expect the second projection to be hit")
+		}
+	})
+
+	//if the entity is not found in the first projection it should go to the next one until it get's a not nil response
+	t.Run("get entity from second projection", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		identifiers := make(map[string]interface{})
+		identifiers["id"] = "456"
+		entities, err := metaProjection.GetByProperties(context.TODO(), nil, identifiers)
+		if err != nil {
+			t.Fatalf("unexpected error '%s'", err)
+		}
+		if len(entities) < 0 {
+			t.Errorf("expected the entity to have a title")
+		}
+	})
+
+	t.Run("should return meta error if no entity is found", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		identifiers := make(map[string]interface{})
+		identifiers["id"] = "789"
+		_, err := metaProjection.GetByProperties(context.TODO(), nil, identifiers)
+		if err == nil {
+			t.Fatal("expected error to be returned")
+		}
+		if err.Error() != "some error" {
+			t.Errorf("expected the error string to be '%s', got '%s'", "some error", err.Error())
+		}
+	})
+
+	t.Run("should return nil if nothing ", func(t *testing.T) {
+		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
+		identifiers := make(map[string]interface{})
+		identifiers["id"] = "798797"
+		entity, err := metaProjection.GetByProperties(context.TODO(), nil, identifiers)
+		if err != nil {
+			t.Errorf("unexpected error '%s'", err)
+		}
+
+		if entity != nil {
+			t.Errorf("expected no entity to be found, got '%v'", entity)
+		}
 	})
 }

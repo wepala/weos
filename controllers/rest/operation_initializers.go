@@ -187,16 +187,21 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 	}
 
 	if projectionExtension, ok := operation.ExtensionProps.Extensions[ProjectionExtension]; ok {
-		projectionName := ""
-		err := json.Unmarshal(projectionExtension.(json.RawMessage), &projectionName)
+		var projectionNames []string
+		err := json.Unmarshal(projectionExtension.(json.RawMessage), &projectionNames)
 		if err != nil {
 			return ctxt, err
 		}
-		projection, err := api.GetProjection(projectionName)
-		if err != nil {
-			return ctxt, fmt.Errorf("unregistered projection '%s' specified on path '%s'", projectionName, path)
+		//get the existing middleware from context and then add user defined middleware to it
+		definedProjections := GetOperationProjections(ctxt)
+		for _, projectionName := range projectionNames {
+			projection, err := api.GetProjection(projectionName)
+			if err != nil {
+				return ctxt, fmt.Errorf("unregistered projection '%s' specified on path '%s'", projectionName, path)
+			}
+			definedProjections = append(definedProjections, projection)
 		}
-		ctxt = context.WithValue(ctxt, weoscontext.PROJECTION, projection)
+		ctxt = context.WithValue(ctxt, weoscontext.PROJECTIONS, definedProjections)
 	}
 
 	if commandDispatcherExtension, ok := operation.ExtensionProps.Extensions[CommandDispatcherExtension]; ok {
@@ -607,8 +612,17 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 	controller := GetOperationController(ctxt)
 	projection := GetOperationProjection(ctxt)
 	if projection == nil {
-		projection, err = api.GetProjection("Default")
-
+		//if there are user defined projections on the operation let's create a MetaProjection and use that
+		definedProjections := GetOperationProjections(ctxt)
+		if len(definedProjections) > 0 {
+			metaProjection := new(projections.MetaProjection)
+			for _, userProjection := range definedProjections {
+				metaProjection.Add(userProjection)
+			}
+			projection = metaProjection
+		} else {
+			projection, err = api.GetProjection("Default")
+		}
 	}
 	commandDispatcher := GetOperationCommandDispatcher(ctxt)
 	if commandDispatcher == nil {
@@ -719,6 +733,13 @@ func GetOperationEventStore(ctx context.Context) model.EventRepository {
 
 func GetOperationProjection(ctx context.Context) projections.Projection {
 	if value, ok := ctx.Value(weoscontext.PROJECTION).(projections.Projection); ok {
+		return value
+	}
+	return nil
+}
+
+func GetOperationProjections(ctx context.Context) []projections.Projection {
+	if value, ok := ctx.Value(weoscontext.PROJECTIONS).([]projections.Projection); ok {
 		return value
 	}
 	return nil
