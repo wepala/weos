@@ -441,6 +441,28 @@ func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.
 	return w, nil
 }
 
+func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
+	err := w.SetValueFromPayload(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	err = w.GenerateID(payload)
+	if err != nil {
+		return nil, err
+	}
+	eventPayload, err := json.Marshal(w.Property)
+	if err != nil {
+		return nil, NewDomainError("error marshalling event payload", w.Schema.Title, w.ID, err)
+	}
+	event := NewEntityEvent(CREATE_EVENT, w, w.ID, eventPayload)
+	if err != nil {
+		return nil, err
+	}
+	w.NewChange(event)
+	err = w.ApplyEvents([]*Event{event})
+	return w, err
+}
+
 //Deprecated: this duplicates the work of making the dynamic struct builder. Use FromSchemaAndBuilder instead (this is used by the EntityFactory)
 //FromSchema builds properties from the schema
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
@@ -753,42 +775,41 @@ func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 }
 
 //GenerateID adds a generated id to the payload based on the schema
-func GenerateID(payload []byte, entityFactory EntityFactory) ([]byte, error) {
-	schema := entityFactory.Schema()
-	properties := entityFactory.Schema().ExtensionProps.Extensions["x-identifier"]
-	entity := map[string]interface{}{}
-	err := json.Unmarshal(payload, &entity)
+func (w *ContentEntity) GenerateID(payload []byte) error {
+	tentity := make(map[string]interface{})
+	properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+	err := json.Unmarshal(payload, w)
 	if err != nil {
-		return payload, err
+		return err
 	}
 	if properties != nil {
 		propArray := []string{}
 		err = json.Unmarshal(properties.(json.RawMessage), &propArray)
 		if err != nil {
-			return payload, fmt.Errorf("unexpected error unmarshalling identifiers: %s", err)
+			return fmt.Errorf("unexpected error unmarshalling identifiers: %s", err)
 		}
 		if len(propArray) == 1 { // if there is only one x-identifier specified then it should auto generate the identifier
 			property := propArray[0]
-			if entity[property] == nil {
-				if schema.Properties[property].Value.Format != "" { //if the format is specified
-					if schema.Properties[property].Value.Type == "string" {
-						switch schema.Properties[property].Value.Format {
-						case "ksuid":
-							entity[property] = ksuid.New().String()
-						case "uuid":
-							entity[property] = uuid.NewString()
-						}
+			if w.Schema.Properties[property].Value.Format != "" { //if the format is specified
+				if w.Schema.Properties[property].Value.Type == "string" && w.GetString(property) == "" {
+					switch w.Schema.Properties[property].Value.Format {
+					case "ksuid":
+						tentity[property] = ksuid.New().String()
+					case "uuid":
+						tentity[property] = uuid.NewString()
 					}
-				} else { //if the format is not specified
-					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
-					return payload, NewDomainError(errr, entityFactory.Name(), "", nil)
 				}
+			} else { //if the format is not specified
+				errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+				return NewDomainError(errr, w.Schema.Title, "", nil)
 			}
+
 		}
 	}
-	payload, err = json.Marshal(entity)
+	generatedIdentifier, err := json.Marshal(tentity)
 	if err != nil {
-		return payload, err
+		return err
 	}
-	return payload, nil
+
+	return json.Unmarshal(generatedIdentifier, w)
 }
