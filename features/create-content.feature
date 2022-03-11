@@ -366,6 +366,7 @@ Feature: Create content
               400:
                 description: Invalid blog submitted
       """
+      And the "OpenAPI 3.0" specification is parsed
       And "Sojourner" is on the "Blog" create screen
       And "Sojourner" enters "Some Blog" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
@@ -461,6 +462,7 @@ Feature: Create content
             400:
               description: Invalid blog submitted
     """
+    And the "OpenAPI 3.0" specification is parsed
     And "Sojourner" is on the "Blog" create screen
     And "Sojourner" enters "Some Blog" in the "title" field
     And "Sojourner" enters "Some Description" in the "description" field
@@ -556,6 +558,7 @@ Feature: Create content
             400:
               description: Invalid blog submitted
     """
+    And the "OpenAPI 3.0" specification is parsed
     And "Sojourner" is on the "Blog" create screen
     And "Sojourner" enters "Some Blog" in the "title" field
     And "Sojourner" enters "Some Description" in the "description" field
