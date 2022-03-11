@@ -288,7 +288,7 @@ Feature: Create content
       The id for an schema is automatically generated when the identifier is a single field and there is no value for that
       field in the schema. The generation of the id should be based on the type and format of the identifier.
 
-      Given And the specification is
+      Given the specification is
       """
       openapi: 3.0.3
       info:
@@ -384,7 +384,7 @@ Feature: Create content
     If the id of a schema is a string and the format uuid is specified then generate a uuid
 
 
-    Given And the specification is
+    Given the specification is
     """
     openapi: 3.0.3
     info:

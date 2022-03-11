@@ -555,7 +555,7 @@ func theSpecificationIs(arg1 *godog.DocString) error {
 }
 
 func theSpecificationIsParsed(arg1 string) error {
-	dropDB()
+	dropDB() //dropping the db is necessary for weos-1382 since the scenario has its own spec file it needs to overwite the background spec file
 	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	if err != nil {
