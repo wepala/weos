@@ -1611,7 +1611,7 @@ func theFieldShouldHaveTodaysDate(field string) error {
 	todaysDate := timeNow.Format("2006-01-02")
 
 	switch dbconfig.Driver {
-	case "postgres":
+	case "postgres", "mysql":
 		switch field {
 		case "created":
 			crDate := createdDate.(time.Time).Format("2006-01-02")
@@ -1624,7 +1624,7 @@ func theFieldShouldHaveTodaysDate(field string) error {
 				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", upDate, todaysDate)
 			}
 		}
-	default:
+	case "sqlite3":
 		switch field {
 		case "created":
 			crDate := createdDate.(string)
@@ -1745,8 +1745,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "WEOS-1342-Focus",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1342",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
