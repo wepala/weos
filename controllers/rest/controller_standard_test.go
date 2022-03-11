@@ -2048,9 +2048,10 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
-		e.GET("/", controller, mw, defaultMiddleware)
+		e.GET("/", controller, mw, cResponseMiddleware, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2066,9 +2067,10 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/page", nil)
 		req.Header.Set(weoscontext.ACCEPT, "text/html")
 		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
-		e.GET("/page", controller, mw, defaultMiddleware)
+		e.GET("/page", controller, mw, cResponseMiddleware, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2085,9 +2087,10 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/page", nil)
 		req.Header.Set(weoscontext.ACCEPT, "exam")
 		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
-		e.GET("/page", controller, mw, defaultMiddleware)
+		e.GET("/page", controller, mw, cResponseMiddleware, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2103,9 +2106,10 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/page", nil)
 		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
-		e.GET("/page", controller, mw, defaultMiddleware)
+		e.GET("/page", controller, mw, cResponseMiddleware, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2113,6 +2117,52 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 
 		if response.StatusCode != http.StatusOK {
 			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+	})
+	t.Run("sending a request where there is more than one content type in responses and has multiple accept headers ", func(t *testing.T) {
+		path := swagger.Paths.Find("/page")
+		resp := httptest.NewRecorder()
+		acceptHeader := "sskjfjd," + "text/html" + ",application/*"
+		req := httptest.NewRequest(http.MethodGet, "/page", nil)
+		req.Header.Set(weoscontext.ACCEPT, acceptHeader)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/page", controller, mw, cResponseMiddleware, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+		if response.Header["Content-Type"][0] != "text/html; charset=UTF-8" {
+			t.Errorf("expected response code to be %s, got %s", "text/html; charset=UTF-8", response.Header["Content-Type"][0])
+		}
+	})
+	t.Run("sending a request where there is more than one content type in responses and has an incorrect accept header but the first content type has no example ", func(t *testing.T) {
+		path := swagger.Paths.Find("/another")
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/another", nil)
+		req.Header.Set(weoscontext.ACCEPT, "exam")
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/another", controller, mw, cResponseMiddleware, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusCreated {
+			t.Errorf("expected response code to be %d, got %d", http.StatusCreated, response.StatusCode)
+		}
+		if response.Header["Content-Type"][0] != "application/json; charset=UTF-8" {
+			t.Errorf("expected response code to be %s, got %s", "application/json; charset=UTF-8", response.Header["Content-Type"][0])
 		}
 	})
 }

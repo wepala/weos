@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	weosContext "github.com/wepala/weos/context"
 	"io"
+	weosContext "github.com/wepala/weos/context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -76,6 +76,7 @@ var xfolderName string
 var contextWithValues context.Context
 var mockProjections map[string]*ProjectionMock
 var mockEventStores map[string]*EventRepositoryMock
+var expectedContentType string
 
 type FilterProperties struct {
 	Operator string
@@ -113,6 +114,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	page = 0
 	limit = 0
 	token = ""
+	expectedContentType = ""
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
@@ -1548,6 +1550,7 @@ func theContentTypeShouldBe(mediaType string) error {
 	if rec.Header().Get("Content-Type") != mediaType {
 		return fmt.Errorf("expect content type to be %s got %s", mediaType, rec.Header().Get("Content-Type"))
 	}
+	expectedContentType = mediaType
 	return nil
 }
 
@@ -1558,11 +1561,16 @@ func theHeaderIsSetWithValue(key, value string) error {
 
 func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 	defer rec.Result().Body.Close()
+	var exp []byte
 	results, err := io.ReadAll(rec.Result().Body)
 	if err != nil {
 		return err
 	}
-	exp, err := api.JSONMarshal(expectResp.Content)
+	if strings.Contains(expectedContentType, "json") {
+		exp, err = json.Marshal(expectResp.Content)
+	} else {
+		exp, err = api.JSONMarshal(expectResp.Content)
+	}
 	if err != nil {
 		return err
 	}
