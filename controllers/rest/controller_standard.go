@@ -872,6 +872,24 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
+//RenderTemplatesMiddleware takes templates and return them in the response
+func RenderTemplatesMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+
+			return next(c)
+		}
+	}
+}
+
+func RenderTemplatesController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		newContext := context.Request().Context()
+		return nil
+
+	}
+}
+
 func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
