@@ -28,7 +28,7 @@ const AliasExtension = "x-alias"
 const SchemaExtension = "x-schema"
 
 //ProjectionExtension set custom projection
-const ProjectionExtension = "x-projection"
+const ProjectionExtension = "x-projections"
 
 //CommandDispatcherExtension set custom command dispatcher
 const CommandDispatcherExtension = "x-command-dispatcher"
