@@ -37,7 +37,7 @@ Feature: Serve HTML Content
             400:
               description:
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/asset/some.css" is hit
     Then a 200 response should be returned
     And the content type should be "text/css; charset=utf-8"
@@ -65,7 +65,7 @@ Feature: Serve HTML Content
             400:
               description:
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/some.css" is hit
     Then a 200 response should be returned
     And the content type should be "text/css; charset=utf-8"
@@ -93,7 +93,7 @@ Feature: Serve HTML Content
             400:
               description:
     """
-    When the service is running
+    When the "OpenAPI 3.0" specification is parsed
     Then a warning should be shown informing the developer that the folder doesn't exist
 
   @WEOS-1295
@@ -117,7 +117,7 @@ Feature: Serve HTML Content
             402:
               description: User not authenticated
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
     And the content type should be "text/html; charset=utf-8"
@@ -169,7 +169,7 @@ Feature: Serve HTML Content
             402:
               description: User not authenticated
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
     And the content type should be "text/html"
@@ -226,7 +226,7 @@ Feature: Serve HTML Content
             402:
               description: User not authenticated
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/?title=Test&content=LoremIpsum" is hit
     Then a 200 response should be returned
     And the content type should be "text/html"
@@ -272,7 +272,7 @@ Feature: Serve HTML Content
             402:
               description: User not authenticated
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/" is hit
     Then a 500 response should be returned
 
