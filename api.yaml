@@ -189,7 +189,7 @@ paths:
                     type: string
   /api/html:
         get:
-          operationId: Get API Details
+          operationId: Get API HTML
           x-controller: APIDiscovery
           responses:
             200:
@@ -280,31 +280,6 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Blog"
-    delete:
-      operationId: Delete Blog
-      parameters:
-        - in: query
-          name: id
-          schema:
-            type: string
-          required: true
-          description: blog id
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
-      responses:
-        200:
-          description: Update blog
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Blog"
-        400:
-          description: Invalid blog submitted
 
   /blogs/{id}:
     get:
@@ -393,13 +368,6 @@ paths:
           name: If-Match
           schema:
             type: string
-      requestBody:
-        description: Blog info that is submitted
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Blog"
       summary: Delete blog
       operationId: Delete Blog
       responses:
