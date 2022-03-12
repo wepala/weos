@@ -590,6 +590,7 @@ Feature: Create Content Types
     Then the "Blog" is created
       | id    | title                                                        | description                       |
       | 3     | $2a$12$pvNCX5ILun9ZkI1lQQrDnOguN8UQrX14.gsS/6jBkvjL8tehmdn4i | Some Description                  |
+
   @WEOS-1399
   Scenario: Hash field using sha3-256
 
@@ -672,6 +673,7 @@ Feature: Create Content Types
     Then the "Blog" is created
       | id    | title                                                            | description                       |
       | 3     | a7e783d23a8c42afe170370a29851a571e18493ef14745ea276005726414d379 | Some Description                  |
+
   @WEOS-1399
   Scenario: Hash field using sha3-512
 
@@ -754,6 +756,7 @@ Feature: Create Content Types
     Then the "Blog" is created
       | id    | title                                                            | description                       |
       | 3     | a7e783d23a8c42afe170370a29851a571e18493ef14745ea276005726414d379 | Some Description                  |
+
   @WEOS-1399
   Scenario: Hash field using sha256
 
@@ -836,6 +839,7 @@ Feature: Create Content Types
     Then the "Blog" is created
       | id    | title                                                            | description                       |
       | 3     | 88a2f684b295a320596a17e95ab3a710eedf3d8428e80c05bd061b2bd8bd5021 | Some Description                  |
+
   @WEOS-1399
   Scenario: Base64 encode field
 
