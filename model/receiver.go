@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	weosContext "github.com/wepala/weos/context"
-
 	"golang.org/x/net/context"
 )
 
@@ -31,11 +30,14 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 		ctx = context.WithValue(ctx, weosContext.WEOS_ID, command.Metadata.EntityID)
 	}
 	newEntity, err := entityFactory.CreateEntityWithValues(ctx, command.Payload)
-	if err != nil {
+	if errr, ok := err.(*DomainError); ok {
+		return errr
+	} else {
 		err = NewDomainError("unexpected error creating entity", command.Metadata.EntityType, "", err)
 		logger.Debug(err)
 		return err
 	}
+
 	domainService := NewDomainService(ctx, eventStore, projection, logger)
 	err = domainService.ValidateUnique(ctx, newEntity)
 	if err != nil {

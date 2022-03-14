@@ -797,6 +797,9 @@ func (w *ContentEntity) GenerateID(payload []byte) error {
 						tentity[property] = ksuid.New().String()
 					case "uuid":
 						tentity[property] = uuid.NewString()
+					default:
+						errr := "unexpected error: fail to generate identifier " + property + " since the format " + w.Schema.Properties[property].Value.Format + " is not supported"
+						return NewDomainError(errr, w.Schema.Title, "", nil)
 					}
 				} else { //if the format is not specified
 					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
