@@ -2221,9 +2221,10 @@ func TestStandardControllers_RenderTemplates(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/multipletemplates", nil)
 		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
-		e.GET("/multipletemplates", controller, mw, defaultMiddleware)
+		e.GET("/multipletemplates", controller, mw, cResponseMiddleware, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2236,11 +2237,12 @@ func TestStandardControllers_RenderTemplates(t *testing.T) {
 	t.Run("rendering go template with data in the context ", func(t *testing.T) {
 		path := swagger.Paths.Find("/templates")
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/templates", nil)
+		req := httptest.NewRequest(http.MethodGet, "/templates?title=Test&content=LoremIpsum", nil)
 		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
-		e.GET("/templates", controller, mw, defaultMiddleware)
+		e.GET("/templates", controller, mw, cResponseMiddleware, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -2256,9 +2258,10 @@ func TestStandardControllers_RenderTemplates(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/badtemplates", nil)
 		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
 		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
-		e.GET("/badtemplates", controller, mw, defaultMiddleware)
+		e.GET("/badtemplates", controller, mw, cResponseMiddleware, defaultMiddleware)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()

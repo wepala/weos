@@ -7,6 +7,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/labstack/gommon/log"
 	logs "github.com/wepala/weos/log"
+	"html/template"
 	"net/http"
 	"os"
 	"strconv"
@@ -684,6 +685,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	}
 
 	fileName := ""
+	var templates []string
 
 	if api.Swagger != nil {
 		for pathName, pathData := range api.Swagger.Paths {
@@ -722,6 +724,15 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 						}
 					}
 				}
+			}
+		}
+
+	}
+	for _, resp := range operation.Responses {
+		if templateExtension, ok := resp.Value.ExtensionProps.Extensions[TemplateExtension]; ok {
+			err := json.Unmarshal(templateExtension.(json.RawMessage), &templates)
+			if err != nil {
+				api.e.Logger.Error(err)
 			}
 		}
 	}
@@ -844,6 +855,20 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 				return next(ctxt)
 			} else if fileName != "" {
 				ctxt.File(fileName)
+			} else if len(templates) != 0 {
+				t := template.New("standard template")
+				t, err := t.ParseFiles(templates...)
+				if err != nil {
+					api.e.Logger.Debugf("unexpected error %s ", err)
+					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
+
+				}
+				err = t.Execute(ctxt.Response().Writer, ctx)
+				if err != nil {
+					api.e.Logger.Debugf("unexpected error %s ", err)
+					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
+
+				}
 			}
 
 			return next(ctxt)
@@ -892,7 +917,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 		//checks if the security scheme type is openIdConnect
 		if schemes.Value.Type == "openIdConnect" {
 			//get the open id connect url
-			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OPENIDCONNECTURLEXTENSION]; ok {
+			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OpenIDConnectUrlExtension]; ok {
 				err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
 				if err != nil {
 					api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
@@ -905,7 +930,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 						//by default skipExpiryCheck is false meaning it will not run an expiry check
 						skipExpiryCheck := false
 						//get skipexpirycheck that is an extension in the openapi spec
-						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SKIPEXPIRYCHECKEXTENSION]; ok {
+						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SkipExpiryCheckExtension]; ok {
 							err := json.Unmarshal(expireCheck.(json.RawMessage), &skipExpiryCheck)
 							if err != nil {
 								api.EchoInstance().Logger.Errorf("unable to unmarshal skip expiry '%s'", err)
@@ -966,24 +991,6 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			return next(ctxt)
 
 		}
-	}
-}
-
-//RenderTemplatesMiddleware takes templates and return them in the response
-func RenderTemplatesMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-
-			return next(c)
-		}
-	}
-}
-
-func RenderTemplatesController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
-	return func(context echo.Context) error {
-		newContext := context.Request().Context()
-		return nil
-
 	}
 }
 

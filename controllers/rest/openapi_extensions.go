@@ -38,11 +38,11 @@ const EventStoreExtension = "x-event-store"
 
 const UniqueExtension = "x-unique"
 
-//OPENIDCONNECTURLEXTENSION set the open id connect url
-const OPENIDCONNECTURLEXTENSION = "openIdConnectUrl"
+//OpenIDConnectUrlExtension set the open id connect url
+const OpenIDConnectUrlExtension = "openIdConnectUrl"
 
-//SKIPEXPIRYCHECKEXTENSION set the expiry check
-const SKIPEXPIRYCHECKEXTENSION = "skipExpiryCheck"
+//SkipExpiryCheckExtension set the expiry check
+const SkipExpiryCheckExtension = "skipExpiryCheck"
 
 //FolderExtension set staticFolder folder
 const FolderExtension = "x-folder"
@@ -52,3 +52,6 @@ const FileExtension = "x-file"
 
 //ContextExtension set parameters directly in the context
 const ContextExtension = "x-context"
+
+//TemplateExtension set template files
+const TemplateExtension = "x-templates"

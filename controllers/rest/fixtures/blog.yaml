@@ -181,8 +181,6 @@ paths:
                     "url": "www.example.com",
                     "email": "testing@example.com"
                   }
-
-
   /badtemplates:
     get:
       operationId: getAsset
