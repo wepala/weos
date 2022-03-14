@@ -73,9 +73,12 @@ var errArray []error
 var filters string
 var enumErr error
 var token string
+var xfolderError error
+var xfolderName string
 var contextWithValues context.Context
 var mockProjections map[string]*ProjectionMock
 var mockEventStores map[string]*EventRepositoryMock
+var expectedContentType string
 var contentEntity map[string]interface{}
 
 type FilterProperties struct {
@@ -114,6 +117,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	page = 0
 	limit = 0
 	token = ""
+	expectedContentType = ""
 	contentEntity = map[string]interface{}{}
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
@@ -181,6 +185,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
 	e = echo.New()
+	os.Remove(xfolderName)
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -1550,6 +1555,7 @@ func theContentTypeShouldBe(mediaType string) error {
 	if rec.Header().Get("Content-Type") != mediaType {
 		return fmt.Errorf("expect content type to be %s got %s", mediaType, rec.Header().Get("Content-Type"))
 	}
+	expectedContentType = mediaType
 	return nil
 }
 
@@ -1560,16 +1566,53 @@ func theHeaderIsSetWithValue(key, value string) error {
 
 func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 	defer rec.Result().Body.Close()
+	var exp []byte
 	results, err := io.ReadAll(rec.Result().Body)
 	if err != nil {
 		return err
 	}
-	exp, err := api.JSONMarshal(expectResp.Content)
+	if strings.Contains(expectedContentType, "json") {
+		exp, err = json.Marshal(expectResp.Content)
+	} else {
+		exp, err = api.JSONMarshal(expectResp.Content)
+	}
 	if err != nil {
 		return err
 	}
-	if bytes.Compare(results, exp) != 0 {
-		return fmt.Errorf("expected response to be %s, got %s", results, exp)
+
+	if !strings.Contains(expectResp.Content, string(results)) {
+		if bytes.Compare(results, exp) != 0 {
+			return fmt.Errorf("expected response to be %s, got %s", results, exp)
+		}
+	}
+
+	return nil
+}
+
+func aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist() error {
+	if !strings.Contains(buf.String(), "error finding folder") {
+		return fmt.Errorf("expected an error finding the specified folder")
+	}
+	return nil
+}
+
+func thereIsAFile(filePathName string, fileContent *godog.DocString) error {
+	directory := filepath.Dir(filePathName)
+
+	_, err := os.Stat(directory)
+
+	if os.IsNotExist(err) {
+		xfolderName = directory
+		err := os.MkdirAll(directory, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = os.Stat(filePathName)
+
+	if os.IsNotExist(err) {
+		os.WriteFile(filePathName, []byte(fileContent.Content), os.ModePerm)
 	}
 
 	return nil
@@ -1805,6 +1848,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the content type should be "([^"]*)"$`, theContentTypeShouldBe)
 	ctx.Step(`^the header "([^"]*)" is set with value "([^"]*)"$`, theHeaderIsSetWithValue)
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
+	ctx.Step(`^a warning should be shown informing the developer that the folder doesn\'t exist$`, aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist)
+	ctx.Step(`^there is a file "([^"]*)"$`, thereIsAFile)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
 	ctx.Step(`^"([^"]*)" defines a projection "([^"]*)"$`, definesAProjection)
@@ -1826,7 +1871,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "focus1",
-			//Tags: "WEOS-1315 && ~skipped",
+			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {
