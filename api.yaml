@@ -169,14 +169,11 @@ paths:
                   }
   /file:
     get:
-      x-middleware:
-        - Static
-        - File
-      x-folder: "./static"
-      x-file: "./static/index.html"
       responses:
         200:
           description: file found
+          x-folder: "./controllers/rest/fixtures/staticF"
+          x-file: "./controllers/rest/fixtures/staticF/index"
         404:
           description: file not found
   /health:
