@@ -57,7 +57,7 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 			return nil, err
 		}
 
-		entity, err := entityFactory.NewEntity(ctx)
+		entity, err := entityFactory.CreateEntityWithValues(ctx, payload)
 		if err != nil {
 			return nil, err
 		}
@@ -74,22 +74,11 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		mItem, err = GenerateID(mItem, entityFactory)
-		if err != nil {
-			s.logger.Errorf(err.Error())
-			return nil, err
-		}
+
 		err = json.Unmarshal(mItem, &titem)
 		if err != nil {
 			return nil, err
 		}
-		event := NewEntityEvent("create", entity, entity.ID, titem)
-		entity.NewChange(event)
-		err = entity.ApplyEvents([]*Event{event})
-		if err != nil {
-			return nil, err
-		}
-
 		err = s.ValidateUnique(ctx, entity)
 		if err != nil {
 			return nil, err
