@@ -20,8 +20,8 @@ Feature: Serve HTML Content
   @WEOS-1383
   Scenario: Folder configured to return static content at a specific endpoint
 
-    Developers can configure an endpoint to serve content from a folder defined using the "x-folder" extension. The
-    extension should automatically add the "Static" middleware
+  Developers can configure an endpoint to serve content from a folder defined using the "x-folder" extension. The
+  extension should automatically add the "Static" middleware
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
@@ -37,10 +37,10 @@ Feature: Serve HTML Content
             400:
               description:
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/asset/some.css" is hit
     Then a 200 response should be returned
-    And the content type should be "text/css"
+    And the content type should be "text/css; charset=utf-8"
     And the response body should be
     """
     #id {
@@ -65,10 +65,10 @@ Feature: Serve HTML Content
             400:
               description:
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/some.css" is hit
     Then a 200 response should be returned
-    And the content type should be "text/css"
+    And the content type should be "text/css; charset=utf-8"
     And the response body should be
     """
     #id {
@@ -93,15 +93,15 @@ Feature: Serve HTML Content
             400:
               description:
     """
-    When the service is running
+    When the "OpenAPI 3.0" specification is parsed
     Then a warning should be shown informing the developer that the folder doesn't exist
 
   @WEOS-1295
   Scenario: Specify specific file to be served by an endpoint
 
-    A developer can also specify that a specific file should be served from an endpoint using the x-file extension
-    (e.g. serving index.html for a specific endpoint). The "File" middleware is automatically applied when the x-file
-    extension is used
+  A developer can also specify that a specific file should be served from an endpoint using the x-file extension
+  (e.g. serving index.html for a specific endpoint). The "File" middleware is automatically applied when the x-file
+  extension is used
 
     Given "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
@@ -117,15 +117,16 @@ Feature: Serve HTML Content
             402:
               description: User not authenticated
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
-    And the content type should be "text/html"
+    And the content type should be "text/html; charset=utf-8"
     And the response body should be
     """
     <html><head><title>Test Page</title></head><body>Test Page</body></html>
     """
 
+  @skipped
   @WEOS-1384
   Scenario: Specify HTML response with Go template
 
@@ -168,7 +169,7 @@ Feature: Serve HTML Content
             402:
               description: User not authenticated
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
     And the content type should be "text/html"
@@ -184,6 +185,7 @@ Feature: Serve HTML Content
     </html>
     """
 
+  @skipped
   @WEOS-1384
   Scenario: Render Go template with data from context
 
@@ -224,7 +226,7 @@ Feature: Serve HTML Content
             402:
               description: User not authenticated
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/?title=Test&content=LoremIpsum" is hit
     Then a 200 response should be returned
     And the content type should be "text/html"
@@ -239,7 +241,7 @@ Feature: Serve HTML Content
       </body>
     </html>
     """
-
+@skipped
   Scenario: Invalid Go template
 
     if the template returns an error while rendering then return a 500 error
@@ -270,7 +272,7 @@ Feature: Serve HTML Content
             402:
               description: User not authenticated
     """
-    And the service is running
+    And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/" is hit
     Then a 500 response should be returned
 

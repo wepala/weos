@@ -27,6 +27,30 @@ func ContextInitializer(ctxt context.Context, api *RESTAPI, path string, method 
 	return ctxt, nil
 }
 
+//DefaultResponseInitializer add default desponse middleware to path
+func DefaultResponseInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	middlewares := GetOperationMiddlewares(ctxt)
+	defaultMiddleware, err := api.GetMiddleware("DefaultResponseMiddleware")
+	if err != nil {
+		return ctxt, err
+	}
+	middlewares = append(middlewares, defaultMiddleware)
+	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	return ctxt, nil
+}
+
+//ContentTypeResponseInitializer add ContentTypeResponseMiddleware middleware to path
+func ContentTypeResponseInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	middlewares := GetOperationMiddlewares(ctxt)
+	contentMiddleware, err := api.GetMiddleware("ContentTypeResponseMiddleware")
+	if err != nil {
+		return ctxt, err
+	}
+	middlewares = append(middlewares, contentMiddleware)
+	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	return ctxt, nil
+}
+
 //EntityFactoryInitializer setups the EntityFactory for a specific route
 func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	schemas := GetSchemaBuilders(ctxt)
@@ -187,16 +211,21 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 	}
 
 	if projectionExtension, ok := operation.ExtensionProps.Extensions[ProjectionExtension]; ok {
-		projectionName := ""
-		err := json.Unmarshal(projectionExtension.(json.RawMessage), &projectionName)
+		var projectionNames []string
+		err := json.Unmarshal(projectionExtension.(json.RawMessage), &projectionNames)
 		if err != nil {
 			return ctxt, err
 		}
-		projection, err := api.GetProjection(projectionName)
-		if err != nil {
-			return ctxt, fmt.Errorf("unregistered projection '%s' specified on path '%s'", projectionName, path)
+		//get the existing middleware from context and then add user defined middleware to it
+		definedProjections := GetOperationProjections(ctxt)
+		for _, projectionName := range projectionNames {
+			projection, err := api.GetProjection(projectionName)
+			if err != nil {
+				return ctxt, fmt.Errorf("unregistered projection '%s' specified on path '%s'", projectionName, path)
+			}
+			definedProjections = append(definedProjections, projection)
 		}
-		ctxt = context.WithValue(ctxt, weoscontext.PROJECTION, projection)
+		ctxt = context.WithValue(ctxt, weoscontext.PROJECTIONS, definedProjections)
 	}
 
 	if commandDispatcherExtension, ok := operation.ExtensionProps.Extensions[CommandDispatcherExtension]; ok {
@@ -224,7 +253,6 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 		}
 		ctxt = context.WithValue(ctxt, weoscontext.EVENT_STORE, eventStore)
 	}
-
 	return ctxt, nil
 }
 
@@ -585,26 +613,6 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		} else {
 			//this should not return an error it should log
 			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
-			controller, err := api.GetController("DefaultResponseController")
-			if err != nil {
-				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
-				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
-			}
-			if controller != nil {
-				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
-			}
-			for _, resp := range operation.Responses {
-				if resp.Value.Content != nil {
-					for _, content := range resp.Value.Content {
-						if content.Example != nil {
-							middlewareNames["DefaultResponseMiddleware"] = true
-							break
-						}
-					}
-
-				}
-			}
-
 		}
 		middlewares := GetOperationMiddlewares(ctxt)
 		//there are middlewareNames let's add them
@@ -628,8 +636,17 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 	controller := GetOperationController(ctxt)
 	projection := GetOperationProjection(ctxt)
 	if projection == nil {
-		projection, err = api.GetProjection("Default")
-
+		//if there are user defined projections on the operation let's create a MetaProjection and use that
+		definedProjections := GetOperationProjections(ctxt)
+		if len(definedProjections) > 0 {
+			metaProjection := new(projections.MetaProjection)
+			for _, userProjection := range definedProjections {
+				metaProjection.Add(userProjection)
+			}
+			projection = metaProjection
+		} else {
+			projection, err = api.GetProjection("Default")
+		}
 	}
 	commandDispatcher := GetOperationCommandDispatcher(ctxt)
 	if commandDispatcher == nil {
@@ -646,6 +663,16 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 	if entityFactory == nil {
 
 	}
+
+	if controller == nil {
+		//once no controller is set, the default controller and middleware is added to the path
+		controller, err = api.GetController("DefaultResponseController")
+		if err != nil {
+			api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+			return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", "DefaultResponseController", path)
+		}
+	}
+
 	//only set up routes if controller is set because echo returns an error if the handler for a route is nil
 	if controller != nil {
 		var handler echo.HandlerFunc
@@ -723,6 +750,13 @@ func GetOperationEventStore(ctx context.Context) model.EventRepository {
 
 func GetOperationProjection(ctx context.Context) projections.Projection {
 	if value, ok := ctx.Value(weoscontext.PROJECTION).(projections.Projection); ok {
+		return value
+	}
+	return nil
+}
+
+func GetOperationProjections(ctx context.Context) []projections.Projection {
+	if value, ok := ctx.Value(weoscontext.PROJECTIONS).([]projections.Projection); ok {
 		return value
 	}
 	return nil
