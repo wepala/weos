@@ -56,20 +56,26 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 			s.logger.Error(err)
 			return nil, err
 		}
-
-		entity, err := entityFactory.CreateEntityWithValues(ctx, payload)
 		if err != nil {
 			return nil, err
 		}
 		if id, ok := titem.(map[string]interface{})["weos_id"]; ok {
 			if i, ok := id.(string); ok && i != "" {
-				entity.ID = i
+				ctx = context.WithValue(ctx, weosContext.WEOS_ID, i)
+			} else {
+				entityID := ksuid.New().String()
+				ctx = context.WithValue(ctx, weosContext.WEOS_ID, entityID)
 			}
+		} else {
+			entityID := ksuid.New().String()
+			ctx = context.WithValue(ctx, weosContext.WEOS_ID, entityID)
 		}
-		if entity.ID == "" {
-			entity.ID = ksuid.New().String()
-			titem.(map[string]interface{})["weos_id"] = entity.ID
+
+		entityPayload, err := json.Marshal(titem)
+		if err != nil {
+			return nil, err
 		}
+		entity, err := entityFactory.CreateEntityWithValues(ctx, entityPayload)
 		mItem, err := json.Marshal(titem)
 		if err != nil {
 			return nil, err

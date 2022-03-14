@@ -790,18 +790,25 @@ func (w *ContentEntity) GenerateID(payload []byte) error {
 		}
 		if len(propArray) == 1 { // if there is only one x-identifier specified then it should auto generate the identifier
 			property := propArray[0]
-			if w.Schema.Properties[property].Value.Format != "" { //if the format is specified
-				if w.Schema.Properties[property].Value.Type == "string" && w.GetString(property) == "" {
+			if w.Schema.Properties[property].Value.Type == "string" && w.GetString(property) == "" {
+				if w.Schema.Properties[property].Value.Format != "" { //if the format is specified
 					switch w.Schema.Properties[property].Value.Format {
 					case "ksuid":
 						tentity[property] = ksuid.New().String()
 					case "uuid":
 						tentity[property] = uuid.NewString()
 					}
+				} else { //if the format is not specified
+					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+					return NewDomainError(errr, w.Schema.Title, "", nil)
 				}
-			} else { //if the format is not specified
-				errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
-				return NewDomainError(errr, w.Schema.Title, "", nil)
+			} else if w.Schema.Properties[property].Value.Type == "integer" {
+				reader := ds.NewReader(w.Property)
+				if w.Schema.Properties[property].Value.Format == "" && reader.GetField(strings.Title(property)).PointerInt() == nil {
+					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+					return NewDomainError(errr, w.Schema.Title, "", nil)
+
+				}
 			}
 
 		}
