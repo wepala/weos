@@ -672,12 +672,12 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 
 //DefaultResponseMiddleware returns content type based on content type in example
 func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
-	activatedResponse := map[string]bool{}
+	activatedResponse := false
 	for _, resp := range operation.Responses {
 		if resp.Value.Content != nil {
 			for _, content := range resp.Value.Content {
 				if content != nil && content.Example != nil {
-					activatedResponse["example"] = true
+					activatedResponse = true
 				}
 			}
 		}
@@ -729,7 +729,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			ctx := ctxt.Request().Context()
-			if activatedResponse["example"] == true {
+			if activatedResponse {
 				var responseType *CResponseType
 				var ok bool
 				var bytesArray []byte
