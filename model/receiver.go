@@ -32,7 +32,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	newEntity, err := entityFactory.CreateEntityWithValues(ctx, command.Payload)
 	if errr, ok := err.(*DomainError); ok {
 		return errr
-	} else {
+	} else if err != nil {
 		err = NewDomainError("unexpected error creating entity", command.Metadata.EntityType, "", err)
 		logger.Debug(err)
 		return err
