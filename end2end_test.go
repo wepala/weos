@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	weosContext "github.com/wepala/weos/context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -1903,8 +1903,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1378-focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

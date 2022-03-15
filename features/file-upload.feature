@@ -199,7 +199,7 @@ Feature: Upload file
       | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
     And the service is running
 
-  @WEOS-1378
+  @WEOS-1378-focus
     Scenario: Upload file using an upload path
 
       You can configure an endpoint to receive a file and move it to a folder on the same machine that the service is
@@ -213,7 +213,7 @@ Feature: Upload file
       When the file is uploaded to "/files"
       Then the file should be available at "/files/test.csv"
 
-  @WEOS-1378-focus
+  @WEOS-1378
     Scenario: Upload file as a property on a schema
 
       You can configure a property on a schema to be a file upload.

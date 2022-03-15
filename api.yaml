@@ -758,3 +758,25 @@ paths:
       responses:
         200:
           description: Delete author
+
+  /files:
+    get:
+      operationId: getFiles
+      responses:
+        200:
+          description: Files
+          x-folder: "./files"
+    post:
+      operationId: uploadFile
+      requestBody:
+        content:
+          image/*:
+            schema:
+              type: string
+              format: binary
+              x-upload:
+                folder: ./files
+                limit: 10000
+      responses:
+        201:
+          description: File successfully uploaded

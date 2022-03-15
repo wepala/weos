@@ -266,7 +266,7 @@ func ConvertFormToJson(r *http.Request, contentType string, properties map[strin
 					defer file.Close()
 
 					if float64(header.Size) > uploadFolder["limit"].(float64) {
-						return nil, fmt.Errorf("maximum file size allowed: %s, uploaded file size: %s", uploadFolder["limit"].(string), float64(header.Size))
+						return nil, fmt.Errorf("maximum file size allowed: %s, uploaded file size: %f", uploadFolder["limit"].(string), float64(header.Size))
 					}
 
 					buf := bytes.NewBuffer(nil)
