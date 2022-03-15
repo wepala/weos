@@ -2229,9 +2229,17 @@ func TestStandardControllers_RenderTemplates(t *testing.T) {
 
 		response := resp.Result()
 		defer response.Body.Close()
+		expectResp := "<html>\n    <body>\n        <h1>About</h1>\n\n\n        \n<p>About us page now</p>\n\n    </body>\n</html>"
 
 		if response.StatusCode != http.StatusOK {
 			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+		results, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Errorf("unexpected error reading the response body: %s", err)
+		}
+		if !strings.Contains(expectResp, string(results)) {
+			t.Errorf("expected results to be %s got %s", expectResp, string(results))
 		}
 	})
 	t.Run("rendering go template with data in the context ", func(t *testing.T) {
@@ -2247,14 +2255,21 @@ func TestStandardControllers_RenderTemplates(t *testing.T) {
 
 		response := resp.Result()
 		defer response.Body.Close()
+		expectResp := "<html>\n    <body>\n        <h1>Test</h1>\n\n\n        LoremIpsum\n    </body>\n</html>"
 
 		if response.StatusCode != http.StatusOK {
 			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
 		}
+		results, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Errorf("unexpected error reading the response body: %s", err)
+		}
+		if !strings.Contains(expectResp, string(results)) {
+			t.Errorf("expected results to be %s got %s", expectResp, string(results))
+		}
 	})
 	t.Run("invalid go templates ", func(t *testing.T) {
 		path := swagger.Paths.Find("/badtemplates")
-
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/badtemplates", nil)
 		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
@@ -2267,8 +2282,17 @@ func TestStandardControllers_RenderTemplates(t *testing.T) {
 		response := resp.Result()
 		defer response.Body.Close()
 
-		if response.StatusCode != http.StatusInternalServerError {
-			t.Errorf("expected response code to be %d, got %d", http.StatusInternalServerError, response.StatusCode)
+		expectResp := "<html>\n    <body>\n        <h1></h1>\n\n\n        \n    </body>\n</html>"
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+		results, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Errorf("unexpected error reading the response body: %s", err)
+		}
+		if !strings.Contains(expectResp, string(results)) {
+			t.Errorf("expected results to be %s got %s", expectResp, string(results))
 		}
 	})
 

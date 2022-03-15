@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	path1 "path"
 	"strconv"
 	"strings"
 	"time"
@@ -671,7 +672,7 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
-//DefaultResponseMiddleware returns content type based on content type in example
+//DefaultResponseMiddleware returns a response based on what was specified on an endpoint
 func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	activatedResponse := false
 	for _, resp := range operation.Responses {
@@ -856,14 +857,37 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 			} else if fileName != "" {
 				ctxt.File(fileName)
 			} else if len(templates) != 0 {
-				t := template.New("standard template")
+				parameters := map[string]interface{}{}
+				for _, param := range operation.Parameters { //get parameter name to get from the context and add to map
+					name := param.Value.Name
+					if ctx.Value(name) == nil {
+						if tcontextName, ok := param.Value.ExtensionProps.Extensions[AliasExtension]; ok {
+							err := json.Unmarshal(tcontextName.(json.RawMessage), &name)
+							if err != nil {
+								api.e.Logger.Debugf("unexpected error finding parameter alias %s: %s ", name, err)
+								return NewControllerError(fmt.Sprintf("unexpected error finding parameter alias %s: %s ", name, err), nil, http.StatusBadRequest)
+
+							}
+						} else {
+							api.e.Logger.Debugf("unexpected error finding parameter alias %s ", name)
+							return NewControllerError(fmt.Sprintf("unexpected error finding parameter alias %s ", name), nil, http.StatusBadRequest)
+						}
+					}
+					if ctx.Value(name) == nil {
+						api.e.Logger.Debugf("unexpected error parameter %s not found ", name)
+						return NewControllerError(fmt.Sprintf("unexpected error parameter %s not found ", name), nil, http.StatusBadRequest)
+
+					}
+					parameters[name] = ctx.Value(name)
+				}
+				t := template.New(path1.Base(templates[0]))
 				t, err := t.ParseFiles(templates...)
 				if err != nil {
 					api.e.Logger.Debugf("unexpected error %s ", err)
 					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
 
 				}
-				err = t.Execute(ctxt.Response().Writer, ctx)
+				err = t.Execute(ctxt.Response().Writer, parameters)
 				if err != nil {
 					api.e.Logger.Debugf("unexpected error %s ", err)
 					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
@@ -876,6 +900,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	}
 }
 
+//DefaultResponseController returns responses that was done in the default response middleware
 func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		newContext := context.Request().Context()
