@@ -3,12 +3,14 @@ package rest_test
 import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -139,7 +141,9 @@ paths:
         - Recover
       x-command-dispatcher: HealthCheck
       x-event-store: HealthCheck
-      x-projection: HealthCheck	
+      x-projections: 
+        - Default
+        - Custom
       responses:
         200:
           description: Health Response
@@ -170,7 +174,8 @@ paths:
 			return nil
 		}})
 	api.RegisterEventStore("HealthCheck", &EventRepositoryMock{})
-	api.RegisterProjection("HealthCheck", &ProjectionMock{})
+	api.RegisterProjection("Default", &ProjectionMock{})
+	api.RegisterProjection("Custom", &ProjectionMock{})
 
 	t.Run("attach user defined controller", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
@@ -232,9 +237,9 @@ paths:
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		projection := rest.GetOperationProjection(ctxt)
-		if projection == nil {
-			t.Fatalf("expected the projection to be in context but got nil")
+		definedProjections := rest.GetOperationProjections(ctxt)
+		if len(definedProjections) != 2 {
+			t.Fatalf("expected %d projections, got %d projections", 2, len(definedProjections))
 		}
 	})
 }
@@ -311,6 +316,69 @@ func TestStandardInitializer(t *testing.T) {
 		controller := rest.GetOperationController(ctxt)
 		if controller == nil {
 			t.Fatalf("expected controller to be in the context")
+		}
+	})
+}
+
+func TestRouteInitializer(t *testing.T) {
+	controllerTriggered := false
+	api, err := rest.New("./fixtures/blog-route-initializer.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading api '%s'", err)
+	}
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
+	api.RegisterController("CreateController", rest.CreateController)
+	api.RegisterController("ListController", rest.ListController)
+	api.RegisterController("UpdateController", rest.UpdateController)
+	api.RegisterController("ViewController", func(api *rest.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			controllerTriggered = true
+			if _, ok := projection.(*projections.MetaProjection); !ok {
+				t.Fatalf("expected the projection to be a meta projection because there are multiple projections defined")
+			}
+			return nil
+		}
+	})
+	api.RegisterController("DeleteController", rest.DeleteController)
+	api.RegisterProjection("Custom", &ProjectionMock{
+		MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			return nil
+		},
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+	})
+	api.RegisterProjection("Default", &ProjectionMock{
+		MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			return nil
+		},
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+	})
+	api.RegisterCommandDispatcher("Default", &CommandDispatcherMock{})
+	api.RegisterEventStore("Default", &EventRepositoryMock{})
+	t.Run("setup meta projection", func(t *testing.T) {
+		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		ctxt, err = rest.StandardInitializer(ctxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		ctxt, err = rest.RouteInitializer(ctxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		e := api.EchoInstance()
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs/1", nil)
+		e.ServeHTTP(resp, req)
+		if !controllerTriggered {
+			t.Fatalf("expected the view controller to be tiggered")
 		}
 	})
 }
