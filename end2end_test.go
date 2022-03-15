@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	weosContext "github.com/wepala/weos/context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -72,6 +72,7 @@ var filters string
 var enumErr error
 var token string
 var contextWithValues context.Context
+var fileUpload map[string]interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -110,6 +111,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
+	fileUpload = map[string]interface{}{}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -977,6 +979,19 @@ func theFormIsSubmittedWithContentType(contentEntity, contentType string) error 
 			writer.WriteField(key, value.(string))
 		}
 
+		if len(fileUpload) > 0 {
+			for k, v := range fileUpload {
+				file, err := os.Open(v.(string))
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+
+				part, err := writer.CreateFormFile(k, filepath.Base(file.Name()))
+				io.Copy(part, file)
+			}
+		}
+
 		writer.Close()
 
 		var request *http.Request
@@ -1588,6 +1603,46 @@ func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
 	return nil
 }
 
+func isOnPageThatHasAFileInput(arg1 string) error {
+	return godog.ErrPending
+}
+
+func selectsAFileForTheField(arg1, field string, table *godog.Table) error {
+
+	head := table.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(table.Rows); i++ {
+		for n, cell := range table.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	fileUpload[field] = compare["path"]
+
+	return nil
+}
+
+func selectsTheFile(arg1 string, arg2 *godog.Table) error {
+	return godog.ErrPending
+}
+
+func theFileIsMb(arg1 int) error {
+	return godog.ErrPending
+}
+
+func theFileIsUploadedTo(arg1 string) error {
+	return godog.ErrPending
+}
+
+func theFileShouldBeAvailableAt(arg1 string) error {
+	return godog.ErrPending
+}
+
+func theFolderExists(arg1 string) error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1680,7 +1735,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
 	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
-
+	ctx.Step(`^"([^"]*)" is on page that has a file input$`, isOnPageThatHasAFileInput)
+	ctx.Step(`^"([^"]*)" selects a file for the "([^"]*)" field$`, selectsAFileForTheField)
+	ctx.Step(`^"([^"]*)" selects the file$`, selectsTheFile)
+	ctx.Step(`^the file is "(\d+)"mb$`, theFileIsMb)
+	ctx.Step(`^the file is uploaded to "([^"]*)"$`, theFileIsUploadedTo)
+	ctx.Step(`^the file should be available at "([^"]*)"$`, theFileShouldBeAvailableAt)
+	ctx.Step(`^the folder "([^"]*)" exists$`, theFolderExists)
 }
 
 func TestBDD(t *testing.T) {
@@ -1690,8 +1751,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1378-focus",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

@@ -122,7 +122,7 @@ Feature: Upload file
                application/x-www-form-urlencoded:
                  schema:
                    $ref: "#/components/schemas/Blog"
-               application/xml:
+               multipart/form-data:
                  schema:
                    $ref: "#/components/schemas/Blog"
            responses:
@@ -199,7 +199,7 @@ Feature: Upload file
       | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
     And the service is running
 
-
+  @WEOS-1378
     Scenario: Upload file using an upload path
 
       You can configure an endpoint to receive a file and move it to a folder on the same machine that the service is
@@ -213,6 +213,7 @@ Feature: Upload file
       When the file is uploaded to "/files"
       Then the file should be available at "/files/test.csv"
 
+  @WEOS-1378-focus
     Scenario: Upload file as a property on a schema
 
       You can configure a property on a schema to be a file upload.
@@ -223,12 +224,13 @@ Feature: Upload file
       And "Sojourner" enters "Some Description" in the "description" field
       And "Sojourner" selects a file for the "banner" field
         | title            | path                      |
-        | test             | ./fixtures/files/test.csv |
-      When the "Blog" is submitted
+        | test             | ./controllers/rest/fixtures/files/test.csv |
+      When the "Blog" form is submitted with content type "multipart/form-data"
       Then the "Blog" is created
         | id    | title          | description                       | banner        |
         | 3     | Some Blog      | Some Description                  | test.csv      |
 
+  @WEOS-1378
     Scenario: Upload file that is above the default file size limit
 
       The default file size limit is 10MB
@@ -242,6 +244,7 @@ Feature: Upload file
       When the file is uploaded to "/files"
       Then an error should be returned
 
+  @WEOS-1378
     Scenario: Upload file that is above the user defined limit
 
       The developer could set the file limit in bytes

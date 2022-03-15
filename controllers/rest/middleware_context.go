@@ -70,7 +70,7 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 						case "application/json":
 							payload, err = ioutil.ReadAll(c.Request().Body)
 						default:
-							payload, err = ConvertFormToJson(c.Request(), ct)
+							payload, err = ConvertFormToJson(c.Request(), ct, entityFactory.Schema().Properties)
 						}
 						//set payload to context
 						cc = context.WithValue(cc, weosContext.PAYLOAD, payload)

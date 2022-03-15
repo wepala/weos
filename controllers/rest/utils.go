@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/getkin/kin-openapi/openapi3"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -212,7 +214,7 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 }
 
 //ConvertFormToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormToJson(r *http.Request, contentType string) (json.RawMessage, error) {
+func ConvertFormToJson(r *http.Request, contentType string, properties map[string]*openapi3.SchemaRef) (json.RawMessage, error) {
 	var parsedPayload []byte
 
 	switch contentType {
@@ -245,6 +247,54 @@ func ConvertFormToJson(r *http.Request, contentType string) (json.RawMessage, er
 		for k, v := range r.MultipartForm.Value {
 			for _, value := range v {
 				parsedForm[k] = value
+			}
+		}
+
+		//Checks if there was a file uploaded, also uses the properties to check for x-upload so the file can be saved to specified location
+		//This allows for only the name to be saved in the payload and not the entire multipart.FileHeader struct
+		if len(r.MultipartForm.File) > 0 {
+			var uploadFolder map[string]interface{}
+
+			for name, prop := range properties {
+				if uploadExtension, ok := prop.Value.ExtensionProps.Extensions[UploadExtension]; ok {
+					_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
+
+					file, header, err := r.FormFile(name)
+					if err != nil {
+						return nil, err
+					}
+					defer file.Close()
+
+					if float64(header.Size) > uploadFolder["limit"].(float64) {
+						return nil, fmt.Errorf("maximum file size allowed: %s, uploaded file size: %s", uploadFolder["limit"].(string), float64(header.Size))
+					}
+
+					buf := bytes.NewBuffer(nil)
+					if _, err := io.Copy(buf, file); err != nil {
+						return nil, err
+					}
+
+					//Checks if folder exists and creates it if not
+					_, err = os.Stat(uploadFolder["folder"].(string))
+					if os.IsNotExist(err) {
+						err := os.MkdirAll(uploadFolder["folder"].(string), os.ModePerm)
+						if err != nil {
+							return nil, err
+						}
+					}
+
+					filePath := uploadFolder["folder"].(string) + "/" + header.Filename
+
+					//Checks if file exists in folder and creates it if not
+					_, err = os.Stat(filePath)
+
+					if os.IsNotExist(err) {
+						os.WriteFile(filePath, buf.Bytes(), os.ModePerm)
+					}
+
+					//Adds the file path to payload instead of entire file
+					parsedForm[name] = header.Filename
+				}
 			}
 		}
 
