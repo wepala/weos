@@ -164,6 +164,29 @@ paths:
                     "url": "www.example.com",
                     "email": "testing@example.com"
                   }
+  /another:
+    get:
+      operationId: Homepage
+      parameters:
+        - in: header
+          name: Accept
+          schema:
+            type: string
+      responses:
+        201:
+          description: Application Homepage
+          content:
+            text/html:
+
+            application/json:
+              example:
+                blog:
+                  value: {
+                    "title": "API Testing",
+                    "url": "www.example.com",
+                    "email": "testing@example.com"
+                  }
+
 
   /health:
     summary: Health Check
