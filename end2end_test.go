@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	weosContext "github.com/wepala/weos/context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -74,11 +74,10 @@ var token string
 var xfolderError error
 var xfolderName string
 var contextWithValues context.Context
-var createdDate interface{}
-var updatedDate interface{}
 var mockProjections map[string]*ProjectionMock
 var mockEventStores map[string]*EventRepositoryMock
 var expectedContentType string
+var contentEntity map[string]interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -483,7 +482,7 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentEntity := map[string]interface{}{}
+	contentEntity = map[string]interface{}{}
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
@@ -506,8 +505,6 @@ func theIsCreated(contentType string, details *godog.Table) error {
 			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
 		}
 	}
-
-	createdDate = contentEntity["created"]
 
 	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
@@ -882,7 +879,7 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentEntity := map[string]interface{}{}
+	contentEntity = map[string]interface{}{}
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
@@ -913,8 +910,6 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
 		}
 	}
-
-	updatedDate = contentEntity["updated"]
 
 	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
@@ -1756,30 +1751,15 @@ func theFieldShouldHaveTodaysDate(field string) error {
 
 	switch dbconfig.Driver {
 	case "postgres", "mysql":
-		switch field {
-		case "created":
-			crDate := createdDate.(time.Time).Format("2006-01-02")
-			if !strings.Contains(crDate, todaysDate) {
-				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", crDate, todaysDate)
-			}
-		case "updated":
-			upDate := updatedDate.(time.Time).Format("2006-01-02")
-			if !strings.Contains(upDate, todaysDate) {
-				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", upDate, todaysDate)
-			}
+		date := contentEntity[field].(time.Time).Format("2006-01-02")
+		if !strings.Contains(date, todaysDate) {
+			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
 		}
+
 	case "sqlite3":
-		switch field {
-		case "created":
-			crDate := createdDate.(string)
-			if !strings.Contains(crDate, todaysDate) {
-				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", crDate, todaysDate)
-			}
-		case "updated":
-			upDate := updatedDate.(string)
-			if !strings.Contains(upDate, todaysDate) {
-				return fmt.Errorf("expected the created date: %s to contain the current date: %s ", upDate, todaysDate)
-			}
+		date := contentEntity[field].(string)
+		if !strings.Contains(date, todaysDate) {
+			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
 		}
 	}
 

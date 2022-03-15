@@ -752,10 +752,9 @@ func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 
 //UpdateTime updates auto update time values on the payload
 func (w *ContentEntity) UpdateTime(operationID string, data []byte) ([]byte, error) {
-	scheme := w.Schema
 	payload := map[string]interface{}{}
 	json.Unmarshal(data, &payload)
-	for key, p := range scheme.Properties {
+	for key, p := range w.Schema.Properties {
 		routes := []string{}
 		routeBytes, _ := json.Marshal(p.Value.Extensions["x-update"])
 		json.Unmarshal(routeBytes, &routes)
