@@ -167,6 +167,15 @@ paths:
                     "url": "www.example.com",
                     "email": "testing@example.com"
                   }
+  /file:
+    get:
+      responses:
+        200:
+          description: file found
+          x-folder: "./controllers/rest/fixtures/staticF"
+          x-file: "./controllers/rest/fixtures/staticF/index"
+        404:
+          description: file not found
   /health:
     summary: Health Check
     get:
