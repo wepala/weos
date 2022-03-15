@@ -181,8 +181,52 @@ paths:
                     "url": "www.example.com",
                     "email": "testing@example.com"
                   }
-
-
+  /badtemplates:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/base1.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /multipletemplates:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/ibase.html
+            - ./fixtures/templates/index.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /templates:
+    get:
+      operationId: getAsset
+      parameters:
+        - in: query
+          name: title
+          schema:
+            type: string
+        - in: query
+          name: content
+          schema:
+            type: string
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/base1.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
   /health:
     summary: Health Check
     get:
