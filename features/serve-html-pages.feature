@@ -132,7 +132,7 @@ Feature: Serve HTML Content
     Go provides a template system that can be used so that the data that would be returned could be populated in the
     template.
 
-    Given there is a file "./controllers/rest/templates/base2.html"
+    Given there is a file "./controllers/rest/fixtures/templates/base2.html"
     """
     <html>
       <body>
@@ -143,7 +143,7 @@ Feature: Serve HTML Content
       </body>
     </html>
     """
-    And there is a file "./controllers/rest/templates/index1.html"
+    And there is a file "./controllers/rest/fixtures/templates/index1.html"
     """
     {{ define "title" }}About{{ end }}
 
@@ -159,8 +159,8 @@ Feature: Serve HTML Content
             200:
               description: Homepage
               x-templates:
-                - ./controllers/rest/templates/base2.html
-                - ./controllers/rest/templates/index1.html
+                - ./controllers/rest/fixtures/templates/base2.html
+                - ./controllers/rest/fixtures/templates/index1.html
             404:
               description: File not found
             402:
@@ -182,12 +182,12 @@ Feature: Serve HTML Content
     </html>
     """
 
-  @WEOS-1384 @focus
+  @WEOS-1384
   Scenario: Render Go template with data from context
 
     Some standard middleware add data to the context. The Entire context data should be available to the template for reference
 
-    Given there is a file "./controllers/rest/templates/base3.html"
+    Given there is a file "./controllers/rest/fixtures/templates/base3.html"
     """
     <html>
       <body>
@@ -216,7 +216,7 @@ Feature: Serve HTML Content
             200:
               description: Homepage
               x-templates:
-                - ./controllers/rest/templates/base3.html
+                - ./controllers/rest/fixtures/templates/base3.html
             404:
               description: File not found
             402:
@@ -242,7 +242,7 @@ Feature: Serve HTML Content
 
     if the template returns an error while rendering then return a 500 error
 
-    Given there is a file "./controllers/rest/templates/base4.html"
+    Given there is a file "./controllers/rest/fixtures/templates/base4.html"
     """
     <html>
       <body>
@@ -262,7 +262,7 @@ Feature: Serve HTML Content
             200:
               description: Homepage
               x-templates:
-                - ./controllers/rest/templates/base4.html
+                - ./controllers/rest/fixtures/templates/base4.html
             404:
               description: File not found
             402:
