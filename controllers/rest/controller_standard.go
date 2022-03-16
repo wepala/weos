@@ -858,7 +858,8 @@ func DefaultResponseController(api *RESTAPI, projection projections.Projection, 
 		if value == nil {
 			return nil
 		}
-		return value.(error)
+		return NewControllerError(value.(error).Error(), value.(error), http.StatusBadRequest)
+
 	}
 }
 

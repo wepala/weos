@@ -84,6 +84,7 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			//if there are any errors
 			if err != nil {
 				c.Logger().Error(err)
+				cc = context.WithValue(cc, weosContext.BASIC_RESPONSE, err)
 			}
 			request := c.Request().WithContext(cc)
 			c.SetRequest(request)
