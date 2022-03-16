@@ -310,18 +310,14 @@ func SplitFilter(filter string) *FilterProperties {
 func GetJwkUrl(openIdUrl string) (string, error) {
 	//fetches the response from the connect id url
 	resp, err := http.Get(openIdUrl)
-	if err != nil || resp == nil {
-		return "", fmt.Errorf("unexpected error fetching open id connect url: %s", err)
+	if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected error fetching open id connect url")
 	}
 	defer resp.Body.Close()
 	// reads the body
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("unable to read response body: %v", err)
-	}
-	//check the response status
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("expected open id connect url response code to be %d got %d ", http.StatusOK, resp.StatusCode)
 	}
 	// unmarshall the body to a struct we can use to find the jwk uri
 	var info map[string]interface{}

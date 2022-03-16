@@ -233,6 +233,7 @@ paths:
       x-controller: HealthCheck
       x-middleware:
         - Recover
+        - ZapLogger
       responses:
         200:
           description: Health Response
