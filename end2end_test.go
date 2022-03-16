@@ -1748,7 +1748,7 @@ func theProjectionIsNotCalled(arg1 string) error {
 }
 
 func isOnPageThatHasAFileInput(arg1 string) error {
-	return godog.ErrPending
+	return nil
 }
 
 func selectsAFileForTheField(arg1, field string, table *godog.Table) error {
@@ -1767,24 +1767,88 @@ func selectsAFileForTheField(arg1, field string, table *godog.Table) error {
 	return nil
 }
 
-func selectsTheFile(arg1 string, arg2 *godog.Table) error {
-	return godog.ErrPending
+func selectsTheFile(arg1 string, table *godog.Table) error {
+	head := table.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(table.Rows); i++ {
+		for n, cell := range table.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	fileUpload["upload"] = compare["path"]
+
+	return nil
 }
 
-func theFileIsMb(arg1 int) error {
-	return godog.ErrPending
+func theFileIsMb(size int) error {
+	return nil
 }
 
-func theFileIsUploadedTo(arg1 string) error {
-	return godog.ErrPending
+func theFileIsUploadedTo(endpoint string) error {
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+
+	if len(fileUpload) > 0 {
+		for k, v := range fileUpload {
+			file, err := os.Open(v.(string))
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			part, err := writer.CreateFormFile(k, filepath.Base(file.Name()))
+			io.Copy(part, file)
+		}
+	}
+
+	writer.Close()
+
+	var request *http.Request
+	request = httptest.NewRequest("POST", endpoint, body)
+	request = request.WithContext(context.TODO())
+	header.Set("Content-Type", writer.FormDataContentType())
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
 }
 
-func theFileShouldBeAvailableAt(arg1 string) error {
-	return godog.ErrPending
+func theFileShouldBeAvailableAt(path string) error {
+	request := httptest.NewRequest("GET", path, nil)
+	request = request.WithContext(context.TODO())
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+
+	defer rec.Result().Body.Close()
+	results, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		return err
+	}
+	if string(results) == "" {
+		return fmt.Errorf("expected a response after hitting the file endpoint")
+	}
+	return nil
 }
 
-func theFolderExists(arg1 string) error {
-	return godog.ErrPending
+func theFolderExists(folderPath string) error {
+	directory := filepath.Dir(folderPath)
+
+	_, err := os.Stat(directory)
+
+	if os.IsNotExist(err) {
+		xfolderName = directory
+		err := os.MkdirAll(directory, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
@@ -1904,7 +1968,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1378-focus",
+			Tags: "WEOS-1378",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

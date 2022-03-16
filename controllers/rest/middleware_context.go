@@ -69,8 +69,12 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 						switch ct {
 						case "application/json":
 							payload, err = ioutil.ReadAll(c.Request().Body)
+						case "application/x-www-form-urlencoded", "multipart/form-data":
+							payload, err = ConvertFormToJson(c.Request(), ct, entityFactory, mimeType)
 						default:
-							payload, err = ConvertFormToJson(c.Request(), ct, entityFactory.Schema().Properties)
+							//TODO This was placed here to handle binary uploads since the ct would differ for these
+							//TODO REMOVE IF NOT USING BINARY
+							payload, err = SaveUploadedFile(c.Request(), ct, mimeType)
 						}
 						//set payload to context
 						cc = context.WithValue(cc, weosContext.PAYLOAD, payload)

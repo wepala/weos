@@ -770,13 +770,13 @@ paths:
       operationId: uploadFile
       requestBody:
         content:
-          image/*:
+          multipart/form-data:
             schema:
               type: string
               format: binary
               x-upload:
                 folder: ./files
-                limit: 10000
+                limit: 10000000
       responses:
         201:
           description: File successfully uploaded

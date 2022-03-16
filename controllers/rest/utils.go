@@ -214,7 +214,7 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 }
 
 //ConvertFormToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormToJson(r *http.Request, contentType string, properties map[string]*openapi3.SchemaRef) (json.RawMessage, error) {
+func ConvertFormToJson(r *http.Request, contentType string, entityFactory model.EntityFactory, media *openapi3.MediaType) (json.RawMessage, error) {
 	var parsedPayload []byte
 
 	switch contentType {
@@ -255,10 +255,12 @@ func ConvertFormToJson(r *http.Request, contentType string, properties map[strin
 		if len(r.MultipartForm.File) > 0 {
 			var uploadFolder map[string]interface{}
 
-			for name, prop := range properties {
-				if uploadExtension, ok := prop.Value.ExtensionProps.Extensions[UploadExtension]; ok {
-					_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
+			//This check is to determine if we're dealing with an endpoint x-upload or a field x-upload
+			//First we check for the endpoint x-upload
+			if uploadExtension, ok := media.Schema.Value.Extensions[UploadExtension]; ok {
+				_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
 
+				for name, _ := range r.MultipartForm.File {
 					file, header, err := r.FormFile(name)
 					if err != nil {
 						return nil, err
@@ -266,7 +268,7 @@ func ConvertFormToJson(r *http.Request, contentType string, properties map[strin
 					defer file.Close()
 
 					if float64(header.Size) > uploadFolder["limit"].(float64) {
-						return nil, fmt.Errorf("maximum file size allowed: %s, uploaded file size: %f", uploadFolder["limit"].(string), float64(header.Size))
+						return nil, fmt.Errorf("maximum file size allowed: %f, uploaded file size: %f", uploadFolder["limit"].(float64), float64(header.Size))
 					}
 
 					buf := bytes.NewBuffer(nil)
@@ -294,6 +296,49 @@ func ConvertFormToJson(r *http.Request, contentType string, properties map[strin
 
 					//Adds the file path to payload instead of entire file
 					parsedForm[name] = header.Filename
+				}
+
+			} else {
+				for name, prop := range entityFactory.Schema().Properties {
+					if uploadExtension, ok := prop.Value.ExtensionProps.Extensions[UploadExtension]; ok {
+						_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
+
+						file, header, err := r.FormFile(name)
+						if err != nil {
+							return nil, err
+						}
+						defer file.Close()
+
+						if float64(header.Size) > uploadFolder["limit"].(float64) {
+							return nil, fmt.Errorf("maximum file size allowed: %f, uploaded file size: %f", uploadFolder["limit"].(float64), float64(header.Size))
+						}
+
+						buf := bytes.NewBuffer(nil)
+						if _, err := io.Copy(buf, file); err != nil {
+							return nil, err
+						}
+
+						//Checks if folder exists and creates it if not
+						_, err = os.Stat(uploadFolder["folder"].(string))
+						if os.IsNotExist(err) {
+							err := os.MkdirAll(uploadFolder["folder"].(string), os.ModePerm)
+							if err != nil {
+								return nil, err
+							}
+						}
+
+						filePath := uploadFolder["folder"].(string) + "/" + header.Filename
+
+						//Checks if file exists in folder and creates it if not
+						_, err = os.Stat(filePath)
+
+						if os.IsNotExist(err) {
+							os.WriteFile(filePath, buf.Bytes(), os.ModePerm)
+						}
+
+						//Adds the file path to payload instead of entire file
+						parsedForm[name] = header.Filename
+					}
 				}
 			}
 		}
@@ -396,4 +441,43 @@ func JSONMarshal(t interface{}) ([]byte, error) {
 	result = bytes.ReplaceAll(result, []byte(`\r`), []byte(""))
 	result = bytes.ReplaceAll(result, []byte(`\t`), []byte(""))
 	return result, err
+}
+
+//SaveUploadedFile: This function is used to save files uploaded files
+//TODO REMOVE IF NOT USING BINARY
+//TODO issue with this func was the binary doesnt track the file name, therefore naming it would be on us and not the user
+//TODO Also not favourable since this would be for single uploads. The form data make it possible to post mulitple files
+func SaveUploadedFile(r *http.Request, contentType string, media *openapi3.MediaType) (json.RawMessage, error) {
+	var parsedPayload []byte
+	var uploadFolder map[string]interface{}
+	//parsedForm := map[string]interface{}{}
+
+	if uploadExtension, ok := media.Schema.Value.Extensions[UploadExtension]; ok {
+		_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
+	}
+
+	buf, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	//Checks if folder exists and creates it if not
+	_, err = os.Stat(uploadFolder["folder"].(string))
+	if os.IsNotExist(err) {
+		err := os.MkdirAll(uploadFolder["folder"].(string), os.ModePerm)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	filePath := uploadFolder["folder"].(string) + "/img.jpeg"
+
+	//Checks if file exists in folder and creates it if not
+	_, err = os.Stat(filePath)
+
+	if os.IsNotExist(err) {
+		os.WriteFile(filePath, buf, os.ModePerm)
+	}
+
+	return parsedPayload, nil
 }
