@@ -11,6 +11,8 @@ import (
 type EntityFactory interface {
 	FromSchemaAndBuilder(string, *openapi3.Schema, ds.Builder) EntityFactory
 	NewEntity(ctx context.Context) (*ContentEntity, error)
+	//CreateEntityWithValues add an entity for the first type to the system with the following values
+	CreateEntityWithValues(ctx context.Context, payload []byte) (*ContentEntity, error)
 	DynamicStruct(ctx context.Context) ds.DynamicStruct
 	Name() string
 	TableName() string
@@ -33,6 +35,17 @@ func (d *DefaultEntityFactory) FromSchemaAndBuilder(s string, o *openapi3.Schema
 
 func (d *DefaultEntityFactory) NewEntity(ctxt context.Context) (*ContentEntity, error) {
 	return new(ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+}
+
+func (d *DefaultEntityFactory) CreateEntityWithValues(ctxt context.Context, payload []byte) (*ContentEntity, error) {
+	entity, err := new(ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+	if err != nil {
+		return nil, err
+	}
+	if id, ok := ctxt.Value(weosContext.WEOS_ID).(string); ok {
+		entity.ID = id
+	}
+	return entity.Init(ctxt, payload)
 }
 
 func (d *DefaultEntityFactory) Name() string {
