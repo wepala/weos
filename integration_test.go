@@ -9,6 +9,7 @@ import (
 	"github.com/wepala/weos/model"
 	"io"
 	"io/ioutil"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -238,4 +239,167 @@ func TestIntegration_Update(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Remove("kollectables.db")
+}
+
+func TestIntegration_UploadOnProperty(t *testing.T) {
+	os.Remove("./files")
+	os.Remove("test.db")
+	content, err := ioutil.ReadFile("./controllers/rest/fixtures/blog-x-upload.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentString := string(content)
+	contentString = fmt.Sprintf(contentString, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+
+	tapi, err := api.New(contentString)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+
+	e := tapi.EchoInstance()
+
+	t.Run("upload a file of valid size as property", func(t *testing.T) {
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+
+		writer.WriteField("title", "this is my title")
+		writer.WriteField("url", "this is my url")
+
+		file, err := os.Open("./controllers/rest/fixtures/files/test.csv")
+		if err != nil {
+			t.Error(err)
+		}
+		defer file.Close()
+
+		part, err := writer.CreateFormFile("description", "test.csv")
+		io.Copy(part, file)
+
+		writer.Close()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		header = http.Header{}
+		header.Set("Content-Type", writer.FormDataContentType())
+		req.Header = header
+		req.Close = true
+		e.ServeHTTP(resp, req)
+
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
+	})
+	os.Remove("./files")
+	os.Remove("test.db")
+
+	t.Run("upload a file of invalid size as property", func(t *testing.T) {
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+
+		writer.WriteField("title", "this is my title")
+		writer.WriteField("url", "this is my url")
+
+		file, err := os.Open("./controllers/rest/fixtures/files/test20.csv")
+		if err != nil {
+			t.Error(err)
+		}
+		defer file.Close()
+
+		part, err := writer.CreateFormFile("description", "test20.csv")
+		io.Copy(part, file)
+
+		writer.Close()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		header = http.Header{}
+		header.Set("Content-Type", writer.FormDataContentType())
+		req.Header = header
+		req.Close = true
+		e.ServeHTTP(resp, req)
+
+		if resp.Result().StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusBadRequest, resp.Result().StatusCode)
+		}
+	})
+}
+
+func TestIntegration_UploadOnEndpoint(t *testing.T) {
+	os.Remove("./files")
+	os.Remove("test.db")
+	content, err := ioutil.ReadFile("./controllers/rest/fixtures/blog-x-upload.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentString := string(content)
+	contentString = fmt.Sprintf(contentString, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+
+	tapi, err := api.New(contentString)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+
+	e := tapi.EchoInstance()
+
+	t.Run("upload a file of valid size as endpoint", func(t *testing.T) {
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+
+		file, err := os.Open("./controllers/rest/fixtures/files/test.csv")
+		if err != nil {
+			t.Error(err)
+		}
+		defer file.Close()
+
+		part, err := writer.CreateFormFile("description", "test.csv")
+		io.Copy(part, file)
+
+		writer.Close()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/files", body)
+		header = http.Header{}
+		header.Set("Content-Type", writer.FormDataContentType())
+		req.Header = header
+		req.Close = true
+		e.ServeHTTP(resp, req)
+
+		//TODO this should check for statusCreated
+		if resp.Result().StatusCode != http.StatusOK {
+			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusOK, resp.Result().StatusCode)
+		}
+	})
+	os.Remove("./files")
+	os.Remove("test.db")
+
+	t.Run("upload a file of invalid size as endpoint", func(t *testing.T) {
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+
+		file, err := os.Open("./controllers/rest/fixtures/files/test20.csv")
+		if err != nil {
+			t.Error(err)
+		}
+		defer file.Close()
+
+		part, err := writer.CreateFormFile("description", "test20.csv")
+		io.Copy(part, file)
+
+		writer.Close()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		header = http.Header{}
+		header.Set("Content-Type", writer.FormDataContentType())
+		req.Header = header
+		req.Close = true
+		e.ServeHTTP(resp, req)
+
+		if resp.Result().StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusBadRequest, resp.Result().StatusCode)
+		}
+	})
 }
