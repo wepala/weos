@@ -281,3 +281,291 @@ Feature: Create content
       When the "Blog" is submitted
       Then an error should be returned
 
+
+    @WEOS-1382
+    Scenario: Automatically generate ksuid on create
+
+      The id for an schema is automatically generated when the identifier is a single field and there is no value for that
+      field in the schema. The generation of the id should be based on the type and format of the identifier.
+
+      Given the specification is
+      """
+      openapi: 3.0.3
+      info:
+        title: Blog Aggregator Rest API
+        version: 0.1.0
+        description: REST API for interacting with the Blog Aggregator
+      servers:
+        - url: https://prod1.weos.sh/blog/dev
+          description: WeOS Dev
+        - url: https://prod1.weos.sh/blog/v1
+      x-weos-config:
+        logger:
+          level: warn
+          report-caller: true
+          formatter: json
+        database:
+          database: "%s"
+          driver: "%s"
+          host: "%s"
+          password: "%s"
+          username: "%s"
+          port: %d
+        rest:
+          middleware:
+            - RequestID
+            - Recover
+            - ZapLogger
+      components:
+        schemas:
+          Blog:
+             type: object
+             properties:
+               id:
+                 type: string
+                 format: ksuid
+               title:
+                 type: string
+                 description: blog title
+               description:
+                 type: string
+             required:
+               - title
+             x-identifier:
+               - id
+      paths:
+        /:
+          get:
+            operationId: Homepage
+            responses:
+              200:
+                description: Application Homepage
+        /blog:
+          post:
+            operationId: Add Blog
+            requestBody:
+              description: Blog info that is submitted
+              required: true
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+                application/x-www-form-urlencoded:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+                application/xml:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            responses:
+              201:
+                description: Add Blog to Aggregator
+                content:
+                  application/json:
+                    schema:
+                      $ref: "#/components/schemas/Blog"
+              400:
+                description: Invalid blog submitted
+      """
+      And the "OpenAPI 3.0" specification is parsed
+      And "Sojourner" is on the "Blog" create screen
+      And "Sojourner" enters "Some Blog" in the "title" field
+      And "Sojourner" enters "Some Description" in the "description" field
+      When the "Blog" is submitted
+      Then the "Blog" is created
+        | id               | title          | description                       |
+        | <Generated>      | Some Blog      | Some Description                  |
+      And the "Blog" should have an id
+      And the "Blog" id should be a "ksuid"
+
+
+  @WEOS-1382
+  Scenario: Automatically generate uuid on create
+
+    If the id of a schema is a string and the format uuid is specified then generate a uuid
+
+
+    Given the specification is
+    """
+    openapi: 3.0.3
+    info:
+      title: Blog Aggregator Rest API
+      version: 0.1.0
+      description: REST API for interacting with the Blog Aggregator
+    servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+    x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
+    components:
+      schemas:
+        Blog:
+           type: object
+           properties:
+             id:
+               type: string
+               format: uuid
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - id
+    paths:
+      /:
+        get:
+          operationId: Homepage
+          responses:
+            200:
+              description: Application Homepage
+      /blog:
+        post:
+          operationId: Add Blog
+          requestBody:
+            description: Blog info that is submitted
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+              application/x-www-form-urlencoded:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+              application/xml:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          responses:
+            201:
+              description: Add Blog to Aggregator
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
+    """
+    And the "OpenAPI 3.0" specification is parsed
+    And "Sojourner" is on the "Blog" create screen
+    And "Sojourner" enters "Some Blog" in the "title" field
+    And "Sojourner" enters "Some Description" in the "description" field
+    When the "Blog" is submitted
+    Then the "Blog" is created
+      | id           | title          | description                       |
+      | <Generated>  | Some Blog      | Some Description                  |
+    And the "Blog" should have an id
+    And the "Blog" id should be a "uuid"
+
+  @WEOS-1382
+  Scenario: Automatically generate id on create
+
+    If the id of a schema is an integer then use the auto increment functionality of the supporting database to increment
+    the integer.
+
+
+    Given the specification is
+    """
+    openapi: 3.0.3
+    info:
+      title: Blog Aggregator Rest API
+      version: 0.1.0
+      description: REST API for interacting with the Blog Aggregator
+    servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+    x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
+    components:
+      schemas:
+        Blog:
+           type: object
+           properties:
+             custom_id:
+               type: integer
+               format: uint
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - custom_id
+    paths:
+      /:
+        get:
+          operationId: Homepage
+          responses:
+            200:
+              description: Application Homepage
+      /blog:
+        post:
+          operationId: Add Blog
+          requestBody:
+            description: Blog info that is submitted
+            required: true
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+              application/x-www-form-urlencoded:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+              application/xml:
+                schema:
+                  $ref: "#/components/schemas/Blog"
+          responses:
+            201:
+              description: Add Blog to Aggregator
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Blog"
+            400:
+              description: Invalid blog submitted
+    """
+    And the "OpenAPI 3.0" specification is parsed
+    And "Sojourner" is on the "Blog" create screen
+    And "Sojourner" enters "Some Blog" in the "title" field
+    And "Sojourner" enters "Some Description" in the "description" field
+    When the "Blog" is submitted
+    Then the "Blog" is created
+      | custom_id             | title          | description                       |
+      | <Generated>    | Some Blog      | Some Description                  |
+    And the "Blog" should have an id
+    And the "Blog" id should be a "integer"
+
