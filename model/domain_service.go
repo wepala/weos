@@ -56,28 +56,35 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 			s.logger.Error(err)
 			return nil, err
 		}
-
-		entity, err := entityFactory.NewEntity(ctx)
 		if err != nil {
 			return nil, err
 		}
 		if id, ok := titem.(map[string]interface{})["weos_id"]; ok {
 			if i, ok := id.(string); ok && i != "" {
-				entity.ID = i
+				ctx = context.WithValue(ctx, weosContext.WEOS_ID, i)
+			} else {
+				entityID := ksuid.New().String()
+				ctx = context.WithValue(ctx, weosContext.WEOS_ID, entityID)
 			}
-		}
-		if entity.ID == "" {
-			entity.ID = ksuid.New().String()
-			titem.(map[string]interface{})["weos_id"] = entity.ID
+		} else {
+			entityID := ksuid.New().String()
+			ctx = context.WithValue(ctx, weosContext.WEOS_ID, entityID)
 		}
 
-		event := NewEntityEvent("create", entity, entity.ID, titem)
-		entity.NewChange(event)
-		err = entity.ApplyEvents([]*Event{event})
+		entityPayload, err := json.Marshal(titem)
+		if err != nil {
+			return nil, err
+		}
+		entity, err := entityFactory.CreateEntityWithValues(ctx, entityPayload)
+		mItem, err := json.Marshal(titem)
 		if err != nil {
 			return nil, err
 		}
 
+		err = json.Unmarshal(mItem, &titem)
+		if err != nil {
+			return nil, err
+		}
 		err = s.ValidateUnique(ctx, entity)
 		if err != nil {
 			return nil, err
