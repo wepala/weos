@@ -233,14 +233,14 @@ Feature: Upload file
   @WEOS-1378
     Scenario: Upload file that is above the default file size limit
 
-      The default file size limit is 10MB
+      The default file size limit is 1MB
 
       Given "Sojourner" is on page that has a file input
       And the folder "./files" exists
       And "Sojourner" selects the file
         | title            | path                      |
         | test             | ./controllers/rest/fixtures/files/test20.csv |
-      And the file is "20"mb
+      And the file is "1"mb
       When the file is uploaded to "/files"
       Then an error should be returned
 
@@ -254,7 +254,6 @@ Feature: Upload file
       And "Sojourner" selects the file
         | title            | path                      |
         | test             | ./controllers/rest/fixtures/files/test20.csv |
-      And the file is "20"mb
+      And the file is "1"mb
       When the file is uploaded to "/files"
       Then an error should be returned
-
