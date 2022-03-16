@@ -3,6 +3,7 @@ package rest_test
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/labstack/echo/v4"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -652,6 +653,32 @@ paths:
 	})
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
+}
+
+func TestRESTAPI_Initialize_ExampleResponse(t *testing.T) {
+	os.Remove("test.db")
+	var header http.Header
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	header = http.Header{}
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header = header
+	req.Close = true
+	e.ServeHTTP(resp, req)
+
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected to get status %d got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
 }
 
 func TestRESTAPI_InitializeSecurity(t *testing.T) {
