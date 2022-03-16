@@ -121,6 +121,7 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 			relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
 		} else {
 			t := p.Value.Type
+			f := p.Value.Format
 			if strings.EqualFold(t, "array") {
 				t2 := p.Value.Items.Value.Type
 				if t2 != "object" {
@@ -133,7 +134,12 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 					} else if t2 == "number" {
 						instance.AddField(name, []float64{}, tagString)
 					} else if t == "integer" {
-						instance.AddField(name, []int{}, tagString)
+						if f == "uint" {
+							instance.AddField(name, []uint{}, tagString)
+						} else {
+							instance.AddField(name, []int{}, tagString)
+						}
+
 					} else if t == "boolean" {
 						instance.AddField(name, []bool{}, tagString)
 					}
@@ -166,8 +172,13 @@ func newSchema(ref *openapi3.Schema, logger echo.Logger) (ds.Builder, map[string
 					var numbers *float32
 					defaultValue = numbers
 				case "integer":
-					var integers *int
-					defaultValue = integers
+					if f == "uint" {
+						defaultValue = uint(0)
+					} else {
+						var integers *int
+						defaultValue = integers
+					}
+
 				case "boolean":
 					var boolean *bool
 					defaultValue = boolean

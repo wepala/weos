@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/google/uuid"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
@@ -439,6 +441,28 @@ func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.
 	return w, nil
 }
 
+func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
+	err := w.SetValueFromPayload(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	err = w.GenerateID(payload)
+	if err != nil {
+		return nil, err
+	}
+	eventPayload, err := json.Marshal(w.Property)
+	if err != nil {
+		return nil, NewDomainError("error marshalling event payload", w.Schema.Title, w.ID, err)
+	}
+	event := NewEntityEvent(CREATE_EVENT, w, w.ID, eventPayload)
+	if err != nil {
+		return nil, err
+	}
+	w.NewChange(event)
+	err = w.ApplyEvents([]*Event{event})
+	return w, err
+}
+
 //Deprecated: this duplicates the work of making the dynamic struct builder. Use FromSchemaAndBuilder instead (this is used by the EntityFactory)
 //FromSchema builds properties from the schema
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
@@ -748,4 +772,54 @@ func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 	err := json.Unmarshal(data, &w.AggregateRoot)
 	err = json.Unmarshal(data, &w.Property)
 	return err
+}
+
+//GenerateID adds a generated id to the payload based on the schema
+func (w *ContentEntity) GenerateID(payload []byte) error {
+	tentity := make(map[string]interface{})
+	properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+	err := json.Unmarshal(payload, w)
+	if err != nil {
+		return err
+	}
+	if properties != nil {
+		propArray := []string{}
+		err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+		if err != nil {
+			return fmt.Errorf("unexpected error unmarshalling identifiers: %s", err)
+		}
+		if len(propArray) == 1 { // if there is only one x-identifier specified then it should auto generate the identifier
+			property := propArray[0]
+			if w.Schema.Properties[property].Value.Type == "string" && w.GetString(property) == "" {
+				if w.Schema.Properties[property].Value.Format != "" { //if the format is specified
+					switch w.Schema.Properties[property].Value.Format {
+					case "ksuid":
+						tentity[property] = ksuid.New().String()
+					case "uuid":
+						tentity[property] = uuid.NewString()
+					default:
+						errr := "unexpected error: fail to generate identifier " + property + " since the format " + w.Schema.Properties[property].Value.Format + " is not supported"
+						return NewDomainError(errr, w.Schema.Title, "", nil)
+					}
+				} else { //if the format is not specified
+					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+					return NewDomainError(errr, w.Schema.Title, "", nil)
+				}
+			} else if w.Schema.Properties[property].Value.Type == "integer" {
+				reader := ds.NewReader(w.Property)
+				if w.Schema.Properties[property].Value.Format == "" && reader.GetField(strings.Title(property)).PointerInt() == nil {
+					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+					return NewDomainError(errr, w.Schema.Title, "", nil)
+
+				}
+			}
+
+		}
+	}
+	generatedIdentifier, err := json.Marshal(tentity)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(generatedIdentifier, w)
 }

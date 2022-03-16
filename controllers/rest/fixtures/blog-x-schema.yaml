@@ -32,14 +32,15 @@ components:
     Category:
       type: object
       properties:
-        title:
+        id:
           type: string
+          format: uuid
         description:
           type: string
       required:
-        - title
+        - id
       x-identifier:
-        - title
+        - id
     Author:
       type: object
       properties:
@@ -58,7 +59,6 @@ components:
         - lastName
       x-identifier:
         - id
-        - email
     Blog:
       type: object
       properties:
@@ -115,6 +115,15 @@ components:
         created:
           type: string
           format: date-time
+    Archives:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+      x-identifier:
+        - id
 paths:
   /health:
     summary: Health Check
