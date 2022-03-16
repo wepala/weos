@@ -25,7 +25,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err := api.ConvertFormToJson(req, "application/x-www-form-urlencoded", nil)
+		payload, err := api.ConvertFormToJson(req, "application/x-www-form-urlencoded", nil, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -59,7 +59,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err := api.ConvertFormToJson(req, "multipart/form-data", nil)
+		payload, err := api.ConvertFormToJson(req, "multipart/form-data", nil, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
