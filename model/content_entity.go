@@ -442,7 +442,16 @@ func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.
 }
 
 func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
-	err := w.SetValueFromPayload(ctx, payload)
+	var err error
+	//update default time update values based on routes
+	operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+	if ok {
+		payload, err = w.UpdateTime(operation, payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+	err = w.SetValueFromPayload(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
