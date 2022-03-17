@@ -54,6 +54,9 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 
 			cc, err = parseResponses(c, cc, operation)
 
+			//add OperationID to context
+			cc = context.WithValue(cc, weosContext.OPERATION_ID, operation.OperationID)
+
 			//parse request body based on content type
 			var payload []byte
 			ct := c.Request().Header.Get("Content-Type")

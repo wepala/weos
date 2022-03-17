@@ -561,4 +561,26 @@ func TestContext(t *testing.T) {
 		e.GET("/blogs/:id", handler)
 		e.ServeHTTP(resp, req)
 	})
+
+	t.Run("add operationId to context", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			value := cc.Value(context.OPERATION_ID)
+			if value == nil {
+				t.Fatalf("expected the operation id to have a value")
+			}
+			if value.(string) != "Get Blogs" {
+				t.Fatalf("expected the operation id to be Get Blogs")
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
 }
