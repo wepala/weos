@@ -56,28 +56,35 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 			s.logger.Error(err)
 			return nil, err
 		}
-
-		entity, err := entityFactory.NewEntity(ctx)
 		if err != nil {
 			return nil, err
 		}
 		if id, ok := titem.(map[string]interface{})["weos_id"]; ok {
 			if i, ok := id.(string); ok && i != "" {
-				entity.ID = i
+				ctx = context.WithValue(ctx, weosContext.WEOS_ID, i)
+			} else {
+				entityID := ksuid.New().String()
+				ctx = context.WithValue(ctx, weosContext.WEOS_ID, entityID)
 			}
-		}
-		if entity.ID == "" {
-			entity.ID = ksuid.New().String()
-			titem.(map[string]interface{})["weos_id"] = entity.ID
+		} else {
+			entityID := ksuid.New().String()
+			ctx = context.WithValue(ctx, weosContext.WEOS_ID, entityID)
 		}
 
-		event := NewEntityEvent("create", entity, entity.ID, titem)
-		entity.NewChange(event)
-		err = entity.ApplyEvents([]*Event{event})
+		entityPayload, err := json.Marshal(titem)
+		if err != nil {
+			return nil, err
+		}
+		entity, err := entityFactory.CreateEntityWithValues(ctx, entityPayload)
+		mItem, err := json.Marshal(titem)
 		if err != nil {
 			return nil, err
 		}
 
+		err = json.Unmarshal(mItem, &titem)
+		if err != nil {
+			return nil, err
+		}
 		err = s.ValidateUnique(ctx, entity)
 		if err != nil {
 			return nil, err
@@ -159,7 +166,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			seqNo = seq
 		}
 
-		existingEntity, err := s.GetContentEntity(ctx, entityFactory, weosID)
+		existingEntity, err = s.GetContentEntity(ctx, entityFactory, weosID)
 		if err != nil {
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, weosID, err)
 		}
@@ -190,6 +197,15 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			if fmt.Sprint(tempExistingPayload[pk]) != fmt.Sprint(tempPayload[pk]) {
 				return nil, NewDomainError("invalid: error updating entity. Primary keys cannot be updated.", entityType, weosID, nil)
 			}
+		}
+
+		//update default time update values based on routes
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			newPayload, err = existingEntity.UpdateTime(operation, newPayload)
+		}
+		if err != nil {
+			return nil, err
 		}
 
 		updatedEntity, err = existingEntity.Update(ctx, newPayload)
@@ -233,6 +249,15 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		if err != nil {
 			s.logger.Errorf("error updating entity", err)
 			return nil, err
+		}
+
+		//update default time update values based on routes
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			newPayload, err = existingEntity.UpdateTime(operation, newPayload)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		updatedEntity, err = existingEntity.Update(ctx, newPayload)
@@ -314,6 +339,15 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 			return nil, err
 		}
 
+		//update default time update values based on routes
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			existingEntityPayload, err = existingEntity.UpdateTime(operation, existingEntityPayload)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		deletedEntity, err = existingEntity.Delete(existingEntityPayload)
 		if err != nil {
 			return nil, err
@@ -338,6 +372,15 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 		err = json.Unmarshal(data, &existingEntity)
 		if err != nil {
 			return nil, err
+		}
+
+		//update default time update values based on routes
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			data, err = existingEntity.UpdateTime(operation, data)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		deletedEntity, err = existingEntity.Delete(data)

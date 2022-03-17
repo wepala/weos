@@ -28,6 +28,7 @@ x-weos-config:
       - RequestID
       - Recover
       - ZapLogger
+      - LogLevel
 components:
   schemas:
     Category:
@@ -45,8 +46,8 @@ components:
       type: object
       properties:
         id:
-          type: string
-          format: ksuid
+          type: integer
+          format: uint
         firstName:
           type: string
         lastName:
@@ -59,7 +60,6 @@ components:
         - lastName
       x-identifier:
         - id
-        - email
     Blog:
       type: object
       properties:
@@ -94,9 +94,14 @@ components:
         lastUpdated:
           type: string
           format: date-time
+          x-update: 
+            - Add Blog
+            - Update Blog
         created:
           type: string
           format: date-time
+          x-update: 
+            - Add Blog
       required:
         - title
         - url
@@ -166,6 +171,15 @@ paths:
                     "url": "www.example.com",
                     "email": "testing@example.com"
                   }
+  /file:
+    get:
+      responses:
+        200:
+          description: file found
+          x-folder: "./controllers/rest/fixtures/staticF"
+          x-file: "./controllers/rest/fixtures/staticF/index"
+        404:
+          description: file not found
   /health:
     summary: Health Check
     get:
@@ -201,6 +215,10 @@ paths:
     post:
       operationId: Add Blog
       summary: Create Blog
+      x-middleware:
+        - Recover
+        - ZapLogger
+        - LogLevel
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -253,24 +271,10 @@ paths:
           required: false
           description: query string
       x-context:
-        filters:
-          - field: status
+        _filters:
+          - field: active
             operator: eq
-            values:
-              - Active
-          - field: lastUpdated
-            operator: between
-            values:
-              - 2021-12-17 15:46:00
-              - 2021-12-18 15:46:00
-          - field: categories
-            operator: in
-            values:
-              - Technology
-              - Javascript
-        sorts:
-          - field: title
-            order: asc
+            value: true
         page: 1
         limit: 10
       responses:

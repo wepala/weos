@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const CREATE_EVENT = "create"
+
 type Event struct {
 	ID      string          `json:"id"`
 	Type    string          `json:"type"`

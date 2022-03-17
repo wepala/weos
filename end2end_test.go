@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"github.com/google/uuid"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -71,6 +73,13 @@ var errArray []error
 var filters string
 var enumErr error
 var token string
+var xfolderError error
+var xfolderName string
+var contextWithValues context.Context
+var mockProjections map[string]*ProjectionMock
+var mockEventStores map[string]*EventRepositoryMock
+var expectedContentType string
+var contentEntity map[string]interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -101,11 +110,15 @@ type ContentType struct {
 func InitializeSuite(ctx *godog.TestSuiteContext) {
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
+	mockProjections = make(map[string]*ProjectionMock)
+	mockEventStores = make(map[string]*EventRepositoryMock)
 	Developer = &User{}
 	filters = ""
-	page = 1
+	page = 0
 	limit = 0
 	token = ""
+	expectedContentType = ""
+	contentEntity = map[string]interface{}{}
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
@@ -156,19 +169,23 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	scenarioContext = context.Background()
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
+	mockProjections = make(map[string]*ProjectionMock)
+	mockEventStores = make(map[string]*EventRepositoryMock)
 	Developer = &User{}
 	filters = ""
-	page = 1
+	page = 0
 	limit = 0
 	token = ""
 	result = api.ListApiResponse{}
 	errs = nil
+	contentEntity = map[string]interface{}{}
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
 	e = echo.New()
+	os.Remove(xfolderName)
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -459,6 +476,8 @@ func theIsCreated(contentType string, details *godog.Table) error {
 	if rec.Result().StatusCode != http.StatusCreated {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
+	etag := rec.Header().Get("Etag")
+	weosID, _ := api.SplitEtag(etag)
 
 	head := details.Rows[0].Cells
 	compare := map[string]interface{}{}
@@ -469,26 +488,23 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentEntity := map[string]interface{}{}
-	var result *gorm.DB
-	//ETag would help with this
-	for key, value := range compare {
-		result = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, key+" = ?", value)
-		if contentEntity != nil {
-			break
-		}
-	}
-
+	contentEntity = map[string]interface{}{}
+	var resultdb *gorm.DB
+	resultdb = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", weosID)
 	if contentEntity == nil {
 		return fmt.Errorf("unexpected error finding content type in db")
 	}
 
-	if result.Error != nil {
-		return fmt.Errorf("unexpected error finding content type: %s", result.Error)
+	if resultdb.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
 	}
 
 	for key, value := range compare {
 		if contentEntity[key] != value {
+			v, ok := value.(string)
+			if ok && v == "<Generated>" && contentEntity[key] != nil {
+				continue
+			}
 			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
 		}
 	}
@@ -534,10 +550,17 @@ func theShouldHaveAnId(contentType string) error {
 
 func theSpecificationIs(arg1 *godog.DocString) error {
 	openAPI = arg1.Content
+	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+	tapi, err := api.New(openAPI)
+	if err != nil {
+		return err
+	}
+	API = *tapi
 	return nil
 }
 
 func theSpecificationIsParsed(arg1 string) error {
+	dropDB() //dropping the db is necessary for weos-1382 since the scenario has its own spec file it needs to overwite the background spec file
 	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
 	tapi, err := api.New(openAPI)
 	if err != nil {
@@ -724,22 +747,28 @@ func theEndpointIsHit(method, contentType string) error {
 
 func theServiceIsRunning() error {
 	buf = bytes.Buffer{}
-	openAPI = fmt.Sprintf(openAPI, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
-	tapi, err := api.New(openAPI)
+	API.DB = db
+	API.EchoInstance().Logger.SetOutput(&buf)
+	API.RegisterMiddleware("Handler", func(api *api.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				contextWithValues = c.Request().Context()
+
+				return nil
+			}
+		}
+	})
+	err := API.Initialize(scenarioContext)
 	if err != nil {
-		return err
-	}
-	tapi.DB = db
-	tapi.EchoInstance().Logger.SetOutput(&buf)
-	API = *tapi
-	err = API.Initialize(scenarioContext)
-	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "provided x-update operation id") {
+			errs = err
+		} else {
+			return err
+		}
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
-		p := proj.(*projections.GORMDB)
-		if p != nil {
+		if p, ok := proj.(*projections.GORMDB); ok {
 			gormDB = p.DB()
 		}
 	}
@@ -854,7 +883,7 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentEntity := map[string]interface{}{}
+	contentEntity = map[string]interface{}{}
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
@@ -1530,6 +1559,7 @@ func theContentTypeShouldBe(mediaType string) error {
 	if rec.Header().Get("Content-Type") != mediaType {
 		return fmt.Errorf("expect content type to be %s got %s", mediaType, rec.Header().Get("Content-Type"))
 	}
+	expectedContentType = mediaType
 	return nil
 }
 
@@ -1540,16 +1570,222 @@ func theHeaderIsSetWithValue(key, value string) error {
 
 func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 	defer rec.Result().Body.Close()
+	var exp []byte
 	results, err := io.ReadAll(rec.Result().Body)
 	if err != nil {
 		return err
 	}
-	exp, err := api.JSONMarshal(expectResp.Content)
+	if strings.Contains(expectedContentType, "json") {
+		exp, err = json.Marshal(expectResp.Content)
+	} else {
+		exp, err = api.JSONMarshal(expectResp.Content)
+	}
 	if err != nil {
 		return err
 	}
-	if bytes.Compare(results, exp) != 0 {
-		return fmt.Errorf("expected response to be %s, got %s", results, exp)
+
+	if !strings.Contains(expectResp.Content, string(results)) {
+		if bytes.Compare(results, exp) != 0 {
+			return fmt.Errorf("expected response to be %s, got %s", results, exp)
+		}
+	}
+
+	return nil
+}
+
+func aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist() error {
+	if !strings.Contains(buf.String(), "error finding folder") {
+		return fmt.Errorf("expected an error finding the specified folder")
+	}
+	return nil
+}
+
+func thereIsAFile(filePathName string, fileContent *godog.DocString) error {
+	directory := filepath.Dir(filePathName)
+
+	_, err := os.Stat(directory)
+
+	if os.IsNotExist(err) {
+		xfolderName = directory
+		err := os.MkdirAll(directory, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = os.Stat(filePathName)
+
+	if os.IsNotExist(err) {
+		os.WriteFile(filePathName, []byte(fileContent.Content), os.ModePerm)
+	}
+
+	return nil
+}
+
+func thereShouldBeAKeyInTheRequestContextWithObject(key string) error {
+	if contextWithValues.Value(key) == nil {
+		return fmt.Errorf("expected key %s to be found got nil", key)
+	}
+	return nil
+}
+
+func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
+	val, _ := strconv.Atoi(value)
+	switch contextWithValues.Value(key).(type) {
+	case int:
+		if contextWithValues.Value(key).(int) != val {
+			return fmt.Errorf("expected key %s value to be %d got %d", key, val, contextWithValues.Value(key).(int))
+		}
+	case string:
+		if contextWithValues.Value(key).(string) != value {
+			return fmt.Errorf("expected key %s value to be %s got %s", key, value, contextWithValues.Value(key).(string))
+		}
+	}
+
+	return nil
+}
+
+func definesAProjection(arg1, arg2 string) error {
+	mockProjections[arg2] = &ProjectionMock{
+		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+			return nil, nil
+		},
+		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+			return []map[string]interface{}{}, 0, nil
+		},
+		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+			return nil, nil
+		},
+		GetEventHandlerFunc: func() model.EventHandler {
+			return func(ctx context.Context, event model.Event) error {
+				return nil
+			}
+		},
+		MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			return nil
+		},
+	}
+	API.RegisterProjection(arg2, mockProjections[arg2])
+
+	return nil
+}
+
+func setTheDefaultProjectionAs(arg1, arg2 string) error {
+	if projection, ok := mockProjections[arg2]; ok {
+		API.RegisterProjection("Default", projection)
+		return nil
+	}
+
+	return fmt.Errorf("projection '%s' not found", arg2)
+}
+
+func theProjectionIsCalled(arg1 string) error {
+	if projection, ok := mockProjections[arg1]; ok {
+		if len(projection.GetContentEntitiesCalls()) == 0 && len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByEntityIDCalls()) == 0 && len(projection.GetByKeyCalls()) == 0 && len(projection.GetContentEntitiesCalls()) == 0 {
+			return fmt.Errorf("projection '%s' not called", arg1)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("projection '%s' not found", arg1)
+}
+
+func definesAnEventStore(arg1, arg2 string) error {
+	mockEventStores[arg2] = &EventRepositoryMock{
+		AddSubscriberFunc: func(handler model.EventHandler) {
+
+		},
+		FlushFunc: func() error {
+			return nil
+		},
+		GetAggregateSequenceNumberFunc:     nil,
+		GetByAggregateFunc:                 nil,
+		GetByAggregateAndSequenceRangeFunc: nil,
+		GetByAggregateAndTypeFunc:          nil,
+		GetByEntityAndAggregateFunc:        nil,
+		GetSubscribersFunc:                 nil,
+		MigrateFunc: func(ctx context.Context) error {
+			return nil
+		},
+		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+			return nil
+		},
+		ReplayEventsFunc: nil,
+	}
+	return nil
+}
+
+func setTheDefaultEventStoreAs(arg1, arg2 string) error {
+	if eventStore, ok := mockEventStores[arg2]; ok {
+		API.RegisterEventStore("Default", eventStore)
+		return nil
+	}
+
+	return fmt.Errorf("event store '%s' not found", arg2)
+}
+
+func theProjectionIsNotCalled(arg1 string) error {
+	if projection, ok := mockProjections[arg1]; ok {
+		if !(len(projection.GetContentEntitiesCalls()) == 0 && len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByEntityIDCalls()) == 0 && len(projection.GetByKeyCalls()) == 0 && len(projection.GetContentEntitiesCalls()) == 0) {
+			return fmt.Errorf("projection '%s' called", arg1)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("projection '%s' not found", arg1)
+}
+
+func theIdShouldBeA(arg1, format string) error {
+	switch format {
+	case "uuid":
+		_, err := uuid.Parse(contentEntity["id"].(string))
+		if err != nil {
+			fmt.Errorf("unexpected error parsing id as uuid: %s", err)
+		}
+	case "integer":
+		_, ok := contentEntity["id"].(int)
+		if !ok {
+			fmt.Errorf("unexpected error parsing id as int")
+		}
+	case "ksuid":
+		_, err := ksuid.Parse(contentEntity["id"].(string))
+		if err != nil {
+			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
+		}
+	}
+	return nil
+}
+
+func anErrorIsReturned() error {
+	if !strings.Contains(errs.Error(), "provided x-update operation id") {
+		return fmt.Errorf("expected the error to contain: %s, got %s", "provided x-update operation id", errs.Error())
+	}
+	return nil
+}
+
+func theFieldShouldHaveTodaysDate(field string) error {
+
+	timeNow := time.Now()
+	todaysDate := timeNow.Format("2006-01-02")
+
+	switch dbconfig.Driver {
+	case "postgres", "mysql":
+		date := contentEntity[field].(time.Time).Format("2006-01-02")
+		if !strings.Contains(date, todaysDate) {
+			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+		}
+
+	case "sqlite3":
+		date := contentEntity[field].(string)
+		if !strings.Contains(date, todaysDate) {
+			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+		}
 	}
 
 	return nil
@@ -1645,7 +1881,19 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the content type should be "([^"]*)"$`, theContentTypeShouldBe)
 	ctx.Step(`^the header "([^"]*)" is set with value "([^"]*)"$`, theHeaderIsSetWithValue)
 	ctx.Step(`^the response body should be$`, theResponseBodyShouldBe)
-
+	ctx.Step(`^a warning should be shown informing the developer that the folder doesn\'t exist$`, aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist)
+	ctx.Step(`^there is a file "([^"]*)"$`, thereIsAFile)
+	ctx.Step(`^there should be a key "([^"]*)" in the request context with object$`, thereShouldBeAKeyInTheRequestContextWithObject)
+	ctx.Step(`^there should be a key "([^"]*)" in the request context with value "([^"]*)"$`, thereShouldBeAKeyInTheRequestContextWithValue)
+	ctx.Step(`^"([^"]*)" defines a projection "([^"]*)"$`, definesAProjection)
+	ctx.Step(`^"([^"]*)" set the default projection as "([^"]*)"$`, setTheDefaultProjectionAs)
+	ctx.Step(`^the projection "([^"]*)" is called$`, theProjectionIsCalled)
+	ctx.Step(`^"([^"]*)" defines an event store "([^"]*)"$`, definesAnEventStore)
+	ctx.Step(`^"([^"]*)" set the default event store as "([^"]*)"$`, setTheDefaultEventStoreAs)
+	ctx.Step(`^the projection "([^"]*)" is not called$`, theProjectionIsNotCalled)
+	ctx.Step(`^the "([^"]*)" id should be a "([^"]*)"$`, theIdShouldBeA)
+	ctx.Step(`^an error is returned$`, anErrorIsReturned)
+	ctx.Step(`^the "([^"]*)" field should have today\'s date$`, theFieldShouldHaveTodaysDate)
 }
 
 func TestBDD(t *testing.T) {
