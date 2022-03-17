@@ -30,6 +30,17 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules
 			newContext := ctxt.Request().Context()
+
+			uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
+			if uploadResponse != nil {
+				if err, ok := uploadResponse.(*echo.HTTPError); ok {
+					if err.Error() != "" {
+						ctxt.Logger().Errorf(err.Error())
+						return err
+					}
+				}
+			}
+
 			if entityFactory != nil {
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
@@ -855,10 +866,19 @@ func DefaultResponseController(api *RESTAPI, projection projections.Projection, 
 	return func(context echo.Context) error {
 		newContext := context.Request().Context()
 		value := newContext.Value(weoscontext.BASIC_RESPONSE)
-		if value == nil {
-			return nil
+		uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
+
+		if uploadResponse == nil {
+			if value == nil {
+				return nil
+			}
+			return NewControllerError(value.(error).Error(), value.(error), http.StatusBadRequest)
+		} else {
+			if err, ok := uploadResponse.(*echo.HTTPError); ok {
+				return err
+			}
+			return uploadResponse.(error)
 		}
-		return NewControllerError(value.(error).Error(), value.(error), http.StatusBadRequest)
 
 	}
 }

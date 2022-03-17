@@ -25,6 +25,8 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			var err error
+			var formErr error
+			var status string
 			cc := c.Request().Context()
 			//get account id using the standard header
 			accountID := c.Request().Header.Get(weosContext.HeaderXAccountID)
@@ -70,7 +72,8 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 						case "application/json":
 							payload, err = ioutil.ReadAll(c.Request().Body)
 						case "application/x-www-form-urlencoded", "multipart/form-data":
-							payload, err = ConvertFormToJson(c.Request(), ct, entityFactory, mimeType)
+							payload, formErr, status = ConvertFormToJson(c.Request(), ct, entityFactory, mimeType)
+
 						}
 						//set payload to context
 						cc = context.WithValue(cc, weosContext.PAYLOAD, payload)
@@ -84,8 +87,20 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			//if there are any errors
 			if err != nil {
 				c.Logger().Error(err)
-				cc = context.WithValue(cc, weosContext.BASIC_RESPONSE, err)
 			}
+
+			//This check ensures that this was not an x-upload related form error
+			if formErr != nil && status == "" {
+				c.Logger().Error(formErr)
+			}
+
+			//This check ensures that this was an x-upload related error
+			if status == "Upload Successful" {
+				cc = context.WithValue(cc, weosContext.UPLOAD_RESPONSE, c.JSON(http.StatusCreated, "File Successfully Uploaded"))
+			} else if status == "Upload Failed" {
+				cc = context.WithValue(cc, weosContext.UPLOAD_RESPONSE, NewControllerError(formErr.(error).Error(), formErr.(error), http.StatusBadRequest))
+			}
+
 			request := c.Request().WithContext(cc)
 			c.SetRequest(request)
 			return next(c)

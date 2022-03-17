@@ -215,8 +215,9 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 }
 
 //ConvertFormToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormToJson(r *http.Request, contentType string, entityFactory model.EntityFactory, media *openapi3.MediaType) (json.RawMessage, error) {
+func ConvertFormToJson(r *http.Request, contentType string, entityFactory model.EntityFactory, media *openapi3.MediaType) (json.RawMessage, error, string) {
 	var parsedPayload []byte
+	uploadHit := false
 
 	switch contentType {
 	case "application/x-www-form-urlencoded":
@@ -224,7 +225,7 @@ func ConvertFormToJson(r *http.Request, contentType string, entityFactory model.
 
 		err := r.ParseForm()
 		if err != nil {
-			return nil, err
+			return nil, err, ""
 		}
 
 		for k, v := range r.PostForm {
@@ -235,14 +236,14 @@ func ConvertFormToJson(r *http.Request, contentType string, entityFactory model.
 
 		parsedPayload, err = json.Marshal(parsedForm)
 		if err != nil {
-			return nil, err
+			return nil, err, ""
 		}
 	case "multipart/form-data":
 		parsedForm := map[string]interface{}{}
 
 		err := r.ParseMultipartForm(1024) //Revisit
 		if err != nil {
-			return nil, err
+			return nil, err, ""
 		}
 
 		for k, v := range r.MultipartForm.Value {
@@ -264,14 +265,17 @@ func ConvertFormToJson(r *http.Request, contentType string, entityFactory model.
 				for name, _ := range r.MultipartForm.File {
 					file, header, err := r.FormFile(name)
 					if err != nil {
-						return nil, err
+						return nil, err, "Upload Failed"
 					}
 					defer file.Close()
 
 					errr := SaveUploadedFiles(uploadFolder, file, header)
 					if errr != nil {
-						return nil, errr
+						return nil, errr, "Upload Failed"
 					}
+
+					//This is necessary for correct response handling
+					uploadHit = true
 
 					//Adds the file path to payload instead of entire file
 					parsedForm[name] = header.Filename
@@ -285,14 +289,18 @@ func ConvertFormToJson(r *http.Request, contentType string, entityFactory model.
 
 						file, header, err := r.FormFile(name)
 						if err != nil {
-							return nil, err
+							return nil, err, "Upload Failed"
 						}
 						defer file.Close()
 
 						errr := SaveUploadedFiles(uploadFolder, file, header)
 						if errr != nil {
-							return nil, errr
+							return nil, errr, "Upload Failed"
 						}
+
+						//This is necessary for correct response handling
+						uploadHit = true
+
 						//Adds the file path to payload instead of entire file
 						parsedForm[name] = header.Filename
 					}
@@ -302,11 +310,16 @@ func ConvertFormToJson(r *http.Request, contentType string, entityFactory model.
 
 		parsedPayload, err = json.Marshal(parsedForm)
 		if err != nil {
-			return nil, err
+			return nil, err, ""
 		}
 	}
 
-	return parsedPayload, nil
+	//This indicates that the upload was hit successfully and there were no errors
+	if uploadHit {
+		return parsedPayload, nil, "Upload Successful"
+	}
+
+	return parsedPayload, nil, ""
 }
 
 //SplitFilters splits multiple filters into array of filters

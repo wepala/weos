@@ -73,7 +73,7 @@ components:
           type: string
           x-upload:
             folder: ./files
-            limit: 10000
+            limit: 100000000
         active:
           type: boolean
         status:
@@ -775,7 +775,7 @@ paths:
               format: binary
               x-upload:
                 folder: ./files
-                limit: 10000000
+                limit: 1000
       responses:
         201:
           description: File successfully uploaded
