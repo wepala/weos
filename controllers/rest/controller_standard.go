@@ -33,10 +33,10 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 
 			uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
 			if uploadResponse != nil {
-				if err, ok := uploadResponse.(*echo.HTTPError); ok {
-					if err.Error() != "" {
-						ctxt.Logger().Errorf(err.Error())
-						return err
+				if uploadErr, ok := uploadResponse.(*echo.HTTPError); ok {
+					if uploadErr.Error() != "" {
+						ctxt.Logger().Error(uploadErr)
+						return uploadErr
 					}
 				}
 			}
@@ -877,7 +877,7 @@ func DefaultResponseController(api *RESTAPI, projection projections.Projection, 
 			if err, ok := uploadResponse.(*echo.HTTPError); ok {
 				return err
 			}
-			return uploadResponse.(error)
+			return context.JSON(http.StatusCreated, "File successfully Uploaded")
 		}
 
 	}

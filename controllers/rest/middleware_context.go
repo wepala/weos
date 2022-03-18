@@ -96,7 +96,7 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 
 			//This check ensures that this was an x-upload related error
 			if status == "Upload Successful" {
-				cc = context.WithValue(cc, weosContext.UPLOAD_RESPONSE, c.JSON(http.StatusCreated, "File Successfully Uploaded"))
+				cc = context.WithValue(cc, weosContext.UPLOAD_RESPONSE, "File Successfully Uploaded")
 			} else if status == "Upload Failed" {
 				cc = context.WithValue(cc, weosContext.UPLOAD_RESPONSE, NewControllerError(formErr.(error).Error(), formErr.(error), http.StatusBadRequest))
 			}
