@@ -2,11 +2,18 @@ package rest_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
+	weoscontext "github.com/wepala/weos/context"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -173,6 +180,85 @@ func TestGetJwkUrl(t *testing.T) {
 			t.Errorf("expected an error to returned for url: %s", "jsisahudsdi")
 		}
 
+	})
+
+}
+
+func TestReturnContextValues(t *testing.T) {
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &api.RESTAPI{}
+	restAPI.SetEchoInstance(e)
+	entityFactory := &EntityFactoryMock{
+		NameFunc: func() string {
+			return "Blog"
+		},
+		SchemaFunc: func() *openapi3.Schema {
+			return swagger.Components.Schemas["Blog"].Value
+		},
+	}
+
+	t.Run("invalid url", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+		mw := api.Context(restAPI, nil, nil, nil, entityFactory, path, path.Get)
+		mw1 := func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				ctx := c.Request().Context()
+				values, err := api.ReturnContextValues(ctx, path.Get)
+				if err != nil {
+					t.Fatalf("unexpected error getting values from context")
+
+				}
+				ctx = context.WithValue(ctx, weoscontext.BASIC_RESPONSE, values)
+				request := c.Request().WithContext(ctx)
+				c.SetRequest(request)
+				return next(c)
+			}
+		}
+
+		e.GET("/blogs", func(c echo.Context) error {
+			ctx := c.Request().Context()
+			if values, ok := ctx.Value(weoscontext.BASIC_RESPONSE).(map[interface{}]interface{}); ok {
+				//search for all values key
+				if values != nil {
+					if values["page"].(int) != 2 {
+						t.Errorf("expected page to be %d got %d", 2, values["page"].(int))
+					}
+					if values["limit"].(int) != 10 {
+						t.Errorf("expected limit to be %d got %d", 10, values["limit"].(int))
+					}
+				}
+			}
+			return nil
+		}, mw, mw1)
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=2", nil)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		response := rec.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected the status code to be %d, got %d", 200, response.StatusCode)
+		}
 	})
 
 }
