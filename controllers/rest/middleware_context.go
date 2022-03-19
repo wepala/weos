@@ -425,121 +425,119 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 
 //ConvertFormToJson This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
 func ConvertFormToJson(r *http.Request, contentType string, schema *openapi3.Schema) (json.RawMessage, error) {
-	var parsedPayload []byte
+	var err error
+	parsedForm := map[string]interface{}{}
 
 	switch contentType {
 	case "application/x-www-form-urlencoded":
-		parsedForm := map[string]interface{}{}
-
-		err := r.ParseForm()
+		err = r.ParseForm()
 		if err != nil {
 			return nil, err
 		}
 
 		for k, v := range r.PostForm {
 			for _, value := range v {
-				parsedForm[k] = value
+				parsedForm, err = parseFormPayload(parsedForm, schema, k, value, len(v))
 			}
 		}
 
-		parsedPayload, err = json.Marshal(parsedForm)
-		if err != nil {
-			return nil, err
-		}
 	case "multipart/form-data":
-		parsedForm := map[string]interface{}{}
 
-		err := r.ParseMultipartForm(1024) //Revisit
+		err = r.ParseMultipartForm(1024) //Revisit
 		if err != nil {
 			return nil, err
 		}
 
 		for k, v := range r.MultipartForm.Value {
-			//strip [] from the end, this allows a common query string, form pattern
-			isArray := strings.Contains(k, "[")
-			if isArray {
-				k = strings.Replace(k, "[]", "", -1)
-			}
-
-			var temporaryValue interface{}
 			for _, value := range v {
-				//check the schema and try to convert the string to that type
-				if schema != nil {
-					if property, ok := schema.Properties[k]; ok {
-						if property.Value != nil {
-							if property.Value.Type == "array" {
-								isArray = true
-								var arrayValue interface{}
-								if arrayValue, ok = parsedForm[k]; !ok {
-									arrayValue = make([]interface{}, len(r.MultipartForm.Value[k]))
-								}
-								//use the type specified on "items"
-								temporaryValue, err = ConvertStringToType(property.Value.Items.Value.Type, property.Value.Items.Value.Type, value)
-								parsedForm[k] = append(arrayValue.([]interface{}), temporaryValue)
-							} else {
-								parsedForm[k], err = ConvertStringToType(property.Value.Type, property.Value.Format, value)
-							}
-
-							switch property.Value.Type {
-							case "integer":
-								temporaryValue, err = strconv.Atoi(value)
-								if err == nil {
-									//check the format and use that to convert to int32 vs int64
-									switch property.Value.Format {
-									case "int64":
-										temporaryValue = int64(temporaryValue.(int))
-									case "int32":
-										temporaryValue = int32(temporaryValue.(int))
-									}
-								}
-
-							case "number":
-								tv, terr := strconv.ParseFloat(value, 64)
-								if terr == nil {
-									//check the format to determine the bit size. Default to 32 if none is specified
-									if property.Value.Format != "float" {
-										temporaryValue = math.Round(tv*100) / 100
-									} else {
-										temporaryValue = tv
-									}
-								}
-								err = terr
-							case "array":
-
-							default:
-								temporaryValue = value
-							}
-							//return conversion errors
-							if err != nil {
-								return nil, err
-							} else {
-								parsedForm[k] = temporaryValue
-							}
-						}
-
-					}
-				} else {
-					//if there is more than one value then it should be stored as an array
-					if isArray {
-						var arrayValue interface{}
-						var ok bool
-						if arrayValue, ok = parsedForm[k]; !ok {
-							arrayValue = make([]interface{}, len(r.MultipartForm.Value[k]))
-						}
-						parsedForm[k] = append(arrayValue.([]interface{}), value)
-					} else {
-						parsedForm[k] = value
-					}
-				}
-
+				parsedForm, err = parseFormPayload(parsedForm, schema, k, value, len(v))
 			}
-		}
 
-		parsedPayload, err = json.Marshal(parsedForm)
-		if err != nil {
-			return nil, err
 		}
 	}
 
-	return parsedPayload, nil
+	return json.Marshal(parsedForm)
+}
+
+//parseFormPayload process form data and converts to a map
+func parseFormPayload(parsedForm map[string]interface{}, schema *openapi3.Schema, k string, value string, valueCount int) (map[string]interface{}, error) {
+	var err error
+	//strip [] from the end, this allows a common query string, form pattern
+	isArray := strings.Contains(k, "[")
+	if isArray {
+		k = strings.Replace(k, "[]", "", -1)
+	}
+
+	var temporaryValue interface{}
+
+	//check the schema and try to convert the string to that type
+	if schema != nil {
+		if property, ok := schema.Properties[k]; ok {
+			if property.Value != nil {
+				if property.Value.Type == "array" {
+					isArray = true
+					var arrayValue interface{}
+					if arrayValue, ok = parsedForm[k]; !ok {
+						arrayValue = make([]interface{}, valueCount)
+					}
+					//use the type specified on "items"
+					temporaryValue, err = ConvertStringToType(property.Value.Items.Value.Type, property.Value.Items.Value.Type, value)
+					parsedForm[k] = append(arrayValue.([]interface{}), temporaryValue)
+				} else {
+					parsedForm[k], err = ConvertStringToType(property.Value.Type, property.Value.Format, value)
+				}
+
+				switch property.Value.Type {
+				case "integer":
+					temporaryValue, err = strconv.Atoi(value)
+					if err == nil {
+						//check the format and use that to convert to int32 vs int64
+						switch property.Value.Format {
+						case "int64":
+							temporaryValue = int64(temporaryValue.(int))
+						case "int32":
+							temporaryValue = int32(temporaryValue.(int))
+						}
+					}
+
+				case "number":
+					tv, terr := strconv.ParseFloat(value, 64)
+					if terr == nil {
+						//check the format to determine the bit size. Default to 32 if none is specified
+						if property.Value.Format != "float" {
+							temporaryValue = math.Round(tv*100) / 100
+						} else {
+							temporaryValue = tv
+						}
+					}
+					err = terr
+				case "array":
+
+				default:
+					temporaryValue = value
+				}
+				//return conversion errors
+				if err != nil {
+					return nil, err
+				} else {
+					parsedForm[k] = temporaryValue
+				}
+			}
+
+		}
+	} else {
+		//if there is more than one value then it should be stored as an array
+		if isArray {
+			var arrayValue interface{}
+			var ok bool
+			if arrayValue, ok = parsedForm[k]; !ok {
+				arrayValue = []interface{}{}
+			}
+			parsedForm[k] = append(arrayValue.([]interface{}), value)
+		} else {
+			parsedForm[k] = value
+		}
+	}
+
+	return parsedForm, err
 }

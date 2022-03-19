@@ -803,6 +803,62 @@ paths:
 			t.Errorf("expected amount to be %d, got %v", 5, compare.Count)
 		}
 	})
+	t.Run("application/x-www-form-urlencoded content type with numbers", func(t *testing.T) {
+
+		fixture, err := rest.New(spec)
+		if err != nil {
+			t.Fatalf("unexpected error initializing api fixture '%s'", err)
+		}
+		var tschema *openapi3.SchemaRef
+		var ok bool
+
+		if tschema, ok = fixture.Swagger.Components.Schemas["Transaction"]; !ok {
+			t.Fatal("unexpected error Transaction schema doesn't exist")
+		}
+
+		data := url.Values{}
+		data.Set("title", "Test Blog")
+
+		data.Set("title", "Test Transaction")
+		data.Set("amount", "100.05")
+		data.Set("amountDouble", "100.05")
+		data.Set("amount64", "100.05")
+		data.Set("count", "5")
+		data.Set("count32", "5")
+		data.Set("count64", "5")
+
+		body := strings.NewReader(data.Encode())
+
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		payload, err := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", tschema.Value)
+		if err != nil {
+			t.Errorf("error converting form-urlencoded payload to json")
+		}
+
+		if payload == nil {
+			t.Errorf("error converting form-urlencoded payload to json")
+		}
+
+		var compare Transaction
+		err = json.Unmarshal(payload, &compare)
+		if err != nil {
+			t.Errorf("error unmashalling payload")
+		}
+
+		if compare.Title != "Test Transaction" {
+			t.Errorf("expected title to be '%s', got '%s'", "Test Transaction", compare.Title)
+		}
+
+		if compare.Amount != 100.05 {
+			t.Errorf("expected amount to be %f, got '%v'", 100.05, compare.Amount)
+		}
+
+		if compare.Count != 5 {
+			t.Errorf("expected amount to be %d, got %v", 5, compare.Count)
+		}
+	})
 
 	t.Run("multipart/form-data content type with array ", func(t *testing.T) {
 		body := new(bytes.Buffer)
