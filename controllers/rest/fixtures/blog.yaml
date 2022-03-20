@@ -70,6 +70,9 @@ components:
           type: string
         description:
           type: string
+        cost:
+          type: number
+          format: double
         status:
           type: string
           nullable: true

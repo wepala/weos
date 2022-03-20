@@ -341,9 +341,11 @@ func TestContentEntity_SetValueFromPayload(t *testing.T) {
 	}
 
 	payloadData := &struct {
-		Title string `json:"title"`
+		Title string  `json:"title"`
+		Cost  float64 `json:"cost"`
 	}{
 		Title: "Test Blog",
+		Cost:  45.00,
 	}
 	payload, err := json.Marshal(payloadData)
 	if err != nil {
@@ -356,6 +358,10 @@ func TestContentEntity_SetValueFromPayload(t *testing.T) {
 
 	if entity.GetString("title") != payloadData.Title {
 		t.Errorf("expected the title on the entity to be '%s', got '%s'", payloadData.Title, entity.GetString("title"))
+	}
+	//NOTE because of marshalling and unmarshalling using a float does not yield the exact number between the two.
+	if entity.GetNumber("cost") != payloadData.Cost {
+		t.Errorf("expected the cost to be %f, got %f", payloadData.Cost, entity.GetNumber("cost"))
 	}
 }
 
