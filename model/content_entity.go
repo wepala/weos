@@ -620,6 +620,7 @@ func (w *ContentEntity) GetString(name string) string {
 
 //GetInteger returns the integer property value stored of a given the property name
 func (w *ContentEntity) GetInteger(name string) int {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return 0
 	}
@@ -636,6 +637,7 @@ func (w *ContentEntity) GetInteger(name string) int {
 
 //GetUint returns the unsigned integer property value stored of a given the property name
 func (w *ContentEntity) GetUint(name string) uint {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return uint(0)
 	}
@@ -652,6 +654,7 @@ func (w *ContentEntity) GetUint(name string) uint {
 
 //GetBool returns the boolean property value stored of a given the property name
 func (w *ContentEntity) GetBool(name string) bool {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return false
 	}
@@ -668,6 +671,7 @@ func (w *ContentEntity) GetBool(name string) bool {
 
 //GetNumber returns the float64 property value stored of a given the property name
 func (w *ContentEntity) GetNumber(name string) float64 {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return 0
 	}
@@ -684,6 +688,7 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 
 //GetTime returns the time.Time property value stored of a given the property name
 func (w *ContentEntity) GetTime(name string) time.Time {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return time.Time{}
 	}
