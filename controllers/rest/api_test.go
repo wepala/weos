@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/labstack/echo/v4"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -746,4 +747,46 @@ components:
 
 	})
 	os.Remove("test.db")
+}
+
+func TestRESTAPI_Integration_AutomaticallyUpdateDateTime(t *testing.T) {
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(nil)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
+	t.Run("automatically updating create", func(t *testing.T) {
+		mockBlog := map[string]interface{}{"title": "Test Blog", "url": "www.testBlog.com"}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
+		defer resp.Result().Body.Close()
+		tResults, err := ioutil.ReadAll(resp.Result().Body)
+		if err != nil {
+			t.Errorf("unexpect error: %s", err)
+		}
+		results := map[string]interface{}{}
+		err = json.Unmarshal(tResults, &results)
+		if err != nil {
+			t.Errorf("unexpect error: %s", err)
+		}
+		if results["created"] == nil || results["lastUpdated"] == nil {
+			t.Errorf("unexpect error expected to find created and lastUpdated")
+		}
+
+	})
+
 }

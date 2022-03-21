@@ -760,7 +760,11 @@ func theServiceIsRunning() error {
 	})
 	err := API.Initialize(scenarioContext)
 	if err != nil {
-		return err
+		if strings.Contains(err.Error(), "provided x-update operation id") {
+			errs = err
+		} else {
+			return err
+		}
 	}
 	proj, err := API.GetProjection("Default")
 	if err == nil {
@@ -879,7 +883,7 @@ func theIsUpdated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentEntity := map[string]interface{}{}
+	contentEntity = map[string]interface{}{}
 	var result *gorm.DB
 	//ETag would help with this
 	for key, value := range compare {
@@ -1758,6 +1762,35 @@ func theIdShouldBeA(arg1, format string) error {
 	return nil
 }
 
+func anErrorIsReturned() error {
+	if !strings.Contains(errs.Error(), "provided x-update operation id") {
+		return fmt.Errorf("expected the error to contain: %s, got %s", "provided x-update operation id", errs.Error())
+	}
+	return nil
+}
+
+func theFieldShouldHaveTodaysDate(field string) error {
+
+	timeNow := time.Now()
+	todaysDate := timeNow.Format("2006-01-02")
+
+	switch dbconfig.Driver {
+	case "postgres", "mysql":
+		date := contentEntity[field].(time.Time).Format("2006-01-02")
+		if !strings.Contains(date, todaysDate) {
+			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+		}
+
+	case "sqlite3":
+		date := contentEntity[field].(string)
+		if !strings.Contains(date, todaysDate) {
+			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+		}
+	}
+
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1859,7 +1892,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^"([^"]*)" set the default event store as "([^"]*)"$`, setTheDefaultEventStoreAs)
 	ctx.Step(`^the projection "([^"]*)" is not called$`, theProjectionIsNotCalled)
 	ctx.Step(`^the "([^"]*)" id should be a "([^"]*)"$`, theIdShouldBeA)
-
+	ctx.Step(`^an error is returned$`, anErrorIsReturned)
+	ctx.Step(`^the "([^"]*)" field should have today\'s date$`, theFieldShouldHaveTodaysDate)
 }
 
 func TestBDD(t *testing.T) {

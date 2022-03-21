@@ -55,6 +55,9 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
+					if errr.Unwrap() != nil {
+						ctxt.Logger().Error(errr.Unwrap())
+					}
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 				} else {
 					return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)

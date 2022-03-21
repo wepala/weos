@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/textproto"
 	"net/url"
@@ -54,6 +55,9 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 
 			cc, err = parseResponses(c, cc, operation)
 
+			//add OperationID to context
+			cc = context.WithValue(cc, weosContext.OPERATION_ID, operation.OperationID)
+
 			//parse request body based on content type
 			var payload []byte
 			ct := c.Request().Header.Get("Content-Type")
@@ -70,7 +74,7 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 						case "application/json":
 							payload, err = ioutil.ReadAll(c.Request().Body)
 						default:
-							payload, err = ConvertFormToJson(c.Request(), ct)
+							payload, err = ConvertFormToJson(c.Request(), ct, entityFactory.Schema())
 						}
 						//set payload to context
 						cc = context.WithValue(cc, weosContext.PAYLOAD, payload)
@@ -380,144 +384,160 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 			}
 		}
 		if schema.Properties[field] != nil {
-			switch schema.Properties[field].Value.Type {
-			case "integer":
-				//Checks if the filter value field is not empty
-				if filterProperty.(*FilterProperties).Value != nil && filterProperty.(*FilterProperties).Value.(string) != "" {
-					v, err := strconv.Atoi(filterProperty.(*FilterProperties).Value.(string))
+
+			//Checks if the filter value field is not empty
+			if filterProperty.(*FilterProperties).Value != nil && filterProperty.(*FilterProperties).Value.(string) != "" {
+				v, err := ConvertStringToType(schema.Properties[field].Value.Type, schema.Properties[field].Value.Format, filterProperty.(*FilterProperties).Value.(string))
+				if err != nil {
+					msg := "unexpected error converting filter field " + field + "to correct data type"
+					return nil, errors.New(msg)
+				}
+				properties[field] = &FilterProperties{
+					Field:    field,
+					Operator: filterProperty.(*FilterProperties).Operator,
+					Value:    v,
+				}
+				break
+			}
+			//checks if the length of filter values is not 0
+			if len(filterProperty.(*FilterProperties).Values) != 0 {
+				arr := []interface{}{}
+				for _, val := range filterProperty.(*FilterProperties).Values {
+					v, err := ConvertStringToType(schema.Properties[field].Value.Type, schema.Properties[field].Value.Format, val.(string))
 					if err != nil {
 						msg := "unexpected error converting filter field " + field + "to correct data type"
 						return nil, errors.New(msg)
 					}
-					properties[field] = &FilterProperties{
-						Field:    field,
-						Operator: filterProperty.(*FilterProperties).Operator,
-						Value:    v,
-					}
-					break
-				}
-				//checks if the length of filter values is not 0
-				if len(filterProperty.(*FilterProperties).Values) != 0 {
-					arr := []interface{}{}
-					for _, val := range filterProperty.(*FilterProperties).Values {
-						v, err := strconv.Atoi(val.(string))
-						if err != nil {
-							msg := "unexpected error converting filter field " + field + "to correct data type"
-							return nil, errors.New(msg)
-						}
-						arr = append(arr, v)
-					}
-
-					properties[field] = &FilterProperties{
-						Field:    field,
-						Operator: filterProperty.(*FilterProperties).Operator,
-						Values:   arr,
-					}
-					break
+					arr = append(arr, v)
 				}
 
-			case "boolean":
-				if filterProperty.(*FilterProperties).Value != nil && filterProperty.(*FilterProperties).Value.(string) != "" {
-					v, err := strconv.ParseBool(filterProperty.(*FilterProperties).Value.(string))
-					if err != nil {
-						msg := "unexpected error converting filter field " + field + "to correct data type"
-						return nil, errors.New(msg)
-					}
-					properties[field] = &FilterProperties{
-						Field:    field,
-						Operator: filterProperty.(*FilterProperties).Operator,
-						Value:    v,
-					}
-					break
+				properties[field] = &FilterProperties{
+					Field:    field,
+					Operator: filterProperty.(*FilterProperties).Operator,
+					Values:   arr,
 				}
-				if len(filterProperty.(*FilterProperties).Values) != 0 {
-					arr := []interface{}{}
-					for _, val := range filterProperty.(*FilterProperties).Values {
-						v, err := strconv.ParseBool(val.(string))
-						if err != nil {
-							msg := "unexpected error converting filter field " + field + "to correct data type"
-							return nil, errors.New(msg)
-						}
-						arr = append(arr, v)
-					}
-
-					properties[field] = &FilterProperties{
-						Field:    field,
-						Operator: filterProperty.(*FilterProperties).Operator,
-						Values:   arr,
-					}
-					break
-				}
-
-			case "number":
-				format := schema.Properties[field].Value.Format
-				if format == "float" || format == "double" {
-					if filterProperty.(*FilterProperties).Value != nil && filterProperty.(*FilterProperties).Value.(string) != "" {
-						v, err := strconv.ParseFloat(filterProperty.(*FilterProperties).Value.(string), 64)
-						if err != nil {
-							msg := "unexpected error converting filter field " + field + "to correct data type"
-							return nil, errors.New(msg)
-						}
-						properties[field] = &FilterProperties{
-							Field:    field,
-							Operator: filterProperty.(*FilterProperties).Operator,
-							Value:    v,
-						}
-						break
-					}
-					if len(filterProperty.(*FilterProperties).Values) != 0 {
-						arr := []interface{}{}
-						for _, val := range filterProperty.(*FilterProperties).Values {
-							v, err := strconv.ParseFloat(val.(string), 64)
-							if err != nil {
-								msg := "unexpected error converting filter field " + field + "to correct data type"
-								return nil, errors.New(msg)
-							}
-							arr = append(arr, v)
-						}
-
-						properties[field] = &FilterProperties{
-							Field:    field,
-							Operator: filterProperty.(*FilterProperties).Operator,
-							Values:   arr,
-						}
-						break
-					}
-				} else {
-					if filterProperty.(*FilterProperties).Value != nil && filterProperty.(*FilterProperties).Value.(string) != "" {
-						v, err := strconv.Atoi(filterProperty.(*FilterProperties).Value.(string))
-						if err != nil {
-							msg := "unexpected error converting filter field " + field + "to correct data type"
-							return nil, errors.New(msg)
-						}
-						properties[field] = &FilterProperties{
-							Field:    field,
-							Operator: filterProperty.(*FilterProperties).Operator,
-							Value:    v,
-						}
-						break
-					}
-					if len(filterProperty.(*FilterProperties).Values) != 0 {
-						arr := []interface{}{}
-						for _, val := range filterProperty.(*FilterProperties).Values {
-							v, err := strconv.Atoi(val.(string))
-							if err != nil {
-								msg := "unexpected error converting filter field " + field + "to correct data type"
-								return nil, errors.New(msg)
-							}
-							arr = append(arr, v)
-						}
-
-						properties[field] = &FilterProperties{
-							Field:    field,
-							Operator: filterProperty.(*FilterProperties).Operator,
-							Values:   arr,
-						}
-						break
-					}
-				}
+				break
 			}
 		}
 	}
 	return properties, nil
+}
+
+//ConvertFormToJson This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
+func ConvertFormToJson(r *http.Request, contentType string, schema *openapi3.Schema) (json.RawMessage, error) {
+	var err error
+	parsedForm := map[string]interface{}{}
+
+	switch contentType {
+	case "application/x-www-form-urlencoded":
+		err = r.ParseForm()
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range r.PostForm {
+			for _, value := range v {
+				parsedForm, err = parseFormPayload(parsedForm, schema, k, value, len(v))
+			}
+		}
+
+	case "multipart/form-data":
+
+		err = r.ParseMultipartForm(1024) //Revisit
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range r.MultipartForm.Value {
+			for _, value := range v {
+				parsedForm, err = parseFormPayload(parsedForm, schema, k, value, len(v))
+			}
+
+		}
+	}
+
+	return json.Marshal(parsedForm)
+}
+
+//parseFormPayload process form data and converts to a map
+func parseFormPayload(parsedForm map[string]interface{}, schema *openapi3.Schema, k string, value string, valueCount int) (map[string]interface{}, error) {
+	var err error
+	//strip [] from the end, this allows a common query string, form pattern
+	isArray := strings.Contains(k, "[")
+	if isArray {
+		k = strings.Replace(k, "[]", "", -1)
+	}
+
+	var temporaryValue interface{}
+
+	//check the schema and try to convert the string to that type
+	if schema != nil {
+		if property, ok := schema.Properties[k]; ok {
+			if property.Value != nil {
+				if property.Value.Type == "array" {
+					isArray = true
+					var arrayValue interface{}
+					if arrayValue, ok = parsedForm[k]; !ok {
+						arrayValue = make([]interface{}, valueCount)
+					}
+					//use the type specified on "items"
+					temporaryValue, err = ConvertStringToType(property.Value.Items.Value.Type, property.Value.Items.Value.Type, value)
+					parsedForm[k] = append(arrayValue.([]interface{}), temporaryValue)
+				} else {
+					parsedForm[k], err = ConvertStringToType(property.Value.Type, property.Value.Format, value)
+				}
+
+				switch property.Value.Type {
+				case "integer":
+					temporaryValue, err = strconv.Atoi(value)
+					if err == nil {
+						//check the format and use that to convert to int32 vs int64
+						switch property.Value.Format {
+						case "int64":
+							temporaryValue = int64(temporaryValue.(int))
+						case "int32":
+							temporaryValue = int32(temporaryValue.(int))
+						}
+					}
+
+				case "number":
+					tv, terr := strconv.ParseFloat(value, 64)
+					if terr == nil {
+						//check the format to determine the bit size. Default to 32 if none is specified
+						if property.Value.Format != "float" {
+							temporaryValue = math.Round(tv*100) / 100
+						} else {
+							temporaryValue = tv
+						}
+					}
+					err = terr
+				case "array":
+
+				default:
+					temporaryValue = value
+				}
+				//return conversion errors
+				if err != nil {
+					return nil, err
+				} else {
+					parsedForm[k] = temporaryValue
+				}
+			}
+
+		}
+	} else {
+		//if there is more than one value then it should be stored as an array
+		if isArray {
+			var arrayValue interface{}
+			var ok bool
+			if arrayValue, ok = parsedForm[k]; !ok {
+				arrayValue = []interface{}{}
+			}
+			parsedForm[k] = append(arrayValue.([]interface{}), value)
+		} else {
+			parsedForm[k] = value
+		}
+	}
+
+	return parsedForm, err
 }
