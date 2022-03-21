@@ -440,20 +440,21 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 }
 
 //ConvertFormToJson This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormToJson(r *http.Request, contentType string, schema *openapi3.Schema) (json.RawMessage, error) {
+func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.EntityFactory, media *openapi3.MediaType) (json.RawMessage, error, string) {
 	var err error
+	uploadHit := false
 	parsedForm := map[string]interface{}{}
 
 	switch contentType {
 	case "application/x-www-form-urlencoded":
 		err = r.ParseForm()
 		if err != nil {
-			return nil, err
+			return nil, err, ""
 		}
 
 		for k, v := range r.PostForm {
 			for _, value := range v {
-				parsedForm, err = parseFormPayload(parsedForm, schema, k, value, len(v))
+				parsedForm, err = parseFormPayload(parsedForm, entityfactory.Schema(), k, value, len(v))
 			}
 		}
 
@@ -461,18 +462,83 @@ func ConvertFormToJson(r *http.Request, contentType string, schema *openapi3.Sch
 
 		err = r.ParseMultipartForm(1024) //Revisit
 		if err != nil {
-			return nil, err
+			return nil, err, ""
 		}
 
 		for k, v := range r.MultipartForm.Value {
 			for _, value := range v {
-				parsedForm, err = parseFormPayload(parsedForm, schema, k, value, len(v))
+				parsedForm, err = parseFormPayload(parsedForm, entityfactory.Schema(), k, value, len(v))
 			}
 
 		}
+
+		//Checks if there was a file uploaded, also uses the properties to check for x-upload so the file can be saved to specified location
+		//This allows for only the name to be saved in the payload and not the entire multipart.FileHeader struct
+		if len(r.MultipartForm.File) > 0 {
+			var uploadFolder map[string]interface{}
+
+			//This check is to determine if we're dealing with an endpoint x-upload or a field x-upload
+			//First we check for the endpoint x-upload
+			if uploadExtension, ok := media.Schema.Value.Extensions[UploadExtension]; ok {
+				_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
+
+				for name, _ := range r.MultipartForm.File {
+					file, header, err := r.FormFile(name)
+					if err != nil {
+						return nil, err, "Upload Failed"
+					}
+					defer file.Close()
+
+					errr := SaveUploadedFiles(uploadFolder, file, header)
+					if errr != nil {
+						return nil, errr, "Upload Failed"
+					}
+
+					//This is necessary for correct response handling
+					uploadHit = true
+
+					//Adds the file path to payload instead of entire file
+					parsedForm[name] = header.Filename
+				}
+
+			} else {
+				//This checks if there is any x-upload defined on a property for a schema
+				for name, prop := range entityfactory.Schema().Properties {
+					if uploadExtension, ok := prop.Value.ExtensionProps.Extensions[UploadExtension]; ok {
+						_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
+
+						file, header, err := r.FormFile(name)
+						if err != nil {
+							return nil, err, "Upload Failed"
+						}
+						defer file.Close()
+
+						errr := SaveUploadedFiles(uploadFolder, file, header)
+						if errr != nil {
+							return nil, errr, "Upload Failed"
+						}
+
+						//This is necessary for correct response handling
+						uploadHit = true
+
+						//Adds the file path to payload instead of entire file
+						parsedForm[name] = header.Filename
+					}
+				}
+			}
+		}
+	}
+	parsedPayload, err := json.Marshal(parsedForm)
+	if err != nil {
+		return nil, err, ""
 	}
 
-	return json.Marshal(parsedForm)
+	//This indicates that the upload was hit successfully and there were no errors
+	if uploadHit {
+		return parsedPayload, nil, "Upload Successful"
+	}
+
+	return parsedPayload, nil, ""
 }
 
 //parseFormPayload process form data and converts to a map
