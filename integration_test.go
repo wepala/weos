@@ -368,7 +368,7 @@ func TestIntegration_UploadOnEndpoint(t *testing.T) {
 		req.Close = true
 		e.ServeHTTP(resp, req)
 
-		if resp.Result().StatusCode != http.StatusOK {
+		if resp.Result().StatusCode != http.StatusCreated {
 			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusOK, resp.Result().StatusCode)
 		}
 	})
