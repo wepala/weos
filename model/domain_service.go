@@ -166,7 +166,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			seqNo = seq
 		}
 
-		existingEntity, err := s.GetContentEntity(ctx, entityFactory, weosID)
+		existingEntity, err = s.GetContentEntity(ctx, entityFactory, weosID)
 		if err != nil {
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, weosID, err)
 		}
@@ -197,6 +197,15 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			if fmt.Sprint(tempExistingPayload[pk]) != fmt.Sprint(tempPayload[pk]) {
 				return nil, NewDomainError("invalid: error updating entity. Primary keys cannot be updated.", entityType, weosID, nil)
 			}
+		}
+
+		//update default time update values based on routes
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			newPayload, err = existingEntity.UpdateTime(operation, newPayload)
+		}
+		if err != nil {
+			return nil, err
 		}
 
 		updatedEntity, err = existingEntity.Update(ctx, newPayload)
@@ -240,6 +249,15 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		if err != nil {
 			s.logger.Errorf("error updating entity", err)
 			return nil, err
+		}
+
+		//update default time update values based on routes
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			newPayload, err = existingEntity.UpdateTime(operation, newPayload)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		updatedEntity, err = existingEntity.Update(ctx, newPayload)
@@ -321,6 +339,15 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 			return nil, err
 		}
 
+		//update default time update values based on routes
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			existingEntityPayload, err = existingEntity.UpdateTime(operation, existingEntityPayload)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		deletedEntity, err = existingEntity.Delete(existingEntityPayload)
 		if err != nil {
 			return nil, err
@@ -345,6 +372,15 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 		err = json.Unmarshal(data, &existingEntity)
 		if err != nil {
 			return nil, err
+		}
+
+		//update default time update values based on routes
+		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+		if ok {
+			data, err = existingEntity.UpdateTime(operation, data)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		deletedEntity, err = existingEntity.Delete(data)

@@ -442,7 +442,16 @@ func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.
 }
 
 func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
-	err := w.SetValueFromPayload(ctx, payload)
+	var err error
+	//update default time update values based on routes
+	operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+	if ok {
+		payload, err = w.UpdateTime(operation, payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+	err = w.SetValueFromPayload(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -611,6 +620,7 @@ func (w *ContentEntity) GetString(name string) string {
 
 //GetInteger returns the integer property value stored of a given the property name
 func (w *ContentEntity) GetInteger(name string) int {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return 0
 	}
@@ -627,6 +637,7 @@ func (w *ContentEntity) GetInteger(name string) int {
 
 //GetUint returns the unsigned integer property value stored of a given the property name
 func (w *ContentEntity) GetUint(name string) uint {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return uint(0)
 	}
@@ -643,6 +654,7 @@ func (w *ContentEntity) GetUint(name string) uint {
 
 //GetBool returns the boolean property value stored of a given the property name
 func (w *ContentEntity) GetBool(name string) bool {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return false
 	}
@@ -659,6 +671,7 @@ func (w *ContentEntity) GetBool(name string) bool {
 
 //GetNumber returns the float64 property value stored of a given the property name
 func (w *ContentEntity) GetNumber(name string) float64 {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return 0
 	}
@@ -675,6 +688,7 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 
 //GetTime returns the time.Time property value stored of a given the property name
 func (w *ContentEntity) GetTime(name string) time.Time {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return time.Time{}
 	}
@@ -822,4 +836,28 @@ func (w *ContentEntity) GenerateID(payload []byte) error {
 	}
 
 	return json.Unmarshal(generatedIdentifier, w)
+}
+
+//UpdateTime updates auto update time values on the payload
+func (w *ContentEntity) UpdateTime(operationID string, data []byte) ([]byte, error) {
+	payload := map[string]interface{}{}
+	json.Unmarshal(data, &payload)
+	for key, p := range w.Schema.Properties {
+		routes := []string{}
+		routeBytes, _ := json.Marshal(p.Value.Extensions["x-update"])
+		json.Unmarshal(routeBytes, &routes)
+		for _, r := range routes {
+			if r == operationID {
+				if p.Value.Format == "date-time" {
+					payload[key] = time.Now()
+				}
+			}
+		}
+	}
+	newPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return newPayload, nil
 }

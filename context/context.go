@@ -14,6 +14,7 @@ const HeaderXLogLevel = "X-LOG-LEVEL"
 
 //add more keys here if needed
 const ACCOUNT_ID ContextKey = "ACCOUNT_ID"
+const OPERATION_ID = "OPERATION_ID"
 const USER_ID ContextKey = "USER_ID"
 const LOG_LEVEL ContextKey = "LOG_LEVEL"
 const REQUEST_ID ContextKey = "REQUEST_ID"
