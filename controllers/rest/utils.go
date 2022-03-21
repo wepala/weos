@@ -6,13 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/getkin/kin-openapi/openapi3"
-	weosContext "github.com/wepala/weos/context"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
@@ -347,44 +347,30 @@ func JSONMarshal(t interface{}) ([]byte, error) {
 	return result, err
 }
 
-//ReturnContextValues pulls out the values stored in the context and adds it to a map to be returned
-func ReturnContextValues(ctxt context.Context, operation *openapi3.Operation) (map[interface{}]interface{}, error) {
+//ReturnContextValues pulls out all the values stored in the context and adds it to a map to be returned
+func ReturnContextValues(ctxt interface{}) map[interface{}]interface{} {
 	contextValues := map[interface{}]interface{}{}
-	//all known special weos context names are added
-	contextNames := []interface{}{weosContext.ACCEPT, weosContext.ACCOUNT_ID, weosContext.AUTHORIZATION, weosContext.BASIC_RESPONSE, weosContext.CONTENT_TYPE, weosContext.CONTENT_TYPE_RESPONSE, weosContext.ENTITY, weosContext.ENTITY_COLLECTION, weosContext.ENTITY_ID, weosContext.ERROR, weosContext.FILTERS, weosContext.HeaderXAccountID, weosContext.HeaderXLogLevel, weosContext.LOG_LEVEL, weosContext.PAYLOAD, weosContext.REQUEST_ID, weosContext.RESPONSE_PREFIX, weosContext.SEQUENCE_NO, weosContext.SORTS, weosContext.USER_ID, weosContext.WEOS_ID}
-	for _, cName := range contextNames {
-		if ctxt.Value(cName) != nil {
-			contextValues[cName] = ctxt.Value(cName)
-		}
-	}
-	for _, param := range operation.Parameters { //get parameter name to get from the context and add to map
-		name := param.Value.Name
-		if ctxt.Value(name) == nil {
-			if tcontextName, ok := param.Value.ExtensionProps.Extensions[AliasExtension]; ok {
-				err := json.Unmarshal(tcontextName.(json.RawMessage), &name)
-				if err != nil {
-					return nil, NewControllerError(fmt.Sprintf("unexpected error finding parameter alias %s: %s ", name, err), err, http.StatusBadRequest)
+	contextKeys := []interface{}{}
+	contextV := reflect.ValueOf(ctxt).Elem()
+	contextK := reflect.TypeOf(ctxt).Elem()
+	if contextK.Kind() == reflect.Struct {
+		for i := 0; i < contextV.NumField(); i++ {
+			reflectValue := contextV.Field(i)
+			reflectValue = reflect.NewAt(reflectValue.Type(), unsafe.Pointer(reflectValue.UnsafeAddr())).Elem()
+			reflectField := contextK.Field(i)
+
+			if reflectField.Name == "Context" {
+				contextVals := ReturnContextValues(reflectValue.Interface())
+				for key, value := range contextVals {
+					contextValues[key] = value
 				}
-			} else {
-				return nil, NewControllerError(fmt.Sprintf("unexpected error finding parameter alias %s ", name), nil, http.StatusBadRequest)
-			}
-		}
-		if ctxt.Value(name) == nil {
-			return nil, NewControllerError(fmt.Sprintf("unexpected error parameter %s not found ", name), nil, http.StatusBadRequest)
-		}
-		contextValues[name] = ctxt.Value(name)
-	}
-	if tcontextParams, ok := operation.ExtensionProps.Extensions[ContextExtension]; ok { //gets context names that was explicitly added to specification file using x-context
-		var contextParams map[string]interface{}
-		err := json.Unmarshal(tcontextParams.(json.RawMessage), &contextParams)
-		if err != nil {
-			return nil, NewControllerError(fmt.Sprintf("unexpected error unmarshalling x-context values: %s ", err), err, http.StatusBadRequest)
-		}
-		for key, _ := range contextParams {
-			if ctxt.Value(key) != nil {
-				contextValues[key] = ctxt.Value(key)
+			} else if reflectField.Name == "key" {
+				contextKeys = append(contextKeys, reflectValue.Interface())
 			}
 		}
 	}
-	return contextValues, nil
+	for _, cKeys := range contextKeys {
+		contextValues[cKeys] = ctxt.(context.Context).Value(cKeys)
+	}
+	return contextValues
 }

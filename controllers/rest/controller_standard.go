@@ -857,13 +857,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 			} else if fileName != "" {
 				ctxt.File(fileName)
 			} else if len(templates) != 0 {
-				contextValues, err := ReturnContextValues(ctx, operation)
-				if err != nil {
-					api.e.Logger.Debugf("unexpected error %s ", err)
-					return err
-				}
+				contextValues := ReturnContextValues(ctx)
 				t := template.New(path1.Base(templates[0]))
-				t, err = t.ParseFiles(templates...)
+				t, err := t.ParseFiles(templates...)
 				if err != nil {
 					api.e.Logger.Debugf("unexpected error %s ", err)
 					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
