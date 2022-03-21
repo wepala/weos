@@ -436,10 +436,11 @@ func SaveUploadedFiles(uploadFolder map[string]interface{}, file multipart.File,
 	filePath := uploadFolder["folder"].(string) + "/" + header.Filename
 
 	//Checks if file exists in folder and creates it if not
-	_, err = os.Stat(filePath)
+	//Uncomment this check if you'd like the file to not be overwritten if it already exists
+	//_, err = os.Stat(filePath)
 
-	if os.IsNotExist(err) {
-		os.WriteFile(filePath, buf.Bytes(), os.ModePerm)
-	}
+	//if os.IsNotExist(err) {
+	os.WriteFile(filePath, buf.Bytes(), os.ModePerm)
+	//}
 	return nil
 }
