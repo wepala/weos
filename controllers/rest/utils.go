@@ -345,7 +345,7 @@ func ConvertStringToType(desiredType string, format string, value string) (inter
 //SaveUploadedFiles this is a supporting function for ConvertFormtoJson
 func SaveUploadedFiles(uploadFolder map[string]interface{}, file multipart.File, header *multipart.FileHeader) error {
 	if float64(header.Size) > uploadFolder["limit"].(float64) {
-		return fmt.Errorf("maximum file size allowed: %f, uploaded file size: %f", uploadFolder["limit"].(float64), float64(header.Size))
+		return fmt.Errorf("maximum file size allowed: %s, uploaded file size: %s", strconv.FormatFloat(uploadFolder["limit"].(float64), 'f', -1, 64), strconv.FormatFloat(float64(header.Size), 'f', -1, 64))
 	}
 
 	buf := bytes.NewBuffer(nil)
@@ -364,12 +364,7 @@ func SaveUploadedFiles(uploadFolder map[string]interface{}, file multipart.File,
 
 	filePath := uploadFolder["folder"].(string) + "/" + header.Filename
 
-	//Checks if file exists in folder and creates it if not
-	//Uncomment this check if you'd like the file to not be overwritten if it already exists
-	//_, err = os.Stat(filePath)
-
-	//if os.IsNotExist(err) {
 	os.WriteFile(filePath, buf.Bytes(), os.ModePerm)
-	//}
+
 	return nil
 }
