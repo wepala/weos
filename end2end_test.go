@@ -80,6 +80,7 @@ var mockProjections map[string]*ProjectionMock
 var mockEventStores map[string]*EventRepositoryMock
 var expectedContentType string
 var contentEntity map[string]interface{}
+var fileUpload map[string]interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -122,6 +123,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
+	fileUpload = map[string]interface{}{}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -996,6 +998,19 @@ func theFormIsSubmittedWithContentType(contentEntity, contentType string) error 
 			writer.WriteField(key, value.(string))
 		}
 
+		if len(fileUpload) > 0 {
+			for k, v := range fileUpload {
+				file, err := os.Open(v.(string))
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+
+				part, err := writer.CreateFormFile(k, filepath.Base(file.Name()))
+				io.Copy(part, file)
+			}
+		}
+
 		writer.Close()
 
 		var request *http.Request
@@ -1791,6 +1806,110 @@ func theFieldShouldHaveTodaysDate(field string) error {
 	return nil
 }
 
+func isOnPageThatHasAFileInput(arg1 string) error {
+	return nil
+}
+
+func selectsAFileForTheField(arg1, field string, table *godog.Table) error {
+
+	head := table.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(table.Rows); i++ {
+		for n, cell := range table.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	fileUpload[field] = compare["path"]
+
+	return nil
+}
+
+func selectsTheFile(arg1 string, table *godog.Table) error {
+	head := table.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(table.Rows); i++ {
+		for n, cell := range table.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	fileUpload["upload"] = compare["path"]
+
+	return nil
+}
+
+func theFileIsMb(size int) error {
+	return nil
+}
+
+func theFileIsUploadedTo(endpoint string) error {
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+
+	if len(fileUpload) > 0 {
+		for k, v := range fileUpload {
+			file, err := os.Open(v.(string))
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			part, err := writer.CreateFormFile(k, filepath.Base(file.Name()))
+			io.Copy(part, file)
+		}
+	}
+
+	writer.Close()
+
+	var request *http.Request
+	request = httptest.NewRequest("POST", endpoint, body)
+	request = request.WithContext(context.TODO())
+	header.Set("Content-Type", writer.FormDataContentType())
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theFileShouldBeAvailableAt(path string) error {
+	request := httptest.NewRequest("GET", path, nil)
+	request = request.WithContext(context.TODO())
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+
+	defer rec.Result().Body.Close()
+	results, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		return err
+	}
+	if string(results) == "" {
+		return fmt.Errorf("expected a response after hitting the file endpoint")
+	}
+	return nil
+}
+
+func theFolderExists(folderPath string) error {
+	directory := filepath.Dir(folderPath)
+
+	_, err := os.Stat(directory)
+
+	if os.IsNotExist(err) {
+		xfolderName = directory
+		err := os.MkdirAll(directory, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -1894,6 +2013,13 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "([^"]*)" id should be a "([^"]*)"$`, theIdShouldBeA)
 	ctx.Step(`^an error is returned$`, anErrorIsReturned)
 	ctx.Step(`^the "([^"]*)" field should have today\'s date$`, theFieldShouldHaveTodaysDate)
+	ctx.Step(`^"([^"]*)" is on page that has a file input$`, isOnPageThatHasAFileInput)
+	ctx.Step(`^"([^"]*)" selects a file for the "([^"]*)" field$`, selectsAFileForTheField)
+	ctx.Step(`^"([^"]*)" selects the file$`, selectsTheFile)
+	ctx.Step(`^the file is "(\d+)"mb$`, theFileIsMb)
+	ctx.Step(`^the file is uploaded to "([^"]*)"$`, theFileIsUploadedTo)
+	ctx.Step(`^the file should be available at "([^"]*)"$`, theFileShouldBeAvailableAt)
+	ctx.Step(`^the folder "([^"]*)" exists$`, theFolderExists)
 }
 
 func TestBDD(t *testing.T) {
@@ -1903,8 +2029,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1378",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

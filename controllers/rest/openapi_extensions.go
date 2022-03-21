@@ -52,3 +52,6 @@ const FileExtension = "x-file"
 
 //ContextExtension set parameters directly in the context
 const ContextExtension = "x-context"
+
+//UploadExtension for the storage location of an upload
+const UploadExtension = "x-upload"
