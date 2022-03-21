@@ -3,13 +3,16 @@ package rest
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
@@ -342,4 +345,32 @@ func JSONMarshal(t interface{}) ([]byte, error) {
 	result = bytes.ReplaceAll(result, []byte(`\r`), []byte(""))
 	result = bytes.ReplaceAll(result, []byte(`\t`), []byte(""))
 	return result, err
+}
+
+//ReturnContextValues pulls out all the values stored in the context and adds it to a map to be returned
+func ReturnContextValues(ctxt interface{}) map[interface{}]interface{} {
+	contextValues := map[interface{}]interface{}{}
+	contextKeys := []interface{}{}
+	contextV := reflect.ValueOf(ctxt).Elem()
+	contextK := reflect.TypeOf(ctxt).Elem()
+	if contextK.Kind() == reflect.Struct {
+		for i := 0; i < contextV.NumField(); i++ {
+			reflectValue := contextV.Field(i)
+			reflectValue = reflect.NewAt(reflectValue.Type(), unsafe.Pointer(reflectValue.UnsafeAddr())).Elem()
+			reflectField := contextK.Field(i)
+
+			if reflectField.Name == "Context" {
+				contextVals := ReturnContextValues(reflectValue.Interface())
+				for key, value := range contextVals {
+					contextValues[key] = value
+				}
+			} else if reflectField.Name == "key" {
+				contextKeys = append(contextKeys, reflectValue.Interface())
+			}
+		}
+	}
+	for _, cKeys := range contextKeys {
+		contextValues[cKeys] = ctxt.(context.Context).Value(cKeys)
+	}
+	return contextValues
 }

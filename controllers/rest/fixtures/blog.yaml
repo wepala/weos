@@ -188,7 +188,19 @@ paths:
         200:
           description: Homepage
           x-templates:
-            - ./fixtures/templates/base1.html
+            - ./fixtures/templates/base12.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /badtemplates1:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/badTem.html
         404:
           description: File not found
         402:
@@ -340,8 +352,7 @@ paths:
         _filters:
           - field: status
             operator: eq
-            value:
-              - Active
+            value: Active
           - field: lastUpdated
             operator: between
             values:

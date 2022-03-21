@@ -382,3 +382,14 @@ func TestRouteInitializer(t *testing.T) {
 		}
 	})
 }
+
+func TestGettersForOperationFunctions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("getting schema builder sending empty context", func(t *testing.T) {
+		builders := rest.GetSchemaBuilders(ctx)
+		if builders == nil {
+			t.Errorf("unexpected error expected map of builders to be returned got nil")
+		}
+	})
+}
