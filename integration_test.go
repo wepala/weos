@@ -242,7 +242,7 @@ func TestIntegration_Update(t *testing.T) {
 }
 
 func TestIntegration_UploadOnProperty(t *testing.T) {
-	os.Remove("./files")
+	os.Remove("./files/test.csv")
 	os.Remove("test.db")
 	content, err := ioutil.ReadFile("./controllers/rest/fixtures/blog-x-upload.yaml")
 	if err != nil {
@@ -263,6 +263,7 @@ func TestIntegration_UploadOnProperty(t *testing.T) {
 	e := tapi.EchoInstance()
 
 	t.Run("upload a file of valid size as property", func(t *testing.T) {
+		//os.Remove("./files/test.csv")
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
 
@@ -290,8 +291,8 @@ func TestIntegration_UploadOnProperty(t *testing.T) {
 		if resp.Result().StatusCode != http.StatusCreated {
 			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
+		os.Remove("./files/test.csv")
 	})
-	os.Remove("./files")
 
 	t.Run("upload a file of invalid size as property", func(t *testing.T) {
 		body := new(bytes.Buffer)
@@ -321,9 +322,8 @@ func TestIntegration_UploadOnProperty(t *testing.T) {
 		if resp.Result().StatusCode != http.StatusBadRequest {
 			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusBadRequest, resp.Result().StatusCode)
 		}
+		os.Remove("./files/test20.csv")
 	})
-
-	os.Remove("./files")
 
 	t.Run("file already exists please rename", func(t *testing.T) {
 
@@ -383,11 +383,12 @@ func TestIntegration_UploadOnProperty(t *testing.T) {
 		if resp.Result().StatusCode != http.StatusBadRequest {
 			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
+		os.Remove("./files/test.csv")
 	})
 }
 
 func TestIntegration_UploadOnEndpoint(t *testing.T) {
-	os.Remove("./files")
+	os.Remove("./files/test.csv")
 	os.Remove("test.db")
 	content, err := ioutil.ReadFile("./controllers/rest/fixtures/blog-x-upload.yaml")
 	if err != nil {
@@ -433,7 +434,7 @@ func TestIntegration_UploadOnEndpoint(t *testing.T) {
 			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusOK, resp.Result().StatusCode)
 		}
 	})
-	os.Remove("./files")
+	os.Remove("./files/test.csv")
 
 	t.Run("upload a file of invalid size as endpoint", func(t *testing.T) {
 		body := new(bytes.Buffer)
@@ -462,5 +463,5 @@ func TestIntegration_UploadOnEndpoint(t *testing.T) {
 		}
 	})
 
-	os.Remove("./files")
+	os.Remove("./files/test20.csv")
 }
