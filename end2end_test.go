@@ -1617,11 +1617,9 @@ func aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist() error 
 
 func thereIsAFile(filePathName string, fileContent *godog.DocString) error {
 	directory := filepath.Dir(filePathName)
-
+	xfolderName = directory
 	_, err := os.Stat(directory)
-
 	if os.IsNotExist(err) {
-		xfolderName = directory
 		err := os.MkdirAll(directory, os.ModePerm)
 		if err != nil {
 			return err
@@ -1897,11 +1895,10 @@ func theFileShouldBeAvailableAt(path string) error {
 
 func theFolderExists(folderPath string) error {
 	directory := filepath.Dir(folderPath)
-
+	xfolderName = folderPath
 	_, err := os.Stat(directory)
 
 	if os.IsNotExist(err) {
-		xfolderName = directory
 		err := os.MkdirAll(directory, os.ModePerm)
 		if err != nil {
 			return err
