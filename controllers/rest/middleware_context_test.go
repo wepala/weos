@@ -403,6 +403,9 @@ func TestContext(t *testing.T) {
 					if filters[field].(*rest.FilterProperties).Operator != operator {
 						t.Errorf("expected the filters operator to be '%s', got '%s'", operator, filters[field].(*rest.FilterProperties).Operator)
 					}
+					if _, ok := filters[field].(*rest.FilterProperties).Value.(uint64); !ok {
+						t.Fatalf("expected '%s' to be uint64", field)
+					}
 					if filters[field].(*rest.FilterProperties).Value.(uint64) != convertValue {
 						t.Errorf("expected the filters value to be '%d', got '%d'", convertValue, filters[field].(*rest.FilterProperties).Value.(uint64))
 					}
