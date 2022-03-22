@@ -2268,7 +2268,7 @@ func TestStandardControllers_RenderTemplates(t *testing.T) {
 			t.Errorf("expected results to be %s got %s", expectResp, string(results))
 		}
 	})
-	t.Run("invalid go templates ", func(t *testing.T) {
+	t.Run("invalid endpoint since file doesnt exist ", func(t *testing.T) {
 		path := swagger.Paths.Find("/badtemplates")
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/badtemplates", nil)
@@ -2282,18 +2282,29 @@ func TestStandardControllers_RenderTemplates(t *testing.T) {
 		response := resp.Result()
 		defer response.Body.Close()
 
-		expectResp := "<html>\n    <body>\n        <h1></h1>\n\n\n        \n    </body>\n</html>"
-
-		if response.StatusCode != http.StatusOK {
+		if response.StatusCode != http.StatusInternalServerError {
 			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
 		}
-		results, err := io.ReadAll(response.Body)
-		if err != nil {
-			t.Errorf("unexpected error reading the response body: %s", err)
+
+	})
+	t.Run("sending invalid template", func(t *testing.T) {
+		path := swagger.Paths.Find("/badtemplates1")
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/badtemplates1", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/badtemplates1", controller, mw, cResponseMiddleware, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusInternalServerError {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
 		}
-		if !strings.Contains(expectResp, string(results)) {
-			t.Errorf("expected results to be %s got %s", expectResp, string(results))
-		}
+
 	})
 }
 

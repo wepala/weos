@@ -1583,7 +1583,6 @@ func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 	if err != nil {
 		return err
 	}
-
 	if !strings.Contains(expectResp.Content, string(results)) {
 		if bytes.Compare(results, exp) != 0 {
 			return fmt.Errorf("expected response to be %s, got %s", results, exp)
