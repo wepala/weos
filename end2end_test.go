@@ -1894,12 +1894,11 @@ func theFileShouldBeAvailableAt(path string) error {
 }
 
 func theFolderExists(folderPath string) error {
-	directory := filepath.Dir(folderPath)
 	xfolderName = folderPath
-	_, err := os.Stat(directory)
+	_, err := os.Stat(folderPath)
 
 	if os.IsNotExist(err) {
-		err := os.MkdirAll(directory, os.ModePerm)
+		err := os.MkdirAll(folderPath, os.ModePerm)
 		if err != nil {
 			return err
 		}
@@ -2026,8 +2025,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1378",
+			Tags:   "~long && ~skipped",
+			//Tags: "WEOS-1378",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

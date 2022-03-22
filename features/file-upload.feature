@@ -224,11 +224,11 @@ Feature: Upload file
       And "Sojourner" enters "Some Description" in the "description" field
       And "Sojourner" selects a file for the "banner" field
         | title            | path                      |
-        | test             | ./controllers/rest/fixtures/files/test.csv |
+        | test             | ./controllers/rest/fixtures/files/test2.csv |
       When the "Blog" form is submitted with content type "multipart/form-data"
       Then the "Blog" is created
         | id    | title          | description                       | banner        |
-        | 3     | Some Blog      | Some Description                  | test.csv      |
+        | 3     | Some Blog      | Some Description                  | test2.csv      |
 
   @WEOS-1378
     Scenario: Upload file that is above the default file size limit
