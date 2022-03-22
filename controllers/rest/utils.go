@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -211,52 +212,6 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 	return entity, err
 }
 
-//ConvertFormToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormToJson(r *http.Request, contentType string) (json.RawMessage, error) {
-	var parsedPayload []byte
-
-	switch contentType {
-	case "application/x-www-form-urlencoded":
-		parsedForm := map[string]interface{}{}
-
-		err := r.ParseForm()
-		if err != nil {
-			return nil, err
-		}
-
-		for k, v := range r.PostForm {
-			for _, value := range v {
-				parsedForm[k] = value
-			}
-		}
-
-		parsedPayload, err = json.Marshal(parsedForm)
-		if err != nil {
-			return nil, err
-		}
-	case "multipart/form-data":
-		parsedForm := map[string]interface{}{}
-
-		err := r.ParseMultipartForm(1024) //Revisit
-		if err != nil {
-			return nil, err
-		}
-
-		for k, v := range r.MultipartForm.Value {
-			for _, value := range v {
-				parsedForm[k] = value
-			}
-		}
-
-		parsedPayload, err = json.Marshal(parsedForm)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return parsedPayload, nil
-}
-
 //SplitFilters splits multiple filters into array of filters
 func SplitFilters(filters string) []string {
 	if filters == "" {
@@ -342,4 +297,41 @@ func JSONMarshal(t interface{}) ([]byte, error) {
 	result = bytes.ReplaceAll(result, []byte(`\r`), []byte(""))
 	result = bytes.ReplaceAll(result, []byte(`\t`), []byte(""))
 	return result, err
+}
+
+//ConvertStringToType convert open api schema types to go data types
+func ConvertStringToType(desiredType string, format string, value string) (interface{}, error) {
+	var temporaryValue interface{}
+	var err error
+	switch desiredType {
+	case "integer":
+		temporaryValue, err = strconv.Atoi(value)
+		if err == nil {
+			//check the format and use that to convert to int32 vs int64
+			switch format {
+			case "int64":
+				temporaryValue = int64(temporaryValue.(int))
+			case "int32":
+				temporaryValue = int32(temporaryValue.(int))
+			}
+		}
+
+	case "number":
+		tv, terr := strconv.ParseFloat(value, 64)
+		if terr == nil {
+			//check the format to determine the bit size. Default to 32 if none is specified
+			if format != "float" {
+				temporaryValue = math.Round(tv*100) / 100
+			} else {
+				temporaryValue = tv
+			}
+		}
+		err = terr
+	case "boolean":
+		temporaryValue, err = strconv.ParseBool(value)
+	default:
+		temporaryValue = value
+	}
+
+	return temporaryValue, err
 }

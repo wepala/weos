@@ -293,6 +293,8 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					return err
 				}
 				mapPayload["sequence_no"] = event.Meta.SequenceNo
+				//Adding the entityid to the payload since the event payload doesnt have it
+				mapPayload["weos_id"] = event.Meta.EntityID
 
 				bytes, _ := json.Marshal(mapPayload)
 				err = json.Unmarshal(bytes, &eventPayload)

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
+	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 
@@ -18,36 +18,23 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 	if logger == nil {
 		return fmt.Errorf("no logger set")
 	}
-
-	payload, err := AddIDToPayload(command.Payload, command.Metadata.EntityID)
-	if err != nil {
-		return err
-	}
-
 	entityFactory := GetEntityFactory(ctx)
 	if entityFactory == nil {
-		err = errors.New("no entity factory found")
+		err := errors.New("no entity factory found")
 		logger.Error(err)
 		return err
 	}
-	newEntity, err := entityFactory.NewEntity(ctx)
-	if err != nil {
+	//add the weos id to the context IF it's not empty.
+	//TODO This is more about backward compatability and should be reconsidered in the future
+	if command.Metadata.EntityID != "" {
+		ctx = context.WithValue(ctx, weosContext.WEOS_ID, command.Metadata.EntityID)
+	}
+	newEntity, err := entityFactory.CreateEntityWithValues(ctx, command.Payload)
+	if errr, ok := err.(*DomainError); ok {
+		return errr
+	} else if err != nil {
 		err = NewDomainError("unexpected error creating entity", command.Metadata.EntityType, "", err)
 		logger.Debug(err)
-		return err
-	}
-
-	//use the entity id that was passed with the command
-	newEntity.ID = command.Metadata.EntityID
-	//add create event
-	event := NewEntityEvent("create", newEntity, newEntity.ID, payload)
-	//ddd userid to event
-	event.Meta.User = command.Metadata.UserID
-	newEntity.NewChange(event)
-	err = newEntity.ApplyEvents([]*Event{event})
-	if err != nil {
-		err = NewDomainError("unexpected error creating entity: "+err.Error(), command.Metadata.EntityType, "", err)
-		logger.Debugf(err.Error())
 		return err
 	}
 
