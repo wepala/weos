@@ -325,80 +325,6 @@ func TestIntegration_UploadOnProperty(t *testing.T) {
 
 	os.Remove("./files")
 
-	t.Run("overwrite a file on upload as property", func(t *testing.T) {
-
-		file, err := os.Open("./controllers/rest/fixtures/files/test.csv")
-		if err != nil {
-			t.Error(err)
-		}
-		defer file.Close()
-
-		buf := bytes.NewBuffer(nil)
-		if _, err := io.Copy(buf, file); err != nil {
-			t.Fatalf("error creating buffer")
-		}
-
-		//Checks if folder exists and creates it if not
-		_, err = os.Stat("./files")
-		if os.IsNotExist(err) {
-			err := os.MkdirAll("./files", os.ModePerm)
-			if err != nil {
-				t.Fatalf("error creating directory")
-			}
-		}
-
-		filePath := "./files/test-overwrite.csv"
-
-		//Checks if file exists in folder and creates it if not
-		_, err = os.Stat(filePath)
-
-		if os.IsNotExist(err) {
-			os.WriteFile(filePath, buf.Bytes(), os.ModePerm)
-		}
-
-		body := new(bytes.Buffer)
-		writer := multipart.NewWriter(body)
-
-		writer.WriteField("title", "this is my title 1")
-		writer.WriteField("url", "this is my url 1")
-
-		file, err = os.Open("./controllers/rest/fixtures/files/test-overwrite.csv")
-		if err != nil {
-			t.Error(err)
-		}
-		defer file.Close()
-
-		part, err := writer.CreateFormFile("description", "test-overwrite.csv")
-		io.Copy(part, file)
-
-		writer.Close()
-		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
-		header = http.Header{}
-		header.Set("Content-Type", writer.FormDataContentType())
-		req.Header = header
-		req.Close = true
-		e.ServeHTTP(resp, req)
-
-		if resp.Result().StatusCode != http.StatusCreated {
-			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusCreated, resp.Result().StatusCode)
-		}
-
-		overWrittenFile, err := os.Open("./files/test-overwrite.csv")
-		if err != nil {
-			t.Error(err)
-		}
-		defer overWrittenFile.Close()
-
-		buf = bytes.NewBuffer(nil)
-		if _, err := io.Copy(buf, overWrittenFile); err != nil {
-			t.Fatalf("error creating buffer")
-		}
-
-		if buf.String() != "Overwrite" {
-			t.Fatalf("expected to get: %s, got %s", "Overwrite", buf.String())
-		}
-	})
 	t.Run("file already exists please rename", func(t *testing.T) {
 
 		file, err := os.Open("./controllers/rest/fixtures/files/test.csv")
@@ -508,7 +434,6 @@ func TestIntegration_UploadOnEndpoint(t *testing.T) {
 		}
 	})
 	os.Remove("./files")
-	os.Remove("test.db")
 
 	t.Run("upload a file of invalid size as endpoint", func(t *testing.T) {
 		body := new(bytes.Buffer)
@@ -536,4 +461,6 @@ func TestIntegration_UploadOnEndpoint(t *testing.T) {
 			t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusBadRequest, resp.Result().StatusCode)
 		}
 	})
+
+	os.Remove("./files")
 }
