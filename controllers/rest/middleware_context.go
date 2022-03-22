@@ -347,8 +347,7 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 	}
 
 	for field, filterProperty := range properties {
-
-		if field == "id" && schema.Properties[field] == nil {
+		if _, ok := schema.Properties[field]; !ok && field == "id" {
 			//Checks if the filter value field is not empty
 			if filterProperty.(*FilterProperties).Value != nil && filterProperty.(*FilterProperties).Value.(string) != "" {
 				v, err := strconv.ParseUint(filterProperty.(*FilterProperties).Value.(string), 10, 32)
@@ -361,7 +360,6 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 					Operator: filterProperty.(*FilterProperties).Operator,
 					Value:    v,
 				}
-				break
 			}
 			//checks if the length of filter values is not 0
 			if len(filterProperty.(*FilterProperties).Values) != 0 {
@@ -380,10 +378,8 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 					Operator: filterProperty.(*FilterProperties).Operator,
 					Values:   arr,
 				}
-				break
 			}
-		}
-		if schema.Properties[field] != nil {
+		} else if schema.Properties[field] != nil {
 
 			//Checks if the filter value field is not empty
 			if filterProperty.(*FilterProperties).Value != nil && filterProperty.(*FilterProperties).Value.(string) != "" {
@@ -397,7 +393,6 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 					Operator: filterProperty.(*FilterProperties).Operator,
 					Value:    v,
 				}
-				break
 			}
 			//checks if the length of filter values is not 0
 			if len(filterProperty.(*FilterProperties).Values) != 0 {
@@ -416,7 +411,6 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 					Operator: filterProperty.(*FilterProperties).Operator,
 					Values:   arr,
 				}
-				break
 			}
 		}
 	}
