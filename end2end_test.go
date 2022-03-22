@@ -475,6 +475,7 @@ func isUsedToModelTheService(arg1 string) error {
 }
 
 func theIsCreated(contentType string, details *godog.Table) error {
+	os.Remove(xfolderName)
 	if rec.Result().StatusCode != http.StatusCreated {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
@@ -510,7 +511,6 @@ func theIsCreated(contentType string, details *godog.Table) error {
 			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
 		}
 	}
-
 	contentTypeID[strings.ToLower(contentType)] = true
 	return nil
 }
@@ -1617,7 +1617,7 @@ func aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist() error 
 
 func thereIsAFile(filePathName string, fileContent *godog.DocString) error {
 	directory := filepath.Dir(filePathName)
-	xfolderName = directory
+	xfolderName = filePathName
 	_, err := os.Stat(directory)
 	if os.IsNotExist(err) {
 		err := os.MkdirAll(directory, os.ModePerm)
@@ -1906,6 +1906,14 @@ func theFolderExists(folderPath string) error {
 	return nil
 }
 
+func theFileShouldBeDeleted(arg1 string) error {
+	errr := os.Remove(arg1)
+	if errr != nil {
+
+	}
+	return nil
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -2016,6 +2024,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the file is uploaded to "([^"]*)"$`, theFileIsUploadedTo)
 	ctx.Step(`^the file should be available at "([^"]*)"$`, theFileShouldBeAvailableAt)
 	ctx.Step(`^the folder "([^"]*)" exists$`, theFolderExists)
+	ctx.Step(`^the file should be deleted "([^"]*)"$`, theFileShouldBeDeleted)
 }
 
 func TestBDD(t *testing.T) {

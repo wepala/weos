@@ -3,14 +3,15 @@ package rest_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/wepala/weos/model"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
-	"errors"
-	"fmt"
 
 	api "github.com/wepala/weos/controllers/rest"
 )
@@ -18,6 +19,7 @@ import (
 func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 
 	t.Run("application/x-www-form-urlencoded content type", func(t *testing.T) {
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Blog", nil, nil)
 		data := url.Values{}
 		data.Set("title", "Test Blog")
 		data.Set("url", "MyBlogUrl")
@@ -27,7 +29,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err, _ := api.ConvertFormToJson(req, "application/x-www-form-urlencoded", nil, nil)
+		payload, err, _ := api.ConvertFormToJson(req, "application/x-www-form-urlencoded", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -52,6 +54,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 	})
 
 	t.Run("multipart/form-data content type", func(t *testing.T) {
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Blog", nil, nil)
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
 		writer.WriteField("title", "Test Blog")
@@ -61,7 +64,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err, _ := api.ConvertFormToJson(req, "multipart/form-data", nil, nil)
+		payload, err, _ := api.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}

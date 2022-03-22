@@ -230,6 +230,7 @@ Feature: Upload file
         | id    | title          | description                       | banner        |
         | 3     | Some Blog      | Some Description                  | test2.csv      |
 
+
   @WEOS-1378
     Scenario: Upload file that is above the default file size limit
 
