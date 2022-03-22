@@ -187,7 +187,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
 	e = echo.New()
-	os.Remove(xfolderName)
+	os.RemoveAll(xfolderName)
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -475,7 +475,6 @@ func isUsedToModelTheService(arg1 string) error {
 }
 
 func theIsCreated(contentType string, details *godog.Table) error {
-	os.Remove(xfolderName)
 	if rec.Result().StatusCode != http.StatusCreated {
 		return fmt.Errorf("expected the status code to be '%d', got '%d'", http.StatusCreated, rec.Result().StatusCode)
 	}
@@ -1617,7 +1616,6 @@ func aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist() error 
 
 func thereIsAFile(filePathName string, fileContent *godog.DocString) error {
 	directory := filepath.Dir(filePathName)
-	xfolderName = filePathName
 	_, err := os.Stat(directory)
 	if os.IsNotExist(err) {
 		err := os.MkdirAll(directory, os.ModePerm)
@@ -1906,14 +1904,6 @@ func theFolderExists(folderPath string) error {
 	return nil
 }
 
-func theFileShouldBeDeleted(arg1 string) error {
-	errr := os.Remove(arg1)
-	if errr != nil {
-
-	}
-	return nil
-}
-
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -2024,7 +2014,6 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the file is uploaded to "([^"]*)"$`, theFileIsUploadedTo)
 	ctx.Step(`^the file should be available at "([^"]*)"$`, theFileShouldBeAvailableAt)
 	ctx.Step(`^the folder "([^"]*)" exists$`, theFolderExists)
-	ctx.Step(`^the file should be deleted "([^"]*)"$`, theFileShouldBeDeleted)
 }
 
 func TestBDD(t *testing.T) {
