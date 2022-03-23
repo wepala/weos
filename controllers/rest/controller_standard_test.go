@@ -2191,3 +2191,165 @@ func TestStandardControllers_DefaultResponse(t *testing.T) {
 		}
 	})
 }
+
+func TestStandardControllers_RenderTemplates(t *testing.T) {
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
+
+	t.Run("specify html response with multiple files ", func(t *testing.T) {
+		path := swagger.Paths.Find("/multipletemplates")
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/multipletemplates", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/multipletemplates", controller, mw, cResponseMiddleware, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+		expectResp := "<html>\n    <body>\n        <h1>About</h1>\n\n\n        \n<p>About us page now</p>\n\n    </body>\n</html>"
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+		results, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Errorf("unexpected error reading the response body: %s", err)
+		}
+		if !strings.Contains(expectResp, string(results)) {
+			t.Errorf("expected results to be %s got %s", expectResp, string(results))
+		}
+	})
+	t.Run("rendering go template with data in the context ", func(t *testing.T) {
+		path := swagger.Paths.Find("/templates")
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/templates?title=Test&content=LoremIpsum", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/templates", controller, mw, cResponseMiddleware, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+		expectResp := "<html>\n    <body>\n        <h1>Test</h1>\n\n\n        LoremIpsum\n    </body>\n</html>"
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+		results, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Errorf("unexpected error reading the response body: %s", err)
+		}
+		if !strings.Contains(expectResp, string(results)) {
+			t.Errorf("expected results to be %s got %s", expectResp, string(results))
+		}
+	})
+	t.Run("invalid endpoint since file doesnt exist ", func(t *testing.T) {
+		path := swagger.Paths.Find("/badtemplates")
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/badtemplates", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/badtemplates", controller, mw, cResponseMiddleware, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusInternalServerError {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+
+	})
+	t.Run("sending invalid template", func(t *testing.T) {
+		path := swagger.Paths.Find("/badtemplates1")
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/badtemplates1", nil)
+		mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+		cResponseMiddleware := rest.ContentTypeResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		defaultMiddleware := rest.DefaultResponseMiddleware(restAPI, nil, nil, nil, nil, path, path.Get)
+		controller := rest.DefaultResponseController(restAPI, nil, nil, nil, nil)
+		e.GET("/badtemplates1", controller, mw, cResponseMiddleware, defaultMiddleware)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusInternalServerError {
+			t.Errorf("expected response code to be %d, got %d", http.StatusOK, response.StatusCode)
+		}
+
+	})
+}
+
+func TestAPI_ContextZapLogger(t *testing.T) {
+	//Testing to see if the zaplogger was set in the context
+	// Setup
+	content, err := ioutil.ReadFile("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+	tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+	//replace environment variables in file
+	tempFile = os.ExpandEnv(string(tempFile))
+	tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
+	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+	tempFile = re.ReplaceAllString(tempFile, `:$1`)
+	content = []byte(tempFile)
+	loader := openapi3.NewSwaggerLoader()
+	swagger, err := loader.LoadSwaggerFromData(content)
+	if err != nil {
+		t.Fatalf("error loading api specification '%s'", err)
+	}
+	//instantiate api
+	e := echo.New()
+	restAPI := &rest.RESTAPI{}
+	restAPI.SetEchoInstance(e)
+	path := swagger.Paths.Find("/health")
+	mw := rest.Context(restAPI, nil, nil, nil, nil, path, path.Get)
+	zapLogger := rest.ZapLogger(restAPI, nil, nil, nil, nil, path, path.Get)
+	e.GET("/health", func(c echo.Context) error {
+		if c.Logger().Prefix() != "zap" {
+			return c.String(http.StatusInternalServerError, "expected Zaplogger in the context logger got "+c.Logger().Prefix())
+		}
+		return c.String(http.StatusOK, "zapLogger is set in the context logger")
+	}, mw, zapLogger)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	response := rec.Result()
+	defer response.Body.Close()
+
+	if response.StatusCode != 200 {
+		t.Errorf("expected the status code to be %d, got %d", 200, response.StatusCode)
+	}
+}

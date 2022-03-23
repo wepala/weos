@@ -126,14 +126,13 @@ Feature: Serve HTML Content
     <html><head><title>Test Page</title></head><body>Test Page</body></html>
     """
 
-  @skipped
   @WEOS-1384
   Scenario: Specify HTML response with Go template
 
     Go provides a template system that can be used so that the data that would be returned could be populated in the
     template.
 
-    Given there is a file "./templates/base.html"
+    Given there is a file "./controllers/rest/fixtures/templates/base2.html"
     """
     <html>
       <body>
@@ -144,14 +143,12 @@ Feature: Serve HTML Content
       </body>
     </html>
     """
-    And there is a file "./templates/index.html"
+    And there is a file "./controllers/rest/fixtures/templates/index1.html"
     """
     {{ define "title" }}About{{ end }}
 
 
-    {{ define "content" }}
-      <p>About us page now</p>
-    {{ end }}
+    {{ define "content" }}<p>About us page now</p>{{ end }}
     """
     And "Sojourner" adds an endpoint to the "OpenAPI 3.0" specification
     """
@@ -162,8 +159,8 @@ Feature: Serve HTML Content
             200:
               description: Homepage
               x-templates:
-                - base.html
-                - index.html
+                - ./controllers/rest/fixtures/templates/base2.html
+                - ./controllers/rest/fixtures/templates/index1.html
             404:
               description: File not found
             402:
@@ -172,7 +169,7 @@ Feature: Serve HTML Content
     And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/" is hit
     Then a 200 response should be returned
-    And the content type should be "text/html"
+    And the content type should be "text/html; charset=utf-8"
     And the response body should be
     """
     <html>
@@ -185,20 +182,19 @@ Feature: Serve HTML Content
     </html>
     """
 
-  @skipped
   @WEOS-1384
   Scenario: Render Go template with data from context
 
     Some standard middleware add data to the context. The Entire context data should be available to the template for reference
 
-    Given there is a file "./templates/base.html"
+    Given there is a file "./controllers/rest/fixtures/templates/base3.html"
     """
     <html>
       <body>
-        <h1>{{.Title}}</h1>
+        <h1>{{.title}}</h1>
 
 
-        {{.Content}}
+        {{.content}}
       </body>
     </html>
     """
@@ -220,7 +216,7 @@ Feature: Serve HTML Content
             200:
               description: Homepage
               x-templates:
-                - base.html
+                - ./controllers/rest/fixtures/templates/base3.html
             404:
               description: File not found
             402:
@@ -229,7 +225,7 @@ Feature: Serve HTML Content
     And the "OpenAPI 3.0" specification is parsed
     When the "GET" endpoint "/?title=Test&content=LoremIpsum" is hit
     Then a 200 response should be returned
-    And the content type should be "text/html"
+    And the content type should be "text/html; charset=utf-8"
     And the response body should be
     """
     <html>
@@ -237,7 +233,7 @@ Feature: Serve HTML Content
         <h1>Test</h1>
 
 
-        <p>LoremIpsum</p>
+        LoremIpsum
       </body>
     </html>
     """
@@ -246,7 +242,7 @@ Feature: Serve HTML Content
 
     if the template returns an error while rendering then return a 500 error
 
-    Given there is a file "./templates/base.html"
+    Given there is a file "./controllers/rest/fixtures/templates/base4.html"
     """
     <html>
       <body>
@@ -266,7 +262,7 @@ Feature: Serve HTML Content
             200:
               description: Homepage
               x-templates:
-                - base.html
+                - ./controllers/rest/fixtures/templates/base4.html
             404:
               description: File not found
             402:
