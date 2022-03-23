@@ -220,8 +220,8 @@ paths:
         200:
           description: Homepage
           x-templates:
-            - ./fixtures/templates/ibase.html
             - ./fixtures/templates/index.html
+            - ./fixtures/templates/ibase.html
         404:
           description: File not found
         402:
