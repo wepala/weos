@@ -711,7 +711,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 						} else {
 							_, err = os.Stat(folderPath)
 							if os.IsNotExist(err) {
-								api.e.Logger.Warnf("error finding folder: '%s' specified on path: '%s'", folderPath, pathName)
+								api.e.Logger.Errorf("error finding folder: '%s' specified on path: '%s'", folderPath, pathName)
 							} else if err != nil {
 								api.e.Logger.Error(err)
 							} else {
