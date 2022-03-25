@@ -200,3 +200,20 @@ func TestConvertStringToType(t *testing.T) {
 		})
 	}
 }
+func TestGetJwkUrl(t *testing.T) {
+	t.Run("valid url but no jwk url present", func(t *testing.T) {
+		_, err := api.GetJwkUrl("https://google.com")
+		if err == nil {
+			t.Errorf("expected an error to returned for url: %s", "https://google.com")
+		}
+
+	})
+	t.Run("invalid url", func(t *testing.T) {
+		_, err := api.GetJwkUrl("jsisahudsdi")
+		if err == nil {
+			t.Errorf("expected an error to returned for url: %s", "jsisahudsdi")
+		}
+
+	})
+
+}
