@@ -698,6 +698,8 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	}
 
 	fileName := ""
+	folderFound := true
+	folderErr := ""
 
 	if api.Swagger != nil {
 		for pathName, pathData := range api.Swagger.Paths {
@@ -711,7 +713,8 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 						} else {
 							_, err = os.Stat(folderPath)
 							if os.IsNotExist(err) {
-								api.e.Logger.Errorf("error finding folder: '%s' specified on path: '%s'", folderPath, pathName)
+								folderFound = false
+								folderErr = "error finding folder: " + folderPath + " specified on path: " + pathName
 							} else if err != nil {
 								api.e.Logger.Error(err)
 							} else {
@@ -742,6 +745,10 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
+			if !folderFound {
+				api.e.Logger.Errorf(folderErr)
+				return NewControllerError(folderErr, nil, http.StatusNotFound)
+			}
 			ctx := ctxt.Request().Context()
 			if activatedResponse {
 				var responseType *CResponseType

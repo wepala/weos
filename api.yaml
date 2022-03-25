@@ -779,7 +779,7 @@ paths:
               type: string
               format: binary
               x-upload:
-                folder: ./files
+                folder: "./files"
                 limit: 1000
       responses:
         201:
