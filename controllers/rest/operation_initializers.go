@@ -27,18 +27,6 @@ func ContextInitializer(ctxt context.Context, api *RESTAPI, path string, method 
 	return ctxt, nil
 }
 
-//DefaultResponseInitializer add default desponse middleware to path
-func DefaultResponseInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
-	middlewares := GetOperationMiddlewares(ctxt)
-	defaultMiddleware, err := api.GetMiddleware("DefaultResponseMiddleware")
-	if err != nil {
-		return ctxt, err
-	}
-	middlewares = append(middlewares, defaultMiddleware)
-	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
-	return ctxt, nil
-}
-
 //ContentTypeResponseInitializer add ContentTypeResponseMiddleware middleware to path
 func ContentTypeResponseInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	middlewares := GetOperationMiddlewares(ctxt)
@@ -189,7 +177,7 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			}
 		}
 	}
-
+	middlewares := GetOperationMiddlewares(ctxt)
 	//if the controller extension is set then add controller to the context
 	if middlewareExtension, ok := operation.ExtensionProps.Extensions[MiddlewareExtension]; ok {
 		var middlewareNames []string
@@ -198,8 +186,18 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			api.EchoInstance().Logger.Errorf("unable to unmarshal middleware '%s'", err)
 			return ctxt, fmt.Errorf("middlewares in the specification should be an array of strings on '%s'", path)
 		}
+		found := false
+		for _, middlewareN := range middlewareNames {
+			if middlewareN == "DefaultResponseMiddleware" {
+				found = true
+			}
+		}
+		if !found {
+			middlewareNames = append(middlewareNames, "DefaultResponseMiddleware")
+		}
+
 		//get the existing middleware from context and then add user defined middleware to it
-		middlewares := GetOperationMiddlewares(ctxt)
+
 		for _, middlewareName := range middlewareNames {
 			middleware, err := api.GetMiddleware(middlewareName)
 			if err != nil {
@@ -207,9 +205,15 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			}
 			middlewares = append(middlewares, middleware)
 		}
-		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
-	}
 
+	} else {
+		middleware, err := api.GetMiddleware("DefaultResponseMiddleware")
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered middleware '%s' specified on path '%s'", "DefaultResponseMiddleware", path)
+		}
+		middlewares = append(middlewares, middleware)
+	}
+	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	if projectionExtension, ok := operation.ExtensionProps.Extensions[ProjectionExtension]; ok {
 		var projectionNames []string
 		err := json.Unmarshal(projectionExtension.(json.RawMessage), &projectionNames)
