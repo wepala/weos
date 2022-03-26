@@ -153,8 +153,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw, defaultMw, createMw)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -192,8 +191,7 @@ func TestStandardControllers_Create(t *testing.T) {
 		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw, defaultMw, createMw)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -321,8 +319,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createBatchMw := rest.CreateBatchMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw, defaultMw, createBatchMw)
+		e.POST("/blogs", controller, mw, createBatchMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -503,8 +500,7 @@ func TestStandardControllers_Update(t *testing.T) {
 		req.Header.Set("If-Match", weosId+".1")
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)
 		updateMw := rest.UpdateMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Put)
-		e.PUT("/blogs/:"+paramName, controller, mw, defaultMw, updateMw)
+		e.PUT("/blogs/:"+paramName, controller, mw, updateMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -619,8 +615,7 @@ func TestStandardControllers_View(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue, nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
 		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw, defaultMw, viewMw)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -684,8 +679,7 @@ func TestStandardControllers_View(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
 		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw, defaultMw, viewMw)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -760,8 +754,7 @@ func TestStandardControllers_View(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
 		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw, defaultMw, viewMw)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -836,8 +829,7 @@ func TestStandardControllers_View(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?use_entity_id=true", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
 		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw, defaultMw, viewMw)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -909,8 +901,7 @@ func TestStandardControllers_View(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=1", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
 		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw, defaultMw, viewMw)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response, err := io.ReadAll(resp.Body)
@@ -990,8 +981,7 @@ func TestStandardControllers_View(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs/"+paramValue+"?sequence_no=asdf", nil)
 		mw := rest.Context(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
 		viewMw := rest.ViewMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs/:"+paramName, controller, mw, defaultMw, viewMw)
+		e.GET("/blogs/:"+paramName, controller, mw, viewMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1054,8 +1044,7 @@ func TestStandardControllers_List(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
 		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
 		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs", controller, mw, defaultMw, listMw)
+		e.GET("/blogs", controller, mw, listMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1100,8 +1089,7 @@ func TestStandardControllers_List(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=0&l=5", nil)
 		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
 		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs", controller, mw, defaultMw, listMw)
+		e.GET("/blogs", controller, mw, listMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1183,8 +1171,7 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5&_filters[id][like]=123&_filters[title][like]=my%20first%20blog", nil)
 		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
 		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs", controller, mw, defaultMw, listMw)
+		e.GET("/blogs", controller, mw, listMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1229,8 +1216,7 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5&_filters[fgsd][like]=123&_filters[title][like]=my%20first%20blog", nil)
 		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
 		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs", controller, mw, defaultMw, listMw)
+		e.GET("/blogs", controller, mw, listMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1255,8 +1241,7 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5&_filters[fgsd][like]=123,hsh,3", nil)
 		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
 		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs", controller, mw, defaultMw, listMw)
+		e.GET("/blogs", controller, mw, listMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1282,8 +1267,7 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
 		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
 		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, nil, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs", controller, mw, defaultMw, listMw)
+		e.GET("/blogs", controller, mw, listMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1309,8 +1293,7 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5", nil)
 		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
 		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
-		e.GET("/blogs", controller, mw, defaultMw, listMw)
+		e.GET("/blogs", controller, mw, listMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1435,8 +1418,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw, defaultMw, createMw)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1470,8 +1452,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw, defaultMw, createMw)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1598,8 +1579,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw, defaultMw, createMw)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1633,8 +1613,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		mw := rest.Context(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
 		createMw := rest.CreateMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projections, dispatcher, eventRepository, entityFactory, path, path.Post)
-		e.POST("/blogs", controller, mw, defaultMw, createMw)
+		e.POST("/blogs", controller, mw, createMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1758,8 +1737,7 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
 		deleteMw := rest.DeleteMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
 		controller := rest.DeleteController(restAPI, projection, dispatcher, eventMock, entityFactory)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
-		e.DELETE("/blogs/:"+paramName, controller, mw, defaultMw, deleteMw)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1864,8 +1842,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
 		deleteMw := rest.DeleteMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
 		controller := rest.DeleteController(restAPI, projection, dispatcher, eventMock, entityFactory)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
-		e.DELETE("/blogs/:"+paramName, controller, mw, defaultMw, deleteMw)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1917,8 +1894,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
 		deleteMw := rest.DeleteMiddleware(restAPI, projection1, dispatcher, eventMock1, entityFactory, path, path.Delete)
 		controller := rest.DeleteController(restAPI, projection1, dispatcher, eventMock1, entityFactory)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
-		e.DELETE("/blogs/:"+paramName, controller, mw, defaultMw, deleteMw)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
@@ -1973,8 +1949,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
 		deleteMw := rest.DeleteMiddleware(restAPI, projection1, dispatcher, eventMock1, entityFactory, path, path.Delete)
 		controller := rest.DeleteController(restAPI, projection1, dispatcher, eventMock1, entityFactory)
-		defaultMw := rest.DefaultResponseMiddleware(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
-		e.DELETE("/blogs/:"+paramName, controller, mw, defaultMw, deleteMw)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
 		e.ServeHTTP(resp, req)
 
 		response := resp.Result()
