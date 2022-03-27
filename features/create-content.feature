@@ -52,11 +52,16 @@ Feature: Create content
            properties:
              id:
                type: string
+               format: ksuid
              title:
                type: string
                description: blog title
              description:
                type: string
+             posts:
+               type: array
+               items:
+                 $ref: "#/components/schemas/Post"
            required:
              - title
            x-identifier:
@@ -88,8 +93,6 @@ Feature: Create content
               type: string
             description:
               type: string
-          required:
-            - title
     paths:
       /:
         get:
@@ -129,6 +132,9 @@ Feature: Create content
             description: Blog info that is submitted
             required: true
             content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Post"
               application/x-www-form-urlencoded:
                 schema:
                   $ref: "#/components/schemas/Post"
@@ -232,7 +238,7 @@ Feature: Create content
       When the "Post" is submitted without content type
       Then an error should be returned
 
-    @WEOS-1294 @skipped
+    @WEOS-1294
     Scenario: Create item and related items
 
       If an item has one to many relationships or many to many relationships those connections can be established by
@@ -246,12 +252,13 @@ Feature: Create content
       And "Sojourner" enters "Some Description" in the "description" field of "Post"
       When the "Blog" is submitted
       Then the "Blog" is created
-        | title          | description                       | post count  |
-        | Some Blog      | Some Description                  | 1           |
+        | title          | description                       |
+        | Some Blog      | Some Description                  |
       And the "Blog" should have an id
+      And the "Blog" should have a property "posts" with 1 items
       And the "ETag" header should be present
 
-    @WEOS-1294 @skipped
+    @WEOS-1294
     Scenario: Create item and associate with an existing item
 
       If an item has one to many relationships or many to many relationships those connections can be established by
@@ -260,11 +267,13 @@ Feature: Create content
       Given "Sojourner" is on the "Post" create screen
       And "Sojourner" enters "Some Post" in the "title" field
       And "Sojourner" enters "Some Description" in the "description" field
-      And "Sojourner" enters "1" in the "blog" field
-      When the "Post" form is submitted
+      And "Sojourner" sets item "Blog" to "blog"
+      And "Sojourner" enters "1" in the "id" field of "Blog"
+      And "Sojourner" enters "Blog 1" in the "title" field of "Blog"
+      When the "Post" is submitted
       Then the "Post" is created
         | title          | description                       |
-        | Some Blog      | Some Description                  |
+        | Some Post      | Some Description                  |
       And the "Post" should have an id
       And the "ETag" header should be present
 
