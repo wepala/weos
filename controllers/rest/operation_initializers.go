@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
@@ -687,6 +688,7 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 			//Not sure if CORS middleware and any other middlewares needs to be added
 			pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
 		}
+		pathMiddleware = append(pathMiddleware, middleware.CORS())
 		if controllerExtension, ok := operation.ExtensionProps.Extensions[ControllerExtension]; ok {
 			controllerName := ""
 			err := json.Unmarshal(controllerExtension.(json.RawMessage), &controllerName)
