@@ -1813,11 +1813,18 @@ func theFieldShouldHaveTodaysDate(field string) error {
 
 	switch dbconfig.Driver {
 	case "postgres", "mysql":
-		date := contentEntity[field].(time.Time).Format("2006-01-02")
-		if !strings.Contains(date, todaysDate) {
-			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+		switch contentEntity[field].(type) {
+		case *time.Time:
+			date := contentEntity[field].(*time.Time).Format("2006-01-02")
+			if !strings.Contains(date, todaysDate) {
+				return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+			}
+		case time.Time:
+			date := contentEntity[field].(time.Time).Format("2006-01-02")
+			if !strings.Contains(date, todaysDate) {
+				return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+			}
 		}
-
 	case "sqlite3":
 		if date, ok := contentEntity[field].(*time.Time); ok {
 			if !strings.Contains(date.Format("2006-01-02"), todaysDate) {
