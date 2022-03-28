@@ -53,6 +53,9 @@ components:
         email:
           type: string
           format: email
+      required:
+        - firstName
+        - lastName
       x-identifier:
         - id
         - email
@@ -101,9 +104,6 @@ components:
           type: string
         description:
           type: string
-        author:
-          type: array
-          $ref: "#/components/schemas/Author"
         created:
           type: string
           format: date-time
