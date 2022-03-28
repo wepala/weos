@@ -350,7 +350,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(ContentTypeResponseInitializer)
-	p.RegisterOperationInitializer(DefaultResponseInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
 	p.RegisterOperationInitializer(UserDefinedInitializer)
 	p.RegisterOperationInitializer(StandardInitializer)

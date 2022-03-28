@@ -320,7 +320,7 @@ func TestContentEntity_GetOriginalFieldName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
-	originalName := entity.GetOriginalFieldName("Title")
+	originalName, _ := entity.GetOriginalFieldName("Title")
 	if originalName != "title" {
 		t.Errorf("expected the original field name for '%s' to be '%s', got '%s'", "Title", "title", originalName)
 	}
