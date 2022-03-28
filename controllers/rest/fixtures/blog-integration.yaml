@@ -53,9 +53,6 @@ components:
         email:
           type: string
           format: email
-      required:
-        - firstName
-        - lastName
       x-identifier:
         - id
         - email
