@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	weoscontext "github.com/wepala/weos/context"
-	"github.com/wepala/weos/model"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -147,98 +145,6 @@ func TestIntegration_XUnique(t *testing.T) {
 	})
 
 	dropDB()
-}
-
-func TestIntegration_Update(t *testing.T) {
-	os.Remove("kollectables.db")
-	content, err := ioutil.ReadFile("./controllers/rest/fixtures/kollectables-api.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	contentString := string(content)
-	contentString = fmt.Sprintf(contentString, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
-
-	tapi, err := api.New(contentString)
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	err = tapi.Initialize(context.TODO())
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-
-	e := tapi.EchoInstance()
-
-	//create bach blogs for tests
-	profile := map[string]interface{}{
-		"id":       "123",
-		"username": "",
-		"email":    "test.com",
-		"twitchId": "123456",
-	}
-
-	reqBytes, err := json.Marshal(profile)
-	if err != nil {
-		t.Fatalf("error setting up request %s", err)
-	}
-	body := bytes.NewReader(reqBytes)
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/profile", body)
-	header = http.Header{}
-	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	req.Header = header
-	req.Close = true
-	e.ServeHTTP(resp, req)
-
-	if resp.Result().StatusCode != http.StatusCreated {
-		t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusCreated, resp.Result().StatusCode)
-	}
-
-	etag := resp.Header().Get("Etag")
-	weosID, _ := api.SplitEtag(etag)
-
-	projection, err := tapi.GetProjection("Default")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	entityFactory := tapi.GetEntityFactories()
-
-	newContext := context.Background()
-
-	existingEnt, err := projection.GetContentEntity(newContext, entityFactory["Profile"], weosID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	newContext = context.WithValue(newContext, weoscontext.WEOS_ID, existingEnt.ID)
-	newContext = context.WithValue(newContext, weoscontext.SEQUENCE_NO, existingEnt.SequenceNo)
-
-	commandDispatcher, err := tapi.GetCommandDispatcher("Default")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	eventSource, err := tapi.GetEventStore("Default")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	data := map[string]interface{}{}
-	x, _ := json.Marshal(existingEnt.Property)
-	_ = json.Unmarshal(x, &data)
-	entityID := data["id"]
-	data["username"] = "FooBar"
-	newPayload, _ := json.Marshal(data)
-
-	newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory["Profile"])
-	newContext = context.WithValue(newContext, "id", entityID)
-
-	err = commandDispatcher.Dispatch(newContext, model.Update(newContext, newPayload, entityFactory["Profile"].Name()), eventSource, projection, tapi.EchoInstance().Logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Remove("kollectables.db")
 }
 
 func TestIntegration_UploadOnProperty(t *testing.T) {
