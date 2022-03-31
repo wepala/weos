@@ -9,8 +9,10 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"reflect"
+	"os"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -365,4 +367,38 @@ func ConvertStringToType(desiredType string, format string, value string) (inter
 	}
 
 	return temporaryValue, err
+}
+
+//SaveUploadedFiles this is a supporting function for ConvertFormtoJson
+func SaveUploadedFiles(uploadFolder map[string]interface{}, file multipart.File, header *multipart.FileHeader) error {
+	if float64(header.Size) > uploadFolder["limit"].(float64) {
+		return fmt.Errorf("maximum file size allowed: %s, uploaded file size: %s", strconv.FormatFloat(uploadFolder["limit"].(float64), 'f', -1, 64), strconv.FormatFloat(float64(header.Size), 'f', -1, 64))
+	}
+
+	buf := bytes.NewBuffer(nil)
+	if _, err := io.Copy(buf, file); err != nil {
+		return err
+	}
+
+	//Checks if folder exists and creates it if not
+	_, err := os.Stat(uploadFolder["folder"].(string))
+	if os.IsNotExist(err) {
+		err := os.MkdirAll(uploadFolder["folder"].(string), os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+
+	filePath := uploadFolder["folder"].(string) + "/" + header.Filename
+
+	//Checks if file exists in folder and creates it if not
+	_, err = os.Stat(filePath)
+
+	if os.IsNotExist(err) {
+		os.WriteFile(filePath, buf.Bytes(), os.ModePerm)
+	} else if err == nil {
+		return fmt.Errorf("the file : %s, already exists on path : %s. Please rename the file and try again", header.Filename, uploadFolder["folder"])
+	}
+
+	return nil
 }

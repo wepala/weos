@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/wepala/weos/model"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -605,6 +606,8 @@ type Transaction struct {
 func TestContext_ConvertFormUrlEncodedToJson(t *testing.T) {
 
 	t.Run("application/x-www-form-urlencoded content type", func(t *testing.T) {
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Transaction", nil, nil)
+
 		data := url.Values{}
 		data.Set("title", "Test Blog")
 		data.Set("url", "MyBlogUrl")
@@ -614,7 +617,7 @@ func TestContext_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", nil)
+		payload, err, _ := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -639,6 +642,8 @@ func TestContext_ConvertFormUrlEncodedToJson(t *testing.T) {
 	})
 
 	t.Run("multipart/form-data content type", func(t *testing.T) {
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Transaction", nil, nil)
+
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
 		writer.WriteField("title", "Test Blog")
@@ -648,7 +653,7 @@ func TestContext_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err := rest.ConvertFormToJson(req, "multipart/form-data", nil)
+		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -758,12 +763,16 @@ paths:
 		if err != nil {
 			t.Fatalf("unexpected error initializing api fixture '%s'", err)
 		}
+
 		var tschema *openapi3.SchemaRef
 		var ok bool
 
 		if tschema, ok = fixture.Swagger.Components.Schemas["Transaction"]; !ok {
 			t.Fatal("unexpected error Transaction schema doesn't exist")
 		}
+
+		contentType := "Transaction"
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, tschema.Value, fixture.Schemas["Transaction"])
 
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
@@ -779,7 +788,7 @@ paths:
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err := rest.ConvertFormToJson(req, "multipart/form-data", tschema.Value)
+		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -819,6 +828,9 @@ paths:
 			t.Fatal("unexpected error Transaction schema doesn't exist")
 		}
 
+		contentType := "Transaction"
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, tschema.Value, fixture.Schemas["Transaction"])
+
 		data := url.Values{}
 		data.Set("title", "Test Blog")
 
@@ -835,7 +847,7 @@ paths:
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", tschema.Value)
+		payload, err, _ := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -864,6 +876,8 @@ paths:
 	})
 
 	t.Run("multipart/form-data content type with array ", func(t *testing.T) {
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Transaction", nil, nil)
+
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
 		writer.WriteField("titles[]", "Test Transaction")
@@ -873,7 +887,7 @@ paths:
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err := rest.ConvertFormToJson(req, "multipart/form-data", nil)
+		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}

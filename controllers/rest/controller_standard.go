@@ -32,6 +32,17 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules
 			newContext := ctxt.Request().Context()
+
+			uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
+			if uploadResponse != nil {
+				if uploadErr, ok := uploadResponse.(*echo.HTTPError); ok {
+					if uploadErr.Error() != "" {
+						ctxt.Logger().Error(uploadErr)
+						return uploadErr
+					}
+				}
+			}
+
 			if entityFactory != nil {
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
@@ -689,6 +700,8 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	}
 
 	fileName := ""
+	folderFound := true
+	folderErr := ""
 	var templates []string
 
 	if api.Swagger != nil {
@@ -703,7 +716,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 						} else {
 							_, err = os.Stat(folderPath)
 							if os.IsNotExist(err) {
-								api.e.Logger.Warnf("error finding folder: '%s' specified on path: '%s'", folderPath, pathName)
+								folderFound = false
+								folderErr = "error finding folder: " + folderPath + " specified on path: " + pathName
+								api.e.Logger.Errorf(folderErr)
 							} else if err != nil {
 								api.e.Logger.Error(err)
 							} else {
@@ -743,6 +758,10 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
+			if !folderFound {
+				api.e.Logger.Errorf(folderErr)
+				return NewControllerError(folderErr, nil, http.StatusNotFound)
+			}
 			ctx := ctxt.Request().Context()
 			if activatedResponse {
 				var responseType *CResponseType
@@ -886,10 +905,20 @@ func DefaultResponseController(api *RESTAPI, projection projections.Projection, 
 	return func(context echo.Context) error {
 		newContext := context.Request().Context()
 		value := newContext.Value(weoscontext.BASIC_RESPONSE)
-		if value == nil {
-			return nil
+		uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
+
+		if uploadResponse == nil {
+			if value == nil {
+				return nil
+			}
+			return NewControllerError(value.(error).Error(), value.(error), http.StatusBadRequest)
+		} else {
+			if err, ok := uploadResponse.(*echo.HTTPError); ok {
+				return err
+			}
+			return context.JSON(http.StatusCreated, "File successfully Uploaded")
 		}
-		return value.(error)
+
 	}
 }
 

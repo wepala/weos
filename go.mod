@@ -6,7 +6,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.1.0
 	github.com/cucumber/godog v0.12.2
 	github.com/getkin/kin-openapi v0.15.0
-	github.com/google/uuid v1.3.0 // indirect
+	github.com/google/uuid v1.3.0
 	github.com/jinzhu/inflection v1.0.0
 	github.com/kr/text v0.2.0 // indirect
 	github.com/labstack/echo/v4 v4.5.0

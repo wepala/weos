@@ -104,8 +104,6 @@ components:
           type: string
         description:
           type: string
-        author:
-          $ref: "#/components/schemas/Author"
         created:
           type: string
           format: date-time
