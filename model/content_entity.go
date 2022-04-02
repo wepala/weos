@@ -620,6 +620,7 @@ func (w *ContentEntity) GetString(name string) string {
 
 //GetInteger returns the integer property value stored of a given the property name
 func (w *ContentEntity) GetInteger(name string) int {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return 0
 	}
@@ -636,6 +637,7 @@ func (w *ContentEntity) GetInteger(name string) int {
 
 //GetUint returns the unsigned integer property value stored of a given the property name
 func (w *ContentEntity) GetUint(name string) uint {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return uint(0)
 	}
@@ -652,6 +654,7 @@ func (w *ContentEntity) GetUint(name string) uint {
 
 //GetBool returns the boolean property value stored of a given the property name
 func (w *ContentEntity) GetBool(name string) bool {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return false
 	}
@@ -668,6 +671,7 @@ func (w *ContentEntity) GetBool(name string) bool {
 
 //GetNumber returns the float64 property value stored of a given the property name
 func (w *ContentEntity) GetNumber(name string) float64 {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return 0
 	}
@@ -684,6 +688,7 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 
 //GetTime returns the time.Time property value stored of a given the property name
 func (w *ContentEntity) GetTime(name string) time.Time {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return time.Time{}
 	}
@@ -752,9 +757,25 @@ func (w *ContentEntity) ToMap() map[string]interface{} {
 	if w.reader != nil {
 		fields := w.reader.GetAllFields()
 		for _, field := range fields {
-			//check if the lowercase version of the field is the same as the schema and use the scehma version instead
-			if originialFieldName := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
-				result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+			//check if the lowercase version of the field is the same as the schema and use the schema version instead
+			if originialFieldName, _ := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
+				//if the field is not a scalar then use marshalling
+				originalKey, propertyType := w.GetOriginalFieldName(field.Name())
+				switch propertyType {
+				case "array":
+					tvalue := []interface{}{}
+					value, _ := json.Marshal(field.Interface())
+					json.Unmarshal(value, &tvalue)
+					result[originalKey] = tvalue
+				case "object":
+					tvalue := make(map[string]interface{})
+					value, _ := json.Marshal(field.Interface())
+					json.Unmarshal(value, &tvalue)
+					result[originalKey] = tvalue
+				default:
+					result[originalKey] = field.Interface()
+				}
+
 			} else if originialFieldName == "" && strings.EqualFold(field.Name(), "id") {
 				result["id"] = field.Interface()
 			}
@@ -765,16 +786,15 @@ func (w *ContentEntity) ToMap() map[string]interface{} {
 }
 
 //GetOriginalFieldName the original name of the field as defined in the schema (the field is Title cased when converted to struct)
-func (w *ContentEntity) GetOriginalFieldName(structName string) string {
+func (w *ContentEntity) GetOriginalFieldName(structName string) (string, string) {
 	if w.Schema != nil {
 		for key, _ := range w.Schema.Properties {
 			if strings.ToLower(key) == strings.ToLower(structName) {
-				return key
+				return key, w.Schema.Properties[key].Value.Type
 			}
 		}
 	}
-
-	return ""
+	return "", ""
 }
 
 func (w *ContentEntity) UnmarshalJSON(data []byte) error {

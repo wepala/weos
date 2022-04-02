@@ -176,7 +176,7 @@ paths:
 	api.RegisterEventStore("HealthCheck", &EventRepositoryMock{})
 	api.RegisterProjection("Default", &ProjectionMock{})
 	api.RegisterProjection("Custom", &ProjectionMock{})
-
+	api.RegisterMiddleware("DefaultResponseMiddleware", rest.DefaultResponseMiddleware)
 	t.Run("attach user defined controller", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
 		if err != nil {
@@ -194,13 +194,17 @@ paths:
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
 		middlewares := rest.GetOperationMiddlewares(ctxt)
-		if len(middlewares) != 1 {
-			t.Fatalf("expected the middlewares in context to be %d, got %d", 1, len(middlewares))
+		if len(middlewares) != 2 {
+			t.Fatalf("expected the middlewares in context to be %d, got %d", 2, len(middlewares))
 		}
+		ct := echo.New().AcquireContext()
+		req := &http.Request{}
+		ct.SetRequest(req)
 		for _, middleware := range middlewares {
-			err = middleware(api, nil, nil, nil, nil, nil, nil)(func(c echo.Context) error {
+			err = middleware(api, nil, nil, nil, nil, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)(func(c echo.Context) error {
 				return nil
-			})(echo.New().AcquireContext())
+			})(ct)
+
 			if err != nil {
 				t.Errorf("unexpected error running middleware '%s'", err)
 			}
@@ -359,6 +363,7 @@ func TestRouteInitializer(t *testing.T) {
 	})
 	api.RegisterCommandDispatcher("Default", &CommandDispatcherMock{})
 	api.RegisterEventStore("Default", &EventRepositoryMock{})
+	api.RegisterMiddleware("DefaultResponseMiddleware", rest.DefaultResponseMiddleware)
 	t.Run("setup meta projection", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
 		if err != nil {
@@ -379,6 +384,17 @@ func TestRouteInitializer(t *testing.T) {
 		e.ServeHTTP(resp, req)
 		if !controllerTriggered {
 			t.Fatalf("expected the view controller to be tiggered")
+		}
+	})
+}
+
+func TestGettersForOperationFunctions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("getting schema builder sending empty context", func(t *testing.T) {
+		builders := rest.GetSchemaBuilders(ctx)
+		if builders == nil {
+			t.Errorf("unexpected error expected map of builders to be returned got nil")
 		}
 	})
 }

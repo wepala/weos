@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
+	"gorm.io/gorm/clause"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -80,6 +81,9 @@ var mockProjections map[string]*ProjectionMock
 var mockEventStores map[string]*EventRepositoryMock
 var expectedContentType string
 var contentEntity map[string]interface{}
+var addedItem map[string]map[string]interface{}
+var entityProperty interface{}
+var fileUpload map[string]interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -119,9 +123,11 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	token = ""
 	expectedContentType = ""
 	contentEntity = map[string]interface{}{}
+	addedItem = map[string]map[string]interface{}{}
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
+	fileUpload = map[string]interface{}{}
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -179,13 +185,14 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	result = api.ListApiResponse{}
 	errs = nil
 	contentEntity = map[string]interface{}{}
+	addedItem = map[string]map[string]interface{}{}
 	header = make(http.Header)
 	rec = httptest.NewRecorder()
 	resp = nil
 	blogfixtures = []interface{}{}
 	total, success, failed = 0, 0, 0
 	e = echo.New()
-	os.Remove(xfolderName)
+	os.RemoveAll(xfolderName)
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -488,29 +495,50 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	contentEntity = map[string]interface{}{}
-	var resultdb *gorm.DB
-	resultdb = gormDB.Table(strings.Title(contentType)).Find(&contentEntity, "weos_id = ?", weosID)
-	if contentEntity == nil {
-		return fmt.Errorf("unexpected error finding content type in db")
-	}
-
-	if resultdb.Error != nil {
-		return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
-	}
-
-	for key, value := range compare {
-		if contentEntity[key] != value {
-			v, ok := value.(string)
-			if ok && v == "<Generated>" && contentEntity[key] != nil {
-				continue
-			}
-			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+	entityFactory := API.GetEntityFactories()
+	if schema, ok := entityFactory[contentType]; ok {
+		entity, err := schema.NewEntity(context.TODO())
+		if err != nil {
+			return err
 		}
+		var resultdb *gorm.DB
+		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&entity.Property, "weos_id = ?", weosID)
+		//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.Property)
+		if resultdb.Error != nil {
+			return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
+		}
+		entityProperty = entity.Property
+		contentEntity = entity.ToMap()
+		if contentEntity == nil {
+			return fmt.Errorf("unexpected error finding content type in db")
+		}
+		for key, value := range compare {
+			if contentEntity[key] != value {
+				v, ok := value.(string)
+				if ok && v == "<Generated>" && contentEntity[key] != nil {
+					continue
+				}
+				if cv, ok := contentEntity[key].(*string); ok {
+					if cv != nil && strings.EqualFold(*cv, v) {
+						continue
+					}
+					if cv == nil {
+						return fmt.Errorf("expected %s %s %s, got nil", contentType, key, v)
+					} else {
+						return fmt.Errorf("expected %s %s %s, got %s", contentType, key, v, *cv)
+					}
+
+				}
+
+				return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+			}
+		}
+
+		contentTypeID[strings.ToLower(contentType)] = true
+		return nil
 	}
 
-	contentTypeID[strings.ToLower(contentType)] = true
-	return nil
+	return fmt.Errorf("schema '%s' doesn't exist in spec", contentType)
 }
 
 func theIsSubmitted(contentType string) error {
@@ -994,6 +1022,19 @@ func theFormIsSubmittedWithContentType(contentEntity, contentType string) error 
 		req := make(map[string]interface{})
 		for key, value := range requests[currScreen] {
 			writer.WriteField(key, value.(string))
+		}
+
+		if len(fileUpload) > 0 {
+			for k, v := range fileUpload {
+				file, err := os.Open(v.(string))
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+
+				part, err := writer.CreateFormFile(k, filepath.Base(file.Name()))
+				io.Copy(part, file)
+			}
 		}
 
 		writer.Close()
@@ -1583,7 +1624,6 @@ func theResponseBodyShouldBe(expectResp *godog.DocString) error {
 	if err != nil {
 		return err
 	}
-
 	if !strings.Contains(expectResp.Content, string(results)) {
 		if bytes.Compare(results, exp) != 0 {
 			return fmt.Errorf("expected response to be %s, got %s", results, exp)
@@ -1602,11 +1642,8 @@ func aWarningShouldBeShownInformingTheDeveloperThatTheFolderDoesntExist() error 
 
 func thereIsAFile(filePathName string, fileContent *godog.DocString) error {
 	directory := filepath.Dir(filePathName)
-
 	_, err := os.Stat(directory)
-
 	if os.IsNotExist(err) {
-		xfolderName = directory
 		err := os.MkdirAll(directory, os.ModePerm)
 		if err != nil {
 			return err
@@ -1744,7 +1781,7 @@ func theProjectionIsNotCalled(arg1 string) error {
 func theIdShouldBeA(arg1, format string) error {
 	switch format {
 	case "uuid":
-		_, err := uuid.Parse(contentEntity["id"].(string))
+		_, err := uuid.Parse(*contentEntity["id"].(*string))
 		if err != nil {
 			fmt.Errorf("unexpected error parsing id as uuid: %s", err)
 		}
@@ -1754,7 +1791,7 @@ func theIdShouldBeA(arg1, format string) error {
 			fmt.Errorf("unexpected error parsing id as int")
 		}
 	case "ksuid":
-		_, err := ksuid.Parse(contentEntity["id"].(string))
+		_, err := ksuid.Parse(*contentEntity["id"].(*string))
 		if err != nil {
 			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
 		}
@@ -1776,18 +1813,181 @@ func theFieldShouldHaveTodaysDate(field string) error {
 
 	switch dbconfig.Driver {
 	case "postgres", "mysql":
-		date := contentEntity[field].(time.Time).Format("2006-01-02")
-		if !strings.Contains(date, todaysDate) {
-			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+		switch contentEntity[field].(type) {
+		case *time.Time:
+			date := contentEntity[field].(*time.Time).Format("2006-01-02")
+			if !strings.Contains(date, todaysDate) {
+				return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+			}
+		case time.Time:
+			date := contentEntity[field].(time.Time).Format("2006-01-02")
+			if !strings.Contains(date, todaysDate) {
+				return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+			}
 		}
-
 	case "sqlite3":
-		date := contentEntity[field].(string)
-		if !strings.Contains(date, todaysDate) {
-			return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+		if date, ok := contentEntity[field].(*time.Time); ok {
+			if !strings.Contains(date.Format("2006-01-02"), todaysDate) {
+				return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+			}
+		}
+		if date, ok := contentEntity[field].(string); ok {
+			if !strings.Contains(date, todaysDate) {
+				return fmt.Errorf("expected the %s date: %s to contain the current date: %s ", field, date, todaysDate)
+			}
 		}
 	}
 
+	return nil
+}
+
+func addsAnItemTo(arg1, arg2, arg3 string) error {
+	if _, ok := requests[currScreen][strings.ToLower(arg3)]; !ok {
+		requests[currScreen][strings.ToLower(arg3)] = []map[string]interface{}{}
+	}
+	addedItem[arg2] = make(map[string]interface{})
+	requests[currScreen][strings.ToLower(arg3)] = append(requests[currScreen][strings.ToLower(arg3)].([]map[string]interface{}), addedItem[arg2])
+	return nil
+}
+
+func entersInTheFieldOf(arg1, arg2, arg3, arg4 string) error {
+	addedItem[arg4][arg3] = arg2
+	return nil
+}
+
+func setsItemTo(arg1, arg2, arg3 string) error {
+	addedItem[arg2] = make(map[string]interface{})
+	requests[currScreen][strings.ToLower(arg3)] = addedItem[arg2]
+	return nil
+}
+
+type TItem struct {
+	Title string `json:"title"`
+}
+
+func theShouldHaveAPropertyWithItems(arg1, arg2 string, arg3 int) error {
+	//if p, ok := contentEntity[arg2].([]interface{}); ok {
+	//	if len(p) != arg3 {
+	//		return fmt.Errorf("expected the %s to have an %d %s", arg1, arg3, arg2)
+	//	}
+	//	return nil
+	//}
+	//ef := API.GetEntityFactories()
+	//items := ef["Post"].Builder(context.TODO()).Build().New()
+	var items []TItem
+	//NOTE trying to do this with a slice of interfaces does NOT work
+	err := gormDB.Debug().Model(entityProperty).Association(strings.Title(arg2)).Find(&items)
+	if err != nil {
+		return err
+	}
+
+	if len(items) != arg3 {
+		return fmt.Errorf("expected the %s to have an %d %s", arg1, arg3, arg2)
+	}
+	return nil
+
+	return fmt.Errorf("expected %s property %s to be an array", arg1, arg2)
+}
+
+func isOnPageThatHasAFileInput(arg1 string) error {
+	return nil
+}
+
+func selectsAFileForTheField(arg1, field string, table *godog.Table) error {
+
+	head := table.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(table.Rows); i++ {
+		for n, cell := range table.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	fileUpload[field] = compare["path"]
+
+	return nil
+}
+
+func selectsTheFile(arg1 string, table *godog.Table) error {
+	head := table.Rows[0].Cells
+	compare := map[string]interface{}{}
+
+	for i := 1; i < len(table.Rows); i++ {
+		for n, cell := range table.Rows[i].Cells {
+			compare[head[n].Value] = cell.Value
+		}
+	}
+
+	fileUpload["upload"] = compare["path"]
+
+	return nil
+}
+
+func theFileIsMb(size int) error {
+	return nil
+}
+
+func theFileIsUploadedTo(endpoint string) error {
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+
+	if len(fileUpload) > 0 {
+		for k, v := range fileUpload {
+			file, err := os.Open(v.(string))
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			part, err := writer.CreateFormFile(k, filepath.Base(file.Name()))
+			io.Copy(part, file)
+		}
+	}
+
+	writer.Close()
+
+	var request *http.Request
+	request = httptest.NewRequest("POST", endpoint, body)
+	request = request.WithContext(context.TODO())
+	header.Set("Content-Type", writer.FormDataContentType())
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+	return nil
+}
+
+func theFileShouldBeAvailableAt(path string) error {
+	request := httptest.NewRequest("GET", path, nil)
+	request = request.WithContext(context.TODO())
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	request.Header = header
+	request.Close = true
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, request)
+
+	defer rec.Result().Body.Close()
+	results, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		return err
+	}
+	if string(results) == "" {
+		return fmt.Errorf("expected a response after hitting the file endpoint")
+	}
+	return nil
+}
+
+func theFolderExists(folderPath string) error {
+	xfolderName = folderPath
+	_, err := os.Stat(folderPath)
+
+	if os.IsNotExist(err) {
+		err := os.MkdirAll(folderPath, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1894,6 +2094,17 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the "([^"]*)" id should be a "([^"]*)"$`, theIdShouldBeA)
 	ctx.Step(`^an error is returned$`, anErrorIsReturned)
 	ctx.Step(`^the "([^"]*)" field should have today\'s date$`, theFieldShouldHaveTodaysDate)
+	ctx.Step(`^"([^"]*)" adds an item "([^"]*)" to "([^"]*)"$`, addsAnItemTo)
+	ctx.Step(`^"([^"]*)" enters "([^"]*)" in the "([^"]*)" field of "([^"]*)"$`, entersInTheFieldOf)
+	ctx.Step(`^"([^"]*)" sets item "([^"]*)" to "([^"]*)"$`, setsItemTo)
+	ctx.Step(`^the "([^"]*)" should have a property "([^"]*)" with (\d+) items$`, theShouldHaveAPropertyWithItems)
+	ctx.Step(`^"([^"]*)" is on page that has a file input$`, isOnPageThatHasAFileInput)
+	ctx.Step(`^"([^"]*)" selects a file for the "([^"]*)" field$`, selectsAFileForTheField)
+	ctx.Step(`^"([^"]*)" selects the file$`, selectsTheFile)
+	ctx.Step(`^the file is "(\d+)"mb$`, theFileIsMb)
+	ctx.Step(`^the file is uploaded to "([^"]*)"$`, theFileIsUploadedTo)
+	ctx.Step(`^the file should be available at "([^"]*)"$`, theFileShouldBeAvailableAt)
+	ctx.Step(`^the folder "([^"]*)" exists$`, theFolderExists)
 }
 
 func TestBDD(t *testing.T) {
@@ -1904,7 +2115,7 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "focus1",
+			//Tags: "WEOS-1378",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()

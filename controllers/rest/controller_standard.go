@@ -7,8 +7,10 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/labstack/gommon/log"
 	logs "github.com/wepala/weos/log"
+	"html/template"
 	"net/http"
 	"os"
+	path1 "path"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,17 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules
 			newContext := ctxt.Request().Context()
+
+			uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
+			if uploadResponse != nil {
+				if uploadErr, ok := uploadResponse.(*echo.HTTPError); ok {
+					if uploadErr.Error() != "" {
+						ctxt.Logger().Error(uploadErr)
+						return uploadErr
+					}
+				}
+			}
+
 			if entityFactory != nil {
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
@@ -55,6 +68,9 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
+					if errr.Unwrap() != nil {
+						ctxt.Logger().Error(errr.Unwrap())
+					}
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 				} else {
 					return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
@@ -670,7 +686,7 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
-//DefaultResponseMiddleware returns content type based on content type in example
+//DefaultResponseMiddleware returns a response based on what was specified on an endpoint
 func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	activatedResponse := false
 	for _, resp := range operation.Responses {
@@ -684,6 +700,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	}
 
 	fileName := ""
+	folderFound := true
+	folderErr := ""
+	var templates []string
 
 	if api.Swagger != nil {
 		for pathName, pathData := range api.Swagger.Paths {
@@ -697,7 +716,9 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 						} else {
 							_, err = os.Stat(folderPath)
 							if os.IsNotExist(err) {
-								api.e.Logger.Warnf("error finding folder: '%s' specified on path: '%s'", folderPath, pathName)
+								folderFound = false
+								folderErr = "error finding folder: " + folderPath + " specified on path: " + pathName
+								api.e.Logger.Errorf(folderErr)
 							} else if err != nil {
 								api.e.Logger.Error(err)
 							} else {
@@ -724,10 +745,23 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 				}
 			}
 		}
+
+	}
+	for _, resp := range operation.Responses {
+		if templateExtension, ok := resp.Value.ExtensionProps.Extensions[TemplateExtension]; ok {
+			err := json.Unmarshal(templateExtension.(json.RawMessage), &templates)
+			if err != nil {
+				api.e.Logger.Error(err)
+			}
+		}
 	}
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
+			if !folderFound {
+				api.e.Logger.Errorf(folderErr)
+				return NewControllerError(folderErr, nil, http.StatusNotFound)
+			}
 			ctx := ctxt.Request().Context()
 			if activatedResponse {
 				var responseType *CResponseType
@@ -844,6 +878,21 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 				return next(ctxt)
 			} else if fileName != "" {
 				ctxt.File(fileName)
+			} else if len(templates) != 0 {
+				contextValues := ReturnContextValues(ctx)
+				t := template.New(path1.Base(templates[0]))
+				t, err := t.ParseFiles(templates...)
+				if err != nil {
+					api.e.Logger.Debugf("unexpected error %s ", err)
+					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
+
+				}
+				err = t.Execute(ctxt.Response().Writer, contextValues)
+				if err != nil {
+					api.e.Logger.Debugf("unexpected error %s ", err)
+					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
+
+				}
 			}
 
 			return next(ctxt)
@@ -851,14 +900,25 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	}
 }
 
+//DefaultResponseController returns responses that was done in the default response middleware
 func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		newContext := context.Request().Context()
 		value := newContext.Value(weoscontext.BASIC_RESPONSE)
-		if value == nil {
-			return nil
+		uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
+
+		if uploadResponse == nil {
+			if value == nil {
+				return nil
+			}
+			return NewControllerError(value.(error).Error(), value.(error), http.StatusBadRequest)
+		} else {
+			if err, ok := uploadResponse.(*echo.HTTPError); ok {
+				return err
+			}
+			return context.JSON(http.StatusCreated, "File successfully Uploaded")
 		}
-		return value.(error)
+
 	}
 }
 
@@ -892,7 +952,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 		//checks if the security scheme type is openIdConnect
 		if schemes.Value.Type == "openIdConnect" {
 			//get the open id connect url
-			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OPENIDCONNECTURLEXTENSION]; ok {
+			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OpenIDConnectUrlExtension]; ok {
 				err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
 				if err != nil {
 					api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
@@ -905,7 +965,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 						//by default skipExpiryCheck is false meaning it will not run an expiry check
 						skipExpiryCheck := false
 						//get skipexpirycheck that is an extension in the openapi spec
-						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SKIPEXPIRYCHECKEXTENSION]; ok {
+						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SkipExpiryCheckExtension]; ok {
 							err := json.Unmarshal(expireCheck.(json.RawMessage), &skipExpiryCheck)
 							if err != nil {
 								api.EchoInstance().Logger.Errorf("unable to unmarshal skip expiry '%s'", err)
@@ -1014,7 +1074,7 @@ func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher
 	}
 }
 
-//ZapLogger switch to using ZapLogger
+//ZapLogger switches the echo context logger to be ZapLogger
 func ZapLogger(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
