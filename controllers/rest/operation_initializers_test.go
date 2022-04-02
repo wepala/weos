@@ -21,6 +21,7 @@ func TestEntityFactoryInitializer(t *testing.T) {
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
+	api.Schemas = schemas
 	t.Run("get schema from request body", func(t *testing.T) {
 
 		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
@@ -40,6 +41,7 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
+		api.Schemas = schemas
 		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
@@ -57,6 +59,7 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
+		api.Schemas = schemas
 		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
@@ -74,6 +77,7 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
+		api.Schemas = schemas
 		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
@@ -111,10 +115,6 @@ x-weos-config:
   database:
     driver: sqlite3
     database: test.db
-  databases:
-    - title: default
-      driver: sqlite3
-      database: test.db
   rest:
     middleware:
       - RequestID

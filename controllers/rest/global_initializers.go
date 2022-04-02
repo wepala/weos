@@ -102,6 +102,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 							case "string":
 								if reflect.TypeOf(v).String() != "string" {
 									err = fmt.Errorf("expected field: %s, of type %s, to have enum options of the same type", pName, t)
+									return ctxt, err
 								}
 							case "integer":
 								if reflect.TypeOf(v).String() != "float64" {
@@ -109,6 +110,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 										continue
 									} else {
 										err = fmt.Errorf("expected field: %s, of type %s, to have enum options of the same type", pName, t)
+										return ctxt, err
 									}
 								}
 							case "number":
@@ -117,6 +119,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 										continue
 									} else {
 										err = fmt.Errorf("expected field: %s, of type %s, to have enum options of the same type", pName, t)
+										return ctxt, err
 									}
 								}
 							}
@@ -151,6 +154,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 						}
 						if !idFound {
 							err = fmt.Errorf("provided x-update operation id: %s is invalid", r)
+							return ctxt, err
 						}
 					}
 				}
@@ -174,6 +178,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 			err = defaultProjection.Migrate(ctxt, schemas, deletedFields)
 			if err != nil {
 				api.EchoInstance().Logger.Error(err)
+				return ctxt, err
 			}
 		}
 	}

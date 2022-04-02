@@ -379,10 +379,10 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("LogLevel", LogLevel)
 	p.RegisterMiddleware("ZapLogger", ZapLogger)
 	//register standard global initializers
-	p.RegisterGlobalInitializer(Security)
 	p.RegisterGlobalInitializer(SQLDatabase)
 	p.RegisterGlobalInitializer(DefaultProjection)
 	p.RegisterGlobalInitializer(DefaultEventStore)
+	p.RegisterGlobalInitializer(Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(ContentTypeResponseInitializer)
