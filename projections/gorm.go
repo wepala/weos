@@ -34,6 +34,16 @@ func (p *GORMDB) DB() *gorm.DB {
 	return p.db
 }
 
+func (p *GORMDB) GetByID(ctxt context.Context, id string) (weos.Entity, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (p *GORMDB) GetCollection(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 	scheme, err := entityFactory.NewEntity(ctxt)
 	if err != nil {

@@ -24,11 +24,17 @@ var _ projections.Projection = &ProjectionMock{}
 // 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
 // 				panic("mock out the GetByEntityID method")
 // 			},
+// 			GetByIDFunc: func(ctxt context.Context, id string) (weos.Entity, error) {
+// 				panic("mock out the GetByID method")
+// 			},
 // 			GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 // 				panic("mock out the GetByKey method")
 // 			},
 // 			GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
 // 				panic("mock out the GetByProperties method")
+// 			},
+// 			GetCollectionFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+// 				panic("mock out the GetCollection method")
 // 			},
 // 			GetContentEntitiesFunc: func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
 // 				panic("mock out the GetContentEntities method")
@@ -52,11 +58,17 @@ type ProjectionMock struct {
 	// GetByEntityIDFunc mocks the GetByEntityID method.
 	GetByEntityIDFunc func(ctxt context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error)
 
+	// GetByIDFunc mocks the GetByID method.
+	GetByIDFunc func(ctxt context.Context, id string) (weos.Entity, error)
+
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
 
 	// GetByPropertiesFunc mocks the GetByProperties method.
 	GetByPropertiesFunc func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
+
+	// GetCollectionFunc mocks the GetCollection method.
+	GetCollectionFunc func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
 
 	// GetContentEntitiesFunc mocks the GetContentEntities method.
 	GetContentEntitiesFunc func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
@@ -81,6 +93,13 @@ type ProjectionMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// GetByID holds details about calls to the GetByID method.
+		GetByID []struct {
+			// Ctxt is the ctxt argument value.
+			Ctxt context.Context
+			// ID is the id argument value.
+			ID string
+		}
 		// GetByKey holds details about calls to the GetByKey method.
 		GetByKey []struct {
 			// Ctxt is the ctxt argument value.
@@ -98,6 +117,21 @@ type ProjectionMock struct {
 			EntityFactory weos.EntityFactory
 			// Identifiers is the identifiers argument value.
 			Identifiers map[string]interface{}
+		}
+		// GetCollection holds details about calls to the GetCollection method.
+		GetCollection []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Page is the page argument value.
+			Page int
+			// Limit is the limit argument value.
+			Limit int
+			// Query is the query argument value.
+			Query string
+			// SortOptions is the sortOptions argument value.
+			SortOptions map[string]string
+			// FilterOptions is the filterOptions argument value.
+			FilterOptions map[string]interface{}
 		}
 		// GetContentEntities holds details about calls to the GetContentEntities method.
 		GetContentEntities []struct {
@@ -139,8 +173,10 @@ type ProjectionMock struct {
 		}
 	}
 	lockGetByEntityID      sync.RWMutex
+	lockGetByID            sync.RWMutex
 	lockGetByKey           sync.RWMutex
 	lockGetByProperties    sync.RWMutex
+	lockGetCollection      sync.RWMutex
 	lockGetContentEntities sync.RWMutex
 	lockGetContentEntity   sync.RWMutex
 	lockGetEventHandler    sync.RWMutex
@@ -183,6 +219,41 @@ func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 	mock.lockGetByEntityID.RLock()
 	calls = mock.calls.GetByEntityID
 	mock.lockGetByEntityID.RUnlock()
+	return calls
+}
+
+// GetByID calls GetByIDFunc.
+func (mock *ProjectionMock) GetByID(ctxt context.Context, id string) (weos.Entity, error) {
+	if mock.GetByIDFunc == nil {
+		panic("ProjectionMock.GetByIDFunc: method is nil but Projection.GetByID was just called")
+	}
+	callInfo := struct {
+		Ctxt context.Context
+		ID   string
+	}{
+		Ctxt: ctxt,
+		ID:   id,
+	}
+	mock.lockGetByID.Lock()
+	mock.calls.GetByID = append(mock.calls.GetByID, callInfo)
+	mock.lockGetByID.Unlock()
+	return mock.GetByIDFunc(ctxt, id)
+}
+
+// GetByIDCalls gets all the calls that were made to GetByID.
+// Check the length with:
+//     len(mockedProjection.GetByIDCalls())
+func (mock *ProjectionMock) GetByIDCalls() []struct {
+	Ctxt context.Context
+	ID   string
+} {
+	var calls []struct {
+		Ctxt context.Context
+		ID   string
+	}
+	mock.lockGetByID.RLock()
+	calls = mock.calls.GetByID
+	mock.lockGetByID.RUnlock()
 	return calls
 }
 
@@ -261,6 +332,57 @@ func (mock *ProjectionMock) GetByPropertiesCalls() []struct {
 	mock.lockGetByProperties.RLock()
 	calls = mock.calls.GetByProperties
 	mock.lockGetByProperties.RUnlock()
+	return calls
+}
+
+// GetCollection calls GetCollectionFunc.
+func (mock *ProjectionMock) GetCollection(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+	if mock.GetCollectionFunc == nil {
+		panic("ProjectionMock.GetCollectionFunc: method is nil but Projection.GetCollection was just called")
+	}
+	callInfo := struct {
+		Ctx           context.Context
+		Page          int
+		Limit         int
+		Query         string
+		SortOptions   map[string]string
+		FilterOptions map[string]interface{}
+	}{
+		Ctx:           ctx,
+		Page:          page,
+		Limit:         limit,
+		Query:         query,
+		SortOptions:   sortOptions,
+		FilterOptions: filterOptions,
+	}
+	mock.lockGetCollection.Lock()
+	mock.calls.GetCollection = append(mock.calls.GetCollection, callInfo)
+	mock.lockGetCollection.Unlock()
+	return mock.GetCollectionFunc(ctx, page, limit, query, sortOptions, filterOptions)
+}
+
+// GetCollectionCalls gets all the calls that were made to GetCollection.
+// Check the length with:
+//     len(mockedProjection.GetCollectionCalls())
+func (mock *ProjectionMock) GetCollectionCalls() []struct {
+	Ctx           context.Context
+	Page          int
+	Limit         int
+	Query         string
+	SortOptions   map[string]string
+	FilterOptions map[string]interface{}
+} {
+	var calls []struct {
+		Ctx           context.Context
+		Page          int
+		Limit         int
+		Query         string
+		SortOptions   map[string]string
+		FilterOptions map[string]interface{}
+	}
+	mock.lockGetCollection.RLock()
+	calls = mock.calls.GetCollection
+	mock.lockGetCollection.RUnlock()
 	return calls
 }
 

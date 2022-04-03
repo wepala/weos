@@ -17,24 +17,6 @@ func GetType(myvar interface{}) string {
 	}
 }
 
-//AddIDToPayload: This adds the weosID to the payload
-func AddIDToPayload(payload []byte, weosID string) ([]byte, error) {
-	var NewPayload []byte
-	var tempPayload map[string]interface{}
-	err := json.Unmarshal(payload, &tempPayload)
-	if err != nil {
-		return nil, err
-	}
-	tempPayload["weos_id"] = weosID
-
-	NewPayload, err = json.Marshal(tempPayload)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewPayload, nil
-}
-
 //GetIDfromPayload: This returns the weosID from payload
 func GetIDfromPayload(payload []byte) (string, error) {
 	var tempPayload map[string]interface{}
@@ -76,4 +58,26 @@ func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawM
 	}
 	bytes, err = json.Marshal(payload)
 	return bytes, err
+}
+
+func SchemaFromPayload(payload []byte) *openapi3.Schema {
+	schema := &openapi3.Schema{
+		Properties: make(map[string]*openapi3.SchemaRef),
+	}
+	tprops := make(map[string]interface{})
+	if err := json.Unmarshal(payload, &tprops); err == nil {
+		for k, v := range tprops {
+			//if it's a boolean then set to string type
+			if _, ok := v.(bool); ok {
+				schema.Properties[k] = &openapi3.SchemaRef{Value: &openapi3.Schema{Type: "boolean"}}
+				//check to see if it's a date, email and set the format accordingly
+			}
+			//if it's a string then set to string type
+			if _, ok := v.(string); ok {
+				schema.Properties[k] = &openapi3.SchemaRef{Value: &openapi3.Schema{Type: "string"}}
+				//check to see if it's a date, email and set the format accordingly
+			}
+		}
+	}
+	return schema
 }

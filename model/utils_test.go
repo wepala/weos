@@ -25,3 +25,33 @@ func TestGetEntityType(t *testing.T) {
 	})
 
 }
+
+func TestSchemaFromPayload(t *testing.T) {
+	t.Run("create schema with string property", func(t *testing.T) {
+		payload := []byte(`{
+ "name": "Sojourner"
+}`)
+		schema := weos.SchemaFromPayload(payload)
+		if _, ok := schema.Properties["name"]; !ok {
+			t.Fatalf("expected property '%s'", "name")
+		}
+
+		if schema.Properties["name"].Value == nil || schema.Properties["name"].Value.Type != "string" {
+			t.Errorf("expected property '%s' to be '%s'", "name", "string")
+		}
+	})
+
+	t.Run("create schema with boolean property", func(t *testing.T) {
+		payload := []byte(`{
+ "testing": true
+}`)
+		schema := weos.SchemaFromPayload(payload)
+		if _, ok := schema.Properties["testing"]; !ok {
+			t.Fatalf("expected property '%s'", "testing")
+		}
+
+		if schema.Properties["testing"].Value == nil || schema.Properties["testing"].Value.Type != "boolean" {
+			t.Errorf("expected property '%s' to be '%s'", "name", "boolean")
+		}
+	})
+}

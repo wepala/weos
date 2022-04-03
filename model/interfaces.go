@@ -80,6 +80,8 @@ type Datastore interface {
 
 type Projection interface {
 	Datastore
+	GetByID(ctxt context.Context, id string) (Entity, error)
+	GetCollection(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
 	GetEventHandler() EventHandler
 	GetContentEntity(ctx context.Context, entityFactory EntityFactory, weosID string) (*ContentEntity, error)
 	GetByKey(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)

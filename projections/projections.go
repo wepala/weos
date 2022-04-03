@@ -168,6 +168,16 @@ func (m *MetaProjection) GetByProperties(ctxt context.Context, entityFactory weo
 	return nil, nil
 }
 
+func (m *MetaProjection) GetByID(ctxt context.Context, id string) (weos.Entity, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *MetaProjection) GetCollection(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 //MetaError error that contains all the errors returned by the projections within a meta projection
 type MetaError struct {
 	errorList    []error

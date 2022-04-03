@@ -77,6 +77,26 @@ func NewEntityEvent(eventType string, entity Entity, rootID string, tpayload int
 	}
 }
 
+func NewWebEntityEvent(eventType string, entity Entity, tpayload interface{}) *Event {
+	var ok bool
+	var payload json.RawMessage
+	if payload, ok = tpayload.([]byte); !ok {
+		payload, _ = json.Marshal(tpayload)
+	}
+
+	return &Event{
+		ID:      ksuid.New().String(),
+		Type:    eventType,
+		Payload: payload,
+		Version: 1,
+		Meta: EventMeta{
+			EntityID:   entity.GetID(),
+			EntityType: GetType(entity),
+			Created:    time.Now().Format(time.RFC3339Nano),
+		},
+	}
+}
+
 var NewVersionEvent = func(eventType string, entityID string, payload interface{}, version int) (*Event, error) {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -96,6 +116,7 @@ var NewVersionEvent = func(eventType string, entityID string, payload interface{
 
 type EventMeta struct {
 	EntityID   string `json:"entity_id"`
+	EntityPath string `json:"resource_path"`
 	EntityType string `json:"entity_type"`
 	SequenceNo int64  `json:"sequence_no"`
 	User       string `json:"user"`
