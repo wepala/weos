@@ -156,10 +156,6 @@ x-weos-config:
     - title: event
       driver: sqlite3
       database: e2e.db
-  databases:
-    - title: default
-      driver: sqlite3
-      database: e2e.db
   rest:
     middleware:
       - RequestID
@@ -2116,7 +2112,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1378",
-			//Tags: "WEOS-1110 && ~skipped",
+			//Tags: "focus-testing && ~skipped",
 		},
 	}.Run()
 	if status != 0 {
