@@ -593,11 +593,11 @@ func TestContext(t *testing.T) {
 	})
 	t.Run("add session data to context", func(t *testing.T) {
 		//set up so the api can have what is needed
-		api, err := rest.New("./fixtures/blog.yaml")
+		aapi, err := rest.New("./fixtures/blog-security.yaml")
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		_, gormDB, err := api.SQLConnectionFromConfig(api.Config.Database)
+		_, gormDB, err := aapi.SQLConnectionFromConfig(aapi.Config.Database)
 		if err != nil {
 			t.Fatalf("unexpected error opening db connection")
 		}
@@ -605,14 +605,14 @@ func TestContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error instantiating new projection")
 		}
-		api.SetEchoInstance(e)
-		api.RegisterProjection("Default", defaultProjection)
-		_, err = rest.Security(context1.Background(), api, api.Swagger)
+		aapi.SetEchoInstance(e)
+		aapi.RegisterProjection("Default", defaultProjection)
+		_, err = rest.Security(context1.Background(), aapi, aapi.Swagger)
 		if err != nil {
 			t.Fatalf("unexpected error setting up the intialization of session")
 		}
-		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(api, nil, nil, nil, entityFactory, path, path.Get)
+		path := aapi.Swagger.Paths.Find("/blogs")
+		mw := rest.Context(aapi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -634,7 +634,7 @@ func TestContext(t *testing.T) {
 		})
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
-		sessionStore := api.GetSessionStore()
+		sessionStore := aapi.GetSessionStore()
 		session, err := sessionStore.Get(req, "JSESSIONID")
 		if err != nil {
 			t.Fatalf("unexpected error getting session")
@@ -649,6 +649,7 @@ func TestContext(t *testing.T) {
 		if resp.Code != http.StatusOK {
 			t.Errorf("unexpected error, expected status code to be %d got %d", http.StatusOK, resp.Code)
 		}
+		os.Remove("test.db")
 	})
 }
 

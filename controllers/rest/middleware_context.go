@@ -40,7 +40,8 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 				var sessionParams map[string]interface{}
 				err = json.Unmarshal(tsessionParams.(json.RawMessage), &sessionParams)
 				if err != nil {
-
+					api.EchoInstance().Logger.Errorf("unexpected error unmarshalling x-session")
+					return NewControllerError("unexpected error unmarshalling x-session", err, http.StatusBadRequest)
 				}
 				cookies := c.Cookies()
 				if len(cookies) == 0 {

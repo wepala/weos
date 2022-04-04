@@ -8,6 +8,7 @@ import (
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
+	"os"
 	"testing"
 )
 
@@ -69,4 +70,5 @@ func TestGlobalMiddlewareInitializer(t *testing.T) {
 			t.Fatalf("expected session store to be instantiated got nil")
 		}
 	})
+	os.Remove("test.db")
 }

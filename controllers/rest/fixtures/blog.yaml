@@ -28,11 +28,6 @@ x-weos-config:
       - Recover
       - ZapLogger
 components:
-  securitySchemes:
-    CookieAuth:
-      type: apiKey
-      in: cookie
-      name: JSESSIONID
   schemas:
     Category:
       type: object
@@ -360,12 +355,6 @@ paths:
                   type: string
           required: false
           description: query string
-      x-session:
-        properties:
-          oauth:
-            type: string
-          id:
-            type: integer
       x-context:
         _filters:
           - field: status
