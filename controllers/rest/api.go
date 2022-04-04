@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/wader/gormstore/v2"
 	"net/http"
 	"os"
 	"reflect"
@@ -43,6 +44,7 @@ type RESTAPI struct {
 	PathConfigs                    map[string]*PathConfig
 	Schemas                        map[string]ds.Builder
 	Swagger                        *openapi3.Swagger
+	sessionStore                   *gormstore.Store
 	middlewares                    map[string]Middleware
 	controllers                    map[string]Controller
 	eventStores                    map[string]model.EventRepository
@@ -291,6 +293,11 @@ func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 //GetEntityFactories get event factories
 func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
 	return p.entityFactories
+}
+
+//GetSessionStore get gorm session store
+func (p *RESTAPI) GetSessionStore() *gormstore.Store {
+	return p.sessionStore
 }
 
 const SWAGGERUIENDPOINT = "/_discover/"
