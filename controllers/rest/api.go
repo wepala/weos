@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/wader/gormstore/v2"
+	gormstore "github.com/wepala/gormstore/v2"
 	"net/http"
 	"os"
 	"reflect"

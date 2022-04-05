@@ -3,7 +3,7 @@ package rest
 import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/wader/gormstore/v2"
+	gormstore "github.com/wepala/gormstore/v2"
 	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
