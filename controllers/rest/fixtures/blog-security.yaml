@@ -224,9 +224,14 @@ paths:
                   type: array
                   items:
                     type: string
-
           required: false
           description: query string
+      x-session:
+        properties:
+          oauth:
+            type: string
+          id:
+            type: integer
       x-context:
         filters:
           - field: status

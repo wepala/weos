@@ -58,3 +58,6 @@ const TemplateExtension = "x-templates"
 
 //UploadExtension for the storage location of an upload
 const UploadExtension = "x-upload"
+
+//SessionExtension add properties needed by the request
+const SessionExtension = "x-session"

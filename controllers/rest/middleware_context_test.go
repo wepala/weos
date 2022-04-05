@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
+	context1 "golang.org/x/net/context"
 )
 
 func TestContext(t *testing.T) {
@@ -588,6 +590,66 @@ func TestContext(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
+	})
+	t.Run("add session data to context", func(t *testing.T) {
+		//set up so the api can have what is needed
+		aapi, err := rest.New("./fixtures/blog-security.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		_, gormDB, err := aapi.SQLConnectionFromConfig(aapi.Config.Database)
+		if err != nil {
+			t.Fatalf("unexpected error opening db connection")
+		}
+		defaultProjection, err := projections.NewProjection(context1.Background(), gormDB, e.Logger)
+		if err != nil {
+			t.Fatalf("unexpected error instantiating new projection")
+		}
+		aapi.SetEchoInstance(e)
+		aapi.RegisterProjection("Default", defaultProjection)
+		_, err = rest.Security(context1.Background(), aapi, aapi.Swagger)
+		if err != nil {
+			t.Fatalf("unexpected error setting up the intialization of session")
+		}
+		path := aapi.Swagger.Paths.Find("/blogs")
+		mw := rest.Context(aapi, nil, nil, nil, entityFactory, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			value := cc.Value("id")
+			if value == nil {
+				t.Fatalf("expected the id to have a value")
+			}
+			if value.(int) != 1234 {
+				t.Fatalf("expected the operation id to be 123")
+			}
+			value = cc.Value("oauth")
+			if value == nil {
+				t.Fatalf("expected the oauth to have a value")
+			}
+			if value.(string) != "oath|dhhbsgy" {
+				t.Fatalf("expected the operation id to be oath|dhhbsgy")
+			}
+			return nil
+		})
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		sessionStore := aapi.GetSessionStore()
+		session, err := sessionStore.Get(req, "JSESSIONID")
+		if err != nil {
+			t.Fatalf("unexpected error getting session")
+		}
+		c := &http.Cookie{Name: "JSESSIONID"}
+		req.AddCookie(c)
+		session.Values["id"] = int(1234)
+		session.Values["oauth"] = "oath|dhhbsgy"
+		sessionStore.Save(req, resp, session)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("unexpected error, expected status code to be %d got %d", http.StatusOK, resp.Code)
+		}
+		os.Remove("test.db")
 	})
 }
 
