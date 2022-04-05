@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -80,38 +81,31 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 						api.EchoInstance().Logger.Errorf(msg)
 						return NewControllerError(msg, nil, http.StatusNotFound)
 					}
-					format := value.(map[string]interface{})["format"]
-					switch value.(map[string]interface{})["type"] {
-					case "string":
-						sessionvalues[key], ok = session.Values[key].(string)
+					if value.(map[string]interface{})["type"] == nil {
+						api.EchoInstance().Logger.Errorf("unexpected error, expect type to be specified")
+						return NewControllerError("unexpected error, expect type to be specified", nil, http.StatusBadRequest)
+					}
+					format := ""
+					contextVal := ""
+					if value.(map[string]interface{})["format"] != nil {
+						format = value.(map[string]interface{})["format"].(string)
+					}
+					switch session.Values[key].(type) {
+					case int:
+						contextVal = strconv.Itoa(session.Values[key].(int))
+					case float64:
+						contextVal = strconv.FormatFloat(session.Values[key].(float64), 'E', -1, 64)
+					case bool:
+						contextVal = strconv.FormatBool(session.Values[key].(bool))
+					default:
+						contextVal, ok = session.Values[key].(string)
 						if !ok {
-							sessionvalues[key] = session.Values[key]
+							api.EchoInstance().Logger.Warnf("unexpect error: %s type is not supported for session value %s", reflect.TypeOf(session.Values[key]).String(), key)
 						}
-					case "integer":
-						sessionvalues[key], ok = session.Values[key].(int)
-						if !ok {
-							sessionvalues[key] = session.Values[key]
-						}
-					case "number":
-						if format != nil && (format.(string) == "float" || format.(string) == "double") {
-							sessionvalues[key], ok = session.Values[key].(float64)
-							if !ok {
-								sessionvalues[key], ok = session.Values[key].(int)
-								if !ok {
-									sessionvalues[key] = session.Values[key]
-								}
-							}
-						} else {
-							sessionvalues[key], ok = session.Values[key].(int)
-							if !ok {
-								sessionvalues[key] = session.Values[key]
-							}
-						}
-					case "boolean":
-						sessionvalues[key], ok = session.Values[key].(bool)
-						if !ok {
-							sessionvalues[key] = session.Values[key]
-						}
+					}
+					sessionvalues[key], err = ConvertStringToType(value.(map[string]interface{})["type"].(string), format, contextVal)
+					if err != nil {
+						sessionvalues[key] = session.Values[key]
 					}
 				}
 				cc, err = AddToContext(c, cc, sessionvalues, entityFactory)

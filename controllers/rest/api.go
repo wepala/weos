@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	gormstore "github.com/wepala/gormstore/v2"
+	"github.com/gorilla/sessions"
 	"net/http"
 	"os"
 	"reflect"
@@ -44,7 +44,7 @@ type RESTAPI struct {
 	PathConfigs                    map[string]*PathConfig
 	Schemas                        map[string]ds.Builder
 	Swagger                        *openapi3.Swagger
-	sessionStore                   *gormstore.Store
+	sessionStore                   sessions.Store
 	middlewares                    map[string]Middleware
 	controllers                    map[string]Controller
 	eventStores                    map[string]model.EventRepository
@@ -296,7 +296,7 @@ func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
 }
 
 //GetSessionStore get gorm session store
-func (p *RESTAPI) GetSessionStore() *gormstore.Store {
+func (p *RESTAPI) GetSessionStore() sessions.Store {
 	return p.sessionStore
 }
 
