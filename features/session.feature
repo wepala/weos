@@ -1,4 +1,3 @@
-@WEOS-1472
 Feature: As a developer I should be able configure a session which can be used to store data
 
   A developer should be able to configure a session to use for storing data for retrieval
@@ -135,12 +134,6 @@ Feature: As a developer I should be able configure a session which can be used t
 
                required: false
                description: query string
-           x-session:
-             properties:
-               oauth:
-                 type: string
-               id:
-                 type: integer
            responses:
              200:
                description: List of blogs
@@ -195,6 +188,14 @@ Feature: As a developer I should be able configure a session which can be used t
                schema:
                  type: string
            summary: Get Blog by id
+           x-middleware:
+            - Handler
+           x-session:
+             properties:
+               oauth:
+                 type: string
+               ids:
+                 type: integer
            operationId: Get Blog
            responses:
              200:
@@ -246,6 +247,7 @@ Feature: As a developer I should be able configure a session which can be used t
       | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
     And the service is running
 
+  @WEOS-1472
   Scenario: The session should be successfully created
 
     The session should be generated when the api is run
@@ -253,45 +255,43 @@ Feature: As a developer I should be able configure a session which can be used t
     Given "JSESSIONID" is the session name
     And the session should exist on the api
 
+  @WEOS-1472
+  Scenario: A request is made with a cookie that contains x-session details
 
-  Scenario: The name of the cookie should be the same name as the session
+    The name specified in the yaml file for the cookie should be used to name the session. The x-session data should be added to the context as well
 
-    The name specified in the yaml file for the cookie should be used to name the session
-
-    Given "Sojourner" is making a new request
+    Given "Sojourner" is making a "GET" request on "/blogs/" with id "1"
     And "JSESSIONID" is the session name
-    And the value "12345" is entered in the session field "id"
-    And the value "oath|qwerty" is entered in the session field "oauth"
+    And "JSESSIONID" is the cookie name
+    And the session should exist on the api
+    And the "integer" value "12345" is entered in the session field "ids"
+    And the "string" value "oath|qwerty" is entered in the session field "oauth"
     When the request with a cookie is sent
-    Then a 200 response should be returned
-
-
-  Scenario: The x-session data should be stored in the context
-
-    x-session data should be stored in context using the field names as keys
-
-    Given "Sojourner" is making a new request
-    And "JSESSIONID" is the session name
-    And the value "12345" is entered in the session field "id"
-    And the value "oath|qwerty" is entered in the session field "oauth"
-    When the request with a cookie is sent
-    Then a 200 response should be returned
+    Then a "200" response should be returned
     And the context should contain x-session data
 
-  Scenario: Retrieving an empty session from the api
+  @WEOS-1472
+  Scenario: A request is made with a cookie that is empty (no x-session details)
 
-    An error should be returned if the session is empty on the api
+  An error should be returned if the context middleware retrieves no data from the datastore
 
-    Given "JSESSIONID1" is the session name
+    Given "Sojourner" is making a "GET" request on "/blogs/" with id "1"
+    And "JSESSIONID" is the session name
+    And "JSESSIONID" is the cookie name
     And the session should exist on the api
+    When the request with a cookie is sent
     Then an error should be returned
 
+  @WEOS-1472
+  Scenario: A request is made with a cookie with a non-existing session name
 
-  Scenario: Retrieving no data from the gorm store
+  The name specified in the yaml file for the cookie should be used to name the session. However if a cookie is sent with the wrong name is used, an error should be returned.
 
-    An error should be returned if the context middleware retrieves no data from the datastore
-
-    Given "Sojourner" is making a new request
+    Given "Sojourner" is making a "GET" request on "/blogs/" with id "1"
     And "JSESSIONID" is the session name
+    And "JSESSIONID123" is the cookie name
+    And the session should exist on the api
+    And the "integer" value "12345" is entered in the session field "ids"
+    And the "string" value "oath|qwerty" is entered in the session field "oauth"
     When the request with a cookie is sent
     Then an error should be returned

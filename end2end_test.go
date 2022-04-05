@@ -8,8 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/gorilla/sessions"
 	"github.com/segmentio/ksuid"
-	"github.com/wader/gormstore/v2"
+	"github.com/wepala/gormstore/v2"
 	weosContext "github.com/wepala/weos/context"
 	"gorm.io/gorm/clause"
 	"io"
@@ -87,6 +88,10 @@ var entityProperty interface{}
 var fileUpload map[string]interface{}
 var sessionName string
 var sessionStore *gormstore.Store
+var sessionReq *http.Request
+var cookie *http.Cookie
+var cookieName string
+var session *sessions.Session
 
 type FilterProperties struct {
 	Operator string
@@ -115,6 +120,7 @@ type ContentType struct {
 }
 
 func InitializeSuite(ctx *godog.TestSuiteContext) {
+	sessionReq = &http.Request{}
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
 	mockProjections = make(map[string]*ProjectionMock)
@@ -175,6 +181,7 @@ components:
 }
 
 func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
+	sessionReq = &http.Request{}
 	scenarioContext = context.Background()
 	requests = map[string]map[string]interface{}{}
 	contentTypeID = map[string]bool{}
@@ -786,7 +793,7 @@ func theServiceIsRunning() error {
 			return func(c echo.Context) error {
 				contextWithValues = c.Request().Context()
 
-				return nil
+				return handlerFunc(c)
 			}
 		}
 	})
@@ -1995,8 +2002,9 @@ func theFolderExists(folderPath string) error {
 	return nil
 }
 
-func isMakingANewRequest(arg1 string) error {
-	return godog.ErrPending
+func isMakingARequestOnWithId(user, method, path, id string) error {
+	sessionReq = httptest.NewRequest(method, path+id, nil)
+	return nil
 }
 
 func isTheSessionName(name string) error {
@@ -2004,25 +2012,70 @@ func isTheSessionName(name string) error {
 	return nil
 }
 
+func isTheCookieName(name string) error {
+	cookieName = name
+	return nil
+}
+
 func theContextShouldContainXsessionData() error {
-	return godog.ErrPending
-}
+	sessionVals := session.Values
 
-func theRequestWithACookieIsSent() error {
-	return godog.ErrPending
-}
-
-func theSessionShouldExistOnTheApi() error {
-	sessionStore = API.GetSessionStore()
-	if sessionStore == nil {
-		return fmt.Errorf("expected the session to be instantiated")
+	for key, value := range sessionVals {
+		ctxResult := contextWithValues.Value(key)
+		if ctxResult != value {
+			return fmt.Errorf("expected the x-session variables to be in the context")
+		}
 	}
 
 	return nil
 }
 
-func theValueIsEnteredInTheSessionField(arg1, arg2 string) error {
-	return godog.ErrPending
+func theRequestWithACookieIsSent() error {
+	rec = httptest.NewRecorder()
+	sessionStore.Save(sessionReq, rec, session)
+
+	cookie = &http.Cookie{Name: cookieName, Value: session.ID}
+	sessionReq.AddCookie(cookie)
+	e.ServeHTTP(rec, sessionReq)
+
+	resultd := rec.Result()
+
+	if resultd == nil {
+	}
+
+	return nil
+}
+
+func theSessionShouldExistOnTheApi() error {
+	sessionStore = API.GetSessionStore()
+
+	if sessionStore == nil {
+		return fmt.Errorf("expected the sessionstore to be instantiated")
+	}
+
+	session, errs = sessionStore.Get(sessionReq, sessionName)
+	if errs != nil {
+		return errs
+	}
+
+	if session == nil {
+		return fmt.Errorf("expected the session to be found")
+	}
+
+	return nil
+}
+
+func theValueIsEnteredInTheSessionField(valueType, value, key string) error {
+	switch valueType {
+	case "integer":
+		session.Values[key], errs = strconv.Atoi(value)
+		if errs != nil {
+			return errs
+		}
+	case "string":
+		session.Values[key] = value
+	}
+	return nil
 }
 
 func InitializeScenario(ctx *godog.ScenarioContext) {
@@ -2139,12 +2192,14 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the file is uploaded to "([^"]*)"$`, theFileIsUploadedTo)
 	ctx.Step(`^the file should be available at "([^"]*)"$`, theFileShouldBeAvailableAt)
 	ctx.Step(`^the folder "([^"]*)" exists$`, theFolderExists)
-	ctx.Step(`^"([^"]*)" is making a new request$`, isMakingANewRequest)
+	ctx.Step(`^"([^"]*)" is making a "([^"]*)" request on "([^"]*)" with id "([^"]*)"$`, isMakingARequestOnWithId)
 	ctx.Step(`^"([^"]*)" is the session name$`, isTheSessionName)
 	ctx.Step(`^the context should contain x-session data$`, theContextShouldContainXsessionData)
 	ctx.Step(`^the request with a cookie is sent$`, theRequestWithACookieIsSent)
 	ctx.Step(`^the session should exist on the api$`, theSessionShouldExistOnTheApi)
-	ctx.Step(`^the value "([^"]*)" is entered in the session field "([^"]*)"$`, theValueIsEnteredInTheSessionField)
+	ctx.Step(`^the "([^"]*)" value "([^"]*)" is entered in the session field "([^"]*)"$`, theValueIsEnteredInTheSessionField)
+	ctx.Step(`^a "([^"]*)" response should be returned$`, aResponseShouldBeReturned)
+	ctx.Step(`^"([^"]*)" is the cookie name$`, isTheCookieName)
 }
 
 func TestBDD(t *testing.T) {
@@ -2154,8 +2209,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1472",
+			Tags:   "~long && ~skipped",
+			//Tags: "WEOS-1472",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
