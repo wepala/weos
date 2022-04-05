@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gorilla/sessions"
 	"io/ioutil"
 	"math"
 	"net/http"
@@ -43,19 +44,33 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 					api.EchoInstance().Logger.Errorf("unexpected error unmarshalling x-session")
 					return NewControllerError("unexpected error unmarshalling x-session", err, http.StatusBadRequest)
 				}
+				//get cookies from the request
 				cookies := c.Cookies()
 				if len(cookies) == 0 {
 					api.EchoInstance().Logger.Errorf("unexpected error no cookies were found")
 					return NewControllerError("unexpected error no cookies were found", nil, http.StatusBadRequest)
 				}
+				//get session from api
 				sessionStore := api.GetSessionStore()
 				if sessionStore == nil {
 					api.EchoInstance().Logger.Errorf("unexpected error no session store was found on api")
 					return NewControllerError("unexpected error no session store was found on api", nil, http.StatusInternalServerError)
-
 				}
-				session, err := sessionStore.Get(c.Request(), cookies[0].Name)
-				if err != nil {
+				var session *sessions.Session
+				for _, cookie := range cookies {
+					//get session by name
+					sess, err := sessionStore.Get(c.Request(), cookie.Name)
+					if err != nil {
+						api.EchoInstance().Logger.Errorf("unexpected error %s", err)
+						return NewControllerError(fmt.Sprintf("unexpected error %s", err), err, http.StatusBadRequest)
+					}
+					//check if session id is the same as the id in the cookie
+					if sess != nil && sess.ID == cookie.Value {
+						session = sess
+						break
+					}
+				}
+				if session == nil {
 					api.EchoInstance().Logger.Errorf("unexpected error no session found with cookie name")
 					return NewControllerError("unexpected error no session found with cookie name", nil, http.StatusBadRequest)
 				}

@@ -639,11 +639,11 @@ func TestContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error getting session")
 		}
-		c := &http.Cookie{Name: "JSESSIONID"}
-		req.AddCookie(c)
 		session.Values["id"] = int(1234)
 		session.Values["oauth"] = "oath|dhhbsgy"
 		sessionStore.Save(req, resp, session)
+		c := &http.Cookie{Name: "JSESSIONID", Value: session.ID}
+		req.AddCookie(c)
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 		if resp.Code != http.StatusOK {
