@@ -76,7 +76,7 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 				}
 				for key, value := range sessionParams["properties"].(map[string]interface{}) {
 					if session.Values[key] == nil {
-						msg := "unexpected error, expected to find " + key + "got nil"
+						msg := "unexpected error, expected to find " + key + " got nil"
 						api.EchoInstance().Logger.Errorf(msg)
 						return NewControllerError(msg, nil, http.StatusNotFound)
 					}
