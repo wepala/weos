@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/segmentio/ksuid"
+	"github.com/wader/gormstore/v2"
 	weosContext "github.com/wepala/weos/context"
 	"gorm.io/gorm/clause"
 	"io"
@@ -84,6 +85,8 @@ var contentEntity map[string]interface{}
 var addedItem map[string]map[string]interface{}
 var entityProperty interface{}
 var fileUpload map[string]interface{}
+var sessionName string
+var sessionStore *gormstore.Store
 
 type FilterProperties struct {
 	Operator string
@@ -193,6 +196,7 @@ func reset(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 	total, success, failed = 0, 0, 0
 	e = echo.New()
 	os.RemoveAll(xfolderName)
+	sessionName = ""
 	openAPI = `openapi: 3.0.3
 info:
   title: Blog
@@ -1995,8 +1999,9 @@ func isMakingANewRequest(arg1 string) error {
 	return godog.ErrPending
 }
 
-func isTheSessionName(arg1 string) error {
-	return godog.ErrPending
+func isTheSessionName(name string) error {
+	sessionName = name
+	return nil
 }
 
 func theContextShouldContainXsessionData() error {
@@ -2008,7 +2013,12 @@ func theRequestWithACookieIsSent() error {
 }
 
 func theSessionShouldExistOnTheApi() error {
-	return godog.ErrPending
+	sessionStore = API.GetSessionStore()
+	if sessionStore == nil {
+		return fmt.Errorf("expected the session to be instantiated")
+	}
+
+	return nil
 }
 
 func theValueIsEnteredInTheSessionField(arg1, arg2 string) error {
