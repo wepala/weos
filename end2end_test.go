@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/sessions"
 	"github.com/segmentio/ksuid"
-	"github.com/wepala/gormstore/v2"
 	weosContext "github.com/wepala/weos/context"
 	"gorm.io/gorm/clause"
 	"io"
@@ -87,7 +86,7 @@ var addedItem map[string]map[string]interface{}
 var entityProperty interface{}
 var fileUpload map[string]interface{}
 var sessionName string
-var sessionStore *gormstore.Store
+var sessionStore sessions.Store
 var sessionReq *http.Request
 var cookie *http.Cookie
 var cookieName string
