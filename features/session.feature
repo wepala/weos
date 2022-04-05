@@ -9,17 +9,17 @@ Feature: As a developer I should be able configure a session which can be used t
     And "Sojourner" has an account with id "1234"
     And "OpenAPI 3.0" is used to model the service
     And the specification is
-    """
-    openapi: 3.0.3
-    info:
-      title: Blog Aggregator Rest API
-      version: 0.1.0
-      description: REST API for interacting with the Blog Aggregator
-    servers:
+     """
+     openapi: 3.0.3
+     info:
+       title: Blog Aggregator Rest API
+       version: 0.1.0
+       description: REST API for interacting with the Blog Aggregator
+     servers:
       - url: https://prod1.weos.sh/blog/dev
         description: WeOS Dev
       - url: https://prod1.weos.sh/blog/v1
-    x-weos-config:
+     x-weos-config:
       logger:
         level: warn
         report-caller: true
@@ -47,148 +47,203 @@ Feature: As a developer I should be able configure a session which can be used t
           - RequestID
           - Recover
           - ZapLogger
-    components:
-      components:
-        securitySchemes:
-          cookieAuth:
-            type: apiKey
-            in: cookie
-            name: JSESSIONID
-      schemas:
-        Blog:
+     components:
+       securitySchemes:
+         CookieAuth:
+           type: apiKey
+           in: cookie
+           name: JSESSIONID
+       schemas:
+         Blog:
            type: object
            properties:
              id:
                type: string
-               format: ksuid
              title:
                type: string
                description: blog title
              description:
                type: string
-             posts:
+           required:
+             - title
+           x-identifier:
+             - id
+         Post:
+           type: object
+           properties:
+             title:
+               type: string
+             description:
+               type: string
+             blog:
+               $ref: "#/components/schemas/Blog"
+             publishedDate:
+               type: string
+               format: date-time
+             views:
+               type: integer
+             categories:
                type: array
                items:
                  $ref: "#/components/schemas/Post"
            required:
              - title
-           x-identifier:
-             - id
-        Post:
-          type: object
-          properties:
-            title:
-              type: string
-            description:
-              type: string
-            blog:
-              $ref: "#/components/schemas/Blog"
-            publishedDate:
-              type: string
-              format: date-time
-            views:
-              type: integer
-            categories:
-              type: array
-              items:
-                $ref: "#/components/schemas/Category"
-          required:
-            - title
-        Category:
-          type: object
-          properties:
-            title:
-              type: string
-            description:
-              type: string
-    paths:
-      /:
-        get:
-          operationId: Homepage
-          responses:
-            200:
-              description: Application Homepage
-      /blogs:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog info that is submitted
-            required: true
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/x-www-form-urlencoded:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/xml:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          responses:
-            201:
-              description: Add Blog to Aggregator
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
-        get:
-          operationId: Get Blogs
-          summary: Get List of Blogs
-          parameters:
-            - in: query
-              name: page
-              schema:
-                type: integer
-            - in: query
-              name: limit
-              schema:
-                type: integer
-            - in: query
-              name: _filters
-                schema:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      field:
-                      type: string
-                      operator:
-                      type: string
-                    value:
-                      type: array
-                      items:
-                        type: string
-             required: false
-             description: query string
-          x-session:
-            properties:
-              oauth:
-                type: string
-              id:
-                type: integer
-          responses:
-           200:
-             description: List of blogs
+         Category:
+           type: object
+           properties:
+             title:
+               type: string
+             description:
+               type: string
+           required:
+             - title
+     paths:
+       /:
+         get:
+           operationId: Homepage
+           responses:
+             200:
+               description: Application Homepage
+       /blog:
+         get:
+           operationId: Get Blogs
+           summary: Get List of Blogs
+           parameters:
+             - in: query
+               name: page
+               schema:
+                 type: integer
+             - in: query
+               name: limit
+               schema:
+                 type: integer
+             - in: query
+               name: _filters
+               schema:
+                 type: array
+                 items:
+                   type: object
+                   properties:
+                     field:
+                       type: string
+                     operator:
+                       type: string
+                     value:
+                       type: array
+                       items:
+                         type: string
+
+               required: false
+               description: query string
+           x-session:
+             properties:
+               oauth:
+                 type: string
+               id:
+                 type: integer
+           responses:
+             200:
+               description: List of blogs
+               content:
+                 application/json:
+                   schema:
+                     type: object
+                     properties:
+                       total:
+                         type: integer
+                       page:
+                         type: integer
+                       items:
+                         type: array
+                         items:
+                           $ref: "#/components/schemas/Blog"
+         post:
+           operationId: Add Blog
+           requestBody:
+             description: Blog info that is submitted
+             required: true
              content:
                application/json:
                  schema:
-                   type: object
-                   properties:
-                     total:
-                       type: integer
-                     page:
-                       type: integer
-                     items:
-                       type: array
-                       items:
-                         $ref: "#/components/schemas/Blog"
-    """
+                   $ref: "#/components/schemas/Blog"
+               application/x-www-form-urlencoded:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/xml:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             201:
+               description: Add Blog to Aggregator
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             400:
+               description: Invalid blog submitted
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: query
+               name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+         put:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+           summary: Update blog details
+           operationId: Update Blog
+           requestBody:
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             200:
+               description: Update Blog
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+         delete:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+           summary: Delete blog
+           operationId: Delete Blog
+           responses:
+             200:
+               description: Blog Deleted
+     """
     And blogs in the api
-      | id    | entity id                   | sequence no | title        | description    |
-      | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
-      | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
+      | id    | weos_id                     | sequence_no | title        | description    |
+      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 1       | Some Blog      |
+      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
     And the service is running
 
   Scenario: The session should be successfully created

@@ -1991,6 +1991,30 @@ func theFolderExists(folderPath string) error {
 	return nil
 }
 
+func isMakingANewRequest(arg1 string) error {
+	return godog.ErrPending
+}
+
+func isTheSessionName(arg1 string) error {
+	return godog.ErrPending
+}
+
+func theContextShouldContainXsessionData() error {
+	return godog.ErrPending
+}
+
+func theRequestWithACookieIsSent() error {
+	return godog.ErrPending
+}
+
+func theSessionShouldExistOnTheApi() error {
+	return godog.ErrPending
+}
+
+func theValueIsEnteredInTheSessionField(arg1, arg2 string) error {
+	return godog.ErrPending
+}
+
 func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Before(reset)
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
@@ -2105,6 +2129,12 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the file is uploaded to "([^"]*)"$`, theFileIsUploadedTo)
 	ctx.Step(`^the file should be available at "([^"]*)"$`, theFileShouldBeAvailableAt)
 	ctx.Step(`^the folder "([^"]*)" exists$`, theFolderExists)
+	ctx.Step(`^"([^"]*)" is making a new request$`, isMakingANewRequest)
+	ctx.Step(`^"([^"]*)" is the session name$`, isTheSessionName)
+	ctx.Step(`^the context should contain x-session data$`, theContextShouldContainXsessionData)
+	ctx.Step(`^the request with a cookie is sent$`, theRequestWithACookieIsSent)
+	ctx.Step(`^the session should exist on the api$`, theSessionShouldExistOnTheApi)
+	ctx.Step(`^the value "([^"]*)" is entered in the session field "([^"]*)"$`, theValueIsEnteredInTheSessionField)
 }
 
 func TestBDD(t *testing.T) {
@@ -2114,8 +2144,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			Tags:   "~long && ~skipped",
-			//Tags: "WEOS-1378",
+			//Tags:   "~long && ~skipped",
+			Tags: "WEOS-1472",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
