@@ -34,6 +34,73 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			if accountID != "" {
 				cc = context.WithValue(cc, weosContext.ACCOUNT_ID, accountID)
 			}
+			//use x-session to get the properties needed for the context
+			if tsessionParams, ok := operation.ExtensionProps.Extensions[SessionExtension]; ok {
+				sessionvalues := map[string]interface{}{}
+				var sessionParams map[string]interface{}
+				err = json.Unmarshal(tsessionParams.(json.RawMessage), &sessionParams)
+				if err != nil {
+					api.EchoInstance().Logger.Errorf("unexpected error unmarshalling x-session")
+					return NewControllerError("unexpected error unmarshalling x-session", err, http.StatusBadRequest)
+				}
+				cookies := c.Cookies()
+				if len(cookies) == 0 {
+					api.EchoInstance().Logger.Errorf("unexpected error no cookies were found")
+					return NewControllerError("unexpected error no cookies were found", nil, http.StatusBadRequest)
+				}
+				sessionStore := api.GetSessionStore()
+				if sessionStore == nil {
+					api.EchoInstance().Logger.Errorf("unexpected error no session store was found on api")
+					return NewControllerError("unexpected error no session store was found on api", nil, http.StatusInternalServerError)
+
+				}
+				session, err := sessionStore.Get(c.Request(), cookies[0].Name)
+				if err != nil {
+					api.EchoInstance().Logger.Errorf("unexpected error no session found with cookie name")
+					return NewControllerError("unexpected error no session found with cookie name", nil, http.StatusBadRequest)
+				}
+				for key, value := range sessionParams["properties"].(map[string]interface{}) {
+					if session.Values[key] == nil {
+						msg := "unexpected error, expected to find " + key + "got nil"
+						api.EchoInstance().Logger.Errorf(msg)
+						return NewControllerError(msg, nil, http.StatusNotFound)
+					}
+					format := value.(map[string]interface{})["format"]
+					switch value.(map[string]interface{})["type"] {
+					case "string":
+						sessionvalues[key], ok = session.Values[key].(string)
+						if !ok {
+							sessionvalues[key] = session.Values[key]
+						}
+					case "integer":
+						sessionvalues[key], ok = session.Values[key].(int)
+						if !ok {
+							sessionvalues[key] = session.Values[key]
+						}
+					case "number":
+						if format != nil && (format.(string) == "float" || format.(string) == "double") {
+							sessionvalues[key], ok = session.Values[key].(float64)
+							if !ok {
+								sessionvalues[key], ok = session.Values[key].(int)
+								if !ok {
+									sessionvalues[key] = session.Values[key]
+								}
+							}
+						} else {
+							sessionvalues[key], ok = session.Values[key].(int)
+							if !ok {
+								sessionvalues[key] = session.Values[key]
+							}
+						}
+					case "boolean":
+						sessionvalues[key], ok = session.Values[key].(bool)
+						if !ok {
+							sessionvalues[key] = session.Values[key]
+						}
+					}
+				}
+				cc, err = AddToContext(c, cc, sessionvalues, entityFactory)
+			}
 			//use the path information to get the parameter values
 			contextValues, err := parseParams(c, path.Parameters, entityFactory)
 			//add parameter values to the context

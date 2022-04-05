@@ -33,6 +33,10 @@ components:
       type: openIdConnect
       openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
       skipExpiryCheck: true
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: JSESSIONID
   schemas:
     Category:
       type: object
@@ -220,9 +224,14 @@ paths:
                   type: array
                   items:
                     type: string
-
           required: false
           description: query string
+      x-session:
+        properties:
+          oauth:
+            type: string
+          id:
+            type: integer
       x-context:
         filters:
           - field: status

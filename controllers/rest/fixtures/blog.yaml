@@ -353,7 +353,6 @@ paths:
                 type: array
                 items:
                   type: string
-
           required: false
           description: query string
       x-context:
