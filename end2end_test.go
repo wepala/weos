@@ -1563,7 +1563,7 @@ func theSwaggerUiShouldBeShown() error {
 }
 
 func aWarningShouldBeShown() error {
-	if !strings.Contains(buf.String(), "invalid open id connect url:") {
+	if !strings.Contains(buf.String(), "invalid open id connect url:") && !strings.Contains(buf.String(), "no x-session extension was found") {
 		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
@@ -2037,11 +2037,6 @@ func theRequestWithACookieIsSent() error {
 	sessionReq.AddCookie(cookie)
 	e.ServeHTTP(rec, sessionReq)
 
-	resultd := rec.Result()
-
-	if resultd == nil {
-	}
-
 	return nil
 }
 
@@ -2208,8 +2203,8 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~long && ~skipped",
-			Tags: "WEOS-1472-focus",
+			Tags:   "~long && ~skipped",
+			//Tags: "WEOS-1472",
 			//Tags: "WEOS-1110 && ~skipped",
 		},
 	}.Run()
