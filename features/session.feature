@@ -295,3 +295,560 @@ Feature: As a developer I should be able configure a session which can be used t
     And the "string" value "oath|qwerty" is entered in the session field "oauth"
     When the request with a cookie is sent
     Then an error should be returned
+
+  @WEOS-1472-focus
+  Scenario: The Session is set globally
+
+    The cookie can be added to the global security declaration which applies it to all paths
+
+    And the specification is
+     """
+     openapi: 3.0.3
+     info:
+       title: Blog Aggregator Rest API
+       version: 0.1.0
+       description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
+     components:
+       securitySchemes:
+         CookieAuth:
+           type: apiKey
+           in: cookie
+           name: JSESSIONID
+       schemas:
+         Blog:
+           type: object
+           properties:
+             id:
+               type: string
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - id
+     security:
+       - CookieAuth []
+     paths:
+       /blog:
+         post:
+           operationId: Add Blog
+           requestBody:
+             description: Blog info that is submitted
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/x-www-form-urlencoded:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/xml:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           x-middleware:
+            - Handler
+           x-session:
+             properties:
+               oauth:
+                 type: string
+               ids:
+                 type: integer
+           responses:
+             201:
+               description: Add Blog to Aggregator
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             400:
+               description: Invalid blog submitted
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: query
+               name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           x-middleware:
+            - Handler
+           x-session:
+             properties:
+               oauth:
+                 type: string
+               ids:
+                 type: integer
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+     """
+    And blogs in the api
+      | id    | weos_id                     | sequence_no | title        | description    |
+      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 1       | Some Blog      |
+      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
+    And the service is running
+    And "Sojourner" is making a "GET" request on "/blogs/" with id "1"
+    And "JSESSIONID" is the session name
+    And "JSESSIONID" is the cookie name
+    And the session should exist on the api
+    And the "integer" value "12345" is entered in the session field "ids"
+    And the "string" value "oath|qwerty" is entered in the session field "oauth"
+    When the request with a cookie is sent
+    Then a "200" response should be returned
+    And the context should contain x-session data
+
+  @WEOS-1472-focus
+  Scenario: The Session is set globally but x-session is not provided on all paths
+
+  The cookie can be added to the global security declaration which applies it to all paths however, x-session is needed on all paths or it should error out
+
+    And the specification is
+     """
+     openapi: 3.0.3
+     info:
+       title: Blog Aggregator Rest API
+       version: 0.1.0
+       description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
+     components:
+       securitySchemes:
+         CookieAuth:
+           type: apiKey
+           in: cookie
+           name: JSESSIONID
+       schemas:
+         Blog:
+           type: object
+           properties:
+             id:
+               type: string
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - id
+     security:
+       - CookieAuth []
+     paths:
+       /blog:
+         post:
+           operationId: Add Blog
+           requestBody:
+             description: Blog info that is submitted
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/x-www-form-urlencoded:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/xml:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             201:
+               description: Add Blog to Aggregator
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             400:
+               description: Invalid blog submitted
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: query
+               name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           x-middleware:
+            - Handler
+           x-session:
+             properties:
+               oauth:
+                 type: string
+               ids:
+                 type: integer
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+     """
+    And blogs in the api
+      | id    | weos_id                     | sequence_no | title        | description    |
+      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 1       | Some Blog      |
+      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
+    And the service is running
+    And "Sojourner" is making a "GET" request on "/blogs/" with id "1"
+    And "JSESSIONID" is the session name
+    And "JSESSIONID" is the cookie name
+    And the session should exist on the api
+    And the "integer" value "12345" is entered in the session field "ids"
+    And the "string" value "oath|qwerty" is entered in the session field "oauth"
+    When the request with a cookie is sent
+    Then an error should be returned
+
+
+  @WEOS-1472-focus
+  Scenario: The Session is set on an endpoint using the security tag
+
+  The cookie can be added to the specific endpoint
+
+    And the specification is
+     """
+     openapi: 3.0.3
+     info:
+       title: Blog Aggregator Rest API
+       version: 0.1.0
+       description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
+     components:
+       securitySchemes:
+         CookieAuth:
+           type: apiKey
+           in: cookie
+           name: JSESSIONID
+       schemas:
+         Blog:
+           type: object
+           properties:
+             id:
+               type: string
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - id
+     paths:
+       /blog:
+         post:
+           operationId: Add Blog
+           requestBody:
+             description: Blog info that is submitted
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/x-www-form-urlencoded:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/xml:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             201:
+               description: Add Blog to Aggregator
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             400:
+               description: Invalid blog submitted
+       /blogs/{id}:
+         get:
+           security:
+             - CookieAuth []
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: query
+               name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           x-middleware:
+            - Handler
+           x-session:
+             properties:
+               oauth:
+                 type: string
+               ids:
+                 type: integer
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+     """
+    And blogs in the api
+      | id    | weos_id                     | sequence_no | title        | description    |
+      | 1     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 1       | Some Blog      |
+      | 2     | 24KjDkwfmp8PCslCQ6Detx6yr1N | 1           | Blog 2       | Some Blog 2    |
+    And the service is running
+    And "Sojourner" is making a "GET" request on "/blogs/" with id "1"
+    And "JSESSIONID" is the session name
+    And "JSESSIONID" is the cookie name
+    And the session should exist on the api
+    And the "integer" value "12345" is entered in the session field "ids"
+    And the "string" value "oath|qwerty" is entered in the session field "oauth"
+    When the request with a cookie is sent
+    Then a "200" response should be returned
+    And the context should contain x-session data
+
+
+  @WEOS-1472-focus
+  Scenario: The Session is declared in components but it is disabled on an endpoint
+
+  The session may be defined in components but turned off per endpoint by using blank security array
+
+    And the specification is
+     """
+     openapi: 3.0.3
+     info:
+       title: Blog Aggregator Rest API
+       version: 0.1.0
+       description: REST API for interacting with the Blog Aggregator
+     servers:
+      - url: https://prod1.weos.sh/blog/dev
+        description: WeOS Dev
+      - url: https://prod1.weos.sh/blog/v1
+     x-weos-config:
+      logger:
+        level: warn
+        report-caller: true
+        formatter: json
+      database:
+        database: "%s"
+        driver: "%s"
+        host: "%s"
+        password: "%s"
+        username: "%s"
+        port: %d
+      event-source:
+        - title: default
+          driver: service
+          endpoint: https://prod1.weos.sh/events/v1
+        - title: event
+          driver: sqlite3
+          database: e2e.db
+      databases:
+        - title: default
+          driver: sqlite3
+          database: e2e.db
+      rest:
+        middleware:
+          - RequestID
+          - Recover
+          - ZapLogger
+     components:
+       securitySchemes:
+         CookieAuth:
+           type: apiKey
+           in: cookie
+           name: JSESSIONID
+       schemas:
+         Blog:
+           type: object
+           properties:
+             id:
+               type: string
+             title:
+               type: string
+               description: blog title
+             description:
+               type: string
+           required:
+             - title
+           x-identifier:
+             - id
+     security:
+       - CookieAuth []
+     paths:
+       /blog:
+         post:
+         security: []
+           operationId: Add Blog
+           requestBody:
+             description: Blog info that is submitted
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/x-www-form-urlencoded:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/xml:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             201:
+               description: Add Blog to Aggregator
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             400:
+               description: Invalid blog submitted
+       /blogs/{id}:
+         get:
+           security: []
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: query
+               name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+     """
+    And the service is running
+    Given "Sojourner" is on the "Blog" create screen
+    And "Sojourner" enters "3" in the "id" field
+    And "Sojourner" enters "Some Blog" in the "title" field
+    And "Sojourner" enters "Some Description" in the "description" field
+    When the "Blog" is submitted
+    Then the "Blog" is created
+      | id    | title          | description                       |
+      | 3     | Some Blog      | Some Description                  |
+    And the "Blog" should have an id
+    And the "ETag" header should be "<Generated ID>.1"
+
