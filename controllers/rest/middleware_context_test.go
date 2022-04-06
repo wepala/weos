@@ -591,9 +591,9 @@ func TestContext(t *testing.T) {
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
-	t.Run("add session data to context", func(t *testing.T) {
+	t.Run("add session data to context when security is declared global", func(t *testing.T) {
 		//set up so the api can have what is needed
-		aapi, err := rest.New("./fixtures/blog-security.yaml")
+		aapi, err := rest.New("./fixtures/session.yaml")
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -651,6 +651,126 @@ func TestContext(t *testing.T) {
 		}
 		os.Remove("test.db")
 	})
+	t.Run("add session data to context when security is declared on a path", func(t *testing.T) {
+		//set up so the api can have what is needed
+		aapi, err := rest.New("./fixtures/blog-security.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		_, gormDB, err := aapi.SQLConnectionFromConfig(aapi.Config.Database)
+		if err != nil {
+			t.Fatalf("unexpected error opening db connection")
+		}
+		defaultProjection, err := projections.NewProjection(context1.Background(), gormDB, e.Logger)
+		if err != nil {
+			t.Fatalf("unexpected error instantiating new projection")
+		}
+		aapi.SetEchoInstance(e)
+		aapi.RegisterProjection("Default", defaultProjection)
+		_, err = rest.Security(context1.Background(), aapi, aapi.Swagger)
+		if err != nil {
+			t.Fatalf("unexpected error setting up the intialization of session")
+		}
+		path := aapi.Swagger.Paths.Find("/blogs")
+		mw := rest.Context(aapi, nil, nil, nil, entityFactory, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			value := cc.Value("active")
+			if value == nil {
+				t.Fatalf("expected the active to have a value")
+			}
+			if value.(bool) != true {
+				t.Fatalf("expected the operation active to be true")
+			}
+			value = cc.Value("oauth")
+			if value == nil {
+				t.Fatalf("expected the oauth to have a value")
+			}
+			if value.(string) != "oath|dhhbsgy" {
+				t.Fatalf("expected the operation id to be oath|dhhbsgy")
+			}
+			return nil
+		})
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		sessionStore := aapi.GetSessionStore()
+		session, err := sessionStore.Get(req, "JSESSIONID")
+		if err != nil {
+			t.Fatalf("unexpected error getting session")
+		}
+		session.Values["active"] = true
+		session.Values["oauth"] = "oath|dhhbsgy"
+		sessionStore.Save(req, resp, session)
+		c := &http.Cookie{Name: "JSESSIONID", Value: session.ID}
+		req.AddCookie(c)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("unexpected error, expected status code to be %d got %d", http.StatusOK, resp.Code)
+		}
+		os.Remove("test.db")
+	})
+	t.Run("when security is declared global and security is off a path no error is thrown", func(t *testing.T) {
+		//set up so the api can have what is needed
+		aapi, err := rest.New("./fixtures/session.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		path := aapi.Swagger.Paths.Find("/health")
+		mw := rest.Context(aapi, nil, nil, nil, entityFactory, path, path.Get)
+		handler := rest.HealthCheck(aapi, nil, nil, nil, nil)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		e.GET("/health", handler, mw)
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("unexpected error, expected status code to be %d got %d", http.StatusOK, resp.Code)
+		}
+		os.Remove("test.db")
+	})
+	t.Run("when security is declared global and x-session wasnt specify a warning is thrown", func(t *testing.T) {
+		//set up so the api can have what is needed
+		aapi, err := rest.New("./fixtures/session.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		ec := aapi.EchoInstance()
+		buf := bytes.Buffer{}
+		ec.Logger.SetOutput(&buf)
+		ec.Logger.SetLevel(2)
+		path := aapi.Swagger.Paths.Find("/blogs")
+		mw := rest.Context(aapi, nil, nil, nil, entityFactory, path, path.Post)
+		handler := mw(func(ctxt echo.Context) error {
+			cc := ctxt.Request().Context()
+			if cc.Value(context.PAYLOAD) == nil {
+				t.Fatalf("expected a payload in context")
+			}
+			return nil
+		})
+		payload := &struct {
+			Title string
+		}{
+			Title: "Lorem Ipsum",
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("unexpected error marshaling payload '%s'", err)
+		}
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", bytes.NewBuffer(data))
+		req.Header.Set("Content-Type", "application/json")
+		ec.POST("/blogs", handler)
+		ec.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("unexpected error, expected status code to be %d got %d", http.StatusOK, resp.Code)
+		}
+		if !strings.Contains(buf.String(), "no x-session extension was found") {
+			t.Errorf("expected a warning: no x-session extension was found got %s", buf.String())
+		}
+		os.Remove("test.db")
+	})
+
 }
 
 type Transaction struct {
