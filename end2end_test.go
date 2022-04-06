@@ -1563,7 +1563,7 @@ func theSwaggerUiShouldBeShown() error {
 }
 
 func aWarningShouldBeShown() error {
-	if !strings.Contains(buf.String(), "invalid open id connect url:") {
+	if !strings.Contains(buf.String(), "invalid open id connect url:") && !strings.Contains(buf.String(), "no x-session extension was found") {
 		return fmt.Errorf("expected an error to be log got '%s'", buf.String())
 	}
 	return nil
@@ -2036,11 +2036,6 @@ func theRequestWithACookieIsSent() error {
 	cookie = &http.Cookie{Name: cookieName, Value: session.ID}
 	sessionReq.AddCookie(cookie)
 	e.ServeHTTP(rec, sessionReq)
-
-	resultd := rec.Result()
-
-	if resultd == nil {
-	}
 
 	return nil
 }

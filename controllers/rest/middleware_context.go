@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gorilla/sessions"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"io/ioutil"
 	"math"
 	"net/http"
@@ -13,9 +15,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-
-	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -36,79 +35,128 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			if accountID != "" {
 				cc = context.WithValue(cc, weosContext.ACCOUNT_ID, accountID)
 			}
-			//use x-session to get the properties needed for the context
-			if tsessionParams, ok := operation.ExtensionProps.Extensions[SessionExtension]; ok {
-				sessionvalues := map[string]interface{}{}
-				var sessionParams map[string]interface{}
-				err = json.Unmarshal(tsessionParams.(json.RawMessage), &sessionParams)
-				if err != nil {
-					api.EchoInstance().Logger.Errorf("unexpected error unmarshalling x-session")
-					return NewControllerError("unexpected error unmarshalling x-session", err, http.StatusBadRequest)
-				}
-				//get cookies from the request
-				cookies := c.Cookies()
-				if len(cookies) == 0 {
-					api.EchoInstance().Logger.Errorf("unexpected error no cookies were found")
-					return NewControllerError("unexpected error no cookies were found", nil, http.StatusBadRequest)
-				}
-				//get session from api
-				sessionStore := api.GetSessionStore()
-				if sessionStore == nil {
-					api.EchoInstance().Logger.Errorf("unexpected error no session store was found on api")
-					return NewControllerError("unexpected error no session store was found on api", nil, http.StatusInternalServerError)
-				}
-				var session *sessions.Session
-				for _, cookie := range cookies {
-					//get session by name
-					sess, err := sessionStore.Get(c.Request(), cookie.Name)
-					if err != nil {
-						api.EchoInstance().Logger.Errorf("unexpected error %s", err)
-						return NewControllerError(fmt.Sprintf("unexpected error %s", err), err, http.StatusBadRequest)
-					}
-					//check if session id is the same as the id in the cookie
-					if sess != nil && sess.ID == cookie.Value {
-						session = sess
+			securityOn := false
+			if api.Swagger != nil {
+				//check if the security is set globally
+				for _, security := range api.Swagger.Security {
+					if securityOn {
 						break
 					}
-				}
-				if session == nil {
-					api.EchoInstance().Logger.Errorf("unexpected error no session found with cookie name")
-					return NewControllerError("unexpected error no session found with cookie name", nil, http.StatusBadRequest)
-				}
-				for key, value := range sessionParams["properties"].(map[string]interface{}) {
-					if session.Values[key] == nil {
-						msg := "unexpected error, expected to find " + key + " got nil"
-						api.EchoInstance().Logger.Errorf(msg)
-						return NewControllerError(msg, nil, http.StatusNotFound)
-					}
-					if value.(map[string]interface{})["type"] == nil {
-						api.EchoInstance().Logger.Errorf("unexpected error, expect type to be specified")
-						return NewControllerError("unexpected error, expect type to be specified", nil, http.StatusBadRequest)
-					}
-					format := ""
-					contextVal := ""
-					if value.(map[string]interface{})["format"] != nil {
-						format = value.(map[string]interface{})["format"].(string)
-					}
-					switch session.Values[key].(type) {
-					case int:
-						contextVal = strconv.Itoa(session.Values[key].(int))
-					case float64:
-						contextVal = strconv.FormatFloat(session.Values[key].(float64), 'E', -1, 64)
-					case bool:
-						contextVal = strconv.FormatBool(session.Values[key].(bool))
-					default:
-						contextVal, ok = session.Values[key].(string)
-						if !ok {
-							api.EchoInstance().Logger.Warnf("unexpect error: %s type is not supported for session value %s", reflect.TypeOf(session.Values[key]).String(), key)
+					for key, _ := range security {
+						if api.Swagger.Components.SecuritySchemes != nil && api.Swagger.Components.SecuritySchemes[key] != nil {
+							//checks if the security scheme in is cookie
+							if api.Swagger.Components.SecuritySchemes[key].Value.In == "cookie" {
+								securityOn = true
+								break
+							}
+
 						}
 					}
-					sessionvalues[key], err = ConvertStringToType(value.(map[string]interface{})["type"].(string), format, contextVal)
-					if err != nil {
-						sessionvalues[key] = session.Values[key]
+				}
+			}
+			if securityOn {
+				if operation.Security != nil && len(*operation.Security) == 0 {
+					securityOn = false
+				}
+			} else {
+				if operation.Security != nil {
+					//check if security is on the path
+					for _, security := range *operation.Security {
+						if securityOn {
+							break
+						}
+						for key, _ := range security {
+							if api.Swagger.Components.SecuritySchemes != nil && api.Swagger.Components.SecuritySchemes[key] != nil {
+								//checks if the security scheme in is cookie
+								if api.Swagger.Components.SecuritySchemes[key].Value.In == "cookie" {
+									securityOn = true
+									break
+								}
+
+							}
+						}
 					}
 				}
-				cc, err = AddToContext(c, cc, sessionvalues, entityFactory)
+
+			}
+
+			if securityOn {
+				//use x-session to get the properties needed for the context
+				if tsessionParams, ok := operation.ExtensionProps.Extensions[SessionExtension]; ok {
+					sessionvalues := map[string]interface{}{}
+					var sessionParams map[string]interface{}
+					err = json.Unmarshal(tsessionParams.(json.RawMessage), &sessionParams)
+					if err != nil {
+						api.EchoInstance().Logger.Errorf("unexpected error unmarshalling x-session")
+						return NewControllerError("unexpected error unmarshalling x-session", err, http.StatusBadRequest)
+					}
+					//get cookies from the request
+					cookies := c.Cookies()
+					if len(cookies) == 0 {
+						api.EchoInstance().Logger.Errorf("unexpected error no cookies were found")
+						return NewControllerError("unexpected error no cookies were found", nil, http.StatusBadRequest)
+					}
+					//get session from api
+					sessionStore := api.GetSessionStore()
+					if sessionStore == nil {
+						api.EchoInstance().Logger.Errorf("unexpected error no session store was found on api")
+						return NewControllerError("unexpected error no session store was found on api", nil, http.StatusInternalServerError)
+					}
+					var session *sessions.Session
+					for _, cookie := range cookies {
+						//get session by name
+						sess, err := sessionStore.Get(c.Request(), cookie.Name)
+						if err != nil {
+							api.EchoInstance().Logger.Errorf("unexpected error %s", err)
+							return NewControllerError(fmt.Sprintf("unexpected error %s", err), err, http.StatusBadRequest)
+						}
+						//check if session id is the same as the id in the cookie
+						if sess != nil && sess.ID == cookie.Value {
+							session = sess
+							break
+						}
+					}
+					if session == nil {
+						api.EchoInstance().Logger.Errorf("unexpected error no session found with cookie name")
+						return NewControllerError("unexpected error no session found with cookie name", nil, http.StatusBadRequest)
+					}
+					for key, value := range sessionParams["properties"].(map[string]interface{}) {
+						if session.Values[key] == nil {
+							msg := "unexpected error, expected to find " + key + " got nil"
+							api.EchoInstance().Logger.Errorf(msg)
+							return NewControllerError(msg, nil, http.StatusNotFound)
+						}
+						if value.(map[string]interface{})["type"] == nil {
+							api.EchoInstance().Logger.Errorf("unexpected error, expect type to be specified")
+							return NewControllerError("unexpected error, expect type to be specified", nil, http.StatusBadRequest)
+						}
+						format := ""
+						contextVal := ""
+						if value.(map[string]interface{})["format"] != nil {
+							format = value.(map[string]interface{})["format"].(string)
+						}
+						switch session.Values[key].(type) {
+						case int:
+							contextVal = strconv.Itoa(session.Values[key].(int))
+						case float64:
+							contextVal = strconv.FormatFloat(session.Values[key].(float64), 'E', -1, 64)
+						case bool:
+							contextVal = strconv.FormatBool(session.Values[key].(bool))
+						default:
+							contextVal, ok = session.Values[key].(string)
+							if !ok {
+								api.EchoInstance().Logger.Warnf("unexpect error: %s type is not supported for session value %s", reflect.TypeOf(session.Values[key]).String(), key)
+							}
+						}
+						sessionvalues[key], err = ConvertStringToType(value.(map[string]interface{})["type"].(string), format, contextVal)
+						if err != nil {
+							sessionvalues[key] = session.Values[key]
+						}
+					}
+					cc, err = AddToContext(c, cc, sessionvalues, entityFactory)
+				} else {
+					api.EchoInstance().Logger.Warn("no x-session extension was found")
+				}
 			}
 			//use the path information to get the parameter values
 			contextValues, err := parseParams(c, path.Parameters, entityFactory)
