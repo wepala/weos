@@ -19,17 +19,7 @@ func TestGlobalMiddlewareInitializer(t *testing.T) {
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-
-	_, gormDB, err := api.SQLConnectionFromConfig(api.Config.Database)
-	if err != nil {
-		t.Fatalf("unexpected error opening db connection")
-	}
-	defaultProjection, err := projections.NewProjection(baseCtxt, gormDB, api.EchoInstance().Logger)
-	if err != nil {
-		t.Fatalf("unexpected error instantiating new projection")
-	}
-	api.RegisterProjection("Default", defaultProjection)
-
+	_, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
 	middlewareCalled := false
 	api.RegisterMiddleware("OpenIDMiddleware", func(api *rest.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {

@@ -3,7 +3,6 @@ package rest
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/gorilla/sessions"

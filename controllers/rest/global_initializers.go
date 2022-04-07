@@ -10,9 +10,9 @@ import (
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
-	"time"
 	"gorm.io/gorm"
 	"reflect"
+	"time"
 )
 
 //Security adds authorization middleware to the initialize context
@@ -40,11 +40,10 @@ func Security(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (co
 	//checking for security scheme for session, if found then instantiate a session and add to api
 	for _, security := range swagger.Components.SecuritySchemes {
 		if security.Value.In == "cookie" && security.Value.Name != "" {
-			defaultProjection, err := api.GetProjection("Default")
+			db, err := api.GetGormDBConnection("Default")
 			if err != nil {
-				return ctxt, fmt.Errorf("unexpected error getting Default projection")
+				return ctxt, fmt.Errorf("unexpected error getting Default gorm connection")
 			}
-			db := defaultProjection.(*projections.GORMDB).DB()
 			// initialize and setup cleanup
 			store := gormstore.New(db, []byte(security.Value.Name))
 			// db cleanup every hour
