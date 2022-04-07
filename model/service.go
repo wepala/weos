@@ -16,22 +16,24 @@ import (
 )
 
 type ServiceConfig struct {
-	ModuleID      string     `json:"moduleId"`
-	Title         string     `json:"title"`
-	AccountID     string     `json:"accountId"`
-	ApplicationID string     `json:"applicationId"`
-	AccountName   string     `json:"accountName"`
-	Database      *DBConfig  `json:"database"`
-	Log           *LogConfig `json:"log"`
-	BaseURL       string     `json:"baseURL"`
-	LoginURL      string     `json:"loginURL"`
-	GraphQLURL    string     `json:"graphQLURL"`
-	SessionKey    string     `json:"sessionKey"`
-	Secret        string     `json:"secret"`
-	AccountURL    string     `json:"accountURL"`
+	ModuleID      string      `json:"moduleId"`
+	Title         string      `json:"title"`
+	AccountID     string      `json:"accountId"`
+	ApplicationID string      `json:"applicationId"`
+	AccountName   string      `json:"accountName"`
+	Database      *DBConfig   `json:"database"`
+	Databases     []*DBConfig `json:"databases"`
+	Log           *LogConfig  `json:"log"`
+	BaseURL       string      `json:"baseURL"`
+	LoginURL      string      `json:"loginURL"`
+	GraphQLURL    string      `json:"graphQLURL"`
+	SessionKey    string      `json:"sessionKey"`
+	Secret        string      `json:"secret"`
+	AccountURL    string      `json:"accountURL"`
 }
 
 type DBConfig struct {
+	Name     string `json:"name"`
 	Host     string `json:"host"`
 	User     string `json:"username"`
 	Password string `json:"password"`
