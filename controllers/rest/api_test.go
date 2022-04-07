@@ -790,3 +790,7 @@ func TestRESTAPI_Integration_AutomaticallyUpdateDateTime(t *testing.T) {
 	})
 
 }
+
+func TestRESTAPI_RegisterGORMDB(t *testing.T) {
+
+}

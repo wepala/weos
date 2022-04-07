@@ -58,6 +58,8 @@ type RESTAPI struct {
 	postPathInitializers           []PathInitializer
 	registeredPostPathInitializers map[reflect.Value]int
 	entityFactories                map[string]model.EntityFactory
+	dbConnections                  map[string]*sql.DB
+	gormConnections                map[string]*gorm.DB
 }
 
 type schema struct {
@@ -204,6 +206,22 @@ func (p *RESTAPI) RegisterEntityFactory(name string, factory model.EntityFactory
 	p.entityFactories[name] = factory
 }
 
+//RegisterDBConnection save db connection
+func (p *RESTAPI) RegisterDBConnection(name string, connection *sql.DB) {
+	if p.dbConnections == nil {
+		p.dbConnections = make(map[string]*sql.DB)
+	}
+	p.dbConnections[name] = connection
+}
+
+//RegisterGORMDB save gorm connection
+func (p *RESTAPI) RegisterGORMDB(name string, connection *gorm.DB) {
+	if p.gormConnections == nil {
+		p.gormConnections = make(map[string]*gorm.DB)
+	}
+	p.gormConnections[name] = connection
+}
+
 //GetMiddleware get middleware by name
 func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	if tmiddleware, ok := p.middlewares[name]; ok {
@@ -295,6 +313,22 @@ func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
 	return p.entityFactories
 }
 
+//GetDBConnection get db connection by name
+func (p *RESTAPI) GetDBConnection(name string) (*sql.DB, error) {
+	if tconnection, ok := p.dbConnections[name]; ok {
+		return tconnection, nil
+	}
+	return nil, fmt.Errorf("database connection '%s' not found", name)
+}
+
+//GetGormDBConnection get gorm connection by name
+func (p *RESTAPI) GetGormDBConnection(name string) (*gorm.DB, error) {
+	if tconnection, ok := p.gormConnections[name]; ok {
+		return tconnection, nil
+	}
+	return nil, fmt.Errorf("gorm database connection '%s' not found", name)
+}
+
 //GetSessionStore get gorm session store
 func (p *RESTAPI) GetSessionStore() sessions.Store {
 	return p.sessionStore
@@ -353,6 +387,9 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("LogLevel", LogLevel)
 	p.RegisterMiddleware("ZapLogger", ZapLogger)
 	//register standard global initializers
+	p.RegisterGlobalInitializer(SQLDatabase)
+	p.RegisterGlobalInitializer(DefaultProjection)
+	p.RegisterGlobalInitializer(DefaultEventStore)
 	p.RegisterGlobalInitializer(Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
@@ -363,136 +400,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterOperationInitializer(RouteInitializer)
 	//register standard post path initializers
 	p.RegisterPostPathInitializer(CORsInitializer)
-
-	//these are the dynamic struct builders for the schemas in the OpenAPI
-	var schemas map[string]ds.Builder
-
-	if p.Config != nil && p.Config.Database != nil {
-		//setup default projection
-		var gormDB *gorm.DB
-		var err error
-
-		p.DB, gormDB, err = p.SQLConnectionFromConfig(p.Config.Database)
-		if err != nil {
-			return err
-		}
-
-		//setup default projection if gormDB is configured
-		if gormDB != nil {
-			//check if default projection was already set
-			defaultProjection, _ := p.GetProjection("Default")
-			if defaultProjection == nil {
-				defaultProjection, err = projections.NewProjection(ctxt, gormDB, p.EchoInstance().Logger)
-				if err != nil {
-					return err
-				}
-				p.RegisterProjection("Default", defaultProjection)
-			}
-
-			//This will check the enum types on run and output an error
-			for _, scheme := range p.Swagger.Components.Schemas {
-				for pName, prop := range scheme.Value.Properties {
-					if prop.Value.Enum != nil {
-						t := prop.Value.Type
-						for _, v := range prop.Value.Enum {
-							switch t {
-							case "string":
-								if reflect.TypeOf(v).String() != "string" {
-									return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
-								}
-							case "integer":
-								if reflect.TypeOf(v).String() != "float64" {
-									if v.(string) == "null" {
-										continue
-									} else {
-										return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
-									}
-								}
-							case "number":
-								if reflect.TypeOf(v).String() != "float64" {
-									if v.(string) == "null" {
-										continue
-									} else {
-										return fmt.Errorf("Expected field: %s, of type %s, to have enum options of the same type", pName, t)
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-
-			//this ranges over the paths and pulls out the operationIDs into an array
-			opIDs := []string{}
-			idFound := false
-			for _, pathData := range p.Swagger.Paths {
-				for _, op := range pathData.Operations() {
-					if op.OperationID != "" {
-						opIDs = append(opIDs, op.OperationID)
-					}
-				}
-			}
-
-			//this ranges over the properties, pulls the x-update and them compares it against the valid operation ids in the yaml
-			for _, scheme := range p.Swagger.Components.Schemas {
-				for _, prop := range scheme.Value.Properties {
-					xUpdate := []string{}
-					xUpdateBytes, _ := json.Marshal(prop.Value.Extensions["x-update"])
-					json.Unmarshal(xUpdateBytes, &xUpdate)
-					for _, r := range xUpdate {
-						idFound = false
-						for _, id := range opIDs {
-							if r == id {
-								idFound = true
-							}
-						}
-						if !idFound {
-							return fmt.Errorf("provided x-update operation id: %s is invalid", r)
-						}
-					}
-				}
-			}
-
-			//get the database schema
-			schemas = CreateSchema(ctxt, p.EchoInstance(), p.Swagger)
-			p.Schemas = schemas
-
-			//get fields to be removed during migration step
-			deletedFields := map[string][]string{}
-			for name, sch := range p.Swagger.Components.Schemas {
-				dfs, _ := json.Marshal(sch.Value.Extensions[RemoveExtension])
-				var df []string
-				json.Unmarshal(dfs, &df)
-				deletedFields[name] = df
-			}
-
-			err = defaultProjection.Migrate(ctxt, schemas, deletedFields)
-			if err != nil {
-				p.EchoInstance().Logger.Error(err)
-				return err
-			}
-		}
-	}
-	//setup default event store if there isn't already one
-	if _, err := p.GetEventStore("Default"); err != nil {
-		//if there is a projection then add the event handler as a subscriber to the event store
-		if defaultProjection, err := p.GetProjection("Default"); err == nil {
-			//only setup the gorm event repository if it's a gorm projection
-			if gormProjection, ok := defaultProjection.(model.GormProjection); ok {
-				defaultEventStore, err := model.NewBasicEventRepository(gormProjection.DB(), p.EchoInstance().Logger, false, "", "")
-				if err != nil {
-					return err
-				}
-				defaultEventStore.AddSubscriber(defaultProjection.GetEventHandler())
-				err = defaultEventStore.Migrate(ctxt)
-				if err != nil {
-					p.EchoInstance().Logger.Error(err)
-					return err
-				}
-				p.RegisterEventStore("Default", defaultEventStore)
-			}
-		}
-	}
 
 	//setup command dispatcher
 	if _, err := p.GetCommandDispatcher("Default"); err != nil {
@@ -570,7 +477,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 			operationData := pathData.GetOperation(strings.ToUpper(method))
 			if operationData != nil {
 				methodsFound = append(methodsFound, strings.ToUpper(method))
-				operationContext := context.WithValue(globalContext, weoscontext.SCHEMA_BUILDERS, schemas) //TODO fix this because this feels hacky
+				operationContext := globalContext
 				for _, initializer := range p.GetOperationInitializers() {
 					operationContext, err = initializer(operationContext, p, path, method, p.Swagger, pathData, operationData)
 					if err != nil {
