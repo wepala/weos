@@ -10,10 +10,9 @@ import (
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
-	"os"
 	"gorm.io/gorm"
+	"os"
 	"reflect"
-	"time"
 )
 
 //Security adds authorization middleware to the initialize context
