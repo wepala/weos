@@ -42,7 +42,7 @@ func ContentTypeResponseInitializer(ctxt context.Context, api *RESTAPI, path str
 
 //EntityFactoryInitializer setups the EntityFactory for a specific route
 func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
-	schemas := GetSchemaBuilders(ctxt)
+	schemas := api.Schemas
 	jsonSchema := operation.ExtensionProps.Extensions[SchemaExtension]
 	if jsonSchema != nil {
 		contentType := ""

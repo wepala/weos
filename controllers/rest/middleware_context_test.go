@@ -598,9 +598,13 @@ func TestContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		_, gormDB, err := aapi.SQLConnectionFromConfig(aapi.Config.Database)
+		_, err = rest.SQLDatabase(context1.TODO(), aapi, aapi.Swagger)
 		if err != nil {
-			t.Fatalf("unexpected error opening db connection")
+			t.Fatalf("unexpected error opening gorm db connection")
+		}
+		gormDB, err := aapi.GetGormDBConnection("Default")
+		if err != nil {
+			t.Fatalf("unexpected error getting gorm db connection")
 		}
 		defaultProjection, err := projections.NewProjection(context1.Background(), gormDB, e.Logger)
 		if err != nil {
@@ -660,9 +664,13 @@ func TestContext(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		_, gormDB, err := aapi.SQLConnectionFromConfig(aapi.Config.Database)
+		_, err = rest.SQLDatabase(context1.TODO(), aapi, aapi.Swagger)
 		if err != nil {
-			t.Fatalf("unexpected error opening db connection")
+			t.Fatalf("unexpected error opening gorm db connection")
+		}
+		gormDB, err := aapi.GetGormDBConnection("Default")
+		if err != nil {
+			t.Fatalf("unexpected error getting gorm db connection")
 		}
 		defaultProjection, err := projections.NewProjection(context1.Background(), gormDB, e.Logger)
 		if err != nil {
