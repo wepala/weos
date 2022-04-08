@@ -91,6 +91,7 @@ var sessionReq *http.Request
 var cookie *http.Cookie
 var cookieName string
 var session *sessions.Session
+var compareSession map[string]interface{}
 
 type FilterProperties struct {
 	Operator string
@@ -131,6 +132,7 @@ func InitializeSuite(ctx *godog.TestSuiteContext) {
 	token = ""
 	expectedContentType = ""
 	contentEntity = map[string]interface{}{}
+	compareSession = map[string]interface{}{}
 	addedItem = map[string]map[string]interface{}{}
 	result = api.ListApiResponse{}
 	blogfixtures = []interface{}{}
@@ -2016,12 +2018,12 @@ func isTheCookieName(name string) error {
 	return nil
 }
 
-func theContextShouldContainXsessionData() error {
+func theSessionShouldContainXsessionData() error {
 	sessionVals := session.Values
 
-	for key, value := range sessionVals {
-		ctxResult := contextWithValues.Value(key)
-		if ctxResult != value {
+	for key, value := range compareSession {
+		res := sessionVals[key]
+		if res != value {
 			return fmt.Errorf("expected the x-session variables to be in the context")
 		}
 	}
@@ -2066,8 +2068,17 @@ func theValueIsEnteredInTheSessionField(valueType, value, key string) error {
 		if errs != nil {
 			return errs
 		}
+
+		//Save this for future checks
+		compareSession[key], errs = strconv.Atoi(value)
+		if errs != nil {
+			return errs
+		}
 	case "string":
 		session.Values[key] = value
+
+		//Save this for future checks
+		compareSession[key] = value
 	}
 	return nil
 }
@@ -2188,7 +2199,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the folder "([^"]*)" exists$`, theFolderExists)
 	ctx.Step(`^"([^"]*)" is making a "([^"]*)" request on "([^"]*)" with id "([^"]*)"$`, isMakingARequestOnWithId)
 	ctx.Step(`^"([^"]*)" is the session name$`, isTheSessionName)
-	ctx.Step(`^the context should contain x-session data$`, theContextShouldContainXsessionData)
+	ctx.Step(`^the session should contain x-session data$`, theSessionShouldContainXsessionData)
 	ctx.Step(`^the request with a cookie is sent$`, theRequestWithACookieIsSent)
 	ctx.Step(`^the session should exist on the api$`, theSessionShouldExistOnTheApi)
 	ctx.Step(`^the "([^"]*)" value "([^"]*)" is entered in the session field "([^"]*)"$`, theValueIsEnteredInTheSessionField)

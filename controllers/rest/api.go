@@ -44,7 +44,7 @@ type RESTAPI struct {
 	PathConfigs                    map[string]*PathConfig
 	Schemas                        map[string]ds.Builder
 	Swagger                        *openapi3.Swagger
-	sessionStore                   sessions.Store
+	sessionStore                   *sessions.CookieStore
 	middlewares                    map[string]Middleware
 	controllers                    map[string]Controller
 	eventStores                    map[string]model.EventRepository
@@ -296,7 +296,7 @@ func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
 }
 
 //GetSessionStore get gorm session store
-func (p *RESTAPI) GetSessionStore() sessions.Store {
+func (p *RESTAPI) GetSessionStore() *sessions.CookieStore {
 	return p.sessionStore
 }
 

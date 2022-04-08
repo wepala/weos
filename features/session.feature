@@ -260,7 +260,7 @@ Feature: As a developer I should be able configure a session which can be used t
   @WEOS-1472
   Scenario: A request is made with a cookie that contains x-session details
 
-    The name specified in the yaml file for the cookie should be used to name the session. The x-session data should be added to the context as well
+    The name specified in the yaml file for the cookie should be used to name the session. The x-session fields should be on the session
 
     Given "Sojourner" is making a "GET" request on "/blogs/" with id "1"
     And "JSESSIONID" is the session name
@@ -270,7 +270,7 @@ Feature: As a developer I should be able configure a session which can be used t
     And the "string" value "oath|qwerty" is entered in the session field "oauth"
     When the request with a cookie is sent
     Then a "200" response should be returned
-    And the context should contain x-session data
+    And the session should contain x-session data
 
   @WEOS-1472
   Scenario: A request is made with a cookie that is empty (no x-session details)
@@ -436,7 +436,7 @@ Feature: As a developer I should be able configure a session which can be used t
     And the "string" value "oath|qwerty" is entered in the session field "oauth"
     When the request with a cookie is sent
     Then a "200" response should be returned
-    And the context should contain x-session data
+    And the session should contain x-session data
 
   @WEOS-1472
   Scenario: The Session is set globally but x-session is not provided on all paths
@@ -715,5 +715,5 @@ Feature: As a developer I should be able configure a session which can be used t
     And the "string" value "oath|qwerty" is entered in the session field "oauth"
     When the request with a cookie is sent
     Then a "200" response should be returned
-    And the context should contain x-session data
+    And the session should contain x-session data
 

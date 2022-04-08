@@ -3,11 +3,10 @@ package rest
 import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
-	gormstore "github.com/wepala/gormstore/v2"
+	"github.com/gorilla/sessions"
 	weosContext "github.com/wepala/weos/context"
-	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
-	"time"
+	"os"
 )
 
 //Security adds authorization middleware to the initialize context
@@ -35,18 +34,10 @@ func Security(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (co
 	//checking for security scheme for session, if found then instantiate a session and add to api
 	for _, security := range swagger.Components.SecuritySchemes {
 		if security.Value.In == "cookie" && security.Value.Name != "" {
-			defaultProjection, err := api.GetProjection("Default")
-			if err != nil {
-				return ctxt, fmt.Errorf("unexpected error getting Default projection")
-			}
-			db := defaultProjection.(*projections.GORMDB).DB()
-			// initialize and setup cleanup
-			store := gormstore.New(db, []byte(security.Value.Name))
-			// db cleanup every hour
-			// close quit channel to stop cleanup
-			quit := make(chan struct{})
-			go store.PeriodicCleanup(1*time.Hour, quit)
+			// initialize cookie store and set session name in env
+			store := sessions.NewCookieStore([]byte(security.Value.Name))
 			api.sessionStore = store
+			os.Setenv("session_name", security.Value.Name)
 		}
 	}
 	return ctxt, nil

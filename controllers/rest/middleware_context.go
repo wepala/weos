@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -103,57 +104,55 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 						return NewControllerError("unexpected error no session store was found on api", nil, http.StatusInternalServerError)
 					}
 					var session *sessions.Session
-					for _, cookie := range cookies {
-						//get session by name
-						sess, err := sessionStore.Get(c.Request(), cookie.Name)
-						if err != nil {
-							api.EchoInstance().Logger.Errorf("unexpected error %s", err)
-							return NewControllerError(fmt.Sprintf("unexpected error %s", err), err, http.StatusBadRequest)
-						}
-						//check if session id is the same as the id in the cookie
-						if sess != nil && sess.ID == cookie.Value {
-							session = sess
-							break
-						}
+					sess, err := sessionStore.Get(c.Request(), os.Getenv("session_name"))
+					//check if session id is the same as the id in the cookie
+					if err != nil {
+						api.EchoInstance().Logger.Errorf("unexpected error no session was found")
+						return NewControllerError("unexpected error no session was found", nil, http.StatusInternalServerError)
+					}
+					if sess != nil {
+						session = sess
 					}
 					if session == nil {
 						api.EchoInstance().Logger.Errorf("unexpected error no session found with cookie name")
 						return NewControllerError("unexpected error no session found with cookie name", nil, http.StatusBadRequest)
 					}
-					for key, value := range sessionParams["properties"].(map[string]interface{}) {
-						if session.Values[key] == nil {
-							msg := "unexpected error, expected to find " + key + " got nil"
-							api.EchoInstance().Logger.Errorf(msg)
-							return NewControllerError(msg, nil, http.StatusNotFound)
-						}
-						if value.(map[string]interface{})["type"] == nil {
-							api.EchoInstance().Logger.Errorf("unexpected error, expect type to be specified")
-							return NewControllerError("unexpected error, expect type to be specified", nil, http.StatusBadRequest)
-						}
-						format := ""
-						contextVal := ""
-						if value.(map[string]interface{})["format"] != nil {
-							format = value.(map[string]interface{})["format"].(string)
-						}
-						switch session.Values[key].(type) {
-						case int:
-							contextVal = strconv.Itoa(session.Values[key].(int))
-						case float64:
-							contextVal = strconv.FormatFloat(session.Values[key].(float64), 'E', -1, 64)
-						case bool:
-							contextVal = strconv.FormatBool(session.Values[key].(bool))
-						default:
-							contextVal, ok = session.Values[key].(string)
-							if !ok {
-								api.EchoInstance().Logger.Warnf("unexpect error: %s type is not supported for session value %s", reflect.TypeOf(session.Values[key]).String(), key)
+					if !session.IsNew {
+						for key, value := range sessionParams["properties"].(map[string]interface{}) {
+							if session.Values[key] == nil {
+								msg := "unexpected error, expected to find " + key + " got nil"
+								api.EchoInstance().Logger.Errorf(msg)
+								return NewControllerError(msg, nil, http.StatusNotFound)
+							}
+							if value.(map[string]interface{})["type"] == nil {
+								api.EchoInstance().Logger.Errorf("unexpected error, expect type to be specified")
+								return NewControllerError("unexpected error, expect type to be specified", nil, http.StatusBadRequest)
+							}
+							format := ""
+							contextVal := ""
+							if value.(map[string]interface{})["format"] != nil {
+								format = value.(map[string]interface{})["format"].(string)
+							}
+							switch session.Values[key].(type) {
+							case int:
+								contextVal = strconv.Itoa(session.Values[key].(int))
+							case float64:
+								contextVal = strconv.FormatFloat(session.Values[key].(float64), 'E', -1, 64)
+							case bool:
+								contextVal = strconv.FormatBool(session.Values[key].(bool))
+							default:
+								contextVal, ok = session.Values[key].(string)
+								if !ok {
+									api.EchoInstance().Logger.Warnf("unexpect error: %s type is not supported for session value %s", reflect.TypeOf(session.Values[key]).String(), key)
+								}
+							}
+							sessionvalues[key], err = ConvertStringToType(value.(map[string]interface{})["type"].(string), format, contextVal)
+							if err != nil {
+								sessionvalues[key] = session.Values[key]
 							}
 						}
-						sessionvalues[key], err = ConvertStringToType(value.(map[string]interface{})["type"].(string), format, contextVal)
-						if err != nil {
-							sessionvalues[key] = session.Values[key]
-						}
+						cc, err = AddToContext(c, cc, sessionvalues, entityFactory)
 					}
-					cc, err = AddToContext(c, cc, sessionvalues, entityFactory)
 				} else {
 					api.EchoInstance().Logger.Warn("no x-session extension was found")
 				}

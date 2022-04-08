@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/sessions"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"io/ioutil"
@@ -615,20 +616,22 @@ func TestContext(t *testing.T) {
 		mw := rest.Context(aapi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
-			cc := ctxt.Request().Context()
-			value := cc.Value("id")
-			if value == nil {
+			registry := sessions.GetRegistry(ctxt.Request())
+			if registry == nil {
 				t.Fatalf("expected the id to have a value")
 			}
-			if value.(int) != 1234 {
-				t.Fatalf("expected the operation id to be 123")
+			sess, err := registry.Get(aapi.GetSessionStore(), "JSESSIONID")
+			if err != nil {
+				return nil
 			}
-			value = cc.Value("oauth")
-			if value == nil {
-				t.Fatalf("expected the oauth to have a value")
+			if sess == nil {
+				t.Fatalf("expected the id to have a value")
 			}
-			if value.(string) != "oath|dhhbsgy" {
-				t.Fatalf("expected the operation id to be oath|dhhbsgy")
+			if sess.Values["id"] != 1234 {
+				t.Fatalf("expected the id to have the value 1234")
+			}
+			if sess.Values["oauth"] != "oath|dhhbsgy" {
+				t.Fatalf("expected the oauth to have the value oath|dhhbsgy")
 			}
 			return nil
 		})
@@ -642,7 +645,7 @@ func TestContext(t *testing.T) {
 		session.Values["id"] = int(1234)
 		session.Values["oauth"] = "oath|dhhbsgy"
 		sessionStore.Save(req, resp, session)
-		c := &http.Cookie{Name: "JSESSIONID", Value: session.ID}
+		c := &http.Cookie{Name: "JSESSIONID"}
 		req.AddCookie(c)
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
@@ -675,20 +678,22 @@ func TestContext(t *testing.T) {
 		mw := rest.Context(aapi, nil, nil, nil, entityFactory, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
-			cc := ctxt.Request().Context()
-			value := cc.Value("active")
-			if value == nil {
-				t.Fatalf("expected the active to have a value")
+			registry := sessions.GetRegistry(ctxt.Request())
+			if registry == nil {
+				t.Fatalf("expected the id to have a value")
 			}
-			if value.(bool) != true {
-				t.Fatalf("expected the operation active to be true")
+			sess, err := registry.Get(aapi.GetSessionStore(), "JSESSIONID")
+			if err != nil {
+				return nil
 			}
-			value = cc.Value("oauth")
-			if value == nil {
-				t.Fatalf("expected the oauth to have a value")
+			if sess == nil {
+				t.Fatalf("expected the id to have a value")
 			}
-			if value.(string) != "oath|dhhbsgy" {
-				t.Fatalf("expected the operation id to be oath|dhhbsgy")
+			if sess.Values["active"] != true {
+				t.Fatalf("expected the active status to be true")
+			}
+			if sess.Values["oauth"] != "oath|dhhbsgy" {
+				t.Fatalf("expected the oauth to have the value oath|dhhbsgy")
 			}
 			return nil
 		})
