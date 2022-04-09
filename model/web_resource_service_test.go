@@ -25,7 +25,7 @@ func TestWebResourceService_Create(t *testing.T) {
 		},
 	}
 
-	service := model.NewWebResourceService("https://weos.cloud", repository, commandDispatcher)
+	service := model.NewWebResourceService("https://weos.cloud", repository)
 
 	t.Run("create collection and item with no schema", func(t *testing.T) {
 		payload := `{

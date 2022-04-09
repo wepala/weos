@@ -23,6 +23,8 @@ type CommandMetadata struct {
 	ExecutionDate *time.Time
 	UserID        string
 	AccountID     string
+	ServerURL     string
+	Path          string
 }
 
 type DefaultCommandDispatcher struct {

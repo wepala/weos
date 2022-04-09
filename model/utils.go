@@ -60,6 +60,11 @@ func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawM
 	return bytes, err
 }
 
+//GetSchemaURL returns the url for the schema
+func GetSchemaURL(serverURL string, path string) string {
+	return serverURL + SCHEMA_SEGMENT + path
+}
+
 func SchemaFromPayload(payload []byte) *openapi3.Schema {
 	schema := &openapi3.Schema{
 		Properties: make(map[string]*openapi3.SchemaRef),

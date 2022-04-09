@@ -6,34 +6,34 @@ import (
 	"golang.org/x/net/context"
 )
 
-type WebEntity map[string]interface{}
+type WebResource map[string]interface{}
 
-func (e WebEntity) IsValid() bool {
+func (e WebResource) IsValid() bool {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (e WebEntity) AddError(err error) {
+func (e WebResource) AddError(err error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (e WebEntity) GetErrors() []error {
+func (e WebResource) GetErrors() []error {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (e WebEntity) GetID() string {
+func (e WebResource) GetID() string {
 	return e.ID()
 }
 
 //ID returns the id of the resource e.g. wern:blog:27HulTkipdvprPRVgIgca07UTGr
-func (e WebEntity) ID() string {
+func (e WebResource) ID() string {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (e WebEntity) Path() string {
+func (e WebResource) Path() string {
 	if path, ok := e["_path"]; ok {
 		if value, ok := path.(string); ok {
 			return value
@@ -42,7 +42,7 @@ func (e WebEntity) Path() string {
 	return ""
 }
 
-func (e WebEntity) URI() string {
+func (e WebResource) URI() string {
 	if url, ok := e["@id"]; ok {
 		if value, ok := url.(string); ok {
 			return value
@@ -51,7 +51,7 @@ func (e WebEntity) URI() string {
 	return ""
 }
 
-func (e WebEntity) URN() string {
+func (e WebResource) URN() string {
 	if url, ok := e["weos_id"]; ok {
 		if value, ok := url.(string); ok {
 			return value
@@ -60,7 +60,7 @@ func (e WebEntity) URN() string {
 	return ""
 }
 
-func (e WebEntity) Type() string {
+func (e WebResource) Type() string {
 	if url, ok := e["@type"]; ok {
 		if value, ok := url.(string); ok {
 			return value
@@ -69,7 +69,7 @@ func (e WebEntity) Type() string {
 	return ""
 }
 
-func (e WebEntity) Types() []string {
+func (e WebResource) Types() []string {
 	if url, ok := e["@type"]; ok {
 		if value, ok := url.([]string); ok {
 			return value
@@ -78,7 +78,7 @@ func (e WebEntity) Types() []string {
 	return []string{}
 }
 
-func (e WebEntity) Schema() *openapi3.Schema {
+func (e WebResource) Schema() *openapi3.Schema {
 	if url, ok := e["@schema"]; ok {
 		if value, ok := url.(*openapi3.Schema); ok {
 			return value
@@ -88,19 +88,19 @@ func (e WebEntity) Schema() *openapi3.Schema {
 	return nil
 }
 
-func (e WebEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) Entity {
+func (e WebResource) FromSchema(ctx context.Context, ref *openapi3.Schema) Entity {
 	return e
 }
 
-func (e WebEntity) FromJSON(ctx context.Context, path string, payload []byte, ref *openapi3.Schema) Entity {
+func (e WebResource) FromJSON(ctx context.Context, path string, payload []byte, ref *openapi3.Schema) Entity {
 	return e
 }
 
-func (e WebEntity) FromJSONLD(ctx context.Context, ref *openapi3.Schema) Entity {
+func (e WebResource) FromJSONLD(ctx context.Context, ref *openapi3.Schema) Entity {
 	return e
 }
 
-func (e WebEntity) Create(payload json.RawMessage) {
+func (e WebResource) Create(payload json.RawMessage) {
 	//TODO if there is no @id create one using id
 	//TODO if id is empty generate one using the schema rules
 
