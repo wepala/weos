@@ -7,6 +7,7 @@ require (
 	github.com/cucumber/godog v0.12.2
 	github.com/getkin/kin-openapi v0.15.0
 	github.com/google/uuid v1.3.0
+	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/gorilla/sessions v1.2.1
 	github.com/jinzhu/inflection v1.0.0
 	github.com/kr/text v0.2.0 // indirect

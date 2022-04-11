@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
+	"github.com/wepala/gormstore/v2"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"io/ioutil"
@@ -12,6 +14,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -102,26 +105,39 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 						api.EchoInstance().Logger.Errorf("unexpected error no session store was found on api")
 						return NewControllerError("unexpected error no session store was found on api", nil, http.StatusInternalServerError)
 					}
+					sessionName := os.Getenv("session_name")
+					//sessionId := ""
+					cookie, err := c.Request().Cookie(sessionName)
+					if err != nil {
+						return err
+					}
 					var session *sessions.Session
-					for _, cookie := range cookies {
-						//get session by name
-						sess, err := sessionStore.Get(c.Request(), cookie.Name)
-						if err != nil {
-							api.EchoInstance().Logger.Errorf("unexpected error %s", err)
-							return NewControllerError(fmt.Sprintf("unexpected error %s", err), err, http.StatusBadRequest)
-						}
-						//check if session id is the same as the id in the cookie
-						if sess != nil && sess.ID == cookie.Value {
-							session = sess
-							break
-						}
+					gormDB, err := api.GetGormDBConnection("Default")
+					if err != nil {
+						return err
+					}
+					data := map[interface{}]interface{}{}
+					var sessions map[string]interface{}
+					result := gormDB.Table("sessions").Find(&sessions, "id = ?", cookie.Value)
+					if result.Error != nil {
+						return result.Error
 					}
 					if session == nil {
-						api.EchoInstance().Logger.Errorf("unexpected error no session found with cookie name")
-						return NewControllerError("unexpected error no session found with cookie name", nil, http.StatusBadRequest)
+						api.EchoInstance().Logger.Errorf("unexpected error no session was found with cookie value")
+						return NewControllerError("unexpected error no session data was found with cookie value", nil, http.StatusBadRequest)
+
+					}
+					if sessions["data"] == nil {
+						api.EchoInstance().Logger.Errorf("unexpected error no session data was found")
+						return NewControllerError("unexpected error no session data was found", nil, http.StatusBadRequest)
+					}
+					//this assumes that sessionstore on the api is a gormstore by default
+					err = securecookie.DecodeMulti(sessionName, sessions["data"].(string), &data, sessionStore.(*gormstore.Store).Codecs...)
+					if err != nil {
+						return err
 					}
 					for key, value := range sessionParams["properties"].(map[string]interface{}) {
-						if session.Values[key] == nil {
+						if data[key] == nil {
 							msg := "unexpected error, expected to find " + key + " got nil"
 							api.EchoInstance().Logger.Errorf(msg)
 							return NewControllerError(msg, nil, http.StatusNotFound)

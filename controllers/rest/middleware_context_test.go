@@ -657,6 +657,7 @@ func TestContext(t *testing.T) {
 	})
 	t.Run("add session data to context when security is declared on a path", func(t *testing.T) {
 		//set up so the api can have what is needed
+		sessionName := "JSESSIONID"
 		aapi, err := rest.New("./fixtures/blog-security.yaml")
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
@@ -703,19 +704,37 @@ func TestContext(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
 		sessionStore := aapi.GetSessionStore()
-		session, err := sessionStore.Get(req, "JSESSIONID")
+		session, err := sessionStore.Get(req, sessionName)
 		if err != nil {
 			t.Fatalf("unexpected error getting session")
 		}
 		session.Values["active"] = true
 		session.Values["oauth"] = "oath|dhhbsgy"
 		sessionStore.Save(req, resp, session)
-		c := &http.Cookie{Name: "JSESSIONID", Value: session.ID}
+		c := &http.Cookie{Name: sessionName, Value: session.ID}
 		req.AddCookie(c)
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 		if resp.Code != http.StatusOK {
 			t.Errorf("unexpected error, expected status code to be %d got %d", http.StatusOK, resp.Code)
+		}
+		//testing the GetSession
+		session1, err := aapi.GetSession(session.ID, sessionName)
+		if err != nil {
+			t.Errorf("unexpected error getting back session: %s", err)
+		}
+		session1.Values["author"] = "fun man"
+		session1.Values["owner"] = "funTick man"
+		sessionStore.Save(&http.Request{}, &httptest.ResponseRecorder{}, session1)
+		session2, err := aapi.GetSession(session.ID, sessionName)
+		if err != nil {
+			t.Errorf("unexpected error getting back session: %s", err)
+		}
+		if session2.Values["author"] == nil || session2.Values["author"].(string) != "fun man" {
+			t.Errorf("unexpected error session value doesnt contain author value fun man")
+		}
+		if session2.Values["owner"] == nil || session2.Values["owner"].(string) != "funTick man" {
+			t.Errorf("unexpected error session value doesnt contain owner value funTick man")
 		}
 		os.Remove("test.db")
 	})

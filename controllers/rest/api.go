@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
+	"github.com/wepala/gormstore/v2"
 	"net/http"
 	"os"
 	"reflect"
@@ -331,6 +333,39 @@ func (p *RESTAPI) GetGormDBConnection(name string) (*gorm.DB, error) {
 //GetSessionStore get gorm session store
 func (p *RESTAPI) GetSessionStore() sessions.Store {
 	return p.sessionStore
+}
+
+//GetSession get sesssion from database
+func (p *RESTAPI) GetSession(sessionID, sessionName string) (*sessions.Session, error) {
+	gormDB := p.gormConnections["Default"]
+	if gormDB == nil {
+		p.e.Logger.Errorf("unexpected error: default gormDB is not initialized")
+		return nil, fmt.Errorf("unexpected error: default gormDB is not initialized")
+	}
+	var sessionInfo map[string]interface{}
+	var data map[interface{}]interface{}
+	result := gormDB.Table("sessions").Find(&sessionInfo, "id = ?", sessionID)
+	if result.Error != nil {
+		p.e.Logger.Error(result.Error)
+		return nil, result.Error
+	}
+	if sessionInfo == nil {
+		p.e.Logger.Errorf("unexpected error no session was found with cookie value")
+		return nil, NewControllerError("unexpected error no session data was found with cookie value", nil, http.StatusBadRequest)
+	}
+	if sessionInfo["data"] != nil {
+		//this assumes that sessionstore on the api is a gormstore by default
+		err := securecookie.DecodeMulti(sessionName, sessionInfo["data"].(string), &data, p.sessionStore.(*gormstore.Store).Codecs...)
+		if err != nil {
+			return nil, err
+		}
+	}
+	session, _ := p.sessionStore.Get(&http.Request{}, sessionName)
+	session.ID = sessionID
+	session.Values = data
+	session.IsNew = false
+
+	return session, nil
 }
 
 const SWAGGERUIENDPOINT = "/_discover/"

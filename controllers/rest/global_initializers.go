@@ -11,6 +11,7 @@ import (
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
+	"os"
 	"reflect"
 	"time"
 )
@@ -51,6 +52,7 @@ func Security(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (co
 			quit := make(chan struct{})
 			go store.PeriodicCleanup(1*time.Hour, quit)
 			api.sessionStore = store
+			os.Setenv("session_name", security.Value.Name)
 		}
 	}
 	return ctxt, nil
