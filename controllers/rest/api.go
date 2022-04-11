@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"database/sql"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"github.com/gorilla/securecookie"
@@ -350,8 +351,8 @@ func (p *RESTAPI) GetSession(sessionID, sessionName string) (*sessions.Session, 
 		return nil, result.Error
 	}
 	if sessionInfo == nil {
-		p.e.Logger.Errorf("unexpected error no session was found with cookie value")
-		return nil, NewControllerError("unexpected error no session data was found with cookie value", nil, http.StatusBadRequest)
+		session, _ := p.sessionStore.Get(&http.Request{}, sessionName)
+		return session, nil
 	}
 	if sessionInfo["data"] != nil {
 		//this assumes that sessionstore on the api is a gormstore by default
@@ -366,6 +367,70 @@ func (p *RESTAPI) GetSession(sessionID, sessionName string) (*sessions.Session, 
 	session.IsNew = false
 
 	return session, nil
+}
+
+type gormSession struct {
+	ID        string `sql:"unique_index"`
+	Data      string `sql:"type:text"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	ExpiresAt time.Time `sql:"index"`
+}
+
+//SaveSession save sesssion to database and set cookie header
+func (p *RESTAPI) SaveSession(w http.ResponseWriter, session *sessions.Session) error {
+	if session == nil {
+		fmt.Errorf("unexpected error session is nil")
+	}
+	s := &gormSession{}
+	// delete if max age is < 0
+	if session.Options.MaxAge < 0 {
+		if session != nil {
+			s.ID = session.ID
+			if err := p.gormConnections["Default"].Table("sessions").Delete(s).Error; err != nil {
+				return err
+			}
+		}
+		http.SetCookie(w, sessions.NewCookie(session.Name(), "", session.Options))
+		return nil
+	}
+	data, err := securecookie.EncodeMulti(session.Name(), session.Values, p.sessionStore.(*gormstore.Store).Codecs...)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	expire := now.Add(time.Second * time.Duration(session.Options.MaxAge))
+	if session.ID == "" {
+		// generate random session ID key suitable for storage in the db
+		session.ID = strings.TrimRight(
+			base32.StdEncoding.EncodeToString(
+				securecookie.GenerateRandomKey(32)), "=")
+		s := &gormSession{
+			ID:        session.ID,
+			Data:      data,
+			CreatedAt: now,
+			UpdatedAt: now,
+			ExpiresAt: expire,
+		}
+		if err = p.gormConnections["Default"].Table("sessions").Create(s).Error; err != nil {
+			return err
+		}
+	} else {
+		s.ID = session.ID
+		s.Data = data
+		s.UpdatedAt = now
+		s.ExpiresAt = expire
+		if err = p.gormConnections["Default"].Table("sessions").Save(s).Error; err != nil {
+			return err
+		}
+	}
+	// set session id cookie
+	id, err := securecookie.EncodeMulti(session.Name(), session.ID, p.sessionStore.(*gormstore.Store).Codecs...)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, sessions.NewCookie(session.Name(), id, session.Options))
+	return nil
 }
 
 const SWAGGERUIENDPOINT = "/_discover/"

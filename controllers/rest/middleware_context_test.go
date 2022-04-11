@@ -591,7 +591,7 @@ func TestContext(t *testing.T) {
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
-	t.Run("add session data to context when security is declared global", func(t *testing.T) {
+	t.Run("add session data to context when security is declared globally", func(t *testing.T) {
 		//set up so the api can have what is needed
 		aapi, err := rest.New("./fixtures/session.yaml")
 		if err != nil {
@@ -710,7 +710,10 @@ func TestContext(t *testing.T) {
 		}
 		session.Values["active"] = true
 		session.Values["oauth"] = "oath|dhhbsgy"
-		sessionStore.Save(req, resp, session)
+		err = aapi.SaveSession(resp, session)
+		if err != nil {
+			t.Error(err)
+		}
 		c := &http.Cookie{Name: sessionName, Value: session.ID}
 		req.AddCookie(c)
 		e.GET("/blogs", handler)
@@ -725,7 +728,10 @@ func TestContext(t *testing.T) {
 		}
 		session1.Values["author"] = "fun man"
 		session1.Values["owner"] = "funTick man"
-		sessionStore.Save(&http.Request{}, &httptest.ResponseRecorder{}, session1)
+		err = aapi.SaveSession(&httptest.ResponseRecorder{}, session1)
+		if err != nil {
+			t.Error(err)
+		}
 		session2, err := aapi.GetSession(session.ID, sessionName)
 		if err != nil {
 			t.Errorf("unexpected error getting back session: %s", err)

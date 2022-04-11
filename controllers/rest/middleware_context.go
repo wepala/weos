@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -118,11 +119,11 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 					}
 					data := map[interface{}]interface{}{}
 					var sessions map[string]interface{}
-					result := gormDB.Table("sessions").Find(&sessions, "id = ?", cookie.Value)
+					result := gormDB.Table("sessions").Find(&sessions, "id = ? AND expires_at > ?", cookie.Value, time.Now())
 					if result.Error != nil {
 						return result.Error
 					}
-					if session == nil {
+					if sessions == nil {
 						api.EchoInstance().Logger.Errorf("unexpected error no session was found with cookie value")
 						return NewControllerError("unexpected error no session data was found with cookie value", nil, http.StatusBadRequest)
 
@@ -151,22 +152,22 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 						if value.(map[string]interface{})["format"] != nil {
 							format = value.(map[string]interface{})["format"].(string)
 						}
-						switch session.Values[key].(type) {
+						switch data[key].(type) {
 						case int:
-							contextVal = strconv.Itoa(session.Values[key].(int))
+							contextVal = strconv.Itoa(data[key].(int))
 						case float64:
-							contextVal = strconv.FormatFloat(session.Values[key].(float64), 'E', -1, 64)
+							contextVal = strconv.FormatFloat(data[key].(float64), 'E', -1, 64)
 						case bool:
-							contextVal = strconv.FormatBool(session.Values[key].(bool))
+							contextVal = strconv.FormatBool(data[key].(bool))
 						default:
-							contextVal, ok = session.Values[key].(string)
+							contextVal, ok = data[key].(string)
 							if !ok {
 								api.EchoInstance().Logger.Warnf("unexpect error: %s type is not supported for session value %s", reflect.TypeOf(session.Values[key]).String(), key)
 							}
 						}
 						sessionvalues[key], err = ConvertStringToType(value.(map[string]interface{})["type"].(string), format, contextVal)
 						if err != nil {
-							sessionvalues[key] = session.Values[key]
+							sessionvalues[key] = data[key]
 						}
 					}
 					cc, err = AddToContext(c, cc, sessionvalues, entityFactory)
