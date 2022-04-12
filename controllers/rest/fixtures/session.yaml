@@ -15,8 +15,11 @@ x-weos-config:
     - title: event
       driver: sqlite3
       database: test.db
+  database:
+    driver: sqlite3
+    database: test.db
   databases:
-    - name: Default
+    - title: default
       driver: sqlite3
       database: test.db
   rest:
@@ -26,10 +29,6 @@ x-weos-config:
       - ZapLogger
 components:
   securitySchemes:
-    Auth0:
-      type: openIdConnect
-      openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
-      skipExpiryCheck: true
     CookieAuth:
       type: apiKey
       in: cookie
@@ -115,7 +114,7 @@ components:
           type: string
           format: date-time
 security:
-  - Auth0: ["email","name"]
+  - CookieAuth: []
 
 paths:
   /health:
@@ -123,9 +122,6 @@ paths:
     get:
       security: []
       x-controller: HealthCheck
-      x-middleware:
-        - Recover
-        - OpenIDMiddleware
       responses:
         200:
           description: Health Response
@@ -166,13 +162,6 @@ paths:
       x-projection: Default
       x-event-dispatcher: Default
       x-command-disptacher: Default
-      parameters:
-        - in: header
-          name: Authorization
-          schema:
-            type: string
-      x-middleware:
-        - OpenIDMiddleware
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -229,8 +218,8 @@ paths:
         properties:
           oauth:
             type: string
-          active:
-            type: boolean
+          id:
+            type: integer
       x-context:
         filters:
           - field: status

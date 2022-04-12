@@ -7,6 +7,8 @@ require (
 	github.com/cucumber/godog v0.12.2
 	github.com/getkin/kin-openapi v0.15.0
 	github.com/google/uuid v1.3.0
+	github.com/gorilla/securecookie v1.1.1 // indirect
+	github.com/gorilla/sessions v1.2.1
 	github.com/jinzhu/inflection v1.0.0
 	github.com/kr/text v0.2.0 // indirect
 	github.com/labstack/echo/v4 v4.5.0
@@ -19,6 +21,7 @@ require (
 	github.com/rakyll/statik v0.1.7
 	github.com/segmentio/ksuid v1.0.3
 	github.com/testcontainers/testcontainers-go v0.12.0
+	github.com/wepala/gormstore/v2 v2.0.0-20220405151440-a5b9fe4c9665
 	go.uber.org/zap v1.13.0
 	golang.org/x/net v0.0.0-20211108170745-6635138e15ea
 	gorm.io/datatypes v1.0.5

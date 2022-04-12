@@ -3,8 +3,12 @@ package rest
 import (
 	"context"
 	"database/sql"
+	"encoding/base32"
 	"errors"
 	"fmt"
+	"github.com/gorilla/securecookie"
+	"github.com/gorilla/sessions"
+	"github.com/wepala/gormstore/v2"
 	"net/http"
 	"os"
 	"reflect"
@@ -42,6 +46,7 @@ type RESTAPI struct {
 	PathConfigs                    map[string]*PathConfig
 	Schemas                        map[string]ds.Builder
 	Swagger                        *openapi3.Swagger
+	sessionStore                   sessions.Store
 	middlewares                    map[string]Middleware
 	controllers                    map[string]Controller
 	eventStores                    map[string]model.EventRepository
@@ -324,6 +329,103 @@ func (p *RESTAPI) GetGormDBConnection(name string) (*gorm.DB, error) {
 		return tconnection, nil
 	}
 	return nil, fmt.Errorf("gorm database connection '%s' not found", name)
+}
+
+//GetSessionStore get gorm session store
+func (p *RESTAPI) GetSessionStore() sessions.Store {
+	return p.sessionStore
+}
+
+//GetSession get sesssion from database
+func (p *RESTAPI) GetSession(sessionID, sessionName string) (*sessions.Session, error) {
+	gormDB := p.gormConnections["Default"]
+	if gormDB == nil {
+		p.e.Logger.Errorf("unexpected error: default gormDB is not initialized")
+		return nil, fmt.Errorf("unexpected error: default gormDB is not initialized")
+	}
+	var sessionInfo map[string]interface{}
+	var data map[interface{}]interface{}
+	result := gormDB.Table("sessions").Find(&sessionInfo, "id = ?", sessionID)
+	if result.Error != nil {
+		p.e.Logger.Error(result.Error)
+		return nil, result.Error
+	}
+	if sessionInfo == nil {
+		session, _ := p.sessionStore.Get(&http.Request{}, sessionName)
+		return session, nil
+	}
+	if sessionInfo["data"] != nil {
+		//this assumes that sessionstore on the api is a gormstore by default
+		err := securecookie.DecodeMulti(sessionName, sessionInfo["data"].(string), &data, p.sessionStore.(*gormstore.Store).Codecs...)
+		if err != nil {
+			return nil, err
+		}
+	}
+	session, _ := p.sessionStore.Get(&http.Request{}, sessionName)
+	session.ID = sessionID
+	session.Values = data
+	session.IsNew = false
+
+	return session, nil
+}
+
+type gormSession struct {
+	ID        string `sql:"unique_index"`
+	Data      string `sql:"type:text"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	ExpiresAt time.Time `sql:"index"`
+}
+
+//SaveSession save sesssion to database and set cookie header
+func (p *RESTAPI) SaveSession(w http.ResponseWriter, session *sessions.Session) error {
+	if session == nil {
+		fmt.Errorf("unexpected error session is nil")
+	}
+	s := &gormSession{}
+	// delete if max age is < 0
+	if session.Options.MaxAge < 0 {
+		if session != nil {
+			s.ID = session.ID
+			if err := p.gormConnections["Default"].Table("sessions").Delete(s).Error; err != nil {
+				return err
+			}
+		}
+		http.SetCookie(w, sessions.NewCookie(session.Name(), "", session.Options))
+		return nil
+	}
+	data, err := securecookie.EncodeMulti(session.Name(), session.Values, p.sessionStore.(*gormstore.Store).Codecs...)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	expire := now.Add(time.Second * time.Duration(session.Options.MaxAge))
+	if session.ID == "" {
+		// generate random session ID key suitable for storage in the db
+		session.ID = strings.TrimRight(
+			base32.StdEncoding.EncodeToString(
+				securecookie.GenerateRandomKey(32)), "=")
+		s := &gormSession{
+			ID:        session.ID,
+			Data:      data,
+			CreatedAt: now,
+			UpdatedAt: now,
+			ExpiresAt: expire,
+		}
+		if err = p.gormConnections["Default"].Table("sessions").Create(s).Error; err != nil {
+			return err
+		}
+	} else {
+		s.ID = session.ID
+		s.Data = data
+		s.UpdatedAt = now
+		s.ExpiresAt = expire
+		if err = p.gormConnections["Default"].Table("sessions").Save(s).Error; err != nil {
+			return err
+		}
+	}
+	http.SetCookie(w, sessions.NewCookie(session.Name(), session.ID, session.Options))
+	return nil
 }
 
 const SWAGGERUIENDPOINT = "/_discover/"

@@ -15,11 +15,8 @@ x-weos-config:
     - title: event
       driver: sqlite3
       database: test.db
-  database:
-    driver: sqlite3
-    database: test.db
   databases:
-    - title: default
+    - name: Default
       driver: sqlite3
       database: test.db
   rest:
@@ -353,7 +350,6 @@ paths:
                 type: array
                 items:
                   type: string
-
           required: false
           description: query string
       x-context:

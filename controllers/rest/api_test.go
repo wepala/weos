@@ -377,7 +377,15 @@ func TestRESTAPI_DefaultProjectionRegisteredBefore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	_, gormDB, err := tapi.SQLConnectionFromConfig(tapi.Config.Database)
+	_, err = api.SQLDatabase(context.TODO(), tapi, tapi.Swagger)
+	if err != nil {
+		t.Fatalf("error setting up gorm connection")
+	}
+	gormDB, err := tapi.GetGormDBConnection("Default")
+	if err != nil {
+		t.Fatalf("error getting gorm connection")
+	}
+	//_, gormDB, err := tapi.SQLConnectionFromConfig(tapi.Config.Database)
 	gormProjection, err := projections.NewProjection(context.TODO(), gormDB, tapi.EchoInstance().Logger)
 	if err != nil {
 		t.Fatalf("error setting up gorm projection")

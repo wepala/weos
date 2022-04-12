@@ -4,16 +4,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gorilla/securecookie"
+	"github.com/gorilla/sessions"
+	"github.com/wepala/gormstore/v2"
+	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"io/ioutil"
 	"math"
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"os"
+	"reflect"
 	"strconv"
 	"strings"
-
-	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -33,6 +38,142 @@ func Context(api *RESTAPI, projection projections.Projection, commandDispatcher 
 			accountID := c.Request().Header.Get(weosContext.HeaderXAccountID)
 			if accountID != "" {
 				cc = context.WithValue(cc, weosContext.ACCOUNT_ID, accountID)
+			}
+			securityOn := false
+			if api.Swagger != nil {
+				//check if the security is set globally
+				for _, security := range api.Swagger.Security {
+					if securityOn {
+						break
+					}
+					for key, _ := range security {
+						if api.Swagger.Components.SecuritySchemes != nil && api.Swagger.Components.SecuritySchemes[key] != nil {
+							//checks if the security scheme in is cookie
+							if api.Swagger.Components.SecuritySchemes[key].Value.In == "cookie" {
+								securityOn = true
+								break
+							}
+
+						}
+					}
+				}
+			}
+			if securityOn {
+				if operation.Security != nil && len(*operation.Security) == 0 {
+					securityOn = false
+				}
+			} else {
+				if operation.Security != nil {
+					//check if security is on the path
+					for _, security := range *operation.Security {
+						if securityOn {
+							break
+						}
+						for key, _ := range security {
+							if api.Swagger.Components.SecuritySchemes != nil && api.Swagger.Components.SecuritySchemes[key] != nil {
+								//checks if the security scheme in is cookie
+								if api.Swagger.Components.SecuritySchemes[key].Value.In == "cookie" {
+									securityOn = true
+									break
+								}
+
+							}
+						}
+					}
+				}
+
+			}
+
+			if securityOn {
+				//use x-session to get the properties needed for the context
+				if tsessionParams, ok := operation.ExtensionProps.Extensions[SessionExtension]; ok {
+					sessionvalues := map[string]interface{}{}
+					var sessionParams map[string]interface{}
+					err = json.Unmarshal(tsessionParams.(json.RawMessage), &sessionParams)
+					if err != nil {
+						api.EchoInstance().Logger.Errorf("unexpected error unmarshalling x-session")
+						return NewControllerError("unexpected error unmarshalling x-session", err, http.StatusBadRequest)
+					}
+					//get cookies from the request
+					cookies := c.Cookies()
+					if len(cookies) == 0 {
+						api.EchoInstance().Logger.Errorf("unexpected error no cookies were found")
+						return NewControllerError("unexpected error no cookies were found", nil, http.StatusBadRequest)
+					}
+					//get session from api
+					sessionStore := api.GetSessionStore()
+					if sessionStore == nil {
+						api.EchoInstance().Logger.Errorf("unexpected error no session store was found on api")
+						return NewControllerError("unexpected error no session store was found on api", nil, http.StatusInternalServerError)
+					}
+					sessionName := os.Getenv("session_name")
+					//sessionId := ""
+					cookie, err := c.Request().Cookie(sessionName)
+					if err != nil {
+						return err
+					}
+					var session *sessions.Session
+					gormDB, err := api.GetGormDBConnection("Default")
+					if err != nil {
+						return err
+					}
+					data := map[interface{}]interface{}{}
+					var sessions map[string]interface{}
+					result := gormDB.Table("sessions").Find(&sessions, "id = ? AND expires_at > ?", cookie.Value, time.Now())
+					if result.Error != nil {
+						return result.Error
+					}
+					if sessions == nil {
+						api.EchoInstance().Logger.Errorf("unexpected error no session was found with cookie value")
+						return NewControllerError("unexpected error no session data was found with cookie value", nil, http.StatusBadRequest)
+
+					}
+					if sessions["data"] == nil {
+						api.EchoInstance().Logger.Errorf("unexpected error no session data was found")
+						return NewControllerError("unexpected error no session data was found", nil, http.StatusBadRequest)
+					}
+					//this assumes that sessionstore on the api is a gormstore by default
+					err = securecookie.DecodeMulti(sessionName, sessions["data"].(string), &data, sessionStore.(*gormstore.Store).Codecs...)
+					if err != nil {
+						return err
+					}
+					for key, value := range sessionParams["properties"].(map[string]interface{}) {
+						if data[key] == nil {
+							msg := "unexpected error, expected to find " + key + " got nil"
+							api.EchoInstance().Logger.Errorf(msg)
+							return NewControllerError(msg, nil, http.StatusNotFound)
+						}
+						if value.(map[string]interface{})["type"] == nil {
+							api.EchoInstance().Logger.Errorf("unexpected error, expect type to be specified")
+							return NewControllerError("unexpected error, expect type to be specified", nil, http.StatusBadRequest)
+						}
+						format := ""
+						contextVal := ""
+						if value.(map[string]interface{})["format"] != nil {
+							format = value.(map[string]interface{})["format"].(string)
+						}
+						switch data[key].(type) {
+						case int:
+							contextVal = strconv.Itoa(data[key].(int))
+						case float64:
+							contextVal = strconv.FormatFloat(data[key].(float64), 'E', -1, 64)
+						case bool:
+							contextVal = strconv.FormatBool(data[key].(bool))
+						default:
+							contextVal, ok = data[key].(string)
+							if !ok {
+								api.EchoInstance().Logger.Warnf("unexpect error: %s type is not supported for session value %s", reflect.TypeOf(session.Values[key]).String(), key)
+							}
+						}
+						sessionvalues[key], err = ConvertStringToType(value.(map[string]interface{})["type"].(string), format, contextVal)
+						if err != nil {
+							sessionvalues[key] = data[key]
+						}
+					}
+					cc, err = AddToContext(c, cc, sessionvalues, entityFactory)
+				} else {
+					api.EchoInstance().Logger.Warn("no x-session extension was found")
+				}
 			}
 			//use the path information to get the parameter values
 			contextValues, err := parseParams(c, path.Parameters, entityFactory)
