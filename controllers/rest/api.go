@@ -424,12 +424,7 @@ func (p *RESTAPI) SaveSession(w http.ResponseWriter, session *sessions.Session) 
 			return err
 		}
 	}
-	// set session id cookie
-	id, err := securecookie.EncodeMulti(session.Name(), session.ID, p.sessionStore.(*gormstore.Store).Codecs...)
-	if err != nil {
-		return err
-	}
-	http.SetCookie(w, sessions.NewCookie(session.Name(), id, session.Options))
+	http.SetCookie(w, sessions.NewCookie(session.Name(), session.ID, session.Options))
 	return nil
 }
 
