@@ -13,7 +13,7 @@ import (
 	"reflect"
 )
 
-//Security adds authorization middleware to the initialize context
+//Security adds authorization middleware to the context
 func Security(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (context.Context, error) {
 	middlewares := GetOperationMiddlewares(ctxt)
 	found := false

@@ -40,6 +40,35 @@ func ContentTypeResponseInitializer(ctxt context.Context, api *RESTAPI, path str
 	return ctxt, nil
 }
 
+//SecurityPathInitializer adds authorization middleware on a path to the initialize context
+func SecurityPathInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	if operation.Security == nil || operation.Security != nil && len(*operation.Security) == 0 {
+		return ctxt, nil
+	}
+	middlewares := GetOperationMiddlewares(ctxt)
+	found := false
+
+	for _, security := range *operation.Security {
+		for key, _ := range security {
+			if swagger.Components.SecuritySchemes != nil && swagger.Components.SecuritySchemes[key] != nil {
+				//checks if the security scheme has type openIdConnect
+				if swagger.Components.SecuritySchemes[key].Value.Type == "openIdConnect" {
+					found = true
+					break
+				}
+			}
+		}
+	}
+
+	if found {
+		if middleware, _ := api.GetMiddleware("OpenIDMiddleware"); middleware != nil {
+			middlewares = append(middlewares, middleware)
+		}
+		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	}
+	return ctxt, nil
+}
+
 //EntityFactoryInitializer setups the EntityFactory for a specific route
 func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	schemas := api.Schemas
