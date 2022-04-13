@@ -371,3 +371,71 @@ func TestIntegration_UploadOnEndpoint(t *testing.T) {
 
 	os.Remove("./files/test20.csv")
 }
+
+func TestIntegration_SecurityOnPath(t *testing.T) {
+	os.Remove("test.db")
+	content, err := ioutil.ReadFile("./controllers/rest/fixtures/blog-security-path.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentString := string(content)
+	contentString = fmt.Sprintf(contentString, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+
+	tapi, err := api.New(contentString)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+
+	e := tapi.EchoInstance()
+
+	t.Run("security is off a path once the empty array is present", func(t *testing.T) {
+		respon := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.Close = true
+		e.ServeHTTP(respon, req)
+
+		if respon.Result().StatusCode != http.StatusOK {
+			t.Fatalf("expected to get status %d , got %d", http.StatusOK, respon.Result().StatusCode)
+		}
+	})
+	t.Run("sending a request to a secure endpoint without authorization header", func(t *testing.T) {
+		mockBlog := map[string]interface{}{"Title": "Example Blog", "Url": "www.exampleblog.com"}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		respon := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Close = true
+		e.ServeHTTP(respon, req)
+
+		if respon.Result().StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected to get status %d , got %d", http.StatusUnauthorized, respon.Result().StatusCode)
+		}
+	})
+	t.Run("sending a request to a secure endpoint with authorization header", func(t *testing.T) {
+		mockBlog := map[string]interface{}{"Title": "Example Blog", "Url": "www.exampleblog.com"}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		authToken := os.Getenv("OAUTH_TEST_KEY")
+		respon := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set("Authorization", "Bearer "+authToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Close = true
+		e.ServeHTTP(respon, req)
+
+		if respon.Result().StatusCode != http.StatusCreated {
+			t.Fatalf("expected to get status %d , got %d", http.StatusCreated, respon.Result().StatusCode)
+		}
+	})
+}

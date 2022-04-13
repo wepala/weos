@@ -384,6 +384,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterGlobalInitializer(DefaultEventStore)
 	p.RegisterGlobalInitializer(Security)
 	//register standard operation initializers
+	p.RegisterOperationInitializer(SecurityPathInitializer)
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(ContentTypeResponseInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
