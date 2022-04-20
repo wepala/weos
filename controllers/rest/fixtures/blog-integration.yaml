@@ -36,6 +36,10 @@ components:
           type: string
         description:
           type: string
+        blogs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Blog"
       required:
         - title
       x-identifier:
@@ -58,7 +62,6 @@ components:
         - lastName
       x-identifier:
         - id
-        - email
     Blog:
       type: object
       properties:
@@ -83,11 +86,11 @@ components:
         categories:
           type: array
           items:
-            $ref: "#/components/schemas/Post"
+            $ref: "#/components/schemas/Category"
         posts:
           type: array
           items:
-            $ref: "#/components/schemas/Category"
+            $ref: "#/components/schemas/Post"
         lastUpdated:
           type: string
           format: date-time
@@ -380,3 +383,82 @@ paths:
       responses:
         200:
           description: Blog Deleted
+  /authors:
+    get:
+      operationId: Get Authors
+      summary: Get List of Authors
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: _filters
+          schema:
+            type: array
+            items:
+              type: object
+              properties:
+                field:
+                  type: string
+                operator:
+                  type: string
+                values:
+                  type: array
+                  items:
+                    type: string
+          required: false
+          description: query string
+      responses:
+        200:
+          description: List of Authors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Author"
+  /authors/batch:
+    post:
+      operationId: Add Authors
+      requestBody:
+        description: List of Authors to add
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Author"
+          application/x-www-form-urlencoded:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Author"
+          application/xml:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Author"
+      responses:
+        201:
+          description: Added Authors to Aggregator
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Author"
+        400:
+          description: Invalid author submitted

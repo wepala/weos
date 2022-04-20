@@ -371,3 +371,81 @@ func TestIntegration_UploadOnEndpoint(t *testing.T) {
 
 	os.Remove("./files/test20.csv")
 }
+
+func TestIntegration_FilteringByCamelCase(t *testing.T) {
+	content, err := ioutil.ReadFile("./controllers/rest/fixtures/blog-integration.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentString := string(content)
+	contentString = fmt.Sprintf(contentString, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+
+	tapi, err := api.New(contentString)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+
+	e := tapi.EchoInstance()
+
+	//create bach authors for tests
+	authors := []map[string]interface{}{
+		{
+			"firstName": "first",
+			"lastName":  "first",
+		},
+		{
+			"firstName": "second",
+			"lastName":  "second",
+		},
+		{
+			"firstName": "third",
+			"lastName":  "third",
+		},
+	}
+	reqBytes, err := json.Marshal(authors)
+	if err != nil {
+		t.Fatalf("error setting up request %s", err)
+	}
+	body := bytes.NewReader(reqBytes)
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/authors/batch", body)
+	header = http.Header{}
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header = header
+	req.Close = true
+	e.ServeHTTP(resp, req)
+
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+
+	t.Run("filtering by using the name in the spec file", func(t *testing.T) {
+		queryString := "_filters[firstName][eq]=first"
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/authors?"+queryString, nil)
+		req.Close = true
+		e.ServeHTTP(resp, req)
+
+		if resp.Result().StatusCode != http.StatusOK {
+			t.Fatalf("expected to get status %d getting item, got %d", http.StatusOK, resp.Result().StatusCode)
+		}
+
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var resultAuthor api.ListApiResponse
+		err = json.Unmarshal(bodyBytes, &resultAuthor)
+		if err != nil {
+			t.Errorf("unexpected error : got error unmarshalling response body, %s", err)
+		}
+		if len(resultAuthor.Items) != 1 {
+			t.Errorf("expected number of items to be %d got %d ", 1, len(resultAuthor.Items))
+		}
+
+	})
+}

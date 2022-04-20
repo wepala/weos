@@ -73,9 +73,9 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 		if found {
 			continue
 		}
-
 		tagString := `json:"` + name + `"`
 		var gormParts []string
+		columnName := "column:" + name
 		for _, req := range ref.Required {
 			if strings.EqualFold(req, name) {
 				gormParts = append(gormParts, "NOT NULL")
@@ -99,13 +99,13 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 			}
 		}
 		name = strings.Title(name)
-		//setup gorm field tag string
-		if len(gormParts) > 0 {
-			gormString := strings.Join(gormParts, ";")
-			tagString += ` gorm:"` + gormString + `"`
-		}
 
 		if p.Ref != "" {
+			//setup gorm field tag string
+			if len(gormParts) > 0 {
+				gormString := strings.Join(gormParts, ";")
+				tagString += ` gorm:"` + columnName + ";" + gormString + `"`
+			}
 			structName := strings.TrimPrefix(p.Ref, "#/components/schemas/")
 			tagString := `json:"` + name + `"`
 			r, rKeys := newSchema(structName, schemaRefs[structName].Value, schemaRefs, count+1, logger)
@@ -135,6 +135,11 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 				instance.AddField(name, rStruct, tagString)
 			}
 		} else {
+			//setup gorm field tag string
+			if len(gormParts) > 0 {
+				gormString := strings.Join(gormParts, ";")
+				tagString += ` gorm:"` + columnName + ";" + gormString + `"`
+			}
 			t := p.Value.Type
 			f := p.Value.Format
 			if strings.EqualFold(t, "array") {
@@ -162,6 +167,11 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 					if p.Value.Items.Ref == "" {
 						//add as json object
 					} else {
+						//setup gorm field tag string
+						if len(gormParts) > 0 {
+							gormString := strings.Join(gormParts, ";")
+							tagString += ` gorm:"` + gormString + `"`
+						}
 						//add reference to the object to the map
 						structName := strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/")
 						r, _ := newSchema(structName, schemaRefs[structName].Value, schemaRefs, count+1, logger)
