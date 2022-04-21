@@ -431,7 +431,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Author"
-  /authors:
     get:
       operationId: Get Authors
       summary: Get List of Authors
