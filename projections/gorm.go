@@ -421,7 +421,7 @@ func (p *GORMDB) GetContentEntities(ctx context.Context, entityFactory weos.Enti
 	if builder != nil {
 		schemes = builder.NewSliceOfStructs()
 		scheme := builder.New()
-		result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+		result = p.db.Debug().Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	}
 	bytes, err := json.Marshal(schemes)
 	if err != nil {
@@ -534,13 +534,13 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 
 					if len(filter.Values) == 0 {
 						if filter.Operator == "like" {
-							db.Where(filter.Field+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+							db.Where("\""+filter.Field+"\" "+operator+" ?", "%"+filter.Value.(string)+"%")
 						} else {
-							db.Where(filter.Field+" "+operator+" ?", filter.Value)
+							db.Where("\""+filter.Field+"\" "+operator+" ?", filter.Value)
 						}
 
 					} else {
-						db.Where(filter.Field+" "+operator+" ?", filter.Values)
+						db.Where("\""+filter.Field+"\" "+operator+" ?", filter.Values)
 					}
 
 				}

@@ -457,7 +457,7 @@ func TestIntegration_ManyToOneRelationship(t *testing.T) {
 			t.Errorf("unexpected error getting projection: %s", err)
 		}
 		apiProjection1 := apiProjection.(*projections.GORMDB)
-		resultA := apiProjection1.DB().Table("Author").Find(&auths, "firstName = ? AND lastName = ?", firstName1, lastName1)
+		resultA := apiProjection1.DB().Debug().Table("Author").Find(&auths, `"firstName" = ? AND "lastName" = ?`, firstName1, lastName1)
 		if resultA.Error != nil {
 			t.Errorf("unexpected error author: %s", resultA.Error)
 		}
