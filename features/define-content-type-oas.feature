@@ -173,7 +173,7 @@ Feature: Create Content Types
       | id          |              | integer        | false    | PK       | NULL        |
       | title       |              | varchar(512)   | false    |          | NULL        |
       | description |              | varchar(512)   | true     |          | NULL        |
-      | blog_id     |              | integer        | true     | FK       | NULL        |
+      | BlogId     |              | integer        | true     | FK       | NULL        |
     And a "Blog" entity configuration should be setup
     """
     erDiagram

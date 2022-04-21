@@ -1962,6 +1962,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 }
 
 func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
+	//os.Remove("test.db")
 	//instantiate api
 	api, err := rest.New("./fixtures/blog-security.yaml")
 	if err != nil {

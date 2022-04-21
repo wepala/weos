@@ -144,12 +144,15 @@ func (p *GORMDB) Migrate(ctx context.Context, builders map[string]ds.Builder, de
 			readerFields := reader.GetAllFields()
 			jsonFields := []string{}
 			for _, r := range readerFields {
-				jsonFields = append(jsonFields, utils.SnakeCase(r.Name()))
+				jsonFields = append(jsonFields, r.Name())
 			}
 
 			builder := ds.ExtendStruct(instance)
 			for _, c := range columns {
-				if !utils.Contains(jsonFields, c.Name()) && !utils.Contains(deletedFields, c.Name()) {
+				if c.Name() == "weos_id" || c.Name() == "sequence_no" {
+					continue
+				}
+				if !utils.Contains(jsonFields, strings.Title(c.Name())) && !utils.Contains(deletedFields, c.Name()) {
 					if !utils.Contains(deletedFields, c.Name()) {
 						var val interface{}
 						dType := strings.ToLower(c.DatabaseTypeName())

@@ -118,7 +118,7 @@ func newSchema(currTable string, ref *openapi3.Schema, schemaRefs map[string]*op
 
 				//add key references
 				for _, k := range rKeys {
-					instance.AddField(strings.Title(name)+strings.Title(k), reader.GetField(strings.Title(k)).Interface(), `json:"`+utils.SnakeCase(name)+`_`+k+`"`)
+					instance.AddField(strings.Title(name)+strings.Title(k), reader.GetField(strings.Title(k)).Interface(), `json:"`+name+strings.Title(k)+`"`+`gorm:"column:`+name+strings.Title(k)+`;"`)
 					if keystring != "" {
 						keystring += ","
 					}

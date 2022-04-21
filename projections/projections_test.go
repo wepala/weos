@@ -641,7 +641,7 @@ components:
 			if c.Name() == "description" {
 				found2 = true
 			}
-			if c.Name() == "blog_id" {
+			if c.Name() == "BlogId" {
 				found3 = true
 			}
 		}
@@ -651,7 +651,7 @@ components:
 		}
 
 		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
-		result := gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs", "blog_id": 1})
+		result := gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs", "BlogId": 1})
 		if result.Error != nil {
 			t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
 		}
@@ -661,7 +661,7 @@ components:
 			t.Errorf("expected to create a post without relationship, got err '%s'", result.Error)
 		}
 
-		result = gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs", "blog_id": 5})
+		result = gormDB.Table("Post").Create(map[string]interface{}{"title": "hugs", "BlogId": 5})
 		if result.Error == nil {
 			t.Errorf("expected to be unable to create post with invalid reference to blog")
 		}
@@ -1047,7 +1047,7 @@ components:
 		p.GetEventHandler()(ctxt, *event)
 
 		//create post
-		payload = map[string]interface{}{"weos_id": "1234567", "title": "testPost", "description": "This is a create projection test", "blog_id": 1}
+		payload = map[string]interface{}{"weos_id": "1234567", "title": "testPost", "description": "This is a create projection test", "BlogId": 1}
 		contentEntity = &weos.ContentEntity{
 			AggregateRoot: weos.AggregateRoot{
 				BasicEntity: weos.BasicEntity{
@@ -2360,8 +2360,8 @@ components:
 
 		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "sequence_no": int64(1)}
 		gormDB.Table("Blog").Create(blog)
-		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes", "blog_id": uint(1)})
-		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes2", "blog_id": uint(1)})
+		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes", "BlogId": uint(1)})
+		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes2", "BlogId": uint(1)})
 
 		results, total, err := p.GetContentEntities(ctxt, postEntityFactory, page, limit, "", sortOptions, nil)
 		if err != nil {
@@ -2376,7 +2376,7 @@ components:
 		found := 0
 		for _, b := range results {
 			//Because it is sorted by asc order the first post would be in the results
-			if b["blog_id"] == float64(1) {
+			if b["BlogId"] == float64(1) {
 				found++
 			}
 
