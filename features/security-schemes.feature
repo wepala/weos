@@ -46,7 +46,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
           Auth0:
             type: openIdConnect
             openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
-            skipExpiryCheck: true
+            x-skip-expiry-check: true
         schemas:
           Blog:
              type: object
@@ -544,7 +544,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
           Auth0:
             type: openIdConnect
             openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
-            skipExpiryCheck: true
+            x-skip-expiry-check: true
         schemas:
           Blog:
              type: object
