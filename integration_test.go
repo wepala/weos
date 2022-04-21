@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/wepala/weos/projections"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -370,6 +371,151 @@ func TestIntegration_UploadOnEndpoint(t *testing.T) {
 	})
 
 	os.Remove("./files/test20.csv")
+}
+
+func TestIntegration_ManyToOneRelationship(t *testing.T) {
+	dropDB()
+	content, err := ioutil.ReadFile("./controllers/rest/fixtures/blog-integration.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentString := string(content)
+	contentString = fmt.Sprintf(contentString, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+
+	tapi, err := api.New(contentString)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+
+	e := tapi.EchoInstance()
+
+	firstName1 := "chris"
+	lastName1 := "ludo"
+	//create author
+	author := map[string]interface{}{
+		"firstName": firstName1,
+		"lastName":  lastName1,
+	}
+	reqBytes, err := json.Marshal(author)
+	if err != nil {
+		t.Fatalf("error setting up request %s", err)
+	}
+	body := bytes.NewReader(reqBytes)
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/authors", body)
+	header = http.Header{}
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header = header
+	req.Close = true
+	e.ServeHTTP(resp, req)
+
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var authorR map[string]interface{}
+	err = json.Unmarshal(bodyBytes, &authorR)
+	if err != nil {
+		t.Fatalf("unexpected error unmarshalling response body %s", err)
+	}
+
+	t.Run("Create a post with an existing author", func(t *testing.T) {
+		//it should link with the existing author and not create any authors
+		post := map[string]interface{}{
+			"title":       "first post",
+			"description": "first post ever",
+			"author":      map[string]interface{}{"id": authorR["id"], "firstName": firstName1, "lastName": lastName1},
+		}
+
+		reqBytes, err = json.Marshal(post)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body = bytes.NewReader(reqBytes)
+		resp = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodPost, "/posts", body)
+		header = http.Header{}
+		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		req.Header = header
+		req.Close = true
+		e.ServeHTTP(resp, req)
+
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Fatalf("expected to get status %d creating item, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
+		var auths []map[string]interface{}
+		apiProjection, err := tapi.GetProjection("Default")
+		if err != nil {
+			t.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMDB)
+		resultA := apiProjection1.DB().Table("Author").Find(&auths, "first_name = ? AND last_name = ?", firstName1, lastName1)
+		if resultA.Error != nil {
+			t.Errorf("unexpected error author: %s", resultA.Error)
+		}
+		if len(auths) != 1 {
+			t.Error("Unexpected error: expected to find one author")
+		}
+
+	})
+
+	t.Run("creating a post with a non-existing author", func(t *testing.T) {
+		//it should create an author with the data sent in
+		firstName := "polo"
+		lastName := "shirt"
+		id := "wjdhiuaj"
+		post := map[string]interface{}{
+			"title":       "second",
+			"description": "second post",
+			"author":      map[string]interface{}{"id": id, "firstName": firstName, "lastName": lastName},
+		}
+
+		reqBytes, err = json.Marshal(post)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body = bytes.NewReader(reqBytes)
+		resp = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodPost, "/posts", body)
+		header = http.Header{}
+		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		req.Header = header
+		req.Close = true
+		e.ServeHTTP(resp, req)
+
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Fatalf("expected to get status %d creating item, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
+		var auth map[string]interface{}
+		apiProjection, err := tapi.GetProjection("Default")
+		if err != nil {
+			t.Errorf("unexpected error getting projection: %s", err)
+		}
+		apiProjection1 := apiProjection.(*projections.GORMDB)
+		resultA := apiProjection1.DB().Table("Author").Find(&auth, "id", id)
+		if resultA.Error != nil {
+			t.Errorf("unexpected error author: %s", resultA.Error)
+		}
+		if auth == nil {
+			t.Error("Unexpected error: expected to find a new author created")
+		}
+		if auth["first_name"] == nil || auth["first_name"] != firstName {
+			t.Errorf("expected author first name to be %s got %s", firstName, auth["first_name"])
+		}
+		if auth["last_name"] == nil || auth["last_name"] != lastName {
+			t.Errorf("expected author last name to be %s got %s", lastName, auth["last_name"])
+		}
+	})
+
+	dropDB()
 }
 
 func TestIntegration_FilteringByCamelCase(t *testing.T) {
