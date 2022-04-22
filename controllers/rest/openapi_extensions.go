@@ -42,7 +42,7 @@ const UniqueExtension = "x-unique"
 const OpenIDConnectUrlExtension = "openIdConnectUrl"
 
 //SkipExpiryCheckExtension set the expiry check
-const SkipExpiryCheckExtension = "skipExpiryCheck"
+const SkipExpiryCheckExtension = "x-skip-expiry-check"
 
 //FolderExtension set staticFolder folder
 const FolderExtension = "x-folder"
