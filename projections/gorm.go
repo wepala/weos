@@ -531,13 +531,13 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 
 					if len(filter.Values) == 0 {
 						if filter.Operator == "like" {
-							db.Where(filter.Field+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", "%"+filter.Value.(string)+"%")
 						} else {
-							db.Where(filter.Field+" "+operator+" ?", filter.Value)
+							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Value)
 						}
 
 					} else {
-						db.Where(filter.Field+" "+operator+" ?", filter.Values)
+						db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Values)
 					}
 
 				}
