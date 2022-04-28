@@ -19,6 +19,7 @@ Feature: Create Content Types
               type: string
             description:
               type: string
+
     """
 
   Scenario: Declare basic content type
@@ -36,6 +37,7 @@ Feature: Create Content Types
               description: blog title
             description:
               type: string
+
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
@@ -72,6 +74,7 @@ Feature: Create Content Types
           x-identifier:
             - guid
             - title
+
     """
     When the "OpenAPI 3.0" specification is parsed
     Then a model "Blog" should be added to the projection
@@ -144,6 +147,7 @@ Feature: Create Content Types
     """
     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
+
         Post:
           type: object
           properties:
@@ -201,6 +205,7 @@ Feature: Create Content Types
           x-identifier:
             - guid
             - title
+
     """
     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
@@ -254,6 +259,7 @@ Feature: Create Content Types
               type: string
             description:
               type: string
+
     """
     And "Sojourner" adds a schema "Post" to the "OpenAPI 3.0" specification
     """
