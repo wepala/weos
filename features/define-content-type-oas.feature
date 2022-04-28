@@ -508,23 +508,25 @@ Feature: Create Content Types
     When the "OpenAPI 3.0" specification is parsed
     Then an error should be returned
 
-  @WEOS-1399
-  Scenario: Hash field using bcrypt
+  @WEOS-1342
+  Scenario: Create field on a schema that should only be updated on create
 
-    Developers can specify that a field should be hashed using the bcrypt hashing algorithm
+    Developers can indicate in the schema the list of operations that would trigger an update on a date field using the
+    x-update extension. The values are the operationIds of the operations that should trigger the update in value. By
+    updating
 
     Given the specification is
-    """
-    openapi: 3.0.3
-    info:
-      title: Blog Aggregator Rest API
-      version: 0.1.0
-      description: REST API for interacting with the Blog Aggregator
-    servers:
+     """
+     openapi: 3.0.3
+     info:
+       title: Blog Aggregator Rest API
+       version: 0.1.0
+       description: REST API for interacting with the Blog Aggregator
+     servers:
       - url: https://prod1.weos.sh/blog/dev
         description: WeOS Dev
       - url: https://prod1.weos.sh/blog/v1
-    x-weos-config:
+     x-weos-config:
       database:
         database: "%s"
         driver: "%s"
@@ -537,77 +539,150 @@ Feature: Create Content Types
           - RequestID
           - Recover
           - ZapLogger
-    components:
-      schemas:
-        Blog:
+     components:
+       schemas:
+         Blog:
            type: object
            properties:
              id:
                type: string
              title:
                type: string
-               format: bcrypt
                description: blog title
              description:
                type: string
+             created:
+               type: string
+               format: date-time
+               x-update:
+                 - Add Blog
            required:
              - title
            x-identifier:
              - id
-    paths:
-      /blog:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog info that is submitted
-            required: true
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/x-www-form-urlencoded:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/xml:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          responses:
-            201:
-              description: Add Blog to Aggregator
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
-    """
-    And And the service is running
+     paths:
+       /:
+         get:
+           operationId: Homepage
+           responses:
+             200:
+               description: Application Homepage
+       /blog:
+         post:
+           operationId: Add Blog
+           requestBody:
+             description: Blog info that is submitted
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/x-www-form-urlencoded:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/xml:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             201:
+               description: Add Blog to Aggregator
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             400:
+               description: Invalid blog submitted
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: query
+               name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+         put:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: header
+               name: If-Match
+           summary: Update blog details
+           operationId: Update Blog
+           requestBody:
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             200:
+               description: Update Blog
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+         delete:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+           summary: Delete blog
+           operationId: Delete Blog
+           responses:
+             200:
+               description: Blog Deleted
+     """
+    And blogs in the api
+      | id    | weos_id        | sequence_no | title        | description    |
+      | 1234  | 986888285      | 1           | Blog 1       | Some Blog      |
+      | 4567  | 5uhq85nal      | 1           | Blog 2       | Some Blog 2    |
+    And the service is running
     And "Sojourner" is on the "Blog" create screen
     And "Sojourner" enters "3" in the "id" field
     And "Sojourner" enters "Some Blog" in the "title" field
     And "Sojourner" enters "Some Description" in the "description" field
     When the "Blog" is submitted
     Then the "Blog" is created
-      | id    | title                                                        | description                       |
-      | 3     | $2a$12$pvNCX5ILun9ZkI1lQQrDnOguN8UQrX14.gsS/6jBkvjL8tehmdn4i | Some Description                  |
+      | title          | description                       |
+      | Some Blog      | Some Description                  |
+    And the "created" field should have today's date
 
-  @WEOS-1399
-  Scenario: Hash field using sha3-256
-
-  Developers can specify that a field should be hashed using the sha3-256 hashing algorithm
+  @WEOS-1342
+  Scenario: Updated field on a schema that should updated when the entity is updated
 
     Given the specification is
-    """
-    openapi: 3.0.3
-    info:
-      title: Blog Aggregator Rest API
-      version: 0.1.0
-      description: REST API for interacting with the Blog Aggregator
-    servers:
+     """
+     openapi: 3.0.3
+     info:
+       title: Blog Aggregator Rest API
+       version: 0.1.0
+       description: REST API for interacting with the Blog Aggregator
+     servers:
       - url: https://prod1.weos.sh/blog/dev
         description: WeOS Dev
       - url: https://prod1.weos.sh/blog/v1
-    x-weos-config:
+     x-weos-config:
       database:
         database: "%s"
         driver: "%s"
@@ -620,77 +695,152 @@ Feature: Create Content Types
           - RequestID
           - Recover
           - ZapLogger
-    components:
-      schemas:
-        Blog:
+     components:
+       schemas:
+         Blog:
            type: object
            properties:
              id:
                type: string
              title:
                type: string
-               format: sha3-256
                description: blog title
              description:
                type: string
+             updated:
+               type: string
+               format: date-time
+               x-update:
+                 - Update Blog
            required:
              - title
            x-identifier:
              - id
-    paths:
-      /blog:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog info that is submitted
-            required: true
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/x-www-form-urlencoded:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/xml:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          responses:
-            201:
-              description: Add Blog to Aggregator
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
-    """
-    And And the service is running
-    And "Sojourner" is on the "Blog" create screen
-    And "Sojourner" enters "3" in the "id" field
-    And "Sojourner" enters "Some Blog" in the "title" field
+     paths:
+       /:
+         get:
+           operationId: Homepage
+           responses:
+             200:
+               description: Application Homepage
+       /blog:
+         post:
+           operationId: Add Blog
+           requestBody:
+             description: Blog info that is submitted
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/x-www-form-urlencoded:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/xml:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             201:
+               description: Add Blog to Aggregator
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             400:
+               description: Invalid blog submitted
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: query
+               name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+         put:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: header
+               name: If-Match
+           summary: Update blog details
+           operationId: Update Blog
+           requestBody:
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             200:
+               description: Update Blog
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+         delete:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+           summary: Delete blog
+           operationId: Delete Blog
+           responses:
+             200:
+               description: Blog Deleted
+     """
+    And blogs in the api
+      | id    | weos_id        | sequence_no | title        | description    |
+      | 1234  | 986888285      | 1           | Blog 1       | Some Blog      |
+      | 4567  | 5uhq85nal      | 1           | Blog 2       | Some Blog 2    |
+    And the service is running
+    And "Sojourner" is on the "Blog" edit screen with id "1234"
+    And "Sojourner" enters "Some New Title" in the "title" field
     And "Sojourner" enters "Some Description" in the "description" field
     When the "Blog" is submitted
-    Then the "Blog" is created
-      | id    | title                                                            | description                       |
-      | 3     | a7e783d23a8c42afe170370a29851a571e18493ef14745ea276005726414d379 | Some Description                  |
+    Then a 200 response should be returned
+    And the "Blog" is updated
+      | title          | description                       |
+      | Some New Title | Some Description                  |
+    And the "updated" field should have today's date
 
-  @WEOS-1399
-  Scenario: Hash field using sha3-512
+  @WEOS-1342
+  Scenario: Reference invalid operation id
 
-  Developers can specify that a field should be hashed using the sha3-512 hashing algorithm
+    If an invalid operation id is referenced then return an error to the developer when starting up the API
 
     Given the specification is
-    """
-    openapi: 3.0.3
-    info:
-      title: Blog Aggregator Rest API
-      version: 0.1.0
-      description: REST API for interacting with the Blog Aggregator
-    servers:
+     """
+     openapi: 3.0.3
+     info:
+       title: Blog Aggregator Rest API
+       version: 0.1.0
+       description: REST API for interacting with the Blog Aggregator
+     servers:
       - url: https://prod1.weos.sh/blog/dev
         description: WeOS Dev
       - url: https://prod1.weos.sh/blog/v1
-    x-weos-config:
+     x-weos-config:
       database:
         database: "%s"
         driver: "%s"
@@ -703,222 +853,119 @@ Feature: Create Content Types
           - RequestID
           - Recover
           - ZapLogger
-    components:
-      schemas:
-        Blog:
+     components:
+       schemas:
+         Blog:
            type: object
            properties:
              id:
                type: string
              title:
                type: string
-               format: sha3-512
                description: blog title
              description:
                type: string
+             updated:
+               type: string
+               format: date-time
+               x-update:
+                 - asdfasdf asdf asfd
            required:
              - title
            x-identifier:
              - id
-    paths:
-      /blog:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog info that is submitted
-            required: true
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/x-www-form-urlencoded:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/xml:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          responses:
-            201:
-              description: Add Blog to Aggregator
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
-    """
-    And And the service is running
-    And "Sojourner" is on the "Blog" create screen
-    And "Sojourner" enters "3" in the "id" field
-    And "Sojourner" enters "Some Blog" in the "title" field
-    And "Sojourner" enters "Some Description" in the "description" field
-    When the "Blog" is submitted
-    Then the "Blog" is created
-      | id    | title                                                            | description                       |
-      | 3     | a7e783d23a8c42afe170370a29851a571e18493ef14745ea276005726414d379 | Some Description                  |
-
-  @WEOS-1399
-  Scenario: Hash field using sha256
-
-  Developers can specify that a field should be hashed using the sha256 hashing algorithm
-
-    Given the specification is
-    """
-    openapi: 3.0.3
-    info:
-      title: Blog Aggregator Rest API
-      version: 0.1.0
-      description: REST API for interacting with the Blog Aggregator
-    servers:
-      - url: https://prod1.weos.sh/blog/dev
-        description: WeOS Dev
-      - url: https://prod1.weos.sh/blog/v1
-    x-weos-config:
-      database:
-        database: "%s"
-        driver: "%s"
-        host: "%s"
-        password: "%s"
-        username: "%s"
-        port: %d
-      rest:
-        middleware:
-          - RequestID
-          - Recover
-          - ZapLogger
-    components:
-      schemas:
-        Blog:
-           type: object
-           properties:
-             id:
-               type: string
-             title:
-               type: string
-               format: sha256
-               description: blog title
-             description:
-               type: string
-           required:
-             - title
-           x-identifier:
-             - id
-    paths:
-      /blog:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog info that is submitted
-            required: true
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/x-www-form-urlencoded:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/xml:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          responses:
-            201:
-              description: Add Blog to Aggregator
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
-    """
-    And And the service is running
-    And "Sojourner" is on the "Blog" create screen
-    And "Sojourner" enters "3" in the "id" field
-    And "Sojourner" enters "Some Blog" in the "title" field
-    And "Sojourner" enters "Some Description" in the "description" field
-    When the "Blog" is submitted
-    Then the "Blog" is created
-      | id    | title                                                            | description                       |
-      | 3     | 88a2f684b295a320596a17e95ab3a710eedf3d8428e80c05bd061b2bd8bd5021 | Some Description                  |
-
-  @WEOS-1399
-  Scenario: Base64 encode field
-
-  Developers can specify that a field should be base64 encoded
-
-    Given the specification is
-    """
-    openapi: 3.0.3
-    info:
-      title: Blog Aggregator Rest API
-      version: 0.1.0
-      description: REST API for interacting with the Blog Aggregator
-    servers:
-      - url: https://prod1.weos.sh/blog/dev
-        description: WeOS Dev
-      - url: https://prod1.weos.sh/blog/v1
-    x-weos-config:
-      database:
-        database: "%s"
-        driver: "%s"
-        host: "%s"
-        password: "%s"
-        username: "%s"
-        port: %d
-      rest:
-        middleware:
-          - RequestID
-          - Recover
-          - ZapLogger
-    components:
-      schemas:
-        Blog:
-           type: object
-           properties:
-             id:
-               type: string
-             title:
-               type: string
-               format: base64
-               description: blog title
-             description:
-               type: string
-           required:
-             - title
-           x-identifier:
-             - id
-    paths:
-      /blog:
-        post:
-          operationId: Add Blog
-          requestBody:
-            description: Blog info that is submitted
-            required: true
-            content:
-              application/json:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/x-www-form-urlencoded:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-              application/xml:
-                schema:
-                  $ref: "#/components/schemas/Blog"
-          responses:
-            201:
-              description: Add Blog to Aggregator
-              content:
-                application/json:
-                  schema:
-                    $ref: "#/components/schemas/Blog"
-            400:
-              description: Invalid blog submitted
-    """
-    And And the service is running
-    And "Sojourner" is on the "Blog" create screen
-    And "Sojourner" enters "3" in the "id" field
-    And "Sojourner" enters "Some Blog" in the "title" field
-    And "Sojourner" enters "Some Description" in the "description" field
-    When the "Blog" is submitted
-    Then the "Blog" is created
-      | id    | title           | description                       |
-      | 3     | U29tZSBCbG9n    | Some Description                  |
+     paths:
+       /:
+         get:
+           operationId: Homepage
+           responses:
+             200:
+               description: Application Homepage
+       /blog:
+         post:
+           operationId: Add Blog
+           requestBody:
+             description: Blog info that is submitted
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/x-www-form-urlencoded:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+               application/xml:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             201:
+               description: Add Blog to Aggregator
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+             400:
+               description: Invalid blog submitted
+       /blogs/{id}:
+         get:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: query
+               name: sequence_no
+               schema:
+                 type: string
+           summary: Get Blog by id
+           operationId: Get Blog
+           responses:
+             200:
+               description: Blog details without any supporting collections
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+         put:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+             - in: header
+               name: If-Match
+           summary: Update blog details
+           operationId: Update Blog
+           requestBody:
+             required: true
+             content:
+               application/json:
+                 schema:
+                   $ref: "#/components/schemas/Blog"
+           responses:
+             200:
+               description: Update Blog
+               content:
+                 application/json:
+                   schema:
+                     $ref: "#/components/schemas/Blog"
+         delete:
+           parameters:
+             - in: path
+               name: id
+               schema:
+                 type: string
+               required: true
+               description: blog id
+           summary: Delete blog
+           operationId: Delete Blog
+           responses:
+             200:
+               description: Blog Deleted
+     """
+    When the service is running
+    Then an error is returned

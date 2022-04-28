@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
@@ -27,9 +28,21 @@ func ContextInitializer(ctxt context.Context, api *RESTAPI, path string, method 
 	return ctxt, nil
 }
 
+//ContentTypeResponseInitializer add ContentTypeResponseMiddleware middleware to path
+func ContentTypeResponseInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	middlewares := GetOperationMiddlewares(ctxt)
+	contentMiddleware, err := api.GetMiddleware("ContentTypeResponseMiddleware")
+	if err != nil {
+		return ctxt, err
+	}
+	middlewares = append(middlewares, contentMiddleware)
+	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	return ctxt, nil
+}
+
 //EntityFactoryInitializer setups the EntityFactory for a specific route
 func EntityFactoryInitializer(ctxt context.Context, api *RESTAPI, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
-	schemas := GetSchemaBuilders(ctxt)
+	schemas := api.Schemas
 	jsonSchema := operation.ExtensionProps.Extensions[SchemaExtension]
 	if jsonSchema != nil {
 		contentType := ""
@@ -165,7 +178,7 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			}
 		}
 	}
-
+	middlewares := GetOperationMiddlewares(ctxt)
 	//if the controller extension is set then add controller to the context
 	if middlewareExtension, ok := operation.ExtensionProps.Extensions[MiddlewareExtension]; ok {
 		var middlewareNames []string
@@ -174,8 +187,18 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			api.EchoInstance().Logger.Errorf("unable to unmarshal middleware '%s'", err)
 			return ctxt, fmt.Errorf("middlewares in the specification should be an array of strings on '%s'", path)
 		}
+		found := false
+		for _, middlewareN := range middlewareNames {
+			if middlewareN == "DefaultResponseMiddleware" {
+				found = true
+			}
+		}
+		if !found {
+			middlewareNames = append(middlewareNames, "DefaultResponseMiddleware")
+		}
+
 		//get the existing middleware from context and then add user defined middleware to it
-		middlewares := GetOperationMiddlewares(ctxt)
+
 		for _, middlewareName := range middlewareNames {
 			middleware, err := api.GetMiddleware(middlewareName)
 			if err != nil {
@@ -183,9 +206,15 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 			}
 			middlewares = append(middlewares, middleware)
 		}
-		ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
-	}
 
+	} else {
+		middleware, err := api.GetMiddleware("DefaultResponseMiddleware")
+		if err != nil {
+			return ctxt, fmt.Errorf("unregistered middleware '%s' specified on path '%s'", "DefaultResponseMiddleware", path)
+		}
+		middlewares = append(middlewares, middleware)
+	}
+	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	if projectionExtension, ok := operation.ExtensionProps.Extensions[ProjectionExtension]; ok {
 		var projectionNames []string
 		err := json.Unmarshal(projectionExtension.(json.RawMessage), &projectionNames)
@@ -229,7 +258,6 @@ func UserDefinedInitializer(ctxt context.Context, api *RESTAPI, path string, met
 		}
 		ctxt = context.WithValue(ctxt, weoscontext.EVENT_STORE, eventStore)
 	}
-
 	return ctxt, nil
 }
 
@@ -590,26 +618,6 @@ func StandardInitializer(ctxt context.Context, api *RESTAPI, path string, method
 		} else {
 			//this should not return an error it should log
 			api.e.Logger.Warnf("no handler set, path: '%s' operation '%s'", path, method)
-			controller, err := api.GetController("DefaultResponseController")
-			if err != nil {
-				api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
-				return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", handler, path)
-			}
-			if controller != nil {
-				ctxt = context.WithValue(ctxt, weoscontext.CONTROLLER, controller)
-			}
-			for _, resp := range operation.Responses {
-				if resp.Value.Content != nil {
-					for _, content := range resp.Value.Content {
-						if content.Example != nil {
-							middlewareNames["DefaultResponseMiddleware"] = true
-							break
-						}
-					}
-
-				}
-			}
-
 		}
 		middlewares := GetOperationMiddlewares(ctxt)
 		//there are middlewareNames let's add them
@@ -660,6 +668,16 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 	if entityFactory == nil {
 
 	}
+
+	if controller == nil {
+		//once no controller is set, the default controller and middleware is added to the path
+		controller, err = api.GetController("DefaultResponseController")
+		if err != nil {
+			api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
+			return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", "DefaultResponseController", path)
+		}
+	}
+
 	//only set up routes if controller is set because echo returns an error if the handler for a route is nil
 	if controller != nil {
 		var handler echo.HandlerFunc
@@ -670,6 +688,7 @@ func RouteInitializer(ctxt context.Context, api *RESTAPI, path string, method st
 			//Not sure if CORS middleware and any other middlewares needs to be added
 			pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
 		}
+		pathMiddleware = append(pathMiddleware, middleware.CORS())
 		if controllerExtension, ok := operation.ExtensionProps.Extensions[ControllerExtension]; ok {
 			controllerName := ""
 			err := json.Unmarshal(controllerExtension.(json.RawMessage), &controllerName)

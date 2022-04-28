@@ -293,6 +293,8 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					return err
 				}
 				mapPayload["sequence_no"] = event.Meta.SequenceNo
+				//Adding the entityid to the payload since the event payload doesnt have it
+				mapPayload["weos_id"] = event.Meta.EntityID
 
 				bytes, _ := json.Marshal(mapPayload)
 				err = json.Unmarshal(bytes, &eventPayload)
@@ -529,13 +531,13 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 
 					if len(filter.Values) == 0 {
 						if filter.Operator == "like" {
-							db.Where(filter.Field+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", "%"+filter.Value.(string)+"%")
 						} else {
-							db.Where(filter.Field+" "+operator+" ?", filter.Value)
+							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Value)
 						}
 
 					} else {
-						db.Where(filter.Field+" "+operator+" ?", filter.Values)
+						db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Values)
 					}
 
 				}

@@ -3,13 +3,19 @@ package rest
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
+	"mime/multipart"
 	"net/http"
+	"reflect"
+	"os"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
@@ -211,52 +217,6 @@ func GetContentBySequenceNumber(eventRepository model.EventRepository, id string
 	return entity, err
 }
 
-//ConvertFormToJson: This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormToJson(r *http.Request, contentType string) (json.RawMessage, error) {
-	var parsedPayload []byte
-
-	switch contentType {
-	case "application/x-www-form-urlencoded":
-		parsedForm := map[string]interface{}{}
-
-		err := r.ParseForm()
-		if err != nil {
-			return nil, err
-		}
-
-		for k, v := range r.PostForm {
-			for _, value := range v {
-				parsedForm[k] = value
-			}
-		}
-
-		parsedPayload, err = json.Marshal(parsedForm)
-		if err != nil {
-			return nil, err
-		}
-	case "multipart/form-data":
-		parsedForm := map[string]interface{}{}
-
-		err := r.ParseMultipartForm(1024) //Revisit
-		if err != nil {
-			return nil, err
-		}
-
-		for k, v := range r.MultipartForm.Value {
-			for _, value := range v {
-				parsedForm[k] = value
-			}
-		}
-
-		parsedPayload, err = json.Marshal(parsedForm)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return parsedPayload, nil
-}
-
 //SplitFilters splits multiple filters into array of filters
 func SplitFilters(filters string) []string {
 	if filters == "" {
@@ -310,18 +270,14 @@ func SplitFilter(filter string) *FilterProperties {
 func GetJwkUrl(openIdUrl string) (string, error) {
 	//fetches the response from the connect id url
 	resp, err := http.Get(openIdUrl)
-	if err != nil || resp == nil {
-		return "", fmt.Errorf("unexpected error fetching open id connect url: %s", err)
+	if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected error fetching open id connect url")
 	}
 	defer resp.Body.Close()
 	// reads the body
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("unable to read response body: %v", err)
-	}
-	//check the response status
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("expected open id connect url response code to be %d got %d ", http.StatusOK, resp.StatusCode)
 	}
 	// unmarshall the body to a struct we can use to find the jwk uri
 	var info map[string]interface{}
@@ -346,4 +302,103 @@ func JSONMarshal(t interface{}) ([]byte, error) {
 	result = bytes.ReplaceAll(result, []byte(`\r`), []byte(""))
 	result = bytes.ReplaceAll(result, []byte(`\t`), []byte(""))
 	return result, err
+}
+
+//ReturnContextValues pulls out all the values stored in the context and adds it to a map to be returned
+func ReturnContextValues(ctxt interface{}) map[interface{}]interface{} {
+	contextValues := map[interface{}]interface{}{}
+	contextKeys := []interface{}{}
+	contextV := reflect.ValueOf(ctxt).Elem()
+	contextK := reflect.TypeOf(ctxt).Elem()
+	if contextK.Kind() == reflect.Struct {
+		for i := 0; i < contextV.NumField(); i++ {
+			reflectValue := contextV.Field(i)
+			reflectValue = reflect.NewAt(reflectValue.Type(), unsafe.Pointer(reflectValue.UnsafeAddr())).Elem()
+			reflectField := contextK.Field(i)
+
+			if reflectField.Name == "Context" {
+				contextVals := ReturnContextValues(reflectValue.Interface())
+				for key, value := range contextVals {
+					contextValues[key] = value
+				}
+			} else if reflectField.Name == "key" {
+				contextKeys = append(contextKeys, reflectValue.Interface())
+			}
+		}
+	}
+	for _, cKeys := range contextKeys {
+		contextValues[cKeys] = ctxt.(context.Context).Value(cKeys)
+	}
+	return contextValues
+}
+
+//ConvertStringToType convert open api schema types to go data types
+func ConvertStringToType(desiredType string, format string, value string) (interface{}, error) {
+	var temporaryValue interface{}
+	var err error
+	switch desiredType {
+	case "integer":
+		temporaryValue, err = strconv.Atoi(value)
+		if err == nil {
+			//check the format and use that to convert to int32 vs int64
+			switch format {
+			case "int64":
+				temporaryValue = int64(temporaryValue.(int))
+			case "int32":
+				temporaryValue = int32(temporaryValue.(int))
+			}
+		}
+
+	case "number":
+		tv, terr := strconv.ParseFloat(value, 64)
+		if terr == nil {
+			//check the format to determine the bit size. Default to 32 if none is specified
+			if format != "float" {
+				temporaryValue = math.Round(tv*100) / 100
+			} else {
+				temporaryValue = tv
+			}
+		}
+		err = terr
+	case "boolean":
+		temporaryValue, err = strconv.ParseBool(value)
+	default:
+		temporaryValue = value
+	}
+
+	return temporaryValue, err
+}
+
+//SaveUploadedFiles this is a supporting function for ConvertFormtoJson
+func SaveUploadedFiles(uploadFolder map[string]interface{}, file multipart.File, header *multipart.FileHeader) error {
+	if float64(header.Size) > uploadFolder["limit"].(float64) {
+		return fmt.Errorf("maximum file size allowed: %s, uploaded file size: %s", strconv.FormatFloat(uploadFolder["limit"].(float64), 'f', -1, 64), strconv.FormatFloat(float64(header.Size), 'f', -1, 64))
+	}
+
+	buf := bytes.NewBuffer(nil)
+	if _, err := io.Copy(buf, file); err != nil {
+		return err
+	}
+
+	//Checks if folder exists and creates it if not
+	_, err := os.Stat(uploadFolder["folder"].(string))
+	if os.IsNotExist(err) {
+		err := os.MkdirAll(uploadFolder["folder"].(string), os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
+
+	filePath := uploadFolder["folder"].(string) + "/" + header.Filename
+
+	//Checks if file exists in folder and creates it if not
+	_, err = os.Stat(filePath)
+
+	if os.IsNotExist(err) {
+		os.WriteFile(filePath, buf.Bytes(), os.ModePerm)
+	} else if err == nil {
+		return fmt.Errorf("the file : %s, already exists on path : %s. Please rename the file and try again", header.Filename, uploadFolder["folder"])
+	}
+
+	return nil
 }

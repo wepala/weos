@@ -3,6 +3,8 @@ package rest_test
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/labstack/echo/v4"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -456,4 +458,339 @@ func TestRESTAPI_Initialize_DefaultResponseMiddlware(t *testing.T) {
 	}
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)
+}
+
+func TestRESTAPI_Static(t *testing.T) {
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+	t.Run("basic schema", func(t *testing.T) {
+		defer os.Remove("test.db")
+		openApi := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Category:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+      required:
+        - title
+      x-identifier:
+        - title
+paths:
+  /:
+    get:
+      responses:
+        200:
+          description: file found
+          x-folder: "./fixtures/staticF"
+        404:
+          description: file not found
+`
+		tapi, err := api.New(openApi)
+		if err != nil {
+			t.Errorf("unexpected error: '%s'", err)
+		}
+		err = tapi.Initialize(context.TODO())
+		if err != nil {
+			t.Fatalf("unexpected error initializing api '%s'", err)
+		}
+		//check that the table was created on the default projection
+		var defaultProjection model.Projection
+		if defaultProjection, err = tapi.GetProjection("Default"); err != nil {
+			t.Fatalf("unexpected error getting default projection '%s'", err)
+		}
+		var ok bool
+		var defaultGormProject *projections.GORMDB
+		if defaultGormProject, ok = defaultProjection.(*projections.GORMDB); !ok {
+			t.Fatalf("unexpected error getting default projection '%s'", err)
+		}
+
+		if !defaultGormProject.DB().Migrator().HasTable("Category") {
+			t.Errorf("expected categories table to exist")
+		}
+
+		found := false
+		yamlRoutes := tapi.EchoInstance().Routes()
+		for _, route := range yamlRoutes {
+			if strings.Contains(route.Name, "static") {
+				found = true
+			}
+		}
+		if found == false {
+			t.Errorf("expected the static folder to be present on routes")
+		}
+	})
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+}
+
+func TestRESTAPI_File(t *testing.T) {
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+	t.Run("basic schema", func(t *testing.T) {
+		defer os.Remove("test.db")
+		openApi := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Category:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+      required:
+        - title
+      x-identifier:
+        - title
+paths:
+  /file:
+    get:
+      responses:
+        200:
+          description: file found
+          x-file: "./fixtures/staticF/index"
+        404:
+          description: file not found
+`
+		tapi, err := api.New(openApi)
+		if err != nil {
+			t.Errorf("unexpected error: '%s'", err)
+		}
+		err = tapi.Initialize(context.TODO())
+		if err != nil {
+			t.Fatalf("unexpected error initializing api '%s'", err)
+		}
+		//check that the table was created on the default projection
+		var defaultProjection model.Projection
+		if defaultProjection, err = tapi.GetProjection("Default"); err != nil {
+			t.Fatalf("unexpected error getting default projection '%s'", err)
+		}
+		var ok bool
+		var defaultGormProject *projections.GORMDB
+		if defaultGormProject, ok = defaultProjection.(*projections.GORMDB); !ok {
+			t.Fatalf("unexpected error getting default projection '%s'", err)
+		}
+
+		if !defaultGormProject.DB().Migrator().HasTable("Category") {
+			t.Errorf("expected categories table to exist")
+		}
+
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/file", nil)
+		tapi.EchoInstance().ServeHTTP(resp, req)
+
+		respBody := resp.Body
+		if respBody.String() != "<html><head><title>Test Page</title></head><body>Test Page</body></html>" {
+			t.Errorf("expected the response to be: %s, got %s", "<html><head><title>Test Page</title></head><body>Test Page</body></html>", respBody.String())
+		}
+	})
+	os.Remove("test.db")
+	time.Sleep(1 * time.Second)
+}
+
+func TestRESTAPI_Initialize_ExampleResponse(t *testing.T) {
+	os.Remove("test.db")
+	var header http.Header
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	header = http.Header{}
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header = header
+	req.Close = true
+	e.ServeHTTP(resp, req)
+
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected to get status %d got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+	os.Remove("test.db")
+}
+
+func TestRESTAPI_InitializeSecurity(t *testing.T) {
+	//This test is to show that a schema can be defined but the global “security” don't need to be specified
+	t.Run("basic security schema specified without global security specified", func(t *testing.T) {
+		openApi := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  logger:
+    level: warn
+    report-caller: true
+    formatter: json
+  database:
+    driver: sqlite3
+    database: test.db
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  securitySchemes:
+    Auth0:
+      type: openIdConnect
+      openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
+  schemas:
+    Category:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+      required:
+        - title
+      x-identifier:
+        - title
+`
+		tapi, err := api.New(openApi)
+		if err != nil {
+			t.Errorf("unexpected error: '%s'", err)
+		}
+		err = tapi.Initialize(context.TODO())
+		if err != nil {
+			t.Fatalf("unexpected error initializing api '%s'", err)
+		}
+
+	})
+	os.Remove("test.db")
+}
+
+func TestRESTAPI_Integration_AutomaticallyUpdateDateTime(t *testing.T) {
+	tapi, err := api.New("./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(nil)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	e := tapi.EchoInstance()
+	t.Run("automatically updating create", func(t *testing.T) {
+		mockBlog := map[string]interface{}{"title": "Test Blog", "url": "www.testBlog.com"}
+		reqBytes, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body := bytes.NewReader(reqBytes)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		e.ServeHTTP(resp, req)
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+		}
+		defer resp.Result().Body.Close()
+		tResults, err := ioutil.ReadAll(resp.Result().Body)
+		if err != nil {
+			t.Errorf("unexpect error: %s", err)
+		}
+		results := map[string]interface{}{}
+		err = json.Unmarshal(tResults, &results)
+		if err != nil {
+			t.Errorf("unexpect error: %s", err)
+		}
+		if results["created"] == nil || results["lastUpdated"] == nil {
+			t.Errorf("unexpect error expected to find created and lastUpdated")
+		}
+
+	})
+
+}
+
+func TestRESTAPI_RegisterGORMDB(t *testing.T) {
+
 }

@@ -70,6 +70,9 @@ components:
           type: string
         description:
           type: string
+        cost:
+          type: number
+          format: double
         status:
           type: string
           nullable: true
@@ -91,9 +94,14 @@ components:
         lastUpdated:
           type: string
           format: date-time
+          x-update:
+            - Add Blog
+            - Update Blog
         created:
           type: string
           format: date-time
+          x-update:
+            - Add Blog
       required:
         - title
         - url
@@ -159,13 +167,93 @@ paths:
                     "url": "www.example.com",
                     "email": "testing@example.com"
                   }
+  /another:
+    get:
+      operationId: Homepage
+      parameters:
+        - in: header
+          name: Accept
+          schema:
+            type: string
+      responses:
+        201:
+          description: Application Homepage
+          content:
+            text/html:
 
+            application/json:
+              example:
+                blog:
+                  value: {
+                    "title": "API Testing",
+                    "url": "www.example.com",
+                    "email": "testing@example.com"
+                  }
+  /badtemplates:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/base12.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /badtemplates1:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/badTem.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /multipletemplates:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/index.html
+            - ./fixtures/templates/ibase.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /templates:
+    get:
+      operationId: getAsset
+      parameters:
+        - in: query
+          name: title
+          schema:
+            type: string
+        - in: query
+          name: content
+          schema:
+            type: string
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/base1.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
   /health:
     summary: Health Check
     get:
       x-controller: HealthCheck
       x-middleware:
         - Recover
+        - ZapLogger
       responses:
         200:
           description: Health Response
@@ -272,8 +360,7 @@ paths:
         _filters:
           - field: status
             operator: eq
-            value:
-              - Active
+            value: Active
           - field: lastUpdated
             operator: between
             values:

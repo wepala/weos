@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/google/uuid"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
@@ -439,6 +441,37 @@ func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.
 	return w, nil
 }
 
+func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
+	var err error
+	//update default time update values based on routes
+	operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+	if ok {
+		payload, err = w.UpdateTime(operation, payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+	err = w.SetValueFromPayload(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	err = w.GenerateID(payload)
+	if err != nil {
+		return nil, err
+	}
+	eventPayload, err := json.Marshal(w.Property)
+	if err != nil {
+		return nil, NewDomainError("error marshalling event payload", w.Schema.Title, w.ID, err)
+	}
+	event := NewEntityEvent(CREATE_EVENT, w, w.ID, eventPayload)
+	if err != nil {
+		return nil, err
+	}
+	w.NewChange(event)
+	err = w.ApplyEvents([]*Event{event})
+	return w, err
+}
+
 //Deprecated: this duplicates the work of making the dynamic struct builder. Use FromSchemaAndBuilder instead (this is used by the EntityFactory)
 //FromSchema builds properties from the schema
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
@@ -587,6 +620,7 @@ func (w *ContentEntity) GetString(name string) string {
 
 //GetInteger returns the integer property value stored of a given the property name
 func (w *ContentEntity) GetInteger(name string) int {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return 0
 	}
@@ -603,6 +637,7 @@ func (w *ContentEntity) GetInteger(name string) int {
 
 //GetUint returns the unsigned integer property value stored of a given the property name
 func (w *ContentEntity) GetUint(name string) uint {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return uint(0)
 	}
@@ -619,6 +654,7 @@ func (w *ContentEntity) GetUint(name string) uint {
 
 //GetBool returns the boolean property value stored of a given the property name
 func (w *ContentEntity) GetBool(name string) bool {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return false
 	}
@@ -635,6 +671,7 @@ func (w *ContentEntity) GetBool(name string) bool {
 
 //GetNumber returns the float64 property value stored of a given the property name
 func (w *ContentEntity) GetNumber(name string) float64 {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return 0
 	}
@@ -651,6 +688,7 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 
 //GetTime returns the time.Time property value stored of a given the property name
 func (w *ContentEntity) GetTime(name string) time.Time {
+	name = strings.Title(name)
 	if w.Property == nil {
 		return time.Time{}
 	}
@@ -719,9 +757,25 @@ func (w *ContentEntity) ToMap() map[string]interface{} {
 	if w.reader != nil {
 		fields := w.reader.GetAllFields()
 		for _, field := range fields {
-			//check if the lowercase version of the field is the same as the schema and use the scehma version instead
-			if originialFieldName := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
-				result[w.GetOriginalFieldName(field.Name())] = field.Interface()
+			//check if the lowercase version of the field is the same as the schema and use the schema version instead
+			if originialFieldName, _ := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
+				//if the field is not a scalar then use marshalling
+				originalKey, propertyType := w.GetOriginalFieldName(field.Name())
+				switch propertyType {
+				case "array":
+					tvalue := []interface{}{}
+					value, _ := json.Marshal(field.Interface())
+					json.Unmarshal(value, &tvalue)
+					result[originalKey] = tvalue
+				case "object":
+					tvalue := make(map[string]interface{})
+					value, _ := json.Marshal(field.Interface())
+					json.Unmarshal(value, &tvalue)
+					result[originalKey] = tvalue
+				default:
+					result[originalKey] = field.Interface()
+				}
+
 			} else if originialFieldName == "" && strings.EqualFold(field.Name(), "id") {
 				result["id"] = field.Interface()
 			}
@@ -732,20 +786,93 @@ func (w *ContentEntity) ToMap() map[string]interface{} {
 }
 
 //GetOriginalFieldName the original name of the field as defined in the schema (the field is Title cased when converted to struct)
-func (w *ContentEntity) GetOriginalFieldName(structName string) string {
+func (w *ContentEntity) GetOriginalFieldName(structName string) (string, string) {
 	if w.Schema != nil {
 		for key, _ := range w.Schema.Properties {
 			if strings.ToLower(key) == strings.ToLower(structName) {
-				return key
+				return key, w.Schema.Properties[key].Value.Type
 			}
 		}
 	}
-
-	return ""
+	return "", ""
 }
 
 func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 	err := json.Unmarshal(data, &w.AggregateRoot)
 	err = json.Unmarshal(data, &w.Property)
 	return err
+}
+
+//GenerateID adds a generated id to the payload based on the schema
+func (w *ContentEntity) GenerateID(payload []byte) error {
+	tentity := make(map[string]interface{})
+	properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+	err := json.Unmarshal(payload, w)
+	if err != nil {
+		return err
+	}
+	if properties != nil {
+		propArray := []string{}
+		err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+		if err != nil {
+			return fmt.Errorf("unexpected error unmarshalling identifiers: %s", err)
+		}
+		if len(propArray) == 1 { // if there is only one x-identifier specified then it should auto generate the identifier
+			property := propArray[0]
+			if w.Schema.Properties[property].Value.Type == "string" && w.GetString(property) == "" {
+				if w.Schema.Properties[property].Value.Format != "" { //if the format is specified
+					switch w.Schema.Properties[property].Value.Format {
+					case "ksuid":
+						tentity[property] = ksuid.New().String()
+					case "uuid":
+						tentity[property] = uuid.NewString()
+					default:
+						errr := "unexpected error: fail to generate identifier " + property + " since the format " + w.Schema.Properties[property].Value.Format + " is not supported"
+						return NewDomainError(errr, w.Schema.Title, "", nil)
+					}
+				} else { //if the format is not specified
+					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+					return NewDomainError(errr, w.Schema.Title, "", nil)
+				}
+			} else if w.Schema.Properties[property].Value.Type == "integer" {
+				reader := ds.NewReader(w.Property)
+				if w.Schema.Properties[property].Value.Format == "" && reader.GetField(strings.Title(property)).PointerInt() == nil {
+					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
+					return NewDomainError(errr, w.Schema.Title, "", nil)
+
+				}
+			}
+
+		}
+	}
+	generatedIdentifier, err := json.Marshal(tentity)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(generatedIdentifier, w)
+}
+
+//UpdateTime updates auto update time values on the payload
+func (w *ContentEntity) UpdateTime(operationID string, data []byte) ([]byte, error) {
+	payload := map[string]interface{}{}
+	json.Unmarshal(data, &payload)
+	for key, p := range w.Schema.Properties {
+		routes := []string{}
+		routeBytes, _ := json.Marshal(p.Value.Extensions["x-update"])
+		json.Unmarshal(routeBytes, &routes)
+		for _, r := range routes {
+			if r == operationID {
+				if p.Value.Format == "date-time" {
+					payload[key] = time.Now()
+				}
+			}
+		}
+	}
+	newPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return newPayload, nil
 }

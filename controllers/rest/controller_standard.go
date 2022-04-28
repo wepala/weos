@@ -7,7 +7,10 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/labstack/gommon/log"
 	logs "github.com/wepala/weos/log"
+	"html/template"
 	"net/http"
+	"os"
+	path1 "path"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +32,17 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules
 			newContext := ctxt.Request().Context()
+
+			uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
+			if uploadResponse != nil {
+				if uploadErr, ok := uploadResponse.(*echo.HTTPError); ok {
+					if uploadErr.Error() != "" {
+						ctxt.Logger().Error(uploadErr)
+						return uploadErr
+					}
+				}
+			}
+
 			if entityFactory != nil {
 				newContext = context.WithValue(newContext, weoscontext.ENTITY_FACTORY, entityFactory)
 			} else {
@@ -54,6 +68,9 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
+					if errr.Unwrap() != nil {
+						ctxt.Logger().Error(errr.Unwrap())
+					}
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 				} else {
 					return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
@@ -669,99 +686,239 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
-//DefaultResponseMiddleware returns content type based on content type in example
+//DefaultResponseMiddleware returns a response based on what was specified on an endpoint
 func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	activatedResponse := false
+	for _, resp := range operation.Responses {
+		if resp.Value.Content != nil {
+			for _, content := range resp.Value.Content {
+				if content != nil && content.Example != nil {
+					activatedResponse = true
+				}
+			}
+		}
+	}
+
+	fileName := ""
+	folderFound := true
+	folderErr := ""
+	var templates []string
+
+	if api.Swagger != nil {
+		for pathName, pathData := range api.Swagger.Paths {
+			if pathData == path {
+				for _, resp := range operation.Responses {
+					if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
+						folderPath := ""
+						err := json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
+						if err != nil {
+							api.e.Logger.Error(err)
+						} else {
+							_, err = os.Stat(folderPath)
+							if os.IsNotExist(err) {
+								folderFound = false
+								folderErr = "error finding folder: " + folderPath + " specified on path: " + pathName
+								api.e.Logger.Errorf(folderErr)
+							} else if err != nil {
+								api.e.Logger.Error(err)
+							} else {
+								api.e.Static(pathName, folderPath)
+							}
+						}
+					}
+					if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
+						filePath := ""
+						err := json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
+						if err != nil {
+							api.e.Logger.Error(err)
+						} else {
+							_, err = os.Stat(filePath)
+							if os.IsNotExist(err) {
+								api.e.Logger.Warnf("error finding file: '%s' specified on path: '%s'", filePath, pathName)
+							} else if err != nil {
+								api.e.Logger.Error(err)
+							} else {
+								fileName = filePath
+							}
+						}
+					}
+				}
+			}
+		}
+
+	}
+	for _, resp := range operation.Responses {
+		if templateExtension, ok := resp.Value.ExtensionProps.Extensions[TemplateExtension]; ok {
+			err := json.Unmarshal(templateExtension.(json.RawMessage), &templates)
+			if err != nil {
+				api.e.Logger.Error(err)
+			}
+		}
+	}
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
+			if !folderFound {
+				api.e.Logger.Errorf(folderErr)
+				return NewControllerError(folderErr, nil, http.StatusNotFound)
+			}
 			ctx := ctxt.Request().Context()
-			//take media type from the request since the context wouldnt add it because there is no entity factory to use
-			mediaType := ctxt.Request().Header.Get(weoscontext.ACCEPT)
-			var bytesArray []byte
-			var err error
-			contentType := ""
-			var respCode int
-			found := false
-			if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
-				for code, resp := range operation.Responses {
-					respCode, _ = strconv.Atoi(code)
-					if resp.Value.Content[mediaType] == nil {
-						//check for wild card
-						if strings.Contains(mediaType, "*") {
-							mediaT := strings.Replace(mediaType, "*", "", -1)
-							for key, content := range resp.Value.Content {
-								if strings.Contains(key, mediaT) {
-									if content.Example != nil {
-										bytesArray, err = JSONMarshal(content.Example)
+			if activatedResponse {
+				var responseType *CResponseType
+				var ok bool
+				var bytesArray []byte
+				var err error
+				found := false
+				acceptHeader := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+				mediaTypes := strings.Split(acceptHeader, ",")
+				//take response type from the context
+				if responseType, ok = ctx.Value(weoscontext.CONTENT_TYPE_RESPONSE).(*CResponseType); !ok {
+					api.e.Logger.Debugf("unexpected error content type response not set")
+					return NewControllerError("unexpected error content type response not set ", nil, http.StatusBadRequest)
+
+				}
+				respCode, _ := strconv.Atoi(responseType.Status)
+				contents := operation.Responses[responseType.Status].Value.Content
+				if contents != nil && contents[responseType.Type] != nil && contents[responseType.Type].Example != nil {
+					if strings.Contains(responseType.Type, "json") {
+						bytesArray, err = json.Marshal(contents[responseType.Type].Example)
+					} else {
+						bytesArray, err = JSONMarshal(contents[responseType.Type].Example)
+					}
+					if err != nil {
+						api.e.Logger.Debugf("unexpected error %s ", err)
+						return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+					}
+					found = true
+				}
+				//if the response given from the context does not have an example specified then go find one
+				if !found {
+					for _, mediaType := range mediaTypes {
+						if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
+							for code, resp := range operation.Responses {
+								respCode, _ = strconv.Atoi(code)
+								if resp.Value.Content[mediaType] == nil {
+									//check for wild card
+									if strings.Contains(mediaType, "*") {
+										mediaT := strings.Replace(mediaType, "*", "", -1)
+										for key, content := range resp.Value.Content {
+											if strings.Contains(key, mediaT) {
+												if content.Example != nil {
+													if strings.Contains(key, "json") {
+														bytesArray, err = json.Marshal(resp.Value.Content[key].Example)
+													} else {
+														bytesArray, err = JSONMarshal(resp.Value.Content[key].Example)
+													}
+													if err != nil {
+														api.e.Logger.Debugf("unexpected error %s ", err)
+														return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+													}
+													responseType.Type = key
+													found = true
+													break
+												}
+											}
+
+										}
+									}
+									if found {
+										break
+									}
+								} else {
+									if resp.Value.Content[mediaType].Example != nil {
+										if strings.Contains(mediaType, "json") {
+											bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
+										} else {
+											bytesArray, err = JSONMarshal(resp.Value.Content[mediaType].Example)
+										}
 										if err != nil {
 											api.e.Logger.Debugf("unexpected error %s ", err)
 											return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 										}
-										contentType = key + "; " + "charset=UTF-8"
+										responseType.Type = mediaType
 										found = true
 										break
 									}
 								}
+							}
+						}
+					}
+					if !found { //if using the accept header nothing is found, use the first content type
+						for code, resp := range operation.Responses {
+							respCode, _ = strconv.Atoi(code)
+							for key, content := range resp.Value.Content {
+								if content.Example != nil {
+									if strings.Contains(key, "json") {
+										bytesArray, err = json.Marshal(content.Example)
+									} else {
+										bytesArray, err = JSONMarshal(content.Example)
+									}
 
+									if err != nil {
+										api.e.Logger.Debugf("unexpected error %s ", err)
+										return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+
+									}
+									responseType.Type = key
+									found = true
+									break
+								}
 							}
-						}
-						if found {
-							break
-						}
-					} else {
-						if resp.Value.Content[mediaType].Example != nil {
-							bytesArray, err = json.Marshal(resp.Value.Content[mediaType].Example)
-							if err != nil {
-								api.e.Logger.Debugf("unexpected error %s ", err)
-								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
+							if found {
+								break
 							}
-							contentType = mediaType + "; " + "charset=UTF-8"
-							found = true
-							break
 						}
 					}
 				}
-			}
-			if !found { //if using the accept header nothing is found, use the first content type
-				for code, resp := range operation.Responses {
-					respCode, _ = strconv.Atoi(code)
-					for key, content := range resp.Value.Content {
-						if content.Example != nil {
-							bytesArray, err = JSONMarshal(content.Example)
-							if err != nil {
-								api.e.Logger.Debugf("unexpected error %s ", err)
-								return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusBadRequest)
 
-							}
-							contentType = key + "; " + "charset=UTF-8"
-							found = true
-							break
-						}
-					}
-					if found {
-						break
-					}
+				//Add response to context for controller
+				ctx = context.WithValue(ctx, weoscontext.BASIC_RESPONSE, ctxt.Blob(respCode, responseType.Type+"; "+"charset=UTF-8", bytesArray))
+				request := ctxt.Request().WithContext(ctx)
+				ctxt.SetRequest(request)
+				return next(ctxt)
+			} else if fileName != "" {
+				ctxt.File(fileName)
+			} else if len(templates) != 0 {
+				contextValues := ReturnContextValues(ctx)
+				t := template.New(path1.Base(templates[0]))
+				t, err := t.ParseFiles(templates...)
+				if err != nil {
+					api.e.Logger.Debugf("unexpected error %s ", err)
+					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
+
+				}
+				err = t.Execute(ctxt.Response().Writer, contextValues)
+				if err != nil {
+					api.e.Logger.Debugf("unexpected error %s ", err)
+					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
+
 				}
 			}
 
-			//Add response to context for controller
-			ctx = context.WithValue(ctx, "resp", ctxt.Blob(respCode, contentType, bytesArray))
-			request := ctxt.Request().WithContext(ctx)
-			ctxt.SetRequest(request)
 			return next(ctxt)
-
 		}
 	}
 }
 
+//DefaultResponseController returns responses that was done in the default response middleware
 func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		newContext := context.Request().Context()
-		value := newContext.Value("resp")
-		if value == nil {
-			return nil
+		value := newContext.Value(weoscontext.BASIC_RESPONSE)
+		uploadResponse := newContext.Value(weoscontext.UPLOAD_RESPONSE)
+
+		if uploadResponse == nil {
+			if value == nil {
+				return nil
+			}
+			return NewControllerError(value.(error).Error(), value.(error), http.StatusBadRequest)
+		} else {
+			if err, ok := uploadResponse.(*echo.HTTPError); ok {
+				return err
+			}
+			return context.JSON(http.StatusCreated, "File successfully Uploaded")
 		}
-		return value.(error)
+
 	}
 }
 
@@ -795,7 +952,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 		//checks if the security scheme type is openIdConnect
 		if schemes.Value.Type == "openIdConnect" {
 			//get the open id connect url
-			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OPENIDCONNECTURLEXTENSION]; ok {
+			if openIdUrl, ok := schemes.Value.ExtensionProps.Extensions[OpenIDConnectUrlExtension]; ok {
 				err := json.Unmarshal(openIdUrl.(json.RawMessage), &openIdConnectUrl)
 				if err != nil {
 					api.EchoInstance().Logger.Errorf("unable to unmarshal open id connect url '%s'", err)
@@ -808,7 +965,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 						//by default skipExpiryCheck is false meaning it will not run an expiry check
 						skipExpiryCheck := false
 						//get skipexpirycheck that is an extension in the openapi spec
-						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SKIPEXPIRYCHECKEXTENSION]; ok {
+						if expireCheck, ok := schemes.Value.ExtensionProps.Extensions[SkipExpiryCheckExtension]; ok {
 							err := json.Unmarshal(expireCheck.(json.RawMessage), &skipExpiryCheck)
 							if err != nil {
 								api.EchoInstance().Logger.Errorf("unable to unmarshal skip expiry '%s'", err)
@@ -917,7 +1074,7 @@ func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher
 	}
 }
 
-//ZapLogger switch to using ZapLogger
+//ZapLogger switches the echo context logger to be ZapLogger
 func ZapLogger(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -928,6 +1085,72 @@ func ZapLogger(api *RESTAPI, projection projections.Projection, commandDispatche
 			}
 			c.SetLogger(zapLogger)
 			return next(c)
+		}
+	}
+}
+
+//ContentTypeResponseMiddleware returns the status code and content type response to be use in the context
+func ContentTypeResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctxt echo.Context) error {
+			ctx := ctxt.Request().Context()
+			//take media type from the request since the context wouldnt add it because there is no entity factory to use
+			acceptHeader := ctxt.Request().Header.Get(weoscontext.ACCEPT)
+			found := false
+			response := &CResponseType{}
+			//if the accept header comes with an array of content type we should split the string to get the by a comma
+			mediaTypes := strings.Split(acceptHeader, ",")
+			for _, mediaType := range mediaTypes {
+				if mediaType != "" && strings.Replace(mediaType, "*", "", -1) != "/" && mediaType != "/" {
+					for code, resp := range operation.Responses {
+						response.Status = code
+						if resp.Value.Content[mediaType] == nil {
+							//check for wild card
+							if strings.Contains(mediaType, "*") {
+								mediaT := strings.Replace(mediaType, "*", "", -1)
+								for key, _ := range resp.Value.Content {
+									if strings.Contains(key, mediaT) {
+										response.Type = key
+										found = true
+										break
+									}
+								}
+							}
+							if found {
+								break
+							}
+						} else {
+							response.Type = mediaType
+							found = true
+							break
+						}
+					}
+				}
+				if found {
+					break
+				}
+			}
+			if !found { //if using the accept header nothing is found, use the first content type
+				for code, resp := range operation.Responses {
+					response.Status = code
+					for key, _ := range resp.Value.Content {
+						//takes first content type found
+						response.Type = key
+						found = true
+						break
+
+					}
+					if found {
+						break
+					}
+				}
+			}
+			//Add response to context for other functions to use
+			ctx = context.WithValue(ctx, weoscontext.CONTENT_TYPE_RESPONSE, response)
+			request := ctxt.Request().WithContext(ctx)
+			ctxt.SetRequest(request)
+			return next(ctxt)
+
 		}
 	}
 }

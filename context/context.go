@@ -14,6 +14,7 @@ const HeaderXLogLevel = "X-LOG-LEVEL"
 
 //add more keys here if needed
 const ACCOUNT_ID ContextKey = "ACCOUNT_ID"
+const OPERATION_ID = "OPERATION_ID"
 const USER_ID ContextKey = "USER_ID"
 const LOG_LEVEL ContextKey = "LOG_LEVEL"
 const REQUEST_ID ContextKey = "REQUEST_ID"
@@ -34,6 +35,9 @@ const SEQUENCE_NO string = "sequence_no"
 const RESPONSE_PREFIX string = "_httpstatus"
 const AUTHORIZATION string = "Authorization"
 const ACCEPT string = "Accept"
+const CONTENT_TYPE_RESPONSE string = "_content_type_response"
+const BASIC_RESPONSE string = "_basic_response"
+const UPLOAD_RESPONSE string = "_upload_response"
 
 //Path initializers are run per path and can be used to configure routes that are not defined in the open api spec
 const METHODS_FOUND ContextKey = "_methods_found"

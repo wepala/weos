@@ -3,6 +3,9 @@ package rest_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/wepala/weos/model"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +19,7 @@ import (
 func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 
 	t.Run("application/x-www-form-urlencoded content type", func(t *testing.T) {
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Blog", nil, nil)
 		data := url.Values{}
 		data.Set("title", "Test Blog")
 		data.Set("url", "MyBlogUrl")
@@ -25,7 +29,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err := api.ConvertFormToJson(req, "application/x-www-form-urlencoded")
+		payload, err, _ := api.ConvertFormToJson(req, "application/x-www-form-urlencoded", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -50,6 +54,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 	})
 
 	t.Run("multipart/form-data content type", func(t *testing.T) {
+		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Blog", nil, nil)
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
 		writer.WriteField("title", "Test Blog")
@@ -59,7 +64,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err := api.ConvertFormToJson(req, "multipart/form-data")
+		payload, err, _ := api.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -159,3 +164,56 @@ func TestFiltersSplit(t *testing.T) {
 	})
 }
 
+func TestConvertStringToType(t *testing.T) {
+	tests := []struct {
+		desiredType string
+		format      string
+		input       string
+		output      interface{}
+	}{
+		{"number", "double", "100.5", 100.5},
+		{"number", "float", "100.5", 100.5},
+		{"number", "float", "1asdfasdf", errors.New("some error")},
+		{"integer", "", "5", 5},
+		{"integer", "int32", "5", int32(5)},
+		{"integer", "int64", "5", int64(5)},
+		{"boolean", "", "true", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("converting %s to type %s with format %s should return %v", tc.input, tc.desiredType, tc.format, tc.output), func(t *testing.T) {
+			value, err := api.ConvertStringToType(tc.desiredType, tc.format, tc.input)
+			//if the expected output is an error and one is not received then return test error
+			if _, ok := tc.output.(error); ok {
+				if err == nil {
+					t.Error("expected error to be returned")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error converting '%s'", err)
+				}
+
+				if value != tc.output {
+					t.Errorf("expected '%v', got '%v'", tc.output, value)
+				}
+			}
+		})
+	}
+}
+func TestGetJwkUrl(t *testing.T) {
+	t.Run("valid url but no jwk url present", func(t *testing.T) {
+		_, err := api.GetJwkUrl("https://google.com")
+		if err == nil {
+			t.Errorf("expected an error to returned for url: %s", "https://google.com")
+		}
+
+	})
+	t.Run("invalid url", func(t *testing.T) {
+		_, err := api.GetJwkUrl("jsisahudsdi")
+		if err == nil {
+			t.Errorf("expected an error to returned for url: %s", "jsisahudsdi")
+		}
+
+	})
+
+}

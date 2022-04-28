@@ -32,7 +32,7 @@ components:
     Auth0:
       type: openIdConnect
       openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
-      skipExpiryCheck: true
+      x-skip-expiry-check: true
   schemas:
     Category:
       type: object
