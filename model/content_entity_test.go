@@ -1,6 +1,8 @@
 package model_test
 
 import (
+	"crypto/sha256"
+	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -10,6 +12,8 @@ import (
 	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/sha3"
 	"golang.org/x/net/context"
 	"testing"
 	"time"
@@ -996,4 +1000,144 @@ func TestContentEntity_UpdateTime(t *testing.T) {
 	if tempPayload["lastUpdated"] == "" {
 		t.Fatalf("expected the lastupdated field to not be blank")
 	}
+}
+
+func TestContentEntity_Hash(t *testing.T) {
+
+	t.Run("bcrypt", func(t *testing.T) {
+		//load open api spec
+		swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog-hash.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error occured '%s'", err)
+		}
+		var contentType string
+		var contentTypeSchema *openapi3.SchemaRef
+		contentType = "Category"
+		contentTypeSchema = swagger.Components.Schemas[contentType]
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   contentType,
+			Schema: contentTypeSchema.Value,
+		})
+		ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+		builder := rest.CreateSchema(ctx, echo.New(), swagger)
+
+		category := make(map[string]interface{})
+		category["title"] = "Test"
+		category["description"] = "this is a bcrypt hash"
+		payload, err := json.Marshal(category)
+		if err != nil {
+			t.Fatalf("unexpected error marshalling payload '%s'", err)
+		}
+
+		entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Category"].Value, builder[contentType])
+		if err != nil {
+			t.Fatalf("unexpected error instantiating content entity '%s'", err)
+		}
+
+		entity.Init(ctx, payload)
+
+		if entity.Property == nil {
+			t.Fatal("expected item to be returned")
+		}
+
+		if entity.GetString("Title") == "" {
+			t.Errorf("expected there to be a field '%s' with value '%s' got '%s'", category["title"], " ", entity.GetString("Title"))
+		}
+
+		plain := category["description"].(string)
+
+		properties := entity.ToMap()
+		hashed := properties["description"].(*string)
+
+		errr := bcrypt.CompareHashAndPassword([]byte(*hashed), []byte(plain))
+		if errr != nil {
+			t.Fatalf("expected the hashed password to match. Err: %s, Hashed PW:  %s, Plaintext PW: %s", errr, []byte(entity.GetString("Description")), []byte(plain))
+		}
+	})
+
+	t.Run("base64, sha256, sha3-256, sha3-512", func(t *testing.T) {
+		//load open api spec
+		swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog-hash.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error occured '%s'", err)
+		}
+		var contentType string
+		var contentTypeSchema *openapi3.SchemaRef
+		contentType = "Author"
+		contentTypeSchema = swagger.Components.Schemas[contentType]
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
+			Name:   contentType,
+			Schema: contentTypeSchema.Value,
+		})
+		ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
+		builder := rest.CreateSchema(ctx, echo.New(), swagger)
+
+		author := make(map[string]interface{})
+		author["base"] = "this is a base64 hash"
+		author["firstName"] = "this is a sha256 hash"
+		author["lastName"] = "this is a sha3-256 hash"
+		author["email"] = "this is a sha3-512 hash"
+		payload, err := json.Marshal(author)
+		if err != nil {
+			t.Fatalf("unexpected error marshalling payload '%s'", err)
+		}
+
+		entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Author"].Value, builder[contentType])
+		if err != nil {
+			t.Fatalf("unexpected error instantiating content entity '%s'", err)
+		}
+
+		entity.Init(ctx, payload)
+
+		if entity.Property == nil {
+			t.Fatal("expected item to be returned")
+		}
+
+		base64_Plain := author["base"].(string)
+		sha256_Plain := author["firstName"].(string)
+		sha3_256_Plain := author["lastName"].(string)
+		sha3_512_Plain := author["email"].(string)
+
+		properties := entity.ToMap()
+		base64_Hashed := properties["base"].(*string)
+		sha256_Hashed := properties["firstName"].(*string)
+		sha3_256_Hashed := properties["lastName"].(*string)
+		sha3_512_Hashed := properties["email"].(*string)
+
+		//BASE64 Check
+		decb64, err := b64.URLEncoding.DecodeString(*base64_Hashed)
+		if err != nil {
+			t.Fatalf("unexpected error decoding hash: %s", err)
+		}
+		if string(decb64) != base64_Plain {
+			t.Fatalf("expected the decoded password to match. Err: %s, Decoded PW:  %s, Plaintext PW: %s", err, decb64, base64_Plain)
+		}
+
+		//SHA256 Check
+		hash := sha256.Sum256([]byte(sha256_Plain))
+		encSHA256 := b64.StdEncoding.EncodeToString(hash[:])
+
+		if encSHA256 != *sha256_Hashed {
+			t.Fatalf("expected the encoded password to match. Err: %s, Plain To Enc PW:  %s, Encoded PW: %s", err, encSHA256, *sha256_Hashed)
+		}
+
+		//SHA3-256 Check
+		hash = sha3.Sum256([]byte(sha3_256_Plain))
+		encSHA3256 := b64.StdEncoding.EncodeToString(hash[:])
+
+		if encSHA3256 != *sha3_256_Hashed {
+			t.Fatalf("expected the encoded password to match. Err: %s, Plain To Enc PW:  %s, Encoded PW: %s", err, encSHA3256, *sha3_256_Hashed)
+		}
+
+		//SHA3-512 Check
+		hash1 := sha3.Sum512([]byte(sha3_512_Plain))
+		encSHA3512 := b64.StdEncoding.EncodeToString(hash1[:])
+
+		if encSHA3512 != *sha3_512_Hashed {
+			t.Fatalf("expected the encoded password to match. Err: %s, Plain To Enc PW:  %s, Encoded PW: %s", err, encSHA3512, *sha3_512_Hashed)
+		}
+	})
+
 }

@@ -1,6 +1,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -9,6 +11,8 @@ import (
 	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/sha3"
 	"golang.org/x/net/context"
 	"reflect"
 	"strconv"
@@ -443,6 +447,12 @@ func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.
 
 func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
 	var err error
+
+	payload, err = w.GenerateHash(payload)
+	if err != nil {
+		return nil, err
+	}
+
 	//update default time update values based on routes
 	operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
 	if ok {
@@ -875,4 +885,59 @@ func (w *ContentEntity) UpdateTime(operationID string, data []byte) ([]byte, err
 	}
 
 	return newPayload, nil
+}
+
+func (w *ContentEntity) GenerateHash(payload []byte) ([]byte, error) {
+	if payload == nil {
+		return payload, fmt.Errorf("unexpected error: empty payload")
+	}
+
+	payloadMap := make(map[string]interface{})
+	err := json.Unmarshal(payload, &payloadMap)
+	if err != nil {
+		return payload, err
+	}
+
+	for name, prop := range w.Schema.Properties {
+		if prop.Value.Format != "" { //if the format is specified
+			switch prop.Value.Format {
+			case "bcrypt":
+				if payloadMap[name] != nil {
+					hash, errr := bcrypt.GenerateFromPassword([]byte(payloadMap[name].(string)), 14)
+					if errr != nil {
+						return payload, err
+					}
+					payloadMap[name] = string(hash)
+				}
+			case "base64":
+				if payloadMap[name] != nil {
+					hash := b64.StdEncoding.EncodeToString([]byte(payloadMap[name].(string)))
+					payloadMap[name] = hash
+				}
+			case "sha256":
+				if payloadMap[name] != nil {
+					hash := sha256.Sum256([]byte(payloadMap[name].(string)))
+					payloadMap[name] = b64.StdEncoding.EncodeToString(hash[:])
+				}
+			case "sha3-256":
+				if payloadMap[name] != nil {
+					hash := sha3.Sum256([]byte(payloadMap[name].(string)))
+					payloadMap[name] = b64.StdEncoding.EncodeToString(hash[:])
+				}
+			case "sha3-512":
+				if payloadMap[name] != nil {
+					hash := sha3.Sum512([]byte(payloadMap[name].(string)))
+					payloadMap[name] = b64.StdEncoding.EncodeToString(hash[:])
+				}
+			}
+		}
+
+	}
+
+	hashedPayload, err := json.Marshal(payloadMap)
+	if err != nil {
+		return payload, err
+	}
+
+	return hashedPayload, nil
 }
