@@ -11,9 +11,7 @@ import (
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
-	"os"
 	"reflect"
-	"time"
 )
 
 //Security adds authorization middleware to the initialize context
@@ -45,14 +43,21 @@ func Security(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (co
 			if err != nil {
 				return ctxt, fmt.Errorf("unexpected error getting Default gorm connection")
 			}
+			//get session secret
+			secret := "_some_secret"
+			if secretValue, ok := security.Value.Extensions[SecretExtension]; ok {
+				//if the secret is valid use that otherwise set the default
+				if secret, ok = secretValue.(string); !ok {
+					secret = "_some_secret"
+				}
+			}
 			// initialize and setup cleanup
-			store := gormstore.New(db, []byte(security.Value.Name))
+			store := gormstore.New(db, []byte(secret))
 			// db cleanup every hour
 			// close quit channel to stop cleanup
-			quit := make(chan struct{})
-			go store.PeriodicCleanup(1*time.Hour, quit)
+			//quit := make(chan struct{})
+			//go store.PeriodicCleanup(1*time.Hour, quit)
 			api.sessionStore = store
-			os.Setenv("session_name", security.Value.Name)
 		}
 	}
 	return ctxt, nil

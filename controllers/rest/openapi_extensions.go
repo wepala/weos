@@ -30,6 +30,12 @@ const SchemaExtension = "x-schema"
 //ProjectionExtension set custom projection
 const ProjectionExtension = "x-projections"
 
+//SecretExtension set secret
+const SecretExtension = "x-secret"
+
+//LoginURLExtension set login url
+const LoginURLExtension = "x-login-url"
+
 //CommandDispatcherExtension set custom command dispatcher
 const CommandDispatcherExtension = "x-command-dispatcher"
 

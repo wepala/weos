@@ -34,6 +34,8 @@ components:
       type: apiKey
       in: cookie
       name: JSESSIONID
+      x-secret: some secret
+      x-login-url: https://localhost:8681/login
   schemas:
     Category:
       type: object
@@ -225,6 +227,10 @@ paths:
                     type: string
           required: false
           description: query string
+        - in: cookie
+          name: oauth_token
+          schema:
+            type: string
       x-session:
         properties:
           oauth:

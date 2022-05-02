@@ -1029,6 +1029,40 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
+//CookieSecurityMiddleware setup cookie security middleware
+func CookieSecurityMiddleware(config *openapi3.SecuritySchemeRef) Middleware {
+	return func(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				//get the session store
+				store := api.GetSessionStore()
+				session, err := store.Get(c.Request(), config.Value.Name)
+				if err != nil {
+					c.Logger().Error("corrupted session '%s'", err)
+				}
+				if session == nil || err != nil {
+					//if there is a login url set let's take the user to that
+					if loginURL, ok := config.Value.Extensions[LoginURLExtension]; ok {
+						//if the secret is valid use that otherwise set the default
+						if turl, ok := loginURL.(string); !ok {
+							return c.Redirect(http.StatusTemporaryRedirect, turl)
+						}
+					}
+					//otherwise return the code
+					return c.NoContent(http.StatusUnauthorized)
+				}
+				//TODO add session variables to context based on config
+				for _, param := range operation.Parameters {
+					if param.Value != nil && param.Value.In == "cookie" {
+						//TODO check session for parameter and if available add to context
+					}
+				}
+				return nil
+			}
+		}
+	}
+}
+
 func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
