@@ -10,23 +10,19 @@ import (
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
-	"reflect"
-	"strconv"
 	"strings"
 	"time"
 )
 
 type ContentEntity struct {
 	AggregateRoot
-	Schema   *openapi3.Schema
-	Property interface{}
-	reader   ds.Reader
-	builder  ds.Builder
+	Schema  *openapi3.Schema
+	payload map[string]interface{}
 }
 
 //IsValid checks if the property is valid using the IsNull function
 func (w *ContentEntity) IsValid() bool {
-	if w.Property == nil {
+	if w.payload == nil {
 		return false
 	}
 	for _, req := range w.Schema.Required {
@@ -46,328 +42,56 @@ func (w *ContentEntity) IsValid() bool {
 }
 
 //IsEnumValid this loops over the properties of an entity, if the enum is not nil, it will validate if the option the user set is valid
-//If nullable == true, this means a blank string can be used as an option
-//If statements are structured around this ^ and covers different cases.
 func (w *ContentEntity) IsEnumValid() bool {
 	for k, property := range w.Schema.Properties {
 		nullFound := false
+		//used to indicate if the value passed is part of the enumeration
 		enumFound := false
-		enumOptions := EnumString(property.Value.Enum)
 
 		if property.Value.Enum != nil {
-			switch property.Value.Type {
-			case "string":
-				if property.Value.Format == "date-time" {
-					var enumProperty *time.Time
-					reader := ds.NewReader(w.Property)
-					isValid := reader.HasField(strings.Title(k))
-					if !isValid {
-						message := "this content entity does not contain the field: " + strings.Title(k)
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
+			var value interface{}
+			var ok bool
+
+			if value, ok = w.payload[k]; !ok && !property.Value.Nullable {
+				message := "this content entity does not contain the field: " + strings.Title(k)
+				w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+				return false
+			}
+			//if the property is nullable and one of the values is "null" then allow nil
+			if property.Value.Nullable {
+				for _, option := range property.Value.Enum {
+					if val, ok := option.(string); ok && val == "null" {
+						nullFound = true
+						break
 					}
-					if reader.GetField(strings.Title(k)).PointerTime() == nil {
-						enumProperty = nil
-					} else {
-						enumProperty = reader.GetField(strings.Title(k)).PointerTime()
-					}
+				}
+			}
 
-					//This checks if a "null" option was provided which is needed if nullable == true
-					for _, v := range property.Value.Enum {
-						switch reflect.TypeOf(v).String() {
-						case "string":
-							if v.(string) == "null" {
-								nullFound = true
-							}
-						}
-					}
-
-					//If nullable == true and null is found in the options
-					if property.Value.Nullable && nullFound == true {
-						//Assuming if the nullable is true, the user can pass a blank string
-						if enumProperty == nil {
-							enumFound = true
-							//The user may only use a blank string to indicate a null field, not the actual keyword
-						} else if enumFound == false {
-						findTimeEnum:
-							for _, v := range property.Value.Enum {
-								switch reflect.TypeOf(v).String() {
-								case "string":
-									currTime, _ := time.Parse("2006-01-02T15:04:00Z", v.(string))
-									enumFound = *enumProperty == currTime
-
-									if enumFound == true {
-										break findTimeEnum
-									}
-								}
-							}
-						}
-
-						if enumFound == false {
-							message := "invalid enumeration option provided. available options are: " + enumOptions + "(for the null option, use the keyword null(without quotes))"
-							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-							return false
-						}
-
-					} else if property.Value.Nullable == true && nullFound == false {
-						message := `"if nullable is set to true, "null" is needed as an enum option"`
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-
-					} else if property.Value.Nullable == false {
-						if enumProperty == nil || nullFound == true {
-							message := "nullable is set to false, cannot use null nor have it as an enum option."
-							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-							return false
-						}
-					findTimeEnum1:
+			//if it's nullable and the value is nil then we're good
+			enumFound = nullFound && value == nil
+			if !enumFound {
+				switch property.Value.Type {
+				case "string":
+					if property.Value.Format == "date-time" {
 						for _, v := range property.Value.Enum {
-							switch reflect.TypeOf(v).String() {
-							case "string":
-								currTime, _ := time.Parse("2006-01-02T15:04:00Z", v.(string))
-								enumFound = *enumProperty == currTime
-
-								if enumFound == true {
-									break findTimeEnum1
-								}
+							if val, ok := v.(string); ok {
+								currTime, _ := time.Parse("2006-01-02T15:04:00Z", val)
+								enumFound = value.(time.Time) == currTime
 							}
 						}
-						if enumFound == false {
-							message := "invalid enumeration option provided. available options are: " + enumOptions
-							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-							return false
-						}
 					}
-				} else {
-					//var enumProperty *string
-					enumProperty := w.GetString(strings.Title(k))
-
-					//This checks if a "null" option was provided which is needed if nullable == true
+				case "integer":
 					for _, v := range property.Value.Enum {
-						switch reflect.TypeOf(v).String() {
-						case "string":
-							if v.(string) == "null" {
-								nullFound = true
-							}
+						if val, ok := v.(int); ok {
+							enumFound = val == (int(value.(float64)))
 						}
 					}
-
-					//If nullable == true and null is found in the options
-					if property.Value.Nullable && nullFound == true {
-						//Assuming if the nullable is true, the user can pass a blank string
-						if enumProperty == "" {
-							enumFound = true
-							//The user may only use a blank string to indicate a null field, not the actual keyword
-						} else if enumFound == false {
-							for _, v := range property.Value.Enum {
-								enumFound = enumProperty == v.(string)
-								if enumFound == true {
-									break
-								}
-							}
-						}
-
-						if enumFound == false || enumProperty == "null" {
-							message := "invalid enumeration option provided. available options are: " + enumOptions + " (for the null option, use a blank string, or the keyword null(without quotes))"
-							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-							return false
-						}
-
-					} else if property.Value.Nullable == true && nullFound == false {
-						message := `"if nullable is set to true, "null" is needed as an enum option"`
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-
-					} else if property.Value.Nullable == false {
-						if enumProperty == "null" || enumProperty == "" || nullFound == true {
-							message := "nullable is set to false, cannot use null/blank string nor have it as an enum option."
-							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-							return false
-						}
-						for _, v := range property.Value.Enum {
-							enumFound = enumProperty == v.(string)
-							if enumFound == true {
-								break
-							}
-						}
-						if enumFound == false {
-							message := "invalid enumeration option provided. available options are: " + enumOptions
-							w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-							return false
-						}
-					}
-				}
-			case "integer":
-				var enumProperty *int
-				reader := ds.NewReader(w.Property)
-				isValid := reader.HasField(strings.Title(k))
-				if !isValid {
-					message := "this content entity does not contain the field: " + strings.Title(k)
-					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-					return false
-				}
-				if reader.GetField(strings.Title(k)).PointerInt() == nil {
-					enumProperty = nil
-				} else {
-					enumProperty = reader.GetField(strings.Title(k)).PointerInt()
-				}
-
-				//This checks if a "null" option was provided which is needed if nullable == true
-				for _, v := range property.Value.Enum {
-					switch reflect.TypeOf(v).String() {
-					case "string":
-						if v.(string) == "null" {
-							nullFound = true
-						}
-					}
-				}
-
-				//If nullable == true and null is found in the options
-				if property.Value.Nullable && nullFound == true {
-					//Assuming if the nullable is true, the user can pass a blank string
-					if enumProperty == nil {
-						enumFound = true
-					}
-
-					if enumFound == false {
-					findIntEnum:
-						for _, v := range property.Value.Enum {
-							switch reflect.TypeOf(v).String() {
-							case "string":
-								if v.(string) == "null" {
-									continue
-								}
-							case "float64":
-								enumFound = *enumProperty == (int(v.(float64)))
-
-								if enumFound == true {
-									break findIntEnum
-								}
-							}
-						}
-					}
-
-					if enumFound == false {
-						message := "invalid enumeration option provided. available options are: " + enumOptions + "(for the null option, use a blank string, or the keyword null(without quotes))"
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
-
-				} else if property.Value.Nullable == true && nullFound == false {
-					message := `"if nullable is set to true, "null" is needed as an enum option"`
-					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-					return false
-
-				} else if property.Value.Nullable == false {
-					if nullFound == true || enumProperty == nil {
-						message := "nullable is set to false, cannot use null nor have it as an enum option."
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
-
-				findIntEnum1:
+				case "number":
 					for _, v := range property.Value.Enum {
-						switch reflect.TypeOf(v).String() {
-						case "float64":
-							enumFound = *enumProperty == (int(v.(float64)))
-
-							if enumFound == true {
-								break findIntEnum1
-							}
+						if val, ok := v.(float64); ok {
+							enumFound = fmt.Sprintf("%.3f", val) == fmt.Sprintf("%.3f", value.(float64))
 						}
 					}
-				}
-
-				if enumFound == false {
-					message := "invalid enumeration option provided. available options are: " + enumOptions
-					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-					return false
-				}
-
-			case "number":
-				//enumProperty := w.GetNumber(strings.Title(k))
-				var enumProperty *float64
-				reader := ds.NewReader(w.Property)
-				isValid := reader.HasField(strings.Title(k))
-				if !isValid {
-					message := "this content entity does not contain the field: " + strings.Title(k)
-					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-					return false
-				}
-				if reader.GetField(strings.Title(k)).PointerFloat64() == nil {
-					enumProperty = nil
-				} else {
-					enumProperty = reader.GetField(strings.Title(k)).PointerFloat64()
-				}
-
-				//This checks if a "null" option was provided which is needed if nullable == true
-				for _, v := range property.Value.Enum {
-					switch reflect.TypeOf(v).String() {
-					case "string":
-						if v.(string) == "null" {
-							nullFound = true
-						}
-					}
-				}
-
-				//If nullable == true and null is found in the options
-				if property.Value.Nullable && nullFound == true {
-					//Assuming if the nullable is true, the user can pass a blank string
-					if enumProperty == nil {
-						enumFound = true
-					}
-
-					if enumFound == false {
-					findFloatEnum:
-						for _, v := range property.Value.Enum {
-							switch reflect.TypeOf(v).String() {
-							case "string":
-								if v.(string) == "null" {
-									continue
-								}
-							case "float64":
-								enumFound = fmt.Sprintf("%.3f", *enumProperty) == fmt.Sprintf("%.3f", v.(float64))
-
-								if enumFound == true {
-									break findFloatEnum
-								}
-							}
-						}
-					}
-
-					if enumFound == false {
-						message := "invalid enumeration option provided. available options are: " + enumOptions + "(for the null option, use a blank string, or the keyword null(without quotes))"
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
-
-				} else if property.Value.Nullable == true && nullFound == false {
-					message := `"if nullable is set to true, null is needed as an enum option"`
-					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-					return false
-
-				} else if property.Value.Nullable == false {
-					if enumProperty == nil || nullFound == true {
-						message := "nullable is set to false, cannot use null nor have it as an enum option."
-						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-						return false
-					}
-				findFloatEnum1:
-					for _, v := range property.Value.Enum {
-						switch reflect.TypeOf(v).String() {
-						case "float64":
-							enumFound = fmt.Sprintf("%.3f", *enumProperty) == fmt.Sprintf("%.3f", v.(float64))
-
-							if enumFound == true {
-								break findFloatEnum1
-							}
-						}
-					}
-				}
-				if enumFound == false {
-					message := "invalid enumeration option provided. available options are: " + enumOptions
-					w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-					return false
 				}
 			}
 		}
@@ -375,70 +99,12 @@ func (w *ContentEntity) IsEnumValid() bool {
 	return true
 }
 
-//EnumString takes the interface of enum options, ranges over them and concatenates it into one string
-//If the enum interface is empty, it will return a blank string
-func EnumString(enum []interface{}) string {
-	enumOptions := ""
-	if len(enum) > 0 {
-		for k, v := range enum {
-			switch v.(type) {
-			case string:
-				if k < len(enum)-1 {
-					enumOptions = enumOptions + v.(string) + ", "
-				} else if k == len(enum)-1 {
-					enumOptions = enumOptions + v.(string)
-				}
-			case float64:
-				if k < len(enum)-1 {
-					enumOptions = enumOptions + fmt.Sprintf("%g", v.(float64)) + ", "
-				} else if k == len(enum)-1 {
-					enumOptions = enumOptions + fmt.Sprintf("%g", v.(float64))
-				}
-			case bool:
-				if k < len(enum)-1 {
-					enumOptions = enumOptions + strconv.FormatBool(v.(bool)) + ", "
-				} else if k == len(enum)-1 {
-					enumOptions = enumOptions + strconv.FormatBool(v.(bool))
-				}
-			}
-
-		}
-		return enumOptions
-	}
-	return ""
-}
-
 //IsNull checks if the value of the property is null
 func (w *ContentEntity) IsNull(name string) bool {
-	reader := ds.NewReader(w.Property)
-	switch w.Schema.Properties[name].Value.Type {
-	case "string":
-		temp := reader.GetField(strings.Title(name)).PointerString()
-		if temp == nil {
-			return true
-		}
-	case "number":
-		temp := reader.GetField(strings.Title(name)).PointerFloat64()
-		if temp == nil {
-			return true
-		}
-	case "integer":
-		temp := reader.GetField(strings.Title(name)).PointerInt()
-		if temp == nil {
-			return true
-		}
+	if val, ok := w.payload[name]; ok {
+		return val == nil
 	}
-
-	return false
-}
-
-//FromSchemaAndBuilder the entity factor uses this to initialize the content entity
-func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.Schema, builder ds.Builder) (*ContentEntity, error) {
-	w.Schema = ref
-	w.builder = builder
-	w.Property = w.builder.Build().New()
-	w.reader = ds.NewReader(w.Property)
-	return w, nil
+	return true
 }
 
 func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
@@ -459,7 +125,7 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 	if err != nil {
 		return nil, err
 	}
-	eventPayload, err := json.Marshal(w.Property)
+	eventPayload, err := json.Marshal(w.payload)
 	if err != nil {
 		return nil, NewDomainError("error marshalling event payload", w.Schema.Title, w.ID, err)
 	}
@@ -472,11 +138,8 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 	return w, err
 }
 
-//Deprecated: this duplicates the work of making the dynamic struct builder. Use FromSchemaAndBuilder instead (this is used by the EntityFactory)
-//FromSchema builds properties from the schema
-func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
-	w.User.ID = weosContext.GetUser(ctx)
-	w.Schema = ref
+//GORMModel return model
+func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
 	identifiers := w.Schema.Extensions["x-identifier"]
 	instance := ds.NewStruct()
 	if identifiers == nil {
@@ -484,7 +147,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 		instance.AddField(name, uint(0), `json:"id"`)
 	}
 	relations := make(map[string]string)
-	for name, p := range ref.Properties {
+	for name, p := range w.Schema.Properties {
 		name = strings.Title(name)
 		if p.Ref != "" {
 			relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
@@ -543,13 +206,27 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 			}
 		}
 	}
-	w.Property = instance.Build().New()
-	w.reader = ds.NewReader(w.Property)
-	return w, nil
 
+	return instance.Build().New(), nil
 }
 
-//Deprecated: 02/01/2022 Use FromSchemaAndBulider then call SetValues
+//FromSchema builds properties from the schema
+func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
+	w.User.ID = weosContext.GetUser(ctx)
+	w.Schema = ref
+	//create map using properties and default values in schema
+	if w.payload == nil {
+		w.payload = make(map[string]interface{})
+	}
+	for _, property := range w.Schema.Properties {
+		w.payload[property.Value.Title] = nil
+		if property.Value.Default != nil {
+			w.payload[property.Value.Title] = property.Value.Default
+		}
+	}
+	return w, nil
+}
+
 //FromSchemaWithValues builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
 	w.FromSchema(ctx, schema)
@@ -581,7 +258,7 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 		w.ID = weosID
 	}
 
-	err = json.Unmarshal(payload, w.Property)
+	err = json.Unmarshal(payload, &w.payload)
 	if err != nil {
 		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
 	}
@@ -604,103 +281,62 @@ func (w *ContentEntity) Delete(deletedEntity json.RawMessage) (*ContentEntity, e
 
 //GetString returns the string property value stored of a given the property name
 func (w *ContentEntity) GetString(name string) string {
-	name = strings.Title(name)
-	if w.Property == nil {
-		return ""
+	if v, ok := w.payload[name]; ok {
+		if val, ok := v.(string); ok {
+			return val
+		}
 	}
-	isValid := w.reader.HasField(name)
-	if !isValid {
-		return ""
-	}
-	if w.reader.GetField(name).PointerString() == nil {
-		return ""
-	}
-	return *w.reader.GetField(name).PointerString()
+	return ""
 }
 
 //GetInteger returns the integer property value stored of a given the property name
 func (w *ContentEntity) GetInteger(name string) int {
-	name = strings.Title(name)
-	if w.Property == nil {
-		return 0
+	if v, ok := w.payload[name]; ok {
+		if val, ok := v.(int); ok {
+			return val
+		}
 	}
-	reader := ds.NewReader(w.Property)
-	isValid := reader.HasField(name)
-	if !isValid {
-		return 0
-	}
-	if reader.GetField(name).PointerInt() == nil {
-		return 0
-	}
-	return *reader.GetField(name).PointerInt()
+	return 0
 }
 
 //GetUint returns the unsigned integer property value stored of a given the property name
 func (w *ContentEntity) GetUint(name string) uint {
-	name = strings.Title(name)
-	if w.Property == nil {
-		return uint(0)
+	if v, ok := w.payload[name]; ok {
+		if val, ok := v.(uint); ok {
+			return val
+		}
 	}
-	reader := ds.NewReader(w.Property)
-	isValid := reader.HasField(name)
-	if !isValid {
-		return uint(0)
-	}
-	if reader.GetField(name).Uint() == uint(0) {
-		return uint(0)
-	}
-	return reader.GetField(name).Uint()
+	return 0
 }
 
 //GetBool returns the boolean property value stored of a given the property name
 func (w *ContentEntity) GetBool(name string) bool {
-	name = strings.Title(name)
-	if w.Property == nil {
-		return false
+	if v, ok := w.payload[name]; ok {
+		if val, ok := v.(bool); ok {
+			return val
+		}
 	}
-	reader := ds.NewReader(w.Property)
-	isValid := reader.HasField(name)
-	if !isValid {
-		return false
-	}
-	if reader.GetField(name).PointerBool() == nil {
-		return false
-	}
-	return *reader.GetField(name).PointerBool()
+	return false
 }
 
 //GetNumber returns the float64 property value stored of a given the property name
 func (w *ContentEntity) GetNumber(name string) float64 {
-	name = strings.Title(name)
-	if w.Property == nil {
-		return 0
+	if v, ok := w.payload[name]; ok {
+		if val, ok := v.(float64); ok {
+			return val
+		}
 	}
-	reader := ds.NewReader(w.Property)
-	isValid := reader.HasField(name)
-	if !isValid {
-		return 0
-	}
-	if reader.GetField(name).PointerFloat64() == nil {
-		return 0.0
-	}
-	return *reader.GetField(name).PointerFloat64()
+	return 0.0
 }
 
 //GetTime returns the time.Time property value stored of a given the property name
 func (w *ContentEntity) GetTime(name string) time.Time {
-	name = strings.Title(name)
-	if w.Property == nil {
-		return time.Time{}
+	if v, ok := w.payload[name]; ok {
+		if val, ok := v.(time.Time); ok {
+			return val
+		}
 	}
-	reader := ds.NewReader(w.Property)
-	isValid := reader.HasField(name)
-	if !isValid {
-		return time.Time{}
-	}
-	if reader.GetField(name).PointerTime() == nil {
-		return time.Time{}
-	}
-	return *reader.GetField(name).PointerTime()
+	return time.Time{}
 }
 
 //FromSchemaWithEvents create content entity using schema and events
@@ -731,7 +367,7 @@ func (w *ContentEntity) ApplyEvents(changes []*Event) error {
 				if err != nil {
 					return err
 				}
-				err = json.Unmarshal(change.Payload, &w.Property)
+				err = json.Unmarshal(change.Payload, &w.payload)
 				if err != nil {
 					return err
 				}
@@ -752,54 +388,12 @@ func (w *ContentEntity) ApplyEvents(changes []*Event) error {
 
 //ToMap return entity has a map
 func (w *ContentEntity) ToMap() map[string]interface{} {
-	result := make(map[string]interface{})
-	//get all fields and return the map
-	if w.reader != nil {
-		fields := w.reader.GetAllFields()
-		for _, field := range fields {
-			//check if the lowercase version of the field is the same as the schema and use the schema version instead
-			if originialFieldName, _ := w.GetOriginalFieldName(field.Name()); originialFieldName != "" {
-				//if the field is not a scalar then use marshalling
-				originalKey, propertyType := w.GetOriginalFieldName(field.Name())
-				switch propertyType {
-				case "array":
-					tvalue := []interface{}{}
-					value, _ := json.Marshal(field.Interface())
-					json.Unmarshal(value, &tvalue)
-					result[originalKey] = tvalue
-				case "object":
-					tvalue := make(map[string]interface{})
-					value, _ := json.Marshal(field.Interface())
-					json.Unmarshal(value, &tvalue)
-					result[originalKey] = tvalue
-				default:
-					result[originalKey] = field.Interface()
-				}
-
-			} else if originialFieldName == "" && strings.EqualFold(field.Name(), "id") {
-				result["id"] = field.Interface()
-			}
-		}
-	}
-
-	return result
-}
-
-//GetOriginalFieldName the original name of the field as defined in the schema (the field is Title cased when converted to struct)
-func (w *ContentEntity) GetOriginalFieldName(structName string) (string, string) {
-	if w.Schema != nil {
-		for key, _ := range w.Schema.Properties {
-			if strings.ToLower(key) == strings.ToLower(structName) {
-				return key, w.Schema.Properties[key].Value.Type
-			}
-		}
-	}
-	return "", ""
+	return w.payload
 }
 
 func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 	err := json.Unmarshal(data, &w.AggregateRoot)
-	err = json.Unmarshal(data, &w.Property)
+	err = json.Unmarshal(data, &w.payload)
 	return err
 }
 
@@ -835,7 +429,7 @@ func (w *ContentEntity) GenerateID(payload []byte) error {
 					return NewDomainError(errr, w.Schema.Title, "", nil)
 				}
 			} else if w.Schema.Properties[property].Value.Type == "integer" {
-				reader := ds.NewReader(w.Property)
+				reader := ds.NewReader(w.payload)
 				if w.Schema.Properties[property].Value.Format == "" && reader.GetField(strings.Title(property)).PointerInt() == nil {
 					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
 					return NewDomainError(errr, w.Schema.Title, "", nil)

@@ -199,7 +199,7 @@ func TestDomainService_Update(t *testing.T) {
 	}
 
 	existingBlog := &model.ContentEntity{}
-	existingBlog, err = existingBlog.FromSchemaAndBuilder(newContext, swagger.Components.Schemas[entityType].Value, builder[entityType])
+	existingBlog, err = existingBlog.FromSchema(newContext, swagger.Components.Schemas[entityType].Value)
 	if err != nil {
 		t.Errorf("unexpected error creating Blog: %s", err)
 	}

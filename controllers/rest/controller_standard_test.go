@@ -112,7 +112,7 @@ func TestStandardControllers_Create(t *testing.T) {
 			},
 			SequenceNo: 1,
 		},
-		Property: mockPayload,
+		payload: mockPayload,
 	}
 
 	projections := &ProjectionMock{
@@ -458,7 +458,7 @@ func TestStandardControllers_Update(t *testing.T) {
 	mockEntity := &model.ContentEntity{}
 	mockEntity.ID = weosId
 	mockEntity.SequenceNo = int64(1)
-	mockEntity.Property = mockBlog
+	mockEntity.payload = mockBlog
 
 	projection := &ProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
@@ -1382,7 +1382,7 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 			},
 			SequenceNo: 1,
 		},
-		Property: mockPayload,
+		payload: mockPayload,
 	}
 
 	projections := &ProjectionMock{
@@ -1543,7 +1543,7 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 			},
 			SequenceNo: 1,
 		},
-		Property: mockPayload,
+		payload: mockPayload,
 	}
 
 	projections := &ProjectionMock{
@@ -1697,7 +1697,7 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 	mockEntity := &model.ContentEntity{}
 	mockEntity.ID = weosId
 	mockEntity.SequenceNo = int64(1)
-	mockEntity.Property = mockBlog
+	mockEntity.payload = mockBlog
 
 	projection := &ProjectionMock{
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
@@ -1801,7 +1801,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		},
 	}
 	mockEntity := &model.ContentEntity{}
-	mockEntity.Property = mockBlog
+	mockEntity.payload = mockBlog
 
 	mockInterface := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "weos_id": "123456qwerty", "sequence_no": "1"}
 
@@ -1854,7 +1854,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 	})
 	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
 		mockEntity1 := &model.ContentEntity{}
-		mockEntity1.Property = mockBlog
+		mockEntity1.payload = mockBlog
 
 		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "sequence_no": "1"}
 
@@ -1907,7 +1907,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
 		mockEntity1 := &model.ContentEntity{}
-		mockEntity1.Property = mockBlog
+		mockEntity1.payload = mockBlog
 
 		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "weos_id": "123456qwerty", "id": "12", "sequence_no": "1"}
 

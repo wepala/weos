@@ -175,13 +175,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
 
-		reader := ds.NewReader(existingEntity.Property)
-		for _, f := range reader.GetAllFields() {
-			fmt.Print(f)
-			reader.GetValue()
-		}
-
-		existingEntityPayload, err := json.Marshal(existingEntity.Property)
+		existingEntityPayload, err := json.Marshal(existingEntity.payload)
 		if err != nil {
 			return nil, err
 		}
@@ -334,7 +328,7 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 			return nil, NewDomainError("error deleting entity. This is a stale item", entityType, entityID, nil)
 		}
 
-		existingEntityPayload, err := json.Marshal(existingEntity.Property)
+		existingEntityPayload, err := json.Marshal(existingEntity.payload)
 		if err != nil {
 			return nil, err
 		}
@@ -398,7 +392,7 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 
 func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntity) error {
 	entityFactory := GetEntityFactory(ctx)
-	reader := ds.NewReader(entity.Property)
+	reader := ds.NewReader(entity.payload)
 	for name, p := range entity.Schema.Properties {
 		uniquebytes, _ := json.Marshal(p.Value.Extensions["x-unique"])
 		if len(uniquebytes) != 0 {

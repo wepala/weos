@@ -498,12 +498,12 @@ func theIsCreated(contentType string, details *godog.Table) error {
 			return err
 		}
 		var resultdb *gorm.DB
-		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&entity.Property, "weos_id = ?", weosID)
-		//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.Property)
+		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&entity, "weos_id = ?", weosID)
+		//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.payload)
 		if resultdb.Error != nil {
 			return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
 		}
-		entityProperty = entity.Property
+		entityProperty = entity
 		contentEntity = entity.ToMap()
 		if contentEntity == nil {
 			return fmt.Errorf("unexpected error finding content type in db")

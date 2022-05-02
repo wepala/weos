@@ -35,12 +35,13 @@ func (p *GORMDB) DB() *gorm.DB {
 }
 
 func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-	scheme, err := entityFactory.NewEntity(ctxt)
+	contentEntity, err := entityFactory.NewEntity(ctxt)
 	if err != nil {
 		return nil, err
 	}
+	scheme, err := contentEntity.GORMModel(ctxt)
 	//pulling the primary keys from the schema in order to match with the keys given for searching
-	pks, _ := json.Marshal(scheme.Schema.Extensions["x-identifier"])
+	pks, _ := json.Marshal(contentEntity.Schema.Extensions["x-identifier"])
 	primaryKeys := []string{}
 	json.Unmarshal(pks, &primaryKeys)
 
@@ -65,11 +66,11 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 		}
 	}
 
-	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(scheme.Property, identifiers)
+	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(scheme, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	data, err := json.Marshal(scheme.Property)
+	data, err := json.Marshal(contentEntity.ToMap())
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +286,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error get a copy of the entity '%s'", err)
 					return err
 				}
-				eventPayload := entity.Property
+				eventPayload := entity.ToMap()
 				mapPayload := map[string]interface{}{}
 				err = json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
@@ -316,7 +317,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error creating entity '%s'", err)
 					return err
 				}
-				eventPayload := entity.Property
+				eventPayload := entity.ToMap()
 				mapPayload := map[string]interface{}{}
 				err = json.Unmarshal(event.Payload, &mapPayload)
 				if err != nil {
@@ -364,7 +365,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					return err
 				}
 
-				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.Property)
+				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.GORMModel(context.TODO()))
 				if db.Error != nil {
 					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -381,12 +382,12 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 		return nil, err
 	}
 
-	result := p.db.Table(entityFactory.TableName()).Find(newEntity.Property, "weos_id = ? ", weosID)
+	result := p.db.Table(entityFactory.TableName()).Find(newEntity, "weos_id = ? ", weosID)
 	if result.Error != nil {
 		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
 	}
 	//set result to entity
-	rowData, err := json.Marshal(newEntity.Property)
+	rowData, err := json.Marshal(newEntity.ToMap())
 	if err != nil {
 		return nil, err
 	}

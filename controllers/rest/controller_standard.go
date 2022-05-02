@@ -274,7 +274,7 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 			entity := map[string]interface{}{}
 			result.ID = ""
 			result.SequenceNo = 0
-			bytes, err := json.Marshal(result.Property)
+			bytes, err := json.Marshal(result)
 			if err != nil {
 				return err
 			}
@@ -419,7 +419,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 					result["sequence_no"] = r.SequenceNo
 					err = er
 					if err == nil && r.SequenceNo < int64(seqInt) && etag != "" { //if the etag is set then let's return the header
-						return ctxt.JSON(http.StatusNotModified, r.Property)
+						return ctxt.JSON(http.StatusNotModified, r.ToMap())
 					}
 				} else {
 					//get entity by entity_id

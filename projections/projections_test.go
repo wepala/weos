@@ -919,7 +919,6 @@ components:
 					ID: "123456",
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -1033,7 +1032,6 @@ components:
 					ID: "123456",
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -1054,7 +1052,6 @@ components:
 					ID: "1234567",
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt = context.Background()
@@ -1180,7 +1177,6 @@ components:
 					ID: id,
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -1286,7 +1282,6 @@ components:
 					ID: blogWeosID,
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -1341,7 +1336,6 @@ components:
 					ID: blogWeosID,
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt = context.Background()
@@ -2062,7 +2056,6 @@ components:
 					ID: "123456",
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -3994,7 +3987,6 @@ components:
 					ID: id,
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -4568,7 +4560,6 @@ func TestMetaProjection_GetContentEntity(t *testing.T) {
 				entity := &weos.ContentEntity{}
 				properties := make(map[string]interface{})
 				properties["title"] = "Test"
-				entity.Property = properties
 				return entity, nil
 			}
 			return nil, nil
@@ -4581,7 +4572,6 @@ func TestMetaProjection_GetContentEntity(t *testing.T) {
 				entity := &weos.ContentEntity{}
 				properties := make(map[string]interface{})
 				properties["title"] = "Bar"
-				entity.Property = properties
 				return entity, nil
 			}
 

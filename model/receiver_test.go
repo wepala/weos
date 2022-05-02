@@ -190,7 +190,6 @@ func TestUpdateContentType(t *testing.T) {
 			},
 			SequenceNo: int64(0),
 		},
-		Property: existingPayload,
 	}
 	event := model.NewEntityEvent("update", existingBlog, existingBlog.ID, existingPayload)
 	existingBlog.NewChange(event)
@@ -300,7 +299,6 @@ func TestDeleteContentType(t *testing.T) {
 			},
 			SequenceNo: int64(0),
 		},
-		Property: existingPayload,
 	}
 	event := model.NewEntityEvent("delete", existingBlog, existingBlog.ID, existingPayload)
 	existingBlog.NewChange(event)

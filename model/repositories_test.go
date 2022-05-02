@@ -33,7 +33,6 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 			},
 			SequenceNo: int64(0),
 		},
-		Property: mockPayload1,
 	}
 	event1 := model.NewEntityEvent("create", entity1, "12345", mockPayload1)
 	entity1.NewChange(event1)
@@ -46,7 +45,6 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 			},
 			SequenceNo: int64(0),
 		},
-		Property: mockPayload2,
 	}
 	event2 := model.NewEntityEvent("create", entity2, "123456", mockPayload2)
 	entity2.NewChange(event2)
@@ -59,7 +57,6 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 			},
 			SequenceNo: int64(0),
 		},
-		Property: mockPayload3,
 	}
 	event3 := model.NewEntityEvent("create", entity3, "1234567", mockPayload3)
 	entity3.NewChange(event3)

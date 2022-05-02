@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
 	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
@@ -36,10 +35,6 @@ func TestContentEntity_FromSchema(t *testing.T) {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
 
-	if entity.Property == nil {
-		t.Fatal("expected item to be returned")
-	}
-
 	if entity.GetString("Title") != "" {
 		t.Errorf("expected there to be a field '%s' with value '%s' got '%s'", "Title", " ", entity.GetString("Title"))
 	}
@@ -61,7 +56,6 @@ func TestContentEntity_Init(t *testing.T) {
 		Schema: contentTypeSchema.Value,
 	})
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
-	builder := rest.CreateSchema(ctx, echo.New(), swagger)
 
 	blog := make(map[string]interface{})
 	blog["title"] = "Test"
@@ -70,19 +64,15 @@ func TestContentEntity_Init(t *testing.T) {
 		t.Fatalf("unexpected error marshalling payload '%s'", err)
 	}
 
-	entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, builder[contentType])
+	entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
 	if err != nil {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
 
 	entity.Init(ctx, payload)
 
-	if entity.Property == nil {
-		t.Fatal("expected item to be returned")
-	}
-
-	if entity.GetString("Title") == "" {
-		t.Errorf("expected there to be a field '%s' with value '%s' got '%s'", blog["title"], " ", entity.GetString("Title"))
+	if entity.GetString("title") == "" {
+		t.Errorf("expected there to be a field '%s' with value '%s' got '%s'", blog["title"], " ", entity.GetString("title"))
 	}
 }
 
@@ -112,11 +102,8 @@ func TestContentEntity_IsValid(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error instantiating content entity '%s'", err)
 		}
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
 
-		if entity.GetString("Title") != "test 1" {
+		if entity.GetString("title") != "test 1" {
 			t.Errorf("expected the title to be '%s', got '%s'", "test 1", entity.GetString("Title"))
 		}
 		isValid := entity.IsValid()
@@ -158,7 +145,6 @@ func TestContentEntity_Update(t *testing.T) {
 	ctx := context.Background()
 	contentType := "Blog"
 	schema := swagger.Components.Schemas[contentType].Value
-	builder := rest.CreateSchema(ctx, echo.New(), swagger)
 
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
 
@@ -168,14 +154,14 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
 	existingEntity := &model.ContentEntity{}
-	existingEntity, err = existingEntity.FromSchemaAndBuilder(ctx, schema, builder[contentType])
+	existingEntity, err = existingEntity.FromSchema(ctx, schema)
 	err = existingEntity.SetValueFromPayload(ctx, payload)
 	if err != nil {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
 
-	if existingEntity.GetString("Title") != "test 1" {
-		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("Title"))
+	if existingEntity.GetString("title") != "test 1" {
+		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("title"))
 	}
 
 	updatedBlog := map[string]interface{}{"title": "Updated title", "description": "Updated Description", "url": "www.UpdatedBlog.com"}
@@ -189,12 +175,12 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Fatalf("unexpected error updating existing entity '%s'", err)
 	}
 
-	if updatedEntity.GetString("Title") != "Updated title" {
-		t.Errorf("expected the updated title to be '%s', got '%s'", "Updated title", existingEntity.GetString("Title"))
+	if updatedEntity.GetString("title") != "Updated title" {
+		t.Errorf("expected the updated title to be '%s', got '%s'", "Updated title", existingEntity.GetString("title"))
 	}
 
-	if updatedEntity.GetString("Description") != "Updated Description" {
-		t.Errorf("expected the updated description to be '%s', got '%s'", "Updated Description", existingEntity.GetString("Description"))
+	if updatedEntity.GetString("description") != "Updated Description" {
+		t.Errorf("expected the updated description to be '%s', got '%s'", "Updated Description", existingEntity.GetString("description"))
 	}
 }
 
@@ -254,10 +240,6 @@ func TestContentEntity_FromSchemaWithEvents(t *testing.T) {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
 
-	if entity.Property == nil {
-		t.Fatal("expected item to be returned")
-	}
-
 	if entity.GetString("Title") != "" {
 		t.Errorf("expected there to be a field '%s' with value '%s' got '%s'", "Title", " ", entity.GetString("Title"))
 	}
@@ -285,10 +267,6 @@ func TestContentEntity_ToMap(t *testing.T) {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
 
-	if entity.Property == nil {
-		t.Fatal("expected item to be returned")
-	}
-
 	result := entity.ToMap()
 	if err != nil {
 		t.Fatalf("unexpected error getting map '%s'", err)
@@ -296,33 +274,6 @@ func TestContentEntity_ToMap(t *testing.T) {
 
 	if _, ok := result["title"]; !ok {
 		t.Errorf("expected '%s' to be in map", "title")
-	}
-}
-
-func TestContentEntity_GetOriginalFieldName(t *testing.T) {
-	//load open api spec
-	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
-	if err != nil {
-		t.Fatalf("unexpected error occured '%s'", err)
-	}
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	contentType = "Blog"
-	contentTypeSchema = swagger.Components.Schemas[contentType]
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-		Name:   contentType,
-		Schema: contentTypeSchema.Value,
-	})
-	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
-
-	entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
-	if err != nil {
-		t.Fatalf("unexpected error instantiating content entity '%s'", err)
-	}
-	originalName, _ := entity.GetOriginalFieldName("Title")
-	if originalName != "title" {
-		t.Errorf("expected the original field name for '%s' to be '%s', got '%s'", "Title", "title", originalName)
 	}
 }
 
@@ -392,8 +343,8 @@ func TestContentEntity_Delete(t *testing.T) {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
 
-	if existingEntity.GetString("Title") != "test 1" {
-		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("Title"))
+	if existingEntity.GetString("title") != "test 1" {
+		t.Errorf("expected the title to be '%s', got '%s'", "test 1", existingEntity.GetString("title"))
 	}
 
 	deletedEntity, err := existingEntity.Delete(payload)
@@ -401,12 +352,12 @@ func TestContentEntity_Delete(t *testing.T) {
 		t.Fatalf("unexpected error updating existing entity '%s'", err)
 	}
 
-	if deletedEntity.GetString("Title") != "test 1" {
-		t.Errorf("expected the updated title to be '%s', got '%s'", "test 1", deletedEntity.GetString("Title"))
+	if deletedEntity.GetString("title") != "test 1" {
+		t.Errorf("expected the updated title to be '%s', got '%s'", "test 1", deletedEntity.GetString("title"))
 	}
 
-	if deletedEntity.GetString("Description") != "New Description" {
-		t.Errorf("expected the updated description to be '%s', got '%s'", "New Description", deletedEntity.GetString("Description"))
+	if deletedEntity.GetString("description") != "New Description" {
+		t.Errorf("expected the updated description to be '%s', got '%s'", "New Description", deletedEntity.GetString("description"))
 	}
 
 	delEvents := deletedEntity.AggregateRoot.GetNewChanges()
@@ -458,10 +409,6 @@ func TestContentEntity_EnumerationString(t *testing.T) {
 			t.Errorf("expected the title on the entity to be '%s', got '%s'", "", entity.GetString("status"))
 		}
 
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
-
 		isValid := entity.IsValid()
 		if !isValid {
 			t.Fatalf("unexpected error expected entity to be valid got invalid")
@@ -485,10 +432,6 @@ func TestContentEntity_EnumerationString(t *testing.T) {
 			t.Fatalf("error setting Payload '%s'", err)
 		}
 
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
-
 		isValid := entity.IsValid()
 		if isValid {
 			t.Fatalf("expected entity to be invalid")
@@ -510,10 +453,6 @@ func TestContentEntity_EnumerationString(t *testing.T) {
 		err = entity.SetValueFromPayload(context.TODO(), payload)
 		if err != nil {
 			t.Fatalf("error setting Payload '%s'", err)
-		}
-
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
 		}
 
 		isValid := entity.IsValid()
@@ -569,10 +508,6 @@ func TestContentEntity_EnumerationString2(t *testing.T) {
 			t.Fatalf("error setting Payload '%s'", err)
 		}
 
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
-
 		isValid := entity.IsValid()
 		if isValid {
 			t.Fatalf("expected entity to be invalid")
@@ -594,10 +529,6 @@ func TestContentEntity_EnumerationString2(t *testing.T) {
 		err = entity.SetValueFromPayload(context.TODO(), payload)
 		if err != nil {
 			t.Fatalf("error setting Payload '%s'", err)
-		}
-
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
 		}
 
 		isValid := entity.IsValid()
@@ -643,10 +574,6 @@ func TestContentEntity_EnumerationInteger(t *testing.T) {
 			t.Errorf("expected the status on the entity to be '%d', got '%v'", 0, entity.GetInteger("status"))
 		}
 
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
-
 		isValid := entity.IsValid()
 		if !isValid {
 			t.Fatalf("unexpected error expected entity to be valid got invalid")
@@ -678,10 +605,6 @@ func TestContentEntity_EnumerationInteger(t *testing.T) {
 			t.Errorf("expected the status on the entity to be '%d', got '%v'", 1, entity.GetInteger("Status"))
 		}
 
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
-
 		isValid := entity.IsValid()
 		if !isValid {
 			t.Fatalf("unexpected error expected entity to be valid got invalid")
@@ -703,10 +626,6 @@ func TestContentEntity_EnumerationInteger(t *testing.T) {
 		err = entity.SetValueFromPayload(context.TODO(), payload)
 		if err != nil {
 			t.Fatalf("error setting Payload '%s'", err)
-		}
-
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
 		}
 
 		isValid := entity.IsValid()
@@ -752,10 +671,6 @@ func TestContentEntity_EnumerationDateTime(t *testing.T) {
 			t.Fatalf("expected status time to be %s got %s", tt, entity.GetTime("Status"))
 		}
 
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
-
 		isValid := entity.IsValid()
 		if !isValid {
 			t.Fatalf("unexpected error expected entity to be valid got invalid")
@@ -777,10 +692,6 @@ func TestContentEntity_EnumerationDateTime(t *testing.T) {
 		err = entity.SetValueFromPayload(context.TODO(), payload)
 		if err != nil {
 			t.Fatalf("error setting Payload '%s'", err)
-		}
-
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
 		}
 
 		isValid := entity.IsValid()
@@ -826,10 +737,6 @@ func TestContentEntity_EnumerationFloat(t *testing.T) {
 			t.Errorf("expected the status on the entity to be '%f', got '%v'", 0.0, entity.GetNumber("status"))
 		}
 
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
-
 		isValid := entity.IsValid()
 		if !isValid {
 			t.Fatalf("unexpected error expected entity to be valid got invalid")
@@ -861,10 +768,6 @@ func TestContentEntity_EnumerationFloat(t *testing.T) {
 			t.Errorf("expected the status on the entity to be '%f', got '%v'", 1.5, entity.GetNumber("Status"))
 		}
 
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
-		}
-
 		isValid := entity.IsValid()
 		if !isValid {
 			t.Fatalf("unexpected error expected entity to be valid got invalid")
@@ -886,10 +789,6 @@ func TestContentEntity_EnumerationFloat(t *testing.T) {
 		err = entity.SetValueFromPayload(context.TODO(), payload)
 		if err != nil {
 			t.Fatalf("error setting Payload '%s'", err)
-		}
-
-		if entity.Property == nil {
-			t.Fatal("expected item to be returned")
 		}
 
 		isValid := entity.IsValid()
