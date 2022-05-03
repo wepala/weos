@@ -60,6 +60,9 @@ Feature: Edit content
              lastUpdated:
                type: string
                format: date-time
+             hashed:
+               type: string
+               format: sha3-256
            required:
              - title
            x-identifier:
@@ -187,9 +190,10 @@ Feature: Edit content
                description: Blog Deleted
      """
      And blogs in the api
-       | id    | weos_id        | sequence_no | title        | description    |
-       | 1234  | 986888285      | 1           | Blog 1       | Some Blog      |
-       | 4567  | 5uhq85nal      | 1           | Blog 2       | Some Blog 2    |
+       | id    | weos_id        | sequence_no | title        | description    | hashed|
+       | 1234  | 986888285      | 1           | Blog 1       | Some Blog      |       |
+       | 4567  | 5uhq85nal      | 1           | Blog 2       | Some Blog 2    |       |
+       | 9999  | 5uhq85nqa      | 1           | Blog 3       | Some Blog 3    | hash1 |
      And the service is running
      
    Scenario: Edit item
@@ -232,3 +236,19 @@ Feature: Edit content
      And a header "If-Match" with value "24Yx83eVlFvxXg8BkASkh58kdUQ.1"
      When the "Blog" is submitted
      Then a 412 response should be returned
+
+  @WEOS-1399
+  Scenario: Edit item
+
+  Updating an item leads to a new sequence no. being created and returned. Also updating hashed field
+
+    Given "Sojourner" is on the "Blog" edit screen with id "9999"
+    And "Sojourner" enters "Some New Title" in the "title" field
+    And "Sojourner" enters "Some Description" in the "description" field
+    And "Sojourner" enters "updated hashed field" in the "hashed" field
+    When the "Blog" is submitted
+    Then a 200 response should be returned
+    And the "ETag" header should be "<Generated ID>.2"
+    And the "Blog" is updated
+      | title          | description                       | hashed                                             |
+      | Some New Title | Some Description                  | YcNfr01a/55AwAoHQZHg29TxZXPYKYSHvtNYjZDGw7E=       |
