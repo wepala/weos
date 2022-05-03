@@ -73,8 +73,14 @@ components:
         description:
           type: string
         cost:
-          type: number
-          format: double
+          type: string
+          format: base64
+        sha:
+          type: string
+          format: sha256
+        sha3:
+          type: string
+          format: sha3-512
         status:
           type: string
           nullable: true

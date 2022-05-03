@@ -600,6 +600,13 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 }
 
 func (w *ContentEntity) Update(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
+	var err error
+
+	payload, err = w.GenerateHash(payload)
+	if err != nil {
+		return nil, err
+	}
+
 	event := NewEntityEvent("update", w, w.ID, payload)
 	w.NewChange(event)
 	return w, w.ApplyEvents([]*Event{event})
