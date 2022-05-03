@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections"
 	"io"
 	"io/ioutil"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -591,6 +593,89 @@ func TestIntegration_FilteringByCamelCase(t *testing.T) {
 		}
 		if len(resultAuthor.Items) != 1 {
 			t.Errorf("expected number of items to be %d got %d ", 1, len(resultAuthor.Items))
+		}
+
+	})
+}
+
+func TestIntegration_Security(t *testing.T) {
+	dropDB()
+	content, err := ioutil.ReadFile("./controllers/rest/fixtures/blog-security.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentString := string(content)
+	contentString = fmt.Sprintf(contentString, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+
+	tapi, err := api.New(contentString)
+	if err != nil {
+		t.Fatalf("unexpected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("unexpected error loading spec '%s'", err)
+	}
+
+	e = tapi.EchoInstance()
+
+	title := "example"
+	url := "www.example.com"
+	//create blog
+	blog := map[string]interface{}{
+		"title": title,
+		"url":   url,
+	}
+	reqBytes, err := json.Marshal(blog)
+	if err != nil {
+		t.Fatalf("error setting up request %s", err)
+	}
+	body := bytes.NewReader(reqBytes)
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+	header = http.Header{}
+	token = os.Getenv("OAUTH_TEST_KEY")
+	header.Set(weosContext.AUTHORIZATION, "Bearer "+token)
+	header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header = header
+	req.Close = true
+	e.ServeHTTP(resp, req)
+
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected to get status %d creating fixtures, got %d", http.StatusCreated, resp.Result().StatusCode)
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var blogR map[string]interface{}
+	err = json.Unmarshal(bodyBytes, &blogR)
+	if err != nil {
+		t.Fatalf("unexpected error unmarshalling response body %s", err)
+	}
+
+	t.Run("Create a tag without having security on nested endpoint", func(t *testing.T) {
+
+		tag := map[string]interface{}{
+			"title":       "first tag",
+			"description": "first tag ever",
+		}
+
+		reqBytes, err = json.Marshal(tag)
+		if err != nil {
+			t.Fatalf("error setting up request %s", err)
+		}
+		body = bytes.NewReader(reqBytes)
+		resp = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodPost, "/blogs/"+strconv.Itoa(int(blogR["id"].(float64)))+"/tags", body)
+		header = http.Header{}
+		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		req.Header = header
+		req.Close = true
+		e.ServeHTTP(resp, req)
+
+		if resp.Result().StatusCode != http.StatusCreated {
+			t.Fatalf("expected to get status %d creating tag, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
 
 	})
