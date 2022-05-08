@@ -34,12 +34,11 @@ func (p *GORMDB) DB() *gorm.DB {
 	return p.db
 }
 
-func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
 	contentEntity, err := entityFactory.NewEntity(ctxt)
 	if err != nil {
 		return nil, err
 	}
-	scheme, err := contentEntity.GORMModel(ctxt)
 	//pulling the primary keys from the schema in order to match with the keys given for searching
 	pks, _ := json.Marshal(contentEntity.Schema.Extensions["x-identifier"])
 	primaryKeys := []string{}
@@ -66,17 +65,11 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 		}
 	}
 
-	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(scheme, identifiers)
+	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(&contentEntity, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
-	data, err := json.Marshal(contentEntity.ToMap())
-	if err != nil {
-		return nil, err
-	}
-	val := map[string]interface{}{}
-	json.Unmarshal(data, &val)
-	return val, nil
+	return contentEntity, nil
 
 }
 
@@ -430,8 +423,32 @@ func (p *GORMDB) GetContentEntities(ctx context.Context, entityFactory weos.Enti
 	return entities, count, result.Error
 }
 
-func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-	results := entityFactory.Builder(ctxt).Build().NewSliceOfStructs()
+//GetList returns a list of content entities as well as the total found
+func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*weos.ContentEntity, int64, error) {
+	var count int64
+	var result *gorm.DB
+	var schemes []*weos.ContentEntity
+	if entityFactory == nil {
+		return nil, int64(0), fmt.Errorf("no entity factory found")
+	}
+	scheme, err := entityFactory.NewEntity(ctx)
+	var filtersProp map[string]FilterProperty
+	props, _ := json.Marshal(filterOptions)
+	json.Unmarshal(props, &filtersProp)
+	filtersProp, err = DateTimeCheck(entityFactory, filtersProp)
+	if err != nil {
+		return nil, int64(0), err
+	}
+	model, err := scheme.GORMModel(ctx)
+	result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+	if err != nil {
+		return nil, 0, err
+	}
+	return schemes, count, result.Error
+}
+
+func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
+	var results []*weos.ContentEntity
 	result := p.db.Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
 	if result.Error != nil {
 		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
@@ -440,9 +457,9 @@ func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.Entity
 	if err != nil {
 		return nil, err
 	}
-	var entities []map[string]interface{}
-	json.Unmarshal(bytes, &entities)
-	return entities, nil
+	var entities []*weos.ContentEntity
+	err = json.Unmarshal(bytes, &entities)
+	return entities, err
 }
 
 //DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date

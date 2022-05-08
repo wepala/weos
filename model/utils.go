@@ -77,3 +77,12 @@ func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawM
 	bytes, err = json.Marshal(payload)
 	return bytes, err
 }
+
+func InList(list []string, value string) bool {
+	for _, v := range list {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}

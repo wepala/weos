@@ -108,7 +108,7 @@ func TestContentEntity_IsValid(t *testing.T) {
 		}
 		isValid := entity.IsValid()
 		if !isValid {
-			t.Fatalf("unexpected error expected entity to be valid got invalid")
+			t.Fatalf("unexpected error expected entity to be valid got invalid '%s'", entity.GetErrors()[0])
 		}
 	})
 	t.Run("Testing with a missing required field that is nullable: title", func(t *testing.T) {
@@ -294,9 +294,11 @@ func TestContentEntity_SetValueFromPayload(t *testing.T) {
 	payloadData := &struct {
 		Title string  `json:"title"`
 		Cost  float64 `json:"cost"`
+		Url   string  `json:"url"`
 	}{
 		Title: "Test Blog",
 		Cost:  45.00,
+		Url:   "https://wepala.com",
 	}
 	payload, err := json.Marshal(payloadData)
 	if err != nil {
@@ -473,10 +475,11 @@ func TestContentEntity_EnumerationString(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err = entity.SetValueFromPayload(context.TODO(), payload)
-		if err == nil {
-			t.Fatalf("Expected there to be an unmarshall error")
+		_ = entity.SetValueFromPayload(context.TODO(), payload)
+		if entity.IsValid() {
+			t.Fatalf("expected entity to be invalid")
 		}
+
 	})
 }
 
@@ -576,7 +579,7 @@ func TestContentEntity_EnumerationInteger(t *testing.T) {
 
 		isValid := entity.IsValid()
 		if !isValid {
-			t.Fatalf("unexpected error expected entity to be valid got invalid")
+			t.Fatalf("unexpected error expected entity to be valid got invalid '%s'", entity.GetErrors()[0])
 		}
 	})
 	t.Run("Testing enum with all the required fields -status1", func(t *testing.T) {
@@ -601,13 +604,13 @@ func TestContentEntity_EnumerationInteger(t *testing.T) {
 			t.Errorf("expected the title on the entity to be '%s', got '%s'", "test 1", entity.GetString("title"))
 		}
 
-		if entity.GetInteger("Status") != 1 {
-			t.Errorf("expected the status on the entity to be '%d', got '%v'", 1, entity.GetInteger("Status"))
+		if entity.GetInteger("status") != 1 {
+			t.Errorf("expected the status on the entity to be '%d', got '%v'", 1, entity.GetInteger("status"))
 		}
 
 		isValid := entity.IsValid()
 		if !isValid {
-			t.Fatalf("unexpected error expected entity to be valid got invalid")
+			t.Fatalf("unexpected error expected entity to be valid got invalid '%s'", entity.GetErrors()[0])
 		}
 	})
 	t.Run("Testing enum with wrong option -status3", func(t *testing.T) {
@@ -667,13 +670,13 @@ func TestContentEntity_EnumerationDateTime(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if entity.GetTime("Status") != tt {
-			t.Fatalf("expected status time to be %s got %s", tt, entity.GetTime("Status"))
+		if entity.GetTime("status") != tt {
+			t.Fatalf("expected status time to be %s got %s", tt, entity.GetTime("status"))
 		}
 
 		isValid := entity.IsValid()
 		if !isValid {
-			t.Fatalf("unexpected error expected entity to be valid got invalid")
+			t.Fatalf("unexpected error expected entity to be valid got invalid '%s'", entity.GetErrors()[0])
 		}
 	})
 	t.Run("Testing enum with wrong option", func(t *testing.T) {
@@ -718,7 +721,7 @@ func TestContentEntity_EnumerationFloat(t *testing.T) {
 			t.Fatalf("error generating entity '%s'", err)
 		}
 
-		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": nil}
+		mockBlog := map[string]interface{}{"id": "123123", "title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": nil}
 		payload, err := json.Marshal(mockBlog)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
@@ -739,7 +742,7 @@ func TestContentEntity_EnumerationFloat(t *testing.T) {
 
 		isValid := entity.IsValid()
 		if !isValid {
-			t.Fatalf("unexpected error expected entity to be valid got invalid")
+			t.Fatalf("unexpected error expected entity to be valid got invalid '%s'", entity.GetErrors()[0])
 		}
 	})
 	t.Run("Testing enum with all the required fields -status1", func(t *testing.T) {
@@ -749,7 +752,7 @@ func TestContentEntity_EnumerationFloat(t *testing.T) {
 			t.Fatalf("error generating entity '%s'", err)
 		}
 
-		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": 1.5}
+		mockBlog := map[string]interface{}{"id": "123", "title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": 1.5}
 		payload, err := json.Marshal(mockBlog)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
@@ -764,13 +767,13 @@ func TestContentEntity_EnumerationFloat(t *testing.T) {
 			t.Errorf("expected the title on the entity to be '%s', got '%s'", "test 1", entity.GetString("title"))
 		}
 
-		if entity.GetNumber("Status") != 1.5 {
-			t.Errorf("expected the status on the entity to be '%f', got '%v'", 1.5, entity.GetNumber("Status"))
+		if entity.GetNumber("status") != 1.5 {
+			t.Errorf("expected the status on the entity to be '%f', got '%v'", 1.5, entity.GetNumber("status"))
 		}
 
 		isValid := entity.IsValid()
 		if !isValid {
-			t.Fatalf("unexpected error expected entity to be valid got invalid")
+			t.Fatalf("unexpected error expected entity to be valid got invalid '%s'", entity.GetErrors()[0])
 		}
 	})
 	t.Run("Testing enum with wrong option -status3", func(t *testing.T) {
@@ -857,8 +860,8 @@ func TestContentEntity_AutoGeneratedID(t *testing.T) {
 		if err != nil {
 			t.Errorf("unexpected error marshalling entity; %s", err)
 		}
-		_, err = entityFactory3.CreateEntityWithValues(context.TODO(), payload3)
-		if err == nil {
+		entity, err := entityFactory3.CreateEntityWithValues(context.TODO(), payload3)
+		if entity.IsValid() {
 			t.Errorf("expected error generating id")
 		}
 	})

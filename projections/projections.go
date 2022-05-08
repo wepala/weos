@@ -93,7 +93,7 @@ func (m *MetaProjection) GetContentEntity(ctx context.Context, entityFactory weo
 }
 
 //GetByKey get entity by identifier
-func (m *MetaProjection) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (m *MetaProjection) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
 	runErrors := new(MetaError)
 	for _, projection := range m.ordinalProjections {
 		result, err := projection.GetByKey(ctxt, entityFactory, identifiers)
@@ -149,8 +149,26 @@ func (m *MetaProjection) GetContentEntities(ctx context.Context, entityFactory w
 	return nil, 0, nil
 }
 
+func (m *MetaProjection) GetList(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*weos.ContentEntity, int64, error) {
+	runErrors := new(MetaError)
+	for _, projection := range m.ordinalProjections {
+		result, count, err := projection.GetList(ctx, entityFactory, page, limit, query, sortOptions, filterOptions)
+		if result != nil {
+			return result, count, err
+		}
+		if err != nil {
+			runErrors.Add(err)
+		}
+
+	}
+	if runErrors.HasErrors() {
+		return nil, 0, runErrors
+	}
+	return nil, 0, nil
+}
+
 //GetByProperties get
-func (m *MetaProjection) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+func (m *MetaProjection) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
 	runErrors := new(MetaError)
 	for _, projection := range m.ordinalProjections {
 		result, err := projection.GetByProperties(ctxt, entityFactory, identifiers)

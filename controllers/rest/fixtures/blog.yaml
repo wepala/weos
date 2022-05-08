@@ -70,9 +70,11 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         cost:
           type: number
           format: double
+          nullable: true
         status:
           type: string
           nullable: true
@@ -83,23 +85,28 @@ components:
         image:
           type: string
           format: byte
+          nullable: true
         categories:
           type: array
+          nullable: true
           items:
             $ref: "#/components/schemas/Category"
         posts:
           type: array
+          nullable: true
           items:
             $ref: "#/components/schemas/Post"
         lastUpdated:
           type: string
           format: date-time
+          nullable: true
           x-update:
             - Add Blog
             - Update Blog
         created:
           type: string
           format: date-time
+          nullable: true
           x-update:
             - Add Blog
       required:

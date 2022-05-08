@@ -210,7 +210,6 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 		var Etag string
 		var identifiers []string
 		var result *model.ContentEntity
-		var result1 map[string]interface{}
 		newContext := ctxt.Request().Context()
 		weosID := newContext.Value(weoscontext.ENTITY_ID)
 		if weosID == nil || weosID == "" {
@@ -231,12 +230,12 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 
 			}
 
-			result1, err = projection.GetByKey(newContext, entityFactory, primaryKeys)
+			result, err = projection.GetByKey(newContext, entityFactory, primaryKeys)
 			if err != nil {
 				return err
 			}
-			weos_id, ok := result1["weos_id"].(string)
-			sequenceString := fmt.Sprint(result1["sequence_no"])
+			weos_id := result.ID
+			sequenceString := fmt.Sprint(result.SequenceNo)
 			sequenceNo, _ := strconv.Atoi(sequenceString)
 			Etag = NewEtag(&model.ContentEntity{
 				AggregateRoot: model.AggregateRoot{
@@ -244,18 +243,15 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 					BasicEntity: model.BasicEntity{ID: weos_id},
 				},
 			})
-			if (len(result1) == 0) || !ok || weos_id == "" {
+			if result == nil {
 				return NewControllerError("No entity found", err, http.StatusNotFound)
 			} else if err != nil {
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
-			delete(result1, "sequence_no")
-			delete(result1, "weos_id")
-			delete(result1, "table_alias")
 
 			ctxt.Response().Header().Set("Etag", Etag)
 
-			return ctxt.JSON(http.StatusOK, result1)
+			return ctxt.JSON(http.StatusOK, result)
 		} else {
 			if projection != nil {
 
@@ -340,7 +336,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				identifiers[p] = newContext.Value(p)
 			}
 
-			var result map[string]interface{}
+			var result *model.ContentEntity
 			var err error
 			var entityID string
 			var seq string
@@ -379,8 +375,8 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			}
 			//if sequence no. was sent in the request but we don't have the entity let's get it from projection
 			if entityID == "" && seqInt != 0 {
-				entityID, ok = result["weos_id"].(string)
-				if !ok {
+				entityID = result.ID
+				if entityID == "" {
 					ctxt.Logger().Debugf("the item '%v' does not have an entity id stored", identifiers)
 				}
 			}
@@ -413,10 +409,8 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 						return NewControllerError("No entity found", err, http.StatusNotFound)
 					}
 					if r != nil && r.ID != "" { //get the map from the entity
-						result = r.ToMap()
+						result = r
 					}
-					result["weos_id"] = r.ID
-					result["sequence_no"] = r.SequenceNo
 					err = er
 					if err == nil && r.SequenceNo < int64(seqInt) && etag != "" { //if the etag is set then let's return the header
 						return ctxt.JSON(http.StatusNotModified, r.ToMap())
@@ -425,7 +419,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 					//get entity by entity_id
 
 					if projection != nil {
-						result, err = projection.GetByEntityID(ctxt.Request().Context(), entityFactory, entityID)
+						result, err = projection.GetContentEntity(ctxt.Request().Context(), entityFactory, entityID)
 					}
 
 				}
@@ -596,7 +590,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 
 			var err error
 			var identifiers []string
-			var result1 map[string]interface{}
+			var result1 *model.ContentEntity
 			var ok bool
 
 			//Uses the identifiers to pull the weosID, to be later used to get Seq NO
@@ -625,9 +619,9 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 					}
 
 				}
-				weosID, ok = result1["weos_id"].(string)
+				weosID = result1.ID
 
-				if (len(result1) == 0) || !ok || weosID == "" {
+				if (result1 != nil) || !ok || weosID == "" {
 					return NewControllerError("No entity found", err, http.StatusNotFound)
 				} else if err != nil {
 					return NewControllerError(err.Error(), err, http.StatusBadRequest)

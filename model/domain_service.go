@@ -229,7 +229,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
 		}
 
-		if seqNo != -1 && entityInterface["sequence_no"].(int64) != int64(seqNo) {
+		if seqNo != -1 && entityInterface.SequenceNo != int64(seqNo) {
 			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
 
@@ -411,7 +411,7 @@ func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntit
 				}
 				if len(result) == 1 {
 					r := result[0]
-					if r["weos_id"] != entity.GetID() {
+					if r.ID != entity.GetID() {
 						err := fmt.Errorf("entity value %s should be unique but an entity exists with this %s value", name, name)
 						s.logger.Debug(err)
 						return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)

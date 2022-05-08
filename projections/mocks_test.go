@@ -8,6 +8,7 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
+	context2 "golang.org/x/net/context"
 	"sync"
 )
 
@@ -27,7 +28,7 @@ var _ projections.Projection = &ProjectionMock{}
 // 			GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
 // 				panic("mock out the GetByKey method")
 // 			},
-// 			GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+// 			GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
 // 				panic("mock out the GetByProperties method")
 // 			},
 // 			GetContentEntitiesFunc: func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
@@ -56,7 +57,7 @@ type ProjectionMock struct {
 	GetByKeyFunc func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
 
 	// GetByPropertiesFunc mocks the GetByProperties method.
-	GetByPropertiesFunc func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
+	GetByPropertiesFunc func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error)
 
 	// GetContentEntitiesFunc mocks the GetContentEntities method.
 	GetContentEntitiesFunc func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
@@ -187,7 +188,7 @@ func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 }
 
 // GetByKey calls GetByKeyFunc.
-func (mock *ProjectionMock) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByKey(ctxt context2.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
 	if mock.GetByKeyFunc == nil {
 		panic("ProjectionMock.GetByKeyFunc: method is nil but Projection.GetByKey was just called")
 	}
@@ -226,7 +227,7 @@ func (mock *ProjectionMock) GetByKeyCalls() []struct {
 }
 
 // GetByProperties calls GetByPropertiesFunc.
-func (mock *ProjectionMock) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
 	if mock.GetByPropertiesFunc == nil {
 		panic("ProjectionMock.GetByPropertiesFunc: method is nil but Projection.GetByProperties was just called")
 	}

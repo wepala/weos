@@ -10,6 +10,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
+	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -727,7 +728,7 @@ func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 }
 
 // GetByKey calls GetByKeyFunc.
-func (mock *ProjectionMock) GetByKey(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByKey(ctxt context2.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 	if mock.GetByKeyFunc == nil {
 		panic("ProjectionMock.GetByKeyFunc: method is nil but Projection.GetByKey was just called")
 	}
@@ -766,7 +767,7 @@ func (mock *ProjectionMock) GetByKeyCalls() []struct {
 }
 
 // GetByProperties calls GetByPropertiesFunc.
-func (mock *ProjectionMock) GetByProperties(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+func (mock *ProjectionMock) GetByProperties(ctxt context2.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 	if mock.GetByPropertiesFunc == nil {
 		panic("ProjectionMock.GetByPropertiesFunc: method is nil but Projection.GetByProperties was just called")
 	}

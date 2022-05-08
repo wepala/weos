@@ -10,6 +10,7 @@ import (
 	weosContext "github.com/wepala/weos/context"
 	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
+	"math"
 	"strings"
 	"time"
 )
@@ -25,77 +26,145 @@ func (w *ContentEntity) IsValid() bool {
 	if w.payload == nil {
 		return false
 	}
-	for _, req := range w.Schema.Required {
-		if w.IsNull(req) && !w.Schema.Properties[req].Value.Nullable {
-			message := "entity property " + req + " required"
-			w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-			return false
-		}
-	}
 
-	EnumValid := w.IsEnumValid()
-
-	if EnumValid == false {
-		return false
-	}
-	return true
-}
-
-//IsEnumValid this loops over the properties of an entity, if the enum is not nil, it will validate if the option the user set is valid
-func (w *ContentEntity) IsEnumValid() bool {
-	for k, property := range w.Schema.Properties {
-		nullFound := false
-		//used to indicate if the value passed is part of the enumeration
-		enumFound := false
-
-		if property.Value.Enum != nil {
-			var value interface{}
-			var ok bool
-
-			if value, ok = w.payload[k]; !ok && !property.Value.Nullable {
-				message := "this content entity does not contain the field: " + strings.Title(k)
-				w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
-				return false
-			}
-			//if the property is nullable and one of the values is "null" then allow nil
-			if property.Value.Nullable {
-				for _, option := range property.Value.Enum {
-					if val, ok := option.(string); ok && val == "null" {
-						nullFound = true
-						break
+	//check if the value being passed in is valid
+	for key, value := range w.payload {
+		if property, ok := w.Schema.Properties[key]; ok {
+			if property.Value.Enum == nil {
+				if value == nil {
+					if InList(w.Schema.Required, key) {
+						message := "entity property " + key + " required"
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					}
-				}
-			}
 
-			//if it's nullable and the value is nil then we're good
-			enumFound = nullFound && value == nil
-			if !enumFound {
-				switch property.Value.Type {
-				case "string":
-					if property.Value.Format == "date-time" {
-						for _, v := range property.Value.Enum {
-							if val, ok := v.(string); ok {
-								currTime, _ := time.Parse("2006-01-02T15:04:00Z", val)
-								enumFound = value.(time.Time) == currTime
+					if !w.Schema.Properties[key].Value.Nullable {
+						message := "entity property " + key + " is not nullable"
+						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+					}
+
+					properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+					if properties != nil {
+						propArray := []string{}
+						err := json.Unmarshal(properties.(json.RawMessage), &propArray)
+						if err == nil {
+							if InList(propArray, key) {
+								message := "entity property " + key + " is part if the identifier and cannot be null"
+								w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 							}
 						}
 					}
-				case "integer":
-					for _, v := range property.Value.Enum {
-						if val, ok := v.(int); ok {
-							enumFound = val == (int(value.(float64)))
+					continue
+				}
+
+				switch property.Value.Type {
+				case "string":
+					switch property.Value.Format {
+					case "date-time":
+						//check if the date is in the expected format
+						if _, ok := value.(time.Time); !ok {
+							w.AddError(NewDomainError(fmt.Sprintf("invalid type specified for '%s' expected date time", key), "ContentEntity", w.ID, nil))
+						}
+					default:
+						if _, ok := value.(string); !ok {
+							w.AddError(NewDomainError(fmt.Sprintf("invalid type specified for '%s' expected string", key), "ContentEntity", w.ID, nil))
 						}
 					}
+				case "integer":
+					if _, ok := value.(int); !ok {
+						w.AddError(NewDomainError(fmt.Sprintf("invalid type specified for '%s' expected integer", key), "ContentEntity", w.ID, nil))
+					}
+				case "boolean":
+					if _, ok := value.(bool); !ok {
+						w.AddError(NewDomainError(fmt.Sprintf("invalid type specified for '%s' expected boolean", key), "ContentEntity", w.ID, nil))
+					}
 				case "number":
+					_, integerOk := value.(int)
+					_, floatOk := value.(float32)
+					_, float64Ok := value.(float64)
+					if !integerOk && !float64Ok && !floatOk {
+						w.AddError(NewDomainError(fmt.Sprintf("invalid type specified for '%s' expected number", key), "ContentEntity", w.ID, nil))
+					}
+				}
+			} else {
+				w.IsEnumValid(key, property, value)
+			}
+		}
+	}
+
+	return len(w.entityErrors) == 0
+}
+
+//IsEnumValid this loops over the properties of an entity, if the enum is not nil, it will validate if the option the user set is valid
+func (w *ContentEntity) IsEnumValid(propertyName string, property *openapi3.SchemaRef, value interface{}) bool {
+
+	nullFound := false
+	//used to indicate if the value passed is part of the enumeration
+	enumFound := false
+
+	if property.Value.Enum != nil {
+		if !property.Value.Nullable {
+			message := "this content entity does not contain the field: " + strings.Title(propertyName)
+			w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+			return false
+		}
+		//if the property is nullable and one of the values is "null" then allow nil
+		if property.Value.Nullable {
+			for _, option := range property.Value.Enum {
+				if val, ok := option.(string); ok && val == "null" {
+					nullFound = true
+					break
+				}
+			}
+		}
+
+		//if it's nullable and the value is nil then we're good
+		enumFound = nullFound && value == nil
+		if !enumFound {
+			switch property.Value.Type {
+			case "string":
+				if nullFound && value == "" {
+					enumFound = true
+				} else if property.Value.Format == "date-time" {
 					for _, v := range property.Value.Enum {
-						if val, ok := v.(float64); ok {
-							enumFound = fmt.Sprintf("%.3f", val) == fmt.Sprintf("%.3f", value.(float64))
+						if val, ok := v.(string); ok {
+							currTime, _ := time.Parse("2006-01-02T15:04:00Z", val)
+							enumFound = enumFound || value.(time.Time) == currTime
 						}
+					}
+				} else {
+					for _, v := range property.Value.Enum {
+						if val, ok := v.(string); ok {
+							if tv, ok := value.(string); ok {
+								if tv != "null" { //we don't allow the user to literally send "null"
+									enumFound = enumFound || tv == val
+								}
+
+							}
+						}
+					}
+				}
+			case "integer":
+				for _, v := range property.Value.Enum {
+					if val, ok := v.(float64); ok {
+						enumFound = enumFound || int(math.Round(val)) == value
+					}
+				}
+			case "number":
+				for _, v := range property.Value.Enum {
+					if val, ok := v.(float64); ok {
+						enumFound = fmt.Sprintf("%.3f", val) == fmt.Sprintf("%.3f", value.(float64))
 					}
 				}
 			}
 		}
+
+		if !enumFound {
+			message := "invalid value set for " + propertyName
+			w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
+			return enumFound
+		}
 	}
+
 	return true
 }
 
@@ -118,10 +187,6 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 		}
 	}
 	err = w.SetValueFromPayload(ctx, payload)
-	if err != nil {
-		return nil, err
-	}
-	err = w.GenerateID(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -218,10 +283,10 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 	if w.payload == nil {
 		w.payload = make(map[string]interface{})
 	}
-	for _, property := range w.Schema.Properties {
-		w.payload[property.Value.Title] = nil
+	for name, property := range w.Schema.Properties {
+		w.payload[name] = nil
 		if property.Value.Default != nil {
-			w.payload[property.Value.Title] = property.Value.Default
+			w.payload[name] = property.Value.Default
 		}
 	}
 	return w, nil
@@ -229,23 +294,11 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 
 //FromSchemaWithValues builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
-	w.FromSchema(ctx, schema)
-
-	weosID, err := GetIDfromPayload(payload)
+	_, err := w.FromSchema(ctx, schema)
 	if err != nil {
-		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+		return nil, err
 	}
-
-	if w.ID == "" {
-		w.ID = weosID
-	}
-	payload, err = ParseToType(payload, schema)
-	if err != nil {
-		return w, NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
-	}
-	event := NewEntityEvent("create", w, w.ID, payload)
-	w.NewChange(event)
-	return w, w.ApplyEvents([]*Event{event})
+	return w, w.SetValueFromPayload(ctx, payload)
 }
 
 func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.RawMessage) error {
@@ -261,6 +314,52 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 	err = json.Unmarshal(payload, &w.payload)
 	if err != nil {
 		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
+	}
+
+	//go serializes integers to float64
+	for k, property := range w.Schema.Properties {
+		if property.Value != nil {
+			switch property.Value.Type {
+			case "integer":
+				if t, ok := w.payload[k].(float64); ok {
+					w.payload[k] = int(math.Round(t))
+				}
+			case "string":
+				switch property.Value.Format {
+				case "date-time":
+					//if the value is a string let's try to convert to time
+					if value, ok := w.payload[k].(string); ok {
+						w.payload[k], err = time.Parse("2006-01-02T15:04:00Z", value)
+						if err != nil {
+							return NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '2006-01-02T15:04:00Z'", k), w.Schema.Title, w.ID, err)
+						}
+					}
+				//if it's a ksuid and the value is nil then auto generate the field
+				case "ksuid":
+					if w.payload[k] == nil {
+						properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+						if properties != nil {
+							propArray := []string{}
+							err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+							if InList(propArray, k) {
+								w.payload[k] = ksuid.New().String()
+							}
+						}
+					}
+				case "uuid":
+					if w.payload[k] == nil {
+						properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+						if properties != nil {
+							propArray := []string{}
+							err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+							if InList(propArray, k) {
+								w.payload[k] = uuid.NewString()
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return nil
@@ -397,6 +496,7 @@ func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 	return err
 }
 
+//Deprecated: 05/08/2022 the default ids are generated in SetValueFromPayload
 //GenerateID adds a generated id to the payload based on the schema
 func (w *ContentEntity) GenerateID(payload []byte) error {
 	tentity := make(map[string]interface{})
@@ -429,12 +529,7 @@ func (w *ContentEntity) GenerateID(payload []byte) error {
 					return NewDomainError(errr, w.Schema.Title, "", nil)
 				}
 			} else if w.Schema.Properties[property].Value.Type == "integer" {
-				reader := ds.NewReader(w.payload)
-				if w.Schema.Properties[property].Value.Format == "" && reader.GetField(strings.Title(property)).PointerInt() == nil {
-					errr := "unexpected error: fail to generate identifier " + property + " since the format was not specified"
-					return NewDomainError(errr, w.Schema.Title, "", nil)
 
-				}
 			}
 
 		}

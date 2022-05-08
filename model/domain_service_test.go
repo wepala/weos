@@ -25,7 +25,7 @@ func TestDomainService_Create(t *testing.T) {
 		},
 	}
 	mockProjections := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			return nil, nil
 		},
 	}
@@ -111,7 +111,7 @@ func TestDomainService_CreateBatch(t *testing.T) {
 		},
 	}
 	mockProjections := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			return nil, nil
 		},
 	}
@@ -219,17 +219,18 @@ func TestDomainService_Update(t *testing.T) {
 			}
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			if entityFactory == nil {
 				return nil, fmt.Errorf("expected entity factory got nil")
 			}
 			if len(identifiers) == 0 {
 				return nil, fmt.Errorf("expected identifiers got none")
 			}
-			return existingPayload, nil
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -365,11 +366,12 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -470,11 +472,12 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -575,7 +578,7 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 		return nil, nil
 	}}, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
@@ -584,11 +587,12 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -665,11 +669,12 @@ func TestDomainService_Delete(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -747,15 +752,13 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
 
-	existingPayload3 := map[string]interface{}{"weos_id": "asafdsdfdsf11", "sequence_no": int64(1), "id": uint(11), "title": "blog 2", "description": "Description testing 2", "url": "www.TestBlog2.com"}
-
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 			return nil
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 		return nil, nil
 	}}, echo.New().Logger)
 	existingBlog, _ := dService.Create(newContext, reqBytes, contentType)
@@ -771,22 +774,24 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 			}
 			return nil, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			if existingPayload["id"] == identifiers["id"] {
-				return existingPayload, nil
+				return new(model.ContentEntity).Init(context.Background(), reqBytes)
 			}
 			if existingPayload2["id"] == identifiers["id"] {
-				return existingPayload2, nil
+				return new(model.ContentEntity).Init(context.Background(), reqBytes2)
 			}
 			return nil, nil
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			identifier := identifiers["url"].(*string)
 			if *identifier == existingPayload["url"].(string) {
-				return []map[string]interface{}{existingPayload}, nil
+				contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+				return []*model.ContentEntity{contentEntity}, err
 			}
 			if *identifier == existingPayload2["url"].(string) {
-				return []map[string]interface{}{existingPayload2, existingPayload3}, nil
+				contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes2)
+				return []*model.ContentEntity{contentEntity}, err
 			}
 			return nil, nil
 		},

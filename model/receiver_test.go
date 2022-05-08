@@ -77,7 +77,7 @@ func TestCreateContentType(t *testing.T) {
 		},
 	}
 	projectionMock := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			return nil, nil
 		},
 	}
@@ -183,6 +183,7 @@ func TestUpdateContentType(t *testing.T) {
 	}
 
 	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	reqBytes, err := json.Marshal(existingPayload)
 	existingBlog := &model.ContentEntity{
 		AggregateRoot: model.AggregateRoot{
 			BasicEntity: model.BasicEntity{
@@ -198,8 +199,8 @@ func TestUpdateContentType(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
 	}
 
@@ -292,6 +293,7 @@ func TestDeleteContentType(t *testing.T) {
 	}
 
 	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	reqBytes, err := json.Marshal(existingPayload)
 	existingBlog := &model.ContentEntity{
 		AggregateRoot: model.AggregateRoot{
 			BasicEntity: model.BasicEntity{
@@ -307,8 +309,8 @@ func TestDeleteContentType(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
 	}
 
