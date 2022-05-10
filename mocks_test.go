@@ -10,7 +10,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
-	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -565,10 +564,10 @@ var _ model.Projection = &ProjectionMock{}
 // 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 // 				panic("mock out the GetByEntityID method")
 // 			},
-// 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+// 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 // 				panic("mock out the GetByKey method")
 // 			},
-// 			GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+// 			GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 // 				panic("mock out the GetByProperties method")
 // 			},
 // 			GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
@@ -579,6 +578,9 @@ var _ model.Projection = &ProjectionMock{}
 // 			},
 // 			GetEventHandlerFunc: func() model.EventHandler {
 // 				panic("mock out the GetEventHandler method")
+// 			},
+// 			GetListFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
+// 				panic("mock out the GetList method")
 // 			},
 // 			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
 // 				panic("mock out the Migrate method")
@@ -594,10 +596,10 @@ type ProjectionMock struct {
 	GetByEntityIDFunc func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error)
 
 	// GetByKeyFunc mocks the GetByKey method.
-	GetByKeyFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
+	GetByKeyFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error)
 
 	// GetByPropertiesFunc mocks the GetByProperties method.
-	GetByPropertiesFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
+	GetByPropertiesFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error)
 
 	// GetContentEntitiesFunc mocks the GetContentEntities method.
 	GetContentEntitiesFunc func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
@@ -607,6 +609,9 @@ type ProjectionMock struct {
 
 	// GetEventHandlerFunc mocks the GetEventHandler method.
 	GetEventHandlerFunc func() model.EventHandler
+
+	// GetListFunc mocks the GetList method.
+	GetListFunc func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error)
 
 	// MigrateFunc mocks the Migrate method.
 	MigrateFunc func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error
@@ -669,6 +674,23 @@ type ProjectionMock struct {
 		// GetEventHandler holds details about calls to the GetEventHandler method.
 		GetEventHandler []struct {
 		}
+		// GetList holds details about calls to the GetList method.
+		GetList []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// EntityFactory is the entityFactory argument value.
+			EntityFactory model.EntityFactory
+			// Page is the page argument value.
+			Page int
+			// Limit is the limit argument value.
+			Limit int
+			// Query is the query argument value.
+			Query string
+			// SortOptions is the sortOptions argument value.
+			SortOptions map[string]string
+			// FilterOptions is the filterOptions argument value.
+			FilterOptions map[string]interface{}
+		}
 		// Migrate holds details about calls to the Migrate method.
 		Migrate []struct {
 			// Ctx is the ctx argument value.
@@ -685,6 +707,7 @@ type ProjectionMock struct {
 	lockGetContentEntities sync.RWMutex
 	lockGetContentEntity   sync.RWMutex
 	lockGetEventHandler    sync.RWMutex
+	lockGetList            sync.RWMutex
 	lockMigrate            sync.RWMutex
 }
 
@@ -728,7 +751,7 @@ func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
 }
 
 // GetByKey calls GetByKeyFunc.
-func (mock *ProjectionMock) GetByKey(ctxt context2.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+func (mock *ProjectionMock) GetByKey(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 	if mock.GetByKeyFunc == nil {
 		panic("ProjectionMock.GetByKeyFunc: method is nil but Projection.GetByKey was just called")
 	}
@@ -767,7 +790,7 @@ func (mock *ProjectionMock) GetByKeyCalls() []struct {
 }
 
 // GetByProperties calls GetByPropertiesFunc.
-func (mock *ProjectionMock) GetByProperties(ctxt context2.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+func (mock *ProjectionMock) GetByProperties(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 	if mock.GetByPropertiesFunc == nil {
 		panic("ProjectionMock.GetByPropertiesFunc: method is nil but Projection.GetByProperties was just called")
 	}
@@ -922,6 +945,61 @@ func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
 	mock.lockGetEventHandler.RLock()
 	calls = mock.calls.GetEventHandler
 	mock.lockGetEventHandler.RUnlock()
+	return calls
+}
+
+// GetList calls GetListFunc.
+func (mock *ProjectionMock) GetList(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
+	if mock.GetListFunc == nil {
+		panic("ProjectionMock.GetListFunc: method is nil but Projection.GetList was just called")
+	}
+	callInfo := struct {
+		Ctx           context.Context
+		EntityFactory model.EntityFactory
+		Page          int
+		Limit         int
+		Query         string
+		SortOptions   map[string]string
+		FilterOptions map[string]interface{}
+	}{
+		Ctx:           ctx,
+		EntityFactory: entityFactory,
+		Page:          page,
+		Limit:         limit,
+		Query:         query,
+		SortOptions:   sortOptions,
+		FilterOptions: filterOptions,
+	}
+	mock.lockGetList.Lock()
+	mock.calls.GetList = append(mock.calls.GetList, callInfo)
+	mock.lockGetList.Unlock()
+	return mock.GetListFunc(ctx, entityFactory, page, limit, query, sortOptions, filterOptions)
+}
+
+// GetListCalls gets all the calls that were made to GetList.
+// Check the length with:
+//     len(mockedProjection.GetListCalls())
+func (mock *ProjectionMock) GetListCalls() []struct {
+	Ctx           context.Context
+	EntityFactory model.EntityFactory
+	Page          int
+	Limit         int
+	Query         string
+	SortOptions   map[string]string
+	FilterOptions map[string]interface{}
+} {
+	var calls []struct {
+		Ctx           context.Context
+		EntityFactory model.EntityFactory
+		Page          int
+		Limit         int
+		Query         string
+		SortOptions   map[string]string
+		FilterOptions map[string]interface{}
+	}
+	mock.lockGetList.RLock()
+	calls = mock.calls.GetList
+	mock.lockGetList.RUnlock()
 	return calls
 }
 

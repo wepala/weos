@@ -47,6 +47,8 @@ func TestIntegration_XUnique(t *testing.T) {
 			"url":         "first.com",
 		},
 		{
+			"weos_id":     "asdf",
+			"id":          "asdf",
 			"title":       "second",
 			"description": "second",
 			"url":         "second.com",
@@ -105,14 +107,14 @@ func TestIntegration_XUnique(t *testing.T) {
 		}
 		resultString := string(bodyBytes)
 		if !strings.Contains(resultString, "should be unique") {
-			t.Fatalf("expexted to get a unique error, got '%s'", resultString)
+			t.Fatalf("expected to get a unique error, got '%s'", resultString)
 		}
 
 	})
 
 	t.Run("Update a field so unique field clashes", func(t *testing.T) {
 		blog := map[string]interface{}{
-			"id":          2,
+			"id":          "asdf",
 			"title":       "second",
 			"description": "second",
 			"url":         "third.com",
@@ -124,7 +126,7 @@ func TestIntegration_XUnique(t *testing.T) {
 		}
 		body := bytes.NewReader(reqBytes)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/blogs/2", body)
+		req := httptest.NewRequest(http.MethodPut, "/blogs/asdf", body)
 		header = http.Header{}
 		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		req.Header = header

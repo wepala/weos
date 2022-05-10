@@ -73,6 +73,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 					}
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 				} else {
+					ctxt.Logger().Debugf("error creating content type '%s'", err)
 					return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
 				}
 			}
@@ -126,6 +127,7 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 
 			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, ctxt.Logger())
 			if err != nil {
+				ctxt.Logger().Debugf("error creating batch '%s", err)
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 				} else {

@@ -272,7 +272,20 @@ func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
 		}
 	}
 
-	return instance.Build().New(), nil
+	model := instance.Build().New()
+	//if there is a payload let's serialize that
+	if w.payload != nil {
+		tbytes, err := json.Marshal(w.payload)
+		if err != nil {
+			return nil, NewDomainError("error prepping entity for gorm", "ContentEntity", w.ID, err)
+		}
+		err = json.Unmarshal(tbytes, &model)
+		if err != nil {
+			return nil, NewDomainError("error prepping entity for gorm", "ContentEntity", w.ID, err)
+		}
+	}
+
+	return model, nil
 }
 
 //FromSchema builds properties from the schema
@@ -343,6 +356,10 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 							err = json.Unmarshal(properties.(json.RawMessage), &propArray)
 							if InList(propArray, k) {
 								w.payload[k] = ksuid.New().String()
+								//if the identifier is only one part, and it's a string then let's use it as the entity id
+								if len(propArray) == 1 {
+									w.ID = w.payload[k].(string)
+								}
 							}
 						}
 					}
@@ -354,12 +371,21 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 							err = json.Unmarshal(properties.(json.RawMessage), &propArray)
 							if InList(propArray, k) {
 								w.payload[k] = uuid.NewString()
+								//if the identifier is only one part, and it's a string then let's use it as the entity id
+								if len(propArray) == 1 {
+									w.ID = w.payload[k].(string)
+								}
 							}
 						}
 					}
 				}
 			}
 		}
+	}
+
+	//if there is still no id then generate a ksuid
+	if w.ID == "" {
+		w.ID = ksuid.New().String()
 	}
 
 	return nil

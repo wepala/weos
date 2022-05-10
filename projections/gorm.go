@@ -65,7 +65,12 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 		}
 	}
 
-	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(&contentEntity, identifiers)
+	model, err := contentEntity.GORMModel(ctxt)
+	if err != nil {
+		return nil, err
+	}
+
+	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(&model, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -274,30 +279,17 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 		case "create":
 			//using the schema ensures no nested fields are left out in creation
 			if entityFactory != nil {
-				entity, err := entityFactory.NewEntity(ctx)
+				entity, err := entityFactory.CreateEntityWithValues(ctx, event.Payload)
 				if err != nil {
-					p.logger.Errorf("error get a copy of the entity '%s'", err)
+					p.logger.Errorf("error creating entity '%s'", err)
 					return err
 				}
-				eventPayload := entity.ToMap()
-				mapPayload := map[string]interface{}{}
-				err = json.Unmarshal(event.Payload, &mapPayload)
-				if err != nil {
-					p.logger.Errorf("error unmarshalling event '%s'", err)
-					return err
-				}
-				mapPayload["sequence_no"] = event.Meta.SequenceNo
+				entity.SequenceNo = event.Meta.SequenceNo
 				//Adding the entityid to the payload since the event payload doesnt have it
-				mapPayload["weos_id"] = event.Meta.EntityID
+				entity.ID = event.Meta.EntityID
 
-				bytes, _ := json.Marshal(mapPayload)
-				err = json.Unmarshal(bytes, &eventPayload)
-				if err != nil {
-					p.logger.Errorf("error unmarshalling event '%s'", err)
-					return err
-				}
-
-				db := p.db.Table(entityFactory.Name()).Create(eventPayload)
+				model, err := entity.GORMModel(ctx)
+				db := p.db.Table(entityFactory.Name()).Create(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -448,10 +440,10 @@ func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 }
 
 func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
-	var results []*weos.ContentEntity
+	results := entityFactory.DynamicStruct(ctxt).NewSliceOfStructs()
 	result := p.db.Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
 	if result.Error != nil {
-		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
+		p.logger.Errorf("unexpected error retrieving created entity, got: '%s'", result.Error)
 	}
 	bytes, err := json.Marshal(results)
 	if err != nil {

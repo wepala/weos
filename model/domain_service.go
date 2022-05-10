@@ -4,10 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-
-	ds "github.com/ompluscator/dynamic-struct"
-	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
@@ -48,40 +44,22 @@ func (s *DomainService) CreateBatch(ctx context.Context, payload json.RawMessage
 		return nil, err
 	}
 	newEntityArr := []*ContentEntity{}
+	entityFactory := GetEntityFactory(ctx)
+	if entityFactory == nil {
+		err = errors.New("no entity factory found")
+		s.logger.Error(err)
+		return nil, err
+	}
 	for _, titem := range titems {
-
-		entityFactory := GetEntityFactory(ctx)
-		if entityFactory == nil {
-			err = errors.New("no entity factory found")
-			s.logger.Error(err)
-			return nil, err
-		}
 		if err != nil {
 			return nil, err
 		}
-		if id, ok := titem.(map[string]interface{})["weos_id"]; ok {
-			if i, ok := id.(string); ok && i != "" {
-				ctx = context.WithValue(ctx, weosContext.WEOS_ID, i)
-			} else {
-				entityID := ksuid.New().String()
-				ctx = context.WithValue(ctx, weosContext.WEOS_ID, entityID)
-			}
-		} else {
-			entityID := ksuid.New().String()
-			ctx = context.WithValue(ctx, weosContext.WEOS_ID, entityID)
-		}
-
-		entityPayload, err := json.Marshal(titem)
+		//get the bytes for a single item
+		itemPayload, err := json.Marshal(titem)
 		if err != nil {
 			return nil, err
 		}
-		entity, err := entityFactory.CreateEntityWithValues(ctx, entityPayload)
-		mItem, err := json.Marshal(titem)
-		if err != nil {
-			return nil, err
-		}
-
-		err = json.Unmarshal(mItem, &titem)
+		entity, err := entityFactory.CreateEntityWithValues(ctx, itemPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -392,29 +370,29 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 
 func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntity) error {
 	entityFactory := GetEntityFactory(ctx)
-	reader := ds.NewReader(entity.payload)
 	for name, p := range entity.Schema.Properties {
 		uniquebytes, _ := json.Marshal(p.Value.Extensions["x-unique"])
 		if len(uniquebytes) != 0 {
 			unique := false
 			json.Unmarshal(uniquebytes, &unique)
 			if unique {
-				val := reader.GetField(strings.Title(name)).Interface()
-				result, err := s.Projection.GetByProperties(ctx, entityFactory, map[string]interface{}{name: val})
-				if err != nil {
-					return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
-				}
-				if len(result) > 1 {
-					err := fmt.Errorf("entity value %s should be unique but an entity exists with this %s value", name, name)
-					s.logger.Debug(err)
-					return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
-				}
-				if len(result) == 1 {
-					r := result[0]
-					if r.ID != entity.GetID() {
+				if val, ok := entity.ToMap()[name]; ok {
+					result, err := s.Projection.GetByProperties(ctx, entityFactory, map[string]interface{}{name: val})
+					if err != nil {
+						return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
+					}
+					if len(result) > 1 {
 						err := fmt.Errorf("entity value %s should be unique but an entity exists with this %s value", name, name)
 						s.logger.Debug(err)
 						return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
+					}
+					if len(result) == 1 {
+						r := result[0]
+						if r.ID != entity.GetID() {
+							err := fmt.Errorf("entity value %s should be unique but an entity exists with this %s value", name, name)
+							s.logger.Debug(err)
+							return NewDomainError(err.Error(), entityFactory.Name(), entity.ID, err)
+						}
 					}
 				}
 			}

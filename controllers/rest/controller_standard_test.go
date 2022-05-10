@@ -105,6 +105,7 @@ func TestStandardControllers_Create(t *testing.T) {
 	}
 
 	mockPayload := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog", "description": "testing"}
+	reqBytes, err := json.Marshal(mockPayload)
 	mockContentEntity := &model.ContentEntity{
 		AggregateRoot: model.AggregateRoot{
 			BasicEntity: model.BasicEntity{
@@ -112,8 +113,8 @@ func TestStandardControllers_Create(t *testing.T) {
 			},
 			SequenceNo: 1,
 		},
-		payload: mockPayload,
 	}
+	mockContentEntity.SetValueFromPayload(context.TODO(), reqBytes)
 
 	projections := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
@@ -282,7 +283,7 @@ func TestStandardControllers_CreateBatch(t *testing.T) {
 	}
 
 	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			return nil, nil
 		},
 		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
@@ -458,10 +459,11 @@ func TestStandardControllers_Update(t *testing.T) {
 	mockEntity := &model.ContentEntity{}
 	mockEntity.ID = weosId
 	mockEntity.SequenceNo = int64(1)
-	mockEntity.payload = mockBlog
+	reqBytes, err := json.Marshal(mockBlog)
+	mockEntity.SetValueFromPayload(context.TODO(), reqBytes)
 
 	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			return nil, nil
 		},
 		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
@@ -579,11 +581,10 @@ func TestStandardControllers_View(t *testing.T) {
 
 	t.Run("Testing the generic view endpoint", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-				return map[string]interface{}{
-					"id":      "1",
-					"weos_id": "1234sd",
-				}, nil
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				entity := new(model.ContentEntity)
+				entity.ID = "1"
+				return entity, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return map[string]interface{}{
@@ -598,8 +599,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
-				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -632,14 +632,13 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("Testing view with entity id", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 				if entityFactory == nil {
 					t.Errorf("expected to find entity factory got nil")
 				}
-				return map[string]interface{}{
-					"id":      "1",
-					"weos_id": "1234sd",
-				}, nil
+				entity := new(model.ContentEntity)
+				entity.ID = "1234sd"
+				return entity, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				if entityFactory == nil {
@@ -666,8 +665,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
-				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -700,11 +698,10 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("invalid entity id should return 404", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-				return map[string]interface{}{
-					"id":      "1",
-					"weos_id": "1234sd",
-				}, nil
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				entity := new(model.ContentEntity)
+				entity.ID = "1234sd"
+				return entity, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				if id == "1234sd" {
@@ -741,8 +738,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
-				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -775,11 +771,9 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("invalid numeric entity id should return 404", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-				return map[string]interface{}{
-					"id":      "1",
-					"weos_id": "1234sd",
-				}, nil
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				entity := new(model.ContentEntity)
+				return entity, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				if id == "1234sd" {
@@ -816,8 +810,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
-				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -850,11 +843,9 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("view with sequence no", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-				return map[string]interface{}{
-					"id":      "1",
-					"weos_id": "1234sd",
-				}, nil
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				entity := new(model.ContentEntity)
+				return entity, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return map[string]interface{}{
@@ -888,8 +879,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
-				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -930,11 +920,9 @@ func TestStandardControllers_View(t *testing.T) {
 	})
 	t.Run("view with invalid sequence no", func(t *testing.T) {
 		projection := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-				return map[string]interface{}{
-					"id":      "1",
-					"weos_id": "1234sd",
-				}, nil
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				entity := new(model.ContentEntity)
+				return entity, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return map[string]interface{}{
@@ -968,8 +956,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				schemas := rest.CreateSchema(ctx, restAPI.EchoInstance(), swagger)
-				entity, err := new(model.ContentEntity).FromSchemaAndBuilder(ctx, swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
+				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -1382,8 +1369,9 @@ func TestStandardControllers_FormUrlEncoded_Create(t *testing.T) {
 			},
 			SequenceNo: 1,
 		},
-		payload: mockPayload,
 	}
+	reqBytes, err := json.Marshal(mockPayload)
+	mockContentEntity.SetValueFromPayload(context.TODO(), reqBytes)
 
 	projections := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
@@ -1543,8 +1531,9 @@ func TestStandardControllers_FormData_Create(t *testing.T) {
 			},
 			SequenceNo: 1,
 		},
-		payload: mockPayload,
 	}
+	reqBytes, err := json.Marshal(mockPayload)
+	mockContentEntity.SetValueFromPayload(context.TODO(), reqBytes)
 
 	projections := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
@@ -1697,10 +1686,11 @@ func TestStandardControllers_DeleteEtag(t *testing.T) {
 	mockEntity := &model.ContentEntity{}
 	mockEntity.ID = weosId
 	mockEntity.SequenceNo = int64(1)
-	mockEntity.payload = mockBlog
+	reqBytes, err := json.Marshal(mockBlog)
+	mockEntity.SetValueFromPayload(context.TODO(), reqBytes)
 
 	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			return nil, nil
 		},
 		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
@@ -1801,7 +1791,8 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		},
 	}
 	mockEntity := &model.ContentEntity{}
-	mockEntity.payload = mockBlog
+	reqBytes, err := json.Marshal(mockBlog)
+	mockEntity.SetValueFromPayload(context.TODO(), reqBytes)
 
 	mockInterface := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "weos_id": "123456qwerty", "sequence_no": "1"}
 
@@ -1812,8 +1803,8 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 	}
 
 	projection := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return mockInterface, nil
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return mockEntity, nil
 		},
 		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 			return mockInterface, nil
@@ -1854,7 +1845,8 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 	})
 	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
 		mockEntity1 := &model.ContentEntity{}
-		mockEntity1.payload = mockBlog
+		reqBytes, err = json.Marshal(mockBlog)
+		mockEntity1.SetValueFromPayload(context.TODO(), reqBytes)
 
 		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "sequence_no": "1"}
 
@@ -1865,8 +1857,8 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		}
 
 		projection1 := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-				return mockInterface1, nil
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return mockEntity1, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return mockInterface1, nil
@@ -1907,7 +1899,8 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
 		mockEntity1 := &model.ContentEntity{}
-		mockEntity1.payload = mockBlog
+		reqBytes, err = json.Marshal(mockBlog)
+		mockEntity1.SetValueFromPayload(context.TODO(), reqBytes)
 
 		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "weos_id": "123456qwerty", "id": "12", "sequence_no": "1"}
 
@@ -1920,7 +1913,7 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 		err1 := fmt.Errorf("this is an error")
 
 		projection1 := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 				return nil, err1
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {

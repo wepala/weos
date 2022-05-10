@@ -72,6 +72,7 @@ components:
           type: string
         description:
           type: string
+          nullable: true
           x-upload:
             folder: ./files
             limit: 10000
@@ -86,20 +87,25 @@ components:
             - two
         image:
           type: string
+          nullable: true
           format: byte
         categories:
           type: array
+          nullable: true
           items:
             $ref: "#/components/schemas/Category"
         posts:
           type: array
+          nullable: true
           items:
             $ref: "#/components/schemas/Post"
         lastUpdated:
           type: string
+          nullable: true
           format: date-time
         created:
           type: string
+          nullable: true
           format: date-time
       required:
         - title
@@ -111,10 +117,12 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         author:
           $ref: "#/components/schemas/Author"
         categories:
           type: array
+          nullable: true
           items:
             $ref: "#/components/schemas/Category"
         created:
