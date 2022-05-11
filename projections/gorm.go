@@ -65,15 +65,11 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 		}
 	}
 
-	model, err := contentEntity.GORMModel(ctxt)
-	if err != nil {
-		return nil, err
-	}
-
-	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(&model, identifiers)
+	result := p.db.Debug().Table(entityFactory.Name()).Scopes(ContentQuery()).Find(&contentEntity, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
+
 	return contentEntity, nil
 
 }
@@ -289,7 +285,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				entity.ID = event.Meta.EntityID
 
 				model, err := entity.GORMModel(ctx)
-				db := p.db.Table(entityFactory.Name()).Create(model)
+				db := p.db.Debug().Table(entityFactory.Name()).Create(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error

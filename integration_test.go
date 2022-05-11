@@ -48,7 +48,7 @@ func TestIntegration_XUnique(t *testing.T) {
 		},
 		{
 			"weos_id":     "asdf",
-			"id":          "asdf",
+			"id":          2,
 			"title":       "second",
 			"description": "second",
 			"url":         "second.com",
@@ -114,7 +114,6 @@ func TestIntegration_XUnique(t *testing.T) {
 
 	t.Run("Update a field so unique field clashes", func(t *testing.T) {
 		blog := map[string]interface{}{
-			"id":          "asdf",
 			"title":       "second",
 			"description": "second",
 			"url":         "third.com",
@@ -126,7 +125,7 @@ func TestIntegration_XUnique(t *testing.T) {
 		}
 		body := bytes.NewReader(reqBytes)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/blogs/asdf", body)
+		req := httptest.NewRequest(http.MethodPut, "/blogs/2", body)
 		header = http.Header{}
 		header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		req.Header = header

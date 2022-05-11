@@ -77,6 +77,7 @@ components:
             folder: ./files
             limit: 10000
         active:
+          nullable: true
           type: boolean
         status:
           type: string

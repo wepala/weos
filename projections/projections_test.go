@@ -1629,12 +1629,12 @@ components:
 		t.Fatalf("error querying '%s' '%s'", "Blog", err)
 	}
 
-	if r["title"] != "hugs" {
-		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
+	if r.GetString("title") != "hugs" {
+		t.Errorf("expected the blog title to be %s got %v", "hugs", r.GetString("title"))
 	}
 
 	if *driver != "sqlite3" {
-		posts, ok := r["posts"].([]interface{})
+		posts, ok := r.ToMap()["posts"].([]interface{})
 		if !ok {
 			t.Fatal("expected to get a posts array")
 		}
@@ -4228,7 +4228,7 @@ components:
 			t.Errorf("expected to get %d blogs, got %d", 1, len(r))
 		}
 
-		if r[0]["title"] != blogs[2]["title"] || r[0]["description"] != blogs[2]["description"] || r[0]["author"] != blogs[2]["author"] {
+		if r[0].GetString("title") != blogs[2]["title"] || r[0].GetString("description") != blogs[2]["description"] || r[0].GetString("author") != blogs[2]["author"] {
 			t.Errorf("expected blog to be %v got %v", blogs[2], r[0])
 		}
 
@@ -4240,7 +4240,7 @@ components:
 			t.Errorf("expected to get %d blogs, got %d", 1, len(r))
 		}
 
-		if r[0]["title"] != blogs[0]["title"] || r[0]["description"] != blogs[0]["description"] || r[0]["author"] != blogs[0]["author"] {
+		if r[0].GetString("title") != blogs[0]["title"] || r[0].GetString("description") != blogs[0]["description"] || r[0].GetString("author") != blogs[0]["author"] {
 			t.Errorf("expected blog to be %v got %v", blogs[2], r[0])
 		}
 
@@ -4716,12 +4716,16 @@ func TestMetaProjection_GetContentEntities(t *testing.T) {
 func TestMetaProjection_GetByKey(t *testing.T) {
 	//setup mock projections
 	mockProjection1 := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
 			if id, ok := identifiers["id"]; ok {
 				if id == "123" {
 					entity := make(map[string]interface{})
 					entity["title"] = "Foo"
-					return entity, nil
+					reqBytes, err := json.Marshal(entity)
+					if err != nil {
+						return nil, err
+					}
+					return entityFactory.CreateEntityWithValues(ctxt, reqBytes)
 				}
 			}
 			return nil, nil
@@ -4729,12 +4733,16 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 	}
 
 	mockProjection2 := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
 			if id, ok := identifiers["id"]; ok {
 				if id == "456" {
 					entity := make(map[string]interface{})
 					entity["title"] = "Bar"
-					return entity, nil
+					reqBytes, err := json.Marshal(entity)
+					if err != nil {
+						return nil, err
+					}
+					return entityFactory.CreateEntityWithValues(ctxt, reqBytes)
 				}
 
 				if id == "789" {
@@ -4754,7 +4762,7 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error '%s'", err)
 		}
-		if _, ok := entity["title"]; !ok {
+		if _, ok := entity.ToMap()["title"]; !ok {
 			t.Errorf("expected the entity to have a title")
 		}
 
@@ -4772,7 +4780,7 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error '%s'", err)
 		}
-		if _, ok := entity["title"]; !ok {
+		if _, ok := entity.ToMap()["title"]; !ok {
 			t.Errorf("expected the entity to have a title")
 		}
 	})
@@ -4808,12 +4816,17 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 func TestMetaProjection_GetByProperties(t *testing.T) {
 	//setup mock projections
 	mockProjection1 := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
 			if id, ok := identifiers["id"]; ok {
 				if id == "123" {
 					entity := make(map[string]interface{})
 					entity["title"] = "Foo"
-					return []map[string]interface{}{entity}, nil
+					reqBytes, err := json.Marshal(entity)
+					if err != nil {
+						return nil, err
+					}
+					contentEntity, err := entityFactory.CreateEntityWithValues(ctxt, reqBytes)
+					return []*weos.ContentEntity{contentEntity}, nil
 				}
 			}
 			return nil, nil
@@ -4821,12 +4834,17 @@ func TestMetaProjection_GetByProperties(t *testing.T) {
 	}
 
 	mockProjection2 := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
 			if id, ok := identifiers["id"]; ok {
 				if id == "456" {
 					entity := make(map[string]interface{})
 					entity["title"] = "Bar"
-					return []map[string]interface{}{entity}, nil
+					reqBytes, err := json.Marshal(entity)
+					if err != nil {
+						return nil, err
+					}
+					contentEntity, err := entityFactory.CreateEntityWithValues(ctxt, reqBytes)
+					return []*weos.ContentEntity{contentEntity}, nil
 				}
 
 				if id == "789" {

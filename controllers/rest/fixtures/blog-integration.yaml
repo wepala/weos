@@ -56,9 +56,11 @@ components:
         lastName:
           type: string
         email:
+          nullable: true
           type: string
           format: email
         posts:
+          nullable: true
           type: array
           items:
             $ref: "#/components/schemas/Post"

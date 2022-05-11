@@ -143,13 +143,13 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		}
 		//temporary fiv
 
-		entityInterface, err := s.GetByKey(ctx, entityFactory, identifiers)
+		existingEntity, err = s.GetByKey(ctx, entityFactory, identifiers)
 		if err != nil {
 			s.logger.Errorf("error updating entity", err)
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, "", err)
 		}
 
-		if seqNo != -1 && entityInterface.SequenceNo != int64(seqNo) {
+		if seqNo != -1 && existingEntity.SequenceNo != int64(seqNo) {
 			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
 
@@ -165,7 +165,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 	}
 
 	//update the entity
-	existingEntity, err = existingEntity.Update(ctx, payload)
+	updatedEntity, err = existingEntity.Update(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
