@@ -181,7 +181,7 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 	//update default time update values based on routes
 	operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
 	if ok {
-		payload, err = w.UpdateTime(operation, payload)
+		err = w.UpdateTime(operation)
 		if err != nil {
 			return nil, err
 		}
@@ -392,6 +392,7 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 }
 
 func (w *ContentEntity) Update(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
+	//TODO validate payload to ensure that properties that are part of the identifier is not being updated
 	event := NewEntityEvent("update", w, w.ID, payload)
 	w.NewChange(event)
 	return w, w.ApplyEvents([]*Event{event})
@@ -569,25 +570,21 @@ func (w *ContentEntity) GenerateID(payload []byte) error {
 }
 
 //UpdateTime updates auto update time values on the payload
-func (w *ContentEntity) UpdateTime(operationID string, data []byte) ([]byte, error) {
-	payload := map[string]interface{}{}
-	json.Unmarshal(data, &payload)
+func (w *ContentEntity) UpdateTime(operationID string) error {
 	for key, p := range w.Schema.Properties {
 		routes := []string{}
 		routeBytes, _ := json.Marshal(p.Value.Extensions["x-update"])
-		json.Unmarshal(routeBytes, &routes)
+		err := json.Unmarshal(routeBytes, &routes)
+		if err != nil {
+			return err
+		}
 		for _, r := range routes {
 			if r == operationID {
 				if p.Value.Format == "date-time" {
-					payload[key] = time.Now()
+					w.payload[key] = time.Now()
 				}
 			}
 		}
 	}
-	newPayload, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	return newPayload, nil
+	return nil
 }

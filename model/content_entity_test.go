@@ -887,7 +887,7 @@ func TestContentEntity_UpdateTime(t *testing.T) {
 		t.Fatalf("error marshalling Payload '%s'", err)
 	}
 
-	updatedTimePayload, errrr := entity.UpdateTime("Update Blog", newPayload)
+	errrr := entity.UpdateTime("Update Blog")
 	if errrr != nil {
 		t.Fatalf("error updating time payload '%s'", err)
 	}

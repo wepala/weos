@@ -171,7 +171,6 @@ func TestDomainService_CreateBatch(t *testing.T) {
 }
 
 func TestDomainService_Update(t *testing.T) {
-	t.SkipNow()
 	//load open api spec
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
 	if err != nil {
@@ -199,11 +198,7 @@ func TestDomainService_Update(t *testing.T) {
 	}
 
 	existingBlog := &model.ContentEntity{}
-	existingBlog, err = existingBlog.FromSchema(newContext, swagger.Components.Schemas[entityType].Value)
-	if err != nil {
-		t.Errorf("unexpected error creating Blog: %s", err)
-	}
-	err = existingBlog.SetValueFromPayload(newContext, reqBytes)
+	existingBlog, err = existingBlog.FromSchemaWithValues(newContext, swagger.Components.Schemas[entityType].Value, reqBytes)
 	if err != nil {
 		t.Errorf("unexpected error creating Blog: %s", err)
 	}
@@ -226,11 +221,10 @@ func TestDomainService_Update(t *testing.T) {
 			if len(identifiers) == 0 {
 				return nil, fmt.Errorf("expected identifiers got none")
 			}
-			return new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return existingBlog, nil
 		},
 		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
-			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
-			return []*model.ContentEntity{contentEntity}, err
+			return []*model.ContentEntity{existingBlog}, err
 		},
 	}
 
@@ -260,17 +254,17 @@ func TestDomainService_Update(t *testing.T) {
 		if updatedBlog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if updatedBlog.GetUint("ID") != uint(12) {
-			t.Fatalf("expected blog id to be %d got %d", uint(12), updatedBlog.GetUint("id"))
+		if updatedBlog.GetNumber("id") != 12 {
+			t.Fatalf("expected blog id to be %d got %f", 12, updatedBlog.GetNumber("id"))
 		}
-		if updatedBlog.GetString("Title") != updatedPayload["title"] {
-			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))
+		if updatedBlog.GetString("title") != updatedPayload["title"] {
+			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("title"))
 		}
-		if updatedBlog.GetString("Description") != updatedPayload["description"] {
-			t.Fatalf("expected blog description to be %s got %s", updatedPayload["description"], updatedBlog.GetString("Description"))
+		if updatedBlog.GetString("description") != updatedPayload["description"] {
+			t.Fatalf("expected blog description to be %s got %s", updatedPayload["description"], updatedBlog.GetString("description"))
 		}
-		if updatedBlog.GetString("Url") != updatedPayload["url"] {
-			t.Fatalf("expected blog url to be %s got %s", updatedPayload["url"], updatedBlog.GetString("Url"))
+		if updatedBlog.GetString("url") != updatedPayload["url"] {
+			t.Fatalf("expected blog url to be %s got %s", updatedPayload["url"], updatedBlog.GetString("url"))
 		}
 	})
 

@@ -100,6 +100,7 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		weosID, _ = ctx.Value(weosContext.WEOS_ID).(string)
 	}
 
+	//get the properties that make up the identifier from the schema
 	var primaryKeys []string
 	identifiers := map[string]interface{}{}
 
@@ -108,33 +109,15 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		json.Unmarshal(identifiersFromSchema, &primaryKeys)
 	}
 
-	var tempPayload map[string]interface{}
-	err = json.Unmarshal(payload, &tempPayload)
-	if err != nil {
-		return nil, err
-	}
-
+	//if there is no identifier specified in the schema then use "id"
 	if len(primaryKeys) == 0 {
 		primaryKeys = append(primaryKeys, "id")
 	}
 
+	//for each identifier part pull the value from the context and store in a map
 	for _, pk := range primaryKeys {
 		ctxtIdentifier := ctx.Value(pk)
-
-		if weosID == "" {
-			if ctxtIdentifier == nil {
-				return nil, NewDomainError("invalid: no value provided for primary key", entityType, "", nil)
-			}
-		}
-
 		identifiers[pk] = ctxtIdentifier
-		tempPayload[pk] = identifiers[pk]
-
-	}
-
-	newPayload, err := json.Marshal(tempPayload)
-	if err != nil {
-		return nil, err
 	}
 
 	//If there is a weosID present use this
@@ -152,47 +135,6 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 		if seqNo != -1 && existingEntity.SequenceNo != int64(seqNo) {
 			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
-
-		existingEntityPayload, err := json.Marshal(existingEntity.payload)
-		if err != nil {
-			return nil, err
-		}
-
-		var tempExistingPayload map[string]interface{}
-
-		err = json.Unmarshal(existingEntityPayload, &tempExistingPayload)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, pk := range primaryKeys {
-			if fmt.Sprint(tempExistingPayload[pk]) != fmt.Sprint(tempPayload[pk]) {
-				return nil, NewDomainError("invalid: error updating entity. Primary keys cannot be updated.", entityType, weosID, nil)
-			}
-		}
-
-		//update default time update values based on routes
-		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
-		if ok {
-			newPayload, err = existingEntity.UpdateTime(operation, newPayload)
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		updatedEntity, err = existingEntity.Update(ctx, newPayload)
-		if err != nil {
-			return nil, err
-		}
-
-		err = s.ValidateUnique(ctx, updatedEntity)
-		if err != nil {
-			return nil, err
-		}
-		if ok := updatedEntity.IsValid(); !ok {
-			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
-		}
-
 		//If there is no weosID, use the id passed from the param
 	} else if weosID == "" {
 		seqNo := -1
@@ -211,42 +153,31 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
 
-		data, err := json.Marshal(entityInterface)
-		if err != nil {
-			s.logger.Errorf("error updating entity", err)
-			return nil, err
-		}
-
-		err = json.Unmarshal(data, &existingEntity)
-		if err != nil {
-			s.logger.Errorf("error updating entity", err)
-			return nil, err
-		}
-
-		//update default time update values based on routes
-		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
-		if ok {
-			newPayload, err = existingEntity.UpdateTime(operation, newPayload)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		updatedEntity, err = existingEntity.Update(ctx, newPayload)
-		if err != nil {
-			s.logger.Errorf("error updating entity", err)
-			return nil, err
-		}
-
-		err = s.ValidateUnique(ctx, updatedEntity)
-		if err != nil {
-			return nil, err
-		}
-		if ok := updatedEntity.IsValid(); !ok {
-			return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
-		}
-
 	}
+
+	//update default time update values based on routes
+	operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
+	if ok {
+		err = existingEntity.UpdateTime(operation)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	//update the entity
+	existingEntity, err = existingEntity.Update(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.ValidateUnique(ctx, updatedEntity)
+	if err != nil {
+		return nil, err
+	}
+	if ok := updatedEntity.IsValid(); !ok {
+		return nil, NewDomainError("unexpected error entity is invalid", entityType, updatedEntity.ID, nil)
+	}
+
 	return updatedEntity, nil
 }
 
@@ -256,6 +187,7 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 	var deletedEntity *ContentEntity
 	var err error
 
+	//try to get the entity id from the context
 	if entityID == "" {
 		entityID, _ = ctx.Value(weosContext.WEOS_ID).(string)
 	}
@@ -268,11 +200,13 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 	var primaryKeys []string
 	identifiers := map[string]interface{}{}
 
+	//check the schema for the name of the properties that make up the identifier
 	if entityFactory.Schema().Extensions["x-identifier"] != nil {
 		identifiersFromSchema := entityFactory.Schema().Extensions["x-identifier"].(json.RawMessage)
 		json.Unmarshal(identifiersFromSchema, &primaryKeys)
 	}
 
+	//if there are no primary keys
 	if len(primaryKeys) == 0 {
 		primaryKeys = append(primaryKeys, "id")
 	}
@@ -314,7 +248,7 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 		//update default time update values based on routes
 		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
 		if ok {
-			existingEntityPayload, err = existingEntity.UpdateTime(operation, existingEntityPayload)
+			err = existingEntity.UpdateTime(operation)
 			if err != nil {
 				return nil, err
 			}
@@ -349,7 +283,7 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 		//update default time update values based on routes
 		operation, ok := ctx.Value(weosContext.OPERATION_ID).(string)
 		if ok {
-			data, err = existingEntity.UpdateTime(operation, data)
+			err = existingEntity.UpdateTime(operation)
 			if err != nil {
 				return nil, err
 			}
