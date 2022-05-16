@@ -882,7 +882,7 @@ func TestContentEntity_UpdateTime(t *testing.T) {
 	}
 
 	mapPayload := map[string]interface{}{"title": "update time", "description": "new time", "url": "www.MyBlog.com"}
-	newPayload, errr := json.Marshal(mapPayload)
+	updatedTimePayload, errr := json.Marshal(mapPayload)
 	if errr != nil {
 		t.Fatalf("error marshalling Payload '%s'", err)
 	}
@@ -898,4 +898,35 @@ func TestContentEntity_UpdateTime(t *testing.T) {
 	if tempPayload["lastUpdated"] == "" {
 		t.Fatalf("expected the lastupdated field to not be blank")
 	}
+}
+
+func TestContentEntity_CreateWithCollection(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error setting up api: %s", err)
+	}
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	t.Run("create with empty collection", func(t *testing.T) {
+		contentType1 := "Post"
+		p1 := map[string]interface{}{"title": "test", "description": "Lorem Ipsum", "created": "2006-01-02T15:04:00Z"}
+		payload1, err := json.Marshal(p1)
+		if err != nil {
+			t.Errorf("unexpected error marshalling entity; %s", err)
+		}
+		entityFactory1 := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType1, api.Swagger.Components.Schemas[contentType1].Value, schemas[contentType1])
+		post, err := entityFactory1.CreateEntityWithValues(context.TODO(), payload1)
+		if err != nil {
+			t.Fatalf("unexpected error generating id; %s", err)
+		}
+		if !post.IsValid() {
+			for _, errString := range post.GetErrors() {
+				t.Errorf("domain error '%s'", errString)
+			}
+		}
+		_, err = ksuid.Parse(post.GetString("id"))
+		if err != nil {
+			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
+		}
+	})
 }

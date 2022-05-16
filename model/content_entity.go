@@ -37,7 +37,8 @@ func (w *ContentEntity) IsValid() bool {
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					}
 
-					if !w.Schema.Properties[key].Value.Nullable {
+					//linked objects are allowed to be null
+					if !w.Schema.Properties[key].Value.Nullable && property.Value.Type != "object" {
 						message := "entity property " + key + " is not nullable"
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					}
@@ -186,6 +187,8 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 			return nil, err
 		}
 	}
+	//this is done so that if a payload has MORE info that what was needed by the entity only what was applicable
+	//would be in the event payload
 	err = w.SetValueFromPayload(ctx, payload)
 	if err != nil {
 		return nil, err
@@ -199,7 +202,6 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 		return nil, err
 	}
 	w.NewChange(event)
-	err = w.ApplyEvents([]*Event{event})
 	return w, err
 }
 
@@ -519,7 +521,13 @@ func (w *ContentEntity) ToMap() map[string]interface{} {
 
 func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 	err := json.Unmarshal(data, &w.AggregateRoot)
-	err = json.Unmarshal(data, &w.payload)
+	//if  there is a schema set then let's use set value which does some type conversions etc
+	if w.Schema != nil {
+		err = w.SetValueFromPayload(context.Background(), data)
+	} else {
+		err = json.Unmarshal(data, &w.payload)
+	}
+
 	return err
 }
 
