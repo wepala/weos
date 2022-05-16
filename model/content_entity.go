@@ -8,7 +8,6 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
-	utils "github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
 	"math"
 	"strings"
@@ -19,6 +18,7 @@ type ContentEntity struct {
 	AggregateRoot
 	Schema  *openapi3.Schema
 	payload map[string]interface{}
+	builder ds.Builder
 }
 
 //IsValid checks if the property is valid using the IsNull function
@@ -208,73 +208,81 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 //GORMModel return model
 func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
 	identifiers := w.Schema.Extensions["x-identifier"]
-	instance := ds.NewStruct()
-	if identifiers == nil {
-		name := "ID"
-		instance.AddField(name, uint(0), `json:"id"`)
-	}
-	relations := make(map[string]string)
-	for name, p := range w.Schema.Properties {
-		name = strings.Title(name)
-		if p.Ref != "" {
-			relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
-		} else {
-			t := p.Value.Type
-			if strings.EqualFold(t, "array") {
-				t2 := p.Value.Items.Value.Type
-				if t2 != "object" {
-					if t2 == "string" {
-						//format types to be added
-						if p.Value.Items.Value.Format == "date-time" {
-							instance.AddField(name, time.Now(), `json:"`+utils.SnakeCase(name)+`"`)
-						} else {
-							instance.AddField(name, []*string{}, `json:"`+utils.SnakeCase(name)+`"`)
-						}
-					} else if t2 == "number" {
-						instance.AddField(name, []*float64{}, `json:"`+utils.SnakeCase(name)+`"`)
-					} else if t == "integer" {
-						instance.AddField(name, []*int{}, `json:"`+utils.SnakeCase(name)+`"`)
-					} else if t == "boolean" {
-						instance.AddField(name, []*bool{}, `json:"`+utils.SnakeCase(name)+`"`)
-					}
-				} else {
-					if p.Value.Items.Ref == "" {
-						//add as json object
-					} else {
-						//add reference to the object to the map
-						relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/") + "{}"
-
-					}
-				}
-
-			} else if strings.EqualFold(t, "object") {
-				//add json object
-
+	//ideally the builder would be set by the entity factory which should accommodate the recursive structs
+	if w.builder == nil {
+		w.builder = ds.NewStruct()
+		if identifiers == nil {
+			name := "ID"
+			w.builder.AddField(name, uint(0), `json:"id"`)
+		}
+		relations := make(map[string]string)
+		for name, p := range w.Schema.Properties {
+			exportedPropertyName := strings.Title(name)
+			if p.Ref != "" {
+				relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
 			} else {
-				if t == "string" {
-					//format types to be added
-					if p.Value.Format == "date-time" {
-						var t *time.Time
-						instance.AddField(name, t, `json:"`+utils.SnakeCase(name)+`"`)
+				t := p.Value.Type
+				if strings.EqualFold(t, "array") {
+					t2 := p.Value.Items.Value.Type
+					if t2 != "object" {
+						if t2 == "string" {
+							//format types to be added
+							if p.Value.Items.Value.Format == "date-time" {
+								w.builder.AddField(exportedPropertyName, time.Now(), `json:"`+name+`"`)
+							} else {
+								w.builder.AddField(exportedPropertyName, []*string{}, `json:"`+name+`"`)
+							}
+						} else if t2 == "number" {
+							w.builder.AddField(exportedPropertyName, []*float64{}, `json:"`+name+`"`)
+						} else if t == "integer" {
+							w.builder.AddField(exportedPropertyName, []*int{}, `json:"`+name+`"`)
+						} else if t == "boolean" {
+							w.builder.AddField(exportedPropertyName, []*bool{}, `json:"`+name+`"`)
+						}
 					} else {
-						var strings *string
-						instance.AddField(name, strings, `json:"`+utils.SnakeCase(name)+`"`)
+						if p.Value.Items.Ref == "" {
+							//add as json object
+						} else {
+							//add reference to the object to the map
+							relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/") + "{}"
+
+						}
 					}
-				} else if t == "number" {
-					var numbers *float32
-					instance.AddField(name, numbers, `json:"`+utils.SnakeCase(name)+`"`)
-				} else if t == "integer" {
-					var integers *int
-					instance.AddField(name, integers, `json:"`+utils.SnakeCase(name)+`"`)
-				} else if t == "boolean" {
-					var boolean *bool
-					instance.AddField(name, boolean, `json:"`+utils.SnakeCase(name)+`"`)
+
+				} else if strings.EqualFold(t, "object") {
+					//add json object
+
+				} else {
+					if t == "string" {
+						//format types to be added
+						if p.Value.Format == "date-time" {
+							var t *time.Time
+							w.builder.AddField(exportedPropertyName, t, `json:"`+name+`"`)
+						} else {
+							var s *string
+							w.builder.AddField(exportedPropertyName, s, `json:"`+name+`"`)
+						}
+					} else if t == "number" {
+						var numbers *float32
+						w.builder.AddField(exportedPropertyName, numbers, `json:"`+name+`"`)
+					} else if t == "integer" {
+						var integers *int
+						w.builder.AddField(exportedPropertyName, integers, `json:"`+name+`"`)
+					} else if t == "boolean" {
+						var boolean *bool
+						w.builder.AddField(exportedPropertyName, boolean, `json:"`+name+`"`)
+					}
 				}
 			}
 		}
+
+		//setup basic weos properties
+		var s *string
+		w.builder.AddField("Weos_id", s, `json:"weos_id"`)
+		w.builder.AddField("Sequence_no", uint(0), `json:"sequence_no"`)
 	}
 
-	model := instance.Build().New()
+	model := w.builder.Build().New()
 	//if there is a payload let's serialize that
 	if w.payload != nil {
 		tbytes, err := json.Marshal(w.payload)
@@ -304,6 +312,17 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 			w.payload[name] = property.Value.Default
 		}
 	}
+	return w, nil
+}
+
+//FromSchemaAndBuilder builds properties from the schema and uses the builder generated on startup. This helps generate
+//complex gorm models that reference other models (if we only use the schema for the current entity then we won't be able to do that)
+func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.Schema, builder ds.Builder) (*ContentEntity, error) {
+	_, err := w.FromSchema(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	w.builder = builder
 	return w, nil
 }
 

@@ -2077,11 +2077,11 @@ components:
 			t.Errorf("Error getting content type: got %s", err)
 		}
 
-		if blog.GetString("Title") != payload["title"] {
-			t.Fatalf("expected title to be %s, got %s", payload["title"], blog.GetString("Title"))
+		if blog.GetString("title") != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog.GetString("title"))
 		}
 
-		if blog.GetString("Description") != payload["description"] {
+		if blog.GetString("description") != payload["description"] {
 			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog.GetString("description"))
 		}
 

@@ -65,10 +65,15 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 		}
 	}
 
-	result := p.db.Debug().Table(entityFactory.Name()).Scopes(ContentQuery()).Find(&contentEntity, identifiers)
+	model, err := contentEntity.GORMModel(ctxt)
+
+	result := p.db.Debug().Table(entityFactory.Name()).Scopes(ContentQuery()).Find(&model, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
+
+	data, err := json.Marshal(model)
+	err = contentEntity.SetValueFromPayload(ctxt, data)
 
 	return contentEntity, nil
 
@@ -363,22 +368,18 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 		return nil, err
 	}
 
-	result := p.db.Table(entityFactory.TableName()).Find(newEntity, "weos_id = ? ", weosID)
+	model, err := newEntity.GORMModel(ctx)
+
+	result := p.db.Debug().Table(entityFactory.TableName()).Find(&model, "weos_id = ? ", weosID)
 	if result.Error != nil {
 		p.logger.Errorf("unexpected error retrieving created blog, got: '%s'", result.Error)
 	}
-	//set result to entity
-	rowData, err := json.Marshal(newEntity.ToMap())
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(rowData, &newEntity)
-	if err != nil {
-		return nil, err
-	}
 
-	//because we're unmarshallign to the property field directly the weos id and sequence no. is not being set on the entity itself. The ideal fix is to make a custom unmarshal routine for ContentEntity
-	return newEntity, nil
+	data, err := json.Marshal(model)
+	err = newEntity.SetValueFromPayload(ctx, data)
+
+	//because we're unmarshalling to the property field directly the weos id and sequence no. is not being set on the entity itself. The ideal fix is to make a custom unmarshal routine for ContentEntity
+	return newEntity, err
 }
 
 //GetContentEntities returns a list of content entities as well as the total found
