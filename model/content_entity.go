@@ -16,7 +16,7 @@ import (
 
 type ContentEntity struct {
 	AggregateRoot
-	Schema  *openapi3.Schema
+	Schema  *openapi3.Schema `json:"-"`
 	payload map[string]interface{}
 	builder ds.Builder
 }

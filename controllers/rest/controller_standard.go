@@ -469,7 +469,7 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 
 		//set etag
 		ctxt.Response().Header().Set("Etag", etag)
-		return ctxt.JSON(http.StatusOK, entity)
+		return ctxt.JSON(http.StatusOK, entity.ToMap())
 	}
 }
 
