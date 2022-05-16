@@ -6,8 +6,8 @@ import (
 )
 
 //Get entity if it's in the context
-func GetEntity(ctx context.Context) map[string]interface{} {
-	if value, ok := ctx.Value(weoscontext.ENTITY).(map[string]interface{}); ok {
+func GetEntity(ctx context.Context) *ContentEntity {
+	if value, ok := ctx.Value(weoscontext.ENTITY).(*ContentEntity); ok {
 		return value
 	}
 	return nil

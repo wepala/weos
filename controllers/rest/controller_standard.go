@@ -443,7 +443,6 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 
 		var err error
 		var weosID string
-		var ok bool
 
 		if err = weoscontext.GetError(newContext); err != nil {
 			return NewControllerError("Error occurred", err, http.StatusBadRequest)
@@ -458,10 +457,7 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		if entity == nil {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
 		}
-		if weosID, ok = entity["weos_id"].(string); !ok {
-			return NewControllerError("No entity found", err, http.StatusNotFound)
-		}
-		sequenceString := fmt.Sprint(entity["sequence_no"])
+		sequenceString := fmt.Sprint(entity.SequenceNo)
 		sequenceNo, _ := strconv.Atoi(sequenceString)
 
 		etag := NewEtag(&model.ContentEntity{
@@ -470,11 +466,6 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 				BasicEntity: model.BasicEntity{ID: weosID},
 			},
 		})
-
-		//remove sequence number and weos_id from response
-		delete(entity, "weos_id")
-		delete(entity, "sequence_no")
-		delete(entity, "table_alias")
 
 		//set etag
 		ctxt.Response().Header().Set("Etag", etag)
