@@ -338,13 +338,19 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 }
 
 func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.RawMessage) error {
+	var generatedID bool
 	weosID, err := GetIDfromPayload(payload)
 	if err != nil {
 		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
 	}
 
 	if w.ID == "" {
-		w.ID = weosID
+		if weosID != "" {
+			w.ID = weosID
+		} else {
+			w.ID = ksuid.New().String()
+			generatedID = true
+		}
 	}
 
 	err = json.Unmarshal(payload, &w.payload)
@@ -380,7 +386,7 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 							if InList(propArray, k) {
 								w.payload[k] = ksuid.New().String()
 								//if the identifier is only one part, and it's a string then let's use it as the entity id
-								if len(propArray) == 1 {
+								if len(propArray) == 1 && generatedID {
 									w.ID = w.payload[k].(string)
 								}
 							}
@@ -395,7 +401,7 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 							if InList(propArray, k) {
 								w.payload[k] = uuid.NewString()
 								//if the identifier is only one part, and it's a string then let's use it as the entity id
-								if len(propArray) == 1 {
+								if len(propArray) == 1 && generatedID {
 									w.ID = w.payload[k].(string)
 								}
 							}
@@ -404,11 +410,6 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 				}
 			}
 		}
-	}
-
-	//if there is still no id then generate a ksuid
-	if w.ID == "" {
-		w.ID = ksuid.New().String()
 	}
 
 	return nil
