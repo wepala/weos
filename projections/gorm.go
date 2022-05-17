@@ -298,46 +298,16 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 			}
 		case "update":
 			if entityFactory != nil {
-				entity, err := entityFactory.NewEntity(ctx)
+				entity, err := entityFactory.CreateEntityWithValues(ctx, event.Payload)
 				if err != nil {
 					p.logger.Errorf("error creating entity '%s'", err)
 					return err
 				}
-				eventPayload := entity.ToMap()
-				mapPayload := map[string]interface{}{}
-				err = json.Unmarshal(event.Payload, &mapPayload)
-				if err != nil {
-					p.logger.Errorf("error unmarshalling event '%s'", err)
-					return err
-				}
 
-				//set sequence number
-				mapPayload["sequence_no"] = event.Meta.SequenceNo
-
-				bytes, _ := json.Marshal(mapPayload)
-				err = json.Unmarshal(bytes, &eventPayload)
-				if err != nil {
-					p.logger.Errorf("error unmarshalling event '%s'", err)
-					return err
-				}
-
-				reader := ds.NewReader(eventPayload)
-
-				//replace associations
-				for key, entity := range mapPayload {
-					//many to many association
-					if _, ok := entity.([]interface{}); ok {
-						field := reader.GetField(strings.Title(key))
-						err = p.db.Model(eventPayload).Association(strings.Title(key)).Replace(field.Interface())
-						if err != nil {
-							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
-							return err
-						}
-					}
-				}
+				model, err := entity.GORMModel(ctx)
 
 				//update database value
-				db := p.db.Table(entityFactory.Name()).Updates(eventPayload)
+				db := p.db.Table(entityFactory.Name()).Updates(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
