@@ -47,7 +47,7 @@ func TestDomainService_Create(t *testing.T) {
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 		entityType := "Blog"
 
-		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com", "last_updated": "2106-11-02T15:04:00Z"}
+		mockBlog := map[string]string{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com", "lastUpdated": "2106-11-02T15:04:00Z"}
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
@@ -62,22 +62,22 @@ func TestDomainService_Create(t *testing.T) {
 		if blog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if blog.GetString("Title") != mockBlog["title"] {
-			t.Fatalf("expected blog title to be %s got %s", mockBlog["title"], blog.GetString("Title"))
+		if blog.GetString("title") != mockBlog["title"] {
+			t.Errorf("expected blog title to be %s got %s", mockBlog["title"], blog.GetString("title"))
 		}
-		if blog.GetString("Description") != mockBlog["description"] {
-			t.Fatalf("expected blog description to be %s got %s", mockBlog["description"], blog.GetString("Description"))
+		if blog.GetString("description") != mockBlog["description"] {
+			t.Errorf("expected blog description to be %s got %s", mockBlog["description"], blog.GetString("description"))
 		}
-		if blog.GetString("Url") != mockBlog["url"] {
-			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
+		if !strings.EqualFold(blog.GetString("url"), mockBlog["url"]) {
+			t.Errorf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("url"))
 		}
 
-		tt, err := time.Parse("2006-01-02T15:04:00Z", mockBlog["last_updated"].(string))
+		tt, err := time.Parse("2006-01-02T15:04:00Z", mockBlog["lastUpdated"])
 		if err != nil {
 			t.Fatal(err)
 		}
-		if blog.GetTime("LastUpdated") != tt {
-			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
+		if blog.GetTime("lastUpdated") != tt {
+			t.Errorf("expected blog url to be %s got %s", mockBlog["lastUpdated"], blog.GetString("lastUpdated"))
 		}
 	})
 
@@ -160,11 +160,11 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			if blogs[i] == nil {
 				t.Fatal("expected blog to be returned")
 			}
-			if blogs[i].GetString("Title") != mockBlogs[i]["title"] {
-				t.Fatalf("expected there to be generated blog title: %s got %s", mockBlogs[i]["title"], blogs[i].GetString("Title"))
+			if blogs[i].GetString("title") != mockBlogs[i]["title"] {
+				t.Fatalf("expected there to be generated blog title: %s got %s", mockBlogs[i]["title"], blogs[i].GetString("title"))
 			}
-			if blogs[i].GetString("Url") != mockBlogs[i]["url"] {
-				t.Fatalf("expected there to be generated blog Url: %s got %s", mockBlogs[i]["url"], blogs[i].GetString("Url"))
+			if blogs[i].GetString("url") != mockBlogs[i]["url"] {
+				t.Fatalf("expected there to be generated blog Url: %s got %s", mockBlogs[i]["url"], blogs[i].GetString("url"))
 			}
 		}
 	})
