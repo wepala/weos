@@ -277,9 +277,8 @@ func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
 		}
 
 		//setup basic weos properties
-		var s *string
-		w.builder.AddField("Weos_id", s, `json:"weos_id"`)
-		w.builder.AddField("Sequence_no", uint(0), `json:"sequence_no"`)
+		w.builder.AddField("Weos_id", w.ID, `json:"weos_id"`)
+		w.builder.AddField("Sequence_no", w.SequenceNo, `json:"sequence_no"`)
 	}
 
 	model := w.builder.Build().New()
