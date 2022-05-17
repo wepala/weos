@@ -284,13 +284,16 @@ func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
 	model := w.builder.Build().New()
 	//if there is a payload let's serialize that
 	if w.payload != nil {
-		tbytes, err := json.Marshal(w.payload)
+		tpayload := w.payload
+		tpayload["weos_id"] = w.ID
+		tpayload["sequence_no"] = w.SequenceNo
+		tbytes, err := json.Marshal(tpayload)
 		if err != nil {
 			return nil, NewDomainError("error prepping entity for gorm", "ContentEntity", w.ID, err)
 		}
 		err = json.Unmarshal(tbytes, &model)
 		if err != nil {
-			return nil, NewDomainError("error prepping entity for gorm", "ContentEntity", w.ID, err)
+			return nil, NewDomainError(fmt.Sprintf("error prepping entity for gorm '%s'", err), "ContentEntity", w.ID, err)
 		}
 	}
 

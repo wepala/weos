@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
+	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
@@ -927,6 +928,20 @@ func TestContentEntity_CreateWithCollection(t *testing.T) {
 		_, err = ksuid.Parse(post.GetString("id"))
 		if err != nil {
 			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
+		}
+
+		var model interface{}
+		model, err = post.GORMModel(context.TODO())
+		if err != nil {
+			t.Fatalf("unexpected error getting gorm model '%s'", err)
+		}
+		reader := ds.NewReader(model)
+		if !reader.HasField("WeosID") {
+			t.Errorf("expected weos_id to be set")
+		}
+
+		if reader.GetField("WeosID").String() != post.ID {
+			t.Errorf("expected the weos_id to be '%s', got '%s'", post.ID, reader.GetField("WeosID").String())
 		}
 	})
 }
