@@ -712,6 +712,9 @@ func TestStandardControllers_View(t *testing.T) {
 				}
 				return nil, nil
 			},
+			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				return nil, nil
+			},
 		}
 		application := &ServiceMock{
 			DispatcherFunc: func() model.CommandDispatcher {
@@ -757,8 +760,8 @@ func TestStandardControllers_View(t *testing.T) {
 		defer response.Body.Close()
 
 		//confirm  the entity is retrieved by entity id
-		if len(projection.GetByEntityIDCalls()) != 1 {
-			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByEntityIDCalls()))
+		if len(projection.GetContentEntityCalls()) != 1 {
+			t.Errorf("expected the get by entity id method on the projection to be called %d time, called %d times", 1, len(projection.GetContentEntityCalls()))
 		}
 
 		if len(projection.GetByKeyCalls()) != 0 {

@@ -428,7 +428,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			}
 
 			//add result to context
-			newContext = context.WithValue(newContext, weoscontext.ENTITY, result) //TODO store the entity instead (this requires the different projection calls to return entities)
+			newContext = context.WithValue(newContext, weoscontext.ENTITY, result)
 			request := ctxt.Request().WithContext(newContext)
 			ctxt.SetRequest(request)
 			return next(ctxt)
