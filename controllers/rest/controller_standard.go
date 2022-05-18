@@ -709,7 +709,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 							} else if err != nil {
 								api.e.Logger.Error(err)
 							} else {
-								api.e.Static(pathName, folderPath)
+								api.e.Static(api.Config.BasePath+pathName, folderPath)
 							}
 						}
 					}
