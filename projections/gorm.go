@@ -298,7 +298,13 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 			}
 		case "update":
 			if entityFactory != nil {
-				entity, err := entityFactory.CreateEntityWithValues(ctx, event.Payload)
+				entity, err := entityFactory.NewEntity(ctx)
+				if err != nil {
+					p.logger.Errorf("error creating entity '%s'", err)
+					return err
+				}
+				entity.ID = event.Meta.EntityID
+				err = entity.SetValueFromPayload(ctx, event.Payload)
 				if err != nil {
 					p.logger.Errorf("error creating entity '%s'", err)
 					return err
