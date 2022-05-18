@@ -307,7 +307,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				model, err := entity.GORMModel(ctx)
 
 				//update database value
-				db := p.db.Table(entityFactory.Name()).Updates(model)
+				db := p.db.Debug().Table(entityFactory.Name()).Updates(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
