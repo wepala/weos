@@ -128,7 +128,7 @@ func (w *ContentEntity) IsEnumValid(propertyName string, property *openapi3.Sche
 				} else if property.Value.Format == "date-time" {
 					for _, v := range property.Value.Enum {
 						if val, ok := v.(string); ok {
-							currTime, _ := time.Parse("2006-01-02T15:04:00Z", val)
+							currTime, _ := time.Parse("2006-01-02T15:04:05Z", val)
 							enumFound = enumFound || value.(time.Time) == currTime
 						}
 					}
@@ -371,9 +371,9 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 				case "date-time":
 					//if the value is a string let's try to convert to time
 					if value, ok := w.payload[k].(string); ok {
-						w.payload[k], err = time.Parse("2006-01-02T15:04:00Z", value)
+						w.payload[k], err = time.Parse("2006-01-02T15:04:05Z", value)
 						if err != nil {
-							return NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '2006-01-02T15:04:00Z'", k), w.Schema.Title, w.ID, err)
+							return NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '2006-01-02T15:04:05Z'", k), w.Schema.Title, w.ID, err)
 						}
 					}
 				//if it's a ksuid and the value is nil then auto generate the field
