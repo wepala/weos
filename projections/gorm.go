@@ -315,6 +315,20 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				}
 
 				model, err := entity.GORMModel(ctx)
+				reader := ds.NewReader(model)
+
+				//replace associations
+				for key, property := range entityFactory.Schema().Properties {
+					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
+					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
+						field := reader.GetField(strings.Title(key))
+						err = p.db.Model(model).Association(strings.Title(key)).Replace(field.Interface())
+						if err != nil {
+							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
+							return err
+						}
+					}
+				}
 
 				//update database value
 				db := p.db.Debug().Table(entityFactory.Name()).Updates(model)

@@ -376,7 +376,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
 			}
 			//if sequence no. was sent in the request but we don't have the entity let's get it from projection
-			if entityID == "" && seqInt != 0 {
+			if entityID == "" && seqInt != 0 && result != nil {
 				entityID = result.ID
 				if entityID == "" {
 					ctxt.Logger().Debugf("the item '%v' does not have an entity id stored", identifiers)
