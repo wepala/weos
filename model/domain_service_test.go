@@ -76,7 +76,7 @@ func TestDomainService_Create(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if blog.GetTime("lastUpdated") != tt {
+		if blog.GetTime("lastUpdated").String() != model.NewTime(tt).String() {
 			t.Errorf("expected blog url to be %s got %s", mockBlog["lastUpdated"], blog.GetString("lastUpdated"))
 		}
 	})
@@ -752,38 +752,32 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
-		return nil, nil
-	}}, echo.New().Logger)
-	existingBlog, _ := dService.Create(newContext, reqBytes, contentType)
-	existingBlog2, _ := dService.Create(newContext, reqBytes2, contentType)
-
 	projectionMock := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
-			if existingBlog.GetID() == weosID {
-				return existingBlog, nil
+			if weosID == "dsafdsdfdsf" {
+				return entityFactory.CreateEntityWithValues(ctx, reqBytes)
 			}
-			if existingBlog2.GetID() == weosID {
-				return existingBlog2, nil
+			if weosID == "dsafdsdfdsf11" {
+				return entityFactory.CreateEntityWithValues(ctx, reqBytes2)
 			}
 			return nil, nil
 		},
 		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			if existingPayload["id"] == identifiers["id"] {
-				return new(model.ContentEntity).Init(context.Background(), reqBytes)
+				return entityFactory.CreateEntityWithValues(context.Background(), reqBytes)
 			}
 			if existingPayload2["id"] == identifiers["id"] {
-				return new(model.ContentEntity).Init(context.Background(), reqBytes2)
+				return entityFactory.CreateEntityWithValues(context.Background(), reqBytes2)
 			}
 			return nil, nil
 		},
 		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
-			identifier := identifiers["url"].(*string)
-			if *identifier == existingPayload["url"].(string) {
+			identifier := identifiers["url"].(string)
+			if identifier == existingPayload["url"].(string) {
 				contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
 				return []*model.ContentEntity{contentEntity}, err
 			}
-			if *identifier == existingPayload2["url"].(string) {
+			if identifier == existingPayload2["url"].(string) {
 				contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes2)
 				return []*model.ContentEntity{contentEntity}, err
 			}
@@ -847,7 +841,7 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 			t.Fatalf("expected to be able to update blog, got error %s", err.Error())
 		}
 
-		//invalid upate
+		//invalid update
 
 		mockBlog = map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.TestBlog1.com", "last_updated": "2106-11-02T15:04:00Z"}
 		reqBytes, err = json.Marshal(mockBlog)

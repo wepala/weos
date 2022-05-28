@@ -4725,7 +4725,7 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 					if err != nil {
 						return nil, err
 					}
-					return entityFactory.CreateEntityWithValues(ctxt, reqBytes)
+					return new(weos.ContentEntity).Init(ctxt, reqBytes)
 				}
 			}
 			return nil, nil
@@ -4742,7 +4742,7 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 					if err != nil {
 						return nil, err
 					}
-					return entityFactory.CreateEntityWithValues(ctxt, reqBytes)
+					return new(weos.ContentEntity).Init(ctxt, reqBytes)
 				}
 
 				if id == "789" {
@@ -4758,6 +4758,7 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
 		identifiers := make(map[string]interface{})
 		identifiers["id"] = "123"
+
 		entity, err := metaProjection.GetByKey(context.TODO(), nil, identifiers)
 		if err != nil {
 			t.Fatalf("unexpected error '%s'", err)
@@ -4825,7 +4826,7 @@ func TestMetaProjection_GetByProperties(t *testing.T) {
 					if err != nil {
 						return nil, err
 					}
-					contentEntity, err := entityFactory.CreateEntityWithValues(ctxt, reqBytes)
+					contentEntity, err := new(weos.ContentEntity).Init(ctxt, reqBytes)
 					return []*weos.ContentEntity{contentEntity}, nil
 				}
 			}
@@ -4843,7 +4844,7 @@ func TestMetaProjection_GetByProperties(t *testing.T) {
 					if err != nil {
 						return nil, err
 					}
-					contentEntity, err := entityFactory.CreateEntityWithValues(ctxt, reqBytes)
+					contentEntity, err := new(weos.ContentEntity).Init(ctxt, reqBytes)
 					return []*weos.ContentEntity{contentEntity}, nil
 				}
 

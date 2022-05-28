@@ -667,11 +667,11 @@ func TestContentEntity_EnumerationDateTime(t *testing.T) {
 			t.Fatalf("error setting Payload '%s'", err)
 		}
 
-		tt, err := time.Parse("2006-01-02T15:04:00Z", "0001-02-01T00:00:00Z")
+		tt, err := time.Parse("2006-01-02T15:05:04Z", "0001-02-01T00:00:00Z")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if entity.GetTime("status") != tt {
+		if entity.GetTime("status").String() != tt.String() {
 			t.Fatalf("expected status time to be %s got %s", tt, entity.GetTime("status"))
 		}
 

@@ -652,6 +652,11 @@ func TestStandardControllers_View(t *testing.T) {
 					"weos_id": "1234sd",
 				}, nil
 			},
+			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				entity := new(model.ContentEntity)
+				entity.ID = "1234sd"
+				return entity, nil
+			},
 		}
 
 		paramName := "id"
@@ -684,7 +689,7 @@ func TestStandardControllers_View(t *testing.T) {
 		defer response.Body.Close()
 
 		//confirm  the entity is retrieved by entity id
-		if len(projection.GetByEntityIDCalls()) != 1 {
+		if len(projection.GetContentEntityCalls()) != 1 {
 			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByEntityIDCalls()))
 		}
 
@@ -775,8 +780,7 @@ func TestStandardControllers_View(t *testing.T) {
 	t.Run("invalid numeric entity id should return 404", func(t *testing.T) {
 		projection := &ProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
-				entity := new(model.ContentEntity)
-				return entity, nil
+				return nil, nil
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				if id == "1234sd" {
@@ -785,6 +789,9 @@ func TestStandardControllers_View(t *testing.T) {
 						"weos_id": "1234sd",
 					}, nil
 				}
+				return nil, nil
+			},
+			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 				return nil, nil
 			},
 		}
@@ -832,8 +839,8 @@ func TestStandardControllers_View(t *testing.T) {
 		defer response.Body.Close()
 
 		//confirm  the entity is retrieved by entity id
-		if len(projection.GetByEntityIDCalls()) != 1 {
-			t.Errorf("expected the get by key method on the projection to be called %d time, called %d times", 1, len(projection.GetByEntityIDCalls()))
+		if len(projection.GetContentEntityCalls()) != 1 {
+			t.Errorf("expected the getContentEntity method on the projection to be called %d time, called %d times", 1, len(projection.GetContentEntityCalls()))
 		}
 
 		if len(projection.GetByKeyCalls()) != 0 {
@@ -847,8 +854,9 @@ func TestStandardControllers_View(t *testing.T) {
 	t.Run("view with sequence no", func(t *testing.T) {
 		projection := &ProjectionMock{
 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
-				entity := new(model.ContentEntity)
-				return entity, nil
+				entity, err := entityFactory.NewEntity(ctxt)
+				entity.ID = "1234sd"
+				return entity, err
 			},
 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 				return map[string]interface{}{
@@ -903,7 +911,7 @@ func TestStandardControllers_View(t *testing.T) {
 		}
 		defer resp.Body.Reset()
 
-		//check that properties of the scehma are in the response even if it was not set in the event
+		//check that properties of the schema are in the response even if it was not set in the event
 		if !strings.Contains(string(response), "title") {
 			t.Errorf("expected the response to have '%s' based on the schema, got '%s'", "title", string(response))
 		}
@@ -1844,59 +1852,6 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 
 		if response.StatusCode != 200 {
 			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
-		}
-	})
-	t.Run("basic delete based on simple content type id parameter in path. (No weosID)", func(t *testing.T) {
-		mockEntity1 := &model.ContentEntity{}
-		reqBytes, err = json.Marshal(mockBlog)
-		mockEntity1.SetValueFromPayload(context.TODO(), reqBytes)
-
-		mockInterface1 := map[string]interface{}{"title": "Test Blog", "description": "testing description", "id": "12", "sequence_no": "1"}
-
-		eventMock1 := &EventRepositoryMock{
-			GetAggregateSequenceNumberFunc: func(ID string) (int64, error) {
-				return 2, nil
-			},
-		}
-
-		projection1 := &ProjectionMock{
-			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
-				return mockEntity1, nil
-			},
-			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
-				return mockInterface1, nil
-			},
-			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
-				return mockEntity1, nil
-			},
-		}
-
-		paramName := "id"
-
-		accountID := "Delete Blog"
-		path := swagger.Paths.Find("/blogs/:" + paramName)
-		entityFactory := &EntityFactoryMock{
-			NameFunc: func() string {
-				return "Blog"
-			},
-			SchemaFunc: func() *openapi3.Schema {
-				return swagger.Components.Schemas["Blog"].Value
-			},
-		}
-		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
-		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
-		mw := rest.Context(restAPI, projection, dispatcher, eventMock, entityFactory, path, path.Delete)
-		deleteMw := rest.DeleteMiddleware(restAPI, projection1, dispatcher, eventMock1, entityFactory, path, path.Delete)
-		controller := rest.DeleteController(restAPI, projection1, dispatcher, eventMock1, entityFactory)
-		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
-		e.ServeHTTP(resp, req)
-
-		response := resp.Result()
-		defer response.Body.Close()
-
-		if response.StatusCode != 404 {
-			t.Errorf("expected response code to be %d, got %d", 404, response.StatusCode)
 		}
 	})
 

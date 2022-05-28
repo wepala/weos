@@ -37,6 +37,7 @@ components:
           format: uuid
         description:
           type: string
+          nullable: true
       required:
         - id
       x-identifier:

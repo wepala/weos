@@ -584,7 +584,6 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 			var err error
 			var identifiers []string
 			var result1 *model.ContentEntity
-			var ok bool
 
 			//Uses the identifiers to pull the weosID, to be later used to get Seq NO
 			if etagInterface == nil {
@@ -614,7 +613,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				}
 				weosID = result1.ID
 
-				if (result1 != nil) || !ok || weosID == "" {
+				if result1 == nil || weosID == "" {
 					return NewControllerError("No entity found", err, http.StatusNotFound)
 				} else if err != nil {
 					return NewControllerError(err.Error(), err, http.StatusBadRequest)

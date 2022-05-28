@@ -27,6 +27,11 @@ func (w *ContentEntity) IsValid() bool {
 		return false
 	}
 
+	//if there is not schema to valid against then it's valid
+	if w.Schema == nil {
+		return true
+	}
+
 	//check if the value being passed in is valid
 	for key, value := range w.payload {
 		if property, ok := w.Schema.Properties[key]; ok {
@@ -62,7 +67,7 @@ func (w *ContentEntity) IsValid() bool {
 					switch property.Value.Format {
 					case "date-time":
 						//check if the date is in the expected format
-						if _, ok := value.(time.Time); !ok {
+						if _, ok := value.(*Time); !ok {
 							w.AddError(NewDomainError(fmt.Sprintf("invalid type specified for '%s' expected date time", key), "ContentEntity", w.ID, nil))
 						}
 					default:
@@ -129,7 +134,8 @@ func (w *ContentEntity) IsEnumValid(propertyName string, property *openapi3.Sche
 					for _, v := range property.Value.Enum {
 						if val, ok := v.(string); ok {
 							currTime, _ := time.Parse("2006-01-02T15:04:05Z", val)
-							enumFound = enumFound || value.(time.Time) == currTime
+							currentTime := NewTime(currTime)
+							enumFound = enumFound || value.(*Time).String() == currentTime.String()
 						}
 					}
 				} else {
@@ -359,50 +365,53 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 	}
 
 	//go serializes integers to float64
-	for k, property := range w.Schema.Properties {
-		if property.Value != nil {
-			switch property.Value.Type {
-			case "integer":
-				if t, ok := w.payload[k].(float64); ok {
-					w.payload[k] = int(math.Round(t))
-				}
-			case "string":
-				switch property.Value.Format {
-				case "date-time":
-					//if the value is a string let's try to convert to time
-					if value, ok := w.payload[k].(string); ok {
-						w.payload[k], err = time.Parse("2006-01-02T15:04:05Z", value)
-						if err != nil {
-							return NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '2006-01-02T15:04:05Z'", k), w.Schema.Title, w.ID, err)
-						}
+	if w.Schema != nil {
+		for k, property := range w.Schema.Properties {
+			if property.Value != nil {
+				switch property.Value.Type {
+				case "integer":
+					if t, ok := w.payload[k].(float64); ok {
+						w.payload[k] = int(math.Round(t))
 					}
-				//if it's a ksuid and the value is nil then auto generate the field
-				case "ksuid":
-					if w.payload[k] == nil {
-						properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
-						if properties != nil {
-							propArray := []string{}
-							err = json.Unmarshal(properties.(json.RawMessage), &propArray)
-							if InList(propArray, k) {
-								w.payload[k] = ksuid.New().String()
-								//if the identifier is only one part, and it's a string then let's use it as the entity id
-								if len(propArray) == 1 && generatedID {
-									w.ID = w.payload[k].(string)
+				case "string":
+					switch property.Value.Format {
+					case "date-time":
+						//if the value is a string let's try to convert to time
+						if value, ok := w.payload[k].(string); ok {
+							ttime, err := time.Parse("2006-01-02T15:04:05Z", value)
+							if err != nil {
+								return NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '2006-01-02T15:04:05Z', got '%s'", k, value), w.Schema.Title, w.ID, err)
+							}
+							w.payload[k] = NewTime(ttime)
+						}
+					//if it's a ksuid and the value is nil then auto generate the field
+					case "ksuid":
+						if w.payload[k] == nil {
+							properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+							if properties != nil {
+								propArray := []string{}
+								err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+								if InList(propArray, k) {
+									w.payload[k] = ksuid.New().String()
+									//if the identifier is only one part, and it's a string then let's use it as the entity id
+									if len(propArray) == 1 && generatedID {
+										w.ID = w.payload[k].(string)
+									}
 								}
 							}
 						}
-					}
-				case "uuid":
-					if w.payload[k] == nil {
-						properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
-						if properties != nil {
-							propArray := []string{}
-							err = json.Unmarshal(properties.(json.RawMessage), &propArray)
-							if InList(propArray, k) {
-								w.payload[k] = uuid.NewString()
-								//if the identifier is only one part, and it's a string then let's use it as the entity id
-								if len(propArray) == 1 && generatedID {
-									w.ID = w.payload[k].(string)
+					case "uuid":
+						if w.payload[k] == nil {
+							properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+							if properties != nil {
+								propArray := []string{}
+								err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+								if InList(propArray, k) {
+									w.payload[k] = uuid.NewString()
+									//if the identifier is only one part, and it's a string then let's use it as the entity id
+									if len(propArray) == 1 && generatedID {
+										w.ID = w.payload[k].(string)
+									}
 								}
 							}
 						}
@@ -480,13 +489,13 @@ func (w *ContentEntity) GetNumber(name string) float64 {
 }
 
 //GetTime returns the time.Time property value stored of a given the property name
-func (w *ContentEntity) GetTime(name string) time.Time {
+func (w *ContentEntity) GetTime(name string) *Time {
 	if v, ok := w.payload[name]; ok {
-		if val, ok := v.(time.Time); ok {
+		if val, ok := v.(*Time); ok {
 			return val
 		}
 	}
-	return time.Time{}
+	return NewTime(time.Time{})
 }
 
 //FromSchemaWithEvents create content entity using schema and events
@@ -611,7 +620,7 @@ func (w *ContentEntity) UpdateTime(operationID string) error {
 		for _, r := range routes {
 			if r == operationID {
 				if p.Value.Format == "date-time" {
-					w.payload[key] = time.Now()
+					w.payload[key] = NewTime(time.Now())
 				}
 			}
 		}

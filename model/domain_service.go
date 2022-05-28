@@ -304,6 +304,9 @@ func (s *DomainService) Delete(ctx context.Context, entityID string, entityType 
 
 func (s *DomainService) ValidateUnique(ctx context.Context, entity *ContentEntity) error {
 	entityFactory := GetEntityFactory(ctx)
+	if entity.Schema == nil {
+		return nil
+	}
 	for name, p := range entity.Schema.Properties {
 		uniquebytes, _ := json.Marshal(p.Value.Extensions["x-unique"])
 		if len(uniquebytes) != 0 {
