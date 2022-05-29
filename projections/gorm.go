@@ -375,7 +375,7 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 	}
 
 	data, err := json.Marshal(model)
-	err = newEntity.SetValueFromPayload(ctx, data)
+	err = json.Unmarshal(data, &newEntity)
 
 	return newEntity, err
 }

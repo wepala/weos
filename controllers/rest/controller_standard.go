@@ -98,7 +98,9 @@ func CreateController(api *RESTAPI, projection projections.Projection, commandDi
 				if err != nil {
 					return err
 				}
-				Etag = NewEtag(result)
+				if result != nil {
+					Etag = NewEtag(result)
+				}
 			}
 			if result == nil {
 				return NewControllerError("No entity found", err, http.StatusNotFound)

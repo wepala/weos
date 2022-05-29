@@ -58,8 +58,10 @@ Feature: Create content
                description: blog title
              description:
                type: string
+               nullable: true
              posts:
                type: array
+               nullable: true
                items:
                  $ref: "#/components/schemas/Post"
            required:
@@ -73,17 +75,21 @@ Feature: Create content
               type: string
             description:
               type: string
+              nullable: true
             blog:
               $ref: "#/components/schemas/Blog"
             publishedDate:
               type: string
               format: date-time
+              nullable: true
             views:
               type: integer
+              nullable: true
             categories:
               type: array
               items:
                 $ref: "#/components/schemas/Category"
+              nullable: true
           required:
             - title
         Category:
@@ -93,6 +99,7 @@ Feature: Create content
               type: string
             description:
               type: string
+              nullable: true
     paths:
       /:
         get:
@@ -165,6 +172,7 @@ Feature: Create content
         | 2     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 2       | Some Blog 2    |
       And the service is running
 
+    @focus
     Scenario: Create a basic item
 
       This is creating a basic item

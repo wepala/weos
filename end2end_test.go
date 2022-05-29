@@ -497,11 +497,24 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		if err != nil {
 			return err
 		}
+		model, err := entity.GORMModel(context.TODO())
+		if err != nil {
+			return err
+		}
 		var resultdb *gorm.DB
-		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&entity, "weos_id = ?", weosID)
+		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&model, "weos_id = ?", weosID)
 		//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.payload)
 		if resultdb.Error != nil {
 			return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
+		}
+		//put the result in the entity
+		data, err := json.Marshal(model)
+		if err != nil {
+			return fmt.Errorf("unable to marshal result '%s'", err)
+		}
+		err = json.Unmarshal(data, &entity)
+		if err != nil {
+			return fmt.Errorf("unable to unmarshal result '%s'", err)
 		}
 		entityProperty = entity
 		contentEntity = entity.ToMap()
@@ -2112,7 +2125,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1378",
-			//Tags: "focus-testing && ~skipped",
+			//Tags: "focus && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

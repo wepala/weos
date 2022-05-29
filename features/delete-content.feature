@@ -57,9 +57,11 @@ Feature: Delete content
                description: blog title
              description:
                type: string
+               nullable: true
              lastUpdated:
                type: string
                format: date-time
+               nullable: true
            required:
              - title
            x-identifier:
@@ -71,17 +73,21 @@ Feature: Delete content
                type: string
              description:
                type: string
+               nullable: true
              blog:
                $ref: "#/components/schemas/Blog"
              publishedDate:
                type: string
                format: date-time
+               nullable: true
              views:
                type: integer
+               nullable: true
              categories:
                type: array
                items:
                  $ref: "#/components/schemas/Post"
+               nullable: true
            required:
              - title
          Category:
@@ -91,6 +97,7 @@ Feature: Delete content
                type: string
              description:
                type: string
+               nullable: true
            required:
              - title
      paths:
