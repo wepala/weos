@@ -51,14 +51,17 @@ Feature: Upload file
                description: blog title
              description:
                type: string
+               nullable: true
              url:
                type: string
+               nullable: true
              banner:
                type: string
                format: binary
                x-upload:
                  folder: ./files
                  limit: 10000
+               nullable: true
            required:
              - title
            x-identifier:
@@ -70,13 +73,16 @@ Feature: Upload file
                type: string
              description:
                type: string
+               nullable: true
              blog:
                $ref: "#/components/schemas/Blog"
              publishedDate:
                type: string
                format: date-time
+               nullable: true
              views:
                type: integer
+               nullable: true
            required:
              - title
      paths:

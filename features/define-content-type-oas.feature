@@ -707,9 +707,11 @@ Feature: Create Content Types
                description: blog title
              description:
                type: string
+               nullable: true
              updated:
                type: string
                format: date-time
+               nullable: true
                x-update:
                  - Update Blog
            required:

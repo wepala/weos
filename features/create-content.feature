@@ -537,6 +537,7 @@ Feature: Create content
                description: blog title
              description:
                type: string
+               nullable: true
            required:
              - title
            x-identifier:
