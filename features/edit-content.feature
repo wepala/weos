@@ -57,9 +57,11 @@ Feature: Edit content
                description: blog title
              description:
                type: string
+               nullable: true
              lastUpdated:
                type: string
                format: date-time
+               nullable: true
            required:
              - title
            x-identifier:
@@ -71,17 +73,21 @@ Feature: Edit content
                type: string
              description:
                type: string
+               nullable: true
              blog:
                $ref: "#/components/schemas/Blog"
              publishedDate:
                type: string
                format: date-time
+               nullable: true
              views:
                type: integer
+               nullable: true
              categories:
                type: array
                items:
                  $ref: "#/components/schemas/Post"
+               nullable: true
            required:
              - title
          Category:
@@ -91,6 +97,7 @@ Feature: Edit content
                type: string
              description:
                type: string
+               nullable: true
            required:
              - title
      paths:
@@ -187,11 +194,12 @@ Feature: Edit content
                description: Blog Deleted
      """
      And blogs in the api
-       | id    | weos_id        | sequence_no | title        | description    |
-       | 1234  | 986888285      | 1           | Blog 1       | Some Blog      |
-       | 4567  | 5uhq85nal      | 1           | Blog 2       | Some Blog 2    |
+       | id    | weos_id                          | sequence_no | title        | description    |
+       | 1234  | 986888285                        | 1           | Blog 1       | Some Blog      |
+       | 4567  | 5uhq85nal                        | 1           | Blog 2       | Some Blog 2    |
+       | 5678  | 24Yx83eVlFvxXg8BkASkh58kdUQ      | 2           | Blog 3       | Some Blog      |
      And the service is running
-     
+
    Scenario: Edit item
 
      Updating an item leads to a new sequence no. being created and returned
@@ -206,7 +214,6 @@ Feature: Edit content
        | title          | description                       |
        | Some New Title | Some Description                  |
 
-     @focus1
    Scenario: Update item with invalid data
 
      If the content type validation fails then a 422 response code should be returned (the request could have a valid
@@ -218,17 +225,14 @@ Feature: Edit content
      When the "Blog" is submitted
      Then a 422 response should be returned
 
-   @focus-1132
+   @focus
    Scenario: Update stale item
 
      If you try to update an item and it has already been updated since since the last time the client got an updated
      version then an error is returned. This requires using the "If-Match" header
 
-     Given blogs in the api
-       | id    | weos_id                          | sequence_no | title        | description    |
-       | 5678  | 24Yx83eVlFvxXg8BkASkh58kdUQ      | 2           | Blog 3       | Some Blog      |
-     And "Sojourner" is on the "Blog" edit screen with id "5678"
-     And "Sojourner" enters "Some New Title" in the "lastUpdated" field
+     Given "Sojourner" is on the "Blog" edit screen with id "5678"
+     And "Sojourner" enters "Some New Title" in the "title" field
      And a header "If-Match" with value "24Yx83eVlFvxXg8BkASkh58kdUQ.1"
      When the "Blog" is submitted
      Then a 412 response should be returned

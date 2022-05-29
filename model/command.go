@@ -2,7 +2,7 @@ package model
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -53,7 +53,7 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 				defer func() {
 					if r := recover(); r != nil {
 						e.handlerPanicked = true
-						err = errors.New("handlers panicked")
+						err = fmt.Errorf("handler error '%s'", r)
 					}
 					wg.Done()
 				}()

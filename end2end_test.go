@@ -455,7 +455,7 @@ func blogsInTheApi(details *godog.Table) error {
 
 func entersInTheField(userName, value, field string) error {
 
-	requests[currScreen][strings.ToLower(field)] = value
+	requests[currScreen][field] = value
 	return nil
 }
 
@@ -2125,7 +2125,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1378",
-			//Tags: "focus && ~skipped",
+			//Tags: "WEOS-1132 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

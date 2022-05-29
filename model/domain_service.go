@@ -132,6 +132,10 @@ func (s *DomainService) Update(ctx context.Context, payload json.RawMessage, ent
 			return nil, NewDomainError("invalid: unexpected error fetching existing entity", entityType, weosID, err)
 		}
 
+		if existingEntity == nil {
+			return nil, NewDomainError("entity not found", entityType, weosID, nil)
+		}
+
 		if seqNo != -1 && existingEntity.SequenceNo != int64(seqNo) {
 			return nil, NewDomainError("error updating entity. This is a stale item", entityType, weosID, nil)
 		}
