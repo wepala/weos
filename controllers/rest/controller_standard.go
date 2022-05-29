@@ -444,7 +444,6 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		newContext := ctxt.Request().Context()
 
 		var err error
-		var weosID string
 
 		if err = weoscontext.GetError(newContext); err != nil {
 			return NewControllerError("Error occurred", err, http.StatusBadRequest)
@@ -459,15 +458,7 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		if entity == nil {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
 		}
-		sequenceString := fmt.Sprint(entity.SequenceNo)
-		sequenceNo, _ := strconv.Atoi(sequenceString)
-
-		etag := NewEtag(&model.ContentEntity{
-			AggregateRoot: model.AggregateRoot{
-				SequenceNo:  int64(sequenceNo),
-				BasicEntity: model.BasicEntity{ID: weosID},
-			},
-		})
+		etag := NewEtag(entity)
 
 		//set etag
 		ctxt.Response().Header().Set("Etag", etag)

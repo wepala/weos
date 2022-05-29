@@ -77,9 +77,8 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 	}
 
 	data, err := json.Marshal(model)
-	err = contentEntity.SetValueFromPayload(ctxt, data)
-
-	return contentEntity, nil
+	err = json.Unmarshal(data, &contentEntity)
+	return contentEntity, err
 
 }
 
@@ -308,11 +307,12 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					return err
 				}
 				entity.ID = event.Meta.EntityID
-				err = entity.SetValueFromPayload(ctx, event.Payload)
+				err = json.Unmarshal(event.Payload, &entity)
 				if err != nil {
 					p.logger.Errorf("error creating entity '%s'", err)
 					return err
 				}
+				entity.SequenceNo = event.Meta.SequenceNo
 
 				model, err := entity.GORMModel(ctx)
 				reader := ds.NewReader(model)

@@ -2125,7 +2125,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1378",
-			//Tags: "focus && ~skipped",
+			//Tags: "WEOS-1135 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {
