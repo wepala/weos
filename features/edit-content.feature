@@ -225,7 +225,6 @@ Feature: Edit content
      When the "Blog" is submitted
      Then a 422 response should be returned
 
-   @focus
    Scenario: Update stale item
 
      If you try to update an item and it has already been updated since since the last time the client got an updated

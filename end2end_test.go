@@ -1790,7 +1790,7 @@ func theProjectionIsNotCalled(arg1 string) error {
 func theIdShouldBeA(arg1, format string) error {
 	switch format {
 	case "uuid":
-		_, err := uuid.Parse(*contentEntity["id"].(*string))
+		_, err := uuid.Parse(contentEntity["id"].(string))
 		if err != nil {
 			fmt.Errorf("unexpected error parsing id as uuid: %s", err)
 		}
@@ -1800,7 +1800,7 @@ func theIdShouldBeA(arg1, format string) error {
 			fmt.Errorf("unexpected error parsing id as int")
 		}
 	case "ksuid":
-		_, err := ksuid.Parse(*contentEntity["id"].(*string))
+		_, err := ksuid.Parse(contentEntity["id"].(string))
 		if err != nil {
 			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
 		}
@@ -2125,7 +2125,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			//Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1378",
-			Tags: "WEOS-1343 && ~skipped",
+			Tags: "focus && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

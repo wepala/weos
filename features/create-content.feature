@@ -71,6 +71,9 @@ Feature: Create content
         Post:
           type: object
           properties:
+            id:
+              type: string
+              format: ksuid
             title:
               type: string
             description:
@@ -92,6 +95,8 @@ Feature: Create content
               nullable: true
           required:
             - title
+          x-identifier:
+            - id
         Category:
           type: object
           properties:
@@ -245,7 +250,7 @@ Feature: Create content
       When the "Post" is submitted without content type
       Then an error should be returned
 
-    @WEOS-1294
+    @WEOS-1294 @focus
     Scenario: Create item and related items
 
       If an item has one to many relationships or many to many relationships those connections can be established by
@@ -345,6 +350,7 @@ Feature: Create content
                  description: blog title
                description:
                  type: string
+                 nullable: true
              required:
                - title
              x-identifier:
@@ -441,6 +447,7 @@ Feature: Create content
                description: blog title
              description:
                type: string
+               nullable: true
            required:
              - title
            x-identifier:
@@ -530,8 +537,8 @@ Feature: Create content
            type: object
            properties:
              custom_id:
-               type: integer
-               format: uint
+               type: string
+               format: ksuid
              title:
                type: string
                description: blog title

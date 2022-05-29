@@ -344,7 +344,6 @@ func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openap
 }
 
 func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.RawMessage) error {
-	var generatedID bool
 	weosID, err := GetIDfromPayload(payload)
 	if err != nil {
 		return NewDomainError("unexpected error unmarshalling payload", w.Schema.Title, w.ID, err)
@@ -355,7 +354,6 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 			w.ID = weosID
 		} else {
 			w.ID = ksuid.New().String()
-			generatedID = true
 		}
 	}
 
@@ -366,62 +364,89 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 
 	//go serializes integers to float64
 	if w.Schema != nil {
-		for k, property := range w.Schema.Properties {
-			if property.Value != nil {
-				switch property.Value.Type {
-				case "integer":
-					if t, ok := w.payload[k].(float64); ok {
-						w.payload[k] = int(math.Round(t))
-					}
-				case "string":
-					switch property.Value.Format {
-					case "date-time":
-						//if the value is a string let's try to convert to time
-						if value, ok := w.payload[k].(string); ok {
-							ttime, err := time.Parse("2006-01-02T15:04:05Z", value)
-							if err != nil {
-								return NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '2006-01-02T15:04:05Z', got '%s'", k, value), w.Schema.Title, w.ID, err)
-							}
-							w.payload[k] = NewTime(ttime)
+		tpayload, err := w.SetValue(w.Schema, w.payload)
+		if err == nil {
+			w.payload = tpayload
+		}
+	}
+
+	return nil
+}
+
+//SetValue use to recursively setup the payload
+func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	for k, property := range schema.Properties {
+		if property.Value != nil {
+			switch property.Value.Type {
+			case "integer":
+				if t, ok := data[k].(float64); ok {
+					data[k] = int(math.Round(t))
+				}
+			case "string":
+				switch property.Value.Format {
+				case "date-time":
+					//if the value is a string let's try to convert to time
+					if value, ok := data[k].(string); ok {
+						ttime, err := time.Parse("2006-01-02T15:04:05Z", value)
+						if err != nil {
+							return nil, NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '2006-01-02T15:04:05Z', got '%s'", k, value), w.Schema.Title, w.ID, err)
 						}
-					//if it's a ksuid and the value is nil then auto generate the field
-					case "ksuid":
-						if w.payload[k] == nil {
-							properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
-							if properties != nil {
-								propArray := []string{}
-								err = json.Unmarshal(properties.(json.RawMessage), &propArray)
-								if InList(propArray, k) {
-									w.payload[k] = ksuid.New().String()
-									//if the identifier is only one part, and it's a string then let's use it as the entity id
-									if len(propArray) == 1 && generatedID {
-										w.ID = w.payload[k].(string)
-									}
+						data[k] = NewTime(ttime)
+					}
+				//if it's a ksuid and the value is nil then auto generate the field
+				case "ksuid":
+					if data[k] == nil {
+						properties := schema.ExtensionProps.Extensions["x-identifier"]
+						if properties != nil {
+							propArray := []string{}
+							err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+							if InList(propArray, k) {
+								data[k] = ksuid.New().String()
+								//if the identifier is only one part, and it's a string then let's use it as the entity id
+								if _, ok := data["weos_id"]; !ok && len(propArray) == 1 {
+									data["weos_id"] = data[k].(string)
 								}
 							}
 						}
-					case "uuid":
-						if w.payload[k] == nil {
-							properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
-							if properties != nil {
-								propArray := []string{}
-								err = json.Unmarshal(properties.(json.RawMessage), &propArray)
-								if InList(propArray, k) {
-									w.payload[k] = uuid.NewString()
-									//if the identifier is only one part, and it's a string then let's use it as the entity id
-									if len(propArray) == 1 && generatedID {
-										w.ID = w.payload[k].(string)
-									}
+					}
+				case "uuid":
+					if data[k] == nil {
+						properties := schema.ExtensionProps.Extensions["x-identifier"]
+						if properties != nil {
+							propArray := []string{}
+							err = json.Unmarshal(properties.(json.RawMessage), &propArray)
+							if InList(propArray, k) {
+								data[k] = uuid.NewString()
+								//if the identifier is only one part, and it's a string then let's use it as the entity id
+								if _, ok := data["weos_id"]; !ok && len(propArray) == 1 {
+									data["weos_id"] = data[k].(string)
 								}
 							}
 						}
 					}
 				}
+			case "array":
+				//use schema to see which items in payload needs an id generated and do it.
+				if values, ok := data[k].([]interface{}); ok {
+					if property.Value != nil && property.Value.Items != nil && property.Value.Items.Value != nil {
+						for i, _ := range values {
+							if value, ok := values[i].(map[string]interface{}); ok {
+								value, err = w.SetValue(property.Value.Items.Value, value)
+								tvalue, err := json.Marshal(value)
+								if err != nil {
+									return nil, err
+								}
+								values[i], err = new(ContentEntity).FromSchemaWithValues(context.Background(), schema, tvalue)
+							}
+						}
+					}
+				}
+
 			}
 		}
 	}
-
-	return nil
+	return data, err
 }
 
 func (w *ContentEntity) Update(ctx context.Context, payload json.RawMessage) (*ContentEntity, error) {
@@ -560,6 +585,13 @@ func (w *ContentEntity) UnmarshalJSON(data []byte) error {
 	}
 
 	return err
+}
+
+func (w *ContentEntity) MarshalJSON() ([]byte, error) {
+	b := w.payload
+	b["weos_id"] = w.ID
+	b["sequence_no"] = w.SequenceNo
+	return json.Marshal(b)
 }
 
 //Deprecated: 05/08/2022 the default ids are generated in SetValueFromPayload
