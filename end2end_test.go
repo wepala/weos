@@ -1885,9 +1885,17 @@ func theShouldHaveAPropertyWithItems(arg1, arg2 string, arg3 int) error {
 	//items := ef["Post"].Builder(context.TODO()).Build().New()
 	var items []TItem
 	//NOTE trying to do this with a slice of interfaces does NOT work
-	err := gormDB.Debug().Model(entityProperty).Association(strings.Title(arg2)).Find(&items)
-	if err != nil {
-		return err
+	if entity, ok := entityProperty.(*model.ContentEntity); ok {
+		model, err := entity.GORMModel(context.TODO())
+		if err != nil {
+			return err
+		}
+		err = gormDB.Debug().Model(model).Association(strings.Title(arg2)).Find(&items)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("entity property is not content entity as expected")
 	}
 
 	if len(items) != arg3 {
@@ -2123,9 +2131,9 @@ func TestBDD(t *testing.T) {
 		TestSuiteInitializer: InitializeSuite,
 		Options: &godog.Options{
 			Format: "pretty",
-			//Tags:   "~long && ~skipped",
+			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1378",
-			Tags: "focus && ~skipped",
+			//Tags: "focus && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

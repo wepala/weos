@@ -250,7 +250,7 @@ Feature: Create content
       When the "Post" is submitted without content type
       Then an error should be returned
 
-    @WEOS-1294 @focus
+    @WEOS-1294
     Scenario: Create item and related items
 
       If an item has one to many relationships or many to many relationships those connections can be established by

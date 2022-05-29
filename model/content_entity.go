@@ -364,13 +364,14 @@ func (w *ContentEntity) SetValueFromPayload(ctx context.Context, payload json.Ra
 
 	//go serializes integers to float64
 	if w.Schema != nil {
-		tpayload, err := w.SetValue(w.Schema, w.payload)
+		var tpayload map[string]interface{}
+		tpayload, err = w.SetValue(w.Schema, w.payload)
 		if err == nil {
 			w.payload = tpayload
 		}
 	}
 
-	return nil
+	return err
 }
 
 //SetValue use to recursively setup the payload
