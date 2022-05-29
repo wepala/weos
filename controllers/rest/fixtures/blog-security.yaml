@@ -41,6 +41,7 @@ components:
           type: string
         description:
           type: string
+          nullable: true
       required:
         - title
       x-identifier:
@@ -53,11 +54,14 @@ components:
           format: ksuid
         firstName:
           type: string
+          nullable: true
         lastName:
           type: string
+          nullable: true
         email:
           type: string
           format: email
+          nullable: true
       required:
         - firstName
         - lastName
@@ -74,6 +78,7 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         status:
           type: string
           nullable: true
@@ -84,20 +89,25 @@ components:
         image:
           type: string
           format: byte
+          nullable: true
         categories:
           type: array
           items:
             $ref: "#/components/schemas/Category"
+          nullable: true
         posts:
           type: array
           items:
             $ref: "#/components/schemas/Post"
+          nullable: true
         lastUpdated:
           type: string
           format: date-time
+          nullable: true
         created:
           type: string
           format: date-time
+          nullable: true
       required:
         - title
         - url
@@ -108,11 +118,13 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         author:
           $ref: "#/components/schemas/Author"
         created:
           type: string
           format: date-time
+          nullable: true
 security:
   - Auth0: ["email","name"]
 
