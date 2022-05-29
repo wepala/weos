@@ -344,8 +344,12 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error creating entity '%s'", err)
 					return err
 				}
-
-				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(entity.GORMModel(context.TODO()))
+				model, err := entity.GORMModel(ctx)
+				if err != nil {
+					p.logger.Errorf("error generating entity model '%s'", err)
+					return err
+				}
+				db := p.db.Debug().Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
 				if db.Error != nil {
 					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error

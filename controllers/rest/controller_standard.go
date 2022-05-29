@@ -613,7 +613,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 				}
 			}
 
-			//Dispatch the actual delete to projecitons
+			//Dispatch the actual delete to projections
 			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
