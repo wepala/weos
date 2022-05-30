@@ -338,14 +338,14 @@ func (p *RESTAPI) RegisterDefaultSwaggerAPI(pathMiddleware []echo.MiddlewareFunc
 	static := http.FileServer(statikFS)
 	sh := http.StripPrefix(SWAGGERUIENDPOINT, static)
 	handler := echo.WrapHandler(sh)
-	p.e.GET(p.Config.BaseURL+SWAGGERUIENDPOINT+"*", handler, pathMiddleware...)
+	p.e.GET(p.Config.BasePath+SWAGGERUIENDPOINT+"*", handler, pathMiddleware...)
 
 	return nil
 }
 
 //RegisterDefaultSwaggerJson registers a default swagger json response
 func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFunc) error {
-	p.e.GET(p.Config.BaseURL+SWAGGERJSONENDPOINT, func(c echo.Context) error {
+	p.e.GET(p.Config.BasePath+SWAGGERJSONENDPOINT, func(c echo.Context) error {
 		return c.JSON(http.StatusOK, p.Swagger)
 	}, pathMiddleware...)
 	return nil
