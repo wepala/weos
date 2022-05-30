@@ -1129,7 +1129,7 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 	restAPI.SetEchoInstance(e)
 
 	mockBlog := map[string]interface{}{"id": "123", "title": "my first blog", "description": "description"}
-	mockBlog1 := map[string]interface{}{"id": "1234", "title": "my first blog1", "description": "description1"}
+	mockBlog1 := map[string]interface{}{"id": "1234", "title": "my first blog1", "description": "description1", "author": map[string]interface{}{"id": "123"}}
 
 	array := []map[string]interface{}{}
 	array = append(array, mockBlog, mockBlog1)
@@ -1143,8 +1143,11 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 				return nil, 0, errors.New("expect filter options length to be " + "2")
 
 			}
-			if filterOptions["id"] == nil || filterOptions["id"].(*rest.FilterProperties).Operator != "like" || filterOptions["id"].(*rest.FilterProperties).Value.(uint64) != uint64(123) {
+			if filterOptions["id"] != nil && (filterOptions["id"].(*rest.FilterProperties).Operator != "like" || filterOptions["id"].(*rest.FilterProperties).Value.(uint64) != uint64(123)) {
 				t.Errorf("unexpected error trying to find id filter")
+			}
+			if filterOptions["author.id"] != nil && (filterOptions["author.id"].(*rest.FilterProperties).Operator != "like" || filterOptions["author.id"].(*rest.FilterProperties).Value.(string) != "123") {
+				t.Errorf("unexpected error trying to find author.id filter")
 			}
 			if filterOptions["title"] == nil || filterOptions["title"].(*rest.FilterProperties).Operator != "like" || filterOptions["title"].(*rest.FilterProperties).Value != "my first blog" {
 				t.Errorf("unexpected error trying to find title filter")
@@ -1299,6 +1302,51 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 
 		if response.StatusCode != http.StatusBadRequest {
 			t.Errorf("expected response code to be %d, got %d", http.StatusBadRequest, response.StatusCode)
+		}
+
+	})
+	t.Run("filter on sub property should still work", func(t *testing.T) {
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.ListController(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&l=5&_filters[author.id][like]=123&_filters[title][like]=my%20first%20blog", nil)
+		mw := rest.Context(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		listMw := rest.ListMiddleware(restAPI, mockProjection, commandDispatcher, eventRepository, entityFactory, path, path.Get)
+		e.GET("/blogs", controller, mw, listMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != 200 {
+			t.Errorf("expected response code to be %d, got %d", 200, response.StatusCode)
+		}
+		//check response body is a list of content entities
+		var result rest.ListApiResponse
+		json.NewDecoder(response.Body).Decode(&result)
+		if len(result.Items) != 2 {
+			t.Fatal("expected entities found")
+		}
+		if result.Total != 2 {
+			t.Errorf("expected total to be %d got %d", 2, result.Total)
+		}
+		if result.Page != 1 {
+			t.Errorf("expected page to be %d got %d", 1, result.Page)
+		}
+		found := 0
+		for _, blog := range result.Items {
+			if blog["id"] == "123" && blog["title"] == "my first blog" && blog["description"] == "description" {
+				found++
+				continue
+			}
+			if blog["id"] == "1234" && blog["title"] == "my first blog1" && blog["description"] == "description1" {
+				found++
+				continue
+			}
+		}
+		if found != 2 {
+			t.Errorf("expected to find %d got %d", 2, found)
 		}
 
 	})

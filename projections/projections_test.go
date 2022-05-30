@@ -2458,6 +2458,7 @@ components:
 	}
 
 	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	postEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Post", api.Swagger.Components.Schemas["Post"].Value, schemes["Post"])
 
 	err = p.Migrate(context.Background(), schemes, nil)
 	if err != nil {
@@ -2487,11 +2488,18 @@ components:
 	blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs4", "sequence_no": int64(1)}
 	blog4 := map[string]interface{}{"weos_id": blogWeosID4, "id": uint(123), "title": "morehugs5", "description": "last blog", "sequence_no": int64(1)}
 
+	post := map[string]interface{}{"weos_id": blogWeosID, "title": "Post 1", "description": "first post", "sequence_no": int64(1), "last_updated": t1, "blog": map[string]interface{}{"id": uint(123), "title": "sdfa"}}
+	//post1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "Post 2", "description": "second post", "sequence_no": int64(1), "last_updated": t2, "blog": map[string]interface{}{"id": uint(123)}}
+	postData, _ := json.Marshal(post)
+	postObject, _ := postEntityFactory.CreateEntityWithValues(context.Background(), postData)
+	postModel, _ := postObject.GORMModel(context.Background())
+
 	gormDB.Table("Blog").Create(blog)
 	gormDB.Table("Blog").Create(blog1)
 	gormDB.Table("Blog").Create(blog2)
 	gormDB.Table("Blog").Create(blog3)
 	gormDB.Table("Blog").Create(blog4)
+	gormDB.Table("Post").Create(postModel)
 
 	t.Run("testing filter with the eq operator on 2 fields", func(t *testing.T) {
 		page := 1
@@ -2823,6 +2831,34 @@ components:
 			t.Errorf("expecter total to be 0 got %d", total)
 		}
 
+	})
+	t.Run("testing filter with the eq operator and related item sub property", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "blog.id",
+			Operator: "eq",
+			Value:    "123",
+			Values:   nil,
+		}
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, postEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Fatalf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if int(results[0]["id"].(float64)) != 1 {
+			t.Errorf("expected result id to be %d got %d", 1, int(results[0]["id"].(float64)))
+		}
 	})
 }
 

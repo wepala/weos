@@ -71,6 +71,8 @@ components:
         description:
           type: string
           nullable: true
+        author:
+          $ref: "#/components/schemas/Author"
         cost:
           type: number
           format: double
@@ -556,9 +558,30 @@ paths:
       summary: Get a blog's list of posts
       parameters:
         - in: query
-          name: q
+          name: page
           schema:
-            type: string
+            type: integer
+        - in: query
+          name: l
+          x-alias: limit
+          schema:
+            type: integer
+        - in: query
+          name: _filters
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              values:
+                type: array
+                items:
+                  type: string
+
           required: false
           description: query string
       responses:

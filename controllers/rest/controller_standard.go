@@ -489,8 +489,9 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 						msg := "this operator " + values.(*FilterProperties).Operator + " does not support multiple values "
 						return NewControllerError(msg, nil, http.StatusBadRequest)
 					}
-					// checking if the field is valid based on schema provided
-					if schema.Properties[key] == nil {
+					// checking if the field is valid based on schema provided, split on "."
+					parts := strings.Split(key, ".")
+					if schema.Properties[parts[0]] == nil {
 						if key == "id" && schema.ExtensionProps.Extensions[IdentifierExtension] == nil {
 							continue
 						}
