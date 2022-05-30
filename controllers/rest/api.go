@@ -336,7 +336,7 @@ func (p *RESTAPI) RegisterDefaultSwaggerAPI(pathMiddleware []echo.MiddlewareFunc
 		return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
 	}
 	static := http.FileServer(statikFS)
-	sh := http.StripPrefix(SWAGGERUIENDPOINT, static)
+	sh := http.StripPrefix(p.Config.BasePath+SWAGGERUIENDPOINT, static)
 	handler := echo.WrapHandler(sh)
 	p.e.GET(p.Config.BasePath+SWAGGERUIENDPOINT+"*", handler, pathMiddleware...)
 
