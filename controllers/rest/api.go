@@ -484,10 +484,10 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		for _, initializer := range p.GetPostPathInitializers() {
 			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 		}
-		//output registered endpoints for debugging purposes
-		for _, route := range p.EchoInstance().Routes() {
-			p.EchoInstance().Logger.Debugf("Registered routes '%s' '%s'", route.Method, route.Path)
-		}
+	}
+	//output registered endpoints for debugging purposes
+	for _, route := range p.EchoInstance().Routes() {
+		p.EchoInstance().Logger.Debugf("Registered routes '%s' '%s'", route.Method, route.Path)
 	}
 	return err
 }
