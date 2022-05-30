@@ -42,6 +42,7 @@ func TestIntegration_XUnique(t *testing.T) {
 	//create bach blogs for tests
 	blogs := []map[string]interface{}{
 		{
+			"id":          1,
 			"title":       "first",
 			"description": "first",
 			"url":         "first.com",
@@ -54,6 +55,7 @@ func TestIntegration_XUnique(t *testing.T) {
 			"url":         "second.com",
 		},
 		{
+			"id":          3,
 			"title":       "third",
 			"description": "third",
 			"url":         "third.com",
