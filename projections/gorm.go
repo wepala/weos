@@ -67,7 +67,7 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 
 	model, err := contentEntity.GORMModel(ctxt)
 
-	result := p.db.Debug().Table(entityFactory.Name()).Scopes(ContentQuery()).Find(&model, identifiers)
+	result := p.db.Debug().Table(entityFactory.Name()).Preload(clause.Associations).Scopes(ContentQuery()).Find(&model, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -368,7 +368,7 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 
 	model, err := newEntity.GORMModel(ctx)
 
-	result := p.db.Debug().Table(entityFactory.TableName()).Find(&model, "weos_id = ? ", weosID)
+	result := p.db.Debug().Table(entityFactory.TableName()).Preload(clause.Associations).Find(&model, "weos_id = ? ", weosID)
 	if result.Error != nil {
 		p.logger.Errorf("unexpected error retrieving entity , got: '%s'", result.Error)
 		return nil, result.Error
