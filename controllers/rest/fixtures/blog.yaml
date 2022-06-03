@@ -121,6 +121,7 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         author:
           $ref: "#/components/schemas/Author"
         created:

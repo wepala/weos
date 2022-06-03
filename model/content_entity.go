@@ -8,7 +8,10 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"math"
 	"strings"
 	"time"
@@ -17,6 +20,7 @@ import (
 type ContentEntity struct {
 	AggregateRoot
 	Schema  *openapi3.Schema `json:"-"`
+	name    string           `json:"-", gorm:"-"`
 	payload map[string]interface{}
 	builder ds.Builder
 }
@@ -213,86 +217,18 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 
 //GORMModel return model
 func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
-	identifiers := w.Schema.Extensions["x-identifier"]
-	//ideally the builder would be set by the entity factory which should accommodate the recursive structs
-	if w.builder == nil {
-		w.builder = ds.NewStruct()
-		if identifiers == nil {
-			name := "ID"
-			w.builder.AddField(name, uint(0), `json:"id"`)
-		}
-		relations := make(map[string]string)
-		for name, p := range w.Schema.Properties {
-			exportedPropertyName := strings.Title(name)
-			if p.Ref != "" {
-				relations[name] = strings.TrimPrefix(p.Ref, "#/components/schemas/")
-			} else {
-				t := p.Value.Type
-				if strings.EqualFold(t, "array") {
-					t2 := p.Value.Items.Value.Type
-					if t2 != "object" {
-						if t2 == "string" {
-							//format types to be added
-							if p.Value.Items.Value.Format == "date-time" {
-								w.builder.AddField(exportedPropertyName, time.Now(), `json:"`+name+`"`)
-							} else {
-								w.builder.AddField(exportedPropertyName, []*string{}, `json:"`+name+`"`)
-							}
-						} else if t2 == "number" {
-							w.builder.AddField(exportedPropertyName, []*float64{}, `json:"`+name+`"`)
-						} else if t == "integer" {
-							w.builder.AddField(exportedPropertyName, []*int{}, `json:"`+name+`"`)
-						} else if t == "boolean" {
-							w.builder.AddField(exportedPropertyName, []*bool{}, `json:"`+name+`"`)
-						}
-					} else {
-						if p.Value.Items.Ref == "" {
-							//add as json object
-						} else {
-							//add reference to the object to the map
-							relations[name] = "[]" + strings.TrimPrefix(p.Value.Items.Ref, "#/components/schemas/") + "{}"
-
-						}
-					}
-
-				} else if strings.EqualFold(t, "object") {
-					//add json object
-
-				} else {
-					if t == "string" {
-						//format types to be added
-						if p.Value.Format == "date-time" {
-							var t *time.Time
-							w.builder.AddField(exportedPropertyName, t, `json:"`+name+`"`)
-						} else {
-							var s *string
-							w.builder.AddField(exportedPropertyName, s, `json:"`+name+`"`)
-						}
-					} else if t == "number" {
-						var numbers *float32
-						w.builder.AddField(exportedPropertyName, numbers, `json:"`+name+`"`)
-					} else if t == "integer" {
-						var integers *int
-						w.builder.AddField(exportedPropertyName, integers, `json:"`+name+`"`)
-					} else if t == "boolean" {
-						var boolean *bool
-						w.builder.AddField(exportedPropertyName, boolean, `json:"`+name+`"`)
-					}
-				}
-			}
-		}
-
-		//setup basic weos properties
-		w.builder.AddField("Weos_id", w.ID, `json:"weos_id"`)
-		w.builder.AddField("Sequence_no", w.SequenceNo, `json:"sequence_no"`)
+	builder, _, err := w.GORMModelBuilder("", w.Schema, 0)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
 	}
-
-	model := w.builder.Build().New()
+	model := builder.Build().New()
 	//if there is a payload let's serialize that
 	if w.payload != nil {
 		tpayload := w.payload
 		tpayload["weos_id"] = w.ID
 		tpayload["sequence_no"] = w.SequenceNo
+		w.name = "Blog"
+		tpayload["table_alias"] = w.name
 		tbytes, err := json.Marshal(tpayload)
 		if err != nil {
 			return nil, NewDomainError("error prepping entity for gorm", "ContentEntity", w.ID, err)
@@ -304,6 +240,225 @@ func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
 	}
 
 	return model, nil
+}
+
+func (w *ContentEntity) GORMModelBuilder(name string, ref *openapi3.Schema, level int) (ds.Builder, map[string]interface{}, error) {
+	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
+	dfs, _ := json.Marshal(ref.Extensions["x-remove"])
+
+	primaryKeys := []string{}
+	deletedFields := []string{}
+	//this is used to store the default values of the primary keys so that the foreign key relationships can be setup
+	primaryKeysMap := make(map[string]interface{})
+
+	json.Unmarshal(pks, &primaryKeys)
+	json.Unmarshal(dfs, &deletedFields)
+
+	//was a primary key removed but not removed in the x-identifier fields?
+	for i, k := range primaryKeys {
+		for _, d := range deletedFields {
+			if strings.EqualFold(k, d) {
+				if len(primaryKeys) == 1 {
+					primaryKeys = []string{}
+				} else {
+					primaryKeys[i] = primaryKeys[len(primaryKeys)-1]
+					primaryKeys = primaryKeys[:len(primaryKeys)-1]
+				}
+			}
+		}
+	}
+
+	if len(primaryKeys) == 0 {
+		primaryKeys = append(primaryKeys, "id")
+	}
+	instance := ds.NewStruct()
+	//add default weos_id field
+	instance.AddField("Weos_id", "", `json:"weos_id" gorm:"unique"`)
+	//add table field so that it works with gorm functions that try to fetch the name
+	instance.AddField("Table", cases.Title(language.English).String(name), `json:"table_alias" gorm:"-"`)
+	for tname, p := range ref.Properties {
+		found := false
+
+		for _, n := range deletedFields {
+			if strings.EqualFold(n, tname) {
+				found = true
+			}
+		}
+		//this field should not be added to the schema
+		if found {
+			continue
+		}
+
+		tagString := `json:"` + tname + `"`
+		var gormParts []string
+		for _, req := range ref.Required {
+			if strings.EqualFold(req, tname) {
+				gormParts = append(gormParts, "NOT NULL")
+			}
+		}
+
+		uniquebytes, _ := json.Marshal(p.Value.Extensions["x-unique"])
+		if len(uniquebytes) != 0 {
+			unique := false
+			json.Unmarshal(uniquebytes, &unique)
+			if unique {
+				gormParts = append(gormParts, "unique")
+			}
+		}
+
+		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(tname)) {
+			gormParts = append(gormParts, "primaryKey", "size:512")
+			//only add NOT null if it's not already in the array to avoid issue if a user also add the field to the required array
+			if !strings.Contains(strings.Join(gormParts, ";"), "NOT NULL") {
+				gormParts = append(gormParts, "NOT NULL")
+			}
+		}
+
+		defaultValue, gormParts, valueKeys := w.GetGORMPropertyDefaultValue(name, tname, p, gormParts)
+
+		//setup gorm field tag string
+		if len(gormParts) > 0 {
+			gormString := strings.Join(gormParts, ";")
+			tagString += ` gorm:"` + gormString + `"`
+		}
+
+		instance.AddField(cases.Title(language.English).String(tname), defaultValue, tagString)
+
+		//if there are value keys it's because there is a Belongs to relationship and we need to add properties for that to work with GORM https://gorm.io/docs/belongs_to.html
+		if len(valueKeys) > 0 {
+			for keyName, tdefaultValue := range valueKeys {
+				keyNameTitleCase := cases.Title(language.English).String(tname) + cases.Title(language.English).String(keyName)
+				instance.AddField(keyNameTitleCase, tdefaultValue, `json:"`+utils.SnakeCase(keyNameTitleCase)+`"`)
+			}
+		}
+		if InList(primaryKeys, tname) {
+			primaryKeysMap[tname] = defaultValue
+		}
+	}
+	if len(primaryKeys) == 1 && primaryKeys[0] == "id" && !instance.HasField("Id") {
+		instance.AddField("Id", uint(0), `json:"id" gorm:"primaryKey;size:512"`)
+		primaryKeysMap["Id"] = uint(0)
+	}
+
+	return instance, primaryKeysMap, nil
+}
+
+func (w *ContentEntity) GetGORMPropertyDefaultValue(parentName string, name string, p *openapi3.SchemaRef, gormParts []string) (interface{}, []string, map[string]interface{}) {
+	var defaultValue interface{}
+	if p.Value != nil {
+		switch p.Value.Type {
+		case "integer":
+			switch p.Value.Format {
+			case "int32":
+				if p.Value.Nullable {
+					var value *int32
+					defaultValue = value
+				} else {
+					var value int32
+					defaultValue = value
+				}
+			case "int64":
+				if p.Value.Nullable {
+					var value *int64
+					defaultValue = value
+				} else {
+					var value int64
+					defaultValue = value
+				}
+			case "uint":
+				if p.Value.Nullable {
+					var value *uint
+					defaultValue = value
+				} else {
+					var value uint
+					defaultValue = value
+				}
+			default:
+				if p.Value.Nullable {
+					var value *int
+					defaultValue = value
+				} else {
+					var value int
+					defaultValue = value
+				}
+			}
+		case "number":
+			switch p.Value.Format {
+			case "float32":
+				if p.Value.Nullable {
+					var value *float32
+					defaultValue = value
+				} else {
+					var value float32
+					defaultValue = value
+				}
+			case "float64":
+				if p.Value.Nullable {
+					var value *float64
+					defaultValue = value
+				} else {
+					var value float64
+					defaultValue = value
+				}
+			default:
+				if p.Value.Nullable {
+					var value *float32
+					defaultValue = value
+				} else {
+					var value float32
+					defaultValue = value
+				}
+			}
+
+		case "string":
+			switch p.Value.Format {
+			case "date-time":
+				timeNow := NewTime(time.Now())
+				defaultValue = &timeNow
+			default:
+				if p.Value.Nullable {
+					var strings *string
+					defaultValue = strings
+				} else {
+					var strings string
+					defaultValue = strings
+				}
+			}
+		case "array":
+			if p.Value != nil && p.Value.Items != nil && p.Value.Items.Value != nil {
+				tbuilder, _, err := w.GORMModelBuilder("", p.Value.Items.Value, 0)
+				if err != nil {
+					return nil, nil, nil
+				}
+				defaultValue = tbuilder.Build().NewSliceOfStructs()
+				tableName := []map[string]interface{}{{
+					"table_alias": cases.Title(language.English).String(name),
+				}}
+				data, _ := json.Marshal(tableName)
+				json.Unmarshal(data, &defaultValue)
+				//setup gorm field tag string
+				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
+			}
+		default:
+			//Belongs to https://gorm.io/docs/belongs_to.html
+			if p.Ref != "" && p.Value != nil {
+				tbuilder, keys, err := w.GORMModelBuilder(name, p.Value, 0)
+				if err != nil {
+					return nil, nil, nil
+				}
+				defaultValue = tbuilder.Build().New()
+				tableName := map[string]interface{}{
+					"table_alias": cases.Title(language.English).String(name),
+				}
+				data, _ := json.Marshal(tableName)
+				json.Unmarshal(data, &defaultValue)
+				return defaultValue, gormParts, keys
+			}
+			//TODO I think here is where I'd put code to setup a json blob
+		}
+
+	}
+	return defaultValue, gormParts, nil
 }
 
 //FromSchema builds properties from the schema

@@ -293,6 +293,13 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				entity.ID = event.Meta.EntityID
 
 				model, err := entity.GORMModel(ctx)
+				//reader := ds.NewReader(model)
+				//if reader.HasField("BlogId") {
+				//	tvalue := reader.GetField("BlogId").Uint()
+				//	if reader.GetField("BlogId").Uint() != 1 {
+				//		fmt.Sprintf("value set '%d'", tvalue)
+				//	}
+				//}
 				db := p.db.Debug().Table(entityFactory.Name()).Create(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
@@ -322,7 +329,8 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
 					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
 						field := reader.GetField(strings.Title(key))
-						err = p.db.Debug().Model(model).Association(strings.Title(key)).Replace(field.Interface())
+						table := reader.GetField("Table").String()
+						err = p.db.Debug().Model(model).Table(table).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
 							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
 							return err

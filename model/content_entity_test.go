@@ -945,3 +945,56 @@ func TestContentEntity_CreateWithCollection(t *testing.T) {
 		}
 	})
 }
+
+func TestContentEntity_GORMModelBuilder(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error setting up api: %s", err)
+	}
+	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
+	t.Run("get builder for basic model", func(t *testing.T) {
+		contentType1 := "Blog"
+		p1 := map[string]interface{}{"title": "test", "description": "Lorem Ipsum", "url": "https://wepala.com", "created": "2006-01-02T15:04:00Z"}
+		payload1, err := json.Marshal(p1)
+		if err != nil {
+			t.Errorf("unexpected error marshalling entity; %s", err)
+		}
+		entityFactory1 := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType1, api.Swagger.Components.Schemas[contentType1].Value, schemas[contentType1])
+		post, err := entityFactory1.CreateEntityWithValues(context.TODO(), payload1)
+		if err != nil {
+			t.Fatalf("unexpected error generating id; %s", err)
+		}
+		if !post.IsValid() {
+			for _, errString := range post.GetErrors() {
+				t.Errorf("domain error '%s'", errString)
+			}
+		}
+		_, err = ksuid.Parse(post.GetString("id"))
+		if err != nil {
+			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
+		}
+		//check the builder returned to ensure it has what is expected
+		builder, _, err := post.GORMModelBuilder("", post.Schema, 0)
+		if err != nil {
+			t.Fatalf("unexpected error creating builder '%s'", err)
+		}
+
+		//since the builder doesn't allow reading the field config to get the type we'll try to put values and see if they set correctly
+		gormModel := builder.Build().New()
+		reader := ds.NewReader(gormModel)
+
+		expectedFields := []string{"Title", "Description", "Author"}
+
+		for _, field := range expectedFields {
+			if !builder.HasField(field) {
+				t.Fatalf("expected there to be a field '%s' on Post", field)
+			}
+		}
+
+		if reader.GetField("Title").String() != "" {
+			t.Errorf("expected '%s' to be '%s', got '%s'", "title", "", reader.GetField("title").String())
+		}
+
+	})
+}
