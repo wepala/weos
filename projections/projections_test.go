@@ -1286,7 +1286,8 @@ components:
 
 		payload := map[string]interface{}{"weos_id": blogWeosID, "id": 1, "title": "testBlog", "description": "This is a create projection test", "posts": []map[string]interface{}{
 			{
-				"id": 1,
+				"id":          1,
+				"table_alias": "Post",
 			},
 		}}
 		contentEntity := &weos.ContentEntity{

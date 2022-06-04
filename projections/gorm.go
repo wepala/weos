@@ -3,6 +3,7 @@ package projections
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -322,6 +323,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				entity.SequenceNo = event.Meta.SequenceNo
 
 				model, err := entity.GORMModel(ctx)
+				json.Unmarshal([]byte(`{"table_alias":"Blog"}`), &model)
 				reader := ds.NewReader(model)
 
 				//replace associations
@@ -329,12 +331,25 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
 					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
 						field := reader.GetField(strings.Title(key))
-						table := reader.GetField("Table").String()
-						err = p.db.Debug().Model(model).Table(table).Association(strings.Title(key)).Replace(field.Interface())
-						if err != nil {
-							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
-							return err
+						_ = field.Interface()
+						v, _ := json.Marshal(model)
+						fmt.Sprintf("%s", v)
+						if reader.HasField("Posts") {
+							treader := ds.NewReader(reader.GetField("Posts").Interface())
+							treaders := treader.ToSliceOfReaders()
+							for _, tr := range treaders {
+								if tr.HasField("Table") {
+									table := tr.GetField("Table").String()
+									fmt.Printf("table: %s", table)
+								}
+							}
+
 						}
+						//err = Association(p.db.Debug().Model(model).Table(entityFactory.Name()), strings.Title(key)).Replace(t)
+						//if err != nil {
+						//	p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
+						//	return err
+						//}
 					}
 				}
 
@@ -506,6 +521,30 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 
 		return db
 	}
+}
+
+//replacement association code
+func Association(db *gorm.DB, column string) *gorm.Association {
+	association := &gorm.Association{DB: db}
+	table := db.Statement.Table
+
+	if err := db.Statement.ParseWithSpecialTableName(db.Statement.Model, db.Statement.Table); err == nil {
+		db.Statement.Table = table
+		association.Relationship = db.Statement.Schema.Relationships.Relations[column]
+
+		if association.Relationship == nil {
+			association.Error = fmt.Errorf("%w: %s", gorm.ErrUnsupportedRelation, column)
+		}
+
+		db.Statement.ReflectValue = reflect.ValueOf(db.Statement.Model)
+		for db.Statement.ReflectValue.Kind() == reflect.Ptr {
+			db.Statement.ReflectValue = db.Statement.ReflectValue.Elem()
+		}
+	} else {
+		association.Error = err
+	}
+
+	return association
 }
 
 //query modifier for making queries to the database

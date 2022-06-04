@@ -20,7 +20,6 @@ import (
 type ContentEntity struct {
 	AggregateRoot
 	Schema  *openapi3.Schema `json:"-"`
-	name    string           `json:"-", gorm:"-"`
 	payload map[string]interface{}
 	builder ds.Builder
 }
@@ -217,7 +216,7 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 
 //GORMModel return model
 func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
-	builder, _, err := w.GORMModelBuilder("", w.Schema, 0)
+	builder, _, err := w.GORMModelBuilder("blog", w.Schema, 0)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
 	}
@@ -227,8 +226,6 @@ func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
 		tpayload := w.payload
 		tpayload["weos_id"] = w.ID
 		tpayload["sequence_no"] = w.SequenceNo
-		w.name = "Blog"
-		tpayload["table_alias"] = w.name
 		tbytes, err := json.Marshal(tpayload)
 		if err != nil {
 			return nil, NewDomainError("error prepping entity for gorm", "ContentEntity", w.ID, err)
@@ -431,11 +428,9 @@ func (w *ContentEntity) GetGORMPropertyDefaultValue(parentName string, name stri
 					return nil, nil, nil
 				}
 				defaultValue = tbuilder.Build().NewSliceOfStructs()
-				tableName := []map[string]interface{}{{
-					"table_alias": cases.Title(language.English).String(name),
-				}}
-				data, _ := json.Marshal(tableName)
-				json.Unmarshal(data, &defaultValue)
+				json.Unmarshal([]byte(`[{
+						"table_alias": "`+cases.Title(language.English).String(name)+`"
+					}]`), &defaultValue)
 				//setup gorm field tag string
 				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
 			}
@@ -447,11 +442,9 @@ func (w *ContentEntity) GetGORMPropertyDefaultValue(parentName string, name stri
 					return nil, nil, nil
 				}
 				defaultValue = tbuilder.Build().New()
-				tableName := map[string]interface{}{
-					"table_alias": cases.Title(language.English).String(name),
-				}
-				data, _ := json.Marshal(tableName)
-				json.Unmarshal(data, &defaultValue)
+				json.Unmarshal([]byte(`{
+						"table_alias": "`+cases.Title(language.English).String(name)+`"
+					}`), &defaultValue)
 				return defaultValue, gormParts, keys
 			}
 			//TODO I think here is where I'd put code to setup a json blob
