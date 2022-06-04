@@ -1,6 +1,7 @@
 package model
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -26,6 +27,20 @@ func (t Time) MarshalJSON() ([]byte, error) {
 	b = t.AppendFormat(b, iso8601Format)
 	b = append(b, '"')
 	return b, nil
+}
+
+//Scan implement Scanenr interface for Gorm
+func (t *Time) Scan(value interface{}) error {
+	var err error
+	if date, ok := value.(string); ok {
+		t.Time, err = time.Parse("2006-01-02 15:04:05", date)
+	}
+	return err
+}
+
+// Value return time value, implement driver.Valuer interface
+func (t Time) Value() (driver.Value, error) {
+	return t.Time, nil
 }
 
 func NewTime(time time.Time) *Time {

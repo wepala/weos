@@ -2,7 +2,7 @@
 package projections
 
 import (
-	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/getkin/kin-openapi/openapi3"
 	weos "github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 	"reflect"
@@ -41,10 +41,10 @@ func (m *MetaProjection) Add(projection Projection) *MetaProjection {
 }
 
 //Migrate runs migrate on all the projections and captures the errors received as a MetaError
-func (m *MetaProjection) Migrate(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+func (m *MetaProjection) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 	migrationErrors := new(MetaError)
 	for _, projection := range m.ordinalProjections {
-		err := projection.Migrate(ctx, builders, deletedFields)
+		err := projection.Migrate(ctx, schema)
 		if err != nil {
 			migrationErrors.Add(err)
 		}

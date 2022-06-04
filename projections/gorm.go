@@ -3,11 +3,13 @@ package projections
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/getkin/kin-openapi/openapi3"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"reflect"
 	"strings"
 	"time"
 
-	"github.com/jinzhu/inflection"
 	ds "github.com/ompluscator/dynamic-struct"
 	weos "github.com/wepala/weos/model"
 	"github.com/wepala/weos/utils"
@@ -22,6 +24,8 @@ type GORMDB struct {
 	logger          weos.Log
 	migrationFolder string
 	Schema          map[string]ds.Builder
+	//key interfaces for gorm models
+	keys map[string]map[string]interface{}
 }
 
 type FilterProperty struct {
@@ -66,7 +70,7 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 		}
 	}
 
-	model, err := contentEntity.GORMModel(ctxt)
+	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
 	result := p.db.Debug().Table(entityFactory.Name()).Preload(clause.Associations).Scopes(ContentQuery()).Find(&model, identifiers)
 	if result.Error != nil {
@@ -114,167 +118,283 @@ func (p *GORMDB) Remove(entities []weos.Entity) error {
 	return nil
 }
 
-func (p *GORMDB) Migrate(ctx context.Context, builders map[string]ds.Builder, deleted map[string][]string) error {
+func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 
-	//we may need to reorder the creation so that tables don't reference things that don't exist as yet.
-	var err error
-	var tables []interface{}
-	for name, s := range builders {
-		f := s.GetField("Table")
-		f.SetTag(`json:"table_alias" gorm:"default:` + name + `"`)
-		instance := s.Build().New()
-		err := json.Unmarshal([]byte(`{
-			"table_alias": "`+name+`"
-		}`), &instance)
-		if err != nil {
-			p.logger.Errorf("unable to set the table name '%s'", err)
-			return err
-		}
-		tables = append(tables, instance)
-
-		var deletedFields []string
-		deletedFields = deleted[name]
-
-		for i, f := range deletedFields {
-			deletedFields[i] = utils.SnakeCase(f)
-		}
-
-		columns, err := p.db.Migrator().ColumnTypes(instance)
-		if err != nil {
-			p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
-		}
-		if len(columns) != 0 {
-			reader := ds.NewReader(instance)
-			readerFields := reader.GetAllFields()
-			jsonFields := []string{}
-			for _, r := range readerFields {
-				jsonFields = append(jsonFields, utils.SnakeCase(r.Name()))
+	var models []interface{}
+	if schema != nil {
+		for name, tschema := range schema.Components.Schemas {
+			model, err := p.GORMModel(name, tschema.Value, nil)
+			if err != nil {
+				return err
 			}
-
-			builder := ds.ExtendStruct(instance)
-			for _, c := range columns {
-				if !utils.Contains(jsonFields, c.Name()) && !utils.Contains(deletedFields, c.Name()) {
-					if !utils.Contains(deletedFields, c.Name()) {
-						var val interface{}
-						dType := strings.ToLower(c.DatabaseTypeName())
-						jsonString := `json:"` + c.Name() + `"`
-						switch dType {
-						case "text", "varchar", "char", "longtext":
-							var strings *string
-							val = strings
-							jsonString += `gorm:"size:512"`
-						case "integer", "int8", "int", "smallint", "bigint":
-							val = 0
-						case "real", "float8", "numeric", "float4", "double", "decimal":
-							val = 0.0
-						case "bool", "boolean":
-							val = false
-						case "timetz", "timestamptz", "date", "datetime", "timestamp":
-							val = time.Time{}
-						}
-						builder.AddField(strings.Title(c.Name()), val, jsonString)
-					}
-				}
-			}
-
-			var deleteConstraintError error
-			b := builder.Build().New()
 			json.Unmarshal([]byte(`{
 						"table_alias": "`+name+`"
-					}`), &b)
+					}`), &model)
+			models = append(models, model)
+		}
+	}
 
-			//drop columns with x-remove tag
-			for _, f := range deletedFields {
-				if p.db.Migrator().HasColumn(b, f) {
+	err := p.db.Debug().Migrator().AutoMigrate(models...)
+	return err
+}
 
-					deleteConstraintError = p.db.Migrator().DropColumn(b, f)
-					if deleteConstraintError != nil {
-						p.logger.Errorf("unable to drop column %s from table %s with error '%s'", f, name, err)
-						break
-					}
+//GORMModel return gorm model that is generated recursively.
+func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte) (interface{}, error) {
+	builder, _, err := p.GORMModelBuilder(name, schema)
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
+	}
+	model := builder.Build().New()
+	//if there is a payload let's serialize that
+	if payload != nil {
+		err = json.Unmarshal(payload, &model)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal payload into model '%s'", err)
+		}
+	}
+	json.Unmarshal([]byte(`{
+						"table_alias": "`+name+`"
+					}`), &model)
+	return model, nil
+}
+
+func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema) (ds.Builder, map[string]interface{}, error) {
+	titleCaseName := cases.Title(language.English).String(name)
+	//get the builder from "cache". This is to avoid issues with the gorm cache that uses the model interface to create a cache key
+	if builder, ok := p.Schema[titleCaseName]; ok {
+		return builder, p.keys[titleCaseName], nil
+	}
+
+	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
+	dfs, _ := json.Marshal(ref.Extensions["x-remove"])
+
+	primaryKeys := []string{}
+	deletedFields := []string{}
+	//this is used to store the default values of the primary keys so that the foreign key relationships can be setup
+	primaryKeysMap := make(map[string]interface{})
+
+	json.Unmarshal(pks, &primaryKeys)
+	json.Unmarshal(dfs, &deletedFields)
+
+	//was a primary key removed but not removed in the x-identifier fields?
+	for i, k := range primaryKeys {
+		for _, d := range deletedFields {
+			if strings.EqualFold(k, d) {
+				if len(primaryKeys) == 1 {
+					primaryKeys = []string{}
 				} else {
-					p.logger.Errorf("unable to drop column %s from table %s.  property does not exist", f, name)
+					primaryKeys[i] = primaryKeys[len(primaryKeys)-1]
+					primaryKeys = primaryKeys[:len(primaryKeys)-1]
+				}
+			}
+		}
+	}
+
+	if len(primaryKeys) == 0 {
+		primaryKeys = append(primaryKeys, "id")
+	}
+	instance := ds.NewStruct()
+	//add default weos_id field
+	instance.AddField("WeosID", "", `json:"weos_id" gorm:"unique;<-:create"`)
+	instance.AddField("SequenceNo", "", `json:"sequence_no"`)
+	//add table field so that it works with gorm functions that try to fetch the name.
+	//It's VERY important that the gorm default is set for this (spent hours trying to figure out why table names wouldn't show for related entities)
+	instance.AddField("Table", cases.Title(language.English).String(name), `json:"table_alias" gorm:"default:`+cases.Title(language.English).String(name)+`"`)
+	for tname, prop := range ref.Properties {
+		found := false
+
+		for _, n := range deletedFields {
+			if strings.EqualFold(n, tname) {
+				found = true
+			}
+		}
+		//this field should not be added to the schema
+		if found {
+			continue
+		}
+
+		tagString := `json:"` + tname + `"`
+		var gormParts []string
+		for _, req := range ref.Required {
+			if strings.EqualFold(req, tname) {
+				gormParts = append(gormParts, "NOT NULL")
+			}
+		}
+
+		uniquebytes, _ := json.Marshal(prop.Value.Extensions["x-unique"])
+		if len(uniquebytes) != 0 {
+			unique := false
+			json.Unmarshal(uniquebytes, &unique)
+			if unique {
+				gormParts = append(gormParts, "unique")
+			}
+		}
+
+		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(tname)) {
+			gormParts = append(gormParts, "primaryKey", "size:512")
+			//only add NOT null if it's not already in the array to avoid issue if a user also add the field to the required array
+			if !strings.Contains(strings.Join(gormParts, ";"), "NOT NULL") {
+				gormParts = append(gormParts, "NOT NULL")
+			}
+		}
+
+		defaultValue, gormParts, valueKeys := p.GORMPropertyDefaultValue(name, tname, prop, gormParts)
+
+		//setup gorm field tag string
+		if len(gormParts) > 0 {
+			gormString := strings.Join(gormParts, ";")
+			tagString += ` gorm:"` + gormString + `"`
+		}
+
+		instance.AddField(cases.Title(language.English).String(tname), defaultValue, tagString)
+
+		//if there are value keys it's because there is a Belongs to relationship and we need to add properties for that to work with GORM https://gorm.io/docs/belongs_to.html
+		if len(valueKeys) > 0 {
+			for keyName, tdefaultValue := range valueKeys {
+				keyNameTitleCase := cases.Title(language.English).String(tname) + cases.Title(language.English).String(keyName)
+				instance.AddField(keyNameTitleCase, tdefaultValue, `json:"`+utils.SnakeCase(keyNameTitleCase)+`"`)
+			}
+		}
+		if weos.InList(primaryKeys, tname) {
+			primaryKeysMap[tname] = defaultValue
+		}
+	}
+	if len(primaryKeys) == 1 && primaryKeys[0] == "id" && !instance.HasField("Id") {
+		instance.AddField("Id", uint(0), `json:"id" gorm:"primaryKey;size:512"`)
+		primaryKeysMap["Id"] = uint(0)
+	}
+
+	//add to "cache"
+	p.Schema[titleCaseName] = instance
+	p.keys[titleCaseName] = primaryKeysMap
+
+	return instance, primaryKeysMap, nil
+}
+
+func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string) (interface{}, []string, map[string]interface{}) {
+	var defaultValue interface{}
+	if schema.Value != nil {
+		switch schema.Value.Type {
+		case "integer":
+			switch schema.Value.Format {
+			case "int32":
+				if schema.Value.Nullable {
+					var value *int32
+					defaultValue = value
+				} else {
+					var value int32
+					defaultValue = value
+				}
+			case "int64":
+				if schema.Value.Nullable {
+					var value *int64
+					defaultValue = value
+				} else {
+					var value int64
+					defaultValue = value
+				}
+			case "uint":
+				if schema.Value.Nullable {
+					var value *uint
+					defaultValue = value
+				} else {
+					var value uint
+					defaultValue = value
+				}
+			default:
+				if schema.Value.Nullable {
+					var value *int
+					defaultValue = value
+				} else {
+					var value int
+					defaultValue = value
+				}
+			}
+		case "number":
+			switch schema.Value.Format {
+			case "float32":
+				if schema.Value.Nullable {
+					var value *float32
+					defaultValue = value
+				} else {
+					var value float32
+					defaultValue = value
+				}
+			case "float64":
+				if schema.Value.Nullable {
+					var value *float64
+					defaultValue = value
+				} else {
+					var value float64
+					defaultValue = value
+				}
+			default:
+				if schema.Value.Nullable {
+					var value *float32
+					defaultValue = value
+				} else {
+					var value float32
+					defaultValue = value
 				}
 			}
 
-			//get columns after db drop
-			columns, err = p.db.Migrator().ColumnTypes(instance)
-			if err != nil {
-				p.logger.Errorf("unable to get columns from table %s with error '%s'", name, err)
-			}
-			//if column exists in table but not in new schema, alter column
-			if deleteConstraintError == nil {
-				for _, c := range columns {
-					if !utils.Contains(jsonFields, c.Name()) {
-						deleteConstraintError = p.db.Migrator().AlterColumn(b, c.Name())
-						if deleteConstraintError != nil {
-							p.logger.Errorf("got error updating constraint %s", err)
-							break
-						}
-					}
+		case "string":
+			switch schema.Value.Format {
+			case "date-time":
+				timeNow := weos.NewTime(time.Now())
+				defaultValue = &timeNow
+			default:
+				if schema.Value.Nullable {
+					var strings *string
+					defaultValue = strings
+				} else {
+					var strings string
+					defaultValue = strings
 				}
 			}
-
-			//remake table if primary key constraints are changed
-			if deleteConstraintError != nil {
-
-				//check if changing primary key affects relationship tables
-				tables, err := p.db.Migrator().GetTables()
+		case "array":
+			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil {
+				tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value)
 				if err != nil {
-					p.logger.Errorf("got error getting current tables %s", err)
-					return err
+					return nil, nil, nil
 				}
-
-				//check foreign keys
-				for _, t := range tables {
-					pluralName := strings.ToLower(inflection.Plural(name))
-
-					if strings.Contains(strings.ToLower(t), name+"_") || strings.Contains(t, "_"+pluralName) {
-						return weos.NewError(fmt.Sprintf("a relationship exists that uses constraints from table %s", name), fmt.Errorf("a relationship exists that uses constraints from table %s", name))
-					}
-				}
-
-				b := builder.Build().New()
-				err = json.Unmarshal([]byte(`{
-						"table_alias": "temp"
-					}`), &b)
-				if err != nil {
-					p.logger.Errorf("unable to set the table name '%s'", err)
-					return err
-				}
-				err = p.db.Migrator().CreateTable(b)
-				if err != nil {
-					p.logger.Errorf("got error creating temporary table %s", err)
-					return err
-				}
-				tableVals := []map[string]interface{}{}
-				p.db.Table(name).Find(&tableVals)
-				if len(tableVals) != 0 {
-					db := p.db.Table("temp").Create(&tableVals)
-					if db.Error != nil {
-						p.logger.Errorf("got error transfering table values %s", db.Error)
-						return err
-					}
-				}
-
-				err = p.db.Migrator().DropTable(name)
-				if err != nil {
-					p.logger.Errorf("got error dropping table%s", err)
-					return err
-				}
-				err = p.db.Migrator().RenameTable("temp", name)
-				if err != nil {
-					p.logger.Errorf("got error renaming temporary table %s", err)
-					return err
-				}
-
+				defaultValue = tbuilder.Build().NewSliceOfStructs()
+				json.Unmarshal([]byte(`[{
+						"table_alias": "`+cases.Title(language.English).String(name)+`"
+					}]`), &defaultValue)
+				//setup gorm field tag string
+				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
 			}
+		default:
+			//Belongs to https://gorm.io/docs/belongs_to.html
+			if schema.Ref != "" && schema.Value != nil {
+				tbuilder, keys, err := p.GORMModelBuilder(name, schema.Value)
+				if err != nil {
+					return nil, nil, nil
+				}
+				//setup key for rthe gorm tag
+				keyNames := []string{}
+				foreignKeys := []string{}
+				for v, _ := range keys {
+					keyNames = append(keyNames, v)
+				}
+				for _, v := range keyNames {
+					foreignKeys = append(foreignKeys, cases.Title(language.English).String(name)+cases.Title(language.English).String(v))
+				}
+				defaultValue = tbuilder.Build().New()
+				json.Unmarshal([]byte(`{
+						"table_alias": "`+cases.Title(language.English).String(name)+`"
+					}`), &defaultValue)
+				gormParts = append(gormParts, "foreignKey:"+strings.Join(foreignKeys, ","))
+				gormParts = append(gormParts, "References:"+strings.Join(keyNames, ","))
+				return defaultValue, gormParts, keys
+			}
+			//TODO I think here is where I'd put code to setup a json blob
 		}
 
 	}
-
-	err = p.db.Migrator().AutoMigrate(tables...)
-	return err
+	return defaultValue, gormParts, nil
 }
 
 func (p *GORMDB) GetEventHandler() weos.EventHandler {
@@ -292,8 +412,8 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				entity.SequenceNo = event.Meta.SequenceNo
 				//Adding the entityid to the payload since the event payload doesnt have it
 				entity.ID = event.Meta.EntityID
-
-				model, err := entity.GORMModel(ctx)
+				payload, err := json.Marshal(entity.ToMap())
+				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
 				//reader := ds.NewReader(model)
 				//if reader.HasField("BlogId") {
 				//	tvalue := reader.GetField("BlogId").Uint()
@@ -321,9 +441,10 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					return err
 				}
 				entity.SequenceNo = event.Meta.SequenceNo
-
-				model, err := entity.GORMModel(ctx)
+				payload, err := json.Marshal(entity)
+				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
 				json.Unmarshal([]byte(`{"table_alias":"Blog"}`), &model)
+				json.Unmarshal([]byte(`{"table_alias":"Blog","posts":[{"table_alias":"Post"]}`), &model)
 				reader := ds.NewReader(model)
 
 				//replace associations
@@ -362,12 +483,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 			}
 		case "delete":
 			if entityFactory != nil {
-				entity, err := entityFactory.NewEntity(ctx)
-				if err != nil {
-					p.logger.Errorf("error creating entity '%s'", err)
-					return err
-				}
-				model, err := entity.GORMModel(ctx)
+				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 				if err != nil {
 					p.logger.Errorf("error generating entity model '%s'", err)
 					return err
@@ -389,7 +505,7 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 		return nil, err
 	}
 
-	model, err := newEntity.GORMModel(ctx)
+	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
 	result := p.db.Debug().Table(entityFactory.TableName()).Preload(clause.Associations).Find(&model, "weos_id = ? ", weosID)
 	if result.Error != nil {
@@ -445,15 +561,14 @@ func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 	if entityFactory == nil {
 		return nil, int64(0), fmt.Errorf("no entity factory found")
 	}
-	scheme, err := entityFactory.NewEntity(ctx)
 	var filtersProp map[string]FilterProperty
 	props, _ := json.Marshal(filterOptions)
 	json.Unmarshal(props, &filtersProp)
-	filtersProp, err = DateTimeCheck(entityFactory, filtersProp)
+	filtersProp, err := DateTimeCheck(entityFactory, filtersProp)
 	if err != nil {
 		return nil, int64(0), err
 	}
-	model, err := scheme.GORMModel(ctx)
+	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 	result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	if err != nil {
 		return nil, 0, err
@@ -560,6 +675,8 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 	projection := &GORMDB{
 		db:     db,
 		logger: logger,
+		Schema: make(map[string]ds.Builder),
+		keys:   make(map[string]map[string]interface{}),
 	}
 
 	FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {

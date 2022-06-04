@@ -1,11 +1,12 @@
 package model_test
 
 import (
+	context3 "context"
 	"database/sql"
+	"github.com/getkin/kin-openapi/openapi3"
 	"os"
 	"testing"
 
-	dynamicstruct "github.com/ompluscator/dynamic-struct"
 	_ "github.com/proullon/ramsql/driver"
 	"github.com/wepala/weos/controllers/rest"
 	weos "github.com/wepala/weos/model"
@@ -223,7 +224,7 @@ func TestWeOSApp_AddProjection(t *testing.T) {
 				return nil
 			}
 		},
-		MigrateFunc: func(ctx context.Context, builders map[string]dynamicstruct.Builder, deletedFields map[string][]string) error {
+		MigrateFunc: func(ctx context3.Context, schema *openapi3.Swagger) error {
 			return nil
 		},
 	}

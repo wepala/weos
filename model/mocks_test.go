@@ -9,6 +9,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
+	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -613,7 +614,7 @@ type ProjectionMock struct {
 	GetListFunc func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error)
 
 	// MigrateFunc mocks the Migrate method.
-	MigrateFunc func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error
+	MigrateFunc func(ctx context.Context, schema *openapi3.Swagger) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -694,10 +695,8 @@ type ProjectionMock struct {
 		Migrate []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Builders is the builders argument value.
-			Builders map[string]ds.Builder
-			// DeletedFields is the deletedFields argument value.
-			DeletedFields map[string][]string
+			// Schema is the schema argument value.
+			Schema *openapi3.Swagger
 		}
 	}
 	lockGetByEntityID      sync.RWMutex
@@ -1003,37 +1002,33 @@ func (mock *ProjectionMock) GetListCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ProjectionMock) Migrate(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+func (mock *ProjectionMock) Migrate(ctx context2.Context, schema *openapi3.Swagger) error {
 	if mock.MigrateFunc == nil {
 		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
 	}
 	callInfo := struct {
-		Ctx           context.Context
-		Builders      map[string]ds.Builder
-		DeletedFields map[string][]string
+		Ctx    context.Context
+		Schema *openapi3.Swagger
 	}{
-		Ctx:           ctx,
-		Builders:      builders,
-		DeletedFields: deletedFields,
+		Ctx:    ctx,
+		Schema: schema,
 	}
 	mock.lockMigrate.Lock()
 	mock.calls.Migrate = append(mock.calls.Migrate, callInfo)
 	mock.lockMigrate.Unlock()
-	return mock.MigrateFunc(ctx, builders, deletedFields)
+	return mock.MigrateFunc(ctx, schema)
 }
 
 // MigrateCalls gets all the calls that were made to Migrate.
 // Check the length with:
 //     len(mockedProjection.MigrateCalls())
 func (mock *ProjectionMock) MigrateCalls() []struct {
-	Ctx           context.Context
-	Builders      map[string]ds.Builder
-	DeletedFields map[string][]string
+	Ctx    context.Context
+	Schema *openapi3.Swagger
 } {
 	var calls []struct {
-		Ctx           context.Context
-		Builders      map[string]ds.Builder
-		DeletedFields map[string][]string
+		Ctx    context.Context
+		Schema *openapi3.Swagger
 	}
 	mock.lockMigrate.RLock()
 	calls = mock.calls.Migrate

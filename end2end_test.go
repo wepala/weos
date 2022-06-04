@@ -497,7 +497,13 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		if err != nil {
 			return err
 		}
-		model, err := entity.GORMModel(context.TODO())
+		apiProjection, err := API.GetProjection("Default")
+		var tprojection *projections.GORMDB
+		if tprojection, ok = apiProjection.(*projections.GORMDB); !ok {
+			return fmt.Errorf("default projection is not a GORM projection")
+		}
+		payload, _ := json.Marshal(entity.ToMap())
+		model, err := tprojection.GORMModel(contentType, schema.Schema(), payload)
 		if err != nil {
 			return err
 		}
@@ -1713,7 +1719,7 @@ func definesAProjection(arg1, arg2 string) error {
 				return nil
 			}
 		},
-		MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+		MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 			return nil
 		},
 	}
@@ -1886,7 +1892,13 @@ func theShouldHaveAPropertyWithItems(arg1, arg2 string, arg3 int) error {
 	var items []TItem
 	//NOTE trying to do this with a slice of interfaces does NOT work
 	if entity, ok := entityProperty.(*model.ContentEntity); ok {
-		model, err := entity.GORMModel(context.TODO())
+		apiProjection, err := API.GetProjection("Default")
+		var tprojection *projections.GORMDB
+		if tprojection, ok = apiProjection.(*projections.GORMDB); !ok {
+			return fmt.Errorf("default projection is not a GORM projection")
+		}
+		payload, _ := json.Marshal(entity.ToMap())
+		model, err := tprojection.GORMModel(contentType, entity.Schema, payload)
 		if err != nil {
 			return err
 		}

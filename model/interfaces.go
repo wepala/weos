@@ -2,9 +2,9 @@ package model
 
 //go:generate moq -out temp_mocks_test.go -pkg model_test . GormProjection
 import (
+	"github.com/getkin/kin-openapi/openapi3"
 	"time"
 
-	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 )
@@ -75,7 +75,7 @@ type EventRepository interface {
 }
 
 type Datastore interface {
-	Migrate(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error
+	Migrate(ctx context.Context, schema *openapi3.Swagger) error
 }
 
 type Projection interface {

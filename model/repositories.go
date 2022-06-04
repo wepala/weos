@@ -306,7 +306,7 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 		schemas[value.Name()] = value.Builder(context.Background())
 	}
 
-	err := projections.Migrate(ctxt, schemas, nil)
+	err := projections.Migrate(ctxt, nil)
 	if err != nil {
 		e.logger.Errorf("error migrating tables: %s", err)
 	}

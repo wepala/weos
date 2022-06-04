@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/getkin/kin-openapi/openapi3"
 	"os"
 	"strconv"
 	"strings"
@@ -237,7 +238,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -249,7 +249,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,6 +286,10 @@ components:
 		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
+
+		if len(result) < 1 {
+			t.Fatalf("expected %d result", 1)
+		}
 
 		//check for auto id
 		if *driver != "mysql" {
@@ -386,7 +390,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -398,7 +401,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -500,13 +503,12 @@ components:
 		t.Fatalf("error loading api config '%s'", err)
 	}
 
-	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes, nil)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +609,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -619,7 +620,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -728,7 +729,7 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -740,7 +741,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -892,7 +893,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1008,7 +1009,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1175,7 +1176,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1233,14 +1234,6 @@ servers:
   - url: https://prod1.weos.sh/blog/v1
 components:
   schemas:
-    Post:
-     type: object
-     properties:
-      title:
-         type: string
-         description: blog title
-      description:
-         type: string
     Blog:
      type: object
      properties:
@@ -1253,6 +1246,15 @@ components:
         type: array
         items:
           $ref: "#/components/schemas/Post"
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+    
 `
 
 		api, err := rest.New(openAPI)
@@ -1272,7 +1274,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1441,7 +1443,7 @@ components:
 		json.Unmarshal(dfs, deletedFields[name])
 	}
 
-	err = p.Migrate(context.Background(), schemes, deletedFields)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1592,7 +1594,7 @@ components:
 		json.Unmarshal(dfs, deletedFields[name])
 	}
 
-	err = p.Migrate(context.Background(), schemes, deletedFields)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1724,7 +1726,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1869,7 +1871,7 @@ components:
 	if err != nil {
 		t.Fatalf("error loading api config '%s'", err)
 	}
-	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+
 	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
@@ -1881,7 +1883,7 @@ components:
 		json.Unmarshal(dfs, deletedFields[name])
 	}
 
-	err = p.Migrate(context.Background(), schemes, deletedFields)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2017,7 +2019,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2144,7 +2146,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -2156,7 +2157,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2268,7 +2269,7 @@ components:
 		json.Unmarshal(dfs, deletedFields[name])
 	}
 
-	err = p.Migrate(context.Background(), schemes, deletedFields)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2461,7 +2462,7 @@ components:
 	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
 	postEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Post", api.Swagger.Components.Schemas["Post"].Value, schemes["Post"])
 
-	err = p.Migrate(context.Background(), schemes, nil)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2492,8 +2493,8 @@ components:
 	post := map[string]interface{}{"weos_id": blogWeosID, "title": "Post 1", "description": "first post", "sequence_no": int64(1), "last_updated": t1, "blog": map[string]interface{}{"id": uint(123), "title": "sdfa"}}
 	//post1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "Post 2", "description": "second post", "sequence_no": int64(1), "last_updated": t2, "blog": map[string]interface{}{"id": uint(123)}}
 	postData, _ := json.Marshal(post)
-	postObject, _ := postEntityFactory.CreateEntityWithValues(context.Background(), postData)
-	postModel, _ := postObject.GORMModel(context.Background())
+	//postObject, _ := postEntityFactory.CreateEntityWithValues(context.Background(), postData)
+	postModel, _ := p.GORMModel(postEntityFactory.Name(), postEntityFactory.Schema(), postData)
 
 	gormDB.Table("Blog").Create(blog)
 	gormDB.Table("Blog").Create(blog1)
@@ -2924,7 +2925,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -2938,7 +2938,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3027,7 +3027,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3041,7 +3040,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3146,7 +3145,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3160,7 +3158,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3254,7 +3252,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3268,7 +3265,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3376,7 +3373,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3390,7 +3386,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3476,7 +3472,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3490,7 +3485,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3592,7 +3587,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3606,7 +3600,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3685,7 +3679,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3699,7 +3692,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3796,7 +3789,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3810,7 +3802,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3887,7 +3879,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3900,7 +3891,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3996,7 +3987,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -4007,7 +3997,7 @@ components:
 			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
 			json.Unmarshal(dfs, deletedFields[name])
 		}
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -4099,7 +4089,7 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes, nil)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4223,7 +4213,7 @@ components:
 			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
 			json.Unmarshal(dfs, deletedFields[name])
 		}
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -4349,7 +4339,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -4360,7 +4349,7 @@ components:
 			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
 			json.Unmarshal(dfs, deletedFields[name])
 		}
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -4402,17 +4391,17 @@ func TestMetaProjectionError_Add(t *testing.T) {
 func TestMetaProjection_Migrate(t *testing.T) {
 	t.Run("successful migration", func(t *testing.T) {
 		mockProjection1 := &ProjectionMock{
-			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 				return nil
 			},
 		}
 		mockProjection2 := &ProjectionMock{
-			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 				return nil
 			},
 		}
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		err := metaProjection.Migrate(context.TODO(), nil, nil)
+		err := metaProjection.Migrate(context.TODO(), nil)
 		if err != nil {
 			t.Fatalf("unexpected error running migrate '%s'", err.Error())
 		}
@@ -4427,17 +4416,17 @@ func TestMetaProjection_Migrate(t *testing.T) {
 	})
 	t.Run("migration with errors", func(t *testing.T) {
 		mockProjection1 := &ProjectionMock{
-			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 				return errors.New("some error")
 			},
 		}
 		mockProjection2 := &ProjectionMock{
-			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 				return nil
 			},
 		}
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		err := metaProjection.Migrate(context.TODO(), nil, nil)
+		err := metaProjection.Migrate(context.TODO(), nil)
 		if err == nil {
 			t.Fatal("expected error")
 		}

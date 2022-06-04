@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/context"
 )
 
+//Deprecated: 06/04/2022 moved this to the gorm projection
 //CreateSchema creates the table schemas for gorm syntax
 func CreateSchema(ctx context.Context, e *echo.Echo, s *openapi3.Swagger) map[string]ds.Builder {
 	builders := make(map[string]ds.Builder)

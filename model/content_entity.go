@@ -8,10 +8,7 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
-	"github.com/wepala/weos/utils"
 	"golang.org/x/net/context"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 	"math"
 	"strings"
 	"time"
@@ -21,7 +18,6 @@ type ContentEntity struct {
 	AggregateRoot
 	Schema  *openapi3.Schema `json:"-"`
 	payload map[string]interface{}
-	builder ds.Builder
 }
 
 //IsValid checks if the property is valid using the IsNull function
@@ -214,246 +210,6 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 	return w, err
 }
 
-//GORMModel return model
-func (w *ContentEntity) GORMModel(ctx context.Context) (interface{}, error) {
-	builder, _, err := w.GORMModelBuilder("blog", w.Schema, 0)
-	if err != nil {
-		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
-	}
-	model := builder.Build().New()
-	//if there is a payload let's serialize that
-	if w.payload != nil {
-		tpayload := w.payload
-		tpayload["weos_id"] = w.ID
-		tpayload["sequence_no"] = w.SequenceNo
-		tbytes, err := json.Marshal(tpayload)
-		if err != nil {
-			return nil, NewDomainError("error prepping entity for gorm", "ContentEntity", w.ID, err)
-		}
-		err = json.Unmarshal(tbytes, &model)
-		if err != nil {
-			return nil, NewDomainError(fmt.Sprintf("error prepping entity for gorm '%s'", err), "ContentEntity", w.ID, err)
-		}
-	}
-
-	return model, nil
-}
-
-func (w *ContentEntity) GORMModelBuilder(name string, ref *openapi3.Schema, level int) (ds.Builder, map[string]interface{}, error) {
-	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
-	dfs, _ := json.Marshal(ref.Extensions["x-remove"])
-
-	primaryKeys := []string{}
-	deletedFields := []string{}
-	//this is used to store the default values of the primary keys so that the foreign key relationships can be setup
-	primaryKeysMap := make(map[string]interface{})
-
-	json.Unmarshal(pks, &primaryKeys)
-	json.Unmarshal(dfs, &deletedFields)
-
-	//was a primary key removed but not removed in the x-identifier fields?
-	for i, k := range primaryKeys {
-		for _, d := range deletedFields {
-			if strings.EqualFold(k, d) {
-				if len(primaryKeys) == 1 {
-					primaryKeys = []string{}
-				} else {
-					primaryKeys[i] = primaryKeys[len(primaryKeys)-1]
-					primaryKeys = primaryKeys[:len(primaryKeys)-1]
-				}
-			}
-		}
-	}
-
-	if len(primaryKeys) == 0 {
-		primaryKeys = append(primaryKeys, "id")
-	}
-	instance := ds.NewStruct()
-	//add default weos_id field
-	instance.AddField("Weos_id", "", `json:"weos_id" gorm:"unique"`)
-	//add table field so that it works with gorm functions that try to fetch the name
-	instance.AddField("Table", cases.Title(language.English).String(name), `json:"table_alias" gorm:"-"`)
-	for tname, p := range ref.Properties {
-		found := false
-
-		for _, n := range deletedFields {
-			if strings.EqualFold(n, tname) {
-				found = true
-			}
-		}
-		//this field should not be added to the schema
-		if found {
-			continue
-		}
-
-		tagString := `json:"` + tname + `"`
-		var gormParts []string
-		for _, req := range ref.Required {
-			if strings.EqualFold(req, tname) {
-				gormParts = append(gormParts, "NOT NULL")
-			}
-		}
-
-		uniquebytes, _ := json.Marshal(p.Value.Extensions["x-unique"])
-		if len(uniquebytes) != 0 {
-			unique := false
-			json.Unmarshal(uniquebytes, &unique)
-			if unique {
-				gormParts = append(gormParts, "unique")
-			}
-		}
-
-		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(tname)) {
-			gormParts = append(gormParts, "primaryKey", "size:512")
-			//only add NOT null if it's not already in the array to avoid issue if a user also add the field to the required array
-			if !strings.Contains(strings.Join(gormParts, ";"), "NOT NULL") {
-				gormParts = append(gormParts, "NOT NULL")
-			}
-		}
-
-		defaultValue, gormParts, valueKeys := w.GetGORMPropertyDefaultValue(name, tname, p, gormParts)
-
-		//setup gorm field tag string
-		if len(gormParts) > 0 {
-			gormString := strings.Join(gormParts, ";")
-			tagString += ` gorm:"` + gormString + `"`
-		}
-
-		instance.AddField(cases.Title(language.English).String(tname), defaultValue, tagString)
-
-		//if there are value keys it's because there is a Belongs to relationship and we need to add properties for that to work with GORM https://gorm.io/docs/belongs_to.html
-		if len(valueKeys) > 0 {
-			for keyName, tdefaultValue := range valueKeys {
-				keyNameTitleCase := cases.Title(language.English).String(tname) + cases.Title(language.English).String(keyName)
-				instance.AddField(keyNameTitleCase, tdefaultValue, `json:"`+utils.SnakeCase(keyNameTitleCase)+`"`)
-			}
-		}
-		if InList(primaryKeys, tname) {
-			primaryKeysMap[tname] = defaultValue
-		}
-	}
-	if len(primaryKeys) == 1 && primaryKeys[0] == "id" && !instance.HasField("Id") {
-		instance.AddField("Id", uint(0), `json:"id" gorm:"primaryKey;size:512"`)
-		primaryKeysMap["Id"] = uint(0)
-	}
-
-	return instance, primaryKeysMap, nil
-}
-
-func (w *ContentEntity) GetGORMPropertyDefaultValue(parentName string, name string, p *openapi3.SchemaRef, gormParts []string) (interface{}, []string, map[string]interface{}) {
-	var defaultValue interface{}
-	if p.Value != nil {
-		switch p.Value.Type {
-		case "integer":
-			switch p.Value.Format {
-			case "int32":
-				if p.Value.Nullable {
-					var value *int32
-					defaultValue = value
-				} else {
-					var value int32
-					defaultValue = value
-				}
-			case "int64":
-				if p.Value.Nullable {
-					var value *int64
-					defaultValue = value
-				} else {
-					var value int64
-					defaultValue = value
-				}
-			case "uint":
-				if p.Value.Nullable {
-					var value *uint
-					defaultValue = value
-				} else {
-					var value uint
-					defaultValue = value
-				}
-			default:
-				if p.Value.Nullable {
-					var value *int
-					defaultValue = value
-				} else {
-					var value int
-					defaultValue = value
-				}
-			}
-		case "number":
-			switch p.Value.Format {
-			case "float32":
-				if p.Value.Nullable {
-					var value *float32
-					defaultValue = value
-				} else {
-					var value float32
-					defaultValue = value
-				}
-			case "float64":
-				if p.Value.Nullable {
-					var value *float64
-					defaultValue = value
-				} else {
-					var value float64
-					defaultValue = value
-				}
-			default:
-				if p.Value.Nullable {
-					var value *float32
-					defaultValue = value
-				} else {
-					var value float32
-					defaultValue = value
-				}
-			}
-
-		case "string":
-			switch p.Value.Format {
-			case "date-time":
-				timeNow := NewTime(time.Now())
-				defaultValue = &timeNow
-			default:
-				if p.Value.Nullable {
-					var strings *string
-					defaultValue = strings
-				} else {
-					var strings string
-					defaultValue = strings
-				}
-			}
-		case "array":
-			if p.Value != nil && p.Value.Items != nil && p.Value.Items.Value != nil {
-				tbuilder, _, err := w.GORMModelBuilder("", p.Value.Items.Value, 0)
-				if err != nil {
-					return nil, nil, nil
-				}
-				defaultValue = tbuilder.Build().NewSliceOfStructs()
-				json.Unmarshal([]byte(`[{
-						"table_alias": "`+cases.Title(language.English).String(name)+`"
-					}]`), &defaultValue)
-				//setup gorm field tag string
-				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
-			}
-		default:
-			//Belongs to https://gorm.io/docs/belongs_to.html
-			if p.Ref != "" && p.Value != nil {
-				tbuilder, keys, err := w.GORMModelBuilder(name, p.Value, 0)
-				if err != nil {
-					return nil, nil, nil
-				}
-				defaultValue = tbuilder.Build().New()
-				json.Unmarshal([]byte(`{
-						"table_alias": "`+cases.Title(language.English).String(name)+`"
-					}`), &defaultValue)
-				return defaultValue, gormParts, keys
-			}
-			//TODO I think here is where I'd put code to setup a json blob
-		}
-
-	}
-	return defaultValue, gormParts, nil
-}
-
 //FromSchema builds properties from the schema
 func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
 	w.User.ID = weosContext.GetUser(ctx)
@@ -471,6 +227,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 	return w, nil
 }
 
+//Deprecated: 04/06/2022
 //FromSchemaAndBuilder builds properties from the schema and uses the builder generated on startup. This helps generate
 //complex gorm models that reference other models (if we only use the schema for the current entity then we won't be able to do that)
 func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.Schema, builder ds.Builder) (*ContentEntity, error) {
@@ -478,7 +235,6 @@ func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.
 	if err != nil {
 		return nil, err
 	}
-	w.builder = builder
 	return w, nil
 }
 

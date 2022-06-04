@@ -26,10 +26,17 @@ type DefaultEntityFactory struct {
 	builder ds.Builder
 }
 
+//Deprecated: 06/04/2022 the builder should not be needed
 //FromSchemaAndBuilder create entity factory using a schema and dynamic struct builder
 func (d *DefaultEntityFactory) FromSchemaAndBuilder(s string, o *openapi3.Schema, builder ds.Builder) EntityFactory {
 	d.schema = o
 	d.builder = builder
+	d.name = s
+	return d
+}
+
+func (d *DefaultEntityFactory) FromSchema(s string, o *openapi3.Schema) EntityFactory {
+	d.schema = o
 	d.name = s
 	return d
 }
