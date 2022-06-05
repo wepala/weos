@@ -3,7 +3,6 @@ package rest_test
 import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
-	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
@@ -346,7 +345,7 @@ func TestRouteInitializer(t *testing.T) {
 	})
 	api.RegisterController("DeleteController", rest.DeleteController)
 	api.RegisterProjection("Custom", &ProjectionMock{
-		MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+		MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 			return nil
 		},
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
@@ -354,7 +353,7 @@ func TestRouteInitializer(t *testing.T) {
 		},
 	})
 	api.RegisterProjection("Default", &ProjectionMock{
-		MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+		MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 			return nil
 		},
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {

@@ -283,7 +283,7 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs", "url": "https://wepala.com"})
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
 

@@ -7,6 +7,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -148,14 +149,16 @@ func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 	model := builder.Build().New()
 	//if there is a payload let's serialize that
 	if payload != nil {
-		err = json.Unmarshal(payload, &model)
+		tpayload := make(map[string]interface{})
+		err = json.Unmarshal(payload, &tpayload)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal payload into model '%s'", err)
 		}
+		tpayload["table_alias"] = name
+		data, _ := json.Marshal(tpayload)
+		err = json.Unmarshal(data, &model)
 	}
-	json.Unmarshal([]byte(`{
-						"table_alias": "`+name+`"
-					}`), &model)
+
 	return model, nil
 }
 
@@ -197,7 +200,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema) (ds.Builder
 	instance := ds.NewStruct()
 	//add default weos_id field
 	instance.AddField("WeosID", "", `json:"weos_id" gorm:"unique;<-:create"`)
-	instance.AddField("SequenceNo", "", `json:"sequence_no"`)
+	instance.AddField("SequenceNo", uint(0), `json:"sequence_no"`)
 	//add table field so that it works with gorm functions that try to fetch the name.
 	//It's VERY important that the gorm default is set for this (spent hours trying to figure out why table names wouldn't show for related entities)
 	instance.AddField("Table", cases.Title(language.English).String(name), `json:"table_alias" gorm:"default:`+cases.Title(language.English).String(name)+`"`)
@@ -253,7 +256,32 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema) (ds.Builder
 		if len(valueKeys) > 0 {
 			for keyName, tdefaultValue := range valueKeys {
 				keyNameTitleCase := cases.Title(language.English).String(tname) + cases.Title(language.English).String(keyName)
-				instance.AddField(keyNameTitleCase, tdefaultValue, `json:"`+utils.SnakeCase(keyNameTitleCase)+`"`)
+				//convert the type to a pointer so that the foreign key relationship will not be required (otherwise the debug will show that an item with a foreign key relationship saved but in reality it didn't)
+				var defaultValuePointer interface{}
+				switch tdefaultValue.(type) {
+				case string:
+					var tpointer *string
+					defaultValuePointer = tpointer
+				case uint:
+					var tpointer *uint
+					defaultValuePointer = tpointer
+				case float32:
+					var tpointer *float32
+					defaultValuePointer = tpointer
+				case float64:
+					var tpointer *float64
+					defaultValuePointer = tpointer
+				case int:
+					var tpointer *int
+					defaultValuePointer = tpointer
+				case int32:
+					var tpointer *int32
+					defaultValuePointer = tpointer
+				case int64:
+					var tpointer *int64
+					defaultValuePointer = tpointer
+				}
+				instance.AddField(keyNameTitleCase, defaultValuePointer, `json:"-"`)
 			}
 		}
 		if weos.InList(primaryKeys, tname) {
@@ -410,17 +438,11 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					return err
 				}
 				entity.SequenceNo = event.Meta.SequenceNo
-				//Adding the entityid to the payload since the event payload doesnt have it
+				//Adding the entityid to the payload since the event payload doesn't have it
 				entity.ID = event.Meta.EntityID
 				payload, err := json.Marshal(entity.ToMap())
 				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
-				//reader := ds.NewReader(model)
-				//if reader.HasField("BlogId") {
-				//	tvalue := reader.GetField("BlogId").Uint()
-				//	if reader.GetField("BlogId").Uint() != 1 {
-				//		fmt.Sprintf("value set '%d'", tvalue)
-				//	}
-				//}
+				json.Unmarshal([]byte(`{"weos_id":"`+entity.ID+`","sequence_no":`+strconv.Itoa(int(entity.SequenceNo))+`}`), &model)
 				db := p.db.Debug().Table(entityFactory.Name()).Create(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
@@ -443,8 +465,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				entity.SequenceNo = event.Meta.SequenceNo
 				payload, err := json.Marshal(entity)
 				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
-				json.Unmarshal([]byte(`{"table_alias":"Blog"}`), &model)
-				json.Unmarshal([]byte(`{"table_alias":"Blog","posts":[{"table_alias":"Post"]}`), &model)
+				json.Unmarshal([]byte(`{"weos_id":"`+entity.ID+`","sequence_no":"`+strconv.Itoa(int(entity.SequenceNo))+`"}`), &model)
 				reader := ds.NewReader(model)
 
 				//replace associations
@@ -452,25 +473,11 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
 					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
 						field := reader.GetField(strings.Title(key))
-						_ = field.Interface()
-						v, _ := json.Marshal(model)
-						fmt.Sprintf("%s", v)
-						if reader.HasField("Posts") {
-							treader := ds.NewReader(reader.GetField("Posts").Interface())
-							treaders := treader.ToSliceOfReaders()
-							for _, tr := range treaders {
-								if tr.HasField("Table") {
-									table := tr.GetField("Table").String()
-									fmt.Printf("table: %s", table)
-								}
-							}
-
+						err = Association(p.db.Debug().Model(model).Table(entityFactory.Name()), strings.Title(key)).Replace(field.Interface())
+						if err != nil {
+							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
+							return err
 						}
-						//err = Association(p.db.Debug().Model(model).Table(entityFactory.Name()), strings.Title(key)).Replace(t)
-						//if err != nil {
-						//	p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
-						//	return err
-						//}
 					}
 				}
 

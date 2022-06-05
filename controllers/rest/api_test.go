@@ -118,10 +118,11 @@ func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
 	body := bytes.NewReader(reqBytes)
 	resp := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+	req.Header.Set("Content-Type", "application/json")
 	e.ServeHTTP(resp, req)
 	//confirm that the response is not 404
-	if resp.Result().StatusCode == http.StatusNotFound {
-		t.Errorf("expected the response code to not be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
+	if resp.Result().StatusCode != http.StatusCreated {
+		t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
 	}
 	os.Remove("test.db")
 	time.Sleep(1 * time.Second)

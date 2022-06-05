@@ -2,7 +2,6 @@ package dialects
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -35,18 +34,6 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 			}
 		} else {
 			if err := m.RunWithValue(value, func(stmt *gorm.Statement) (errr error) {
-
-				if value == nil {
-					s := map[string]interface{}{}
-					b, _ := json.Marshal(value)
-					json.Unmarshal(b, &s)
-
-					if tableName, ok := s["table_alias"].(string); ok {
-						if tableName != "" {
-							value = tableName
-						}
-					}
-				}
 
 				columnTypes, _ := m.DB.Migrator().ColumnTypes(value)
 
