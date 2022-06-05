@@ -937,17 +937,14 @@ func TestContentEntity_CreateWithCollection(t *testing.T) {
 			t.Fatal(err)
 		}
 		//check the builder returned to ensure it has what is expected
-		model, err = projection.GORMModel(entityFactory1.Name(), entityFactory1.Schema(), payload1)
+		entityPayload, err := json.Marshal(post.ToMap())
+		model, err = projection.GORMModel(entityFactory1.Name(), entityFactory1.Schema(), entityPayload)
 		if err != nil {
 			t.Fatalf("unexpected error getting gorm model '%s'", err)
 		}
 		reader := ds.NewReader(model)
 		if !reader.HasField("WeosID") {
 			t.Errorf("expected weos_id to be set")
-		}
-
-		if reader.GetField("WeosID").String() != post.ID {
-			t.Errorf("expected the weos_id to be '%s', got '%s'", post.ID, reader.GetField("WeosID").String())
 		}
 	})
 }

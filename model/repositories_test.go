@@ -25,7 +25,7 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	factories := api.GetEntityFactories()
 	newContext := context.WithValue(ctx, weoscontext.ENTITY_FACTORY, factories[entityType])
 
-	mockPayload1 := map[string]interface{}{"weos_id": "12345", "sequence_no": int64(1), "title": "Test Blog", "url": "testing.com"}
+	mockPayload1 := map[string]interface{}{"weos_id": "12345", "sequence_no": 1, "title": "Test Blog", "url": "testing.com"}
 	entity1 := &model.ContentEntity{
 		AggregateRoot: model.AggregateRoot{
 			BasicEntity: model.BasicEntity{
@@ -37,7 +37,7 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	event1 := model.NewEntityEvent("create", entity1, "12345", mockPayload1)
 	entity1.NewChange(event1)
 
-	mockPayload2 := map[string]interface{}{"weos_id": "123456", "sequence_no": int64(1), "title": "Test Blog1", "url": "testing1.com"}
+	mockPayload2 := map[string]interface{}{"weos_id": "123456", "sequence_no": 1, "title": "Test Blog1", "url": "testing1.com"}
 	entity2 := &model.ContentEntity{
 		AggregateRoot: model.AggregateRoot{
 			BasicEntity: model.BasicEntity{
@@ -49,7 +49,7 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	event2 := model.NewEntityEvent("create", entity2, "123456", mockPayload2)
 	entity2.NewChange(event2)
 
-	mockPayload3 := map[string]interface{}{"weos_id": "1234567", "sequence_no": int64(1), "title": "Test Blog2", "url": "testing2.com"}
+	mockPayload3 := map[string]interface{}{"weos_id": "1234567", "sequence_no": 1, "title": "Test Blog2", "url": "testing2.com"}
 	entity3 := &model.ContentEntity{
 		AggregateRoot: model.AggregateRoot{
 			BasicEntity: model.BasicEntity{
@@ -77,12 +77,14 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	eventRepo.Persist(newContext, entity3)
 
 	t.Run("replay events - drop tables", func(t *testing.T) {
-		err = eventRepo.DB.Migrator().DropTable("Blog")
-		if err != nil {
-			t.Fatal(err)
+		if eventRepo.DB.Migrator().HasTable("Blog") {
+			err = eventRepo.DB.Migrator().DropTable("Blog")
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 
-		total, successful, failed, err := eventRepo.ReplayEvents(ctx, time.Time{}, factories, projection)
+		total, successful, failed, err := eventRepo.ReplayEvents(ctx, time.Time{}, factories, projection, api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +103,7 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	})
 	t.Run("replay events - existing data", func(t *testing.T) {
 
-		total, successful, failed, err := eventRepo.ReplayEvents(ctx, time.Time{}, factories, projection)
+		total, successful, failed, err := eventRepo.ReplayEvents(ctx, time.Time{}, factories, projection, api.Swagger)
 		if err == nil {
 			t.Fatalf("expected there to be errors (unique constraint)")
 		}
@@ -131,7 +133,7 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 			t.Fatal(searchResult.Error)
 		}
 
-		total, successful, failed, err := eventRepo.ReplayEvents(ctx, time.Time{}, factories, projection)
+		total, successful, failed, err := eventRepo.ReplayEvents(ctx, time.Time{}, factories, projection, api.Swagger)
 		if err == nil {
 			t.Fatalf("expected there to be errors (unique constraint)")
 		}

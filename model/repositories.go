@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"github.com/getkin/kin-openapi/openapi3"
 	"time"
 
 	ds "github.com/ompluscator/dynamic-struct"
@@ -296,7 +297,7 @@ func (e *EventRepositoryGorm) Remove(entities []Entity) error {
 }
 
 //Content may not be applicable to this func since there would be an instance of it being called at server.go run. Therefore we won't have a "proper" content which would contain the EntityFactory
-func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projections Projection) (int, int, int, []error) {
+func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projection Projection, schema *openapi3.Swagger) (int, int, int, []error) {
 	var errors []error
 	var errArray []error
 
@@ -306,7 +307,7 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 		schemas[value.Name()] = value.Builder(context.Background())
 	}
 
-	err := projections.Migrate(ctxt, nil)
+	err := projection.Migrate(ctxt, schema)
 	if err != nil {
 		e.logger.Errorf("error migrating tables: %s", err)
 	}

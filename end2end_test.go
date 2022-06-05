@@ -1438,7 +1438,7 @@ func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
 	}
 
 	factories := API.GetEntityFactories()
-	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
+	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection, nil)
 	if err != nil {
 		return fmt.Errorf("error getting event store: %s", err)
 	}

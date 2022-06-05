@@ -509,7 +509,7 @@ func (mock *EventRepositoryMock) PersistCalls() []struct {
 }
 
 // ReplayEvents calls ReplayEventsFunc.
-func (mock *EventRepositoryMock) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error) {
+func (mock *EventRepositoryMock) ReplayEvents(ctxt context2.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection, schema *openapi3.Swagger) (int, int, int, []error) {
 	if mock.ReplayEventsFunc == nil {
 		panic("EventRepositoryMock.ReplayEventsFunc: method is nil but EventRepository.ReplayEvents was just called")
 	}

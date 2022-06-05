@@ -40,7 +40,7 @@ func Start(port string, apiConfig string, replay bool) *RESTAPI {
 		projection, _ := api.GetProjection("Default")
 		factories := api.GetEntityFactories()
 
-		total, success, failed, err := eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
+		total, success, failed, err := eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection, nil)
 		api.EchoInstance().Logger.Debugf("total: %d, success: %d, failed: %d, err: %s", total, success, failed, err)
 	}
 

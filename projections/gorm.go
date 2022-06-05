@@ -6,7 +6,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -88,6 +87,8 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 
 }
 
+//Deprecated: 06/05/2022 use GetContentEntity instead
+//GetByEntityID get map of row using the entity id
 func (p *GORMDB) GetByEntityID(ctx context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
 	//scheme, err := entityFactory.NewEntity(ctx)
 	tstruct := entityFactory.DynamicStruct(ctx).New()
@@ -132,6 +133,25 @@ func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 						"table_alias": "`+name+`"
 					}`), &model)
 			models = append(models, model)
+			//drop columns
+			if p.db.Migrator().HasTable(model) {
+				if columnsToRemove, ok := tschema.Value.Extensions["x-remove"]; ok {
+					var columns []string
+					err = json.Unmarshal(columnsToRemove.(json.RawMessage), &columns)
+					if err != nil {
+						return fmt.Errorf("x-remove should be a list of columns name to remove '%s'", err)
+					}
+					for _, column := range columns {
+						if p.db.Migrator().HasColumn(model, column) {
+							err = p.db.Migrator().DropColumn(model, column)
+							if err != nil {
+								return fmt.Errorf("could not remove column '%s'. if it is a primary key column try creating another primary key and then removing. original error '%s'", column, err)
+							}
+						}
+					}
+				}
+
+			}
 		}
 	}
 
@@ -240,6 +260,8 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema) (ds.Builder
 			if !strings.Contains(strings.Join(gormParts, ";"), "NOT NULL") {
 				gormParts = append(gormParts, "NOT NULL")
 			}
+			//if the property is part of a key then it should not be nullable (this causes issues when generating the model for gorm)
+			prop.Value.Nullable = false
 		}
 
 		defaultValue, gormParts, valueKeys := p.GORMPropertyDefaultValue(name, tname, prop, gormParts)
@@ -473,7 +495,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
 					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
 						field := reader.GetField(strings.Title(key))
-						err = Association(p.db.Debug().Model(model).Table(entityFactory.Name()), strings.Title(key)).Replace(field.Interface())
+						err = p.db.Debug().Model(model).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
 							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
 							return err
@@ -643,30 +665,6 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 
 		return db
 	}
-}
-
-//replacement association code
-func Association(db *gorm.DB, column string) *gorm.Association {
-	association := &gorm.Association{DB: db}
-	table := db.Statement.Table
-
-	if err := db.Statement.ParseWithSpecialTableName(db.Statement.Model, db.Statement.Table); err == nil {
-		db.Statement.Table = table
-		association.Relationship = db.Statement.Schema.Relationships.Relations[column]
-
-		if association.Relationship == nil {
-			association.Error = fmt.Errorf("%w: %s", gorm.ErrUnsupportedRelation, column)
-		}
-
-		db.Statement.ReflectValue = reflect.ValueOf(db.Statement.Model)
-		for db.Statement.ReflectValue.Kind() == reflect.Ptr {
-			db.Statement.ReflectValue = db.Statement.ReflectValue.Elem()
-		}
-	} else {
-		association.Error = err
-	}
-
-	return association
 }
 
 //query modifier for making queries to the database
