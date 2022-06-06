@@ -415,6 +415,10 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 					}]`), &defaultValue)
 				//setup gorm field tag string
 				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
+			} else {
+				//if it's a greater depth then just set to string
+				var strings string
+				defaultValue = strings
 			}
 		default:
 			//Belongs to https://gorm.io/docs/belongs_to.html
