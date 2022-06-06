@@ -161,7 +161,7 @@ func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 
 //GORMModel return gorm model that is generated recursively.
 func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte) (interface{}, error) {
-	builder, _, err := p.GORMModelBuilder(name, schema)
+	builder, _, err := p.GORMModelBuilder(name, schema, 0)
 
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
@@ -182,7 +182,7 @@ func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 	return model, nil
 }
 
-func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema) (ds.Builder, map[string]interface{}, error) {
+func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) (ds.Builder, map[string]interface{}, error) {
 	titleCaseName := cases.Title(language.English).String(name)
 	//get the builder from "cache". This is to avoid issues with the gorm cache that uses the model interface to create a cache key
 	if builder, ok := p.Schema[titleCaseName]; ok {
@@ -264,7 +264,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema) (ds.Builder
 			prop.Value.Nullable = false
 		}
 
-		defaultValue, gormParts, valueKeys := p.GORMPropertyDefaultValue(name, tname, prop, gormParts)
+		defaultValue, gormParts, valueKeys := p.GORMPropertyDefaultValue(name, tname, prop, gormParts, depth)
 
 		//setup gorm field tag string
 		if len(gormParts) > 0 {
@@ -322,7 +322,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema) (ds.Builder
 	return instance, primaryKeysMap, nil
 }
 
-func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string) (interface{}, []string, map[string]interface{}) {
+func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
 	var defaultValue interface{}
 	if schema.Value != nil {
 		switch schema.Value.Type {
@@ -404,8 +404,8 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				}
 			}
 		case "array":
-			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil {
-				tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value)
+			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 3 {
+				tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
 				if err != nil {
 					return nil, nil, nil
 				}
@@ -418,8 +418,8 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 			}
 		default:
 			//Belongs to https://gorm.io/docs/belongs_to.html
-			if schema.Ref != "" && schema.Value != nil {
-				tbuilder, keys, err := p.GORMModelBuilder(name, schema.Value)
+			if schema.Ref != "" && schema.Value != nil && depth < 3 {
+				tbuilder, keys, err := p.GORMModelBuilder(name, schema.Value, depth+1)
 				if err != nil {
 					return nil, nil, nil
 				}
