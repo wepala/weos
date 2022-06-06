@@ -444,6 +444,10 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				gormParts = append(gormParts, "References:"+strings.Join(keyNames, ","))
 				return defaultValue, gormParts, keys
 			}
+			if depth >= 3 {
+				var strings string
+				defaultValue = strings
+			}
 			//TODO I think here is where I'd put code to setup a json blob
 		}
 
