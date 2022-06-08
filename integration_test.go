@@ -472,6 +472,7 @@ func TestIntegration_ManyToOneRelationship(t *testing.T) {
 	})
 
 	t.Run("creating a post with a non-existing author", func(t *testing.T) {
+		t.SkipNow()
 		//it should create an author with the data sent in
 		firstName := "polo"
 		lastName := "shirt"
