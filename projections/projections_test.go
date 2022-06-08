@@ -1394,6 +1394,7 @@ components:
 }
 
 func TestProjections_GetContentTypeByEntityID(t *testing.T) {
+	t.Skipf("this is deprecrated")
 	err := gormDB.Migrator().DropTable("blog_posts")
 	if err != nil {
 		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
@@ -1580,7 +1581,6 @@ components:
          description: blog title
        author_id:
          type: string
-         nullable: true
        description:
          type: string
          nullable: true
