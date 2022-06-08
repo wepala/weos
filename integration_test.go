@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	dynamicstruct "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/projections"
 	"io"
 	"io/ioutil"
@@ -460,7 +461,7 @@ func TestIntegration_ManyToOneRelationship(t *testing.T) {
 			t.Errorf("unexpected error getting projection: %s", err)
 		}
 		apiProjection1 := apiProjection.(*projections.GORMDB)
-		resultA := apiProjection1.DB().Table("Author").Find(&auths, "firstname = ? AND lastname = ?", firstName1, lastName1)
+		resultA := apiProjection1.DB().Table("Author").Find(&auths, "first_name = ? AND last_name = ?", firstName1, lastName1)
 		if resultA.Error != nil {
 			t.Errorf("unexpected error author: %s", resultA.Error)
 		}
@@ -497,24 +498,26 @@ func TestIntegration_ManyToOneRelationship(t *testing.T) {
 		if resp.Result().StatusCode != http.StatusCreated {
 			t.Fatalf("expected to get status %d creating item, got %d", http.StatusCreated, resp.Result().StatusCode)
 		}
-		var auth map[string]interface{}
+
 		apiProjection, err := tapi.GetProjection("Default")
 		if err != nil {
 			t.Errorf("unexpected error getting projection: %s", err)
 		}
 		apiProjection1 := apiProjection.(*projections.GORMDB)
-		resultA := apiProjection1.DB().Table("Author").Find(&auth, "id", id)
+		model, err := apiProjection1.GORMModel("Author", tapi.Swagger.Components.Schemas["Author"].Value, nil)
+		resultA := apiProjection1.DB().Table("Author").Find(&model, "id", id)
 		if resultA.Error != nil {
 			t.Errorf("unexpected error author: %s", resultA.Error)
 		}
-		if auth == nil {
+		reader := dynamicstruct.NewReader(model)
+		if model == nil {
 			t.Error("Unexpected error: expected to find a new author created")
 		}
-		if auth["firstname"] == nil || auth["firstname"] != firstName {
-			t.Errorf("expected author first name to be %s got %s", firstName, auth["firstname"])
+		if reader.GetField("FirstName").String() != firstName {
+			t.Errorf("expected author first name to be %s got %s", firstName, reader.GetField("FirstName").String())
 		}
-		if auth["lastname"] == nil || auth["lastname"] != lastName {
-			t.Errorf("expected author last name to be %s got %s", lastName, auth["lastname"])
+		if reader.GetField("LastName").String() != lastName {
+			t.Errorf("expected author last name to be %s got %s", lastName, reader.GetField("LastName").String())
 		}
 	})
 

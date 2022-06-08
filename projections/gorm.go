@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 	"strconv"
 	"strings"
 	"time"
@@ -183,7 +181,7 @@ func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 }
 
 func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) (ds.Builder, map[string]interface{}, error) {
-	titleCaseName := cases.Title(language.English).String(name)
+	titleCaseName := strings.Title(name)
 	//get the builder from "cache". This is to avoid issues with the gorm cache that uses the model interface to create a cache key
 	if builder, ok := p.Schema[titleCaseName]; ok {
 		return builder, p.keys[titleCaseName], nil
@@ -223,7 +221,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 	instance.AddField("SequenceNo", uint(0), `json:"sequence_no"`)
 	//add table field so that it works with gorm functions that try to fetch the name.
 	//It's VERY important that the gorm default is set for this (spent hours trying to figure out why table names wouldn't show for related entities)
-	instance.AddField("Table", cases.Title(language.English).String(name), `json:"table_alias" gorm:"default:`+cases.Title(language.English).String(name)+`"`)
+	instance.AddField("Table", strings.Title(name), `json:"table_alias" gorm:"default:`+strings.Title(name)+`"`)
 	for tname, prop := range ref.Properties {
 		found := false
 
@@ -273,13 +271,13 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 		}
 
 		if defaultValue != nil {
-			instance.AddField(cases.Title(language.English).String(tname), defaultValue, tagString)
+			instance.AddField(strings.Title(tname), defaultValue, tagString)
 		}
 
 		//if there are value keys it's because there is a Belongs to relationship and we need to add properties for that to work with GORM https://gorm.io/docs/belongs_to.html
 		if len(valueKeys) > 0 {
 			for keyName, tdefaultValue := range valueKeys {
-				keyNameTitleCase := cases.Title(language.English).String(tname) + cases.Title(language.English).String(keyName)
+				keyNameTitleCase := strings.Title(tname) + strings.Title(keyName)
 				//convert the type to a pointer so that the foreign key relationship will not be required (otherwise the debug will show that an item with a foreign key relationship saved but in reality it didn't)
 				var defaultValuePointer interface{}
 				switch tdefaultValue.(type) {
@@ -420,7 +418,7 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				}
 				defaultValue = tbuilder.Build().NewSliceOfStructs()
 				json.Unmarshal([]byte(`[{
-						"table_alias": "`+cases.Title(language.English).String(name)+`"
+						"table_alias": "`+strings.Title(name)+`"
 					}]`), &defaultValue)
 				//setup gorm field tag string
 				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
@@ -439,11 +437,11 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 					keyNames = append(keyNames, v)
 				}
 				for _, v := range keyNames {
-					foreignKeys = append(foreignKeys, cases.Title(language.English).String(name)+cases.Title(language.English).String(v))
+					foreignKeys = append(foreignKeys, strings.Title(name)+strings.Title(v))
 				}
 				defaultValue = tbuilder.Build().New()
 				json.Unmarshal([]byte(`{
-						"table_alias": "`+cases.Title(language.English).String(name)+`"
+						"table_alias": "`+strings.Title(name)+`"
 					}`), &defaultValue)
 				gormParts = append(gormParts, "foreignKey:"+strings.Join(foreignKeys, ","))
 				gormParts = append(gormParts, "References:"+strings.Join(keyNames, ","))
@@ -725,13 +723,13 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 
 					if len(filter.Values) == 0 {
 						if filter.Operator == "like" {
-							db.Where(utils.SnakeCase(strings.ToLower(filter.Field))+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", "%"+filter.Value.(string)+"%")
 						} else {
-							db.Where(utils.SnakeCase(strings.ToLower(filter.Field))+" "+operator+" ?", filter.Value)
+							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Value)
 						}
 
 					} else {
-						db.Where(utils.SnakeCase(strings.ToLower(filter.Field))+" "+operator+" ?", filter.Values)
+						db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Values)
 					}
 
 				}

@@ -3874,7 +3874,7 @@ components:
 
 	found := false
 	for _, c := range columns {
-		if c.Name() == "lastupdated" {
+		if c.Name() == "last_updated" {
 			found = true
 		}
 	}
@@ -3882,7 +3882,7 @@ components:
 	if !found {
 		t.Fatal("not all fields found")
 	}
-	gormDB.Table("Blog").Debug().Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "lastupdated": "Test"})
+	gormDB.Table("Blog").Debug().Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "last_updated": "Test"})
 
 	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
 	r, err := p.GetContentEntity(context.Background(), blogEntityFactory, "5678")

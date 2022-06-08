@@ -343,7 +343,7 @@ Feature: Create Content Types
       | title          |              | varchar(512)   | true     |          | NULL        |
       | description    |              | varchar(512)   | true     |          | NULL        |
       | email          |              | varchar(512)   | true     |          | NULL        |
-      | publisheddate |              | datetime       | true     |          | NULL        |
+      | published_date |              | datetime       | true     |          | NULL        |
     And a model "PostCategories" should be added to the projection
       | Field       | Comment      | Type           | Null     | Key      | Default     |
       | id          |              | varchar(512)   | false    | PK       | NULL        |
