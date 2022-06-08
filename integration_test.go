@@ -460,7 +460,7 @@ func TestIntegration_ManyToOneRelationship(t *testing.T) {
 			t.Errorf("unexpected error getting projection: %s", err)
 		}
 		apiProjection1 := apiProjection.(*projections.GORMDB)
-		resultA := apiProjection1.DB().Table("Author").Find(&auths, "first_name = ? AND last_name = ?", firstName1, lastName1)
+		resultA := apiProjection1.DB().Table("Author").Find(&auths, "firstname = ? AND lastname = ?", firstName1, lastName1)
 		if resultA.Error != nil {
 			t.Errorf("unexpected error author: %s", resultA.Error)
 		}
@@ -510,11 +510,11 @@ func TestIntegration_ManyToOneRelationship(t *testing.T) {
 		if auth == nil {
 			t.Error("Unexpected error: expected to find a new author created")
 		}
-		if auth["first_name"] == nil || auth["first_name"] != firstName {
-			t.Errorf("expected author first name to be %s got %s", firstName, auth["first_name"])
+		if auth["firstname"] == nil || auth["firstname"] != firstName {
+			t.Errorf("expected author first name to be %s got %s", firstName, auth["firstname"])
 		}
-		if auth["last_name"] == nil || auth["last_name"] != lastName {
-			t.Errorf("expected author last name to be %s got %s", lastName, auth["last_name"])
+		if auth["lastname"] == nil || auth["lastname"] != lastName {
+			t.Errorf("expected author last name to be %s got %s", lastName, auth["lastname"])
 		}
 	})
 

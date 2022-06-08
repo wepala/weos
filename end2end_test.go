@@ -1438,7 +1438,7 @@ func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
 	}
 
 	factories := API.GetEntityFactories()
-	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection, nil)
+	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection, API.Swagger)
 	if err != nil {
 		return fmt.Errorf("error getting event store: %s", err)
 	}
@@ -2145,7 +2145,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1378",
-			//Tags: "focus && ~skipped",
+			//Tags: "WEOS-1327 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

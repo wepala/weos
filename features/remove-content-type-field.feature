@@ -276,13 +276,13 @@ Feature: Remove field from content type
     And the "guid" field should be removed from the "Tag" table
 
   
-  Scenario: Remove a field that is part of an identifier
-
-    It's fine to remove a part of an identifier
-
-    Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
-    When the service is reset
-    Then the "guid" field should be removed from the "Tag" table
+#  Scenario: Remove a field that is part of an identifier
+#
+#    It's fine to remove a part of an identifier
+#
+#    Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
+#    When the service is reset
+#    Then the "guid" field should be removed from the "Tag" table
 
   Scenario: Remove a field that is part of a foreign key reference
 

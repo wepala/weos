@@ -272,7 +272,9 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 			tagString += ` gorm:"` + gormString + `"`
 		}
 
-		instance.AddField(cases.Title(language.English).String(tname), defaultValue, tagString)
+		if defaultValue != nil {
+			instance.AddField(cases.Title(language.English).String(tname), defaultValue, tagString)
+		}
 
 		//if there are value keys it's because there is a Belongs to relationship and we need to add properties for that to work with GORM https://gorm.io/docs/belongs_to.html
 		if len(valueKeys) > 0 {
@@ -388,7 +390,14 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 					defaultValue = value
 				}
 			}
-
+		case "boolean":
+			if schema.Value.Nullable {
+				var value *bool
+				defaultValue = value
+			} else {
+				var value bool
+				defaultValue = value
+			}
 		case "string":
 			switch schema.Value.Format {
 			case "date-time":
@@ -415,10 +424,6 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 					}]`), &defaultValue)
 				//setup gorm field tag string
 				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
-			} else {
-				//if it's a greater depth then just set to string
-				var strings string
-				defaultValue = strings
 			}
 		default:
 			//Belongs to https://gorm.io/docs/belongs_to.html
@@ -444,10 +449,10 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				gormParts = append(gormParts, "References:"+strings.Join(keyNames, ","))
 				return defaultValue, gormParts, keys
 			}
-			if depth >= 3 {
-				var strings string
-				defaultValue = strings
-			}
+			//if depth >= 3 {
+			//	var strings string
+			//	defaultValue = strings
+			//}
 			//TODO I think here is where I'd put code to setup a json blob
 		}
 
@@ -578,7 +583,10 @@ func (p *GORMDB) GetContentEntities(ctx context.Context, entityFactory weos.Enti
 	builder := entityFactory.DynamicStruct(ctx)
 	if builder != nil {
 		schemes = builder.NewSliceOfStructs()
-		scheme := builder.New()
+		scheme, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
+		if err != nil {
+			return nil, 0, err
+		}
 		result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
 	}
 	bytes, err := json.Marshal(schemes)
@@ -717,13 +725,13 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 
 					if len(filter.Values) == 0 {
 						if filter.Operator == "like" {
-							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+							db.Where(utils.SnakeCase(strings.ToLower(filter.Field))+" "+operator+" ?", "%"+filter.Value.(string)+"%")
 						} else {
-							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Value)
+							db.Where(utils.SnakeCase(strings.ToLower(filter.Field))+" "+operator+" ?", filter.Value)
 						}
 
 					} else {
-						db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Values)
+						db.Where(utils.SnakeCase(strings.ToLower(filter.Field))+" "+operator+" ?", filter.Values)
 					}
 
 				}
