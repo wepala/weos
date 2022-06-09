@@ -339,6 +339,21 @@ components:
 	})
 
 	t.Run("CreateHandler basic table with specified primary key", func(t *testing.T) {
+
+		err := gormDB.Migrator().DropTable("clog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "clog_posts", err)
+		}
+
+		err = gormDB.Migrator().DropTable("Clog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -374,7 +389,7 @@ x-weos-config:
       - ZapLogger
 components:
   schemas:
-    Blog:
+    Clog:
      type: object
      properties:
        guid:
@@ -409,11 +424,11 @@ components:
 			t.Fatal(err)
 		}
 
-		if !gormDB.Migrator().HasTable("Blog") {
-			t.Fatal("expected to get a table 'Blog'")
+		if !gormDB.Migrator().HasTable("Clog") {
+			t.Fatal("expected to get a table 'Clog'")
 		}
 
-		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+		columns, _ := gormDB.Migrator().ColumnTypes("Clog")
 
 		found := false
 		found1 := false
@@ -434,24 +449,24 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
+		tresult := gormDB.Table("Clog").Create(map[string]interface{}{"title": "hugs2"})
 		if tresult.Error == nil {
 			t.Errorf("expected an error because the primary key was not set")
 		}
 
 		result := []map[string]interface{}{}
-		gormDB.Table("Blog").Find(&result)
+		gormDB.Table("Clog").Find(&result)
 		if len(result) != 0 {
 			t.Fatal("expected no blogs to be created with a missing id field")
 		}
 
-		err = gormDB.Migrator().DropTable("blog_posts")
+		err = gormDB.Migrator().DropTable("clog_posts")
 		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+			t.Errorf("error removing table '%s' '%s'", "clog_posts", err)
 		}
-		err = gormDB.Migrator().DropTable("Blog")
+		err = gormDB.Migrator().DropTable("Clog")
 		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+			t.Errorf("error removing table '%s' '%s'", "Clog", err)
 		}
 		err = gormDB.Migrator().DropTable("Post")
 		if err != nil {
@@ -480,7 +495,7 @@ components:
          description: blog title
       description:
          type: string
-    Blog:
+    Flog:
      type: object
      properties:
        title:
@@ -516,19 +531,19 @@ components:
 		t.Fatal(err)
 	}
 
-	if !gormDB.Migrator().HasTable("Blog") {
-		t.Errorf("expected to get a table 'Blog'")
+	if !gormDB.Migrator().HasTable("Flog") {
+		t.Errorf("expected to get a table 'Flog'")
 	}
 
 	if !gormDB.Migrator().HasTable("Post") {
 		t.Errorf("expected to get a table 'Post'")
 	}
 
-	if !gormDB.Migrator().HasTable("blog_posts") {
-		t.Errorf("expected to get a table 'blog_posts'")
+	if !gormDB.Migrator().HasTable("flog_posts") {
+		t.Errorf("expected to get a table 'flog_posts'")
 	}
 
-	columns, _ := gormDB.Migrator().ColumnTypes("blog_posts")
+	columns, _ := gormDB.Migrator().ColumnTypes("flog_posts")
 	found := false
 	found1 := false
 	found2 := false
@@ -548,18 +563,18 @@ components:
 		t.Fatal("not all fields found")
 	}
 
-	result := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+	result := gormDB.Table("Flog").Create(map[string]interface{}{"title": "hugs"})
 	if result.Error == nil {
 		t.Errorf("expected to not be able to create a blog without an author id ")
 	}
-	result = gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs", "author_id": "79"})
+	result = gormDB.Table("Flog").Create(map[string]interface{}{"title": "hugs", "author_id": "79"})
 	if result.Error != nil {
 		t.Errorf("expected to create a blog with both a title an author_id, got err '%s'", result.Error)
 	}
 
-	err = gormDB.Migrator().DropTable("blog_posts")
+	err = gormDB.Migrator().DropTable("flog_posts")
 	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		t.Errorf("error removing table '%s' '%s'", "flog_posts", err)
 	}
 	err = gormDB.Migrator().DropTable("Post")
 	if err != nil {
@@ -1576,7 +1591,7 @@ components:
       description:
          type: string
          nullable: true
-    Blog:
+    Glog:
      type: object
      properties:
        title:
@@ -1619,19 +1634,19 @@ components:
 		t.Fatal(err)
 	}
 
-	if !gormDB.Migrator().HasTable("Blog") {
-		t.Errorf("expected to get a table 'Blog'")
+	if !gormDB.Migrator().HasTable("Glog") {
+		t.Errorf("expected to get a table 'Glog'")
 	}
 
 	if !gormDB.Migrator().HasTable("Post") {
 		t.Errorf("expected to get a table 'Post'")
 	}
 
-	if !gormDB.Migrator().HasTable("blog_posts") {
-		t.Errorf("expected to get a table 'blog_posts'")
+	if !gormDB.Migrator().HasTable("glog_posts") {
+		t.Errorf("expected to get a table 'glog_posts'")
 	}
 
-	columns, _ := gormDB.Migrator().ColumnTypes("blog_posts")
+	columns, _ := gormDB.Migrator().ColumnTypes("glog_posts")
 
 	found := false
 	found1 := false
@@ -1652,9 +1667,9 @@ components:
 		t.Fatal("not all fields found")
 	}
 	gormDB.Table("Post").Create(map[string]interface{}{"weos_id": "1234", "sequence_no": 1, "title": "punches"})
-	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "author_id": "kidding"})
-	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "9101", "sequence_no": 1, "title": "hugs 2 - the reckoning", "author_id": "kidding"})
-	result := gormDB.Table("blog_posts").Create(map[string]interface{}{
+	gormDB.Table("Glog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "author_id": "kidding"})
+	gormDB.Table("Glog").Create(map[string]interface{}{"weos_id": "9101", "sequence_no": 1, "title": "hugs 2 - the reckoning", "author_id": "kidding"})
+	result := gormDB.Table("glog_posts").Create(map[string]interface{}{
 		"author_id": "kidding",
 		"title":     "hugs",
 		"id":        1,
@@ -1663,27 +1678,27 @@ components:
 		t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
 	}
 
-	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Glog", api.Swagger.Components.Schemas["Glog"].Value, schemes["Glog"])
 	r, err := p.GetByKey(context.Background(), blogEntityFactory, map[string]interface{}{
 		"author_id": "kidding",
 		"title":     "hugs",
 	})
 	if err != nil {
-		t.Fatalf("error querying '%s' '%s'", "Blog", err)
+		t.Fatalf("error querying '%s' '%s'", "Glog", err)
 	}
 
 	if r.GetString("title") != "hugs" {
-		t.Errorf("expected the blog title to be %s got %v", "hugs", r.GetString("title"))
+		t.Errorf("expected the glog title to be %s got %v", "hugs", r.GetString("title"))
 	}
 
-	err = gormDB.Migrator().DropTable("blog_posts")
+	err = gormDB.Migrator().DropTable("glog_posts")
 	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		t.Errorf("error removing table '%s' '%s'", "glog_posts", err)
 	}
 
-	err = gormDB.Migrator().DropTable("Blog")
+	err = gormDB.Migrator().DropTable("Glog")
 	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		t.Errorf("error removing table '%s' '%s'", "Glog", err)
 	}
 	err = gormDB.Migrator().DropTable("Post")
 	if err != nil {
