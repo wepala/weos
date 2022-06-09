@@ -285,7 +285,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 					var tpointer *string
 					defaultValuePointer = tpointer
 				case uint:
-					var tpointer *uint
+					var tpointer *int
 					defaultValuePointer = tpointer
 				case float32:
 					var tpointer *float32
