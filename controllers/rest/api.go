@@ -570,7 +570,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 	case "mysql":
 		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
 			Conn: db,
-		}), nil)
+		}), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
 		if err != nil {
 			return nil, nil, err
 		}

@@ -100,6 +100,19 @@ func TestGORMDB_GORMModel(t *testing.T) {
 			t.Fatalf("expected the post table to be created")
 		}
 
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+
 	})
 	t.Run("setup post model", func(t *testing.T) {
 		contentType1 := "Post"
@@ -138,6 +151,19 @@ func TestGORMDB_GORMModel(t *testing.T) {
 		//check Post is created
 		if !projection.DB().Migrator().HasTable("Post") {
 			t.Fatalf("expected the post table to be created")
+		}
+
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
 		}
 
 	})
@@ -196,6 +222,19 @@ func TestGORMDB_GORMModel(t *testing.T) {
 		//there should be no tables with no name
 		if projection.DB().Migrator().HasTable("") {
 			t.Fatalf("there should be no tables without a name")
+		}
+
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
 		}
 	})
 }

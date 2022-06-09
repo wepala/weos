@@ -222,6 +222,9 @@ components:
        description:
          type: string
          nullable: true
+       url:
+         type: string
+         nullable: true
     Post:
      type: object
      properties:
