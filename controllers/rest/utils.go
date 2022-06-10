@@ -11,8 +11,8 @@ import (
 	"math"
 	"mime/multipart"
 	"net/http"
-	"reflect"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -190,7 +190,7 @@ func NewControllerError(message string, err error, code int) *echo.HTTPError {
 	}
 }
 
-//NewEtag: This takes in a contentEntity and concatenates the weosID and SequenceID
+//NewEtag This takes in a contentEntity and concatenates the weosID and SequenceID
 func NewEtag(entity *model.ContentEntity) string {
 	weosID := entity.ID
 	SeqNo := entity.SequenceNo
@@ -198,7 +198,7 @@ func NewEtag(entity *model.ContentEntity) string {
 	return weosID + "." + strSeqNo
 }
 
-//SplitEtag: This takes an Etag and returns the weosID and sequence number
+//SplitEtag This takes an Etag and returns the weosID and sequence number
 func SplitEtag(Etag string) (string, string) {
 	result := strings.Split(Etag, ".")
 	if len(result) == 2 {

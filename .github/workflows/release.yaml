@@ -30,12 +30,12 @@ jobs:
         run: go test -v ./...
       - name: Run Postgres end to end tests
         run: go test -v -driver=postgres
-      - name: Run MySQL end to end tests
-        run: go test -v -driver=mysql
+#      - name: Run MySQL end to end tests
+#        run: go test -v -driver=mysql
       - name: Run Postgres projections tests
         run: go test -v ./projections -driver=postgres
-      - name: Run Mysql projections tests
-        run: go test -v ./projections -driver=mysql
+#      - name: Run Mysql projections tests
+#        run: go test -v ./projections -driver=mysql
       - uses: crazy-max/ghaction-xgo@v1
         name: build linux and mac
         with:

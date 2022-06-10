@@ -25,7 +25,7 @@ func TestDomainService_Create(t *testing.T) {
 		},
 	}
 	mockProjections := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			return nil, nil
 		},
 	}
@@ -47,7 +47,7 @@ func TestDomainService_Create(t *testing.T) {
 	t.Run("Testing with valid ID,Title and Description", func(t *testing.T) {
 		entityType := "Blog"
 
-		mockBlog := map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com", "last_updated": "2106-11-02T15:04:00Z"}
+		mockBlog := map[string]string{"title": "New Blog", "description": "New Description", "url": "www.NewBlog.com", "lastUpdated": "2106-11-02T15:04:00Z"}
 		reqBytes, err := json.Marshal(mockBlog)
 		if err != nil {
 			t.Fatalf("error converting payload to bytes %s", err)
@@ -62,22 +62,22 @@ func TestDomainService_Create(t *testing.T) {
 		if blog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if blog.GetString("Title") != mockBlog["title"] {
-			t.Fatalf("expected blog title to be %s got %s", mockBlog["title"], blog.GetString("Title"))
+		if blog.GetString("title") != mockBlog["title"] {
+			t.Errorf("expected blog title to be %s got %s", mockBlog["title"], blog.GetString("title"))
 		}
-		if blog.GetString("Description") != mockBlog["description"] {
-			t.Fatalf("expected blog description to be %s got %s", mockBlog["description"], blog.GetString("Description"))
+		if blog.GetString("description") != mockBlog["description"] {
+			t.Errorf("expected blog description to be %s got %s", mockBlog["description"], blog.GetString("description"))
 		}
-		if blog.GetString("Url") != mockBlog["url"] {
-			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
+		if !strings.EqualFold(blog.GetString("url"), mockBlog["url"]) {
+			t.Errorf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("url"))
 		}
 
-		tt, err := time.Parse("2006-01-02T15:04:00Z", mockBlog["last_updated"].(string))
+		tt, err := time.Parse("2006-01-02T15:04:00Z", mockBlog["lastUpdated"])
 		if err != nil {
 			t.Fatal(err)
 		}
-		if blog.GetTime("LastUpdated") != tt {
-			t.Fatalf("expected blog url to be %s got %s", mockBlog["url"], blog.GetString("Url"))
+		if blog.GetTime("lastUpdated").String() != model.NewTime(tt).String() {
+			t.Errorf("expected blog url to be %s got %s", mockBlog["lastUpdated"], blog.GetString("lastUpdated"))
 		}
 	})
 
@@ -111,7 +111,7 @@ func TestDomainService_CreateBatch(t *testing.T) {
 		},
 	}
 	mockProjections := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			return nil, nil
 		},
 	}
@@ -160,18 +160,17 @@ func TestDomainService_CreateBatch(t *testing.T) {
 			if blogs[i] == nil {
 				t.Fatal("expected blog to be returned")
 			}
-			if blogs[i].GetString("Title") != mockBlogs[i]["title"] {
-				t.Fatalf("expected there to be generated blog title: %s got %s", mockBlogs[i]["title"], blogs[i].GetString("Title"))
+			if blogs[i].GetString("title") != mockBlogs[i]["title"] {
+				t.Fatalf("expected there to be generated blog title: %s got %s", mockBlogs[i]["title"], blogs[i].GetString("title"))
 			}
-			if blogs[i].GetString("Url") != mockBlogs[i]["url"] {
-				t.Fatalf("expected there to be generated blog Url: %s got %s", mockBlogs[i]["url"], blogs[i].GetString("Url"))
+			if blogs[i].GetString("url") != mockBlogs[i]["url"] {
+				t.Fatalf("expected there to be generated blog Url: %s got %s", mockBlogs[i]["url"], blogs[i].GetString("url"))
 			}
 		}
 	})
 }
 
 func TestDomainService_Update(t *testing.T) {
-	t.SkipNow()
 	//load open api spec
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
 	if err != nil {
@@ -199,11 +198,7 @@ func TestDomainService_Update(t *testing.T) {
 	}
 
 	existingBlog := &model.ContentEntity{}
-	existingBlog, err = existingBlog.FromSchemaAndBuilder(newContext, swagger.Components.Schemas[entityType].Value, builder[entityType])
-	if err != nil {
-		t.Errorf("unexpected error creating Blog: %s", err)
-	}
-	err = existingBlog.SetValueFromPayload(newContext, reqBytes)
+	existingBlog, err = existingBlog.FromSchemaWithValues(newContext, swagger.Components.Schemas[entityType].Value, reqBytes)
 	if err != nil {
 		t.Errorf("unexpected error creating Blog: %s", err)
 	}
@@ -219,17 +214,17 @@ func TestDomainService_Update(t *testing.T) {
 			}
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			if entityFactory == nil {
 				return nil, fmt.Errorf("expected entity factory got nil")
 			}
 			if len(identifiers) == 0 {
 				return nil, fmt.Errorf("expected identifiers got none")
 			}
-			return existingPayload, nil
+			return existingBlog, nil
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			return []*model.ContentEntity{existingBlog}, err
 		},
 	}
 
@@ -259,17 +254,17 @@ func TestDomainService_Update(t *testing.T) {
 		if updatedBlog == nil {
 			t.Fatal("expected blog to be returned")
 		}
-		if updatedBlog.GetUint("ID") != uint(12) {
-			t.Fatalf("expected blog id to be %d got %d", uint(12), updatedBlog.GetUint("id"))
+		if updatedBlog.GetNumber("id") != 12 {
+			t.Fatalf("expected blog id to be %d got %f", 12, updatedBlog.GetNumber("id"))
 		}
-		if updatedBlog.GetString("Title") != updatedPayload["title"] {
-			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("Title"))
+		if updatedBlog.GetString("title") != updatedPayload["title"] {
+			t.Fatalf("expected blog title to be %s got %s", updatedPayload["title"], updatedBlog.GetString("title"))
 		}
-		if updatedBlog.GetString("Description") != updatedPayload["description"] {
-			t.Fatalf("expected blog description to be %s got %s", updatedPayload["description"], updatedBlog.GetString("Description"))
+		if updatedBlog.GetString("description") != updatedPayload["description"] {
+			t.Fatalf("expected blog description to be %s got %s", updatedPayload["description"], updatedBlog.GetString("description"))
 		}
-		if updatedBlog.GetString("Url") != updatedPayload["url"] {
-			t.Fatalf("expected blog url to be %s got %s", updatedPayload["url"], updatedBlog.GetString("Url"))
+		if updatedBlog.GetString("url") != updatedPayload["url"] {
+			t.Fatalf("expected blog url to be %s got %s", updatedPayload["url"], updatedBlog.GetString("url"))
 		}
 	})
 
@@ -365,11 +360,12 @@ func TestDomainService_UpdateCompoundPrimaryKeyID(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -470,11 +466,12 @@ func TestDomainService_UpdateCompoundPrimaryKeyGuidTitle(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -575,7 +572,7 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 		return nil, nil
 	}}, nil)
 	existingBlog, err := dService.Create(newContext, reqBytes, entityType)
@@ -584,11 +581,12 @@ func TestDomainService_UpdateWithoutIdentifier(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -665,11 +663,12 @@ func TestDomainService_Delete(t *testing.T) {
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return existingBlog, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
-			return existingPayload, nil
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+			return new(model.ContentEntity).Init(context.Background(), reqBytes)
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+			return []*model.ContentEntity{contentEntity}, err
 		},
 	}
 
@@ -747,46 +746,40 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
 
-	existingPayload3 := map[string]interface{}{"weos_id": "asafdsdfdsf11", "sequence_no": int64(1), "id": uint(11), "title": "blog 2", "description": "Description testing 2", "url": "www.TestBlog2.com"}
-
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 			return nil
 		},
 	}
 
-	dService := model.NewDomainService(newContext, mockEventRepository, &ProjectionMock{GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-		return nil, nil
-	}}, echo.New().Logger)
-	existingBlog, _ := dService.Create(newContext, reqBytes, contentType)
-	existingBlog2, _ := dService.Create(newContext, reqBytes2, contentType)
-
 	projectionMock := &ProjectionMock{
 		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
-			if existingBlog.GetID() == weosID {
-				return existingBlog, nil
+			if weosID == "dsafdsdfdsf" {
+				return entityFactory.CreateEntityWithValues(ctx, reqBytes)
 			}
-			if existingBlog2.GetID() == weosID {
-				return existingBlog2, nil
+			if weosID == "dsafdsdfdsf11" {
+				return entityFactory.CreateEntityWithValues(ctx, reqBytes2)
 			}
 			return nil, nil
 		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			if existingPayload["id"] == identifiers["id"] {
-				return existingPayload, nil
+				return entityFactory.CreateEntityWithValues(context.Background(), reqBytes)
 			}
 			if existingPayload2["id"] == identifiers["id"] {
-				return existingPayload2, nil
+				return entityFactory.CreateEntityWithValues(context.Background(), reqBytes2)
 			}
 			return nil, nil
 		},
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
-			identifier := identifiers["url"].(*string)
-			if *identifier == existingPayload["url"].(string) {
-				return []map[string]interface{}{existingPayload}, nil
+		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
+			identifier := identifiers["url"].(string)
+			if identifier == existingPayload["url"].(string) {
+				contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes)
+				return []*model.ContentEntity{contentEntity}, err
 			}
-			if *identifier == existingPayload2["url"].(string) {
-				return []map[string]interface{}{existingPayload2, existingPayload3}, nil
+			if identifier == existingPayload2["url"].(string) {
+				contentEntity, err := new(model.ContentEntity).Init(context.Background(), reqBytes2)
+				return []*model.ContentEntity{contentEntity}, err
 			}
 			return nil, nil
 		},
@@ -848,7 +841,7 @@ func TestDomainService_ValidateUnique(t *testing.T) {
 			t.Fatalf("expected to be able to update blog, got error %s", err.Error())
 		}
 
-		//invalid upate
+		//invalid update
 
 		mockBlog = map[string]interface{}{"title": "New Blog", "description": "New Description", "url": "www.TestBlog1.com", "last_updated": "2106-11-02T15:04:00Z"}
 		reqBytes, err = json.Marshal(mockBlog)

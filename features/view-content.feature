@@ -53,6 +53,7 @@ Feature: View content
                description: blog title
              description:
                type: string
+               nullable: true
            required:
              - title
            x-identifier:
@@ -64,17 +65,21 @@ Feature: View content
                type: string
              description:
                type: string
+               nullable: true
              blog:
                $ref: "#/components/schemas/Blog"
              publishedDate:
                type: string
                format: date-time
+               nullable: true
              views:
                type: integer
+               nullable: true
              categories:
                type: array
                items:
                  $ref: "#/components/schemas/Post"
+               nullable: true
            required:
              - title
          Category:
@@ -84,6 +89,7 @@ Feature: View content
                type: string
              description:
                type: string
+               nullable: true
            required:
              - title
      paths:
@@ -190,7 +196,6 @@ Feature: View content
        | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
        | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
      And the service is running
-
 
    Scenario: Get blog details
 

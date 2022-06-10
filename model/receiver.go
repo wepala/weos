@@ -72,7 +72,7 @@ func CreateBatchHandler(ctx context.Context, command *Command, eventStore EventR
 	return nil
 }
 
-//Update is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
+//UpdateHandler is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
 func UpdateHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
 	if logger == nil {
 		return fmt.Errorf("no logger set")

@@ -73,6 +73,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 					}
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 				} else {
+					ctxt.Logger().Debugf("error creating content type '%s'", err)
 					return NewControllerError("unexpected error creating content type", err, http.StatusBadRequest)
 				}
 			}
@@ -97,7 +98,9 @@ func CreateController(api *RESTAPI, projection projections.Projection, commandDi
 				if err != nil {
 					return err
 				}
-				Etag = NewEtag(result)
+				if result != nil {
+					Etag = NewEtag(result)
+				}
 			}
 			if result == nil {
 				return NewControllerError("No entity found", err, http.StatusNotFound)
@@ -126,6 +129,7 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 
 			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), eventSource, projection, ctxt.Logger())
 			if err != nil {
+				ctxt.Logger().Debugf("error creating batch '%s", err)
 				if errr, ok := err.(*model.DomainError); ok {
 					return NewControllerError(errr.Error(), err, http.StatusBadRequest)
 				} else {
@@ -210,7 +214,6 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 		var Etag string
 		var identifiers []string
 		var result *model.ContentEntity
-		var result1 map[string]interface{}
 		newContext := ctxt.Request().Context()
 		weosID := newContext.Value(weoscontext.ENTITY_ID)
 		if weosID == nil || weosID == "" {
@@ -231,12 +234,12 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 
 			}
 
-			result1, err = projection.GetByKey(newContext, entityFactory, primaryKeys)
+			result, err = projection.GetByKey(newContext, entityFactory, primaryKeys)
 			if err != nil {
 				return err
 			}
-			weos_id, ok := result1["weos_id"].(string)
-			sequenceString := fmt.Sprint(result1["sequence_no"])
+			weos_id := result.ID
+			sequenceString := fmt.Sprint(result.SequenceNo)
 			sequenceNo, _ := strconv.Atoi(sequenceString)
 			Etag = NewEtag(&model.ContentEntity{
 				AggregateRoot: model.AggregateRoot{
@@ -244,18 +247,15 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 					BasicEntity: model.BasicEntity{ID: weos_id},
 				},
 			})
-			if (len(result1) == 0) || !ok || weos_id == "" {
+			if result == nil {
 				return NewControllerError("No entity found", err, http.StatusNotFound)
 			} else if err != nil {
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
-			delete(result1, "sequence_no")
-			delete(result1, "weos_id")
-			delete(result1, "table_alias")
 
 			ctxt.Response().Header().Set("Etag", Etag)
 
-			return ctxt.JSON(http.StatusOK, result1)
+			return ctxt.JSON(http.StatusOK, result)
 		} else {
 			if projection != nil {
 
@@ -274,7 +274,7 @@ func UpdateController(api *RESTAPI, projection projections.Projection, commandDi
 			entity := map[string]interface{}{}
 			result.ID = ""
 			result.SequenceNo = 0
-			bytes, err := json.Marshal(result.Property)
+			bytes, err := json.Marshal(result)
 			if err != nil {
 				return err
 			}
@@ -340,7 +340,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				identifiers[p] = newContext.Value(p)
 			}
 
-			var result map[string]interface{}
+			var result *model.ContentEntity
 			var err error
 			var entityID string
 			var seq string
@@ -378,9 +378,9 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 				return NewControllerError("Invalid sequence number", err, http.StatusBadRequest)
 			}
 			//if sequence no. was sent in the request but we don't have the entity let's get it from projection
-			if entityID == "" && seqInt != 0 {
-				entityID, ok = result["weos_id"].(string)
-				if !ok {
+			if entityID == "" && seqInt != 0 && result != nil {
+				entityID = result.ID
+				if entityID == "" {
 					ctxt.Logger().Debugf("the item '%v' does not have an entity id stored", identifiers)
 				}
 			}
@@ -413,26 +413,24 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 						return NewControllerError("No entity found", err, http.StatusNotFound)
 					}
 					if r != nil && r.ID != "" { //get the map from the entity
-						result = r.ToMap()
+						result = r
 					}
-					result["weos_id"] = r.ID
-					result["sequence_no"] = r.SequenceNo
 					err = er
 					if err == nil && r.SequenceNo < int64(seqInt) && etag != "" { //if the etag is set then let's return the header
-						return ctxt.JSON(http.StatusNotModified, r.Property)
+						return ctxt.JSON(http.StatusNotModified, r.ToMap())
 					}
 				} else {
 					//get entity by entity_id
 
 					if projection != nil {
-						result, err = projection.GetByEntityID(ctxt.Request().Context(), entityFactory, entityID)
+						result, err = projection.GetContentEntity(ctxt.Request().Context(), entityFactory, entityID)
 					}
 
 				}
 			}
 
 			//add result to context
-			newContext = context.WithValue(newContext, weoscontext.ENTITY, result) //TODO store the entity instead (this requires the different projection calls to return entities)
+			newContext = context.WithValue(newContext, weoscontext.ENTITY, result)
 			request := ctxt.Request().WithContext(newContext)
 			ctxt.SetRequest(request)
 			return next(ctxt)
@@ -446,8 +444,6 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		newContext := ctxt.Request().Context()
 
 		var err error
-		var weosID string
-		var ok bool
 
 		if err = weoscontext.GetError(newContext); err != nil {
 			return NewControllerError("Error occurred", err, http.StatusBadRequest)
@@ -462,27 +458,11 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 		if entity == nil {
 			return NewControllerError("No entity found", err, http.StatusNotFound)
 		}
-		if weosID, ok = entity["weos_id"].(string); !ok {
-			return NewControllerError("No entity found", err, http.StatusNotFound)
-		}
-		sequenceString := fmt.Sprint(entity["sequence_no"])
-		sequenceNo, _ := strconv.Atoi(sequenceString)
-
-		etag := NewEtag(&model.ContentEntity{
-			AggregateRoot: model.AggregateRoot{
-				SequenceNo:  int64(sequenceNo),
-				BasicEntity: model.BasicEntity{ID: weosID},
-			},
-		})
-
-		//remove sequence number and weos_id from response
-		delete(entity, "weos_id")
-		delete(entity, "sequence_no")
-		delete(entity, "table_alias")
+		etag := NewEtag(entity)
 
 		//set etag
 		ctxt.Response().Header().Set("Etag", etag)
-		return ctxt.JSON(http.StatusOK, entity)
+		return ctxt.JSON(http.StatusOK, entity.ToMap())
 	}
 }
 
@@ -509,8 +489,9 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 						msg := "this operator " + values.(*FilterProperties).Operator + " does not support multiple values "
 						return NewControllerError(msg, nil, http.StatusBadRequest)
 					}
-					// checking if the field is valid based on schema provided
-					if schema.Properties[key] == nil {
+					// checking if the field is valid based on schema provided, split on "."
+					parts := strings.Split(key, ".")
+					if schema.Properties[parts[0]] == nil {
 						if key == "id" && schema.ExtensionProps.Extensions[IdentifierExtension] == nil {
 							continue
 						}
@@ -596,8 +577,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 
 			var err error
 			var identifiers []string
-			var result1 map[string]interface{}
-			var ok bool
+			var result1 *model.ContentEntity
 
 			//Uses the identifiers to pull the weosID, to be later used to get Seq NO
 			if etagInterface == nil {
@@ -625,16 +605,16 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 					}
 
 				}
-				weosID, ok = result1["weos_id"].(string)
+				weosID = result1.ID
 
-				if (len(result1) == 0) || !ok || weosID == "" {
+				if result1 == nil || weosID == "" {
 					return NewControllerError("No entity found", err, http.StatusNotFound)
 				} else if err != nil {
 					return NewControllerError(err.Error(), err, http.StatusBadRequest)
 				}
 			}
 
-			//Dispatch the actual delete to projecitons
+			//Dispatch the actual delete to projections
 			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), eventSource, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
@@ -722,7 +702,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 							} else if err != nil {
 								api.e.Logger.Error(err)
 							} else {
-								api.e.Static(pathName, folderPath)
+								api.e.Static(api.Config.BasePath+pathName, folderPath)
 							}
 						}
 					}

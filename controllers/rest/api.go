@@ -336,16 +336,16 @@ func (p *RESTAPI) RegisterDefaultSwaggerAPI(pathMiddleware []echo.MiddlewareFunc
 		return NewControllerError("Got an error formatting response", err, http.StatusInternalServerError)
 	}
 	static := http.FileServer(statikFS)
-	sh := http.StripPrefix(SWAGGERUIENDPOINT, static)
+	sh := http.StripPrefix(p.Config.BasePath+SWAGGERUIENDPOINT, static)
 	handler := echo.WrapHandler(sh)
-	p.e.GET(SWAGGERUIENDPOINT+"*", handler, pathMiddleware...)
+	p.e.GET(p.Config.BasePath+SWAGGERUIENDPOINT+"*", handler, pathMiddleware...)
 
 	return nil
 }
 
 //RegisterDefaultSwaggerJson registers a default swagger json response
 func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFunc) error {
-	p.e.GET(SWAGGERJSONENDPOINT, func(c echo.Context) error {
+	p.e.GET(p.Config.BasePath+SWAGGERJSONENDPOINT, func(c echo.Context) error {
 		return c.JSON(http.StatusOK, p.Swagger)
 	}, pathMiddleware...)
 	return nil
@@ -484,10 +484,10 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		for _, initializer := range p.GetPostPathInitializers() {
 			globalContext, err = initializer(globalContext, p, path, p.Swagger, pathData)
 		}
-		//output registered endpoints for debugging purposes
-		for _, route := range p.EchoInstance().Routes() {
-			p.EchoInstance().Logger.Debugf("Registered routes '%s' '%s'", route.Method, route.Path)
-		}
+	}
+	//output registered endpoints for debugging purposes
+	for _, route := range p.EchoInstance().Routes() {
+		p.EchoInstance().Logger.Debugf("Registered routes '%s' '%s'", route.Method, route.Path)
 	}
 	return err
 }
@@ -570,7 +570,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 	case "mysql":
 		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
 			Conn: db,
-		}), nil)
+		}), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
 		if err != nil {
 			return nil, nil, err
 		}

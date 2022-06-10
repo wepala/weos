@@ -7,7 +7,6 @@ require (
 	github.com/cucumber/godog v0.12.2
 	github.com/getkin/kin-openapi v0.15.0
 	github.com/google/uuid v1.3.0
-	github.com/jinzhu/inflection v1.0.0
 	github.com/kr/text v0.2.0 // indirect
 	github.com/labstack/echo/v4 v4.5.0
 	github.com/labstack/gommon v0.3.0
@@ -21,6 +20,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.12.0
 	go.uber.org/zap v1.13.0
 	golang.org/x/net v0.0.0-20211108170745-6635138e15ea
+	golang.org/x/text v0.3.7
 	gorm.io/datatypes v1.0.5
 	gorm.io/driver/clickhouse v0.2.2
 	gorm.io/driver/mysql v1.2.2

@@ -1,13 +1,51 @@
 package model
 
 import (
+	"database/sql/driver"
 	"encoding/json"
-	"reflect"
-	"time"
-
+	"errors"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/wepala/weos/utils"
+	"reflect"
+	"time"
 )
+
+//Time wrapper that marshals as iso8601 which is what open api uses instead of rfc3339Nano
+type Time struct {
+	time.Time
+}
+
+func (t Time) MarshalJSON() ([]byte, error) {
+	if y := t.Year(); y < 0 || y >= 10000 {
+		// RFC 3339 is clear that years are 4 digits exactly.
+		// See golang.org/issue/4556#c15 for more discussion.
+		return nil, errors.New("Time.MarshalJSON: year outside of range [0,9999]")
+	}
+	iso8601Format := "2006-01-02T15:04:05Z"
+	b := make([]byte, 0, len(iso8601Format)+2)
+	b = append(b, '"')
+	b = t.AppendFormat(b, iso8601Format)
+	b = append(b, '"')
+	return b, nil
+}
+
+//Scan implement Scanenr interface for Gorm
+func (t *Time) Scan(value interface{}) error {
+	var err error
+	if date, ok := value.(string); ok {
+		t.Time, err = time.Parse("2006-01-02 15:04:05", date)
+	}
+	return err
+}
+
+// Value return time value, implement driver.Valuer interface
+func (t Time) Value() (driver.Value, error) {
+	return t.Time, nil
+}
+
+func NewTime(time time.Time) *Time {
+	return &Time{Time: time}
+}
 
 func GetType(myvar interface{}) string {
 	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Ptr {
@@ -76,4 +114,13 @@ func ParseToType(bytes json.RawMessage, contentType *openapi3.Schema) (json.RawM
 	}
 	bytes, err = json.Marshal(payload)
 	return bytes, err
+}
+
+func InList(list []string, value string) bool {
+	for _, v := range list {
+		if v == value {
+			return true
+		}
+	}
+	return false
 }

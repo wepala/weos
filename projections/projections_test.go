@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/getkin/kin-openapi/openapi3"
 	"os"
 	"strconv"
 	"strings"
@@ -220,6 +221,10 @@ components:
          description: blog title
        description:
          type: string
+         nullable: true
+       url:
+         type: string
+         nullable: true
     Post:
      type: object
      properties:
@@ -228,6 +233,7 @@ components:
          description: blog title
       description:
          type: string
+         nullable: true
 `
 
 		api, err := rest.New(openAPI)
@@ -235,7 +241,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -247,7 +252,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -281,9 +286,13 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+		gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs", "url": "https://wepala.com"})
 		result := []map[string]interface{}{}
 		gormDB.Table("Blog").Find(&result)
+
+		if len(result) < 1 {
+			t.Fatalf("expected %d result", 1)
+		}
 
 		//check for auto id
 		if *driver != "mysql" {
@@ -330,6 +339,21 @@ components:
 	})
 
 	t.Run("CreateHandler basic table with specified primary key", func(t *testing.T) {
+
+		err := gormDB.Migrator().DropTable("clog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "clog_posts", err)
+		}
+
+		err = gormDB.Migrator().DropTable("Clog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+
 		openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -365,7 +389,7 @@ x-weos-config:
       - ZapLogger
 components:
   schemas:
-    Blog:
+    Clog:
      type: object
      properties:
        guid:
@@ -375,6 +399,7 @@ components:
          description: blog title
        description:
          type: string
+         nullable: true
      x-identifier:
        - guid
 `
@@ -383,7 +408,6 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -395,16 +419,16 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if !gormDB.Migrator().HasTable("Blog") {
-			t.Fatal("expected to get a table 'Blog'")
+		if !gormDB.Migrator().HasTable("Clog") {
+			t.Fatal("expected to get a table 'Clog'")
 		}
 
-		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
+		columns, _ := gormDB.Migrator().ColumnTypes("Clog")
 
 		found := false
 		found1 := false
@@ -425,24 +449,24 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
+		tresult := gormDB.Table("Clog").Create(map[string]interface{}{"title": "hugs2"})
 		if tresult.Error == nil {
 			t.Errorf("expected an error because the primary key was not set")
 		}
 
 		result := []map[string]interface{}{}
-		gormDB.Table("Blog").Find(&result)
+		gormDB.Table("Clog").Find(&result)
 		if len(result) != 0 {
 			t.Fatal("expected no blogs to be created with a missing id field")
 		}
 
-		err = gormDB.Migrator().DropTable("blog_posts")
+		err = gormDB.Migrator().DropTable("clog_posts")
 		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+			t.Errorf("error removing table '%s' '%s'", "clog_posts", err)
 		}
-		err = gormDB.Migrator().DropTable("Blog")
+		err = gormDB.Migrator().DropTable("Clog")
 		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+			t.Errorf("error removing table '%s' '%s'", "Clog", err)
 		}
 		err = gormDB.Migrator().DropTable("Post")
 		if err != nil {
@@ -471,7 +495,7 @@ components:
          description: blog title
       description:
          type: string
-    Blog:
+    Flog:
      type: object
      properties:
        title:
@@ -481,10 +505,12 @@ components:
          type: string
        description:
          type: string
+         nullable: true
        posts:
         type: array
         items:
           $ref: "#/components/schemas/Post"
+        nullable: true
      x-identifier:
       - title
       - author_id
@@ -495,30 +521,29 @@ components:
 		t.Fatalf("error loading api config '%s'", err)
 	}
 
-	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes, nil)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !gormDB.Migrator().HasTable("Blog") {
-		t.Errorf("expected to get a table 'Blog'")
+	if !gormDB.Migrator().HasTable("Flog") {
+		t.Errorf("expected to get a table 'Flog'")
 	}
 
 	if !gormDB.Migrator().HasTable("Post") {
 		t.Errorf("expected to get a table 'Post'")
 	}
 
-	if !gormDB.Migrator().HasTable("blog_posts") {
-		t.Errorf("expected to get a table 'blog_posts'")
+	if !gormDB.Migrator().HasTable("flog_posts") {
+		t.Errorf("expected to get a table 'flog_posts'")
 	}
 
-	columns, _ := gormDB.Migrator().ColumnTypes("blog_posts")
+	columns, _ := gormDB.Migrator().ColumnTypes("flog_posts")
 	found := false
 	found1 := false
 	found2 := false
@@ -538,18 +563,18 @@ components:
 		t.Fatal("not all fields found")
 	}
 
-	result := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs"})
+	result := gormDB.Table("Flog").Create(map[string]interface{}{"title": "hugs"})
 	if result.Error == nil {
 		t.Errorf("expected to not be able to create a blog without an author id ")
 	}
-	result = gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs", "author_id": "79"})
+	result = gormDB.Table("Flog").Create(map[string]interface{}{"title": "hugs", "author_id": "79"})
 	if result.Error != nil {
 		t.Errorf("expected to create a blog with both a title an author_id, got err '%s'", result.Error)
 	}
 
-	err = gormDB.Migrator().DropTable("blog_posts")
+	err = gormDB.Migrator().DropTable("flog_posts")
 	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		t.Errorf("error removing table '%s' '%s'", "flog_posts", err)
 	}
 	err = gormDB.Migrator().DropTable("Post")
 	if err != nil {
@@ -583,6 +608,7 @@ components:
          description: blog title
        description:
          type: string
+         nullable: true
     Post:
      type: object
      properties:
@@ -591,6 +617,7 @@ components:
          description: blog title
       description:
          type: string
+         nullable: true
       blog:
          $ref: "#/components/schemas/Blog"
 `
@@ -600,7 +627,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -612,7 +638,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -700,6 +726,7 @@ components:
          description: blog title
       description:
          type: string
+         nullable: true
     Blog:
      type: object
      properties:
@@ -708,17 +735,19 @@ components:
          description: blog title
        description:
          type: string
+         nullable: true
        posts:
-        type: array
-        items:
-          $ref: "#/components/schemas/Post"
+         type: array
+         items:
+           $ref: "#/components/schemas/Post"
+         nullable: true
 `
 
 		api, err := rest.New(openAPI)
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -730,7 +759,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -882,7 +911,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -912,14 +941,13 @@ components:
 			t.Fatal("not all fields found")
 		}
 
-		payload := map[string]interface{}{"weos_id": "123456", "title": "testBlog", "description": "This is a create projection test"}
+		payload := map[string]interface{}{"title": "testBlog", "description": "This is a create projection test"}
 		contentEntity := &weos.ContentEntity{
 			AggregateRoot: weos.AggregateRoot{
 				BasicEntity: weos.BasicEntity{
 					ID: "123456",
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -969,6 +997,7 @@ components:
          description: blog title
        description:
          type: string
+         nullable: true
     Post:
      type: object
      properties:
@@ -977,6 +1006,7 @@ components:
          description: blog title
       description:
          type: string
+         nullable: true
       blog:
          $ref: "#/components/schemas/Blog"
 `
@@ -997,7 +1027,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1033,7 +1063,6 @@ components:
 					ID: "123456",
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -1047,14 +1076,15 @@ components:
 		p.GetEventHandler()(ctxt, *event)
 
 		//create post
-		payload = map[string]interface{}{"weos_id": "1234567", "title": "testPost", "description": "This is a create projection test", "blog_id": 1}
+		payload = map[string]interface{}{"weos_id": "1234567", "title": "testPost", "description": "This is a create projection test", "blog": map[string]interface{}{
+			"id": 1,
+		}}
 		contentEntity = &weos.ContentEntity{
 			AggregateRoot: weos.AggregateRoot{
 				BasicEntity: weos.BasicEntity{
 					ID: "1234567",
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt = context.Background()
@@ -1081,8 +1111,8 @@ components:
 			t.Fatalf("expected desription to be %s, got %s", payload["desription"], post["desription"])
 		}
 
-		if fmt.Sprint(post["blog_id"]) != fmt.Sprint(payload["blog_id"]) {
-			t.Fatalf("expected desription to be %d, got %d", payload["blog_id"], post["blog_id"])
+		if fmt.Sprint(post["blog_id"]) != fmt.Sprint(1) {
+			t.Fatalf("expected blog to be %d, got %d", 1, post["blog_id"])
 		}
 
 		err = gormDB.Migrator().DropTable("blog_posts")
@@ -1146,6 +1176,7 @@ components:
          description: blog title
        description:
          type: string
+         nullable: true
 `
 
 		api, err := rest.New(openAPI)
@@ -1165,7 +1196,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1180,7 +1211,6 @@ components:
 					ID: id,
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -1224,14 +1254,6 @@ servers:
   - url: https://prod1.weos.sh/blog/v1
 components:
   schemas:
-    Post:
-     type: object
-     properties:
-      title:
-         type: string
-         description: blog title
-      description:
-         type: string
     Blog:
      type: object
      properties:
@@ -1244,6 +1266,16 @@ components:
         type: array
         items:
           $ref: "#/components/schemas/Post"
+    Post:
+     type: object
+     properties:
+      title:
+         type: string
+         description: blog title
+      description:
+         type: string
+         nullable: true
+    
 `
 
 		api, err := rest.New(openAPI)
@@ -1263,7 +1295,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1277,7 +1309,8 @@ components:
 
 		payload := map[string]interface{}{"weos_id": blogWeosID, "id": 1, "title": "testBlog", "description": "This is a create projection test", "posts": []map[string]interface{}{
 			{
-				"id": 1,
+				"id":          1,
+				"table_alias": "Post",
 			},
 		}}
 		contentEntity := &weos.ContentEntity{
@@ -1286,7 +1319,6 @@ components:
 					ID: blogWeosID,
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -1341,7 +1373,6 @@ components:
 					ID: blogWeosID,
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt = context.Background()
@@ -1381,6 +1412,21 @@ components:
 }
 
 func TestProjections_GetContentTypeByEntityID(t *testing.T) {
+	t.Skipf("this is deprecrated")
+	err := gormDB.Migrator().DropTable("blog_posts")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+	}
+
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
+
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
 	openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -1400,6 +1446,7 @@ components:
          description: blog title
       description:
          type: string
+         nullable: true
     Blog:
      type: object
      properties:
@@ -1408,10 +1455,12 @@ components:
          description: blog title
        description:
          type: string
+         nullable: true
        posts:
-        type: array
-        items:
-          $ref: "#/components/schemas/Post"
+         type: array
+         items:
+           $ref: "#/components/schemas/Post"
+         nullable: true
 `
 
 	api, err := rest.New(openAPI)
@@ -1430,7 +1479,7 @@ components:
 		json.Unmarshal(dfs, deletedFields[name])
 	}
 
-	err = p.Migrate(context.Background(), schemes, deletedFields)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1541,7 +1590,8 @@ components:
          description: blog title
       description:
          type: string
-    Blog:
+         nullable: true
+    Glog:
      type: object
      properties:
        title:
@@ -1551,10 +1601,12 @@ components:
          type: string
        description:
          type: string
+         nullable: true
        posts:
-        type: array
-        items:
-          $ref: "#/components/schemas/Post"
+         type: array
+         items:
+           $ref: "#/components/schemas/Post"
+         nullable: true
      x-identifier:
       - title
       - author_id
@@ -1577,24 +1629,24 @@ components:
 		json.Unmarshal(dfs, deletedFields[name])
 	}
 
-	err = p.Migrate(context.Background(), schemes, deletedFields)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !gormDB.Migrator().HasTable("Blog") {
-		t.Errorf("expected to get a table 'Blog'")
+	if !gormDB.Migrator().HasTable("Glog") {
+		t.Errorf("expected to get a table 'Glog'")
 	}
 
 	if !gormDB.Migrator().HasTable("Post") {
 		t.Errorf("expected to get a table 'Post'")
 	}
 
-	if !gormDB.Migrator().HasTable("blog_posts") {
-		t.Errorf("expected to get a table 'blog_posts'")
+	if !gormDB.Migrator().HasTable("glog_posts") {
+		t.Errorf("expected to get a table 'glog_posts'")
 	}
 
-	columns, _ := gormDB.Migrator().ColumnTypes("blog_posts")
+	columns, _ := gormDB.Migrator().ColumnTypes("glog_posts")
 
 	found := false
 	found1 := false
@@ -1615,9 +1667,9 @@ components:
 		t.Fatal("not all fields found")
 	}
 	gormDB.Table("Post").Create(map[string]interface{}{"weos_id": "1234", "sequence_no": 1, "title": "punches"})
-	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "author_id": "kidding"})
-	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "9101", "sequence_no": 1, "title": "hugs 2 - the reckoning", "author_id": "kidding"})
-	result := gormDB.Table("blog_posts").Create(map[string]interface{}{
+	gormDB.Table("Glog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "author_id": "kidding"})
+	gormDB.Table("Glog").Create(map[string]interface{}{"weos_id": "9101", "sequence_no": 1, "title": "hugs 2 - the reckoning", "author_id": "kidding"})
+	result := gormDB.Table("glog_posts").Create(map[string]interface{}{
 		"author_id": "kidding",
 		"title":     "hugs",
 		"id":        1,
@@ -1626,53 +1678,27 @@ components:
 		t.Errorf("expected to create a post with relationship, got err '%s'", result.Error)
 	}
 
-	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Glog", api.Swagger.Components.Schemas["Glog"].Value, schemes["Glog"])
 	r, err := p.GetByKey(context.Background(), blogEntityFactory, map[string]interface{}{
 		"author_id": "kidding",
 		"title":     "hugs",
 	})
 	if err != nil {
-		t.Fatalf("error querying '%s' '%s'", "Blog", err)
+		t.Fatalf("error querying '%s' '%s'", "Glog", err)
 	}
 
-	if r["title"] != "hugs" {
-		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
+	if r.GetString("title") != "hugs" {
+		t.Errorf("expected the glog title to be %s got %v", "hugs", r.GetString("title"))
 	}
 
-	if *driver != "sqlite3" {
-		posts, ok := r["posts"].([]interface{})
-		if !ok {
-			t.Fatal("expected to get a posts array")
-		}
-		if len(posts) != 1 {
-			t.Errorf("expected to get %d posts, got %d", 1, len(posts))
-		}
-
-		pp := posts[0].(map[string]interface{})
-		if pp["title"] != "punches" {
-			t.Errorf("expected the post title to be %s got %v", "punches", pp["title"])
-		}
-
-		if id, ok := pp["weos_id"]; ok {
-			if id != "" {
-				t.Errorf("there should be no weos_id value")
-			}
-		}
-
-		if no, ok := pp["sequence_no"]; ok {
-			if no != 0 {
-				t.Errorf("there should be no sequence number value")
-			}
-		}
-	}
-	err = gormDB.Migrator().DropTable("blog_posts")
+	err = gormDB.Migrator().DropTable("glog_posts")
 	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		t.Errorf("error removing table '%s' '%s'", "glog_posts", err)
 	}
 
-	err = gormDB.Migrator().DropTable("Blog")
+	err = gormDB.Migrator().DropTable("Glog")
 	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		t.Errorf("error removing table '%s' '%s'", "Glog", err)
 	}
 	err = gormDB.Migrator().DropTable("Post")
 	if err != nil {
@@ -1701,6 +1727,7 @@ components:
          description: blog title
       description:
          type: string
+         nullable: true
     Blog:
      type: object
      properties:
@@ -1709,10 +1736,12 @@ components:
          description: blog title
        description:
          type: string
+         nullable: true
        posts:
-        type: array
-        items:
-          $ref: "#/components/schemas/Post"
+         type: array
+         items:
+           $ref: "#/components/schemas/Post"
+         nullable: true
 `
 
 		api, err := rest.New(openAPI)
@@ -1732,7 +1761,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1877,7 +1906,7 @@ components:
 	if err != nil {
 		t.Fatalf("error loading api config '%s'", err)
 	}
-	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
+
 	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
@@ -1889,7 +1918,7 @@ components:
 		json.Unmarshal(dfs, deletedFields[name])
 	}
 
-	err = p.Migrate(context.Background(), schemes, deletedFields)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2025,7 +2054,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2062,7 +2091,6 @@ components:
 					ID: "123456",
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -2084,11 +2112,11 @@ components:
 			t.Errorf("Error getting content type: got %s", err)
 		}
 
-		if blog.GetString("Title") != payload["title"] {
-			t.Fatalf("expected title to be %s, got %s", payload["title"], blog.GetString("Title"))
+		if blog.GetString("title") != payload["title"] {
+			t.Fatalf("expected title to be %s, got %s", payload["title"], blog.GetString("title"))
 		}
 
-		if blog.GetString("Description") != payload["description"] {
+		if blog.GetString("description") != payload["description"] {
 			t.Fatalf("expected desription to be %s, got %s", payload["desription"], blog.GetString("description"))
 		}
 
@@ -2153,7 +2181,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -2165,7 +2192,7 @@ components:
 			json.Unmarshal(dfs, deletedFields[name])
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2277,7 +2304,7 @@ components:
 		json.Unmarshal(dfs, deletedFields[name])
 	}
 
-	err = p.Migrate(context.Background(), schemes, deletedFields)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2468,8 +2495,9 @@ components:
 	}
 
 	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
+	postEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Post", api.Swagger.Components.Schemas["Post"].Value, schemes["Post"])
 
-	err = p.Migrate(context.Background(), schemes, nil)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2497,11 +2525,18 @@ components:
 	blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs4", "sequence_no": int64(1)}
 	blog4 := map[string]interface{}{"weos_id": blogWeosID4, "id": uint(123), "title": "morehugs5", "description": "last blog", "sequence_no": int64(1)}
 
+	post := map[string]interface{}{"weos_id": blogWeosID, "title": "Post 1", "description": "first post", "sequence_no": int64(1), "last_updated": t1, "blog": map[string]interface{}{"id": uint(123), "title": "sdfa"}}
+	//post1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "Post 2", "description": "second post", "sequence_no": int64(1), "last_updated": t2, "blog": map[string]interface{}{"id": uint(123)}}
+	postData, _ := json.Marshal(post)
+	//postObject, _ := postEntityFactory.CreateEntityWithValues(context.Background(), postData)
+	postModel, _ := p.GORMModel(postEntityFactory.Name(), postEntityFactory.Schema(), postData)
+
 	gormDB.Table("Blog").Create(blog)
 	gormDB.Table("Blog").Create(blog1)
 	gormDB.Table("Blog").Create(blog2)
 	gormDB.Table("Blog").Create(blog3)
 	gormDB.Table("Blog").Create(blog4)
+	gormDB.Table("Post").Create(postModel)
 
 	t.Run("testing filter with the eq operator on 2 fields", func(t *testing.T) {
 		page := 1
@@ -2834,6 +2869,34 @@ components:
 		}
 
 	})
+	t.Run("testing filter with the eq operator and related item sub property", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "blog.id",
+			Operator: "eq",
+			Value:    "123",
+			Values:   nil,
+		}
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetContentEntities(ctxt, postEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Fatalf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if int(results[0]["id"].(float64)) != 1 {
+			t.Errorf("expected result id to be %d got %d", 1, int(results[0]["id"].(float64)))
+		}
+	})
 }
 
 func TestProjections_InitializeContentRemove(t *testing.T) {
@@ -2897,7 +2960,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -2911,7 +2973,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3000,7 +3062,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3014,7 +3075,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3119,7 +3180,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3133,7 +3193,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3227,7 +3287,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3241,7 +3300,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3349,21 +3408,12 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		deletedFields := map[string][]string{}
-		for name, sch := range api.Swagger.Components.Schemas {
-			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
-			var df []string
-			json.Unmarshal(dfs, &df)
-			deletedFields[name] = df
-		}
-
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3449,54 +3499,14 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		deletedFields = map[string][]string{}
-		for name, sch := range api.Swagger.Components.Schemas {
-			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
-			var df []string
-			json.Unmarshal(dfs, &df)
-			deletedFields[name] = df
-		}
-
-		err = p.Migrate(context.Background(), schemes, deletedFields)
-		if err != nil {
-			t.Fatal(err)
-		}
-		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
-
-		//expect all columns to still be in the database
-		found = false
-		found1 = false
-		found2 = false
-		for _, c := range columns {
-			if c.Name() == "guid" {
-				found = true
-			}
-			//id should be auto created
-			if c.Name() == "id" {
-				found1 = true
-			}
-			if c.Name() == "description" {
-				found2 = true
-			}
-		}
-
-		if !found1 || !found2 {
-			t.Fatal("not all fields found")
-		}
-
-		if found {
-			t.Fatal("there should be no guid field")
-		}
-		//create using auto id and not guid
-		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
-		if tresult.Error != nil {
-			t.Errorf("expected to be able to create with new primary key")
+		err = p.Migrate(context.Background(), api.Swagger)
+		if err == nil {
+			t.Fatal("expected error since deleting a primary key is not allowed. developer will have change and then remove")
 		}
 
 		err = gormDB.Migrator().DropTable("Blog")
@@ -3505,214 +3515,6 @@ components:
 		}
 
 	})
-
-	//TODO: Required field removal functionality without x-remove inconsistent across databases
-	t.Run("Remove primary key without x-remove", func(t *testing.T) {
-		if *driver != "sqlite3" {
-			t.Skip()
-		}
-		openAPI := `openapi: 3.0.3
-info:
-  title: Blog
-  description: Blog example
-  version: 1.0.0
-servers:
-  - url: https://prod1.weos.sh/blog/dev
-    description: WeOS Dev
-  - url: https://prod1.weos.sh/blog/v1
-x-weos-config:
-  logger:
-    level: warn
-    report-caller: true
-    formatter: json
-  database:
-    driver: sqlite3
-    database: test.db
-  event-source:
-    - title: default
-      driver: service
-      endpoint: https://prod1.weos.sh/events/v1
-    - title: event
-      driver: sqlite3
-      database: test.db
-  databases:
-    - title: default
-      driver: sqlite3
-      database: test.db
-  rest:
-    middleware:
-      - RequestID
-      - Recover
-      - ZapLogger
-components:
-  schemas:
-    Blog:
-     type: object
-     properties:
-       guid:
-         type: string
-       title:
-         type: string
-         description: blog title
-       description:
-         type: string
-     x-identifier:
-       - guid
-`
-
-		api, err := rest.New(openAPI)
-		if err != nil {
-			t.Fatalf("error loading api config '%s'", err)
-		}
-
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		deletedFields := map[string][]string{}
-		for name, sch := range api.Swagger.Components.Schemas {
-			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
-			var df []string
-			json.Unmarshal(dfs, &df)
-			deletedFields[name] = df
-		}
-
-		err = p.Migrate(context.Background(), schemes, deletedFields)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !gormDB.Migrator().HasTable("Blog") {
-			t.Fatal("expected to get a table 'Blog'")
-		}
-
-		columns, _ := gormDB.Migrator().ColumnTypes("Blog")
-
-		found := false
-		found1 := false
-		found2 := false
-		for _, c := range columns {
-			if c.Name() == "guid" {
-				found = true
-			}
-			if c.Name() == "title" {
-				found1 = true
-			}
-			if c.Name() == "description" {
-				found2 = true
-			}
-		}
-
-		if !found1 || !found2 || !found {
-			t.Fatal("not all fields found")
-		}
-
-		openAPI = `openapi: 3.0.3
-info:
-  title: Blog
-  description: Blog example
-  version: 1.0.0
-servers:
-  - url: https://prod1.weos.sh/blog/dev
-    description: WeOS Dev
-  - url: https://prod1.weos.sh/blog/v1
-x-weos-config:
-  logger:
-    level: warn
-    report-caller: true
-    formatter: json
-  database:
-    driver: sqlite3
-    database: test.db
-  event-source:
-    - title: default
-      driver: service
-      endpoint: https://prod1.weos.sh/events/v1
-    - title: event
-      driver: sqlite3
-      database: test.db
-  databases:
-    - title: default
-      driver: sqlite3
-      database: test.db
-  rest:
-    middleware:
-      - RequestID
-      - Recover
-      - ZapLogger
-components:
-  schemas:
-    Blog:
-     type: object
-     properties:
-       title:
-         type: string
-         description: blog title
-       description:
-         type: string
-`
-		api, err = rest.New(openAPI)
-		if err != nil {
-			t.Fatalf("error loading api config '%s'", err)
-		}
-
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		deletedFields = map[string][]string{}
-		for name, sch := range api.Swagger.Components.Schemas {
-			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
-			var df []string
-			json.Unmarshal(dfs, &df)
-			deletedFields[name] = df
-		}
-
-		err = p.Migrate(context.Background(), schemes, deletedFields)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		columns, _ = gormDB.Migrator().ColumnTypes("Blog")
-
-		//expect all columns to still be in the database
-		found = false
-		found1 = false
-		found2 = false
-		for _, c := range columns {
-			if c.Name() == "guid" {
-				found = true
-			}
-			//id should be auto created
-			if c.Name() == "id" {
-				found1 = true
-			}
-			if c.Name() == "description" {
-				found2 = true
-			}
-		}
-
-		if !found1 || !found2 || !found {
-			t.Fatal("not all fields found")
-		}
-
-		//create using auto id and not guid
-		tresult := gormDB.Table("Blog").Create(map[string]interface{}{"title": "hugs2"})
-		if tresult.Error != nil {
-			t.Errorf("expected to be able to create with new primary key")
-		}
-
-		err = gormDB.Migrator().DropTable("Blog")
-		if err != nil {
-			t.Errorf("error removing table '%s' '%s'", "Blog", err)
-		}
-
-	})
-
 	t.Run("Remove required key without x-remove", func(t *testing.T) {
 
 		t.Skip()
@@ -3769,7 +3571,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3783,7 +3584,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3860,7 +3661,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes = rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3873,7 +3673,7 @@ components:
 			deletedFields[name] = df
 		}
 
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3969,7 +3769,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -3980,7 +3779,7 @@ components:
 			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
 			json.Unmarshal(dfs, deletedFields[name])
 		}
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3994,7 +3793,6 @@ components:
 					ID: id,
 				},
 			},
-			Property: payload,
 		}
 
 		ctxt := context.Background()
@@ -4073,7 +3871,7 @@ components:
 		t.Fatal(err)
 	}
 
-	err = p.Migrate(context.Background(), schemes, nil)
+	err = p.Migrate(context.Background(), api.Swagger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4102,19 +3900,19 @@ components:
 	if !found {
 		t.Fatal("not all fields found")
 	}
-	gormDB.Table("Blog").Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "last_updated": "Test"})
+	gormDB.Table("Blog").Debug().Create(map[string]interface{}{"weos_id": "5678", "sequence_no": 1, "title": "hugs", "last_updated": "Test"})
 
 	blogEntityFactory := new(weos.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemes["Blog"])
-	r, err := p.GetByEntityID(context.Background(), blogEntityFactory, "5678")
+	r, err := p.GetContentEntity(context.Background(), blogEntityFactory, "5678")
 	if err != nil {
 		t.Fatalf("error querying '%s' '%s'", "Blog", err)
 	}
-	if r["title"] != "hugs" {
-		t.Errorf("expected the blog title to be %s got %v", "hugs", r["titles"])
+	if r.GetString("title") != "hugs" {
+		t.Errorf("expected the blog title to be %s got %v", "hugs", r.GetString("Title"))
 	}
 
-	if r["lastUpdated"] != "Test" {
-		t.Errorf("expected the lastUpdated to be %s got %v", "Test", r["lastUpdated"])
+	if r.GetString("lastUpdated") != "Test" {
+		t.Errorf("expected the lastUpdated to be %s got %v", "Test", r.GetString("lastUpdated"))
 	}
 
 	err = gormDB.Migrator().DropTable("blog_posts")
@@ -4197,7 +3995,7 @@ components:
 			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
 			json.Unmarshal(dfs, deletedFields[name])
 		}
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -4236,7 +4034,7 @@ components:
 			t.Errorf("expected to get %d blogs, got %d", 1, len(r))
 		}
 
-		if r[0]["title"] != blogs[2]["title"] || r[0]["description"] != blogs[2]["description"] || r[0]["author"] != blogs[2]["author"] {
+		if r[0].GetString("title") != blogs[2]["title"] || r[0].GetString("description") != blogs[2]["description"] || r[0].GetString("author") != blogs[2]["author"] {
 			t.Errorf("expected blog to be %v got %v", blogs[2], r[0])
 		}
 
@@ -4248,7 +4046,7 @@ components:
 			t.Errorf("expected to get %d blogs, got %d", 1, len(r))
 		}
 
-		if r[0]["title"] != blogs[0]["title"] || r[0]["description"] != blogs[0]["description"] || r[0]["author"] != blogs[0]["author"] {
+		if r[0].GetString("title") != blogs[0]["title"] || r[0].GetString("description") != blogs[0]["description"] || r[0].GetString("author") != blogs[0]["author"] {
 			t.Errorf("expected blog to be %v got %v", blogs[2], r[0])
 		}
 
@@ -4323,7 +4121,6 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
 		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
@@ -4334,7 +4131,7 @@ components:
 			dfs, _ := json.Marshal(sch.Value.Extensions["x-remove"])
 			json.Unmarshal(dfs, deletedFields[name])
 		}
-		err = p.Migrate(context.Background(), schemes, deletedFields)
+		err = p.Migrate(context.Background(), api.Swagger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -4376,17 +4173,17 @@ func TestMetaProjectionError_Add(t *testing.T) {
 func TestMetaProjection_Migrate(t *testing.T) {
 	t.Run("successful migration", func(t *testing.T) {
 		mockProjection1 := &ProjectionMock{
-			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 				return nil
 			},
 		}
 		mockProjection2 := &ProjectionMock{
-			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 				return nil
 			},
 		}
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		err := metaProjection.Migrate(context.TODO(), nil, nil)
+		err := metaProjection.Migrate(context.TODO(), nil)
 		if err != nil {
 			t.Fatalf("unexpected error running migrate '%s'", err.Error())
 		}
@@ -4401,17 +4198,17 @@ func TestMetaProjection_Migrate(t *testing.T) {
 	})
 	t.Run("migration with errors", func(t *testing.T) {
 		mockProjection1 := &ProjectionMock{
-			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 				return errors.New("some error")
 			},
 		}
 		mockProjection2 := &ProjectionMock{
-			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 				return nil
 			},
 		}
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		err := metaProjection.Migrate(context.TODO(), nil, nil)
+		err := metaProjection.Migrate(context.TODO(), nil)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -4568,7 +4365,6 @@ func TestMetaProjection_GetContentEntity(t *testing.T) {
 				entity := &weos.ContentEntity{}
 				properties := make(map[string]interface{})
 				properties["title"] = "Test"
-				entity.Property = properties
 				return entity, nil
 			}
 			return nil, nil
@@ -4581,7 +4377,6 @@ func TestMetaProjection_GetContentEntity(t *testing.T) {
 				entity := &weos.ContentEntity{}
 				properties := make(map[string]interface{})
 				properties["title"] = "Bar"
-				entity.Property = properties
 				return entity, nil
 			}
 
@@ -4726,12 +4521,16 @@ func TestMetaProjection_GetContentEntities(t *testing.T) {
 func TestMetaProjection_GetByKey(t *testing.T) {
 	//setup mock projections
 	mockProjection1 := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
 			if id, ok := identifiers["id"]; ok {
 				if id == "123" {
 					entity := make(map[string]interface{})
 					entity["title"] = "Foo"
-					return entity, nil
+					reqBytes, err := json.Marshal(entity)
+					if err != nil {
+						return nil, err
+					}
+					return new(weos.ContentEntity).Init(ctxt, reqBytes)
 				}
 			}
 			return nil, nil
@@ -4739,12 +4538,16 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 	}
 
 	mockProjection2 := &ProjectionMock{
-		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
 			if id, ok := identifiers["id"]; ok {
 				if id == "456" {
 					entity := make(map[string]interface{})
 					entity["title"] = "Bar"
-					return entity, nil
+					reqBytes, err := json.Marshal(entity)
+					if err != nil {
+						return nil, err
+					}
+					return new(weos.ContentEntity).Init(ctxt, reqBytes)
 				}
 
 				if id == "789" {
@@ -4760,11 +4563,12 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
 		identifiers := make(map[string]interface{})
 		identifiers["id"] = "123"
+
 		entity, err := metaProjection.GetByKey(context.TODO(), nil, identifiers)
 		if err != nil {
 			t.Fatalf("unexpected error '%s'", err)
 		}
-		if _, ok := entity["title"]; !ok {
+		if _, ok := entity.ToMap()["title"]; !ok {
 			t.Errorf("expected the entity to have a title")
 		}
 
@@ -4782,7 +4586,7 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error '%s'", err)
 		}
-		if _, ok := entity["title"]; !ok {
+		if _, ok := entity.ToMap()["title"]; !ok {
 			t.Errorf("expected the entity to have a title")
 		}
 	})
@@ -4818,12 +4622,17 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 func TestMetaProjection_GetByProperties(t *testing.T) {
 	//setup mock projections
 	mockProjection1 := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
 			if id, ok := identifiers["id"]; ok {
 				if id == "123" {
 					entity := make(map[string]interface{})
 					entity["title"] = "Foo"
-					return []map[string]interface{}{entity}, nil
+					reqBytes, err := json.Marshal(entity)
+					if err != nil {
+						return nil, err
+					}
+					contentEntity, err := new(weos.ContentEntity).Init(ctxt, reqBytes)
+					return []*weos.ContentEntity{contentEntity}, nil
 				}
 			}
 			return nil, nil
@@ -4831,12 +4640,17 @@ func TestMetaProjection_GetByProperties(t *testing.T) {
 	}
 
 	mockProjection2 := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
 			if id, ok := identifiers["id"]; ok {
 				if id == "456" {
 					entity := make(map[string]interface{})
 					entity["title"] = "Bar"
-					return []map[string]interface{}{entity}, nil
+					reqBytes, err := json.Marshal(entity)
+					if err != nil {
+						return nil, err
+					}
+					contentEntity, err := new(weos.ContentEntity).Init(ctxt, reqBytes)
+					return []*weos.ContentEntity{contentEntity}, nil
 				}
 
 				if id == "789" {

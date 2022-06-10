@@ -58,8 +58,10 @@ Feature: Create content
                description: blog title
              description:
                type: string
+               nullable: true
              posts:
                type: array
+               nullable: true
                items:
                  $ref: "#/components/schemas/Post"
            required:
@@ -69,23 +71,32 @@ Feature: Create content
         Post:
           type: object
           properties:
+            id:
+              type: string
+              format: ksuid
             title:
               type: string
             description:
               type: string
+              nullable: true
             blog:
               $ref: "#/components/schemas/Blog"
             publishedDate:
               type: string
               format: date-time
+              nullable: true
             views:
               type: integer
+              nullable: true
             categories:
               type: array
               items:
                 $ref: "#/components/schemas/Category"
+              nullable: true
           required:
             - title
+          x-identifier:
+            - id
         Category:
           type: object
           properties:
@@ -93,6 +104,7 @@ Feature: Create content
               type: string
             description:
               type: string
+              nullable: true
     paths:
       /:
         get:
@@ -338,6 +350,7 @@ Feature: Create content
                  description: blog title
                description:
                  type: string
+                 nullable: true
              required:
                - title
              x-identifier:
@@ -434,6 +447,7 @@ Feature: Create content
                description: blog title
              description:
                type: string
+               nullable: true
            required:
              - title
            x-identifier:
@@ -523,13 +537,14 @@ Feature: Create content
            type: object
            properties:
              custom_id:
-               type: integer
-               format: uint
+               type: string
+               format: ksuid
              title:
                type: string
                description: blog title
              description:
                type: string
+               nullable: true
            required:
              - title
            x-identifier:

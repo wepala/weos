@@ -175,7 +175,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 			}
 
 			//run migrations
-			err = defaultProjection.Migrate(ctxt, schemas, deletedFields)
+			err = defaultProjection.Migrate(ctxt, api.Swagger)
 			if err != nil {
 				api.EchoInstance().Logger.Error(err)
 				return ctxt, err

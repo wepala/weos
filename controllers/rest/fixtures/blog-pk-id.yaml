@@ -70,6 +70,7 @@ components:
         title:
           type: string
         description:
+          nullable: true
           type: string
         status:
           type: number
@@ -79,20 +80,25 @@ components:
             - 1.3
             - 1.5
         image:
+          nullable: true
           type: string
           format: byte
         categories:
+          nullable: true
           type: array
           items:
             $ref: "#/components/schemas/Post"
         posts:
+          nullable: true
           type: array
           items:
             $ref: "#/components/schemas/Category"
         lastUpdated:
+          nullable: true
           type: string
           format: date-time
         created:
+          nullable: true
           type: string
           format: date-time
       required:

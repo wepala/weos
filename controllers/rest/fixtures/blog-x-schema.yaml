@@ -37,6 +37,7 @@ components:
           format: uuid
         description:
           type: string
+          nullable: true
       required:
         - id
       x-identifier:
@@ -52,6 +53,7 @@ components:
         lastName:
           type: string
         email:
+          nullable: true
           type: string
           format: email
       required:
@@ -71,6 +73,7 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         status:
           type: string
           format: date-time
@@ -80,20 +83,25 @@ components:
             - 0001-02-01T00:00:00Z
             - 0001-03-01T00:00:00Z
         image:
+          nullable: true
           type: string
           format: byte
         categories:
+          nullable: true
           type: array
           items:
             $ref: "#/components/schemas/Post"
         posts:
+          nullable: true
           type: array
           items:
             $ref: "#/components/schemas/Category"
         lastUpdated:
+          nullable: true
           type: string
           format: date-time
         created:
+          nullable: true
           type: string
           format: date-time
       required:
@@ -109,6 +117,7 @@ components:
         title:
           type: string
         description:
+          nullable: true
           type: string
         author:
           $ref: "#/components/schemas/Author"
@@ -121,6 +130,7 @@ components:
         id:
           type: integer
         title:
+          nullable: true
           type: string
       x-identifier:
         - id

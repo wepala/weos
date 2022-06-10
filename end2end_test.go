@@ -455,7 +455,7 @@ func blogsInTheApi(details *godog.Table) error {
 
 func entersInTheField(userName, value, field string) error {
 
-	requests[currScreen][strings.ToLower(field)] = value
+	requests[currScreen][field] = value
 	return nil
 }
 
@@ -497,13 +497,32 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		if err != nil {
 			return err
 		}
+		apiProjection, err := API.GetProjection("Default")
+		var tprojection *projections.GORMDB
+		if tprojection, ok = apiProjection.(*projections.GORMDB); !ok {
+			return fmt.Errorf("default projection is not a GORM projection")
+		}
+		payload, _ := json.Marshal(entity.ToMap())
+		model, err := tprojection.GORMModel(contentType, schema.Schema(), payload)
+		if err != nil {
+			return err
+		}
 		var resultdb *gorm.DB
-		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&entity.Property, "weos_id = ?", weosID)
-		//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.Property)
+		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&model, "weos_id = ?", weosID)
+		//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.payload)
 		if resultdb.Error != nil {
 			return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
 		}
-		entityProperty = entity.Property
+		//put the result in the entity
+		data, err := json.Marshal(model)
+		if err != nil {
+			return fmt.Errorf("unable to marshal result '%s'", err)
+		}
+		err = json.Unmarshal(data, &entity)
+		if err != nil {
+			return fmt.Errorf("unable to unmarshal result '%s'", err)
+		}
+		entityProperty = entity
 		contentEntity = entity.ToMap()
 		if contentEntity == nil {
 			return fmt.Errorf("unexpected error finding content type in db")
@@ -1419,7 +1438,7 @@ func callsTheReplayMethodOnTheEventRepository(arg1 string) error {
 	}
 
 	factories := API.GetEntityFactories()
-	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection)
+	total, success, failed, errArray = eventRepo.ReplayEvents(context.Background(), time.Time{}, factories, projection, API.Swagger)
 	if err != nil {
 		return fmt.Errorf("error getting event store: %s", err)
 	}
@@ -1683,10 +1702,10 @@ func definesAProjection(arg1, arg2 string) error {
 		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
 			return nil, nil
 		},
-		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error) {
+		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			return nil, nil
 		},
-		GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error) {
+		GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			return nil, nil
 		},
 		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
@@ -1700,7 +1719,7 @@ func definesAProjection(arg1, arg2 string) error {
 				return nil
 			}
 		},
-		MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+		MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 			return nil
 		},
 	}
@@ -1777,7 +1796,7 @@ func theProjectionIsNotCalled(arg1 string) error {
 func theIdShouldBeA(arg1, format string) error {
 	switch format {
 	case "uuid":
-		_, err := uuid.Parse(*contentEntity["id"].(*string))
+		_, err := uuid.Parse(contentEntity["id"].(string))
 		if err != nil {
 			fmt.Errorf("unexpected error parsing id as uuid: %s", err)
 		}
@@ -1787,7 +1806,7 @@ func theIdShouldBeA(arg1, format string) error {
 			fmt.Errorf("unexpected error parsing id as int")
 		}
 	case "ksuid":
-		_, err := ksuid.Parse(*contentEntity["id"].(*string))
+		_, err := ksuid.Parse(contentEntity["id"].(string))
 		if err != nil {
 			fmt.Errorf("unexpected error parsing id as ksuid: %s", err)
 		}
@@ -1872,9 +1891,23 @@ func theShouldHaveAPropertyWithItems(arg1, arg2 string, arg3 int) error {
 	//items := ef["Post"].Builder(context.TODO()).Build().New()
 	var items []TItem
 	//NOTE trying to do this with a slice of interfaces does NOT work
-	err := gormDB.Debug().Model(entityProperty).Association(strings.Title(arg2)).Find(&items)
-	if err != nil {
-		return err
+	if entity, ok := entityProperty.(*model.ContentEntity); ok {
+		apiProjection, err := API.GetProjection("Default")
+		var tprojection *projections.GORMDB
+		if tprojection, ok = apiProjection.(*projections.GORMDB); !ok {
+			return fmt.Errorf("default projection is not a GORM projection")
+		}
+		payload, _ := json.Marshal(entity.ToMap())
+		model, err := tprojection.GORMModel(contentType, entity.Schema, payload)
+		if err != nil {
+			return err
+		}
+		err = gormDB.Debug().Model(model).Association(strings.Title(arg2)).Find(&items)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("entity property is not content entity as expected")
 	}
 
 	if len(items) != arg3 {
@@ -2112,7 +2145,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1378",
-			//Tags: "focus-testing && ~skipped",
+			//Tags: "WEOS-1327 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

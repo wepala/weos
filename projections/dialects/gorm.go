@@ -2,7 +2,6 @@ package dialects
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -35,18 +34,6 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 			}
 		} else {
 			if err := m.RunWithValue(value, func(stmt *gorm.Statement) (errr error) {
-
-				if value == nil {
-					s := map[string]interface{}{}
-					b, _ := json.Marshal(value)
-					json.Unmarshal(b, &s)
-
-					if tableName, ok := s["table_alias"].(string); ok {
-						if tableName != "" {
-							value = tableName
-						}
-					}
-				}
 
 				columnTypes, _ := m.DB.Migrator().ColumnTypes(value)
 
@@ -117,8 +104,10 @@ func (m Migrator) RunWithValue(value interface{}, fc func(*gorm.Statement) error
 
 	//check if table is a dynamic struct that has a field called Table and use that instead
 	reader := dynamicstruct.NewReader(value)
-	if reader != nil && reader.GetField("Table") != nil && reader.GetField("Table").String() != "" {
-		stmt.Table = reader.GetField("Table").String()
+	if reader != nil && reader.GetField("Table") != nil {
+		if reader.GetField("Table").String() != "" {
+			stmt.Table = reader.GetField("Table").String()
+		}
 	}
 
 	if table, ok := value.(string); ok {
@@ -127,6 +116,16 @@ func (m Migrator) RunWithValue(value interface{}, fc func(*gorm.Statement) error
 		fmt.Printf("error creating table '%s'", err)
 		return err
 	}
+
+	//if stmt.Table == "" {
+	//	if reader != nil {
+	//		tv, _ := json.Marshal(value)
+	//		fmt.Printf("json string '%s'", tv)
+	//		return fmt.Errorf("could not find table name, Table Property was '%s'", reader.GetField("Table").String())
+	//
+	//	}
+	//	return fmt.Errorf("could not find table name")
+	//}
 
 	return fc(stmt)
 }
@@ -591,18 +590,19 @@ func (m Migrator) ReorderModels(values []interface{}, autoAdd bool) (results []i
 		beDependedOn := map[*schema.Schema]bool{}
 
 		//This originally was using parse but we need to pass in the table name based on what we have set
-		s := map[string]interface{}{}
-		b, _ := json.Marshal(value)
-		json.Unmarshal(b, &s)
-		if tableName, ok := s["table_alias"].(string); ok {
-			if tableName == "" {
-				fmt.Errorf("no table name found for '%s'", s)
-			}
-			if err := dep.ParseWithSpecialTableName(value, tableName); err != nil {
+
+		var tableName string
+		reader := dynamicstruct.NewReader(value)
+		if reader.HasField("Table") {
+			tableName = reader.GetField("Table").String()
+		}
+
+		if tableName == "" {
+			if err := dep.Parse(value); err != nil {
 				m.DB.Logger.Error(context.Background(), "failed to parse value %#v, got error %v", value, err)
 			}
 		} else {
-			if err := dep.Parse(value); err != nil {
+			if err := dep.ParseWithSpecialTableName(value, tableName); err != nil {
 				m.DB.Logger.Error(context.Background(), "failed to parse value %#v, got error %v", value, err)
 			}
 		}

@@ -26,6 +26,8 @@ type DefaultEntityFactory struct {
 	builder ds.Builder
 }
 
+//Deprecated: 06/04/2022 the builder should not be needed
+//FromSchemaAndBuilder create entity factory using a schema and dynamic struct builder
 func (d *DefaultEntityFactory) FromSchemaAndBuilder(s string, o *openapi3.Schema, builder ds.Builder) EntityFactory {
 	d.schema = o
 	d.builder = builder
@@ -33,12 +35,28 @@ func (d *DefaultEntityFactory) FromSchemaAndBuilder(s string, o *openapi3.Schema
 	return d
 }
 
+func (d *DefaultEntityFactory) FromSchema(s string, o *openapi3.Schema) EntityFactory {
+	d.schema = o
+	d.name = s
+	return d
+}
+
 func (d *DefaultEntityFactory) NewEntity(ctxt context.Context) (*ContentEntity, error) {
-	return new(ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+	if d.builder != nil {
+		return new(ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+	}
+	return new(ContentEntity).FromSchema(ctxt, d.schema)
 }
 
 func (d *DefaultEntityFactory) CreateEntityWithValues(ctxt context.Context, payload []byte) (*ContentEntity, error) {
-	entity, err := new(ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+	var entity *ContentEntity
+	var err error
+	if d.builder != nil {
+		entity, err = new(ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+	} else {
+		entity, err = new(ContentEntity).FromSchema(ctxt, d.schema)
+	}
+
 	if err != nil {
 		return nil, err
 	}

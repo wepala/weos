@@ -60,8 +60,10 @@ Feature: Remove field from content type
                description: blog title
              description:
                type: string
+               nullable: true
              url:
                type: string
+               nullable: true
            required:
              - title
            x-identifier:
@@ -78,12 +80,15 @@ Feature: Remove field from content type
              publishedDate:
                type: string
                format: date-time
+               nullable: true
              views:
                type: integer
+               nullable: true
              categories:
                type: array
                items:
                  $ref: "#/components/schemas/Category"
+               nullable: true
            required:
              - title
          Category:
@@ -93,6 +98,7 @@ Feature: Remove field from content type
                type: string
              description:
                type: string
+               nullable: true
            required:
              - title
            x-identifier:
@@ -270,13 +276,13 @@ Feature: Remove field from content type
     And the "guid" field should be removed from the "Tag" table
 
   
-  Scenario: Remove a field that is part of an identifier
-
-    It's fine to remove a part of an identifier
-
-    Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
-    When the service is reset
-    Then the "guid" field should be removed from the "Tag" table
+#  Scenario: Remove a field that is part of an identifier
+#
+#    It's fine to remove a part of an identifier
+#
+#    Given "Sojourner" adds the "x-remove" attribute to the "guid" field on the "Tag" content type
+#    When the service is reset
+#    Then the "guid" field should be removed from the "Tag" table
 
   Scenario: Remove a field that is part of a foreign key reference
 

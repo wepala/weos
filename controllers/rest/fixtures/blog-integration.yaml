@@ -36,6 +36,7 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         blogs:
           type: array
           items:
@@ -55,9 +56,11 @@ components:
         lastName:
           type: string
         email:
+          nullable: true
           type: string
           format: email
         posts:
+          nullable: true
           type: array
           items:
             $ref: "#/components/schemas/Post"
@@ -77,6 +80,7 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         status:
           type: string
           nullable: true
@@ -85,20 +89,25 @@ components:
             - unpublished
             - published
         image:
+          nullable: true
           type: string
           format: byte
         categories:
+          nullable: true
           type: array
           items:
             $ref: "#/components/schemas/Category"
         posts:
+          nullable: true
           type: array
           items:
             $ref: "#/components/schemas/Post"
         lastUpdated:
+          nullable: true
           type: string
           format: date-time
         created:
+          nullable: true
           type: string
           format: date-time
       required:
@@ -111,11 +120,13 @@ components:
           type: string
         description:
           type: string
+          nullable: true
         author:
           $ref: "#/components/schemas/Author"
         created:
           type: string
           format: date-time
+          nullable: true
 paths:
   /health:
     summary: Health Check

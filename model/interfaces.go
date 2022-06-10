@@ -2,9 +2,9 @@ package model
 
 //go:generate moq -out temp_mocks_test.go -pkg model_test . GormProjection
 import (
+	"github.com/getkin/kin-openapi/openapi3"
 	"time"
 
-	ds "github.com/ompluscator/dynamic-struct"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 )
@@ -71,22 +71,25 @@ type EventRepository interface {
 	GetByAggregateAndSequenceRange(ID string, start int64, end int64) ([]*Event, error)
 	AddSubscriber(handler EventHandler)
 	GetSubscribers() ([]EventHandler, error)
-	ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projection Projection) (int, int, int, []error)
+	ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]EntityFactory, projection Projection, schema *openapi3.Swagger) (int, int, int, []error)
 }
 
 type Datastore interface {
-	Migrate(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error
+	Migrate(ctx context.Context, schema *openapi3.Swagger) error
 }
 
 type Projection interface {
 	Datastore
 	GetEventHandler() EventHandler
 	GetContentEntity(ctx context.Context, entityFactory EntityFactory, weosID string) (*ContentEntity, error)
-	GetByKey(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) (map[string]interface{}, error)
+	GetByKey(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) (*ContentEntity, error)
 	//Deprecated: 03/05/2022 should use GetContentEntity
 	GetByEntityID(ctxt context.Context, entityFactory EntityFactory, id string) (map[string]interface{}, error)
+	//Deprecated: 05/08/2002 should use GetList instead
 	GetContentEntities(ctx context.Context, entityFactory EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
-	GetByProperties(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) ([]map[string]interface{}, error)
+	//GetList returns a paginated result of content entities
+	GetList(ctx context.Context, entityFactory EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*ContentEntity, int64, error)
+	GetByProperties(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) ([]*ContentEntity, error)
 }
 
 type GormProjection interface {
