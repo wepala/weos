@@ -378,6 +378,14 @@ func (w *ContentEntity) GetString(name string) string {
 	return ""
 }
 
+//GetInterface returns the interface property value stored of a given the property name
+func (w *ContentEntity) GetInterface(name string) interface{} {
+	if v, ok := w.payload[name]; ok {
+		return v
+	}
+	return nil
+}
+
 //GetInteger returns the integer property value stored of a given the property name
 func (w *ContentEntity) GetInteger(name string) int {
 	if v, ok := w.payload[name]; ok {

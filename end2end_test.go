@@ -792,7 +792,7 @@ func theServiceIsRunning() error {
 	buf = bytes.Buffer{}
 	API.DB = db
 	API.EchoInstance().Logger.SetOutput(&buf)
-	API.RegisterMiddleware("Handler", func(api *api.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	API.RegisterMiddleware("Handler", func(api api.Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
 			return func(c echo.Context) error {
 				contextWithValues = c.Request().Context()
@@ -1127,7 +1127,7 @@ func theListResultsShouldBe(details *godog.Table) error {
 	foundItems := 0
 	response := rec.Result()
 	defer response.Body.Close()
-	result.Items = make([]map[string]interface{}, len(compareArray))
+	result.Items = make([]*model.ContentEntity, len(compareArray))
 	err := json.NewDecoder(response.Body).Decode(&result)
 	if err != nil {
 		return err
@@ -1135,7 +1135,7 @@ func theListResultsShouldBe(details *godog.Table) error {
 	for i, entity := range compareArray {
 		foundEntity := true
 		for key, value := range entity {
-			if strings.Compare(result.Items[i][key].(string), value.(string)) != 0 {
+			if strings.Compare(result.Items[i].GetString(key), value.(string)) != 0 {
 				foundEntity = false
 				break
 			}

@@ -230,7 +230,7 @@ func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	tmiddleware := t.MethodByName(name)
 	//only show error if handler was set
 	if tmiddleware.IsValid() {
-		return tmiddleware.Interface().(func(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc), nil
+		return tmiddleware.Interface().(func(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc), nil
 	}
 
 	return nil, fmt.Errorf("middleware '%s' not found", name)
@@ -247,7 +247,7 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	tcontroller := t.MethodByName(name)
 	//only show error if handler was set
 	if tcontroller.IsValid() {
-		return tcontroller.Interface().(func(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc), nil
+		return tcontroller.Interface().(func(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc), nil
 	}
 
 	return nil, fmt.Errorf("controller '%s' not found", name)
@@ -310,6 +310,13 @@ func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
 	return p.entityFactories
 }
 
+func (p *RESTAPI) GetEntityFactory(name string) (model.EntityFactory, error) {
+	if entityFactory, ok := p.entityFactories[name]; ok {
+		return entityFactory, nil
+	}
+	return nil, fmt.Errorf("entity factory '%s' not found", name)
+}
+
 //GetDBConnection get db connection by name
 func (p *RESTAPI) GetDBConnection(name string) (*sql.DB, error) {
 	if tconnection, ok := p.dbConnections[name]; ok {
@@ -324,6 +331,14 @@ func (p *RESTAPI) GetGormDBConnection(name string) (*gorm.DB, error) {
 		return tconnection, nil
 	}
 	return nil, fmt.Errorf("gorm database connection '%s' not found", name)
+}
+
+func (p *RESTAPI) GetConfig() *openapi3.Swagger {
+	return p.Swagger
+}
+
+func (p *RESTAPI) GetWeOSConfig() *APIConfig {
+	return p.Config
 }
 
 const SWAGGERUIENDPOINT = "/_discover/"

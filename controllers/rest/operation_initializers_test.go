@@ -159,7 +159,7 @@ paths:
 	api.RegisterController("HealthCheck", rest.HealthCheck)
 
 	middlewareCalled := false
-	api.RegisterMiddleware("Recover", func(api *rest.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	api.RegisterMiddleware("Recover", func(api rest.Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
 			return func(c echo.Context) error {
 				middlewareCalled = true
@@ -334,7 +334,7 @@ func TestRouteInitializer(t *testing.T) {
 	api.RegisterController("CreateController", rest.CreateController)
 	api.RegisterController("ListController", rest.ListController)
 	api.RegisterController("UpdateController", rest.UpdateController)
-	api.RegisterController("ViewController", func(api *rest.RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	api.RegisterController("ViewController", func(api rest.Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			controllerTriggered = true
 			if _, ok := projection.(*projections.MetaProjection); !ok {

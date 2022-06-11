@@ -14,7 +14,8 @@ import (
 )
 
 //Security adds authorization middleware to the initialize context
-func Security(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (context.Context, error) {
+func Security(ctxt context.Context, tapi Container, swagger *openapi3.Swagger) (context.Context, error) {
+	api := tapi.(*RESTAPI)
 	middlewares := GetOperationMiddlewares(ctxt)
 	found := false
 
@@ -47,10 +48,11 @@ func Security(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (co
 }
 
 //SQLDatabase initial sql databases based on configs
-func SQLDatabase(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (context.Context, error) {
+func SQLDatabase(ctxt context.Context, tapi Container, swagger *openapi3.Swagger) (context.Context, error) {
+	api := tapi.(*RESTAPI)
 	var err error
-	if api.Swagger != nil {
-		if weosConfigData, ok := api.Swagger.Extensions[WeOSConfigExtension]; ok {
+	if api.GetConfig() != nil {
+		if weosConfigData, ok := api.GetConfig().Extensions[WeOSConfigExtension]; ok {
 			var config *APIConfig
 			if err = json.Unmarshal(weosConfigData.(json.RawMessage), &config); err == nil {
 				//if the legacy way of instantiating a connection is present then use that as the default
@@ -80,7 +82,8 @@ func SQLDatabase(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) 
 }
 
 //DefaultProjection setup default gorm projection
-func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (context.Context, error) {
+func DefaultProjection(ctxt context.Context, tapi Container, swagger *openapi3.Swagger) (context.Context, error) {
+	api := tapi.(*RESTAPI)
 	var gormDB *gorm.DB
 	var err error
 	if gormDB, err = api.GetGormDBConnection("Default"); err == nil {
@@ -93,7 +96,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 			//---- TODO clean up setting up schemas here
 
 			//This will check the enum types on run and output an error
-			for _, scheme := range api.Swagger.Components.Schemas {
+			for _, scheme := range api.GetConfig().Components.Schemas {
 				for pName, prop := range scheme.Value.Properties {
 					if prop.Value.Enum != nil {
 						t := prop.Value.Type
@@ -131,7 +134,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 			//this ranges over the paths and pulls out the operationIDs into an array
 			opIDs := []string{}
 			idFound := false
-			for _, pathData := range api.Swagger.Paths {
+			for _, pathData := range api.GetConfig().Paths {
 				for _, op := range pathData.Operations() {
 					if op.OperationID != "" {
 						opIDs = append(opIDs, op.OperationID)
@@ -140,7 +143,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 			}
 
 			//this ranges over the properties, pulls the x-update and them compares it against the valid operation ids in the yaml
-			for _, scheme := range api.Swagger.Components.Schemas {
+			for _, scheme := range api.GetConfig().Components.Schemas {
 				for _, prop := range scheme.Value.Properties {
 					xUpdate := []string{}
 					xUpdateBytes, _ := json.Marshal(prop.Value.Extensions["x-update"])
@@ -161,13 +164,13 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 			}
 
 			//get the database schema
-			schemas := CreateSchema(ctxt, api.EchoInstance(), api.Swagger)
+			schemas := CreateSchema(ctxt, api.EchoInstance(), api.GetConfig())
 			api.Schemas = schemas
 			ctxt = context.WithValue(ctxt, weosContext.SCHEMA_BUILDERS, schemas)
 
 			//get fields to be removed during migration step
 			deletedFields := map[string][]string{}
-			for name, sch := range api.Swagger.Components.Schemas {
+			for name, sch := range api.GetConfig().Components.Schemas {
 				dfs, _ := json.Marshal(sch.Value.Extensions[RemoveExtension])
 				var df []string
 				json.Unmarshal(dfs, &df)
@@ -175,7 +178,7 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 			}
 
 			//run migrations
-			err = defaultProjection.Migrate(ctxt, api.Swagger)
+			err = defaultProjection.Migrate(ctxt, api.GetConfig())
 			if err != nil {
 				api.EchoInstance().Logger.Error(err)
 				return ctxt, err
@@ -189,7 +192,8 @@ func DefaultProjection(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swa
 }
 
 //DefaultEventStore setup default gorm projection
-func DefaultEventStore(ctxt context.Context, api *RESTAPI, swagger *openapi3.Swagger) (context.Context, error) {
+func DefaultEventStore(ctxt context.Context, tapi Container, swagger *openapi3.Swagger) (context.Context, error) {
+	api := tapi.(*RESTAPI)
 	var err error
 	var gormDB *gorm.DB
 	//if there is a projection then add the event handler as a subscriber to the event store

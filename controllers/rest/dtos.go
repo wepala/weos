@@ -51,9 +51,9 @@ type HealthCheckResponse struct {
 
 //ListApiResponse used in the list controller to return a response with total, page and items retrieved
 type ListApiResponse struct {
-	Total int64                    `json:"total"`
-	Page  int                      `json:"page"`
-	Items []map[string]interface{} `json:"items"`
+	Total int64                 `json:"total"`
+	Page  int                   `json:"page"`
+	Items []*weos.ContentEntity `json:"items"`
 }
 
 //FilterProperties is the properties need to use filters

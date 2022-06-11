@@ -9,7 +9,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
-	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -56,7 +55,7 @@ var _ model.EventRepository = &EventRepositoryMock{}
 // 			PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 // 				panic("mock out the Persist method")
 // 			},
-// 			ReplayEventsFunc: func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error) {
+// 			ReplayEventsFunc: func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection, schema *openapi3.Swagger) (int, int, int, []error) {
 // 				panic("mock out the ReplayEvents method")
 // 			},
 // 		}
@@ -97,7 +96,7 @@ type EventRepositoryMock struct {
 	PersistFunc func(ctxt context.Context, entity model.AggregateInterface) error
 
 	// ReplayEventsFunc mocks the ReplayEvents method.
-	ReplayEventsFunc func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection) (int, int, int, []error)
+	ReplayEventsFunc func(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection, schema *openapi3.Swagger) (int, int, int, []error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -169,6 +168,8 @@ type EventRepositoryMock struct {
 			EntityFactories map[string]model.EntityFactory
 			// Projection is the projection argument value.
 			Projection model.Projection
+			// Schema is the schema argument value.
+			Schema *openapi3.Swagger
 		}
 	}
 	lockAddSubscriber                  sync.RWMutex
@@ -509,7 +510,7 @@ func (mock *EventRepositoryMock) PersistCalls() []struct {
 }
 
 // ReplayEvents calls ReplayEventsFunc.
-func (mock *EventRepositoryMock) ReplayEvents(ctxt context2.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection, schema *openapi3.Swagger) (int, int, int, []error) {
+func (mock *EventRepositoryMock) ReplayEvents(ctxt context.Context, date time.Time, entityFactories map[string]model.EntityFactory, projection model.Projection, schema *openapi3.Swagger) (int, int, int, []error) {
 	if mock.ReplayEventsFunc == nil {
 		panic("EventRepositoryMock.ReplayEventsFunc: method is nil but EventRepository.ReplayEvents was just called")
 	}
@@ -518,16 +519,18 @@ func (mock *EventRepositoryMock) ReplayEvents(ctxt context2.Context, date time.T
 		Date            time.Time
 		EntityFactories map[string]model.EntityFactory
 		Projection      model.Projection
+		Schema          *openapi3.Swagger
 	}{
 		Ctxt:            ctxt,
 		Date:            date,
 		EntityFactories: entityFactories,
 		Projection:      projection,
+		Schema:          schema,
 	}
 	mock.lockReplayEvents.Lock()
 	mock.calls.ReplayEvents = append(mock.calls.ReplayEvents, callInfo)
 	mock.lockReplayEvents.Unlock()
-	return mock.ReplayEventsFunc(ctxt, date, entityFactories, projection)
+	return mock.ReplayEventsFunc(ctxt, date, entityFactories, projection, schema)
 }
 
 // ReplayEventsCalls gets all the calls that were made to ReplayEvents.
@@ -538,12 +541,14 @@ func (mock *EventRepositoryMock) ReplayEventsCalls() []struct {
 	Date            time.Time
 	EntityFactories map[string]model.EntityFactory
 	Projection      model.Projection
+	Schema          *openapi3.Swagger
 } {
 	var calls []struct {
 		Ctxt            context.Context
 		Date            time.Time
 		EntityFactories map[string]model.EntityFactory
 		Projection      model.Projection
+		Schema          *openapi3.Swagger
 	}
 	mock.lockReplayEvents.RLock()
 	calls = mock.calls.ReplayEvents
@@ -561,17 +566,11 @@ var _ model.Projection = &ProjectionMock{}
 //
 // 		// make and configure a mocked model.Projection
 // 		mockedProjection := &ProjectionMock{
-// 			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
-// 				panic("mock out the GetByEntityID method")
-// 			},
 // 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 // 				panic("mock out the GetByKey method")
 // 			},
 // 			GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 // 				panic("mock out the GetByProperties method")
-// 			},
-// 			GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-// 				panic("mock out the GetContentEntities method")
 // 			},
 // 			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 // 				panic("mock out the GetContentEntity method")
@@ -582,7 +581,7 @@ var _ model.Projection = &ProjectionMock{}
 // 			GetListFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
 // 				panic("mock out the GetList method")
 // 			},
-// 			MigrateFunc: func(ctx context.Context, builders map[string]ds.Builder, deletedFields map[string][]string) error {
+// 			MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 // 				panic("mock out the Migrate method")
 // 			},
 // 		}
@@ -592,17 +591,11 @@ var _ model.Projection = &ProjectionMock{}
 //
 // 	}
 type ProjectionMock struct {
-	// GetByEntityIDFunc mocks the GetByEntityID method.
-	GetByEntityIDFunc func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error)
-
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error)
 
 	// GetByPropertiesFunc mocks the GetByProperties method.
 	GetByPropertiesFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error)
-
-	// GetContentEntitiesFunc mocks the GetContentEntities method.
-	GetContentEntitiesFunc func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error)
 
 	// GetContentEntityFunc mocks the GetContentEntity method.
 	GetContentEntityFunc func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error)
@@ -618,15 +611,6 @@ type ProjectionMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// GetByEntityID holds details about calls to the GetByEntityID method.
-		GetByEntityID []struct {
-			// Ctxt is the ctxt argument value.
-			Ctxt context.Context
-			// EntityFactory is the entityFactory argument value.
-			EntityFactory model.EntityFactory
-			// ID is the id argument value.
-			ID string
-		}
 		// GetByKey holds details about calls to the GetByKey method.
 		GetByKey []struct {
 			// Ctxt is the ctxt argument value.
@@ -644,23 +628,6 @@ type ProjectionMock struct {
 			EntityFactory model.EntityFactory
 			// Identifiers is the identifiers argument value.
 			Identifiers map[string]interface{}
-		}
-		// GetContentEntities holds details about calls to the GetContentEntities method.
-		GetContentEntities []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// EntityFactory is the entityFactory argument value.
-			EntityFactory model.EntityFactory
-			// Page is the page argument value.
-			Page int
-			// Limit is the limit argument value.
-			Limit int
-			// Query is the query argument value.
-			Query string
-			// SortOptions is the sortOptions argument value.
-			SortOptions map[string]string
-			// FilterOptions is the filterOptions argument value.
-			FilterOptions map[string]interface{}
 		}
 		// GetContentEntity holds details about calls to the GetContentEntity method.
 		GetContentEntity []struct {
@@ -699,53 +666,12 @@ type ProjectionMock struct {
 			Schema *openapi3.Swagger
 		}
 	}
-	lockGetByEntityID      sync.RWMutex
-	lockGetByKey           sync.RWMutex
-	lockGetByProperties    sync.RWMutex
-	lockGetContentEntities sync.RWMutex
-	lockGetContentEntity   sync.RWMutex
-	lockGetEventHandler    sync.RWMutex
-	lockGetList            sync.RWMutex
-	lockMigrate            sync.RWMutex
-}
-
-// GetByEntityID calls GetByEntityIDFunc.
-func (mock *ProjectionMock) GetByEntityID(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
-	if mock.GetByEntityIDFunc == nil {
-		panic("ProjectionMock.GetByEntityIDFunc: method is nil but Projection.GetByEntityID was just called")
-	}
-	callInfo := struct {
-		Ctxt          context.Context
-		EntityFactory model.EntityFactory
-		ID            string
-	}{
-		Ctxt:          ctxt,
-		EntityFactory: entityFactory,
-		ID:            id,
-	}
-	mock.lockGetByEntityID.Lock()
-	mock.calls.GetByEntityID = append(mock.calls.GetByEntityID, callInfo)
-	mock.lockGetByEntityID.Unlock()
-	return mock.GetByEntityIDFunc(ctxt, entityFactory, id)
-}
-
-// GetByEntityIDCalls gets all the calls that were made to GetByEntityID.
-// Check the length with:
-//     len(mockedProjection.GetByEntityIDCalls())
-func (mock *ProjectionMock) GetByEntityIDCalls() []struct {
-	Ctxt          context.Context
-	EntityFactory model.EntityFactory
-	ID            string
-} {
-	var calls []struct {
-		Ctxt          context.Context
-		EntityFactory model.EntityFactory
-		ID            string
-	}
-	mock.lockGetByEntityID.RLock()
-	calls = mock.calls.GetByEntityID
-	mock.lockGetByEntityID.RUnlock()
-	return calls
+	lockGetByKey         sync.RWMutex
+	lockGetByProperties  sync.RWMutex
+	lockGetContentEntity sync.RWMutex
+	lockGetEventHandler  sync.RWMutex
+	lockGetList          sync.RWMutex
+	lockMigrate          sync.RWMutex
 }
 
 // GetByKey calls GetByKeyFunc.
@@ -823,61 +749,6 @@ func (mock *ProjectionMock) GetByPropertiesCalls() []struct {
 	mock.lockGetByProperties.RLock()
 	calls = mock.calls.GetByProperties
 	mock.lockGetByProperties.RUnlock()
-	return calls
-}
-
-// GetContentEntities calls GetContentEntitiesFunc.
-func (mock *ProjectionMock) GetContentEntities(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-	if mock.GetContentEntitiesFunc == nil {
-		panic("ProjectionMock.GetContentEntitiesFunc: method is nil but Projection.GetContentEntities was just called")
-	}
-	callInfo := struct {
-		Ctx           context.Context
-		EntityFactory model.EntityFactory
-		Page          int
-		Limit         int
-		Query         string
-		SortOptions   map[string]string
-		FilterOptions map[string]interface{}
-	}{
-		Ctx:           ctx,
-		EntityFactory: entityFactory,
-		Page:          page,
-		Limit:         limit,
-		Query:         query,
-		SortOptions:   sortOptions,
-		FilterOptions: filterOptions,
-	}
-	mock.lockGetContentEntities.Lock()
-	mock.calls.GetContentEntities = append(mock.calls.GetContentEntities, callInfo)
-	mock.lockGetContentEntities.Unlock()
-	return mock.GetContentEntitiesFunc(ctx, entityFactory, page, limit, query, sortOptions, filterOptions)
-}
-
-// GetContentEntitiesCalls gets all the calls that were made to GetContentEntities.
-// Check the length with:
-//     len(mockedProjection.GetContentEntitiesCalls())
-func (mock *ProjectionMock) GetContentEntitiesCalls() []struct {
-	Ctx           context.Context
-	EntityFactory model.EntityFactory
-	Page          int
-	Limit         int
-	Query         string
-	SortOptions   map[string]string
-	FilterOptions map[string]interface{}
-} {
-	var calls []struct {
-		Ctx           context.Context
-		EntityFactory model.EntityFactory
-		Page          int
-		Limit         int
-		Query         string
-		SortOptions   map[string]string
-		FilterOptions map[string]interface{}
-	}
-	mock.lockGetContentEntities.RLock()
-	calls = mock.calls.GetContentEntities
-	mock.lockGetContentEntities.RUnlock()
 	return calls
 }
 
@@ -1002,7 +873,7 @@ func (mock *ProjectionMock) GetListCalls() []struct {
 }
 
 // Migrate calls MigrateFunc.
-func (mock *ProjectionMock) Migrate(ctx context2.Context, schema *openapi3.Swagger) error {
+func (mock *ProjectionMock) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 	if mock.MigrateFunc == nil {
 		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
 	}
