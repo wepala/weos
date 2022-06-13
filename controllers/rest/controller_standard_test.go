@@ -1017,11 +1017,14 @@ func TestStandardControllers_List(t *testing.T) {
 	mockBlog := map[string]interface{}{"id": "123", "title": "my first blog", "description": "description"}
 	mockBlog1 := map[string]interface{}{"id": "1234", "title": "my first blog1", "description": "description1"}
 
-	array := []map[string]interface{}{}
-	array = append(array, mockBlog, mockBlog1)
+	tarray := []map[string]interface{}{}
+	tarray = append(tarray, mockBlog, mockBlog1)
+	data, _ := json.Marshal(&tarray)
+	var array []*model.ContentEntity
+	json.Unmarshal(data, &array)
 
 	mockProjection := &ProjectionMock{
-		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+		GetListFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
 			return array, 2, nil
 		},
 	}
@@ -1065,11 +1068,11 @@ func TestStandardControllers_List(t *testing.T) {
 		}
 		found := 0
 		for _, blog := range result.Items {
-			if blog["id"] == "123" && blog["title"] == "my first blog" && blog["description"] == "description" {
+			if blog.GetString("id") == "123" && blog.GetString("title") == "my first blog" && blog.GetString("description") == "description" {
 				found++
 				continue
 			}
-			if blog["id"] == "1234" && blog["title"] == "my first blog1" && blog["description"] == "description1" {
+			if blog.GetString("id") == "1234" && blog.GetString("title") == "my first blog1" && blog.GetString("description") == "description1" {
 				found++
 				continue
 			}
@@ -1131,11 +1134,14 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 	mockBlog := map[string]interface{}{"id": "123", "title": "my first blog", "description": "description"}
 	mockBlog1 := map[string]interface{}{"id": "1234", "title": "my first blog1", "description": "description1", "author": map[string]interface{}{"id": "123"}}
 
-	array := []map[string]interface{}{}
-	array = append(array, mockBlog, mockBlog1)
+	tarray := []map[string]interface{}{}
+	tarray = append(tarray, mockBlog, mockBlog1)
+	var array []*model.ContentEntity
+	data, _ := json.Marshal(tarray)
+	json.Unmarshal(data, &array)
 
 	mockProjection := &ProjectionMock{
-		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+		GetListFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
 			if entityFactory == nil {
 				t.Errorf("no entity factory found")
 			}
@@ -1195,11 +1201,11 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 		}
 		found := 0
 		for _, blog := range result.Items {
-			if blog["id"] == "123" && blog["title"] == "my first blog" && blog["description"] == "description" {
+			if blog.GetString("id") == "123" && blog.GetString("title") == "my first blog" && blog.GetString("description") == "description" {
 				found++
 				continue
 			}
-			if blog["id"] == "1234" && blog["title"] == "my first blog1" && blog["description"] == "description1" {
+			if blog.GetString("id") == "1234" && blog.GetString("title") == "my first blog1" && blog.GetString("description") == "description1" {
 				found++
 				continue
 			}
@@ -1336,11 +1342,11 @@ func TestStandardControllers_ListFilters(t *testing.T) {
 		}
 		found := 0
 		for _, blog := range result.Items {
-			if blog["id"] == "123" && blog["title"] == "my first blog" && blog["description"] == "description" {
+			if blog.GetString("id") == "123" && blog.GetString("title") == "my first blog" && blog.GetString("description") == "description" {
 				found++
 				continue
 			}
-			if blog["id"] == "1234" && blog["title"] == "my first blog1" && blog["description"] == "description1" {
+			if blog.GetString("id") == "1234" && blog.GetString("title") == "my first blog1" && blog.GetString("description") == "description1" {
 				found++
 				continue
 			}

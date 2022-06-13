@@ -17,6 +17,18 @@ func TestGORMDB_GORMModel(t *testing.T) {
 		t.Fatalf("unexpected error setting up api: %s", err)
 	}
 	t.Run("setup blog model", func(t *testing.T) {
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
 		contentType1 := "Blog"
 		p1 := map[string]interface{}{"title": "test", "description": "Lorem Ipsum", "url": "https://wepala.com", "created": "2006-01-02T15:04:00Z"}
 		payload1, err := json.Marshal(p1)
@@ -115,6 +127,19 @@ func TestGORMDB_GORMModel(t *testing.T) {
 
 	})
 	t.Run("setup post model", func(t *testing.T) {
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+
 		contentType1 := "Post"
 		p1 := map[string]interface{}{"title": "test", "description": "Lorem Ipsum", "url": "https://wepala.com", "created": "2006-01-02T15:04:00Z"}
 		payload1, err := json.Marshal(p1)
@@ -168,6 +193,19 @@ func TestGORMDB_GORMModel(t *testing.T) {
 
 	})
 	t.Run("setup post model then blog model", func(t *testing.T) {
+		err = gormDB.Migrator().DropTable("blog_posts")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "blog_posts", err)
+		}
+		err = gormDB.Migrator().DropTable("Blog")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Blog", err)
+		}
+		err = gormDB.Migrator().DropTable("Post")
+		if err != nil {
+			t.Errorf("error removing table '%s' '%s'", "Post", err)
+		}
+
 		contentType1 := "Post"
 		p1 := map[string]interface{}{"title": "test", "description": "Lorem Ipsum", "url": "https://wepala.com", "created": "2006-01-02T15:04:00Z"}
 		payload1, err := json.Marshal(p1)

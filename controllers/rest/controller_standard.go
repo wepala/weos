@@ -27,7 +27,7 @@ import (
 )
 
 //CreateMiddleware is used for a single payload. It dispatches this to the model which then validates and creates it.
-func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func CreateMiddleware(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules
@@ -87,7 +87,7 @@ func CreateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 }
 
 //CreateController is used for a single payload. It dispatches this to the model which then validates and creates it.
-func CreateController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func CreateController(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		if weosID := weoscontext.GetEntityID(ctxt.Request().Context()); weosID != "" {
 			var result *model.ContentEntity
@@ -113,7 +113,7 @@ func CreateController(api *RESTAPI, projection projections.Projection, commandDi
 }
 
 //CreateBatchMiddleware is used for an array of payloads. It dispatches this to the model which then validates and creates it.
-func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func CreateBatchMiddleware(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules
@@ -142,14 +142,14 @@ func CreateBatchMiddleware(api *RESTAPI, projection projections.Projection, comm
 }
 
 //CreateBatchController is used for an array of payloads. It dispatches this to the model which then validates and creates it.
-func CreateBatchController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func CreateBatchController(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 
 		return ctxt.JSON(http.StatusCreated, "CreatedBatch")
 	}
 }
 
-func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func UpdateMiddleware(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules
@@ -208,7 +208,7 @@ func UpdateMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
-func UpdateController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func UpdateController(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		var err error
 		var Etag string
@@ -300,14 +300,14 @@ func BulkUpdate(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIt
 	}
 }
 
-func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func APIDiscovery(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
 
 		//get content type expected for 200 response
 		responseType := newContext.Value(weoscontext.RESPONSE_PREFIX + strconv.Itoa(http.StatusOK))
 		if responseType == "application/json" {
-			return ctxt.JSON(http.StatusOK, api.Swagger)
+			return ctxt.JSON(http.StatusOK, api.GetConfig())
 		} else if responseType == "application/html" {
 			return ctxt.Redirect(http.StatusPermanentRedirect, SWAGGERUIENDPOINT)
 		}
@@ -316,7 +316,7 @@ func APIDiscovery(api *RESTAPI, projection projections.Projection, commandDispat
 	}
 }
 
-func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func ViewMiddleware(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			if entityFactory == nil {
@@ -439,7 +439,7 @@ func ViewMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 
 }
 
-func ViewController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func ViewController(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
 
@@ -466,7 +466,7 @@ func ViewController(api *RESTAPI, projection projections.Projection, commandDisp
 	}
 }
 
-func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func ListMiddleware(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			var filterOptions map[string]interface{}
@@ -506,12 +506,12 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 			}
 			var count int64
 			var err error
-			var contentEntities []map[string]interface{}
+			var contentEntities []*model.ContentEntity
 			// sort by default is by id
 			sorts := map[string]string{"id": "asc"}
 
 			if projection != nil {
-				contentEntities, count, err = projection.GetContentEntities(newContext, entityFactory, page, limit, "", sorts, filterOptions)
+				contentEntities, count, err = projection.GetList(newContext, entityFactory, page, limit, "", sorts, filterOptions)
 			}
 
 			if err != nil {
@@ -531,7 +531,7 @@ func ListMiddleware(api *RESTAPI, projection projections.Projection, commandDisp
 	}
 }
 
-func ListController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func ListController(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
@@ -544,7 +544,7 @@ func ListController(api *RESTAPI, projection projections.Projection, commandDisp
 }
 
 //DeleteMiddleware delete entity
-func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func DeleteMiddleware(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			//look up the schema for the content type so that we could identify the rules
@@ -639,7 +639,7 @@ func DeleteMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 }
 
 //DeleteController handle delete
-func DeleteController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func DeleteController(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
 		if weosIDRaw := newContext.Value(weoscontext.WEOS_ID); weosIDRaw != nil {
@@ -667,7 +667,8 @@ func DeleteController(api *RESTAPI, projection projections.Projection, commandDi
 }
 
 //DefaultResponseMiddleware returns a response based on what was specified on an endpoint
-func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func DefaultResponseMiddleware(tapi Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	api := tapi.(*RESTAPI)
 	activatedResponse := false
 	for _, resp := range operation.Responses {
 		if resp.Value.Content != nil {
@@ -684,8 +685,8 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 	folderErr := ""
 	var templates []string
 
-	if api.Swagger != nil {
-		for pathName, pathData := range api.Swagger.Paths {
+	if api.GetConfig() != nil {
+		for pathName, pathData := range api.GetConfig().Paths {
 			if pathData == path {
 				for _, resp := range operation.Responses {
 					if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
@@ -702,7 +703,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 							} else if err != nil {
 								api.e.Logger.Error(err)
 							} else {
-								api.e.Static(api.Config.BasePath+pathName, folderPath)
+								api.e.Static(api.GetWeOSConfig().BasePath+pathName, folderPath)
 							}
 						}
 					}
@@ -881,7 +882,7 @@ func DefaultResponseMiddleware(api *RESTAPI, projection projections.Projection, 
 }
 
 //DefaultResponseController returns responses that was done in the default response middleware
-func DefaultResponseController(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func DefaultResponseController(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		newContext := context.Request().Context()
 		value := newContext.Value(weoscontext.BASIC_RESPONSE)
@@ -902,17 +903,17 @@ func DefaultResponseController(api *RESTAPI, projection projections.Projection, 
 	}
 }
 
-func Get(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func Get(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		//TODO call GetByID
 
 		return ctxt.JSON(200, nil)
 	}
 }
-func HealthCheck(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+func HealthCheck(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		response := &HealthCheckResponse{
-			Version: api.Swagger.Info.Version,
+			Version: api.GetConfig().Info.Version,
 		}
 		return context.JSON(http.StatusOK, response)
 	}
@@ -920,7 +921,8 @@ func HealthCheck(api *RESTAPI, projection projections.Projection, commandDispatc
 }
 
 //OpenIDMiddleware handling JWT in incoming Authorization header
-func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func OpenIDMiddleware(tapi Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	api := tapi.(*RESTAPI)
 	var openIdConnectUrl string
 	securityCheck := true
 	var verifiers []*oidc.IDTokenVerifier
@@ -928,7 +930,7 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 	if operation.Security != nil && len(*operation.Security) == 0 {
 		securityCheck = false
 	}
-	for _, schemes := range api.Swagger.Components.SecuritySchemes {
+	for _, schemes := range api.GetConfig().Components.SecuritySchemes {
 		//checks if the security scheme type is openIdConnect
 		if schemes.Value.Type == "openIdConnect" {
 			//get the open id connect url
@@ -1009,7 +1011,8 @@ func OpenIDMiddleware(api *RESTAPI, projection projections.Projection, commandDi
 	}
 }
 
-func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func LogLevel(tapi Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	api := tapi.(*RESTAPI)
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			newContext := c.Request().Context()
@@ -1035,15 +1038,15 @@ func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher
 			}
 
 			//Sets the logger on the application object
-			if api.Config == nil {
+			if api.GetWeOSConfig() == nil {
 				api.Config = &APIConfig{}
 			}
 
-			if api.Config.Log == nil {
-				api.Config.Log = &model.LogConfig{}
+			if api.GetWeOSConfig().Log == nil {
+				api.GetWeOSConfig().Log = &model.LogConfig{}
 			}
 
-			api.Config.Log.Level = level
+			api.GetWeOSConfig().Log.Level = level
 
 			//Assigns the log level to context
 			newContext = context.WithValue(newContext, weoscontext.HeaderXLogLevel, level)
@@ -1055,7 +1058,7 @@ func LogLevel(api *RESTAPI, projection projections.Projection, commandDispatcher
 }
 
 //ZapLogger switches the echo context logger to be ZapLogger
-func ZapLogger(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func ZapLogger(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			//setting the default logger in the context as zap with the default mode being error
@@ -1070,7 +1073,7 @@ func ZapLogger(api *RESTAPI, projection projections.Projection, commandDispatche
 }
 
 //ContentTypeResponseMiddleware returns the status code and content type response to be use in the context
-func ContentTypeResponseMiddleware(api *RESTAPI, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func ContentTypeResponseMiddleware(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
 			ctx := ctxt.Request().Context()

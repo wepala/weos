@@ -476,6 +476,20 @@ components:
 }
 
 func TestProjections_InitializeCompositeKeyTable(t *testing.T) {
+
+	err := gormDB.Migrator().DropTable("flog_posts")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "flog_posts", err)
+	}
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+	err = gormDB.Migrator().DropTable("Flog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Flog", err)
+	}
+
 	openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -569,21 +583,9 @@ components:
 	}
 	result = gormDB.Table("Flog").Create(map[string]interface{}{"title": "hugs", "author_id": "79"})
 	if result.Error != nil {
-		t.Errorf("expected to create a blog with both a title an author_id, got err '%s'", result.Error)
+		t.Errorf("expected to create a blog with both a title and author_id, got err '%s'", result.Error)
 	}
 
-	err = gormDB.Migrator().DropTable("flog_posts")
-	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "flog_posts", err)
-	}
-	err = gormDB.Migrator().DropTable("Post")
-	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "Post", err)
-	}
-	err = gormDB.Migrator().DropTable("Blog")
-	if err != nil {
-		t.Errorf("error removing table '%s' '%s'", "Blog", err)
-	}
 }
 
 func TestProjections_CreateBasicRelationship(t *testing.T) {
@@ -2228,6 +2230,14 @@ components:
 }
 
 func TestProjections_List(t *testing.T) {
+	err := gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
+	err = gormDB.Migrator().DropTable("Post")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Blog", err)
+	}
 	openAPI := `openapi: 3.0.3
 info:
   title: Blog
@@ -2346,7 +2356,7 @@ components:
 		gormDB.Table("Blog").Create(blog3)
 		gormDB.Table("Blog").Create(blog4)
 
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, nil)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, nil)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2359,10 +2369,10 @@ components:
 		found := 0
 		for _, b := range results {
 			//Because it is sorted by asc order the first two blogs would be in the results
-			if b["title"] == blog["title"] && b["weos_id"] == nil && b["sequence_no"] == nil {
+			if b.GetString("title") == blog["title"] {
 				found++
 			}
-			if b["title"] == blog1["title"] && b["weos_id"] == nil && b["sequence_no"] == nil {
+			if b.GetString("title") == blog1["title"] {
 				found++
 			}
 
@@ -2387,10 +2397,14 @@ components:
 
 		blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "sequence_no": int64(1)}
 		gormDB.Table("Blog").Create(blog)
-		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes", "blog_id": uint(1)})
-		gormDB.Table("Post").Create(map[string]interface{}{"title": "hills have eyes2", "blog_id": uint(1)})
+		post1Data, _ := json.Marshal(map[string]interface{}{"title": "hills have eyes", "weos_id": ksuid.New().String(), "blog": map[string]interface{}{"id": uint(1)}})
+		post1, err := p.GORMModel(postEntityFactory.Name(), postEntityFactory.Schema(), post1Data)
+		post2Data, _ := json.Marshal(map[string]interface{}{"title": "hills have eyes2", "weos_id": ksuid.New().String(), "blog": map[string]interface{}{"id": uint(1)}})
+		post2, err := p.GORMModel(postEntityFactory.Name(), postEntityFactory.Schema(), post2Data)
+		gormDB.Debug().Table("Post").Create(post1)
+		gormDB.Debug().Table("Post").Create(post2)
 
-		results, total, err := p.GetContentEntities(ctxt, postEntityFactory, page, limit, "", sortOptions, nil)
+		results, total, err := p.GetList(ctxt, postEntityFactory, page, limit, "", sortOptions, nil)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2403,7 +2417,7 @@ components:
 		found := 0
 		for _, b := range results {
 			//Because it is sorted by asc order the first post would be in the results
-			if b["blog_id"] == float64(1) {
+			if b.GetInterface("blog") != nil && b.GetInterface("blog").(map[string]interface{})["id"] == float64(1) {
 				found++
 			}
 
@@ -2558,7 +2572,7 @@ components:
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter, filter2.Field: filter2}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2568,8 +2582,8 @@ components:
 		if total != int64(1) {
 			t.Errorf("expected total to be %d got %d", int64(1), total)
 		}
-		if int(results[0]["id"].(float64)) != 1 {
-			t.Errorf("expected result id to be %d got %d", 1, int(results[0]["id"].(float64)))
+		if results[0].GetNumber("id") != float64(1) {
+			t.Errorf("expected result id to be %d got %0.2f", 1, results[0].GetNumber("ID"))
 		}
 	})
 	t.Run("testing filters with the ne operator", func(t *testing.T) {
@@ -2586,7 +2600,7 @@ components:
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2614,7 +2628,7 @@ components:
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Fatalf("error getting content entities: %s", err)
 		}
@@ -2642,7 +2656,7 @@ components:
 			Values:   vals,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Fatalf("error getting content entities: %s", err)
 		}
@@ -2670,7 +2684,7 @@ components:
 			Values:   arrValues,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2698,7 +2712,7 @@ components:
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2726,7 +2740,7 @@ components:
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2760,7 +2774,7 @@ components:
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter, filter2.Field: filter2}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Fatalf("error getting content entities: %s", err)
 		}
@@ -2789,7 +2803,7 @@ components:
 		}
 
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Fatalf("error getting content entities: %s", err)
 		}
@@ -2828,7 +2842,7 @@ components:
 		}
 
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2857,7 +2871,7 @@ components:
 		}
 
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
 		if err == nil {
 			t.Fatalf("expected a date time error but got nil")
 		}
@@ -2883,7 +2897,7 @@ components:
 			Values:   nil,
 		}
 		filters := map[string]interface{}{filter.Field: filter}
-		results, total, err := p.GetContentEntities(ctxt, postEntityFactory, page, limit, "", sortOptions, filters)
+		results, total, err := p.GetList(ctxt, postEntityFactory, page, limit, "", sortOptions, filters)
 		if err != nil {
 			t.Errorf("error getting content entities: %s", err)
 		}
@@ -2893,8 +2907,8 @@ components:
 		if total != int64(1) {
 			t.Errorf("expected total to be %d got %d", int64(1), total)
 		}
-		if int(results[0]["id"].(float64)) != 1 {
-			t.Errorf("expected result id to be %d got %d", 1, int(results[0]["id"].(float64)))
+		if results[0].GetNumber("id") != float64(1) {
+			t.Errorf("expected result id to be %d got %d", 1, results[0].GetInteger("id"))
 		}
 	})
 }
@@ -4277,86 +4291,6 @@ func TestMetaProjection_GetEventHandler(t *testing.T) {
 	})
 }
 
-func TestMetaProjection_GetByEntityID(t *testing.T) {
-	//setup mock projections
-	mockProjection1 := &ProjectionMock{
-		GetByEntityIDFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
-			if id == "123" {
-				entity := make(map[string]interface{})
-				entity["title"] = "Foo"
-				return entity, nil
-			}
-			return nil, nil
-		},
-	}
-
-	mockProjection2 := &ProjectionMock{
-		GetByEntityIDFunc: func(ctxt context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
-			if id == "456" {
-				entity := make(map[string]interface{})
-				entity["title"] = "Bar"
-				return entity, nil
-			}
-
-			if id == "789" {
-				return nil, errors.New("some error")
-			}
-			return nil, nil
-		},
-	}
-
-	//if the entity is found in the first one it should stop
-	t.Run("get entity from second projection", func(t *testing.T) {
-		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		entity, err := metaProjection.GetByEntityID(context.TODO(), nil, "123")
-		if err != nil {
-			t.Fatalf("unexpected error '%s'", err)
-		}
-		if _, ok := entity["title"]; !ok {
-			t.Errorf("expected the entity to have a title")
-		}
-
-		if len(mockProjection2.GetByEntityIDCalls()) > 0 {
-			t.Errorf("didn't expect the second projection to be hit")
-		}
-	})
-
-	//if the entity is not found in the first projection it should go to the next one until it get's a not nil response
-	t.Run("get entity from second projection", func(t *testing.T) {
-		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		entity, err := metaProjection.GetByEntityID(context.TODO(), nil, "456")
-		if err != nil {
-			t.Fatalf("unexpected error '%s'", err)
-		}
-		if _, ok := entity["title"]; !ok {
-			t.Errorf("expected the entity to have a title")
-		}
-	})
-
-	t.Run("should return meta error if no entity is found", func(t *testing.T) {
-		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		_, err := metaProjection.GetByEntityID(context.TODO(), nil, "789")
-		if err == nil {
-			t.Fatal("expected error to be returned")
-		}
-		if err.Error() != "some error" {
-			t.Errorf("expected the error string to be '%s', got '%s'", "some error", err.Error())
-		}
-	})
-
-	t.Run("should return nil if nothing ", func(t *testing.T) {
-		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		entity, err := metaProjection.GetByEntityID(context.TODO(), nil, "798797")
-		if err != nil {
-			t.Errorf("unexpected error '%s'", err)
-		}
-
-		if entity != nil {
-			t.Errorf("expected no entity to be found, got '%v'", entity)
-		}
-	})
-}
-
 func TestMetaProjection_GetContentEntity(t *testing.T) {
 	//setup mock projections
 	mockProjection1 := &ProjectionMock{
@@ -4439,25 +4373,31 @@ func TestMetaProjection_GetContentEntity(t *testing.T) {
 	})
 }
 
-func TestMetaProjection_GetContentEntities(t *testing.T) {
+func TestMetaProjection_GetList(t *testing.T) {
 	//setup mock projections
 	mockProjection1 := &ProjectionMock{
-		GetContentEntitiesFunc: func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+		GetListFunc: func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*weos.ContentEntity, int64, error) {
 			if query == "123" {
 				entity := make(map[string]interface{})
 				entity["title"] = "Foo"
-				return []map[string]interface{}{entity}, 1, nil
+				data, _ := json.Marshal(entity)
+				var centity *weos.ContentEntity
+				json.Unmarshal(data, &centity)
+				return []*weos.ContentEntity{centity}, 1, nil
 			}
 			return nil, 0, nil
 		},
 	}
 
 	mockProjection2 := &ProjectionMock{
-		GetContentEntitiesFunc: func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
+		GetListFunc: func(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*weos.ContentEntity, int64, error) {
 			if query == "456" {
 				entity := make(map[string]interface{})
 				entity["title"] = "Bar"
-				return []map[string]interface{}{entity}, 1, nil
+				data, _ := json.Marshal(entity)
+				var centity *weos.ContentEntity
+				json.Unmarshal(data, &centity)
+				return []*weos.ContentEntity{centity}, 1, nil
 			}
 			if query == "789" {
 				return nil, 0, errors.New("some error")
@@ -4469,7 +4409,7 @@ func TestMetaProjection_GetContentEntities(t *testing.T) {
 	//if the entity is found in the first one it should stop
 	t.Run("get entities from second projection", func(t *testing.T) {
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		entities, _, err := metaProjection.GetContentEntities(context.TODO(), nil, 1, 0, "123", nil, nil)
+		entities, _, err := metaProjection.GetList(context.TODO(), nil, 1, 0, "123", nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error '%s'", err)
 		}
@@ -4477,7 +4417,7 @@ func TestMetaProjection_GetContentEntities(t *testing.T) {
 			t.Errorf("expected entity")
 		}
 
-		if len(mockProjection2.GetContentEntitiesCalls()) > 0 {
+		if len(mockProjection2.GetListCalls()) > 0 {
 			t.Errorf("didn't expect the second projection to be hit")
 		}
 	})
@@ -4485,7 +4425,7 @@ func TestMetaProjection_GetContentEntities(t *testing.T) {
 	//if the entity is not found in the first projection it should go to the next one until it get's a not nil response
 	t.Run("get entity from second projection", func(t *testing.T) {
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		entities, _, err := metaProjection.GetContentEntities(context.TODO(), nil, 1, 0, "456", nil, nil)
+		entities, _, err := metaProjection.GetList(context.TODO(), nil, 1, 0, "456", nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error '%s'", err)
 		}
@@ -4496,7 +4436,7 @@ func TestMetaProjection_GetContentEntities(t *testing.T) {
 
 	t.Run("should return meta error if no entity is found", func(t *testing.T) {
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		_, _, err := metaProjection.GetContentEntities(context.TODO(), nil, 1, 0, "789", nil, nil)
+		_, _, err := metaProjection.GetList(context.TODO(), nil, 1, 0, "789", nil, nil)
 		if err == nil {
 			t.Fatal("expected error to be returned")
 		}
@@ -4507,7 +4447,7 @@ func TestMetaProjection_GetContentEntities(t *testing.T) {
 
 	t.Run("should return nil if nothing ", func(t *testing.T) {
 		metaProjection := new(projections.MetaProjection).Add(mockProjection1).Add(mockProjection2)
-		entities, _, err := metaProjection.GetContentEntities(context.TODO(), nil, 1, 0, "798797", nil, nil)
+		entities, _, err := metaProjection.GetList(context.TODO(), nil, 1, 0, "798797", nil, nil)
 		if err != nil {
 			t.Errorf("unexpected error '%s'", err)
 		}
@@ -4572,7 +4512,7 @@ func TestMetaProjection_GetByKey(t *testing.T) {
 			t.Errorf("expected the entity to have a title")
 		}
 
-		if len(mockProjection2.GetByEntityIDCalls()) > 0 {
+		if len(mockProjection2.GetByKeyCalls()) > 0 {
 			t.Errorf("didn't expect the second projection to be hit")
 		}
 	})

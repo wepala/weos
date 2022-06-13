@@ -180,6 +180,17 @@ func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 	return model, nil
 }
 
+//GORMModels return slice of gorm models
+func (p *GORMDB) GORMModels(name string, schema *openapi3.Schema) (interface{}, error) {
+	builder, _, err := p.GORMModelBuilder(name, schema, 0)
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
+	}
+	model := builder.Build().NewSliceOfStructs()
+	return model, nil
+}
+
 func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) (ds.Builder, map[string]interface{}, error) {
 	titleCaseName := strings.Title(name)
 	//get the builder from "cache". This is to avoid issues with the gorm cache that uses the model interface to create a cache key
@@ -563,44 +574,10 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 	return newEntity, err
 }
 
-//GetContentEntities returns a list of content entities as well as the total found
-func (p *GORMDB) GetContentEntities(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-	var count int64
-	var result *gorm.DB
-	var schemes interface{}
-	if entityFactory == nil {
-		return nil, int64(0), fmt.Errorf("no entity factory found")
-	}
-	var filtersProp map[string]FilterProperty
-	props, _ := json.Marshal(filterOptions)
-	json.Unmarshal(props, &filtersProp)
-	filtersProp, err := DateTimeCheck(entityFactory, filtersProp)
-	if err != nil {
-		return nil, int64(0), err
-	}
-	builder := entityFactory.DynamicStruct(ctx)
-	if builder != nil {
-		schemes = builder.NewSliceOfStructs()
-		scheme, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
-		if err != nil {
-			return nil, 0, err
-		}
-		result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(&scheme).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
-	}
-	bytes, err := json.Marshal(schemes)
-	if err != nil {
-		return nil, 0, err
-	}
-	var entities []map[string]interface{}
-	json.Unmarshal(bytes, &entities)
-	return entities, count, result.Error
-}
-
 //GetList returns a list of content entities as well as the total found
 func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*weos.ContentEntity, int64, error) {
 	var count int64
 	var result *gorm.DB
-	var schemes []*weos.ContentEntity
 	if entityFactory == nil {
 		return nil, int64(0), fmt.Errorf("no entity factory found")
 	}
@@ -612,15 +589,22 @@ func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 		return nil, int64(0), err
 	}
 	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
-	result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(schemes)
+	models, err := p.GORMModels(entityFactory.Name(), entityFactory.Schema())
+	result = p.db.Debug().Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
 	if err != nil {
 		return nil, 0, err
 	}
-	return schemes, count, result.Error
+	var contentEntities []*weos.ContentEntity
+	data, _ := json.Marshal(models)
+	err = json.Unmarshal(data, &contentEntities)
+	if err != nil {
+		return nil, 0, fmt.Errorf("unable to unmarshal result into []ContentEntity '%s'", err)
+	}
+	return contentEntities, count, result.Error
 }
 
 func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
-	results := entityFactory.DynamicStruct(ctxt).NewSliceOfStructs()
+	results, err := p.GORMModels(entityFactory.Name(), entityFactory.Schema())
 	result := p.db.Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
 	if result.Error != nil {
 		p.logger.Errorf("unexpected error retrieving created entity, got: '%s'", result.Error)

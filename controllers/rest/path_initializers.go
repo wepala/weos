@@ -10,7 +10,7 @@ import (
 )
 
 //CORsInitializer sets up CORs for a specific path
-func CORsInitializer(ctxt context.Context, api *RESTAPI, path string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem) (context.Context, error) {
+func CORsInitializer(ctxt context.Context, api Container, path string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem) (context.Context, error) {
 	//update path so that the open api way of specifying url parameters is change to the echo style of url parameters
 	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
 	echoPath := re.ReplaceAllString(path, `:$1`)
@@ -26,7 +26,7 @@ func CORsInitializer(ctxt context.Context, api *RESTAPI, path string, swagger *o
 			AllowMethods: methodsFound,
 		})
 
-		api.EchoInstance().OPTIONS(api.Config.BasePath+echoPath, func(context echo.Context) error {
+		api.(*RESTAPI).EchoInstance().OPTIONS(api.GetWeOSConfig().BasePath+echoPath, func(context echo.Context) error {
 			return nil
 		}, corsMiddleware)
 	}
