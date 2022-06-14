@@ -47,6 +47,7 @@ type RESTAPI struct {
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]projections.Projection
+	logs                           map[string]model.Log
 	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
 	registeredInitializers         map[reflect.Value]int
@@ -341,6 +342,21 @@ func (p *RESTAPI) GetWeOSConfig() *APIConfig {
 	return p.Config
 }
 
+//RegisterLog setup a log
+func (p *RESTAPI) RegisterLog(name string, logger model.Log) {
+	if p.logs == nil {
+		p.logs = make(map[string]model.Log)
+	}
+	p.logs[name] = logger
+}
+
+func (p *RESTAPI) GetLog(name string) (model.Log, error) {
+	if tlog, ok := p.logs[name]; ok {
+		return tlog, nil
+	}
+	return nil, fmt.Errorf("log '%s' not found", name)
+}
+
 const SWAGGERUIENDPOINT = "/_discover/"
 const SWAGGERJSONENDPOINT = "/_discover_json"
 
@@ -368,6 +384,8 @@ func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFun
 
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
+	//register logger
+	p.RegisterLog("Default", p.e.Logger)
 	//register standard controllers
 	p.RegisterController("CreateController", CreateController)
 	p.RegisterController("UpdateController", UpdateController)

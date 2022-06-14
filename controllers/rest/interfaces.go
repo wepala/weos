@@ -1,3 +1,4 @@
+//go:generate moq -out rest_mocks_test.go -pkg rest_test . Container
 package rest
 
 import (
@@ -76,4 +77,8 @@ type Container interface {
 	GetConfig() *openapi3.Swagger
 	//GetWeOSConfig this is the old way of getting the config
 	GetWeOSConfig() *APIConfig
+	//RegisterLog set logger
+	RegisterLog(name string, logger model.Log)
+	//GetLog
+	GetLog(name string) (model.Log, error)
 }
