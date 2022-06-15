@@ -9,6 +9,7 @@ import (
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
+	"net/http"
 )
 
 type (
@@ -81,4 +82,8 @@ type Container interface {
 	RegisterLog(name string, logger model.Log)
 	//GetLog
 	GetLog(name string) (model.Log, error)
+	//RegisterHTTPClient setup http client to use
+	RegisterHTTPClient(name string, client *http.Client)
+	//GetHTTPClient return htpt client
+	GetHTTPClient(name string) (*http.Client, error)
 }
