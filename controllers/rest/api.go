@@ -38,6 +38,7 @@ type RESTAPI struct {
 	Client                         *http.Client
 	projection                     *projections.GORMDB
 	Config                         *APIConfig
+	securityConfiguration          *SecurityConfiguration
 	e                              *echo.Echo
 	PathConfigs                    map[string]*PathConfig
 	Schemas                        map[string]ds.Builder
@@ -370,6 +371,14 @@ func (p *RESTAPI) GetHTTPClient(name string) (*http.Client, error) {
 		return client, nil
 	}
 	return nil, fmt.Errorf("http client '%s' not found", name)
+}
+
+func (p *RESTAPI) RegisterSecurityConfiguration(configuration *SecurityConfiguration) {
+	p.securityConfiguration = configuration
+}
+
+func (p *RESTAPI) GetSecurityConfiguration() *SecurityConfiguration {
+	return p.securityConfiguration
 }
 
 const SWAGGERUIENDPOINT = "/_discover/"

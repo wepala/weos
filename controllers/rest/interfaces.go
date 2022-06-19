@@ -1,4 +1,4 @@
-//go:generate moq -out rest_mocks_test.go -pkg rest_test . Container
+//go:generate moq -out rest_mocks_test.go -pkg rest_test . Container Authenticator
 package rest
 
 import (
@@ -86,4 +86,6 @@ type Container interface {
 	RegisterHTTPClient(name string, client *http.Client)
 	//GetHTTPClient return htpt client
 	GetHTTPClient(name string) (*http.Client, error)
+	RegisterSecurityConfiguration(configuration *SecurityConfiguration)
+	GetSecurityConfiguration() *SecurityConfiguration
 }

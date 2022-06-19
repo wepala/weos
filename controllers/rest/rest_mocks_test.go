@@ -6,6 +6,7 @@ package rest_test
 import (
 	"database/sql"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
 	weos "github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
@@ -72,6 +73,9 @@ var _ rest.Container = &ContainerMock{}
 // 			GetProjectionFunc: func(name string) (projections.Projection, error) {
 // 				panic("mock out the GetProjection method")
 // 			},
+// 			GetSecurityConfigurationFunc: func() *rest.SecurityConfiguration {
+// 				panic("mock out the GetSecurityConfiguration method")
+// 			},
 // 			GetWeOSConfigFunc: func() *rest.APIConfig {
 // 				panic("mock out the GetWeOSConfig method")
 // 			},
@@ -116,6 +120,9 @@ var _ rest.Container = &ContainerMock{}
 // 			},
 // 			RegisterProjectionFunc: func(name string, projection projections.Projection)  {
 // 				panic("mock out the RegisterProjection method")
+// 			},
+// 			RegisterSecurityConfigurationFunc: func(configuration *rest.SecurityConfiguration)  {
+// 				panic("mock out the RegisterSecurityConfiguration method")
 // 			},
 // 		}
 //
@@ -172,6 +179,9 @@ type ContainerMock struct {
 	// GetProjectionFunc mocks the GetProjection method.
 	GetProjectionFunc func(name string) (projections.Projection, error)
 
+	// GetSecurityConfigurationFunc mocks the GetSecurityConfiguration method.
+	GetSecurityConfigurationFunc func() *rest.SecurityConfiguration
+
 	// GetWeOSConfigFunc mocks the GetWeOSConfig method.
 	GetWeOSConfigFunc func() *rest.APIConfig
 
@@ -216,6 +226,9 @@ type ContainerMock struct {
 
 	// RegisterProjectionFunc mocks the RegisterProjection method.
 	RegisterProjectionFunc func(name string, projection projections.Projection)
+
+	// RegisterSecurityConfigurationFunc mocks the RegisterSecurityConfiguration method.
+	RegisterSecurityConfigurationFunc func(configuration *rest.SecurityConfiguration)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -286,6 +299,9 @@ type ContainerMock struct {
 		GetProjection []struct {
 			// Name is the name argument value.
 			Name string
+		}
+		// GetSecurityConfiguration holds details about calls to the GetSecurityConfiguration method.
+		GetSecurityConfiguration []struct {
 		}
 		// GetWeOSConfig holds details about calls to the GetWeOSConfig method.
 		GetWeOSConfig []struct {
@@ -380,38 +396,45 @@ type ContainerMock struct {
 			// Projection is the projection argument value.
 			Projection projections.Projection
 		}
+		// RegisterSecurityConfiguration holds details about calls to the RegisterSecurityConfiguration method.
+		RegisterSecurityConfiguration []struct {
+			// Configuration is the configuration argument value.
+			Configuration *rest.SecurityConfiguration
+		}
 	}
-	lockGetCommandDispatcher         sync.RWMutex
-	lockGetConfig                    sync.RWMutex
-	lockGetController                sync.RWMutex
-	lockGetDBConnection              sync.RWMutex
-	lockGetEntityFactories           sync.RWMutex
-	lockGetEntityFactory             sync.RWMutex
-	lockGetEventStore                sync.RWMutex
-	lockGetGlobalInitializers        sync.RWMutex
-	lockGetGormDBConnection          sync.RWMutex
-	lockGetHTTPClient                sync.RWMutex
-	lockGetLog                       sync.RWMutex
-	lockGetMiddleware                sync.RWMutex
-	lockGetOperationInitializers     sync.RWMutex
-	lockGetPostPathInitializers      sync.RWMutex
-	lockGetPrePathInitializers       sync.RWMutex
-	lockGetProjection                sync.RWMutex
-	lockGetWeOSConfig                sync.RWMutex
-	lockRegisterCommandDispatcher    sync.RWMutex
-	lockRegisterController           sync.RWMutex
-	lockRegisterDBConnection         sync.RWMutex
-	lockRegisterEntityFactory        sync.RWMutex
-	lockRegisterEventStore           sync.RWMutex
-	lockRegisterGORMDB               sync.RWMutex
-	lockRegisterGlobalInitializer    sync.RWMutex
-	lockRegisterHTTPClient           sync.RWMutex
-	lockRegisterLog                  sync.RWMutex
-	lockRegisterMiddleware           sync.RWMutex
-	lockRegisterOperationInitializer sync.RWMutex
-	lockRegisterPostPathInitializer  sync.RWMutex
-	lockRegisterPrePathInitializer   sync.RWMutex
-	lockRegisterProjection           sync.RWMutex
+	lockGetCommandDispatcher          sync.RWMutex
+	lockGetConfig                     sync.RWMutex
+	lockGetController                 sync.RWMutex
+	lockGetDBConnection               sync.RWMutex
+	lockGetEntityFactories            sync.RWMutex
+	lockGetEntityFactory              sync.RWMutex
+	lockGetEventStore                 sync.RWMutex
+	lockGetGlobalInitializers         sync.RWMutex
+	lockGetGormDBConnection           sync.RWMutex
+	lockGetHTTPClient                 sync.RWMutex
+	lockGetLog                        sync.RWMutex
+	lockGetMiddleware                 sync.RWMutex
+	lockGetOperationInitializers      sync.RWMutex
+	lockGetPostPathInitializers       sync.RWMutex
+	lockGetPrePathInitializers        sync.RWMutex
+	lockGetProjection                 sync.RWMutex
+	lockGetSecurityConfiguration      sync.RWMutex
+	lockGetWeOSConfig                 sync.RWMutex
+	lockRegisterCommandDispatcher     sync.RWMutex
+	lockRegisterController            sync.RWMutex
+	lockRegisterDBConnection          sync.RWMutex
+	lockRegisterEntityFactory         sync.RWMutex
+	lockRegisterEventStore            sync.RWMutex
+	lockRegisterGORMDB                sync.RWMutex
+	lockRegisterGlobalInitializer     sync.RWMutex
+	lockRegisterHTTPClient            sync.RWMutex
+	lockRegisterLog                   sync.RWMutex
+	lockRegisterMiddleware            sync.RWMutex
+	lockRegisterOperationInitializer  sync.RWMutex
+	lockRegisterPostPathInitializer   sync.RWMutex
+	lockRegisterPrePathInitializer    sync.RWMutex
+	lockRegisterProjection            sync.RWMutex
+	lockRegisterSecurityConfiguration sync.RWMutex
 }
 
 // GetCommandDispatcher calls GetCommandDispatcherFunc.
@@ -877,6 +900,32 @@ func (mock *ContainerMock) GetProjectionCalls() []struct {
 	mock.lockGetProjection.RLock()
 	calls = mock.calls.GetProjection
 	mock.lockGetProjection.RUnlock()
+	return calls
+}
+
+// GetSecurityConfiguration calls GetSecurityConfigurationFunc.
+func (mock *ContainerMock) GetSecurityConfiguration() *rest.SecurityConfiguration {
+	if mock.GetSecurityConfigurationFunc == nil {
+		panic("ContainerMock.GetSecurityConfigurationFunc: method is nil but Container.GetSecurityConfiguration was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockGetSecurityConfiguration.Lock()
+	mock.calls.GetSecurityConfiguration = append(mock.calls.GetSecurityConfiguration, callInfo)
+	mock.lockGetSecurityConfiguration.Unlock()
+	return mock.GetSecurityConfigurationFunc()
+}
+
+// GetSecurityConfigurationCalls gets all the calls that were made to GetSecurityConfiguration.
+// Check the length with:
+//     len(mockedContainer.GetSecurityConfigurationCalls())
+func (mock *ContainerMock) GetSecurityConfigurationCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockGetSecurityConfiguration.RLock()
+	calls = mock.calls.GetSecurityConfiguration
+	mock.lockGetSecurityConfiguration.RUnlock()
 	return calls
 }
 
@@ -1377,5 +1426,144 @@ func (mock *ContainerMock) RegisterProjectionCalls() []struct {
 	mock.lockRegisterProjection.RLock()
 	calls = mock.calls.RegisterProjection
 	mock.lockRegisterProjection.RUnlock()
+	return calls
+}
+
+// RegisterSecurityConfiguration calls RegisterSecurityConfigurationFunc.
+func (mock *ContainerMock) RegisterSecurityConfiguration(configuration *rest.SecurityConfiguration) {
+	if mock.RegisterSecurityConfigurationFunc == nil {
+		panic("ContainerMock.RegisterSecurityConfigurationFunc: method is nil but Container.RegisterSecurityConfiguration was just called")
+	}
+	callInfo := struct {
+		Configuration *rest.SecurityConfiguration
+	}{
+		Configuration: configuration,
+	}
+	mock.lockRegisterSecurityConfiguration.Lock()
+	mock.calls.RegisterSecurityConfiguration = append(mock.calls.RegisterSecurityConfiguration, callInfo)
+	mock.lockRegisterSecurityConfiguration.Unlock()
+	mock.RegisterSecurityConfigurationFunc(configuration)
+}
+
+// RegisterSecurityConfigurationCalls gets all the calls that were made to RegisterSecurityConfiguration.
+// Check the length with:
+//     len(mockedContainer.RegisterSecurityConfigurationCalls())
+func (mock *ContainerMock) RegisterSecurityConfigurationCalls() []struct {
+	Configuration *rest.SecurityConfiguration
+} {
+	var calls []struct {
+		Configuration *rest.SecurityConfiguration
+	}
+	mock.lockRegisterSecurityConfiguration.RLock()
+	calls = mock.calls.RegisterSecurityConfiguration
+	mock.lockRegisterSecurityConfiguration.RUnlock()
+	return calls
+}
+
+// Ensure, that AuthenticatorMock does implement rest.Authenticator.
+// If this is not the case, regenerate this file with moq.
+var _ rest.Authenticator = &AuthenticatorMock{}
+
+// AuthenticatorMock is a mock implementation of rest.Authenticator.
+//
+// 	func TestSomethingThatUsesAuthenticator(t *testing.T) {
+//
+// 		// make and configure a mocked rest.Authenticator
+// 		mockedAuthenticator := &AuthenticatorMock{
+// 			AuthenticateFunc: func(ctxt echo.Context) (bool, error) {
+// 				panic("mock out the Authenticate method")
+// 			},
+// 			FromSchemaFunc: func(scheme *openapi3.SecurityScheme) (rest.Authenticator, error) {
+// 				panic("mock out the FromSchema method")
+// 			},
+// 		}
+//
+// 		// use mockedAuthenticator in code that requires rest.Authenticator
+// 		// and then make assertions.
+//
+// 	}
+type AuthenticatorMock struct {
+	// AuthenticateFunc mocks the Authenticate method.
+	AuthenticateFunc func(ctxt echo.Context) (bool, error)
+
+	// FromSchemaFunc mocks the FromSchema method.
+	FromSchemaFunc func(scheme *openapi3.SecurityScheme) (rest.Authenticator, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Authenticate holds details about calls to the Authenticate method.
+		Authenticate []struct {
+			// Ctxt is the ctxt argument value.
+			Ctxt echo.Context
+		}
+		// FromSchema holds details about calls to the FromSchema method.
+		FromSchema []struct {
+			// Scheme is the scheme argument value.
+			Scheme *openapi3.SecurityScheme
+		}
+	}
+	lockAuthenticate sync.RWMutex
+	lockFromSchema   sync.RWMutex
+}
+
+// Authenticate calls AuthenticateFunc.
+func (mock *AuthenticatorMock) Authenticate(ctxt echo.Context) (bool, error) {
+	if mock.AuthenticateFunc == nil {
+		panic("AuthenticatorMock.AuthenticateFunc: method is nil but Authenticator.Authenticate was just called")
+	}
+	callInfo := struct {
+		Ctxt echo.Context
+	}{
+		Ctxt: ctxt,
+	}
+	mock.lockAuthenticate.Lock()
+	mock.calls.Authenticate = append(mock.calls.Authenticate, callInfo)
+	mock.lockAuthenticate.Unlock()
+	return mock.AuthenticateFunc(ctxt)
+}
+
+// AuthenticateCalls gets all the calls that were made to Authenticate.
+// Check the length with:
+//     len(mockedAuthenticator.AuthenticateCalls())
+func (mock *AuthenticatorMock) AuthenticateCalls() []struct {
+	Ctxt echo.Context
+} {
+	var calls []struct {
+		Ctxt echo.Context
+	}
+	mock.lockAuthenticate.RLock()
+	calls = mock.calls.Authenticate
+	mock.lockAuthenticate.RUnlock()
+	return calls
+}
+
+// FromSchema calls FromSchemaFunc.
+func (mock *AuthenticatorMock) FromSchema(scheme *openapi3.SecurityScheme) (rest.Authenticator, error) {
+	if mock.FromSchemaFunc == nil {
+		panic("AuthenticatorMock.FromSchemaFunc: method is nil but Authenticator.FromSchema was just called")
+	}
+	callInfo := struct {
+		Scheme *openapi3.SecurityScheme
+	}{
+		Scheme: scheme,
+	}
+	mock.lockFromSchema.Lock()
+	mock.calls.FromSchema = append(mock.calls.FromSchema, callInfo)
+	mock.lockFromSchema.Unlock()
+	return mock.FromSchemaFunc(scheme)
+}
+
+// FromSchemaCalls gets all the calls that were made to FromSchema.
+// Check the length with:
+//     len(mockedAuthenticator.FromSchemaCalls())
+func (mock *AuthenticatorMock) FromSchemaCalls() []struct {
+	Scheme *openapi3.SecurityScheme
+} {
+	var calls []struct {
+		Scheme *openapi3.SecurityScheme
+	}
+	mock.lockFromSchema.RLock()
+	calls = mock.calls.FromSchema
+	mock.lockFromSchema.RUnlock()
 	return calls
 }
