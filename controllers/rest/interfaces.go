@@ -1,4 +1,4 @@
-//go:generate moq -out rest_mocks_test.go -pkg rest_test . Container Authenticator
+//go:generate moq -out rest_mocks_test.go -pkg rest_test . Container Validator
 package rest
 
 import (

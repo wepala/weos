@@ -432,7 +432,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
-	p.RegisterMiddleware("OpenIDMiddleware", OpenIDMiddleware)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)

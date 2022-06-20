@@ -690,7 +690,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
     When the "OpenAPI 3.0" specification is parsed
     Then an error should be returned
 
-  @WEOS-1519
+  @WEOS-1519 @skipped
   Scenario: User Denied based on id not being in the allow list
 
     In order to support JWT from different authentication services, the developer should be able to specify which part of
@@ -705,7 +705,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
     Then a 403 response should be returned
 
 
-  @WEOS-1519
+  @WEOS-1519 @skipped
   Scenario: User Allowed based on the role being on the allow list
 
   In order to support JWT from different authentication services, the developer should be able to specify which part of
@@ -716,7 +716,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
     Then a 200 response should be returned
 
 
-  @WEOS-1519
+  @WEOS-1519 @skipped
   Scenario: User denied based on the role being on the deny list
 
     Given "Sojourner" is on the "Blog" edit screen with id "1234"

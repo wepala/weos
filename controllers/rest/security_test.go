@@ -20,8 +20,8 @@ func TestSecurityConfiguration_FromSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error setting up security configuration '%s'", err)
 		}
-		if len(config.Validators) != 1 {
-			t.Errorf("expected %d authenticators to be setup, got %d", 1, len(config.Validators))
+		if len(config.Validators) != 2 {
+			t.Errorf("expected %d authenticators to be setup, got %d", 2, len(config.Validators))
 		}
 	})
 	t.Run("set unrecognized authenticator", func(t *testing.T) {
@@ -50,8 +50,8 @@ func TestSecurityConfiguration_Middleware(t *testing.T) {
 			t.Fatalf("unexpected error setting up security configuration '%s'", err)
 		}
 		//set mock authenticator so we can check that is was set and called
-		mockAuthenticator := &AuthenticatorMock{AuthenticateFunc: func(ctxt echo.Context) (bool, error) {
-			return true, nil
+		mockAuthenticator := &ValidatorMock{ValidateFunc: func(ctxt echo.Context) (bool, interface{}, string, string, error) {
+			return true, nil, "", "", nil
 		}}
 		config.Validators["Auth0"] = mockAuthenticator
 		//find path with no security scheme set
@@ -87,8 +87,8 @@ func TestSecurityConfiguration_Middleware(t *testing.T) {
 		e.POST("/blogs", handler)
 		e.ServeHTTP(resp, req)
 
-		if len(mockAuthenticator.AuthenticateCalls()) != 1 {
-			t.Errorf("expected the mock authenticator to be called %d time, called %d times", 1, len(mockAuthenticator.AuthenticateCalls()))
+		if len(mockAuthenticator.ValidateCalls()) != 1 {
+			t.Errorf("expected the mock authenticator to be called %d time, called %d times", 1, len(mockAuthenticator.ValidateCalls()))
 		}
 
 		if !nextMiddlewareHit {

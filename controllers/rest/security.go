@@ -1,10 +1,12 @@
 package rest
 
 import (
+	"context"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
+	context2 "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"net/http"
@@ -12,7 +14,8 @@ import (
 
 //Validator interface that must be implemented so that a request can be authenticated
 type Validator interface {
-	Validate(ctxt echo.Context) (bool, error)
+	//Validate validate and return token, user, role
+	Validate(ctxt echo.Context) (bool, interface{}, string, string, error)
 	FromSchema(scheme *openapi3.SecurityScheme) (Validator, error)
 }
 
@@ -74,13 +77,21 @@ func (s *SecurityConfiguration) Middleware(api Container, projection projections
 			for _, validator := range validators {
 				var success bool
 				var err error
-				if success, err = validator.Validate(ctxt); success {
+				var userID string
+				if success, _, userID, _, err = validator.Validate(ctxt); success {
+					newContext := context.WithValue(ctxt.Request().Context(), context2.USER_ID, userID)
+					request := ctxt.Request().WithContext(newContext)
+					ctxt.SetRequest(request)
 					return next(ctxt)
-				} else {
-					ctxt.Logger().Debugf("error authenticating '%s'", err)
 				}
+				ctxt.Logger().Debugf("error authenticating '%s'", err)
 			}
-			return ctxt.NoContent(http.StatusForbidden)
+			//if there were validators configured then return un authorized status code
+			if len(validators) > 0 {
+				return ctxt.NoContent(http.StatusUnauthorized)
+			}
+
+			return next(ctxt)
 		}
 	}
 }

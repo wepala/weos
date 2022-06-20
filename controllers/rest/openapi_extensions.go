@@ -41,6 +41,9 @@ const UniqueExtension = "x-unique"
 //OpenIDConnectUrlExtension set the open id connect url
 const OpenIDConnectUrlExtension = "openIdConnectUrl"
 
+//JWTMapExtension map claims to user and role
+const JWTMapExtension = "x-jwt-map"
+
 //SkipExpiryCheckExtension set the expiry check
 const SkipExpiryCheckExtension = "x-skip-expiry-check"
 

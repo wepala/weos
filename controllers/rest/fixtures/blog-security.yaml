@@ -29,22 +29,16 @@ x-weos-config:
       - ZapLogger
 components:
   securitySchemes:
-    Auth0:
+    WeAuth:
       type: openIdConnect
       openIdConnectUrl: https://weauth-dev.weos.sh/.well-known/openid-configuration
+      x-jwt-map:
+        user: sub
+        role: tag
+    Auth0:
+      type: openIdConnect
+      openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
       x-skip-expiry-check: true
-    Auth02:
-      type: oauth2
-      flows:
-        authorizationCode:
-          authorizationUrl: https://dev-bhjqt6zc.us.auth0.com/authorize
-          tokenUrl: https://dev-bhjqt6zc.us.auth0.com/oauth/token
-          scopes:
-            openid: Open Id
-            profile: Read profile data
-            offline_access: Access information without valid token
-            name: User name
-            email: User email address
 
   schemas:
     Category:
@@ -149,7 +143,6 @@ paths:
       x-controller: HealthCheck
       x-middleware:
         - Recover
-        - OpenIDMiddleware
       responses:
         200:
           description: Health Response
@@ -195,8 +188,6 @@ paths:
           name: Authorization
           schema:
             type: string
-      x-middleware:
-        - OpenIDMiddleware
       requestBody:
         description: Blog info that is submitted
         required: true
