@@ -31,8 +31,21 @@ components:
   securitySchemes:
     Auth0:
       type: openIdConnect
-      openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
+      openIdConnectUrl: https://weauth-dev.weos.sh/.well-known/openid-configuration
       x-skip-expiry-check: true
+    Auth02:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://dev-bhjqt6zc.us.auth0.com/authorize
+          tokenUrl: https://dev-bhjqt6zc.us.auth0.com/oauth/token
+          scopes:
+            openid: Open Id
+            profile: Read profile data
+            offline_access: Access information without valid token
+            name: User name
+            email: User email address
+
   schemas:
     Category:
       type: object
@@ -319,6 +332,8 @@ paths:
             format: double
       summary: Get Blog by id
       operationId: Get Blog
+      security:
+        - Auth02: ["email"]
       responses:
         200:
           description: Blog details without any supporting collections

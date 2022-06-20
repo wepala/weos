@@ -20,8 +20,8 @@ func TestSecurityConfiguration_FromSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error setting up security configuration '%s'", err)
 		}
-		if len(config.Authenticators) != 1 {
-			t.Errorf("expected %d authenticators to be setup, got %d", 1, len(config.Authenticators))
+		if len(config.Validators) != 1 {
+			t.Errorf("expected %d authenticators to be setup, got %d", 1, len(config.Validators))
 		}
 	})
 	t.Run("set unrecognized authenticator", func(t *testing.T) {
@@ -33,8 +33,8 @@ func TestSecurityConfiguration_FromSchema(t *testing.T) {
 		if err == nil {
 			t.Error("unexpected error for invalid securityScheme type")
 		}
-		if len(config.Authenticators) > 0 {
-			t.Errorf("expected %d authenticators to be setup, got %d", 0, len(config.Authenticators))
+		if len(config.Validators) > 0 {
+			t.Errorf("expected %d authenticators to be setup, got %d", 0, len(config.Validators))
 		}
 	})
 }
@@ -53,7 +53,7 @@ func TestSecurityConfiguration_Middleware(t *testing.T) {
 		mockAuthenticator := &AuthenticatorMock{AuthenticateFunc: func(ctxt echo.Context) (bool, error) {
 			return true, nil
 		}}
-		config.Authenticators["Auth0"] = mockAuthenticator
+		config.Validators["Auth0"] = mockAuthenticator
 		//find path with no security scheme set
 		path := swagger.Paths.Find("/blogs")
 		container := &ContainerMock{

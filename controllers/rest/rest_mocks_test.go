@@ -1460,38 +1460,38 @@ func (mock *ContainerMock) RegisterSecurityConfigurationCalls() []struct {
 	return calls
 }
 
-// Ensure, that AuthenticatorMock does implement rest.Authenticator.
+// Ensure, that AuthenticatorMock does implement rest.Validator.
 // If this is not the case, regenerate this file with moq.
-var _ rest.Authenticator = &AuthenticatorMock{}
+var _ rest.Validator = &AuthenticatorMock{}
 
-// AuthenticatorMock is a mock implementation of rest.Authenticator.
+// AuthenticatorMock is a mock implementation of rest.Validator.
 //
 // 	func TestSomethingThatUsesAuthenticator(t *testing.T) {
 //
-// 		// make and configure a mocked rest.Authenticator
+// 		// make and configure a mocked rest.Validator
 // 		mockedAuthenticator := &AuthenticatorMock{
 // 			AuthenticateFunc: func(ctxt echo.Context) (bool, error) {
-// 				panic("mock out the Authenticate method")
+// 				panic("mock out the Validate method")
 // 			},
-// 			FromSchemaFunc: func(scheme *openapi3.SecurityScheme) (rest.Authenticator, error) {
+// 			FromSchemaFunc: func(scheme *openapi3.SecurityScheme) (rest.Validator, error) {
 // 				panic("mock out the FromSchema method")
 // 			},
 // 		}
 //
-// 		// use mockedAuthenticator in code that requires rest.Authenticator
+// 		// use mockedAuthenticator in code that requires rest.Validator
 // 		// and then make assertions.
 //
 // 	}
 type AuthenticatorMock struct {
-	// AuthenticateFunc mocks the Authenticate method.
+	// AuthenticateFunc mocks the Validate method.
 	AuthenticateFunc func(ctxt echo.Context) (bool, error)
 
 	// FromSchemaFunc mocks the FromSchema method.
-	FromSchemaFunc func(scheme *openapi3.SecurityScheme) (rest.Authenticator, error)
+	FromSchemaFunc func(scheme *openapi3.SecurityScheme) (rest.Validator, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// Authenticate holds details about calls to the Authenticate method.
+		// Validate holds details about calls to the Validate method.
 		Authenticate []struct {
 			// Ctxt is the ctxt argument value.
 			Ctxt echo.Context
@@ -1506,10 +1506,10 @@ type AuthenticatorMock struct {
 	lockFromSchema   sync.RWMutex
 }
 
-// Authenticate calls AuthenticateFunc.
-func (mock *AuthenticatorMock) Authenticate(ctxt echo.Context) (bool, error) {
+// Validate calls AuthenticateFunc.
+func (mock *AuthenticatorMock) Validate(ctxt echo.Context) (bool, error) {
 	if mock.AuthenticateFunc == nil {
-		panic("AuthenticatorMock.AuthenticateFunc: method is nil but Authenticator.Authenticate was just called")
+		panic("AuthenticatorMock.AuthenticateFunc: method is nil but Validator.Validate was just called")
 	}
 	callInfo := struct {
 		Ctxt echo.Context
@@ -1522,7 +1522,7 @@ func (mock *AuthenticatorMock) Authenticate(ctxt echo.Context) (bool, error) {
 	return mock.AuthenticateFunc(ctxt)
 }
 
-// AuthenticateCalls gets all the calls that were made to Authenticate.
+// AuthenticateCalls gets all the calls that were made to Validate.
 // Check the length with:
 //     len(mockedAuthenticator.AuthenticateCalls())
 func (mock *AuthenticatorMock) AuthenticateCalls() []struct {
@@ -1538,9 +1538,9 @@ func (mock *AuthenticatorMock) AuthenticateCalls() []struct {
 }
 
 // FromSchema calls FromSchemaFunc.
-func (mock *AuthenticatorMock) FromSchema(scheme *openapi3.SecurityScheme) (rest.Authenticator, error) {
+func (mock *AuthenticatorMock) FromSchema(scheme *openapi3.SecurityScheme) (rest.Validator, error) {
 	if mock.FromSchemaFunc == nil {
-		panic("AuthenticatorMock.FromSchemaFunc: method is nil but Authenticator.FromSchema was just called")
+		panic("AuthenticatorMock.FromSchemaFunc: method is nil but Validator.FromSchema was just called")
 	}
 	callInfo := struct {
 		Scheme *openapi3.SecurityScheme
