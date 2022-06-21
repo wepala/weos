@@ -3,13 +3,16 @@ package rest
 import (
 	"context"
 	"fmt"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 	context2 "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"net/http"
+	"strings"
 )
 
 //Validator interface that must be implemented so that a request can be authenticated
@@ -73,15 +76,67 @@ func (s *SecurityConfiguration) Middleware(api Container, projection projections
 	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
+			var success bool
+			var err error
+			var userID string
+			var ttoken interface{} //parsed token
+			var role string
 			//loop through the validators and go to the next middleware when one authenticates otherwise return 403
 			for _, validator := range validators {
-				var success bool
-				var err error
-				var userID string
-				if success, _, userID, _, err = validator.Validate(ctxt); success {
+				if success, ttoken, userID, role, err = validator.Validate(ctxt); success {
 					newContext := context.WithValue(ctxt.Request().Context(), context2.USER_ID, userID)
+					newContext = context.WithValue(newContext, context2.ROLE, role)
 					request := ctxt.Request().WithContext(newContext)
 					ctxt.SetRequest(request)
+					//check the scopes of the logged-in user against what is required and if the user doesn't have the required scope deny access
+					for _, securityScheme := range securitySchemes {
+						for _, scopes := range securityScheme {
+							for _, scope := range scopes {
+								//account for the different token types that could be returned
+								switch t := ttoken.(type) {
+								case *oidc.IDToken:
+									claims := make(map[string]interface{})
+									err = t.Claims(&claims)
+									if err != nil {
+										ctxt.Logger().Debugf("invalid claims '%s'", err)
+									}
+									if _, ok := claims["scope"]; !ok {
+										ctxt.Logger().Debug("token from issuer '%s' does not have scopes", t.Issuer)
+										return ctxt.NoContent(http.StatusForbidden)
+									}
+									//if the required scope is not in the user scope
+									if !strings.Contains(claims["scope"].(string), scope) {
+										ctxt.Logger().Debug("token from issuer '%s' does not have required scope '%s'", t.Issuer, scope)
+										return ctxt.NoContent(http.StatusForbidden)
+									}
+								case *jwt.Token:
+									if claims, ok := t.Claims.(jwt.MapClaims); ok {
+										if _, ok := claims["scope"]; !ok {
+											ctxt.Logger().Debug("token from issuer '%s' does not have scopes", claims["iss"])
+											return ctxt.NoContent(http.StatusForbidden)
+										}
+										//if the required scope is not in the user scope
+										if !strings.Contains(claims["scope"].(string), scope) {
+											ctxt.Logger().Debug("token from issuer '%s' does not have required scope '%s'", claims["iss"], scope)
+											return ctxt.NoContent(http.StatusForbidden)
+										}
+									}
+								}
+							}
+						}
+					}
+					//check permissions to ensure the user can access this endpoint
+					if enforcer, err := api.GetPermissionEnforcer("Default"); err == nil {
+						success, err = enforcer.Enforce(userID, ctxt.Request().URL.Path, ctxt.Request().Method)
+						//fmt.Printf("explanations %v", explanations)
+						if err != nil {
+							ctxt.Logger().Errorf("error looking up permissions '%s'", err)
+						}
+						if success {
+							return next(ctxt)
+						}
+						return ctxt.NoContent(http.StatusForbidden)
+					}
 					return next(ctxt)
 				}
 				ctxt.Logger().Debugf("error authenticating '%s'", err)

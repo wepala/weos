@@ -469,6 +469,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterOperationInitializer(ContentTypeResponseInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
 	p.RegisterOperationInitializer(UserDefinedInitializer)
+	p.RegisterOperationInitializer(AuthorizationInitializer)
 	p.RegisterOperationInitializer(StandardInitializer)
 	p.RegisterOperationInitializer(RouteInitializer)
 	//register standard post path initializers

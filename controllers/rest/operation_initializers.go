@@ -79,14 +79,25 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 		}
 		//add rule to the enforcer based on the operation
 		var authConfig map[string]interface{}
-		if err = json.Unmarshal(authRaw.(json.RawMessage), &authConfig); err != nil {
+		if err = json.Unmarshal(authRaw.(json.RawMessage), &authConfig); err == nil {
 			if allowRules, ok := authConfig["allow"]; ok {
+				//setup users
 				if u, ok := allowRules.(map[string]interface{})["users"]; ok {
-					for _, user := range u.([]string) {
+					for _, user := range u.([]interface{}) {
 						var success bool
-						success, err = enforcer.AddPolicy(user, path, method)
+						success, err = enforcer.AddPolicy(user.(string), path, method)
 						if !success {
-
+							//TODO show warning to developer or something
+						}
+					}
+				}
+				//setup roles
+				if u, ok := allowRules.(map[string]interface{})["roles"]; ok {
+					for _, user := range u.([]interface{}) {
+						var success bool
+						success, err = enforcer.AddPolicy(user.(string), path, method)
+						if !success {
+							//TODO show warning to developer or something
 						}
 					}
 				}

@@ -133,7 +133,7 @@ components:
           format: date-time
           nullable: true
 security:
-  - Auth0: ["email","name"]
+  - Auth0: ["email"]
 
 paths:
   /health:
@@ -328,7 +328,7 @@ paths:
       summary: Get Blog by id
       operationId: Get Blog
       security:
-        - Auth02: ["email"]
+        - Auth0: ["name"]
       responses:
         200:
           description: Blog details without any supporting collections
@@ -702,6 +702,10 @@ paths:
             format: email
           required: true
       summary: Update Author details
+      x-auth:
+        allow:
+          users:
+            - auth0|1234
       requestBody:
         required: true
         content:
