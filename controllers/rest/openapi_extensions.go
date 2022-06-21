@@ -47,6 +47,9 @@ const JWTMapExtension = "x-jwt-map"
 //SkipExpiryCheckExtension set the expiry check
 const SkipExpiryCheckExtension = "x-skip-expiry-check"
 
+//AuthorizationConfigExtension setup authorization
+const AuthorizationConfigExtension = "x-auth"
+
 //FolderExtension set staticFolder folder
 const FolderExtension = "x-folder"
 

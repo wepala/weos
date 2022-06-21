@@ -1,6 +1,8 @@
 package rest_test
 
 import (
+	"fmt"
+	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	weoscontext "github.com/wepala/weos/context"
@@ -8,6 +10,7 @@ import (
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
+	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -394,6 +397,40 @@ func TestGettersForOperationFunctions(t *testing.T) {
 		builders := rest.GetSchemaBuilders(ctx)
 		if builders == nil {
 			t.Errorf("unexpected error expected map of builders to be returned got nil")
+		}
+	})
+}
+
+func TestAuthorizationInitializer(t *testing.T) {
+	api, err := rest.New("./fixtures/blog-security.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading api '%s'", err)
+	}
+	err = api.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error initializing api '%s'", err)
+	}
+	swagger := api.Swagger
+
+	t.Run("setup default enforcer", func(t *testing.T) {
+		container := &ContainerMock{
+			GetPermissionEnforcerFunc: func(name string) (*casbin.Enforcer, error) {
+				return nil, fmt.Errorf("enforcer named '%s' not found", name)
+			},
+			RegisterPermissionEnforcerFunc: func(name string, enforcer *casbin.Enforcer) {
+
+			},
+			GetGormDBConnectionFunc: func(name string) (*gorm.DB, error) {
+				return api.GetGormDBConnection(name)
+			},
+		}
+		path := swagger.Paths.Find("/blogs")
+		_, err := rest.AuthorizationInitializer(context.TODO(), container, "/blogs", "POST", swagger, path, path.Post)
+		if err != nil {
+			t.Fatalf("unexpected error setting up authorization '%s'", err)
+		}
+		if len(container.RegisterPermissionEnforcerCalls()) != 1 {
+			t.Fatalf("expected default enforcer to be set")
 		}
 	})
 }

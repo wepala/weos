@@ -24,6 +24,11 @@ type Migrator struct {
 	migrator.Migrator
 }
 
+// BuildIndexOptionsInterface build index options interface
+type BuildIndexOptionsInterface interface {
+	BuildIndexOptions([]schema.IndexOption, *gorm.Statement) []interface{}
+}
+
 // AutoMigrate
 func (m Migrator) AutoMigrate(values ...interface{}) error {
 	for _, value := range m.ReorderModels(values, true) {
@@ -34,14 +39,14 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 			}
 		} else {
 			if err := m.RunWithValue(value, func(stmt *gorm.Statement) (errr error) {
-
 				columnTypes, _ := m.DB.Migrator().ColumnTypes(value)
 
-				for _, field := range stmt.Schema.FieldsByDBName {
+				for _, dbName := range stmt.Schema.DBNames {
+					field := stmt.Schema.FieldsByDBName[dbName]
 					var foundColumn gorm.ColumnType
 
 					for _, columnType := range columnTypes {
-						if columnType.Name() == field.DBName {
+						if columnType.Name() == dbName {
 							foundColumn = columnType
 							break
 						}
@@ -49,7 +54,7 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 
 					if foundColumn == nil {
 						// not found, add column
-						if err := tx.Migrator().AddColumn(value, field.DBName); err != nil {
+						if err := tx.Migrator().AddColumn(value, dbName); err != nil {
 							return err
 						}
 					} else if err := m.DB.Migrator().MigrateColumn(value, field, foundColumn); err != nil {
@@ -182,7 +187,7 @@ func (m Migrator) CreateTable(values ...interface{}) error {
 					}
 
 					createTableSQL += ","
-					values = append(values, clause.Expr{SQL: idx.Name}, tx.Migrator().(migrator.BuildIndexOptionsInterface).BuildIndexOptions(idx.Fields, stmt))
+					values = append(values, clause.Expr{SQL: idx.Name}, tx.Migrator().(BuildIndexOptionsInterface).BuildIndexOptions(idx.Fields, stmt))
 				}
 			}
 
@@ -389,6 +394,30 @@ func (m Migrator) MigrateColumn(value interface{}, field *schema.Field, columnTy
 		}
 	}
 
+	// check unique
+	if unique, ok := columnType.Unique(); ok && unique != field.Unique {
+		// not primary key
+		if !field.PrimaryKey {
+			alterColumn = true
+		}
+	}
+
+	// check default value
+	if v, ok := columnType.DefaultValue(); ok && v != field.DefaultValue {
+		// not primary key
+		if !field.PrimaryKey {
+			alterColumn = true
+		}
+	}
+
+	// check comment
+	if comment, ok := columnType.Comment(); ok && comment != field.Comment {
+		// not primary key
+		if !field.PrimaryKey {
+			alterColumn = true
+		}
+	}
+
 	if alterColumn && !field.IgnoreMigration {
 		return m.DB.Migrator().AlterColumn(value, field.Name)
 	}
@@ -399,13 +428,15 @@ func (m Migrator) MigrateColumn(value interface{}, field *schema.Field, columnTy
 // ColumnTypes return columnTypes []gorm.ColumnType and execErr error
 func (m Migrator) ColumnTypes(value interface{}) ([]gorm.ColumnType, error) {
 	columnTypes := make([]gorm.ColumnType, 0)
-	execErr := m.RunWithValue(value, func(stmt *gorm.Statement) error {
+	execErr := m.RunWithValue(value, func(stmt *gorm.Statement) (err error) {
 		rows, err := m.DB.Session(&gorm.Session{}).Table(stmt.Table).Limit(1).Rows()
 		if err != nil {
 			return err
 		}
 
-		defer rows.Close()
+		defer func() {
+			err = rows.Close()
+		}()
 
 		var rawColumnTypes []*sql.ColumnType
 		rawColumnTypes, err = rows.ColumnTypes()
@@ -414,10 +445,10 @@ func (m Migrator) ColumnTypes(value interface{}) ([]gorm.ColumnType, error) {
 		}
 
 		for _, c := range rawColumnTypes {
-			columnTypes = append(columnTypes, c)
+			columnTypes = append(columnTypes, migrator.ColumnType{SQLColumnType: c})
 		}
 
-		return nil
+		return
 	})
 
 	return columnTypes, execErr

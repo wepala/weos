@@ -1940,9 +1940,11 @@ components:
 		}
 		if c.Name() == "title" {
 			found1 = true
-			nullable, _ := c.Nullable()
-			if nullable {
-				t.Errorf("expected the title field to be NOT nullable")
+			if gormDB.Dialector.Name() != "sqlite" { // for the nullable check to work the sql driver needs to support it
+				nullable, _ := c.Nullable()
+				if nullable {
+					t.Errorf("expected the title field to be NOT nullable")
+				}
 			}
 		}
 		if c.Name() == "description" {

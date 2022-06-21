@@ -5,6 +5,7 @@ package rest_test
 
 import (
 	"database/sql"
+	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
@@ -64,6 +65,9 @@ var _ rest.Container = &ContainerMock{}
 // 			GetOperationInitializersFunc: func() []rest.OperationInitializer {
 // 				panic("mock out the GetOperationInitializers method")
 // 			},
+// 			GetPermissionEnforcerFunc: func(name string) (*casbin.Enforcer, error) {
+// 				panic("mock out the GetPermissionEnforcer method")
+// 			},
 // 			GetPostPathInitializersFunc: func() []rest.PathInitializer {
 // 				panic("mock out the GetPostPathInitializers method")
 // 			},
@@ -111,6 +115,9 @@ var _ rest.Container = &ContainerMock{}
 // 			},
 // 			RegisterOperationInitializerFunc: func(initializer rest.OperationInitializer)  {
 // 				panic("mock out the RegisterOperationInitializer method")
+// 			},
+// 			RegisterPermissionEnforcerFunc: func(name string, enforcer *casbin.Enforcer)  {
+// 				panic("mock out the RegisterPermissionEnforcer method")
 // 			},
 // 			RegisterPostPathInitializerFunc: func(initializer rest.PathInitializer)  {
 // 				panic("mock out the RegisterPostPathInitializer method")
@@ -170,6 +177,9 @@ type ContainerMock struct {
 	// GetOperationInitializersFunc mocks the GetOperationInitializers method.
 	GetOperationInitializersFunc func() []rest.OperationInitializer
 
+	// GetPermissionEnforcerFunc mocks the GetPermissionEnforcer method.
+	GetPermissionEnforcerFunc func(name string) (*casbin.Enforcer, error)
+
 	// GetPostPathInitializersFunc mocks the GetPostPathInitializers method.
 	GetPostPathInitializersFunc func() []rest.PathInitializer
 
@@ -217,6 +227,9 @@ type ContainerMock struct {
 
 	// RegisterOperationInitializerFunc mocks the RegisterOperationInitializer method.
 	RegisterOperationInitializerFunc func(initializer rest.OperationInitializer)
+
+	// RegisterPermissionEnforcerFunc mocks the RegisterPermissionEnforcer method.
+	RegisterPermissionEnforcerFunc func(name string, enforcer *casbin.Enforcer)
 
 	// RegisterPostPathInitializerFunc mocks the RegisterPostPathInitializer method.
 	RegisterPostPathInitializerFunc func(initializer rest.PathInitializer)
@@ -288,6 +301,11 @@ type ContainerMock struct {
 		}
 		// GetOperationInitializers holds details about calls to the GetOperationInitializers method.
 		GetOperationInitializers []struct {
+		}
+		// GetPermissionEnforcer holds details about calls to the GetPermissionEnforcer method.
+		GetPermissionEnforcer []struct {
+			// Name is the name argument value.
+			Name string
 		}
 		// GetPostPathInitializers holds details about calls to the GetPostPathInitializers method.
 		GetPostPathInitializers []struct {
@@ -379,6 +397,13 @@ type ContainerMock struct {
 			// Initializer is the initializer argument value.
 			Initializer rest.OperationInitializer
 		}
+		// RegisterPermissionEnforcer holds details about calls to the RegisterPermissionEnforcer method.
+		RegisterPermissionEnforcer []struct {
+			// Name is the name argument value.
+			Name string
+			// Enforcer is the enforcer argument value.
+			Enforcer *casbin.Enforcer
+		}
 		// RegisterPostPathInitializer holds details about calls to the RegisterPostPathInitializer method.
 		RegisterPostPathInitializer []struct {
 			// Initializer is the initializer argument value.
@@ -415,6 +440,7 @@ type ContainerMock struct {
 	lockGetLog                        sync.RWMutex
 	lockGetMiddleware                 sync.RWMutex
 	lockGetOperationInitializers      sync.RWMutex
+	lockGetPermissionEnforcer         sync.RWMutex
 	lockGetPostPathInitializers       sync.RWMutex
 	lockGetPrePathInitializers        sync.RWMutex
 	lockGetProjection                 sync.RWMutex
@@ -431,6 +457,7 @@ type ContainerMock struct {
 	lockRegisterLog                   sync.RWMutex
 	lockRegisterMiddleware            sync.RWMutex
 	lockRegisterOperationInitializer  sync.RWMutex
+	lockRegisterPermissionEnforcer    sync.RWMutex
 	lockRegisterPostPathInitializer   sync.RWMutex
 	lockRegisterPrePathInitializer    sync.RWMutex
 	lockRegisterProjection            sync.RWMutex
@@ -817,6 +844,37 @@ func (mock *ContainerMock) GetOperationInitializersCalls() []struct {
 	mock.lockGetOperationInitializers.RLock()
 	calls = mock.calls.GetOperationInitializers
 	mock.lockGetOperationInitializers.RUnlock()
+	return calls
+}
+
+// GetPermissionEnforcer calls GetPermissionEnforcerFunc.
+func (mock *ContainerMock) GetPermissionEnforcer(name string) (*casbin.Enforcer, error) {
+	if mock.GetPermissionEnforcerFunc == nil {
+		panic("ContainerMock.GetPermissionEnforcerFunc: method is nil but Container.GetPermissionEnforcer was just called")
+	}
+	callInfo := struct {
+		Name string
+	}{
+		Name: name,
+	}
+	mock.lockGetPermissionEnforcer.Lock()
+	mock.calls.GetPermissionEnforcer = append(mock.calls.GetPermissionEnforcer, callInfo)
+	mock.lockGetPermissionEnforcer.Unlock()
+	return mock.GetPermissionEnforcerFunc(name)
+}
+
+// GetPermissionEnforcerCalls gets all the calls that were made to GetPermissionEnforcer.
+// Check the length with:
+//     len(mockedContainer.GetPermissionEnforcerCalls())
+func (mock *ContainerMock) GetPermissionEnforcerCalls() []struct {
+	Name string
+} {
+	var calls []struct {
+		Name string
+	}
+	mock.lockGetPermissionEnforcer.RLock()
+	calls = mock.calls.GetPermissionEnforcer
+	mock.lockGetPermissionEnforcer.RUnlock()
 	return calls
 }
 
@@ -1329,6 +1387,41 @@ func (mock *ContainerMock) RegisterOperationInitializerCalls() []struct {
 	mock.lockRegisterOperationInitializer.RLock()
 	calls = mock.calls.RegisterOperationInitializer
 	mock.lockRegisterOperationInitializer.RUnlock()
+	return calls
+}
+
+// RegisterPermissionEnforcer calls RegisterPermissionEnforcerFunc.
+func (mock *ContainerMock) RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer) {
+	if mock.RegisterPermissionEnforcerFunc == nil {
+		panic("ContainerMock.RegisterPermissionEnforcerFunc: method is nil but Container.RegisterPermissionEnforcer was just called")
+	}
+	callInfo := struct {
+		Name     string
+		Enforcer *casbin.Enforcer
+	}{
+		Name:     name,
+		Enforcer: enforcer,
+	}
+	mock.lockRegisterPermissionEnforcer.Lock()
+	mock.calls.RegisterPermissionEnforcer = append(mock.calls.RegisterPermissionEnforcer, callInfo)
+	mock.lockRegisterPermissionEnforcer.Unlock()
+	mock.RegisterPermissionEnforcerFunc(name, enforcer)
+}
+
+// RegisterPermissionEnforcerCalls gets all the calls that were made to RegisterPermissionEnforcer.
+// Check the length with:
+//     len(mockedContainer.RegisterPermissionEnforcerCalls())
+func (mock *ContainerMock) RegisterPermissionEnforcerCalls() []struct {
+	Name     string
+	Enforcer *casbin.Enforcer
+} {
+	var calls []struct {
+		Name     string
+		Enforcer *casbin.Enforcer
+	}
+	mock.lockRegisterPermissionEnforcer.RLock()
+	calls = mock.calls.RegisterPermissionEnforcer
+	mock.lockRegisterPermissionEnforcer.RUnlock()
 	return calls
 }
 

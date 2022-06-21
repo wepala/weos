@@ -188,6 +188,10 @@ paths:
           name: Authorization
           schema:
             type: string
+      x-auth:
+        allow:
+          users:
+            - auth0|60d0c84316f69600691c1614
       requestBody:
         description: Blog info that is submitted
         required: true

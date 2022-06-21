@@ -3,6 +3,9 @@ package rest
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/casbin/casbin/v2"
+	casbinmodel "github.com/casbin/casbin/v2/model"
+	gormadapter "github.com/casbin/gorm-adapter/v3"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -37,6 +40,60 @@ func ContentTypeResponseInitializer(ctxt context.Context, api Container, path st
 	}
 	middlewares = append(middlewares, contentMiddleware)
 	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
+	return ctxt, nil
+}
+
+//AuthorizationInitializer setup authorization
+func AuthorizationInitializer(ctxt context.Context, tapi Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+	if authRaw, ok := operation.Extensions[AuthorizationConfigExtension]; ok {
+		var enforcer *casbin.Enforcer
+		var err error
+		//check if the default enforcer is setup
+		if enforcer, err = tapi.GetPermissionEnforcer("Default"); err != nil {
+			var adapter interface{}
+			if gormDB, err := tapi.GetGormDBConnection("Default"); err == nil {
+				adapter, _ = gormadapter.NewAdapterByDB(gormDB)
+			} else {
+				adapter = "./policy.csv"
+			}
+
+			//default REST permission model
+			text := `[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
+`
+			m, _ := casbinmodel.NewModelFromString(text)
+			enforcer, err = casbin.NewEnforcer(m, adapter)
+			if err != nil {
+				return ctxt, err
+			}
+			tapi.RegisterPermissionEnforcer("Default", enforcer)
+		}
+		//add rule to the enforcer based on the operation
+		var authConfig map[string]interface{}
+		if err = json.Unmarshal(authRaw.(json.RawMessage), &authConfig); err != nil {
+			if allowRules, ok := authConfig["allow"]; ok {
+				if u, ok := allowRules.(map[string]interface{})["users"]; ok {
+					for _, user := range u.([]string) {
+						var success bool
+						success, err = enforcer.AddPolicy(user, path, method)
+						if !success {
+
+						}
+					}
+				}
+			}
+		}
+		return ctxt, err
+	}
 	return ctxt, nil
 }
 

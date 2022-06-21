@@ -3,6 +3,7 @@ package rest
 
 import (
 	"database/sql"
+	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/model"
@@ -88,4 +89,8 @@ type Container interface {
 	GetHTTPClient(name string) (*http.Client, error)
 	RegisterSecurityConfiguration(configuration *SecurityConfiguration)
 	GetSecurityConfiguration() *SecurityConfiguration
+	//RegisterPermissionEnforcer save permission enforcer
+	RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer)
+	//GetPermissionEnforcer get Casbin enforcer
+	GetPermissionEnforcer(name string) (*casbin.Enforcer, error)
 }

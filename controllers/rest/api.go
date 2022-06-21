@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/casbin/casbin/v2"
 	"net/http"
 	"os"
 	"reflect"
@@ -60,6 +61,7 @@ type RESTAPI struct {
 	entityFactories                map[string]model.EntityFactory
 	dbConnections                  map[string]*sql.DB
 	gormConnections                map[string]*gorm.DB
+	enforcers                      map[string]*casbin.Enforcer
 }
 
 type schema struct {
@@ -220,6 +222,20 @@ func (p *RESTAPI) RegisterGORMDB(name string, connection *gorm.DB) {
 		p.gormConnections = make(map[string]*gorm.DB)
 	}
 	p.gormConnections[name] = connection
+}
+
+func (p *RESTAPI) RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer) {
+	if p.enforcers == nil {
+		p.enforcers = make(map[string]*casbin.Enforcer)
+	}
+	p.enforcers[name] = enforcer
+}
+
+func (p *RESTAPI) GetPermissionEnforcer(name string) (*casbin.Enforcer, error) {
+	if tenforcer, ok := p.enforcers[name]; ok {
+		return tenforcer, nil
+	}
+	return nil, fmt.Errorf("permission enforcer '%s' not found", name)
 }
 
 //GetMiddleware get middleware by name
