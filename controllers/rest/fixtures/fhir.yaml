@@ -1,0 +1,359 @@
+openapi: 3.0.3
+info:
+  title: Wepala FHIR
+  description: Fast Healthcare Interoperability Resources (FHIR) API.
+  version: 1.0.0
+servers:
+  - url: 'https://prod1.weos.sh/fhir'
+x-weos-config:
+  basePath:
+  database:
+    driver: sqlite3
+    database: test.db
+components:
+  schemas:
+    Address:
+      type: object
+      properties:
+        use:
+          type: string
+          enum:
+            - home
+            - work
+            - temp
+            - old
+            - billing
+        type:
+          type: string
+          enum:
+            - postal
+            - physical
+            - both
+        text:
+          type: string
+          nullable: true
+          description: Text representation of the address
+        line:
+          type: string
+          nullable: true
+          description: Street name, number, direction & P.O. Box etc.
+        city:
+          type: string
+          nullable: true
+          description: Name of city, town etc.
+        district:
+          type: string
+          nullable: true
+          description: District name (aka county)
+        state:
+          type: string
+          nullable: true
+          description: Sub-unit of country (abbreviations ok)
+        postalCode:
+          type: string
+          nullable: true
+          description: Postal code for area
+        country:
+          type: string
+          nullable: true
+        period:
+          $ref: "#/components/schemas/Period"
+    Appointment:
+      type: object
+      properties:
+        identifier:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identifier"
+        status:
+          type: string
+          enum:
+            - proposed
+            - pending
+            - booked
+            - arrived
+            - fulfilled
+            - cancelled
+            - noshow
+            - entered-in-error
+            - checked-in
+            - waitlist
+        cancelationReason:
+          $ref: "#/components/schemas/CodeableConcept"
+        serviceCategory:
+          type: array
+          items:
+            $ref: "#/components/schemas/CodeableConcept"
+          description: A broad categorization of the service that is to be performed during this appointment
+        participant:
+          type: object
+          properties:
+            type:
+              type: array
+              nullable: true
+              items:
+                $ref: "#/components/schemas/CodeableConcept"
+            actor:
+              $ref: "#/components/schemas/Patient"
+            required:
+              type: string
+              nullable: true
+            status:
+              type: string
+            period:
+              $ref: "#/components/schemas/Period"
+      required:
+        - participant
+
+
+    Attachment:
+      type: object
+      properties:
+        contentType:
+          type: string
+        language:
+          type: string
+          nullable: true
+        data:
+          type: string
+          nullable: true
+        url:
+          type: string
+          format: url
+          description: Uri where the data can be found
+      required:
+        - contentType
+    CodeableConcept:
+      type: object
+      properties:
+        coding:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Coding"
+        text:
+          type: string
+          nullable: true
+      example:
+        coding:
+          - system: test
+    Coding:
+      type: object
+      properties:
+        system:
+          type: string
+          format: uri
+          nullable: true
+          description: Identity of the terminology system
+        version:
+          type: string
+          nullable: true
+          description: Version of the system - if relevant
+        code:
+          type: string
+          description: Symbol in syntax defined by the system
+          nullable: true
+        display:
+          type: string
+          description: Representation defined by the system
+          nullable: true
+        userSelected:
+          type: boolean
+          description: If this coding was chosen directly by the user
+          nullable: true
+    ContactPoint:
+      type: object
+      properties:
+        system:
+          type: string
+          enum:
+            - phone
+            - fax
+            - email
+            - pager
+            - url
+            - sms
+            - other
+        value:
+          type: string
+          nullable: true
+        use:
+          type: string
+          enum:
+            - home
+            - work
+            - temp
+            - old
+            - mobile
+        rank:
+          type: integer
+          format: uint
+          nullable: true
+        period:
+          $ref: "#/components/schemas/Period"
+      required:
+        - system
+        - use
+    Identifier:
+      type: object
+      properties:
+        use:
+          type: string
+          enum:
+            - usual
+            - official
+            - temp
+            - secondary
+            - old
+        type:
+          $ref: "#/components/schemas/CodeableConcept"
+        system:
+          type: string
+          format: uri
+          description: |
+            The system is a URI that defines a set of identifiers (i.e. how the value is made unique). It might be a 
+            specific application or a recognized standard/specification for a set of identifiers or a way of making
+            identifiers unique.
+            
+            It is up to the implementer organization to determine an appropriate URL or URN structure that will avoid
+            collisions and to manage that space (and the resolvability of URLs) over time.
+
+            Note that the scope of a given identifier system may extend beyond identifiers that might be captured by a
+            single resource. For example, some systems might draw all "order" identifiers from a single namespace,
+            though some might be used on MedicationRequest while others would appear on ServiceRequest.
+
+            If the identifier value itself is naturally a globally unique URI (e.g. an OID, a UUID, or a URI with no
+            trailing local part), then the system SHALL be "urn:ietf:rfc:3986", and the URI is in the value (OIDs and
+            UUIDs using urn:oid: and urn:uuid:
+            
+            Naturally globally unique identifiers are those for which no system has been assigned and where the value of the identifier is reasonably expected to not be re-used. Typically, these are absolute URIs of some kind.
+
+            In some cases, the system might not be known - only the value is known (e.g. a simple device that scans a
+            barcode), or the system is known implicitly (simple exchange in a limited context, often driven by barcode
+            readers). In this case, no useful matching may be performed using the value unless the system can be safely
+            inferred by the context. Applications should provide a system wherever possible, as information sharing in a
+            wider context is very likely to arise eventually, and values without a system are inherently limited in use.
+        value:
+          type: string
+          nullable: true
+        period:
+          $ref: "#/components/schemas/Period"
+        assigner:
+          $ref: "#/components/schemas/Organization"
+      required:
+        - use
+    Organization:
+      type: object
+    Period:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date-time
+          nullable: true
+        end:
+          type: string
+          format: date-time
+          nullable: true
+    Patient:
+      type: object
+      properties:
+        identifier:
+          type: array
+          items:
+            type: string
+        name:
+          type: array
+          items:
+            type: string
+          nullable: true
+        active:
+          type: boolean
+        telecom:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContactPoint"
+        gender:
+          type: string
+          enum:
+            - male
+            - female
+            - other
+            - unknown
+        birthDate:
+          type: string
+          format: date-time
+          nullable: true
+        deceased:
+          type: boolean
+          additionalProperties:
+            type: string
+          nullable: true
+        address:
+          type: array
+          items:
+            $ref: "#/components/schemas/Address"
+          nullable: false
+        maritalStatus:
+          $ref: "#/components/schemas/CodeableConcept"
+        multipleBirth:
+          type: boolean
+          nullable: true
+          additionalProperties:
+            type: integer
+        photo:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Attachment"
+        contact:
+          type: array
+          items:
+            type: object
+            properties:
+              relationship:
+                $ref: "#/components/schemas/CodeableConcept"
+              name:
+                type: string
+                nullable: true
+              telecom:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContactPoint"
+              address:
+                $ref: "#/components/schemas/Address"
+              gender:
+                type: string
+              organization:
+                $ref: "#/components/schemas/Organization"
+              period:
+                $ref: "#/components/schemas/Period"
+        communication:
+          type: array
+          items:
+            type: object
+            properties:
+              language:
+                $ref: "#/components/schemas/CodeableConcept"
+              preferred:
+                type: boolean
+          description: A language which may be used to communicate with the patient about his or her health
+        generalPractitioner:
+          type: array
+          items:
+            $ref: "#/components/schemas/Organization"
+          nullable: true
+        managingOrganization:
+          $ref: "#/components/schemas/Organization"
+
+
+paths:
+  /health:
+    get:
+      responses:
+        200:
+          description: Health Endpoint
+          content:
+            text/html:
+              example: |
+                <html><body>Health</body></html>

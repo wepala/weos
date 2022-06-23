@@ -423,16 +423,105 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 			}
 		case "array":
 			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 3 {
-				tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
-				if err != nil {
-					return nil, nil, nil
-				}
-				defaultValue = tbuilder.Build().NewSliceOfStructs()
-				json.Unmarshal([]byte(`[{
+				if schema.Value.Items.Ref != "" {
+					tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
+					if err != nil {
+						return nil, nil, nil
+					}
+					defaultValue = tbuilder.Build().NewSliceOfStructs()
+					json.Unmarshal([]byte(`[{
 						"table_alias": "`+strings.Title(name)+`"
 					}]`), &defaultValue)
-				//setup gorm field tag string
-				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
+					//setup gorm field tag string
+					gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
+				} else if schema.Value.Items.Value.Type != "" {
+					switch schema.Value.Items.Value.Type { //TODO there must be a better way but too bushed now to find it
+					//case "integer":
+					//	switch schema.Value.Format {
+					//	case "int32":
+					//		if schema.Value.Nullable {
+					//			var value []*int32
+					//			defaultValue = value
+					//		} else {
+					//			var value []int32
+					//			defaultValue = value
+					//		}
+					//	case "int64":
+					//		if schema.Value.Nullable {
+					//			var value []*int64
+					//			defaultValue = value
+					//		} else {
+					//			var value []int64
+					//			defaultValue = value
+					//		}
+					//	case "uint":
+					//		if schema.Value.Nullable {
+					//			var value []*uint
+					//			defaultValue = value
+					//		} else {
+					//			var value []uint
+					//			defaultValue = value
+					//		}
+					//	default:
+					//		if schema.Value.Nullable {
+					//			var value []*int
+					//			defaultValue = value
+					//		} else {
+					//			var value []int
+					//			defaultValue = value
+					//		}
+					//	}
+					//case "number":
+					//	switch schema.Value.Format {
+					//	case "float32":
+					//		if schema.Value.Nullable {
+					//			var value []*float32
+					//			defaultValue = value
+					//		} else {
+					//			var value []float32
+					//			defaultValue = value
+					//		}
+					//	case "float64":
+					//		if schema.Value.Nullable {
+					//			var value []*float64
+					//			defaultValue = value
+					//		} else {
+					//			var value []float64
+					//			defaultValue = value
+					//		}
+					//	default:
+					//		if schema.Value.Nullable {
+					//			var value []*float32
+					//			defaultValue = value
+					//		} else {
+					//			var value []float32
+					//			defaultValue = value
+					//		}
+					//	}
+					//case "boolean":
+					//	if schema.Value.Nullable {
+					//		var value []*bool
+					//		defaultValue = value
+					//	} else {
+					//		var value []bool
+					//		defaultValue = value
+					//	}
+					case "string":
+						switch schema.Value.Format {
+						case "date-time":
+							timeNow := weos.NewTime(time.Now())
+							defaultValue = &timeNow
+						default:
+							if schema.Value.Nullable {
+								var strings *string
+								defaultValue = strings
+							} else {
+								var strings string
+								defaultValue = strings
+							}
+						}
+					}
+				}
 			}
 		default:
 			//Belongs to https://gorm.io/docs/belongs_to.html
