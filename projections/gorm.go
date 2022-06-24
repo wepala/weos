@@ -173,6 +173,19 @@ func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 			return nil, fmt.Errorf("unable to marshal payload into model '%s'", err)
 		}
 		tpayload["table_alias"] = name
+		//use the schema to convert simple arrays and inline objects to a json string
+		for k, v := range tpayload {
+			//get the property from the schema and check if it's an inline object, simple array, array with inline objects
+			if tproperty, ok := schema.Properties[k]; ok {
+				if (tproperty.Ref == "" && tproperty.Value.Type == "object") || (tproperty.Value.Type == "array" && tproperty.Value.Items.Ref == "") {
+					valueBytes, err := json.Marshal(v)
+					if err != nil {
+						return nil, fmt.Errorf("error marshalling inline object in '%s' '%s'", name, k)
+					}
+					tpayload[k] = string(valueBytes)
+				}
+			}
+		}
 		data, _ := json.Marshal(tpayload)
 		err = json.Unmarshal(data, &model)
 	}
@@ -333,6 +346,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 	return instance, primaryKeysMap, nil
 }
 
+//GORMPropertyDefaultValue convert schema property to GORM Model property
 func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
 	var defaultValue interface{}
 	if schema.Value != nil {
@@ -434,93 +448,8 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 					}]`), &defaultValue)
 					//setup gorm field tag string
 					gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
-				} else if schema.Value.Items.Value.Type != "" {
-					switch schema.Value.Items.Value.Type { //TODO there must be a better way but too bushed now to find it
-					//case "integer":
-					//	switch schema.Value.Format {
-					//	case "int32":
-					//		if schema.Value.Nullable {
-					//			var value []*int32
-					//			defaultValue = value
-					//		} else {
-					//			var value []int32
-					//			defaultValue = value
-					//		}
-					//	case "int64":
-					//		if schema.Value.Nullable {
-					//			var value []*int64
-					//			defaultValue = value
-					//		} else {
-					//			var value []int64
-					//			defaultValue = value
-					//		}
-					//	case "uint":
-					//		if schema.Value.Nullable {
-					//			var value []*uint
-					//			defaultValue = value
-					//		} else {
-					//			var value []uint
-					//			defaultValue = value
-					//		}
-					//	default:
-					//		if schema.Value.Nullable {
-					//			var value []*int
-					//			defaultValue = value
-					//		} else {
-					//			var value []int
-					//			defaultValue = value
-					//		}
-					//	}
-					//case "number":
-					//	switch schema.Value.Format {
-					//	case "float32":
-					//		if schema.Value.Nullable {
-					//			var value []*float32
-					//			defaultValue = value
-					//		} else {
-					//			var value []float32
-					//			defaultValue = value
-					//		}
-					//	case "float64":
-					//		if schema.Value.Nullable {
-					//			var value []*float64
-					//			defaultValue = value
-					//		} else {
-					//			var value []float64
-					//			defaultValue = value
-					//		}
-					//	default:
-					//		if schema.Value.Nullable {
-					//			var value []*float32
-					//			defaultValue = value
-					//		} else {
-					//			var value []float32
-					//			defaultValue = value
-					//		}
-					//	}
-					//case "boolean":
-					//	if schema.Value.Nullable {
-					//		var value []*bool
-					//		defaultValue = value
-					//	} else {
-					//		var value []bool
-					//		defaultValue = value
-					//	}
-					case "string":
-						switch schema.Value.Format {
-						case "date-time":
-							timeNow := weos.NewTime(time.Now())
-							defaultValue = &timeNow
-						default:
-							if schema.Value.Nullable {
-								var strings *string
-								defaultValue = strings
-							} else {
-								var strings string
-								defaultValue = strings
-							}
-						}
-					}
+				} else {
+					return p.GORMInlineProperty(parentName, name, schema, gormParts, depth)
 				}
 			}
 		default:
@@ -546,12 +475,38 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				gormParts = append(gormParts, "foreignKey:"+strings.Join(foreignKeys, ","))
 				gormParts = append(gormParts, "References:"+strings.Join(keyNames, ","))
 				return defaultValue, gormParts, keys
+			} else {
+				return p.GORMInlineProperty(parentName, name, schema, gormParts, depth)
 			}
-			//if depth >= 3 {
-			//	var strings string
-			//	defaultValue = strings
-			//}
-			//TODO I think here is where I'd put code to setup a json blob
+		}
+
+	}
+	return defaultValue, gormParts, nil
+}
+
+//GORMInlineProperty convert schema inline property to GORM model property.
+func (p *GORMDB) GORMInlineProperty(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
+	var defaultValue interface{}
+	if schema.Value != nil {
+		switch schema.Value.Type {
+		case "array":
+			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 3 {
+				if schema.Value.Nullable {
+					var strings *string
+					defaultValue = strings
+				} else {
+					var strings string
+					defaultValue = strings
+				}
+			}
+		default:
+			if schema.Value.Nullable {
+				var strings *string
+				defaultValue = strings
+			} else {
+				var strings string
+				defaultValue = strings
+			}
 		}
 
 	}
