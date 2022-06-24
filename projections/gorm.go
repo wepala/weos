@@ -436,7 +436,7 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				}
 			}
 		case "array":
-			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 3 {
+			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 5 {
 				if schema.Value.Items.Ref != "" {
 					tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
 					if err != nil {
@@ -454,7 +454,7 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 			}
 		default:
 			//Belongs to https://gorm.io/docs/belongs_to.html
-			if schema.Ref != "" && schema.Value != nil && depth < 3 {
+			if schema.Ref != "" && schema.Value != nil && depth < 5 {
 				tbuilder, keys, err := p.GORMModelBuilder(name, schema.Value, depth+1)
 				if err != nil {
 					return nil, nil, nil
@@ -490,7 +490,7 @@ func (p *GORMDB) GORMInlineProperty(parentName string, name string, schema *open
 	if schema.Value != nil {
 		switch schema.Value.Type {
 		case "array":
-			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 3 {
+			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 5 {
 				if schema.Value.Nullable {
 					var strings *string
 					defaultValue = strings

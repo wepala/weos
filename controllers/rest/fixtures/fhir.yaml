@@ -183,6 +183,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Identifier"
+        instantiateCanonical:
+          type: array
+          items:
+            $ref: ""
+
+
 
 
 
@@ -518,6 +524,17 @@ paths:
               example: |
                 <html><body>Health</body></html>
 
+  /api:
+    get:
+      operationId: Get API Details
+      x-controller: APIDiscovery
+      responses:
+        200:
+          description: API Details
+          content:
+            application/json:
+              schema:
+                type: string
   /patient:
     post:
       operationId: Create Patient
