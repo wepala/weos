@@ -82,9 +82,72 @@ components:
           $ref: "#/components/schemas/CodeableConcept"
         serviceCategory:
           type: array
+          nullable: true
           items:
             $ref: "#/components/schemas/CodeableConcept"
           description: A broad categorization of the service that is to be performed during this appointment
+        serviceType:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/CodeableConcept"
+        speciality:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/CodeableConcept"
+        appointmentType:
+          $ref: "#/components/schemas/CodeableConcept"
+        reasonCode:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/CodeableConcept"
+        reasonReference:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Procedure"
+        priority:
+          type: integer
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        supportInformation:
+          type: string
+          nullable: true
+        start:
+          type: string
+          format: date-time
+          nullable: true
+        end:
+          type: string
+          format: date-time
+          nullable: true
+        minutesDuration:
+          type: integer
+          nullable: true
+        slot:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Slot"
+        created:
+          type: string
+          format: date-time
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        patientInstruction:
+          type: string
+          nullable: true
+        basedOn:
+          type: array
+          nullable: true
+        items:
+          $ref: "#/components/schemas/ServiceRequest"
         participant:
           type: object
           properties:
@@ -104,6 +167,23 @@ components:
               $ref: "#/components/schemas/Period"
       required:
         - participant
+
+    Procedure:
+      type: object
+      properties:
+        identifier:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identifier"
+
+    ServiceRequest:
+      type: object
+      properties:
+        identifier:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identifier"
+
 
 
     Attachment:
@@ -194,6 +274,38 @@ components:
       required:
         - system
         - use
+    HumanName:
+      type: object
+      properties:
+        use:
+          type: string
+          enum:
+            - usual
+            - official
+            - temp
+            - nickname
+            - anonymous
+            - old
+            - maiden
+        text:
+          type: string
+          nullable: true
+        family:
+          type: string
+          nullable: true
+        given:
+          type: string
+          nullable: true
+        prefix:
+          type: string
+          nullable: true
+        suffix:
+          type: string
+          nullable: true
+        period:
+          $ref: "#/components/schemas/Period"
+      required:
+        - use
     Identifier:
       type: object
       properties:
@@ -261,11 +373,11 @@ components:
         identifier:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/Identifier"
         name:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/HumanName"
           nullable: true
         active:
           type: boolean
@@ -345,6 +457,54 @@ components:
           nullable: true
         managingOrganization:
           $ref: "#/components/schemas/Organization"
+    Slot:
+      type: object
+      properties:
+        identifier:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identifier"
+          nullable: true
+        serviceCategory:
+          type: array
+          items:
+            $ref: "#/components/schemas/CodeableConcept"
+          nullable: true
+        serviceType:
+          type: array
+          items:
+            $ref: "#/components/schemas/CodeableConcept"
+          nullable: true
+        specialty:
+          type: array
+          items:
+            $ref: "#/components/schemas/CodeableConcept"
+          nullable: true
+        appointmentType:
+          $ref: "#/components/schemas/CodeableConcept"
+        schedule:
+          $ref: "#/components/schemas/CodeableConcept"
+        status:
+          type: string
+        start:
+          type: string
+          format: date-time
+          nullable: true
+        end:
+          type: string
+          format: date-time
+          nullable: true
+        overbooked:
+          type: boolean
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+      required:
+        - status
+
+
+
 
 
 paths:
@@ -357,3 +517,212 @@ paths:
             text/html:
               example: |
                 <html><body>Health</body></html>
+
+  /patient:
+    post:
+      operationId: Create Patient
+      summary: Create a patient
+      requestBody:
+        description: Patient info that is submitted
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Patient"
+      responses:
+        201:
+          description: Patient Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+        400:
+          description: Invalid Information
+
+    get:
+      operationId: Get Patients
+      summary: Get List of Patients
+      responses:
+        200:
+          description: List of Patients
+          content:
+            application/json:
+              schema:
+                type: object
+                items:
+                  $ref: "#/components/schemas/Patient"
+
+
+  /patient/{id}:
+    get:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      summary: Get Patient by id
+      operationId: Get patient
+      responses:
+        200:
+          description: Get Patient Information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+
+    put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      summary: Update patient information
+      operationId: Update patient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Patient"
+      responses:
+        200:
+          description: Update Patient Information
+        400:
+          description: Bad Request
+        401:
+          description: User is not authenticated
+        403:
+          description: User is authenticated but is not authorized to access this information
+
+    delete:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: patient
+      requestBody:
+        description: patient
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Patient"
+      summary: Delete Patient
+      operationId: Delete Patient
+      responses:
+        200:
+          description: Patient Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+        400:
+          description: Invalid Patient Submitted
+
+  /appointment:
+    post:
+      operationId: Create Appointment
+      summary: Create an Appointment
+      requestBody:
+        description: Appointment info that is submitted
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Appointment"
+      responses:
+        201:
+          description: Appointment Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        400:
+          description: Invalid Information
+
+    get:
+      operationId: Get Appointments
+      summary: Get List of Appointments
+      responses:
+        200:
+          description: List of Appointments
+          content:
+            application/json:
+              schema:
+                type: object
+                items:
+                  $ref: "#/components/schemas/Appointment"
+
+  /appointment/{id}:
+    get:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      summary: Get appointment by id
+      operationId: Get appointment
+      responses:
+        200:
+          description: Get Appointment Information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+
+    put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      summary: Update appointment information
+      operationId: Update appointment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Appointment"
+      responses:
+        200:
+          description: Update Appointment Information
+        400:
+          description: Bad Request
+        401:
+          description: User is not authenticated
+        403:
+          description: User is authenticated but is not authorized to access this information
+
+    delete:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: Appointment
+      requestBody:
+        description: Appointment
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Appointment"
+      summary: Delete Appointment
+      operationId: Delete Appointment
+      responses:
+        200:
+          description: Appointment Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        400:
+          description: Invalid Appointment Submitted

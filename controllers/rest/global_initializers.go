@@ -160,11 +160,6 @@ func DefaultProjection(ctxt context.Context, tapi Container, swagger *openapi3.S
 				}
 			}
 
-			//get the database schema
-			schemas := CreateSchema(ctxt, api.EchoInstance(), api.GetConfig())
-			api.Schemas = schemas
-			ctxt = context.WithValue(ctxt, weosContext.SCHEMA_BUILDERS, schemas)
-
 			//get fields to be removed during migration step
 			deletedFields := map[string][]string{}
 			for name, sch := range api.GetConfig().Components.Schemas {
