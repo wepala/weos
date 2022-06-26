@@ -638,7 +638,10 @@ func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 	if err != nil {
 		return nil, 0, err
 	}
-	var contentEntities []*weos.ContentEntity
+	contentEntities := make([]*weos.ContentEntity, result.RowsAffected)
+	for k, _ := range contentEntities {
+		contentEntities[k], _ = entityFactory.NewEntity(ctx)
+	}
 	data, _ := json.Marshal(models)
 	err = json.Unmarshal(data, &contentEntities)
 	if err != nil {
