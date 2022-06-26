@@ -424,7 +424,7 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 		case "string":
 			switch schema.Value.Format {
 			case "date-time":
-				timeNow := weos.NewTime(time.Now())
+				timeNow := time.Now()
 				defaultValue = &timeNow
 			default:
 				if schema.Value.Nullable {
