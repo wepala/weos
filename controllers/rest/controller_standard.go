@@ -861,7 +861,12 @@ func DefaultResponseMiddleware(tapi Container, projection projections.Projection
 				ctxt.File(fileName)
 			} else if len(templates) != 0 {
 				contextValues := ReturnContextValues(ctx)
-				t := template.New(path1.Base(templates[0]))
+				funcMap := template.FuncMap{
+					"Title":   strings.Title,
+					"ToUpper": strings.ToUpper,
+					"ToLower": strings.ToLower,
+				}
+				t := template.New(path1.Base(templates[0])).Funcs(funcMap)
 				t, err := t.ParseFiles(templates...)
 				if err != nil {
 					api.e.Logger.Debugf("unexpected error %s ", err)
