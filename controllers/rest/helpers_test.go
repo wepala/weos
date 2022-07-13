@@ -3,6 +3,7 @@ package rest_test
 import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -26,4 +27,19 @@ func LoadConfig(t *testing.T, file string) (*openapi3.Swagger, error) {
 	content = []byte(tempFile)
 	loader := openapi3.NewSwaggerLoader()
 	return loader.LoadSwaggerFromData(content)
+}
+
+// RoundTripFunc .
+type RoundTripFunc func(req *http.Request) *http.Response
+
+// RoundTrip .
+func (f RoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req), nil
+}
+
+//NewTestClient returns *http.Client with Transport replaced to avoid making real calls
+func NewTestClient(fn RoundTripFunc) *http.Client {
+	return &http.Client{
+		Transport: RoundTripFunc(fn),
+	}
 }

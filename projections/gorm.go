@@ -70,7 +70,7 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 
 	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
-	result := p.db.Debug().Table(entityFactory.Name()).Preload(clause.Associations).Scopes(ContentQuery()).Find(&model, identifiers)
+	result := p.db.Table(entityFactory.Name()).Model(model).Preload(clause.Associations).Scopes(ContentQuery()).Find(&model, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -153,7 +153,7 @@ func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 		}
 	}
 
-	err := p.db.Debug().Migrator().AutoMigrate(models...)
+	err := p.db.Migrator().AutoMigrate(models...)
 	return err
 }
 
@@ -173,6 +173,19 @@ func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 			return nil, fmt.Errorf("unable to marshal payload into model '%s'", err)
 		}
 		tpayload["table_alias"] = name
+		//use the schema to convert simple arrays and inline objects to a json string
+		for k, v := range tpayload {
+			//get the property from the schema and check if it's an inline object, simple array, array with inline objects
+			if tproperty, ok := schema.Properties[k]; ok {
+				if (tproperty.Ref == "" && tproperty.Value.Type == "object") || (tproperty.Value.Type == "array" && tproperty.Value.Items.Ref == "") {
+					valueBytes, err := json.Marshal(v)
+					if err != nil {
+						return nil, fmt.Errorf("error marshalling inline object in '%s' '%s'", name, k)
+					}
+					tpayload[k] = string(valueBytes)
+				}
+			}
+		}
 		data, _ := json.Marshal(tpayload)
 		err = json.Unmarshal(data, &model)
 	}
@@ -333,6 +346,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 	return instance, primaryKeysMap, nil
 }
 
+//GORMPropertyDefaultValue convert schema property to GORM Model property
 func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
 	var defaultValue interface{}
 	if schema.Value != nil {
@@ -410,7 +424,7 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 		case "string":
 			switch schema.Value.Format {
 			case "date-time":
-				timeNow := weos.NewTime(time.Now())
+				timeNow := time.Now()
 				defaultValue = &timeNow
 			default:
 				if schema.Value.Nullable {
@@ -422,21 +436,25 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				}
 			}
 		case "array":
-			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 3 {
-				tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
-				if err != nil {
-					return nil, nil, nil
-				}
-				defaultValue = tbuilder.Build().NewSliceOfStructs()
-				json.Unmarshal([]byte(`[{
+			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 5 {
+				if schema.Value.Items.Ref != "" {
+					tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
+					if err != nil {
+						return nil, nil, nil
+					}
+					defaultValue = tbuilder.Build().NewSliceOfStructs()
+					json.Unmarshal([]byte(`[{
 						"table_alias": "`+strings.Title(name)+`"
 					}]`), &defaultValue)
-				//setup gorm field tag string
-				gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
+					//setup gorm field tag string
+					gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
+				} else {
+					return p.GORMInlineProperty(parentName, name, schema, gormParts, depth)
+				}
 			}
 		default:
 			//Belongs to https://gorm.io/docs/belongs_to.html
-			if schema.Ref != "" && schema.Value != nil && depth < 3 {
+			if schema.Ref != "" && schema.Value != nil && depth < 5 {
 				tbuilder, keys, err := p.GORMModelBuilder(name, schema.Value, depth+1)
 				if err != nil {
 					return nil, nil, nil
@@ -457,12 +475,38 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				gormParts = append(gormParts, "foreignKey:"+strings.Join(foreignKeys, ","))
 				gormParts = append(gormParts, "References:"+strings.Join(keyNames, ","))
 				return defaultValue, gormParts, keys
+			} else {
+				return p.GORMInlineProperty(parentName, name, schema, gormParts, depth)
 			}
-			//if depth >= 3 {
-			//	var strings string
-			//	defaultValue = strings
-			//}
-			//TODO I think here is where I'd put code to setup a json blob
+		}
+
+	}
+	return defaultValue, gormParts, nil
+}
+
+//GORMInlineProperty convert schema inline property to GORM model property.
+func (p *GORMDB) GORMInlineProperty(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
+	var defaultValue interface{}
+	if schema.Value != nil {
+		switch schema.Value.Type {
+		case "array":
+			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 5 {
+				if schema.Value.Nullable {
+					var strings *string
+					defaultValue = strings
+				} else {
+					var strings string
+					defaultValue = strings
+				}
+			}
+		default:
+			if schema.Value.Nullable {
+				var strings *string
+				defaultValue = strings
+			} else {
+				var strings string
+				defaultValue = strings
+			}
 		}
 
 	}
@@ -487,7 +531,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				payload, err := json.Marshal(entity.ToMap())
 				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
 				json.Unmarshal([]byte(`{"weos_id":"`+entity.ID+`","sequence_no":`+strconv.Itoa(int(entity.SequenceNo))+`}`), &model)
-				db := p.db.Debug().Table(entityFactory.Name()).Create(model)
+				db := p.db.Table(entityFactory.Name()).Create(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -517,7 +561,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
 					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
 						field := reader.GetField(strings.Title(key))
-						err = p.db.Debug().Model(model).Association(strings.Title(key)).Replace(field.Interface())
+						err = p.db.Model(model).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
 							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
 							return err
@@ -526,7 +570,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				}
 
 				//update database value
-				db := p.db.Debug().Table(entityFactory.Name()).Updates(model)
+				db := p.db.Table(entityFactory.Name()).Updates(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -539,7 +583,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error generating entity model '%s'", err)
 					return err
 				}
-				db := p.db.Debug().Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
+				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
 				if db.Error != nil {
 					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -558,7 +602,7 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 
 	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
-	result := p.db.Debug().Table(entityFactory.TableName()).Preload(clause.Associations).Find(&model, "weos_id = ? ", weosID)
+	result := p.db.Table(entityFactory.TableName()).Model(model).Preload(clause.Associations).Find(&model, "weos_id = ? ", weosID)
 	if result.Error != nil {
 		p.logger.Errorf("unexpected error retrieving entity , got: '%s'", result.Error)
 		return nil, result.Error
@@ -590,11 +634,14 @@ func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 	}
 	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 	models, err := p.GORMModels(entityFactory.Name(), entityFactory.Schema())
-	result = p.db.Debug().Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
+	result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
 	if err != nil {
 		return nil, 0, err
 	}
-	var contentEntities []*weos.ContentEntity
+	contentEntities := make([]*weos.ContentEntity, result.RowsAffected)
+	for k, _ := range contentEntities {
+		contentEntities[k], _ = entityFactory.NewEntity(ctx)
+	}
 	data, _ := json.Marshal(models)
 	err = json.Unmarshal(data, &contentEntities)
 	if err != nil {

@@ -48,8 +48,15 @@ func AuthorizationInitializer(ctxt context.Context, tapi Container, path string,
 	if authRaw, ok := operation.Extensions[AuthorizationConfigExtension]; ok {
 		var enforcer *casbin.Enforcer
 		var err error
+
+		//update path so that the open api way of specifying url parameters is change to wildcards. This is to support the casbin policy
+		//note ideal we would use the open api way of specifying url parameters but this is not supported by casbin
+		re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+		path = re.ReplaceAllString(path, `*`)
+
 		//check if the default enforcer is setup
 		if enforcer, err = tapi.GetPermissionEnforcer("Default"); err != nil {
+
 			var adapter interface{}
 			if gormDB, err := tapi.GetGormDBConnection("Default"); err == nil {
 				adapter, _ = gormadapter.NewAdapterByDB(gormDB)
