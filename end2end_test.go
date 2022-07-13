@@ -1601,7 +1601,7 @@ func theUserIdOnTheEntityEventsShouldBe(userID string) error {
 		return fmt.Errorf("unexpected error getting projection: %s", err)
 	}
 	apiProjection1 := apiProjection.(*projections.GORMDB)
-	eventResult := apiProjection1.DB().Table("gorm_events").Find(&events, "type = ?", "create")
+	eventResult := apiProjection1.DB().Table("gorm_events").Find(&events, "type = ?", "update")
 	if eventResult.Error != nil {
 		return fmt.Errorf("unexpected error finding events: %s", eventResult.Error)
 	}
@@ -2144,8 +2144,8 @@ func TestBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
-			//Tags: "WEOS-1378",
-			//Tags: "WEOS-1519 && ~skipped",
+			//Tags: "WEOS-1343",
+			//Tags: "WEOS-1343 && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

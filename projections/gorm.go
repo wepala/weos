@@ -70,7 +70,7 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 
 	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
-	result := p.db.Debug().Table(entityFactory.Name()).Model(model).Preload(clause.Associations).Scopes(ContentQuery()).Find(&model, identifiers)
+	result := p.db.Table(entityFactory.Name()).Model(model).Preload(clause.Associations).Scopes(ContentQuery()).Find(&model, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -153,7 +153,7 @@ func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 		}
 	}
 
-	err := p.db.Debug().Migrator().AutoMigrate(models...)
+	err := p.db.Migrator().AutoMigrate(models...)
 	return err
 }
 
@@ -531,7 +531,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				payload, err := json.Marshal(entity.ToMap())
 				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
 				json.Unmarshal([]byte(`{"weos_id":"`+entity.ID+`","sequence_no":`+strconv.Itoa(int(entity.SequenceNo))+`}`), &model)
-				db := p.db.Debug().Table(entityFactory.Name()).Create(model)
+				db := p.db.Table(entityFactory.Name()).Create(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -561,7 +561,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
 					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
 						field := reader.GetField(strings.Title(key))
-						err = p.db.Debug().Model(model).Association(strings.Title(key)).Replace(field.Interface())
+						err = p.db.Model(model).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
 							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
 							return err
@@ -570,7 +570,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 				}
 
 				//update database value
-				db := p.db.Debug().Table(entityFactory.Name()).Updates(model)
+				db := p.db.Table(entityFactory.Name()).Updates(model)
 				if db.Error != nil {
 					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -583,7 +583,7 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					p.logger.Errorf("error generating entity model '%s'", err)
 					return err
 				}
-				db := p.db.Debug().Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
+				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
 				if db.Error != nil {
 					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -602,7 +602,7 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 
 	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
-	result := p.db.Debug().Table(entityFactory.TableName()).Model(model).Preload(clause.Associations).Find(&model, "weos_id = ? ", weosID)
+	result := p.db.Table(entityFactory.TableName()).Model(model).Preload(clause.Associations).Find(&model, "weos_id = ? ", weosID)
 	if result.Error != nil {
 		p.logger.Errorf("unexpected error retrieving entity , got: '%s'", result.Error)
 		return nil, result.Error
@@ -634,7 +634,7 @@ func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 	}
 	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 	models, err := p.GORMModels(entityFactory.Name(), entityFactory.Schema())
-	result = p.db.Debug().Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
+	result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -135,6 +135,11 @@ func (s *SecurityConfiguration) Middleware(api Container, projection projections
 						if success {
 							return next(ctxt)
 						}
+						//check if the role has access to the endpoint
+						success, err = enforcer.Enforce(role, ctxt.Request().URL.Path, ctxt.Request().Method)
+						if success {
+							return next(ctxt)
+						}
 						return ctxt.NoContent(http.StatusForbidden)
 					}
 					return next(ctxt)

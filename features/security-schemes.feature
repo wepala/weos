@@ -101,7 +101,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
             required:
               - title
       security:
-        - Auth0: ["email","name"]
+        - Auth0: ["email"]
       paths:
         /:
           get:
@@ -250,6 +250,7 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
                allow:
                  users:
                    - auth0|1234
+                   - auth0|60d0c84316f69600691c1614
                deny:
                  roles:
                    - Y9IvGucEhViFd58GL0bBoNrgEk3ohW88
@@ -263,6 +264,10 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
         /post:
           post:
             operationId: Add Post
+            x-auth:
+               deny:
+                 roles:
+                   - Y9IvGucEhViFd58GL0bBoNrgEk3ohW88
             requestBody:
               description: Blog info that is submitted
               required: true
@@ -293,17 +298,15 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
      """
     And "Sojourner" authenticated and received a JWT
     And blogs in the api
-      | id    | weos_id                     | sequence_no | title        | description    |
-      | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | 2           | Blog 1       | Some Blog      |
-      | 4567  | 22xu4iw0bWMwxqbrUvjqEqu5dof | 1           | Blog 2       | Some Blog 2    |
+      | id    | weos_id                     | title        | description    |
+      | 1234  | 22xu1Xa5CS3DK1Om2tB7OBDfWAF | Blog 1       | Some Blog      |
     And the service is running
 
   Scenario: Set security globally
 
     If the security is set globally then that security scheme should be applied to each path
 
-    Given "Sojourner" is on the "Blog" create screen
-    And "Sojourner" enters "3" in the "id" field
+    Given "Sojourner" is on the "Blog" edit screen with id "1234"
     And "Sojourner" enters "Some Blog" in the "title" field
     And "Sojourner" enters "Some Description" in the "description" field
     When the "Blog" is submitted
@@ -317,22 +320,12 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
     Given "Sojourner" is on the "Blog" list screen
     And "Sojourner" authenticated and received a JWT
     And blogs in the api
-      | id    | weos_id                     | sequence_no | title        | description    |
-      | 1     | 22xu1Xa5CS3DK1Om2tB7OJDHDSF | 2           | Blog 4       | Some Blog 4    |
-      | 164   | 55xu4iw0bWMwxqbrUvjqEEGGdfg | 1           | Blog 6       | Some Blog 6    |
-      | 2     | u6xu4iw0bWMwxqbrUvjqEEGGdfg | 1           | Blog 5       | Some Blog 5    |
-      | 3     | 43xu4iw0bWMwxqbrUvjqEEGGdfg | 1           | Blog 3       | Some Blog 3    |
+      | id    | weos_id                     | title        | description    |
+      | 1     | 22xu1Xa5CS3DK1Om2tB7OJDHDSF | Blog 4       | Some Blog 4    |
     And the service is running
     And the items per page are 5
     When the search button is hit
     Then a 200 response should be returned
-    And the list results should be
-      | id    | title        | description    |
-      | 1     | Blog 4       | Some Blog 4    |
-      | 1234  | Blog 1       | Some Blog      |
-      | 164   | Blog 6       | Some Blog 6    |
-      | 2     | Blog 5       | Some Blog 5    |
-      | 3     | Blog 3       | Some Blog 3    |
 
   Scenario: Valid JWT with request on path protected by OpenID
 
@@ -345,25 +338,17 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
     And a blog should be returned
       | id    | title        | description    |
       | 1234  | Blog 1       | Some Blog      |
-    And the "ETag" header should be "22xu1Xa5CS3DK1Om2tB7OBDfWAF.2"
 
   Scenario: Valid JWT subject stored with command events
 
     If a user logs in with a valid JWT then the header X-USER-ID should be set with the value in the "sub" field of the token
 
-    Given "Sojourner" is on the "Blog" create screen
+    Given "Sojourner" is on the "Blog" edit screen with id "1234"
     And "Sojourner" authenticated and received a JWT
-    And "Sojourner"'s id is "123"
-    And "Sojourner" enters "3" in the "id" field
     And "Sojourner" enters "Some Blog" in the "title" field
     And "Sojourner" enters "Some Description" in the "description" field
     When the "Blog" is submitted
-    Then the "Blog" is created
-      | id    | title          | description                       |
-      | 3     | Some Blog      | Some Description                  |
-    And the "Blog" should have an id
-    And the "ETag" header should be "<Generated ID>.1"
-    And the user id on the entity events should be "123"
+    And the user id on the entity events should be "auth0|60d0c84316f69600691c1614"
 
   Scenario: Expired JWT with request on path protected by OpenID
 
@@ -696,12 +681,12 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
     In order to support JWT from different authentication services, the developer should be able to specify which part of
     the JWT should be used for the user id, role, organization
 
-    Given "Sojourner" is on the "Blog" create screen
+    Given "Sojourner" is on the "Category" create screen
     And "Sojourner" authenticated and received a JWT
     And "Sojourner" enters "3" in the "id" field
     And "Sojourner" enters "Some Blog" in the "title" field
     And "Sojourner" enters "Some Description" in the "description" field
-    When the "Blog" is submitted
+    When the "Category" is submitted
     Then a 403 response should be returned
 
 
@@ -719,11 +704,11 @@ Feature: Use OpenAPI Security Scheme to protect endpoints
   @WEOS-1519
   Scenario: User denied based on the role being on the deny list
 
-    Given "Sojourner" is on the "Blog" edit screen with id "1234"
+    Given "Sojourner" is on the "Post" create screen
     And "Sojourner" authenticated and received a JWT
     And "Sojourner" enters "Some New Title" in the "title" field
     And "Sojourner" enters "Some Description" in the "description" field
-    When the "Blog" is submitted
+    When the "Post" is submitted
     Then a 403 response should be returned
 
   Scenario: Request with missing required scope
