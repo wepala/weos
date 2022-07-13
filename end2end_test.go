@@ -636,49 +636,60 @@ func theSpecificationIsParsed(arg1 string) error {
 }
 
 func aEntityConfigurationShouldBeSetup(arg1 string, arg2 *godog.DocString) error {
-	schema := API.Schemas
+	schema := API.GetConfig().Components.Schemas
 	if _, ok := schema[arg1]; !ok {
 		return fmt.Errorf("no entity named '%s'", arg1)
 	}
 
 	entityString := strings.SplitAfter(arg2.Content, arg1+" {")
-	reader := ds.NewReader(schema[arg1].Build().New())
-
-	s := strings.TrimRight(entityString[1], "}")
-	s = strings.TrimSpace(s)
-	entityFields := strings.Split(s, "\n")
-
-	for _, f := range entityFields {
-		f = strings.TrimSpace(f)
-		fields := strings.Split(f, " ")
-		if !reader.HasField(strings.Title(fields[1])) {
-			return fmt.Errorf("did not find field '%s'", fields[1])
+	tprojection, err := API.GetProjection("Default")
+	if err != nil {
+		return err
+	}
+	//if the projection is a GORMDB projection then check that the model is setup correctly
+	if projection, ok := tprojection.(*projections.GORMDB); ok {
+		model, err := projection.GORMModel(arg1, schema[arg1].Value, nil)
+		if err != nil {
+			return err
 		}
+		reader := ds.NewReader(model)
 
-		field := reader.GetField(strings.Title(fields[1]))
-		switch fields[0] {
-		case "string":
-			if field.Interface() != "" && field.Interface() != field.PointerString() {
-				return fmt.Errorf("expected a string, got '%v'", field.Interface())
+		s := strings.TrimRight(entityString[1], "}")
+		s = strings.TrimSpace(s)
+		entityFields := strings.Split(s, "\n")
+
+		for _, f := range entityFields {
+			f = strings.TrimSpace(f)
+			fields := strings.Split(f, " ")
+			if !reader.HasField(strings.Title(fields[1])) {
+				return fmt.Errorf("did not find field '%s'", fields[1])
 			}
 
-		case "integer":
-			if field.Interface() != 0 && field.Interface() != field.PointerInt() {
-				return fmt.Errorf("expected an integer, got '%v'", field.Interface())
+			field := reader.GetField(strings.Title(fields[1]))
+			switch fields[0] {
+			case "string":
+				if field.Interface() != "" && field.Interface() != field.PointerString() {
+					return fmt.Errorf("expected a string, got '%v'", field.Interface())
+				}
+
+			case "integer":
+				if field.Interface() != 0 && field.Interface() != field.PointerInt() {
+					return fmt.Errorf("expected an integer, got '%v'", field.Interface())
+				}
+			case "uint":
+				if field.Interface() != uint(0) && field.Interface() != field.PointerUint() {
+					return fmt.Errorf("expected an uint, got '%v'", field.Interface())
+				}
+			case "datetime":
+				dateTime := field.PointerTime()
+				if field.Interface() != new(time.Time) && field.Interface() != dateTime {
+					fmt.Printf("date interface is '%v'", field.Interface())
+					fmt.Printf("empty date interface is '%v'", new(time.Time))
+					return fmt.Errorf("expected an uint, got '%v'", field.Interface())
+				}
+			default:
+				return fmt.Errorf("got an unexpected field type: %s", fields[0])
 			}
-		case "uint":
-			if field.Interface() != uint(0) && field.Interface() != field.PointerUint() {
-				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
-			}
-		case "datetime":
-			dateTime := field.PointerTime()
-			if field.Interface() != new(time.Time) && field.Interface() != dateTime {
-				fmt.Printf("date interface is '%v'", field.Interface())
-				fmt.Printf("empty date interface is '%v'", new(time.Time))
-				return fmt.Errorf("expected an uint, got '%v'", field.Interface())
-			}
-		default:
-			return fmt.Errorf("got an unexpected field type: %s", fields[0])
 		}
 
 	}
