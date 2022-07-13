@@ -602,3 +602,41 @@ func TestIntegration_FilteringByCamelCase(t *testing.T) {
 
 	})
 }
+
+func TestIntegration_FHIR(t *testing.T) {
+	//dropDB()
+	content, err := ioutil.ReadFile("./controllers/rest/fixtures/fhir.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentString := string(content)
+	contentString = fmt.Sprintf(contentString, dbconfig.Database, dbconfig.Driver, dbconfig.Host, dbconfig.Password, dbconfig.User, dbconfig.Port)
+
+	tapi, err := api.New(contentString)
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	err = tapi.Initialize(context.TODO())
+	if err != nil {
+		t.Fatalf("un expected error loading spec '%s'", err)
+	}
+	//TODO check that the tables are created correctly
+	gormDBconnection, err := tapi.GetGormDBConnection("Default")
+	if !gormDBconnection.Migrator().HasTable("Patient") {
+		t.Fatalf("expected there to be an patient table")
+	}
+
+	//expectedColumns := []string{"gender"}
+	//columns, _ := gormDB.Migrator().ColumnTypes("Patient")
+	//actualColumns := make([]string, len(columns))
+	//for k, column := range columns {
+	//	actualColumns[k] = column.Name()
+	//}
+	//
+	//for _, expectedColumn := range expectedColumns {
+	//	if !model.InList(actualColumns, expectedColumn) {
+	//		t.Errorf("expected the column '%s' to exist", expectedColumn)
+	//	}
+	//}
+	//dropDB()
+}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/casbin/casbin/v2"
 	"net/http"
 	"os"
 	"reflect"
@@ -38,6 +39,7 @@ type RESTAPI struct {
 	Client                         *http.Client
 	projection                     *projections.GORMDB
 	Config                         *APIConfig
+	securityConfiguration          *SecurityConfiguration
 	e                              *echo.Echo
 	PathConfigs                    map[string]*PathConfig
 	Schemas                        map[string]ds.Builder
@@ -47,6 +49,8 @@ type RESTAPI struct {
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]projections.Projection
+	logs                           map[string]model.Log
+	httpClients                    map[string]*http.Client
 	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
 	registeredInitializers         map[reflect.Value]int
@@ -57,6 +61,7 @@ type RESTAPI struct {
 	entityFactories                map[string]model.EntityFactory
 	dbConnections                  map[string]*sql.DB
 	gormConnections                map[string]*gorm.DB
+	enforcers                      map[string]*casbin.Enforcer
 }
 
 type schema struct {
@@ -219,6 +224,20 @@ func (p *RESTAPI) RegisterGORMDB(name string, connection *gorm.DB) {
 	p.gormConnections[name] = connection
 }
 
+func (p *RESTAPI) RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer) {
+	if p.enforcers == nil {
+		p.enforcers = make(map[string]*casbin.Enforcer)
+	}
+	p.enforcers[name] = enforcer
+}
+
+func (p *RESTAPI) GetPermissionEnforcer(name string) (*casbin.Enforcer, error) {
+	if tenforcer, ok := p.enforcers[name]; ok {
+		return tenforcer, nil
+	}
+	return nil, fmt.Errorf("permission enforcer '%s' not found", name)
+}
+
 //GetMiddleware get middleware by name
 func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	if tmiddleware, ok := p.middlewares[name]; ok {
@@ -341,6 +360,43 @@ func (p *RESTAPI) GetWeOSConfig() *APIConfig {
 	return p.Config
 }
 
+//RegisterLog setup a log
+func (p *RESTAPI) RegisterLog(name string, logger model.Log) {
+	if p.logs == nil {
+		p.logs = make(map[string]model.Log)
+	}
+	p.logs[name] = logger
+}
+
+func (p *RESTAPI) GetLog(name string) (model.Log, error) {
+	if tlog, ok := p.logs[name]; ok {
+		return tlog, nil
+	}
+	return nil, fmt.Errorf("log '%s' not found", name)
+}
+
+func (p *RESTAPI) RegisterHTTPClient(name string, client *http.Client) {
+	if p.httpClients == nil {
+		p.httpClients = make(map[string]*http.Client)
+	}
+	p.httpClients[name] = client
+}
+
+func (p *RESTAPI) GetHTTPClient(name string) (*http.Client, error) {
+	if client, ok := p.httpClients[name]; ok {
+		return client, nil
+	}
+	return nil, fmt.Errorf("http client '%s' not found", name)
+}
+
+func (p *RESTAPI) RegisterSecurityConfiguration(configuration *SecurityConfiguration) {
+	p.securityConfiguration = configuration
+}
+
+func (p *RESTAPI) GetSecurityConfiguration() *SecurityConfiguration {
+	return p.securityConfiguration
+}
+
 const SWAGGERUIENDPOINT = "/_discover/"
 const SWAGGERJSONENDPOINT = "/_discover_json"
 
@@ -368,6 +424,17 @@ func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFun
 
 //Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
+	//register logger
+	p.RegisterLog("Default", p.e.Logger)
+	//register httpClient
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = 100
+	t.MaxConnsPerHost = 100
+	t.MaxIdleConnsPerHost = 100
+	p.RegisterHTTPClient("Default", &http.Client{
+		Transport: t,
+		Timeout:   time.Second * 10,
+	})
 	//register standard controllers
 	p.RegisterController("CreateController", CreateController)
 	p.RegisterController("UpdateController", UpdateController)
@@ -381,7 +448,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
-	p.RegisterMiddleware("OpenIDMiddleware", OpenIDMiddleware)
 	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
 	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
 	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
@@ -403,6 +469,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterOperationInitializer(ContentTypeResponseInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
 	p.RegisterOperationInitializer(UserDefinedInitializer)
+	p.RegisterOperationInitializer(AuthorizationInitializer)
 	p.RegisterOperationInitializer(StandardInitializer)
 	p.RegisterOperationInitializer(RouteInitializer)
 	//register standard post path initializers

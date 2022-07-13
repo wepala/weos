@@ -276,3 +276,59 @@ func TestGORMDB_GORMModel(t *testing.T) {
 		}
 	})
 }
+
+func TestGORMDB_GORMModels(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("./fixtures/complex-spec.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error setting up api: %s", err)
+	}
+	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("convert inline arrays", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["contact"] = []struct {
+			Name         string `json:"name"`
+			RelationShip struct {
+				Text string
+			} `json:"relationShip"`
+		}{
+			{
+				Name: "Medgar Evans",
+			},
+		}
+
+		payloadData, err := json.Marshal(&payload)
+		if err != nil {
+			t.Fatalf("unexpected error setting up payload '%s'", err)
+		}
+
+		model, err := projection.GORMModel("Patient", api.GetConfig().Components.Schemas["Patient"].Value, payloadData)
+		if err != nil {
+			t.Fatalf("unexpected error setting up model '%s'", err)
+		}
+
+		reader := ds.NewReader(model)
+		if !reader.HasField("Contact") {
+			t.Fatalf("expected contact field to exist")
+		}
+
+		contactString := reader.GetField("Contact").String()
+		if contactString == "" {
+			t.Fatalf("expected contact to be json string")
+		}
+
+		var actualContacts []map[string]interface{}
+		err = json.Unmarshal([]byte(contactString), &actualContacts)
+		if err != nil {
+			t.Fatalf("error unmarshiling conact '%s'", err)
+		}
+
+		if actualContacts[0]["name"] != "Medgar Evans" {
+			t.Errorf("expected contact name to be '%s', got '%s'", "Medgar Evans", actualContacts[0]["name"])
+		}
+
+	})
+}

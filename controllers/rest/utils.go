@@ -266,6 +266,7 @@ func SplitFilter(filter string) *FilterProperties {
 	return property
 }
 
+//Deprecated: 06/20/2022 Use GetOpenIDConfig to get the map of the entire config
 //GetJwkUrl fetches the jwk url from the open id connect url
 func GetJwkUrl(openIdUrl string) (string, error) {
 	//fetches the response from the connect id url
@@ -289,6 +290,25 @@ func GetJwkUrl(openIdUrl string) (string, error) {
 		return "", fmt.Errorf("no jwks uri found")
 	}
 	return info["jwks_uri"].(string), nil
+}
+
+//GetOpenIDConfig returns map of openID content
+func GetOpenIDConfig(openIdUrl string) (map[string]interface{}, error) {
+	//fetches the response from the url
+	resp, err := http.Get(openIdUrl)
+	if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected error fetching open id connect url")
+	}
+	defer resp.Body.Close()
+	// reads the body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read response body: %v", err)
+	}
+	// unmarshal the body to a struct we can use to find the jwk uri
+	var info map[string]interface{}
+	err = json.Unmarshal(body, &info)
+	return info, err
 }
 
 //JSONMarshal this marshals data without using html.escape

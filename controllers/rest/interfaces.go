@@ -1,13 +1,16 @@
+//go:generate moq -out rest_mocks_test.go -pkg rest_test . Container Validator
 package rest
 
 import (
 	"database/sql"
+	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
+	"net/http"
 )
 
 type (
@@ -76,4 +79,18 @@ type Container interface {
 	GetConfig() *openapi3.Swagger
 	//GetWeOSConfig this is the old way of getting the config
 	GetWeOSConfig() *APIConfig
+	//RegisterLog set logger
+	RegisterLog(name string, logger model.Log)
+	//GetLog
+	GetLog(name string) (model.Log, error)
+	//RegisterHTTPClient setup http client to use
+	RegisterHTTPClient(name string, client *http.Client)
+	//GetHTTPClient return htpt client
+	GetHTTPClient(name string) (*http.Client, error)
+	RegisterSecurityConfiguration(configuration *SecurityConfiguration)
+	GetSecurityConfiguration() *SecurityConfiguration
+	//RegisterPermissionEnforcer save permission enforcer
+	RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer)
+	//GetPermissionEnforcer get Casbin enforcer
+	GetPermissionEnforcer(name string) (*casbin.Enforcer, error)
 }

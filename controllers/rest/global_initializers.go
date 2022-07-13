@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/gommon/log"
 	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
@@ -15,35 +16,31 @@ import (
 
 //Security adds authorization middleware to the initialize context
 func Security(ctxt context.Context, tapi Container, swagger *openapi3.Swagger) (context.Context, error) {
-	api := tapi.(*RESTAPI)
-	middlewares := GetOperationMiddlewares(ctxt)
-	found := false
-
-	for _, security := range swagger.Security {
-		for key, _ := range security {
-			if swagger.Components.SecuritySchemes != nil && swagger.Components.SecuritySchemes[key] != nil {
-				//checks if the security scheme has type openIdConnect
-				if swagger.Components.SecuritySchemes[key].Value.Type == "openIdConnect" {
-					found = true
-					break
+	if swagger.Components.SecuritySchemes != nil {
+		middlewares := GetOperationMiddlewares(ctxt)
+		logger, err := tapi.GetLog("Default")
+		if err != nil {
+			logger = log.New("weos")
+		}
+		config, err := new(SecurityConfiguration).FromSchema(swagger.Components.SecuritySchemes)
+		if err != nil {
+			logger.Debugf("error loading security schemes '%s'", err)
+			return ctxt, err
+		}
+		//set config to container
+		tapi.RegisterSecurityConfiguration(config)
+		//check that all the security references are valid
+		for _, security := range swagger.Security {
+			for k, _ := range security {
+				if _, ok := config.Validators[k]; !ok {
+					return ctxt, fmt.Errorf("unable to find security configuration '%s'", k)
 				}
-
 			}
 		}
-
-	}
-	if found {
-		if middleware, _ := api.GetMiddleware("OpenIDMiddleware"); middleware != nil {
-			middlewares = append(middlewares, middleware)
-		}
+		middlewares = append(middlewares, config.Middleware)
 		ctxt = context.WithValue(ctxt, weosContext.MIDDLEWARES, middlewares)
-	} else {
-		if swagger.Components.SecuritySchemes != nil && swagger.Security != nil {
-			api.EchoInstance().Logger.Errorf("unexpected error: security defined does not match any security schemes")
-			return ctxt, fmt.Errorf("unexpected error: security defined does not match any security schemes")
-		}
-
 	}
+
 	return ctxt, nil
 }
 
@@ -162,11 +159,6 @@ func DefaultProjection(ctxt context.Context, tapi Container, swagger *openapi3.S
 					}
 				}
 			}
-
-			//get the database schema
-			schemas := CreateSchema(ctxt, api.EchoInstance(), api.GetConfig())
-			api.Schemas = schemas
-			ctxt = context.WithValue(ctxt, weosContext.SCHEMA_BUILDERS, schemas)
 
 			//get fields to be removed during migration step
 			deletedFields := map[string][]string{}
