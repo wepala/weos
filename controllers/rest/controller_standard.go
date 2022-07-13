@@ -605,7 +605,9 @@ func DeleteMiddleware(api Container, projection projections.Projection, commandD
 					}
 
 				}
-				weosID = result1.ID
+				if result1 != nil {
+					weosID = result1.ID
+				}
 
 				if result1 == nil || weosID == "" {
 					return NewControllerError("No entity found", err, http.StatusNotFound)

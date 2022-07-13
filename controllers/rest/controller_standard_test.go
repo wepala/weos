@@ -1964,6 +1964,49 @@ func TestStandardControllers_DeleteID(t *testing.T) {
 			t.Errorf("expected response code to be %d, got %d", 404, response.StatusCode)
 		}
 	})
+
+	t.Run("delete but id does not exist", func(t *testing.T) {
+
+		projection1 := &ProjectionMock{
+			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+			GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
+				return nil, nil
+			},
+			GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+		}
+
+		paramName := "id"
+
+		accountID := "Delete Blog"
+		path := swagger.Paths.Find("/blogs/:" + paramName)
+		entityFactory := &EntityFactoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/blogs/12", nil)
+		req.Header.Set(weoscontext.HeaderXAccountID, accountID)
+		mw := rest.Context(restAPI, projection1, dispatcher, eventMock, entityFactory, path, path.Delete)
+		deleteMw := rest.DeleteMiddleware(restAPI, projection1, dispatcher, eventMock, entityFactory, path, path.Delete)
+		controller := rest.DeleteController(restAPI, projection1, dispatcher, eventMock, entityFactory)
+		e.DELETE("/blogs/:"+paramName, controller, mw, deleteMw)
+		e.ServeHTTP(resp, req)
+
+		response := resp.Result()
+		defer response.Body.Close()
+
+		if response.StatusCode != http.StatusNotFound {
+			t.Errorf("expected response code to be %d, got %d", http.StatusNotFound, response.StatusCode)
+		}
+	})
 }
 
 func TestStandardControllers_AuthenticateMiddleware(t *testing.T) {
