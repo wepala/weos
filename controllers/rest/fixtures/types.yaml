@@ -1,0 +1,42 @@
+openapi: 3.0.3
+info:
+  title: Title
+  description: Title
+  version: 1.0.0
+servers:
+  - url: 'https'
+components:
+  schemas:
+    Blog:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+            type: string
+            nullable: true
+        tags:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+        hash:
+          type: object
+          properties:
+            header:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                  content:
+                    type: string
+      x-identifier:
+        - id
+  
+paths:
+  
