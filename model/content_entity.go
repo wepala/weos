@@ -348,6 +348,25 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 					}
 				}
 
+				//if the value is a string try to convert to json and deserialize
+				if value, ok := data[k].(string); ok {
+					var tvalue []interface{}
+					err = json.Unmarshal([]byte(value), &tvalue)
+					if err != nil {
+						return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '[]', got '%s'", k, value), w.Schema.Title, w.ID, err)
+					}
+					data[k] = tvalue
+				}
+			case "object":
+				//if the value is a string try to convert to json and deserialize
+				if value, ok := data[k].(string); ok {
+					var tvalue map[string]interface{}
+					err = json.Unmarshal([]byte(value), &tvalue)
+					if err != nil {
+						return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '{}', got '%s'", k, value), w.Schema.Title, w.ID, err)
+					}
+					data[k] = tvalue
+				}
 			}
 		}
 	}

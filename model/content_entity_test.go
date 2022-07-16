@@ -367,6 +367,29 @@ func TestContentEntity_Deserlialization(t *testing.T) {
 		}
 	})
 
+	t.Run("Deserialize JSON property", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["hash"] = `{
+		"header": [
+			{
+				"name": "test"
+			}
+		]
+	}`
+		payloadRaw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("error marshalling Payload '%s'", err)
+		}
+		json.Unmarshal(payloadRaw, &entity)
+		if _, ok := entity.GetInterface("hash").(map[string]interface{}); !ok {
+			t.Errorf("expected the hash to be a map, got %T", entity.GetInterface("hash"))
+		}
+		entityJSON := entity.ToMap()
+		if _, ok := entityJSON["hash"].(map[string]interface{}); !ok {
+			t.Errorf("expected the hash to be a map, got %T", entityJSON["hash"])
+		}
+	})
+
 }
 
 func TestContentEntity_Delete(t *testing.T) {
