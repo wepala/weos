@@ -320,6 +320,78 @@ func TestContentEntity_SetValueFromPayload(t *testing.T) {
 	}
 }
 
+func TestContentEntity_Deserlialization(t *testing.T) {
+	//load open api spec
+	swagger, err := LoadConfig(t, "../controllers/rest/fixtures/types.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error occured '%s'", err)
+	}
+	entityFactory := new(model.DefaultEntityFactory).FromSchema("Blog", swagger.Components.Schemas["Blog"].Value)
+	entity, err := entityFactory.NewEntity(context.TODO())
+	if err != nil {
+		t.Fatalf("error generating entity '%s'", err)
+	}
+	t.Run("Deserialize String", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["title"] = "Test Blog"
+		payloadRaw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("error marshalling Payload '%s'", err)
+		}
+		json.Unmarshal(payloadRaw, &entity)
+		if entity.GetString("title") != "Test Blog" {
+			t.Errorf("expected the title on the entity to be '%s', got '%s'", "Test Blog", entity.GetString("title"))
+		}
+	})
+
+	t.Run("Deserialize JSON", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["hash"] = map[string]interface{}{
+			"header": []interface{}{
+				map[string]interface{}{
+					"name": "test",
+				},
+			},
+		}
+		payloadRaw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("error marshalling Payload '%s'", err)
+		}
+		json.Unmarshal(payloadRaw, &entity)
+		if _, ok := entity.GetInterface("hash").(map[string]interface{}); !ok {
+			t.Errorf("expected the hash to be a map, got %T", entity.GetInterface("hash"))
+		}
+		entityJSON := entity.ToMap()
+		if _, ok := entityJSON["hash"].(map[string]interface{}); !ok {
+			t.Errorf("expected the hash to be a map, got %T", entityJSON["hash"])
+		}
+	})
+
+	t.Run("Deserialize JSON property", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["hash"] = `{
+		"header": [
+			{
+				"name": "test"
+			}
+		]
+	}`
+		payloadRaw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("error marshalling Payload '%s'", err)
+		}
+		json.Unmarshal(payloadRaw, &entity)
+		if _, ok := entity.GetInterface("hash").(map[string]interface{}); !ok {
+			t.Errorf("expected the hash to be a map, got %T", entity.GetInterface("hash"))
+		}
+		entityJSON := entity.ToMap()
+		if _, ok := entityJSON["hash"].(map[string]interface{}); !ok {
+			t.Errorf("expected the hash to be a map, got %T", entityJSON["hash"])
+		}
+	})
+
+}
+
 func TestContentEntity_Delete(t *testing.T) {
 	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
 	if err != nil {
