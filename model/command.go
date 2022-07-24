@@ -31,7 +31,7 @@ type DefaultCommandDispatcher struct {
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
 	//mutex helps keep state between routines
 	e.dispatch.Lock()
 	defer e.dispatch.Unlock()
@@ -57,7 +57,7 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 					}
 					wg.Done()
 				}()
-				err = handler(ctx, command, eventStore, projection, logger)
+				err = handler(ctx, command, container, eventStore, projection, logger)
 			}()
 		}
 
@@ -80,4 +80,4 @@ func (e *DefaultCommandDispatcher) GetSubscribers() map[string][]CommandHandler 
 	return e.handlers
 }
 
-type CommandHandler func(ctx context.Context, command *Command, eventRepository EventRepository, projection Projection, logger Log) error
+type CommandHandler func(ctx context.Context, command *Command, container Container, eventRepository EventRepository, projection Projection, logger Log) error

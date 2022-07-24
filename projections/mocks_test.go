@@ -9,6 +9,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
+	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -1583,7 +1584,7 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}

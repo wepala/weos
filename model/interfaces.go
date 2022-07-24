@@ -2,7 +2,10 @@ package model
 
 //go:generate moq -out temp_mocks_test.go -pkg model_test . GormProjection
 import (
+	"database/sql"
+	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
+	"net/http"
 	"time"
 
 	"golang.org/x/net/context"
@@ -10,7 +13,7 @@ import (
 )
 
 type CommandDispatcher interface {
-	Dispatch(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error
+	Dispatch(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error
 	AddSubscriber(command *Command, handler CommandHandler) map[string][]CommandHandler
 	GetSubscribers() map[string][]CommandHandler
 }
@@ -91,4 +94,43 @@ type Projection interface {
 type GormProjection interface {
 	Projection
 	DB() *gorm.DB
+}
+
+type Container interface {
+	//RegisterEventStore Add event store so that it can be referenced in the OpenAPI spec
+	RegisterEventStore(name string, repository EventRepository)
+	//GetEventStore get event dispatcher by name
+	GetEventStore(name string) (EventRepository, error)
+	//RegisterCommandDispatcher Add command dispatcher so that it can be referenced in the OpenAPI spec
+	RegisterCommandDispatcher(name string, dispatcher CommandDispatcher)
+	//GetCommandDispatcher get event dispatcher by name
+	GetCommandDispatcher(name string) (CommandDispatcher, error)
+	//RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
+	RegisterEntityFactory(name string, factory EntityFactory)
+	//GetEntityFactory get entity factory
+	GetEntityFactory(name string) (EntityFactory, error)
+	//GetEntityFactories get event factories
+	GetEntityFactories() map[string]EntityFactory
+	//RegisterDBConnection save db connection
+	RegisterDBConnection(name string, connection *sql.DB)
+	//GetDBConnection get db connection by name
+	GetDBConnection(name string) (*sql.DB, error)
+	//RegisterGORMDB save gorm connection
+	RegisterGORMDB(name string, connection *gorm.DB)
+	//GetGormDBConnection get gorm connection by name
+	GetGormDBConnection(name string) (*gorm.DB, error)
+	//GetConfig the swagger configuration
+	GetConfig() *openapi3.Swagger
+	//RegisterLog set logger
+	RegisterLog(name string, logger Log)
+	//GetLog
+	GetLog(name string) (Log, error)
+	//RegisterHTTPClient setup http client to use
+	RegisterHTTPClient(name string, client *http.Client)
+	//GetHTTPClient return htpt client
+	GetHTTPClient(name string) (*http.Client, error)
+	//RegisterPermissionEnforcer save permission enforcer
+	RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer)
+	//GetPermissionEnforcer get Casbin enforcer
+	GetPermissionEnforcer(name string) (*casbin.Enforcer, error)
 }
