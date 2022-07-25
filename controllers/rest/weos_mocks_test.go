@@ -1713,7 +1713,7 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}

@@ -90,7 +90,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, contentEntity, "fsdf32432"), mockEventRepository, projectionMock, echo.New().Logger)
+		err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, contentEntity, "fsdf32432"), nil, mockEventRepository, projectionMock, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -107,7 +107,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx1, model.Create(ctx1, reqBytes, contentEntity1, "fsdf32432"), mockEventRepository, projectionMock, echo.New().Logger)
+		err1 := commandDispatcher.Dispatch(ctx1, model.Create(ctx1, reqBytes, contentEntity1, "fsdf32432"), nil, mockEventRepository, projectionMock, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -128,7 +128,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity2), mockEventRepository, projectionMock, echo.New().Logger)
+		err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity2), nil, mockEventRepository, projectionMock, echo.New().Logger)
 		if err1 == nil {
 			t.Fatalf("expected error dispatching command but got nil")
 		}
@@ -231,7 +231,7 @@ func TestUpdateContentType(t *testing.T) {
 			t.Fatalf("error converting content type to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx, model.Update(ctx, reqBytes, entityType), nil, nil, nil)
+		err1 := commandDispatcher.Dispatch(ctx, model.Update(ctx, reqBytes, entityType), nil, nil, nil, nil)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -315,7 +315,7 @@ func TestDeleteContentType(t *testing.T) {
 	}
 
 	t.Run("Testing basic delete entity", func(t *testing.T) {
-		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"), mockEventRepository, projectionMock, echo.New().Logger)
+		err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"), nil, mockEventRepository, projectionMock, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
