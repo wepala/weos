@@ -427,7 +427,7 @@ func TestGORMDB_Remove(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error getting entity factory '%s'", err)
 		}
-		blog := `{"title":"My Blog","description":"This is my blog", "id":"test"}`
+		blog := `{"title":"My Blog","description":"This is my blog"}`
 		contentEntity, err := ef.CreateEntityWithValues(context.Background(), []byte(blog))
 		if err != nil {
 			t.Fatalf("unexpected error creating entity '%s'", err)
