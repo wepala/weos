@@ -45,7 +45,7 @@ func (d *DefaultEntityFactory) NewEntity(ctxt context.Context) (*ContentEntity, 
 	if d.builder != nil {
 		return new(ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
 	}
-	return new(ContentEntity).FromSchema(ctxt, d.schema)
+	return new(ContentEntity).FromSchema(ctxt, "", d.schema)
 }
 
 func (d *DefaultEntityFactory) CreateEntityWithValues(ctxt context.Context, payload []byte) (*ContentEntity, error) {
@@ -54,7 +54,7 @@ func (d *DefaultEntityFactory) CreateEntityWithValues(ctxt context.Context, payl
 	if d.builder != nil {
 		entity, err = new(ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
 	} else {
-		entity, err = new(ContentEntity).FromSchema(ctxt, d.schema)
+		entity, err = new(ContentEntity).FromSchema(ctxt, d.Name(), d.Schema())
 	}
 
 	if err != nil {

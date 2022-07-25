@@ -32,7 +32,7 @@ func TestContentEntity_FromSchema(t *testing.T) {
 		Schema: contentTypeSchema.Value,
 	})
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
-	entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+	entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 	if err != nil {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
@@ -66,7 +66,7 @@ func TestContentEntity_Init(t *testing.T) {
 		t.Fatalf("unexpected error marshalling payload '%s'", err)
 	}
 
-	entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+	entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 	if err != nil {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}
@@ -156,7 +156,7 @@ func TestContentEntity_Update(t *testing.T) {
 		t.Fatalf("error converting payload to bytes %s", err)
 	}
 	existingEntity := &model.ContentEntity{}
-	existingEntity, err = existingEntity.FromSchema(ctx, schema)
+	existingEntity, err = existingEntity.FromSchema(ctx, "", schema)
 	err = existingEntity.SetValueFromPayload(ctx, payload)
 	if err != nil {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
@@ -264,7 +264,7 @@ func TestContentEntity_ToMap(t *testing.T) {
 	})
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
 
-	entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+	entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 	if err != nil {
 		t.Fatalf("unexpected error instantiating content entity '%s'", err)
 	}

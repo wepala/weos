@@ -3,6 +3,7 @@ package projections_test
 import (
 	"encoding/json"
 	ds "github.com/ompluscator/dynamic-struct"
+	"github.com/segmentio/ksuid"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
 	"github.com/wepala/weos/projections"
@@ -330,5 +331,159 @@ func TestGORMDB_GORMModels(t *testing.T) {
 			t.Errorf("expected contact name to be '%s', got '%s'", "Medgar Evans", actualContacts[0]["name"])
 		}
 
+	})
+}
+
+type TestBlog struct {
+	model.AggregateRoot
+	Title string `gorm:"not null"`
+}
+
+func TestGORMDB_Persist(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error setting up api: %s", err)
+	}
+	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection.Migrate(context.TODO(), api.GetConfig())
+	t.Run("create a content entity", func(t *testing.T) {
+		api.RegisterEntityFactory("Blog", new(model.DefaultEntityFactory).FromSchema("Blog", api.GetConfig().Components.Schemas["Blog"].Value))
+		ef, err := api.GetEntityFactory("Blog")
+		if err != nil {
+			t.Fatalf("unexpected error getting entity factory '%s'", err)
+		}
+		blog := `{"title":"My Blog","description":"This is my blog"}`
+		contentEntity, err := ef.CreateEntityWithValues(context.Background(), []byte(blog))
+		if err != nil {
+			t.Fatalf("unexpected error creating entity '%s'", err)
+		}
+		err = projection.Persist([]model.Entity{contentEntity})
+		if err != nil {
+			t.Fatalf("unexpected error persisting entity '%s'", err)
+		}
+		//check Blog is created
+		tmodel, err := projection.GORMModel("Blog", ef.Schema(), []byte(`{}`))
+		if err != nil {
+			t.Fatalf("unexpected error creating model '%s'", err)
+		}
+		projection.DB().Table(contentEntity.Name).Find(&tmodel, "title = ?", "My Blog")
+		reader := ds.NewReader(tmodel)
+		if reader.GetField("Title").String() != "My Blog" {
+			t.Errorf("expected title to be '%s', got '%s'", "My Blog", reader.GetField("Title").String())
+		}
+	})
+
+	t.Run("create a regular model", func(t *testing.T) {
+		blog := TestBlog{Title: "My Blog"}
+		blog.ID = ksuid.New().String()
+		err := projection.DB().AutoMigrate(&TestBlog{})
+		if err != nil {
+			t.Fatalf("unexpected error creating model '%s'", err)
+		}
+		err = projection.Persist([]model.Entity{&blog})
+		if err != nil {
+			t.Fatalf("unexpected error persisting entity '%s'", err)
+		}
+		//check Blog is created
+		tresult := &TestBlog{}
+		result := projection.DB().Debug().Find(&tresult, "title = ?", "My Blog")
+		if result.Error != nil {
+			t.Errorf("unexpected error finding entity '%s'", result.Error)
+		}
+		if tresult.Title != "My Blog" {
+			t.Errorf("expected title to be '%s', got '%s'", "My Blog", tresult.Title)
+		}
+	})
+
+	err = gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+
+	err = gormDB.Migrator().DropTable("test_blogs")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+}
+
+func TestGORMDB_Remove(t *testing.T) {
+	//load open api spec
+	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error setting up api: %s", err)
+	}
+	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection.Migrate(context.TODO(), api.GetConfig())
+	t.Run("remove a content entity", func(t *testing.T) {
+		api.RegisterEntityFactory("Blog", new(model.DefaultEntityFactory).FromSchema("Blog", api.GetConfig().Components.Schemas["Blog"].Value))
+		ef, err := api.GetEntityFactory("Blog")
+		if err != nil {
+			t.Fatalf("unexpected error getting entity factory '%s'", err)
+		}
+		blog := `{"title":"My Blog","description":"This is my blog", "id":"test"}`
+		contentEntity, err := ef.CreateEntityWithValues(context.Background(), []byte(blog))
+		if err != nil {
+			t.Fatalf("unexpected error creating entity '%s'", err)
+		}
+		err = projection.Persist([]model.Entity{contentEntity})
+		if err != nil {
+			t.Fatalf("unexpected error persisting entity '%s'", err)
+		}
+		//check Blog is created
+		tmodel, err := projection.GORMModel("Blog", ef.Schema(), []byte(`{}`))
+		if err != nil {
+			t.Fatalf("unexpected error creating model '%s'", err)
+		}
+		projection.DB().Table(contentEntity.Name).Find(&tmodel, "title = ?", "My Blog")
+		reader := ds.NewReader(tmodel)
+		if reader.GetField("Title").String() != "My Blog" {
+			t.Errorf("expected title to be '%s', got '%s'", "My Blog", reader.GetField("Title").String())
+		}
+		err = projection.Remove([]model.Entity{contentEntity})
+		if err != nil {
+			t.Fatalf("unexpected error removing entity '%s'", err)
+		}
+		result := projection.DB().Debug().Find(&tmodel, "title = ?", "My Blog")
+		if result.RowsAffected != 0 {
+			t.Errorf("expected rows affected to be '%d', got '%d'", 0, result.RowsAffected)
+		}
+	})
+
+	t.Run("remove a regular model", func(t *testing.T) {
+		blog := TestBlog{Title: "My Blog"}
+		blog.ID = ksuid.New().String()
+		err := projection.DB().AutoMigrate(&TestBlog{})
+		if err != nil {
+			t.Fatalf("unexpected error creating model '%s'", err)
+		}
+		err = projection.Persist([]model.Entity{&blog})
+		if err != nil {
+			t.Fatalf("unexpected error persisting entity '%s'", err)
+		}
+		//check Blog is created
+		tresult := &TestBlog{}
+		result := projection.DB().Debug().Find(&tresult, "title = ?", "My Blog")
+		if result.Error != nil {
+			t.Errorf("unexpected error finding entity '%s'", result.Error)
+		}
+		if tresult.Title != "My Blog" {
+			t.Errorf("expected title to be '%s', got '%s'", "My Blog", tresult.Title)
+		}
+
+		err = projection.Remove([]model.Entity{tresult})
+		if err != nil {
+			t.Fatalf("unexpected error removing entity '%s'", err)
+		}
+		result = projection.DB().Debug().Find(&tresult, "title = ?", "My Blog")
+		if result.RowsAffected != 0 {
+			t.Errorf("expected rows affected to be '%d', got '%d'", 0, result.RowsAffected)
+		}
 	})
 }
