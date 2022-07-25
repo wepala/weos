@@ -111,6 +111,10 @@ type Container interface {
 	GetEntityFactory(name string) (EntityFactory, error)
 	//GetEntityFactories get event factories
 	GetEntityFactories() map[string]EntityFactory
+	//RegisterProjection Add projection so that it can be referenced in the OpenAPI spec
+	RegisterProjection(name string, projection Projection)
+	//GetProjection projection by name
+	GetProjection(name string) (Projection, error)
 	//RegisterDBConnection save db connection
 	RegisterDBConnection(name string, connection *sql.DB)
 	//GetDBConnection get db connection by name

@@ -48,10 +48,6 @@ type Container interface {
 	RegisterPostPathInitializer(initializer PathInitializer)
 	//GetPostPathInitializers get path intializers in the order they were registered that run AFTER the operations are processed
 	GetPostPathInitializers() []PathInitializer
-	//RegisterProjection Add projection so that it can be referenced in the OpenAPI spec
-	RegisterProjection(name string, projection projections.Projection)
-	//GetProjection projection by name
-	GetProjection(name string) (projections.Projection, error)
 	//RegisterDBConnection save db connection
 	RegisterDBConnection(name string, connection *sql.DB)
 	//GetDBConnection get db connection by name

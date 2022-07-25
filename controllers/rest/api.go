@@ -193,7 +193,7 @@ func (p *RESTAPI) RegisterCommandDispatcher(name string, dispatcher model.Comman
 }
 
 //RegisterProjection Add command dispatcher so that it can be referenced in the OpenAPI spec
-func (p *RESTAPI) RegisterProjection(name string, projection projections.Projection) {
+func (p *RESTAPI) RegisterProjection(name string, projection model.Projection) {
 	if p.projections == nil {
 		p.projections = make(map[string]projections.Projection)
 	}
@@ -289,7 +289,7 @@ func (p *RESTAPI) GetCommandDispatcher(name string) (model.CommandDispatcher, er
 }
 
 //GetProjection get event dispatcher by name
-func (p *RESTAPI) GetProjection(name string) (projections.Projection, error) {
+func (p *RESTAPI) GetProjection(name string) (model.Projection, error) {
 	if tdispatcher, ok := p.projections[name]; ok {
 		return tdispatcher, nil
 	}

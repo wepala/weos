@@ -931,7 +931,7 @@ func (mock *ContainerMock) GetPrePathInitializersCalls() []struct {
 }
 
 // GetProjection calls GetProjectionFunc.
-func (mock *ContainerMock) GetProjection(name string) (projections.Projection, error) {
+func (mock *ContainerMock) GetProjection(name string) (weos.Projection, error) {
 	if mock.GetProjectionFunc == nil {
 		panic("ContainerMock.GetProjectionFunc: method is nil but Container.GetProjection was just called")
 	}
@@ -1488,7 +1488,7 @@ func (mock *ContainerMock) RegisterPrePathInitializerCalls() []struct {
 }
 
 // RegisterProjection calls RegisterProjectionFunc.
-func (mock *ContainerMock) RegisterProjection(name string, projection projections.Projection) {
+func (mock *ContainerMock) RegisterProjection(name string, projection weos.Projection) {
 	if mock.RegisterProjectionFunc == nil {
 		panic("ContainerMock.RegisterProjectionFunc: method is nil but Container.RegisterProjection was just called")
 	}
