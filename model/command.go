@@ -37,7 +37,7 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 	defer e.dispatch.Unlock()
 	var wg sync.WaitGroup
 	var err error
-	if handlers, ok := e.handlers[command.Type]; ok {
+	if handlers, ok := e.handlers[command.Type+command.Metadata.EntityType]; ok {
 		var allHandlers []CommandHandler
 		//lets see if there are any global handlers and add those
 		if globalHandlers, ok := e.handlers["*"]; ok {
@@ -71,7 +71,7 @@ func (e *DefaultCommandDispatcher) AddSubscriber(command *Command, handler Comma
 	if e.handlers == nil {
 		e.handlers = map[string][]CommandHandler{}
 	}
-	e.handlers[command.Type] = append(e.handlers[command.Type], handler)
+	e.handlers[command.Type+command.Metadata.EntityType] = append(e.handlers[command.Type+command.Metadata.EntityType], handler)
 
 	return e.handlers
 }

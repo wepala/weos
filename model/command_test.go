@@ -14,9 +14,16 @@ func TestCommandDisptacher_Dispatch(t *testing.T) {
 			Version: 1,
 		},
 	}
+	mockCommand2 := &weos.Command{
+		Type:    "TEST_COMMAND",
+		Payload: nil,
+		Metadata: weos.CommandMetadata{
+			Version:    1,
+			EntityType: "Blog",
+		},
+	}
 	dispatcher := &weos.DefaultCommandDispatcher{}
 	handlersCalled := 0
-
 	dispatcher.AddSubscriber(mockCommand, func(ctx context.Context, command *weos.Command, container weos.Container, eventRepository weos.EventRepository, projection weos.Projection, logger weos.Log) error {
 		handlersCalled += 1
 		return nil
@@ -33,9 +40,24 @@ func TestCommandDisptacher_Dispatch(t *testing.T) {
 		}
 		return nil
 	})
-	dispatcher.Dispatch(context.TODO(), mockCommand, nil, nil, nil, nil)
 
-	if handlersCalled != 2 {
-		t.Errorf("expected %d handler to be called, %d called", 2, handlersCalled)
-	}
+	dispatcher.AddSubscriber(mockCommand2, func(ctx context.Context, command *weos.Command, container weos.Container, eventRepository weos.EventRepository, projection weos.Projection, logger weos.Log) error {
+		handlersCalled += 1
+		return nil
+	})
+	t.Run("call command for specific type", func(t *testing.T) {
+		handlersCalled = 0
+		dispatcher.Dispatch(context.TODO(), mockCommand2, nil, nil, nil, nil)
+		if handlersCalled != 2 {
+			t.Errorf("expected %d handler to be called, %d called", 2, handlersCalled)
+		}
+	})
+	t.Run("should call handler with global handler", func(t *testing.T) {
+		handlersCalled = 0
+		dispatcher.Dispatch(context.TODO(), mockCommand, nil, nil, nil, nil)
+		if handlersCalled != 2 {
+			t.Errorf("expected %d handler to be called, %d called", 2, handlersCalled)
+		}
+	})
+
 }
