@@ -108,7 +108,7 @@ func (w *ContentEntity) IsEnumValid(propertyName string, property *openapi3.Sche
 	enumFound := false
 
 	if property.Value.Enum != nil {
-		if !property.Value.Nullable {
+		if !property.Value.Nullable && value == nil {
 			message := "this content entity does not contain the field: " + strings.Title(propertyName)
 			w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 			return false

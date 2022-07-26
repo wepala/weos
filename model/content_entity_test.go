@@ -567,6 +567,30 @@ func TestContentEntity_EnumerationString2(t *testing.T) {
 		t.Fatalf("error setting up entity factory")
 	}
 
+	t.Run("Testing enum with nullable set to false but has a value", func(t *testing.T) {
+		//Pass in values to the content entity
+		entity, err := entityFactory.NewEntity(context.TODO())
+		if err != nil {
+			t.Fatalf("error generating entity '%s'", err)
+		}
+
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "status": "published"}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		err = entity.SetValueFromPayload(context.TODO(), payload)
+		if err != nil {
+			t.Fatalf("error setting Payload '%s'", err)
+		}
+
+		isValid := entity.IsValid()
+		if !isValid {
+			t.Fatalf("expected entity to be valid")
+		}
+	})
+
 	t.Run("Testing enum with nullable set to false", func(t *testing.T) {
 		//Pass in values to the content entity
 		entity, err := entityFactory.NewEntity(context.TODO())
