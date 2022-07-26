@@ -77,20 +77,25 @@ components:
         image:
           type: string
           format: byte
+          nullable: true
         categories:
           type: array
           items:
             $ref: "#/components/schemas/Category"
+          nullable: true
         posts:
           type: array
           items:
             $ref: "#/components/schemas/Post"
+          nullable: true
         lastUpdated:
           type: string
           format: date-time
+          nullable: true
         created:
           type: string
           format: date-time
+          nullable: true
       required:
         - title
         - url
