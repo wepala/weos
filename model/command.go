@@ -37,32 +37,38 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 	defer e.dispatch.Unlock()
 	var wg sync.WaitGroup
 	var err error
+	var allHandlers []CommandHandler
+	//first preference is handlers for specific command type and entity type
 	if handlers, ok := e.handlers[command.Type+command.Metadata.EntityType]; ok {
-		var allHandlers []CommandHandler
-		//lets see if there are any global handlers and add those
-		if globalHandlers, ok := e.handlers["*"]; ok {
-			allHandlers = append(allHandlers, globalHandlers...)
-		}
-		//now lets add the specific command handlers
 		allHandlers = append(allHandlers, handlers...)
-
-		for i := 0; i < len(allHandlers); i++ {
-			handler := allHandlers[i]
-			wg.Add(1)
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						e.handlerPanicked = true
-						err = fmt.Errorf("handler error '%s'", r)
-					}
-					wg.Done()
-				}()
-				err = handler(ctx, command, container, eventStore, projection, logger)
-			}()
-		}
-
-		wg.Wait()
 	}
+	//if there are no handler then let's fall back to checking just handlers for the command type.
+	if len(allHandlers) == 0 {
+		if handlers, ok := e.handlers[command.Type]; ok {
+			allHandlers = append(allHandlers, handlers...)
+		}
+	}
+	//lets see if there are any global handlers and add those
+	if globalHandlers, ok := e.handlers["*"]; ok {
+		allHandlers = append(allHandlers, globalHandlers...)
+	}
+
+	for i := 0; i < len(allHandlers); i++ {
+		handler := allHandlers[i]
+		wg.Add(1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					e.handlerPanicked = true
+					err = fmt.Errorf("handler error '%s'", r)
+				}
+				wg.Done()
+			}()
+			err = handler(ctx, command, container, eventStore, projection, logger)
+		}()
+	}
+
+	wg.Wait()
 
 	return err
 }

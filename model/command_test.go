@@ -41,10 +41,6 @@ func TestCommandDisptacher_Dispatch(t *testing.T) {
 		return nil
 	})
 
-	dispatcher.AddSubscriber(mockCommand2, func(ctx context.Context, command *weos.Command, container weos.Container, eventRepository weos.EventRepository, projection weos.Projection, logger weos.Log) error {
-		handlersCalled += 1
-		return nil
-	})
 	t.Run("call command for specific type", func(t *testing.T) {
 		handlersCalled = 0
 		dispatcher.Dispatch(context.TODO(), mockCommand2, nil, nil, nil, nil)

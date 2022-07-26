@@ -107,7 +107,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx1, model.Create(ctx1, reqBytes, contentEntity1, "fsdf32432"), nil, mockEventRepository, projectionMock, echo.New().Logger)
+		err1 := commandDispatcher.Dispatch(ctx1, model.Create(ctx1, reqBytes, contentEntity, "fsdf32432"), nil, mockEventRepository, projectionMock, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -128,7 +128,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity2), nil, mockEventRepository, projectionMock, echo.New().Logger)
+		err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity), nil, mockEventRepository, projectionMock, echo.New().Logger)
 		if err1 == nil {
 			t.Fatalf("expected error dispatching command but got nil")
 		}
