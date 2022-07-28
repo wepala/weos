@@ -18,7 +18,7 @@ import (
 //Validator interface that must be implemented so that a request can be authenticated
 type Validator interface {
 	//Validate validate and return token, user, role
-	Validate(ctxt echo.Context) (bool, interface{}, string, string, error)
+	Validate(ctxt echo.Context) (bool, interface{}, string, string, string, string, error)
 	FromSchema(scheme *openapi3.SecurityScheme) (Validator, error)
 }
 
@@ -81,11 +81,15 @@ func (s *SecurityConfiguration) Middleware(api Container, projection projections
 			var userID string
 			var ttoken interface{} //parsed token
 			var role string
+			var accountID string
+			var applicationID string
 			//loop through the validators and go to the next middleware when one authenticates otherwise return 403
 			for _, validator := range validators {
-				if success, ttoken, userID, role, err = validator.Validate(ctxt); success {
+				if success, ttoken, userID, role, accountID, applicationID, err = validator.Validate(ctxt); success {
 					newContext := context.WithValue(ctxt.Request().Context(), context2.USER_ID, userID)
 					newContext = context.WithValue(newContext, context2.ROLE, role)
+					newContext = context.WithValue(newContext, context2.ACCOUNT_ID, accountID)
+					newContext = context.WithValue(newContext, context2.APPLICATION_ID, applicationID)
 					request := ctxt.Request().WithContext(newContext)
 					ctxt.SetRequest(request)
 					//check the scopes of the logged-in user against what is required and if the user doesn't have the required scope deny access

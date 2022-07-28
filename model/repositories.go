@@ -34,6 +34,7 @@ type GormEvent struct {
 	Type          string `gorm:"index"`
 	RootID        string `gorm:"index"`
 	ApplicationID string `gorm:"index"`
+	AccountID     string `gorm:"index"`
 	User          string `gorm:"index"`
 	SequenceNo    int64
 }
@@ -52,7 +53,8 @@ func NewGormEvent(event *Event) (GormEvent, error) {
 		Payload:       payload,
 		Type:          event.Type,
 		RootID:        event.Meta.RootID,
-		ApplicationID: event.Meta.Module,
+		ApplicationID: event.Meta.ApplicationID,
+		AccountID:     event.Meta.AccountID,
 		User:          event.Meta.User,
 		SequenceNo:    event.Meta.SequenceNo,
 	}, nil
@@ -80,11 +82,11 @@ func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInte
 		if event.Meta.RootID == "" {
 			event.Meta.RootID = context2.GetAccount(ctxt)
 		}
-		if event.Meta.Module == "" {
-			event.Meta.Module = e.ApplicationID
+		if event.Meta.ApplicationID == "" {
+			event.Meta.ApplicationID = context2.GetApplication(ctxt)
 		}
-		if event.Meta.Group == "" {
-			event.Meta.Group = e.GroupID
+		if event.Meta.AccountID == "" {
+			event.Meta.AccountID = context2.GetAccount(ctxt)
 		}
 		if event.Meta.EntityType == "ContentEntity" || event.Meta.EntityType == "" {
 			event.Meta.EntityType = schemaName
@@ -137,12 +139,12 @@ func (e *EventRepositoryGorm) GetByAggregate(ID string) ([]*Event, error) {
 			Type:    event.Type,
 			Payload: json.RawMessage(event.Payload),
 			Meta: EventMeta{
-				EntityID:   event.EntityID,
-				EntityType: event.EntityType,
-				RootID:     event.RootID,
-				Module:     event.ApplicationID,
-				User:       event.User,
-				SequenceNo: event.SequenceNo,
+				EntityID:      event.EntityID,
+				EntityType:    event.EntityType,
+				RootID:        event.RootID,
+				ApplicationID: event.ApplicationID,
+				User:          event.User,
+				SequenceNo:    event.SequenceNo,
 			},
 			Version: 0,
 		})
@@ -169,12 +171,12 @@ func (e *EventRepositoryGorm) GetByAggregateAndType(ID string, entityType string
 			Type:    event.Type,
 			Payload: json.RawMessage(event.Payload),
 			Meta: EventMeta{
-				EntityID:   event.EntityID,
-				EntityType: event.EntityType,
-				RootID:     event.RootID,
-				Module:     event.ApplicationID,
-				User:       event.User,
-				SequenceNo: event.SequenceNo,
+				EntityID:      event.EntityID,
+				EntityType:    event.EntityType,
+				RootID:        event.RootID,
+				ApplicationID: event.ApplicationID,
+				User:          event.User,
+				SequenceNo:    event.SequenceNo,
 			},
 			Version: 0,
 		})
@@ -197,12 +199,12 @@ func (e *EventRepositoryGorm) GetByEntityAndAggregate(EntityID string, Type stri
 			Type:    event.Type,
 			Payload: json.RawMessage(event.Payload),
 			Meta: EventMeta{
-				EntityID:   event.EntityID,
-				EntityType: event.EntityType,
-				RootID:     event.RootID,
-				Module:     event.ApplicationID,
-				User:       event.User,
-				SequenceNo: event.SequenceNo,
+				EntityID:      event.EntityID,
+				EntityType:    event.EntityType,
+				RootID:        event.RootID,
+				ApplicationID: event.ApplicationID,
+				User:          event.User,
+				SequenceNo:    event.SequenceNo,
 			},
 			Version: 0,
 		})
@@ -234,12 +236,12 @@ func (e *EventRepositoryGorm) GetByAggregateAndSequenceRange(ID string, start in
 			Type:    event.Type,
 			Payload: json.RawMessage(event.Payload),
 			Meta: EventMeta{
-				EntityID:   event.EntityID,
-				EntityType: event.EntityType,
-				RootID:     event.RootID,
-				Module:     event.ApplicationID,
-				User:       event.User,
-				SequenceNo: event.SequenceNo,
+				EntityID:      event.EntityID,
+				EntityType:    event.EntityType,
+				RootID:        event.RootID,
+				ApplicationID: event.ApplicationID,
+				User:          event.User,
+				SequenceNo:    event.SequenceNo,
 			},
 			Version: 0,
 		})
@@ -338,12 +340,12 @@ func (e *EventRepositoryGorm) ReplayEvents(ctxt context.Context, date time.Time,
 			Type:    event.Type,
 			Payload: json.RawMessage(event.Payload),
 			Meta: EventMeta{
-				EntityID:   event.EntityID,
-				EntityType: event.EntityType,
-				RootID:     event.RootID,
-				Module:     event.ApplicationID,
-				User:       event.User,
-				SequenceNo: event.SequenceNo,
+				EntityID:      event.EntityID,
+				EntityType:    event.EntityType,
+				RootID:        event.RootID,
+				ApplicationID: event.ApplicationID,
+				User:          event.User,
+				SequenceNo:    event.SequenceNo,
 			},
 			Version: 0,
 		})
