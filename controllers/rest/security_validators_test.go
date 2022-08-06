@@ -32,7 +32,7 @@ func TestOpenIDConnect_Validate(t *testing.T) {
 		ctxt := e.NewContext(rawRequest, rw)
 
 		authenticator, _ := new(rest.OpenIDConnect).FromSchema(swagger.Components.SecuritySchemes["WeAuth"].Value)
-		result, _, userID, role, err := authenticator.Validate(ctxt)
+		result, _, userID, role, _, _, err := authenticator.Validate(ctxt)
 		if err != nil {
 			t.Fatalf("error authenticating '%s'", err)
 		}
@@ -70,7 +70,7 @@ func TestOpenIDConnect_Validate(t *testing.T) {
 		ctxt := e.NewContext(rawRequest, rw)
 
 		authenticator, _ := new(rest.OpenIDConnect).FromSchema(swagger.Components.SecuritySchemes["Auth0"].Value)
-		result, _, _, _, err := authenticator.Validate(ctxt)
+		result, _, _, _, _, _, err := authenticator.Validate(ctxt)
 		if result {
 			t.Error("expected validation to fail")
 		}
@@ -115,7 +115,7 @@ func TestOAuth2_Authenticate(t *testing.T) {
 		ctxt := e.NewContext(rawRequest, rw)
 
 		authenticator, _ := new(rest.OAuth2).FromSchema(swagger.Components.SecuritySchemes["Auth02"].Value)
-		result, _, _, _, err := authenticator.Validate(ctxt)
+		result, _, _, _, _, _, err := authenticator.Validate(ctxt)
 		if err != nil {
 			t.Fatalf("error authenticating '%s'", err)
 		}

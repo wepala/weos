@@ -1565,7 +1565,7 @@ var _ rest.Validator = &ValidatorMock{}
 // 			FromSchemaFunc: func(scheme *openapi3.SecurityScheme) (rest.Validator, error) {
 // 				panic("mock out the FromSchema method")
 // 			},
-// 			ValidateFunc: func(ctxt echo.Context) (bool, interface{}, string, string, error) {
+// 			ValidateFunc: func(ctxt echo.Context) (bool, interface{}, string, string, string, string, error) {
 // 				panic("mock out the Validate method")
 // 			},
 // 		}
@@ -1579,7 +1579,7 @@ type ValidatorMock struct {
 	FromSchemaFunc func(scheme *openapi3.SecurityScheme) (rest.Validator, error)
 
 	// ValidateFunc mocks the Validate method.
-	ValidateFunc func(ctxt echo.Context) (bool, interface{}, string, string, error)
+	ValidateFunc func(ctxt echo.Context) (bool, interface{}, string, string, string, string, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1630,7 +1630,7 @@ func (mock *ValidatorMock) FromSchemaCalls() []struct {
 }
 
 // Validate calls ValidateFunc.
-func (mock *ValidatorMock) Validate(ctxt echo.Context) (bool, interface{}, string, string, error) {
+func (mock *ValidatorMock) Validate(ctxt echo.Context) (bool, interface{}, string, string, string, string, error) {
 	if mock.ValidateFunc == nil {
 		panic("ValidatorMock.ValidateFunc: method is nil but Validator.Validate was just called")
 	}

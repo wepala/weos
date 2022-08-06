@@ -5,6 +5,7 @@ import (
 	casbinmodel "github.com/casbin/casbin/v2/model"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	context2 "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
@@ -54,8 +55,8 @@ func TestSecurityConfiguration_Middleware(t *testing.T) {
 			t.Fatalf("unexpected error setting up security configuration '%s'", err)
 		}
 		//set mock authenticator, so we can check that it was set and called
-		mockAuthenticator := &ValidatorMock{ValidateFunc: func(ctxt echo.Context) (bool, interface{}, string, string, error) {
-			return true, nil, "", "", nil
+		mockAuthenticator := &ValidatorMock{ValidateFunc: func(ctxt echo.Context) (bool, interface{}, string, string, string, string, error) {
+			return true, nil, "", "", "", "", nil
 		}}
 		config.Validators["Auth0"] = mockAuthenticator
 		//find path with no security scheme set
@@ -145,6 +146,44 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 		}
 	})
 
+	t.Run("confirm claims in context", func(t *testing.T) {
+		api, err := rest.New("./fixtures/blog-security.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error loading api config '%s'", err)
+		}
+		swagger := api.Swagger
+		err = api.Initialize(context.TODO())
+		if err != nil {
+			t.Fatalf("error initializing api")
+		}
+		config := api.GetSecurityConfiguration()
+		path := swagger.Paths.Find("/blogs")
+		mw := config.Middleware(api, &ProjectionMock{}, &CommandDispatcherMock{}, &EventRepositoryMock{}, &EntityFactoryMock{}, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that the there is a role in the context
+			if context2.GetUser(ctxt.Request().Context()) != "auth0|60d0c84316f69600691c1614" {
+				t.Errorf("expected user to be '%s', got %s", "auth0|60d0c84316f69600691c1614", context2.GetUser(ctxt.Request().Context()))
+			}
+			if context2.GetAccount(ctxt.Request().Context()) != "auth0|60d0c84316f69600691c1614" {
+				t.Errorf("expected account to be '%s', got %s", "auth0|60d0c84316f69600691c1614", context2.GetAccount(ctxt.Request().Context()))
+			}
+			if context2.GetApplication(ctxt.Request().Context()) != "https://dev-bhjqt6zc.us.auth0.com/" {
+				t.Errorf("expected application to be '%s', got %s", "https://dev-bhjqt6zc.us.auth0.com/", context2.GetApplication(ctxt.Request().Context()))
+			}
+			return nil
+		})
+		e := echo.New()
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/blogs", nil)
+		token := os.Getenv("OAUTH_TEST_KEY")
+		req.Header.Add("Authorization", "Bearer "+token)
+		e.POST("/blogs", handler)
+		e.ServeHTTP(resp, req)
+
+		if resp.Result().StatusCode != http.StatusOK {
+			t.Errorf("expected the response to be %d, got %d", http.StatusOK, resp.Result().StatusCode)
+		}
+	})
 	t.Run("allowed user access", func(t *testing.T) {
 		api, err := rest.New("./fixtures/blog-security.yaml")
 		if err != nil {
