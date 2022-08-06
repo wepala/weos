@@ -15,10 +15,7 @@ func TestCORsInitializer(t *testing.T) {
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.RegisterController("CreateController", rest.CreateController)
-	api.RegisterController("ListController", rest.ListController)
-	api.RegisterController("UpdateController", rest.UpdateController)
-	api.RegisterController("ViewController", rest.ViewController)
+	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
 	baseCtxt = context.WithValue(baseCtxt, weoscontext.METHODS_FOUND, []string{http.MethodPost, http.MethodGet})
 	t.Run("CORS route added", func(t *testing.T) {
 		_, err = rest.CORsInitializer(baseCtxt, api, "/blogs", api.Swagger, api.Swagger.Paths["/blogs"])

@@ -8,7 +8,6 @@ import (
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
@@ -172,7 +171,7 @@ paths:
 	})
 
 	api.RegisterCommandDispatcher("HealthCheck", &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+		DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 			return nil
 		}})
 	api.RegisterEventStore("HealthCheck", &EventRepositoryMock{})
@@ -257,11 +256,8 @@ func TestStandardInitializer(t *testing.T) {
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.RegisterController("CreateController", rest.CreateController)
-	api.RegisterController("ListController", rest.ListController)
-	api.RegisterController("UpdateController", rest.UpdateController)
-	api.RegisterController("ViewController", rest.ViewController)
-	api.RegisterController("DeleteController", rest.DeleteController)
+	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
+	//api.RegisterController("ListController", rest.ListController)
 	t.Run("attach standard create", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
@@ -334,19 +330,13 @@ func TestRouteInitializer(t *testing.T) {
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.RegisterController("CreateController", rest.CreateController)
-	api.RegisterController("ListController", rest.ListController)
-	api.RegisterController("UpdateController", rest.UpdateController)
-	api.RegisterController("ViewController", func(api rest.Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
+	api.RegisterController("ViewController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation *openapi3.Operation) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			controllerTriggered = true
-			if _, ok := projection.(*projections.MetaProjection); !ok {
-				t.Fatalf("expected the projection to be a meta projection because there are multiple projections defined")
-			}
 			return nil
 		}
 	})
-	api.RegisterController("DeleteController", rest.DeleteController)
 	api.RegisterProjection("Custom", &ProjectionMock{
 		MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 			return nil

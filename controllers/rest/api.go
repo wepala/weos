@@ -36,7 +36,6 @@ type RESTAPI struct {
 	Application                    model.Service
 	Log                            model.Log
 	DB                             *sql.DB
-	Client                         *http.Client
 	projection                     *projections.GORMDB
 	Config                         *APIConfig
 	securityConfiguration          *SecurityConfiguration
@@ -453,6 +452,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard controllers
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("APIDiscovery", APIDiscovery)
+	p.RegisterController("DefaultWriteController", DefaultWriteController)
 
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
@@ -515,13 +515,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//}
 	//all routes setup after this will use this middleware
 	p.e.Use(middlewares...)
-
-	//initialize app
-	if p.Client == nil {
-		p.Client = &http.Client{
-			Timeout: time.Second * 10,
-		}
-	}
 	//set log level to debug
 	p.EchoInstance().Logger.SetLevel(log.DEBUG)
 

@@ -5,16 +5,14 @@
 The OpenAPI spec can be passed to the CLI via environment variable `WEOS_SCHEMA` or as a command line argument `schema`. 
 The value for the OpenAPI spec could be the contents of a valid spec or the filepath to the specification
 
-```mermaid
-flowchart TD
-  Start --> ev{config\nenvironment\nvariable}
-  ev -->|Yes| evConfig(Set config to environment variable)
-  ev -->|No| paramConfig(Set config to cli parameter `schema`)
-  evConfig --> instantiateAPI[[Instantiate API]]
-  paramConfig --> instantiateAPI[[Instantiate API]] --> run([Api Running])
-```
+
 
 ### Instantiate API
+
+The api is instantiated calling api.New(). The openapi spec is passed to the api.New() function as a file path or as a string.
+The `api.New()` function instantiates the echo framework and then initializes the api. An instance of the api is returned
+and the api instance is essentially a service container that can be used to access other services.
+
 
 ```mermaid
 flowchart TD
@@ -23,35 +21,30 @@ flowchart TD
     initResponse -->|No| logError[Log Error] --> fail([API Not Running])
 ```
 
-#### Initialize API
+For a quick start you can use `api.Start()` instead of `api.New()`
+
+
+### Initialize API
+
+During the initialization of the api the following steps are performed:
+1. Setup default logger, http client in service container
+2. Register standard controllers 
+3. Register standard middleware
+4. Register standard global initializers
+5. Register standard operation initializers
+6. Setup the default command dispatcher
+7. Setup global middleware
+8. Run global initializers
+9. Run path initializers
+10. Run operation initializers
 
 ```mermaid
 flowchart TD
-    Start --> setEcho[Set Echo Instance] --> registerContextMiddleware[Register Context Middleware] --> checkConfigContents{Config is File}
-    checkConfigContents -->|Yes| checkFile[Load File] --> loadFileSuccess{Is Successful}
-    loadFileSuccess -->|No| logError[Log Error] --> fail([API Not Running])
-    loadFileSuccess -->|Yes| interpolateEV[Interpolate Environment Variables] --> parseSchemas[[Parse Schemas]] --> schemaMap[/Dynamic Struct Builder Map/] --> saveSchema[Save Schema] --> processWeOSConfig[[Process WeOS Config]] --> weosConfigParseSucces{Succesful}
-    weosConfigParseSucces -->|No| logError
-    weosConfigParseSucces -->|Yes| processPreMiddleware{Has middleware} 
-    processPreMiddleware -->|Yes| addEchoPreMiddleware[Add to Echo as Pre Middleware] --> processPaths[[Process Paths]] --> run([Api Running])
-    processPreMiddleware -->|No| processPaths
+    Start --> setupDefaultServices[Set Logger, Http Client] --> registerBasicControllers[Setup Default Controllers] --> registerMiddleawre[Register Middleware]
+    registerMiddleawre --> registerGlobalInitializers[Register Global Initializers] --> registerPathInitializers[Register Path Initializers] --> registerOperationInitializers[Register Operation Initializers] --> registerCommandDispatcher[Register Command Dispatcher] --> registerGlobalMiddleware[Register Global Middleware] --> runGlobalInitializers[Run Global Initializers] --> runPathInitializers[Run Path Initializers] --> runOperationInitializers[Run Operation Initializers] --> runGlobalMiddleware[Run Global Middleware] --> runPathMiddleware[Run Path Middleware] --> runOperationMiddleware[Run Operation Middleware] --> runOperation[Run Operation] --> End
 ```
 
-##### Parse Schemas
-This is where the OpenAPI schemas are converted to GORM models 
 
-```mermaid
-flowchart TD
-    Start --> hasUnprocessedSchema{Unprocessed\nScehma} 
-    hasUnprocessedSchema -->|Yes| instantiateSchema[[New Schema]] --> buildersRelationsKeys[/Builders, Relations, Keys/] --> schemaMap[/Dynamic Struct Builder Map/] --> hasUnprocessedBuilders{Unprocessed Builders}
-    hasUnprocessedSchema -->|No| hasUnprocessedBuilders{Unprocessed\nBuilders}
-    hasUnprocessedBuilders -->|Yes| hasUnprocessedRelationships{Unprocssed\nSchema\nRelationships}
-    hasUnprocessedBuilders -->|No| returnMap([Return Dynamic Struct Map])
-    hasUnprocessedRelationships -->|Yes| addSchemaRelationship[Add Schema Relationship] --> setGormTags[Set GORM Metadata] --> instantiateGormModel[Instantiate Gorm Model] --> checkTableName{Has Table Name}
-    hasUnprocessedRelationships -->|No| setGormTags
-    checkTableName -->|Yes| returnMap
-    checkTableName -->|No| logError[Log Error] --> returnMap
-```
 
 ##### Process WeOS Config
 The `x-weos-config` contains the database configuration that is used to instantiate a database connection. It also contains

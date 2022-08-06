@@ -1,6 +1,6 @@
 package model
 
-//go:generate moq -out mocks_test.go -pkg model_test . EventRepository Projection Log CommandDispatcher Service EntityFactory
+//go:generate moq -out mocks_test.go -pkg model_test . EventRepository Projection Log CommandDispatcher Service EntityFactory EntityRepository
 
 import (
 	"database/sql"

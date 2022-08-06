@@ -96,7 +96,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 				return casbin.NewEnforcer(m, "./fixtures/permissions.csv")
 			},
 		}
-		mw := config.Middleware(container, &ProjectionMock{}, &CommandDispatcherMock{}, &EventRepositoryMock{}, &EntityFactoryMock{}, path, path.Post)
+		mw := config.Middleware(container, &CommandDispatcherMock{}, &EntityRepositoryMock{}, path, path.Post)
 		nextMiddlewareHit := false
 		handler := mw(func(context echo.Context) error {
 			nextMiddlewareHit = true
@@ -129,7 +129,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 		}
 		api.RegisterSecurityConfiguration(config)
 		path := swagger.Paths.Find("/blogs/{id}")
-		mw := config.Middleware(api, &ProjectionMock{}, &CommandDispatcherMock{}, &EventRepositoryMock{}, &EntityFactoryMock{}, path, path.Get)
+		mw := config.Middleware(api, &CommandDispatcherMock{}, &EntityRepositoryMock{}, path, path.Get)
 		handler := mw(func(context echo.Context) error {
 			return nil
 		})
@@ -158,7 +158,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 		}
 		config := api.GetSecurityConfiguration()
 		path := swagger.Paths.Find("/blogs")
-		mw := config.Middleware(api, &ProjectionMock{}, &CommandDispatcherMock{}, &EventRepositoryMock{}, &EntityFactoryMock{}, path, path.Get)
+		mw := config.Middleware(api, &CommandDispatcherMock{}, &EntityRepositoryMock{}, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that the there is a role in the context
 			if context2.GetUser(ctxt.Request().Context()) != "auth0|60d0c84316f69600691c1614" {
@@ -196,7 +196,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 		}
 		config := api.GetSecurityConfiguration()
 		path := swagger.Paths.Find("/blogs")
-		mw := config.Middleware(api, &ProjectionMock{}, &CommandDispatcherMock{}, &EventRepositoryMock{}, &EntityFactoryMock{}, path, path.Get)
+		mw := config.Middleware(api, &CommandDispatcherMock{}, &EntityRepositoryMock{}, path, path.Get)
 		handler := mw(func(context echo.Context) error {
 			return nil
 		})
@@ -224,7 +224,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 		}
 		config := api.GetSecurityConfiguration()
 		path := swagger.Paths.Find("/blogs")
-		mw := config.Middleware(api, &ProjectionMock{}, &CommandDispatcherMock{}, &EventRepositoryMock{}, &EntityFactoryMock{}, path, path.Get)
+		mw := config.Middleware(api, &CommandDispatcherMock{}, &EntityRepositoryMock{}, path, path.Get)
 		handler := mw(func(context echo.Context) error {
 			return nil
 		})
@@ -253,7 +253,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 		}
 		config := api.GetSecurityConfiguration()
 		path := swagger.Paths.Find("/authors/{id}")
-		mw := config.Middleware(api, &ProjectionMock{}, &CommandDispatcherMock{}, &EventRepositoryMock{}, &EntityFactoryMock{}, path, path.Get)
+		mw := config.Middleware(api, &CommandDispatcherMock{}, &EntityRepositoryMock{}, path, path.Get)
 		handler := mw(func(context echo.Context) error {
 			return nil
 		})

@@ -98,68 +98,68 @@ components:
 	time.Sleep(1 * time.Second)
 }
 
-func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
-	os.Remove("test.db")
-	time.Sleep(1 * time.Second)
-	tapi, err := api.New("./fixtures/blog.yaml")
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	err = tapi.Initialize(context.TODO())
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	e := tapi.EchoInstance()
-	mockBlog := &Blog{Title: "Test Blog", Url: "www.testBlog.com"}
-	reqBytes, err := json.Marshal(mockBlog)
-	if err != nil {
-		t.Fatalf("error setting up request %s", err)
-	}
-	body := bytes.NewReader(reqBytes)
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
-	req.Header.Set("Content-Type", "application/json")
-	e.ServeHTTP(resp, req)
-	//confirm that the response is not 404
-	if resp.Result().StatusCode != http.StatusCreated {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
-	}
-	os.Remove("test.db")
-	time.Sleep(1 * time.Second)
-}
-
-func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
-	os.Remove("test.db")
-	time.Sleep(1 * time.Second)
-	tapi, err := api.New("./fixtures/blog-create-batch.yaml")
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	err = tapi.Initialize(nil)
-	if err != nil {
-		t.Fatalf("unexpected error loading spec '%s'", err)
-	}
-	e := tapi.EchoInstance()
-	mockBlog := &[3]Blog{
-		{ID: "1asdas3", Title: "Blog 1", Url: "www.testBlog1.com"},
-		{ID: "2gf233", Title: "Blog 2", Url: "www.testBlog2.com"},
-		{ID: "3dgff3", Title: "Blog 3", Url: "www.testBlog3.com"},
-	}
-	reqBytes, err := json.Marshal(mockBlog)
-	if err != nil {
-		t.Fatalf("error setting up request %s", err)
-	}
-	body := bytes.NewReader(reqBytes)
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
-	e.ServeHTTP(resp, req)
-	//confirm that the response is not 404
-	if resp.Result().StatusCode == http.StatusNotFound {
-		t.Errorf("expected the response code to be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
-	}
-	os.Remove("test.db")
-	time.Sleep(1 * time.Second)
-}
+//func TestRESTAPI_Initialize_CreateAddedToPost(t *testing.T) {
+//	os.Remove("test.db")
+//	time.Sleep(1 * time.Second)
+//	tapi, err := api.New("./fixtures/blog.yaml")
+//	if err != nil {
+//		t.Fatalf("un expected error loading spec '%s'", err)
+//	}
+//	err = tapi.Initialize(context.TODO())
+//	if err != nil {
+//		t.Fatalf("un expected error loading spec '%s'", err)
+//	}
+//	e := tapi.EchoInstance()
+//	mockBlog := &Blog{Title: "Test Blog", Url: "www.testBlog.com"}
+//	reqBytes, err := json.Marshal(mockBlog)
+//	if err != nil {
+//		t.Fatalf("error setting up request %s", err)
+//	}
+//	body := bytes.NewReader(reqBytes)
+//	resp := httptest.NewRecorder()
+//	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+//	req.Header.Set("Content-Type", "application/json")
+//	e.ServeHTTP(resp, req)
+//	//confirm that the response is not 404
+//	if resp.Result().StatusCode != http.StatusCreated {
+//		t.Errorf("expected the response code to be %d, got %d", http.StatusCreated, resp.Result().StatusCode)
+//	}
+//	os.Remove("test.db")
+//	time.Sleep(1 * time.Second)
+//}
+//
+//func TestRESTAPI_Initialize_CreateBatchAddedToPost(t *testing.T) {
+//	os.Remove("test.db")
+//	time.Sleep(1 * time.Second)
+//	tapi, err := api.New("./fixtures/blog-create-batch.yaml")
+//	if err != nil {
+//		t.Fatalf("un expected error loading spec '%s'", err)
+//	}
+//	err = tapi.Initialize(nil)
+//	if err != nil {
+//		t.Fatalf("unexpected error loading spec '%s'", err)
+//	}
+//	e := tapi.EchoInstance()
+//	mockBlog := &[3]Blog{
+//		{ID: "1asdas3", Title: "Blog 1", Url: "www.testBlog1.com"},
+//		{ID: "2gf233", Title: "Blog 2", Url: "www.testBlog2.com"},
+//		{ID: "3dgff3", Title: "Blog 3", Url: "www.testBlog3.com"},
+//	}
+//	reqBytes, err := json.Marshal(mockBlog)
+//	if err != nil {
+//		t.Fatalf("error setting up request %s", err)
+//	}
+//	body := bytes.NewReader(reqBytes)
+//	resp := httptest.NewRecorder()
+//	req := httptest.NewRequest(http.MethodPost, "/blogs", body)
+//	e.ServeHTTP(resp, req)
+//	//confirm that the response is not 404
+//	if resp.Result().StatusCode == http.StatusNotFound {
+//		t.Errorf("expected the response code to be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
+//	}
+//	os.Remove("test.db")
+//	time.Sleep(1 * time.Second)
+//}
 
 func TestRESTAPI_Initialize_HealthCheck(t *testing.T) {
 	//make sure healthcheck is being added

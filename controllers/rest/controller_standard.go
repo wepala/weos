@@ -669,7 +669,7 @@ func DeleteController(api Container, projection projections.Repository, commandD
 }
 
 //DefaultResponseMiddleware returns a response based on what was specified on an endpoint
-func DefaultResponseMiddleware(tapi Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func DefaultResponseMiddleware(tapi Container, commandDispatcher model.CommandDispatcher, eventSource model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	api := tapi.(*RESTAPI)
 	activatedResponse := false
 	for _, resp := range operation.Responses {

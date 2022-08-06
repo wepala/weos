@@ -9,6 +9,10 @@ import (
 	"golang.org/x/net/context"
 )
 
+const CREATE_COMMAND = "create"
+const UPDATE_COMMAND = "update"
+const DELETE_COMMAND = "delete"
+
 //Command is a common interface that all incoming requests should implement.
 type Command struct {
 	Type     string          `json:"type"`
@@ -18,6 +22,7 @@ type Command struct {
 
 type CommandMetadata struct {
 	EntityID      string
+	SequenceNo    int
 	EntityType    string
 	Version       int64
 	ExecutionDate *time.Time
