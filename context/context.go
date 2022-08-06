@@ -13,6 +13,7 @@ const HeaderXAccountID = "X-Account-ID"
 const HeaderXLogLevel = "X-LOG-LEVEL"
 
 //add more keys here if needed
+const APPLICATION_ID = "APPLICATION_ID"
 const ACCOUNT_ID ContextKey = "ACCOUNT_ID"
 const OPERATION_ID = "OPERATION_ID"
 const USER_ID ContextKey = "USER_ID"
@@ -75,6 +76,14 @@ func GetAccount(ctx context.Context) string {
 //GetUser info from context
 func GetUser(ctx context.Context) string {
 	if value, ok := ctx.Value(USER_ID).(string); ok {
+		return value
+	}
+	return ""
+}
+
+//GetApplication info from context
+func GetApplication(ctx context.Context) string {
+	if value, ok := ctx.Value(APPLICATION_ID).(string); ok {
 		return value
 	}
 	return ""

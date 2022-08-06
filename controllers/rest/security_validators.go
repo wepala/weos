@@ -16,18 +16,20 @@ import (
 
 //OpenIDConnect authorizer for OpenID
 type OpenIDConnect struct {
-	connectURL      string
-	skipExpiryCheck bool
-	clientID        string
-	userIDClaim     string
-	roleClaim       string
+	connectURL       string
+	skipExpiryCheck  bool
+	clientID         string
+	userIDClaim      string
+	roleClaim        string
+	accountClaim     string
+	applicationClaim string
 }
 
-func (o OpenIDConnect) Validate(ctxt echo.Context) (bool, interface{}, string, string, error) {
+func (o OpenIDConnect) Validate(ctxt echo.Context) (bool, interface{}, string, string, string, string, error) {
 	//get the Jwk url from open id connect url and validate url
 	openIDConfig, err := GetOpenIDConfig(o.connectURL)
 	if err != nil {
-		return false, nil, "", "", err
+		return false, nil, "", "", "", "", err
 	} else {
 		if jwks_uri, ok := openIDConfig["jwks_uri"]; ok {
 			//create key set and verifier
@@ -58,21 +60,35 @@ func (o OpenIDConnect) Validate(ctxt echo.Context) (bool, interface{}, string, s
 
 			var userID string
 			var role string
+			var accountID string
+			var applicationID string
 
 			if token != nil {
 				tclaims := make(map[string]interface{})
 				tclaims[o.userIDClaim] = token.Subject
 				tclaims[o.roleClaim] = ""
+				if o.accountClaim != "" {
+					tclaims[o.accountClaim] = ""
+				}
+				if o.applicationClaim != "" {
+					tclaims[o.applicationClaim] = ""
+				}
 				err = token.Claims(&tclaims)
 				if err == nil {
 					role = tclaims[o.roleClaim].(string)
 					userID = tclaims[o.userIDClaim].(string)
+					if o.accountClaim != "" {
+						accountID = tclaims[o.accountClaim].(string)
+					}
+					if o.applicationClaim != "" {
+						applicationID = tclaims[o.applicationClaim].(string)
+					}
 				}
 			}
 
-			return token != nil && err == nil, token, userID, role, err
+			return token != nil && err == nil, token, userID, role, accountID, applicationID, err
 		} else {
-			return false, nil, "", "", fmt.Errorf("expected jwks_url to be set")
+			return false, nil, "", "", "", "", fmt.Errorf("expected jwks_url to be set")
 		}
 	}
 }
@@ -93,8 +109,10 @@ func (o OpenIDConnect) FromSchema(scheme *openapi3.SecurityScheme) (Validator, e
 
 	if jwtMapRaw, ok := scheme.Extensions[JWTMapExtension]; ok {
 		var jwtMap struct {
-			User string `json:"user"`
-			Role string `json:"role"`
+			User        string `json:"user"`
+			Role        string `json:"role"`
+			Account     string `json:"account"`
+			Application string `json:"application"`
 		}
 		err = json.Unmarshal(jwtMapRaw.(json.RawMessage), &jwtMap)
 		if err != nil {
@@ -102,6 +120,8 @@ func (o OpenIDConnect) FromSchema(scheme *openapi3.SecurityScheme) (Validator, e
 		}
 		o.userIDClaim = jwtMap.User
 		o.roleClaim = jwtMap.Role
+		o.accountClaim = jwtMap.Account
+		o.applicationClaim = jwtMap.Application
 	} else {
 		o.userIDClaim = "sub"
 	}
@@ -119,7 +139,7 @@ type OAuth2 struct {
 	clientSecret string
 }
 
-func (o OAuth2) Validate(ctxt echo.Context) (bool, interface{}, string, string, error) {
+func (o OAuth2) Validate(ctxt echo.Context) (bool, interface{}, string, string, string, string, error) {
 	authorizationHeader := ctxt.Request().Header.Get("Authorization")
 	tokenString := strings.Replace(authorizationHeader, "Bearer ", "", -1)
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -142,7 +162,7 @@ func (o OAuth2) Validate(ctxt echo.Context) (bool, interface{}, string, string, 
 
 		return pub.PublicKey, nil
 	})
-	return token.Valid, nil, "", "", err
+	return token.Valid, nil, "", "", "", "", err
 }
 
 func (o OAuth2) FromSchema(scheme *openapi3.SecurityScheme) (Validator, error) {

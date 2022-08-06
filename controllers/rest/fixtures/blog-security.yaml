@@ -35,10 +35,16 @@ components:
       x-jwt-map:
         user: sub
         role: tag
+        account: sub
     Auth0:
       type: openIdConnect
       openIdConnectUrl: https://dev-bhjqt6zc.us.auth0.com/.well-known/openid-configuration
       x-skip-expiry-check: true
+      x-jwt-map:
+        user: sub
+        role: tag
+        account: sub
+        application: iss
 
   schemas:
     Category:

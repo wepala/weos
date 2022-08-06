@@ -95,14 +95,14 @@ var NewVersionEvent = func(eventType string, entityID string, payload interface{
 }
 
 type EventMeta struct {
-	EntityID   string `json:"entity_id"`
-	EntityType string `json:"entity_type"`
-	SequenceNo int64  `json:"sequence_no"`
-	User       string `json:"user"`
-	Module     string `json:"module"`
-	RootID     string `json:"root_id"`
-	Group      string `json:"group"`
-	Created    string `json:"created"`
+	EntityID      string `json:"entity_id"`
+	EntityType    string `json:"entity_type"`
+	SequenceNo    int64  `json:"sequence_no"`
+	User          string `json:"user"`
+	ApplicationID string `json:"application_id"`
+	RootID        string `json:"root_id"`
+	AccountID     string `json:"account_id"`
+	Created       string `json:"created"`
 }
 
 func (e *Event) IsValid() bool {
