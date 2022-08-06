@@ -487,3 +487,142 @@ func TestGORMDB_Remove(t *testing.T) {
 		}
 	})
 }
+
+func TestGORMDB_GetByKey(t *testing.T) {
+	err := gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+
+	defer gormDB.Migrator().DropTable("Blog")
+
+	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error setting up api: %s", err)
+	}
+	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection.Migrate(context.TODO(), api.GetConfig())
+
+	t.Run("get entity with associations", func(t *testing.T) {
+		api.RegisterEntityFactory("Blog", new(model.DefaultEntityFactory).FromSchema("Blog", api.GetConfig().Components.Schemas["Blog"].Value))
+		ef, err := api.GetEntityFactory("Blog")
+		if err != nil {
+			t.Fatalf("unexpected error getting entity factory '%s'", err)
+		}
+		blog := `{"title":"My Blog","url":"http://wepala.com","description":"This is my blog","author":{"id":"test","email":"test.example.org", "firstName":"John", "lastName":"Doe"}}`
+		contentEntity, err := ef.CreateEntityWithValues(context.Background(), []byte(blog))
+		if err != nil {
+			t.Fatalf("unexpected error creating entity '%s'", err)
+		}
+		err = projection.Persist([]model.Entity{contentEntity})
+		if err != nil {
+			t.Fatalf("unexpected error persisting entity '%s'", err)
+		}
+		//check Blog is created
+		tmodel, err := projection.GORMModel("Blog", ef.Schema(), []byte(`{}`))
+		if err != nil {
+			t.Fatalf("unexpected error creating model '%s'", err)
+		}
+		projection.DB().Table(contentEntity.Name).Find(&tmodel, "title = ?", "My Blog")
+		reader := ds.NewReader(tmodel)
+		if !reader.HasField("Id") {
+			t.Fatalf("expected id to be present")
+		}
+		//use the generated id to look up the blog by key
+		tblog, err := projection.GetByKey(context.TODO(), ef, map[string]interface{}{
+			"id": reader.GetField("Id").Uint(),
+		})
+		if err != nil {
+			t.Fatalf("unexpected error getting entity '%s'", err)
+		}
+		if tblog == nil {
+			t.Fatalf("expected entity to be found")
+		}
+		if author := tblog.GetInterface("author"); author != nil {
+			var authorMap map[string]interface{}
+			authorRaw, err := json.Marshal(author)
+			if err != nil {
+				t.Errorf("unexpected error marshalling author '%s'", err)
+			}
+			err = json.Unmarshal(authorRaw, &authorMap)
+			if authorMap["firstName"] != "John" {
+				t.Errorf("expected author to be '%s', got '%s'", "John", authorMap["firstName"])
+			}
+		} else {
+			t.Errorf("expected author to be '%s', got '%T'", "John Doe", tblog.GetInterface("author"))
+		}
+
+	})
+
+}
+
+func TestGORMDB_GetContentEntity(t *testing.T) {
+	err := gormDB.Migrator().DropTable("Blog")
+	if err != nil {
+		t.Errorf("error removing table '%s' '%s'", "Post", err)
+	}
+
+	defer gormDB.Migrator().DropTable("Blog")
+
+	api, err := rest.New("../controllers/rest/fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error setting up api: %s", err)
+	}
+	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection.Migrate(context.TODO(), api.GetConfig())
+
+	t.Run("get entity with associations", func(t *testing.T) {
+		api.RegisterEntityFactory("Blog", new(model.DefaultEntityFactory).FromSchema("Blog", api.GetConfig().Components.Schemas["Blog"].Value))
+		ef, err := api.GetEntityFactory("Blog")
+		if err != nil {
+			t.Fatalf("unexpected error getting entity factory '%s'", err)
+		}
+		blog := `{"title":"My Blog","url":"http://wepala.com","description":"This is my blog","author":{"id":"test","email":"test.example.org", "firstName":"John", "lastName":"Doe"}}`
+		contentEntity, err := ef.CreateEntityWithValues(context.Background(), []byte(blog))
+		if err != nil {
+			t.Fatalf("unexpected error creating entity '%s'", err)
+		}
+		err = projection.Persist([]model.Entity{contentEntity})
+		if err != nil {
+			t.Fatalf("unexpected error persisting entity '%s'", err)
+		}
+		//check Blog is created
+		tmodel, err := projection.GORMModel("Blog", ef.Schema(), []byte(`{}`))
+		if err != nil {
+			t.Fatalf("unexpected error creating model '%s'", err)
+		}
+		projection.DB().Table(contentEntity.Name).Find(&tmodel, "title = ?", "My Blog")
+		reader := ds.NewReader(tmodel)
+		if !reader.HasField("WeosID") {
+			t.Fatalf("expected Weos_id to be present")
+		}
+		//use the generated id to look up the blog by key
+		tblog, err := projection.GetContentEntity(context.TODO(), ef, reader.GetField("WeosID").String())
+		if err != nil {
+			t.Fatalf("unexpected error getting entity '%s'", err)
+		}
+		if tblog == nil {
+			t.Fatalf("expected entity to be found")
+		}
+		if author := tblog.GetInterface("author"); author != nil {
+			var authorMap map[string]interface{}
+			authorRaw, err := json.Marshal(author)
+			if err != nil {
+				t.Errorf("unexpected error marshalling author '%s'", err)
+			}
+			err = json.Unmarshal(authorRaw, &authorMap)
+			if authorMap["firstName"] != "John" {
+				t.Errorf("expected author to be '%s', got '%s'", "John", authorMap["firstName"])
+			}
+		} else {
+			t.Errorf("expected author to be '%s', got '%T'", "John Doe", tblog.GetInterface("author"))
+		}
+
+	})
+}
