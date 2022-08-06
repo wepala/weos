@@ -14,7 +14,7 @@ type Receiver struct {
 }
 
 //CreateHandler is used for a single payload. It takes in the command and context which is used to dispatch and the persist the incoming request.
-func CreateHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+func CreateHandler(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
 	if logger == nil {
 		return fmt.Errorf("no logger set")
 	}
@@ -57,7 +57,7 @@ func CreateHandler(ctx context.Context, command *Command, eventStore EventReposi
 }
 
 //CreateBatchHandler is used for an array of payloads. It takes in the command and context which is used to dispatch and the persist the incoming request.
-func CreateBatchHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+func CreateBatchHandler(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
 	domainService := NewDomainService(ctx, eventStore, projection, logger)
 	entities, err := domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
 	if err != nil {
@@ -73,7 +73,7 @@ func CreateBatchHandler(ctx context.Context, command *Command, eventStore EventR
 }
 
 //UpdateHandler is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
-func UpdateHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+func UpdateHandler(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
 	if logger == nil {
 		return fmt.Errorf("no logger set")
 	}
@@ -97,7 +97,7 @@ func UpdateHandler(ctx context.Context, command *Command, eventStore EventReposi
 }
 
 //DeleteHandler is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
-func DeleteHandler(ctx context.Context, command *Command, eventStore EventRepository, projection Projection, logger Log) error {
+func DeleteHandler(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
 	if logger == nil {
 		return fmt.Errorf("no logger set")
 	}

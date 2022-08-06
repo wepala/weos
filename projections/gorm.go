@@ -108,14 +108,70 @@ func (p *GORMDB) GetByEntityID(ctx context.Context, entityFactory weos.EntityFac
 
 }
 
-//Persist save entity information in database
+//Persist save entity information in database. It does NOT use a batch create because to use a batch we'd need a strongly typed array of items
 func (p *GORMDB) Persist(entities []weos.Entity) error {
-	return nil
+	var tableName string
+	transaction := p.DB().Begin()
+	for _, entity := range entities {
+		if tentity, ok := entity.(*weos.ContentEntity); ok {
+			payload, err := json.Marshal(tentity.ToMap())
+			tableName = tentity.Name
+			tmodel, err := p.GORMModel(tentity.Name, tentity.Schema, payload)
+			if err != nil {
+				return err
+			}
+			result := transaction.Table(tableName).Save(tmodel)
+			if result.Error != nil {
+				transaction.Rollback()
+				return result.Error
+			}
+		} else {
+			//TODO look into ways to get this to be a batch create instead of a single create
+			result := transaction.Save(entity)
+			if result.Error != nil {
+				transaction.Rollback()
+				return result.Error
+			}
+		}
+	}
+	return transaction.Commit().Error
 }
 
 //Remove entity
 func (p *GORMDB) Remove(entities []weos.Entity) error {
-	return nil
+	var tableName string
+	transaction := p.DB().Begin()
+	for _, entity := range entities {
+		if tentity, ok := entity.(*weos.ContentEntity); ok {
+			payload, err := json.Marshal(tentity.ToMap())
+			tableName = tentity.Name
+			tmodel, err := p.GORMModel(tentity.Name, tentity.Schema, payload)
+			if err != nil {
+				return err
+			}
+			//TODO get the primary keys from the schema
+			var clauses []string
+			identifier, err := tentity.Identifier()
+			if err != nil {
+				return err
+			}
+			for key, value := range identifier {
+				clauses = append(clauses, fmt.Sprintf("%s = %v", key, value))
+			}
+			result := transaction.Table(tableName).Delete(tmodel, identifier)
+			if result.Error != nil {
+				transaction.Rollback()
+				return result.Error
+			}
+		} else {
+			result := transaction.Debug().Delete(entity)
+			if result.Error != nil {
+				transaction.Rollback()
+				return result.Error
+			}
+		}
+	}
+	return transaction.Commit().Error
 }
 
 func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {

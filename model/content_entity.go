@@ -16,6 +16,7 @@ import (
 
 type ContentEntity struct {
 	AggregateRoot
+	Name    string
 	Schema  *openapi3.Schema `json:"-"`
 	payload map[string]interface{}
 }
@@ -211,9 +212,10 @@ func (w *ContentEntity) Init(ctx context.Context, payload json.RawMessage) (*Con
 }
 
 //FromSchema builds properties from the schema
-func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*ContentEntity, error) {
+func (w *ContentEntity) FromSchema(ctx context.Context, schemaName string, ref *openapi3.Schema) (*ContentEntity, error) {
 	w.User.ID = weosContext.GetUser(ctx)
 	w.Schema = ref
+	w.Name = schemaName
 	//create map using properties and default values in schema
 	if w.payload == nil {
 		w.payload = make(map[string]interface{})
@@ -231,7 +233,7 @@ func (w *ContentEntity) FromSchema(ctx context.Context, ref *openapi3.Schema) (*
 //FromSchemaAndBuilder builds properties from the schema and uses the builder generated on startup. This helps generate
 //complex gorm models that reference other models (if we only use the schema for the current entity then we won't be able to do that)
 func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.Schema, builder ds.Builder) (*ContentEntity, error) {
-	_, err := w.FromSchema(ctx, ref)
+	_, err := w.FromSchema(ctx, "", ref)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +242,7 @@ func (w *ContentEntity) FromSchemaAndBuilder(ctx context.Context, ref *openapi3.
 
 //FromSchemaWithValues builds properties from schema and unmarshall payload into it
 func (w *ContentEntity) FromSchemaWithValues(ctx context.Context, schema *openapi3.Schema, payload json.RawMessage) (*ContentEntity, error) {
-	_, err := w.FromSchema(ctx, schema)
+	_, err := w.FromSchema(ctx, "", schema)
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +459,7 @@ func (w *ContentEntity) GetTime(name string) *Time {
 
 //FromSchemaWithEvents create content entity using schema and events
 func (w *ContentEntity) FromSchemaWithEvents(ctx context.Context, ref *openapi3.Schema, changes []*Event) (*ContentEntity, error) {
-	entity, err := w.FromSchema(ctx, ref)
+	entity, err := w.FromSchema(ctx, "", ref)
 	if err != nil {
 		return nil, err
 	}
@@ -590,4 +592,25 @@ func (w *ContentEntity) UpdateTime(operationID string) error {
 		}
 	}
 	return nil
+}
+
+func (w *ContentEntity) Identifier() (map[string]interface{}, error) {
+	if w.Schema == nil {
+		return nil, fmt.Errorf("unexpected error: schema is not set")
+	}
+	identifier := make(map[string]interface{})
+	properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+	if properties != nil {
+		for _, property := range properties.([]interface{}) {
+			identifier[property.(string)] = w.payload[property.(string)]
+		}
+	} else {
+		if id, ok := w.payload["id"]; ok {
+			identifier["id"] = id
+		} else {
+			identifier["weos_id"] = w.ID
+		}
+	}
+
+	return identifier, nil
 }

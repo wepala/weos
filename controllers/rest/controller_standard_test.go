@@ -599,7 +599,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+				entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -670,7 +670,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+				entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -746,7 +746,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+				entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -820,7 +820,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+				entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -890,7 +890,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+				entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}
@@ -967,7 +967,7 @@ func TestStandardControllers_View(t *testing.T) {
 				return swagger.Components.Schemas["Blog"].Value
 			},
 			NewEntityFunc: func(ctx context.Context) (*model.ContentEntity, error) {
-				entity, err := new(model.ContentEntity).FromSchema(ctx, swagger.Components.Schemas["Blog"].Value)
+				entity, err := new(model.ContentEntity).FromSchema(ctx, "", swagger.Components.Schemas["Blog"].Value)
 				if err != nil {
 					return nil, err
 				}

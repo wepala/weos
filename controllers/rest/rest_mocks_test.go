@@ -10,7 +10,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
 	weos "github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -74,7 +73,7 @@ var _ rest.Container = &ContainerMock{}
 // 			GetPrePathInitializersFunc: func() []rest.PathInitializer {
 // 				panic("mock out the GetPrePathInitializers method")
 // 			},
-// 			GetProjectionFunc: func(name string) (projections.Projection, error) {
+// 			GetProjectionFunc: func(name string) (weos.Projection, error) {
 // 				panic("mock out the GetProjection method")
 // 			},
 // 			GetSecurityConfigurationFunc: func() *rest.SecurityConfiguration {
@@ -125,7 +124,7 @@ var _ rest.Container = &ContainerMock{}
 // 			RegisterPrePathInitializerFunc: func(initializer rest.PathInitializer)  {
 // 				panic("mock out the RegisterPrePathInitializer method")
 // 			},
-// 			RegisterProjectionFunc: func(name string, projection projections.Projection)  {
+// 			RegisterProjectionFunc: func(name string, projection weos.Projection)  {
 // 				panic("mock out the RegisterProjection method")
 // 			},
 // 			RegisterSecurityConfigurationFunc: func(configuration *rest.SecurityConfiguration)  {
@@ -187,7 +186,7 @@ type ContainerMock struct {
 	GetPrePathInitializersFunc func() []rest.PathInitializer
 
 	// GetProjectionFunc mocks the GetProjection method.
-	GetProjectionFunc func(name string) (projections.Projection, error)
+	GetProjectionFunc func(name string) (weos.Projection, error)
 
 	// GetSecurityConfigurationFunc mocks the GetSecurityConfiguration method.
 	GetSecurityConfigurationFunc func() *rest.SecurityConfiguration
@@ -238,7 +237,7 @@ type ContainerMock struct {
 	RegisterPrePathInitializerFunc func(initializer rest.PathInitializer)
 
 	// RegisterProjectionFunc mocks the RegisterProjection method.
-	RegisterProjectionFunc func(name string, projection projections.Projection)
+	RegisterProjectionFunc func(name string, projection weos.Projection)
 
 	// RegisterSecurityConfigurationFunc mocks the RegisterSecurityConfiguration method.
 	RegisterSecurityConfigurationFunc func(configuration *rest.SecurityConfiguration)
@@ -419,7 +418,7 @@ type ContainerMock struct {
 			// Name is the name argument value.
 			Name string
 			// Projection is the projection argument value.
-			Projection projections.Projection
+			Projection weos.Projection
 		}
 		// RegisterSecurityConfiguration holds details about calls to the RegisterSecurityConfiguration method.
 		RegisterSecurityConfiguration []struct {
@@ -931,7 +930,7 @@ func (mock *ContainerMock) GetPrePathInitializersCalls() []struct {
 }
 
 // GetProjection calls GetProjectionFunc.
-func (mock *ContainerMock) GetProjection(name string) (projections.Projection, error) {
+func (mock *ContainerMock) GetProjection(name string) (weos.Projection, error) {
 	if mock.GetProjectionFunc == nil {
 		panic("ContainerMock.GetProjectionFunc: method is nil but Container.GetProjection was just called")
 	}
@@ -1488,13 +1487,13 @@ func (mock *ContainerMock) RegisterPrePathInitializerCalls() []struct {
 }
 
 // RegisterProjection calls RegisterProjectionFunc.
-func (mock *ContainerMock) RegisterProjection(name string, projection projections.Projection) {
+func (mock *ContainerMock) RegisterProjection(name string, projection weos.Projection) {
 	if mock.RegisterProjectionFunc == nil {
 		panic("ContainerMock.RegisterProjectionFunc: method is nil but Container.RegisterProjection was just called")
 	}
 	callInfo := struct {
 		Name       string
-		Projection projections.Projection
+		Projection weos.Projection
 	}{
 		Name:       name,
 		Projection: projection,
@@ -1510,11 +1509,11 @@ func (mock *ContainerMock) RegisterProjection(name string, projection projection
 //     len(mockedContainer.RegisterProjectionCalls())
 func (mock *ContainerMock) RegisterProjectionCalls() []struct {
 	Name       string
-	Projection projections.Projection
+	Projection weos.Projection
 } {
 	var calls []struct {
 		Name       string
-		Projection projections.Projection
+		Projection weos.Projection
 	}
 	mock.lockRegisterProjection.RLock()
 	calls = mock.calls.RegisterProjection
