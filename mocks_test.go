@@ -696,7 +696,7 @@ type ProjectionMock struct {
 		Migrate []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Schema is the schema argument value.
+			// SchemaBuilder is the schema argument value.
 			Schema *openapi3.Swagger
 		}
 	}
@@ -2288,7 +2288,7 @@ var _ model.EntityFactory = &EntityFactoryMock{}
 // 				panic("mock out the NewEntity method")
 // 			},
 // 			SchemaFunc: func() *openapi3.Schema {
-// 				panic("mock out the Schema method")
+// 				panic("mock out the SchemaBuilder method")
 // 			},
 // 			TableNameFunc: func() string {
 // 				panic("mock out the TableName method")
@@ -2318,7 +2318,7 @@ type EntityFactoryMock struct {
 	// NewEntityFunc mocks the NewEntity method.
 	NewEntityFunc func(ctx context.Context) (*model.ContentEntity, error)
 
-	// SchemaFunc mocks the Schema method.
+	// SchemaFunc mocks the SchemaBuilder method.
 	SchemaFunc func() *openapi3.Schema
 
 	// TableNameFunc mocks the TableName method.
@@ -2347,7 +2347,7 @@ type EntityFactoryMock struct {
 		FromSchemaAndBuilder []struct {
 			// S is the s argument value.
 			S string
-			// Schema is the schema argument value.
+			// SchemaBuilder is the schema argument value.
 			Schema *openapi3.Schema
 			// Builder is the builder argument value.
 			Builder ds.Builder
@@ -2360,7 +2360,7 @@ type EntityFactoryMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// Schema holds details about calls to the Schema method.
+		// SchemaBuilder holds details about calls to the SchemaBuilder method.
 		Schema []struct {
 		}
 		// TableName holds details about calls to the TableName method.
@@ -2570,10 +2570,10 @@ func (mock *EntityFactoryMock) NewEntityCalls() []struct {
 	return calls
 }
 
-// Schema calls SchemaFunc.
+// SchemaBuilder calls SchemaFunc.
 func (mock *EntityFactoryMock) Schema() *openapi3.Schema {
 	if mock.SchemaFunc == nil {
-		panic("EntityFactoryMock.SchemaFunc: method is nil but EntityFactory.Schema was just called")
+		panic("EntityFactoryMock.SchemaFunc: method is nil but EntityFactory.SchemaBuilder was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -2583,7 +2583,7 @@ func (mock *EntityFactoryMock) Schema() *openapi3.Schema {
 	return mock.SchemaFunc()
 }
 
-// SchemaCalls gets all the calls that were made to Schema.
+// SchemaCalls gets all the calls that were made to SchemaBuilder.
 // Check the length with:
 //     len(mockedEntityFactory.SchemaCalls())
 func (mock *EntityFactoryMock) SchemaCalls() []struct {

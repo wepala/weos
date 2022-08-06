@@ -12,17 +12,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
-
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 )
 
 //Context CreateHandler go context and add parameter values to context
-func Context(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func Context(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			var err error
@@ -35,9 +33,9 @@ func Context(api Container, projection projections.Projection, commandDispatcher
 				cc = context.WithValue(cc, weosContext.ACCOUNT_ID, accountID)
 			}
 			//use the path information to get the parameter values
-			contextValues, err := parseParams(c, path.Parameters, entityFactory)
+			contextValues, err := parseParams(c, path.Parameters, repository)
 			//add parameter values to the context
-			cc, err = AddToContext(c, cc, contextValues, entityFactory)
+			cc, err = AddToContext(c, cc, contextValues, repository)
 
 			//use x-context to get parameter
 			if tcontextParams, ok := operation.ExtensionProps.Extensions[ContextExtension]; ok {
@@ -45,13 +43,13 @@ func Context(api Container, projection projections.Projection, commandDispatcher
 				err = json.Unmarshal(tcontextParams.(json.RawMessage), &contextParams)
 				if err == nil {
 					//use the operation information to get the parameter values
-					cc, err = AddToContext(c, cc, contextParams, entityFactory)
+					cc, err = AddToContext(c, cc, contextParams, repository)
 				}
 			}
 			//use the operation information to get the parameter values
-			contextValues, err = parseParams(c, operation.Parameters, entityFactory)
+			contextValues, err = parseParams(c, operation.Parameters, repository)
 			//add parameter values to the context
-			cc, err = AddToContext(c, cc, contextValues, entityFactory)
+			cc, err = AddToContext(c, cc, contextValues, repository)
 
 			//use the operation information to get the parameter values and add them to the context
 
@@ -76,7 +74,7 @@ func Context(api Container, projection projections.Projection, commandDispatcher
 						case "application/json":
 							payload, err = ioutil.ReadAll(c.Request().Body)
 						case "application/x-www-form-urlencoded", "multipart/form-data":
-							payload, formErr, status = ConvertFormToJson(c.Request(), ct, entityFactory, mimeType)
+							payload, formErr, status = ConvertFormToJson(c.Request(), ct, repository, mimeType)
 
 						}
 						//set payload to context

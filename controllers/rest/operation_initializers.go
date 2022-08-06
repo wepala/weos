@@ -12,7 +12,6 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"net/http"
 	"regexp"
@@ -717,20 +716,7 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
 	echoPath := re.ReplaceAllString(path, `:$1`)
 	controller := GetOperationController(ctxt)
-	projection := GetOperationProjection(ctxt)
-	if projection == nil {
-		//if there are user defined projections on the operation let's create a MetaProjection and use that
-		definedProjections := GetOperationProjections(ctxt)
-		if len(definedProjections) > 0 {
-			metaProjection := new(projections.MetaProjection)
-			for _, userProjection := range definedProjections {
-				metaProjection.Add(userProjection)
-			}
-			projection = metaProjection
-		} else {
-			projection, err = api.GetProjection("Default")
-		}
-	}
+	repository := GetOperationRepository(ctxt)
 	commandDispatcher := GetOperationCommandDispatcher(ctxt)
 	if commandDispatcher == nil {
 		commandDispatcher, err = api.GetCommandDispatcher("Default")
@@ -759,12 +745,12 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 	//only set up routes if controller is set because echo returns an error if the handler for a route is nil
 	if controller != nil {
 		var handler echo.HandlerFunc
-		handler = controller(api, projection, commandDispatcher, eventStore, entityFactory)
+		handler = controller(api, commandDispatcher, repository, operation)
 		middlewares := GetOperationMiddlewares(ctxt)
 		var pathMiddleware []echo.MiddlewareFunc
 		for _, tmiddleware := range middlewares {
 			//Not sure if CORS middleware and any other middlewares needs to be added
-			pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
+			pathMiddleware = append(pathMiddleware, tmiddleware(api, commandDispatcher, repository, pathItem, operation))
 		}
 		pathMiddleware = append(pathMiddleware, middleware.CORS())
 		if controllerExtension, ok := operation.ExtensionProps.Extensions[ControllerExtension]; ok {
@@ -832,15 +818,22 @@ func GetOperationEventStore(ctx context.Context) model.EventRepository {
 	return nil
 }
 
-func GetOperationProjection(ctx context.Context) projections.Projection {
-	if value, ok := ctx.Value(weoscontext.PROJECTION).(projections.Projection); ok {
+func GetOperationProjection(ctx context.Context) model.Projection {
+	if value, ok := ctx.Value(weoscontext.PROJECTION).(model.Projection); ok {
 		return value
 	}
 	return nil
 }
 
-func GetOperationProjections(ctx context.Context) []projections.Projection {
-	if value, ok := ctx.Value(weoscontext.PROJECTIONS).([]projections.Projection); ok {
+func GetOperationRepository(ctx context.Context) model.EntityRepository {
+	if value, ok := ctx.Value(weoscontext.REPOSITORY).(model.EntityRepository); ok {
+		return value
+	}
+	return nil
+}
+
+func GetOperationProjections(ctx context.Context) []model.Projection {
+	if value, ok := ctx.Value(weoscontext.PROJECTIONS).([]model.Projection); ok {
 		return value
 	}
 	return nil

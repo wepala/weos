@@ -167,9 +167,9 @@ type EventRepositoryMock struct {
 			Date time.Time
 			// EntityFactories is the entityFactories argument value.
 			EntityFactories map[string]model.EntityFactory
-			// Projection is the projection argument value.
+			// Repository is the projection argument value.
 			Projection model.Projection
-			// Schema is the schema argument value.
+			// SchemaBuilder is the schema argument value.
 			Schema *openapi3.Swagger
 		}
 	}
@@ -663,7 +663,7 @@ type ProjectionMock struct {
 		Migrate []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Schema is the schema argument value.
+			// SchemaBuilder is the schema argument value.
 			Schema *openapi3.Swagger
 		}
 	}
@@ -678,7 +678,7 @@ type ProjectionMock struct {
 // GetByKey calls GetByKeyFunc.
 func (mock *ProjectionMock) GetByKey(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 	if mock.GetByKeyFunc == nil {
-		panic("ProjectionMock.GetByKeyFunc: method is nil but Projection.GetByKey was just called")
+		panic("ProjectionMock.GetByKeyFunc: method is nil but Repository.GetByKey was just called")
 	}
 	callInfo := struct {
 		Ctxt          context.Context
@@ -717,7 +717,7 @@ func (mock *ProjectionMock) GetByKeyCalls() []struct {
 // GetByProperties calls GetByPropertiesFunc.
 func (mock *ProjectionMock) GetByProperties(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 	if mock.GetByPropertiesFunc == nil {
-		panic("ProjectionMock.GetByPropertiesFunc: method is nil but Projection.GetByProperties was just called")
+		panic("ProjectionMock.GetByPropertiesFunc: method is nil but Repository.GetByProperties was just called")
 	}
 	callInfo := struct {
 		Ctxt          context.Context
@@ -756,7 +756,7 @@ func (mock *ProjectionMock) GetByPropertiesCalls() []struct {
 // GetContentEntity calls GetContentEntityFunc.
 func (mock *ProjectionMock) GetContentEntity(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 	if mock.GetContentEntityFunc == nil {
-		panic("ProjectionMock.GetContentEntityFunc: method is nil but Projection.GetContentEntity was just called")
+		panic("ProjectionMock.GetContentEntityFunc: method is nil but Repository.GetContentEntity was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
@@ -795,7 +795,7 @@ func (mock *ProjectionMock) GetContentEntityCalls() []struct {
 // GetEventHandler calls GetEventHandlerFunc.
 func (mock *ProjectionMock) GetEventHandler() model.EventHandler {
 	if mock.GetEventHandlerFunc == nil {
-		panic("ProjectionMock.GetEventHandlerFunc: method is nil but Projection.GetEventHandler was just called")
+		panic("ProjectionMock.GetEventHandlerFunc: method is nil but Repository.GetEventHandler was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -821,7 +821,7 @@ func (mock *ProjectionMock) GetEventHandlerCalls() []struct {
 // GetList calls GetListFunc.
 func (mock *ProjectionMock) GetList(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
 	if mock.GetListFunc == nil {
-		panic("ProjectionMock.GetListFunc: method is nil but Projection.GetList was just called")
+		panic("ProjectionMock.GetListFunc: method is nil but Repository.GetList was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
@@ -876,7 +876,7 @@ func (mock *ProjectionMock) GetListCalls() []struct {
 // Migrate calls MigrateFunc.
 func (mock *ProjectionMock) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 	if mock.MigrateFunc == nil {
-		panic("ProjectionMock.MigrateFunc: method is nil but Projection.Migrate was just called")
+		panic("ProjectionMock.MigrateFunc: method is nil but Repository.Migrate was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
@@ -1534,7 +1534,7 @@ type CommandDispatcherMock struct {
 			Command *model.Command
 			// EventStore is the eventStore argument value.
 			EventStore model.EventRepository
-			// Projection is the projection argument value.
+			// Repository is the projection argument value.
 			Projection model.Projection
 			// Logger is the logger argument value.
 			Logger model.Log
@@ -1749,7 +1749,7 @@ type ServiceMock struct {
 	calls struct {
 		// AddProjection holds details about calls to the AddProjection method.
 		AddProjection []struct {
-			// Projection is the projection argument value.
+			// Repository is the projection argument value.
 			Projection model.Projection
 		}
 		// Config holds details about calls to the Config method.
@@ -2159,7 +2159,7 @@ var _ model.EntityFactory = &EntityFactoryMock{}
 // 				panic("mock out the NewEntity method")
 // 			},
 // 			SchemaFunc: func() *openapi3.Schema {
-// 				panic("mock out the Schema method")
+// 				panic("mock out the SchemaBuilder method")
 // 			},
 // 			TableNameFunc: func() string {
 // 				panic("mock out the TableName method")
@@ -2189,7 +2189,7 @@ type EntityFactoryMock struct {
 	// NewEntityFunc mocks the NewEntity method.
 	NewEntityFunc func(ctx context.Context) (*model.ContentEntity, error)
 
-	// SchemaFunc mocks the Schema method.
+	// SchemaFunc mocks the SchemaBuilder method.
 	SchemaFunc func() *openapi3.Schema
 
 	// TableNameFunc mocks the TableName method.
@@ -2218,7 +2218,7 @@ type EntityFactoryMock struct {
 		FromSchemaAndBuilder []struct {
 			// S is the s argument value.
 			S string
-			// Schema is the schema argument value.
+			// SchemaBuilder is the schema argument value.
 			Schema *openapi3.Schema
 			// Builder is the builder argument value.
 			Builder ds.Builder
@@ -2231,7 +2231,7 @@ type EntityFactoryMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// Schema holds details about calls to the Schema method.
+		// SchemaBuilder holds details about calls to the SchemaBuilder method.
 		Schema []struct {
 		}
 		// TableName holds details about calls to the TableName method.
@@ -2441,10 +2441,10 @@ func (mock *EntityFactoryMock) NewEntityCalls() []struct {
 	return calls
 }
 
-// Schema calls SchemaFunc.
+// SchemaBuilder calls SchemaFunc.
 func (mock *EntityFactoryMock) Schema() *openapi3.Schema {
 	if mock.SchemaFunc == nil {
-		panic("EntityFactoryMock.SchemaFunc: method is nil but EntityFactory.Schema was just called")
+		panic("EntityFactoryMock.SchemaFunc: method is nil but EntityFactory.SchemaBuilder was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -2454,7 +2454,7 @@ func (mock *EntityFactoryMock) Schema() *openapi3.Schema {
 	return mock.SchemaFunc()
 }
 
-// SchemaCalls gets all the calls that were made to Schema.
+// SchemaCalls gets all the calls that were made to SchemaBuilder.
 // Check the length with:
 //     len(mockedEntityFactory.SchemaCalls())
 func (mock *EntityFactoryMock) SchemaCalls() []struct {

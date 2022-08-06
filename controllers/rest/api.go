@@ -48,7 +48,7 @@ type RESTAPI struct {
 	controllers                    map[string]Controller
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
-	projections                    map[string]projections.Projection
+	projections                    map[string]model.Projection
 	logs                           map[string]model.Log
 	httpClients                    map[string]*http.Client
 	globalInitializers             []GlobalInitializer
@@ -62,6 +62,7 @@ type RESTAPI struct {
 	dbConnections                  map[string]*sql.DB
 	gormConnections                map[string]*gorm.DB
 	enforcers                      map[string]*casbin.Enforcer
+	entityRepositories             map[string]model.EntityRepository
 }
 
 type schema struct {
@@ -195,7 +196,7 @@ func (p *RESTAPI) RegisterCommandDispatcher(name string, dispatcher model.Comman
 //RegisterProjection Add command dispatcher so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterProjection(name string, projection model.Projection) {
 	if p.projections == nil {
-		p.projections = make(map[string]projections.Projection)
+		p.projections = make(map[string]model.Projection)
 	}
 	p.projections[name] = projection
 }
@@ -249,7 +250,7 @@ func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	tmiddleware := t.MethodByName(name)
 	//only show error if handler was set
 	if tmiddleware.IsValid() {
-		return tmiddleware.Interface().(func(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc), nil
+		return tmiddleware.Interface().(func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc), nil
 	}
 
 	return nil, fmt.Errorf("middleware '%s' not found", name)
@@ -266,7 +267,7 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	tcontroller := t.MethodByName(name)
 	//only show error if handler was set
 	if tcontroller.IsValid() {
-		return tcontroller.Interface().(func(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc), nil
+		return tcontroller.Interface().(func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation *openapi3.Operation) echo.HandlerFunc), nil
 	}
 
 	return nil, fmt.Errorf("controller '%s' not found", name)
@@ -294,6 +295,20 @@ func (p *RESTAPI) GetProjection(name string) (model.Projection, error) {
 		return tdispatcher, nil
 	}
 	return nil, fmt.Errorf("projection '%s' not found", name)
+}
+
+func (p *RESTAPI) RegisterEntityRepository(name string, repository model.EntityRepository) {
+	if p.entityRepositories == nil {
+		p.entityRepositories = make(map[string]model.EntityRepository)
+	}
+	p.entityRepositories[name] = repository
+}
+
+func (p *RESTAPI) GetEntityRepository(name string) (model.EntityRepository, error) {
+	if trepository, ok := p.entityRepositories[name]; ok {
+		return trepository, nil
+	}
+	return nil, fmt.Errorf("entity repository '%s' not found", name)
 }
 
 //GetGlobalInitializers get global intializers in the order they were registered
@@ -436,27 +451,12 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		Timeout:   time.Second * 10,
 	})
 	//register standard controllers
-	p.RegisterController("CreateController", CreateController)
-	p.RegisterController("UpdateController", UpdateController)
-	p.RegisterController("ListController", ListController)
-	p.RegisterController("ViewController", ViewController)
-	p.RegisterController("DeleteController", DeleteController)
 	p.RegisterController("HealthCheck", HealthCheck)
-	p.RegisterController("CreateBatchController", CreateBatchController)
 	p.RegisterController("APIDiscovery", APIDiscovery)
-	p.RegisterController("DefaultResponseController", DefaultResponseController)
 
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
-	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
-	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
-	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
-	p.RegisterMiddleware("ListMiddleware", ListMiddleware)
-	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
-	p.RegisterMiddleware("DeleteMiddleware", DeleteMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
-	p.RegisterMiddleware("ContentTypeResponseMiddleware", ContentTypeResponseMiddleware)
-	p.RegisterMiddleware("DefaultResponseMiddleware", DefaultResponseMiddleware)
 	p.RegisterMiddleware("LogLevel", LogLevel)
 	p.RegisterMiddleware("ZapLogger", ZapLogger)
 	//register standard global initializers

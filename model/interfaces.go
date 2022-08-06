@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
+	ds "github.com/ompluscator/dynamic-struct"
 	"net/http"
 	"time"
 
@@ -91,6 +92,13 @@ type Projection interface {
 	GetByProperties(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) ([]*ContentEntity, error)
 }
 
+//EntityRepository is a repository that can be used to store and create entities
+type EntityRepository interface {
+	Projection
+	EntityFactory
+	Repository
+}
+
 type GormProjection interface {
 	Projection
 	DB() *gorm.DB
@@ -137,4 +145,18 @@ type Container interface {
 	RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer)
 	//GetPermissionEnforcer get Casbin enforcer
 	GetPermissionEnforcer(name string) (*casbin.Enforcer, error)
+	RegisterEntityRepository(name string, repository EntityRepository)
+	GetEntityRepository(name string) (EntityRepository, error)
+}
+
+type EntityFactory interface {
+	FromSchemaAndBuilder(string, *openapi3.Schema, ds.Builder) EntityFactory
+	NewEntity(ctx context.Context) (*ContentEntity, error)
+	//CreateEntityWithValues add an entity for the first type to the system with the following values
+	CreateEntityWithValues(ctx context.Context, payload []byte) (*ContentEntity, error)
+	DynamicStruct(ctx context.Context) ds.DynamicStruct
+	Name() string
+	TableName() string
+	Schema() *openapi3.Schema
+	Builder(ctx context.Context) ds.Builder
 }

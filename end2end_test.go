@@ -803,7 +803,7 @@ func theServiceIsRunning() error {
 	buf = bytes.Buffer{}
 	API.DB = db
 	API.EchoInstance().Logger.SetOutput(&buf)
-	API.RegisterMiddleware("Handler", func(api api.Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	API.RegisterMiddleware("Handler", func(api api.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
 			return func(c echo.Context) error {
 				contextWithValues = c.Request().Context()

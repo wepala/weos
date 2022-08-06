@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
+	weosContext "github.com/wepala/weos/context"
 	"strconv"
 	"strings"
 	"time"
@@ -21,9 +22,12 @@ type GORMDB struct {
 	db              *gorm.DB
 	logger          weos.Log
 	migrationFolder string
-	Schema          map[string]ds.Builder
+	SchemaBuilder   map[string]ds.Builder
 	//key interfaces for gorm models
-	keys map[string]map[string]interface{}
+	keys    map[string]map[string]interface{}
+	name    string
+	schema  *openapi3.Schema
+	builder ds.Builder
 }
 
 type FilterProperty struct {
@@ -82,29 +86,6 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 	data, err := json.Marshal(model)
 	err = json.Unmarshal(data, &contentEntity)
 	return contentEntity, err
-
-}
-
-//Deprecated: 06/05/2022 use GetContentEntity instead
-//GetByEntityID get map of row using the entity id
-func (p *GORMDB) GetByEntityID(ctx context.Context, entityFactory weos.EntityFactory, id string) (map[string]interface{}, error) {
-	//scheme, err := entityFactory.NewEntity(ctx)
-	tstruct := entityFactory.DynamicStruct(ctx).New()
-	//if err != nil {
-	//	return nil, err
-	//}
-	result := p.db.Table(entityFactory.Name()).Scopes(ContentQuery()).Find(tstruct, "weos_id = ?", id)
-
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	data, err := json.Marshal(tstruct)
-	if err != nil {
-		return nil, err
-	}
-	val := map[string]interface{}{}
-	json.Unmarshal(data, &val)
-	return val, nil
 
 }
 
@@ -263,7 +244,7 @@ func (p *GORMDB) GORMModels(name string, schema *openapi3.Schema) (interface{}, 
 func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) (ds.Builder, map[string]interface{}, error) {
 	titleCaseName := strings.Title(name)
 	//get the builder from "cache". This is to avoid issues with the gorm cache that uses the model interface to create a cache key
-	if builder, ok := p.Schema[titleCaseName]; ok {
+	if builder, ok := p.SchemaBuilder[titleCaseName]; ok {
 		return builder, p.keys[titleCaseName], nil
 	}
 
@@ -396,7 +377,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 	}
 
 	//add to "cache"
-	p.Schema[titleCaseName] = instance
+	p.SchemaBuilder[titleCaseName] = instance
 	p.keys[titleCaseName] = primaryKeysMap
 
 	return instance, primaryKeysMap, nil
@@ -721,6 +702,65 @@ func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.Entity
 	return entities, err
 }
 
+//FromSchemaAndBuilder create entity factory using a schema and dynamic struct builder
+func (d *GORMDB) FromSchemaAndBuilder(s string, o *openapi3.Schema, builder ds.Builder) weos.EntityFactory {
+	d.schema = o
+	d.builder = builder
+	d.name = s
+	return d
+}
+
+func (d *GORMDB) FromSchema(s string, o *openapi3.Schema) weos.EntityFactory {
+	d.schema = o
+	d.name = s
+	return d
+}
+
+func (d *GORMDB) NewEntity(ctxt context.Context) (*weos.ContentEntity, error) {
+	if d.builder != nil {
+		return new(weos.ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+	}
+	return new(weos.ContentEntity).FromSchema(ctxt, "", d.schema)
+}
+
+func (d *GORMDB) CreateEntityWithValues(ctxt context.Context, payload []byte) (*weos.ContentEntity, error) {
+	var entity *weos.ContentEntity
+	var err error
+	if d.builder != nil {
+		entity, err = new(weos.ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+	} else {
+		entity, err = new(weos.ContentEntity).FromSchema(ctxt, d.Name(), d.Schema())
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	if id, ok := ctxt.Value(weosContext.WEOS_ID).(string); ok {
+		entity.ID = id
+	}
+	return entity.Init(ctxt, payload)
+}
+
+func (d *GORMDB) Name() string {
+	return d.name
+}
+
+func (d *GORMDB) TableName() string {
+	return strings.Title(d.Name())
+}
+
+func (d *GORMDB) Schema() *openapi3.Schema {
+	return d.schema
+}
+
+func (d *GORMDB) DynamicStruct(ctx context.Context) ds.DynamicStruct {
+	return d.builder.Build()
+}
+
+func (d *GORMDB) Builder(ctx context.Context) ds.Builder {
+	return d.builder
+}
+
 //DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date
 func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]FilterProperty) (map[string]FilterProperty, error) {
 	var err error
@@ -779,10 +819,10 @@ var FilterQuery QueryFilterModifier
 func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, error) {
 
 	projection := &GORMDB{
-		db:     db,
-		logger: logger,
-		Schema: make(map[string]ds.Builder),
-		keys:   make(map[string]map[string]interface{}),
+		db:            db,
+		logger:        logger,
+		SchemaBuilder: make(map[string]ds.Builder),
+		keys:          make(map[string]map[string]interface{}),
 	}
 
 	FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {
