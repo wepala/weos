@@ -2,6 +2,7 @@ package rest_test
 
 import (
 	context3 "context"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
@@ -23,6 +24,9 @@ func TestDefaultWriteController(t *testing.T) {
 			GetEventStoreFunc: func(name string) (model.EventRepository, error) {
 				return &EventRepositoryMock{}, nil
 			},
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
 		}
 		commandDispatcher := &CommandDispatcherMock{
 			DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
@@ -40,7 +44,9 @@ func TestDefaultWriteController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs")
 
-		controller := rest.DefaultWriteController(container, commandDispatcher, repository, path.Post)
+		controller := rest.DefaultWriteController(container, commandDispatcher, repository, map[string]*openapi3.Operation{
+			http.MethodPost: path.Post,
+		})
 		e := echo.New()
 		e.POST("/blogs", controller)
 		resp := httptest.NewRecorder()
@@ -59,6 +65,9 @@ func TestDefaultWriteController(t *testing.T) {
 			GetEventStoreFunc: func(name string) (model.EventRepository, error) {
 				return &EventRepositoryMock{}, nil
 			},
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
 		}
 		commandDispatcher := &CommandDispatcherMock{
 			DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
@@ -76,7 +85,9 @@ func TestDefaultWriteController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs/:id")
 
-		controller := rest.DefaultWriteController(container, commandDispatcher, repository, path.Put)
+		controller := rest.DefaultWriteController(container, commandDispatcher, repository, map[string]*openapi3.Operation{
+			http.MethodPut: path.Put,
+		})
 		e := echo.New()
 		e.PUT("/blogs/1", controller)
 		resp := httptest.NewRecorder()
@@ -92,6 +103,9 @@ func TestDefaultWriteController(t *testing.T) {
 		container := &ContainerMock{
 			GetEventStoreFunc: func(name string) (model.EventRepository, error) {
 				return &EventRepositoryMock{}, nil
+			},
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
 			},
 		}
 		commandDispatcher := &CommandDispatcherMock{
@@ -110,7 +124,9 @@ func TestDefaultWriteController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs/:id")
 
-		controller := rest.DefaultWriteController(container, commandDispatcher, repository, path.Delete)
+		controller := rest.DefaultWriteController(container, commandDispatcher, repository, map[string]*openapi3.Operation{
+			http.MethodDelete: path.Delete,
+		})
 		e := echo.New()
 		e.DELETE("/blogs/:id", controller)
 		resp := httptest.NewRecorder()
@@ -146,7 +162,9 @@ func TestDefaultReadController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs/:id")
 
-		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, path.Get)
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.Operation{
+			http.MethodGet: path.Get,
+		})
 		e := echo.New()
 		e.GET("/blogs/:id", controller)
 		resp := httptest.NewRecorder()
@@ -181,7 +199,9 @@ func TestDefaultReadController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs")
 
-		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, path.Get)
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.Operation{
+			http.MethodGet: path.Get,
+		})
 		e := echo.New()
 		e.GET("/blogs", controller)
 		resp := httptest.NewRecorder()
