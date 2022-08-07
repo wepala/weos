@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
 	context2 "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
 	"net/http"
@@ -11,24 +12,26 @@ import (
 )
 
 //DefaultWriteController handles the write operations (create, update, delete)
-func DefaultWriteController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operation *openapi3.Operation) echo.HandlerFunc {
-	return func(ctxt echo.Context) error {
-		var commandName string
-		var err error
-		var weosID string
-		var sequenceNo string
-		var seq int
+func DefaultWriteController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+	var commandName string
+	var err error
+
+	logger, err := api.GetLog("Default")
+	if err != nil {
+		log.Fatal("no logger defined")
+	}
+
+	for method, operation := range operation {
 		//If there is a x-command extension then dispatch that command by default
 		if rawCommand, ok := operation.Extensions["x-command"].(json.RawMessage); ok {
 			err := json.Unmarshal(rawCommand, &commandName)
 			if err != nil {
-				ctxt.Logger().Errorf("error unmarshalling command: %s", err)
-				return err
+				logger.Fatalf("error unmarshalling command: %s", err)
 			}
 		}
 		//If there is a x-command-name extension then dispatch that command by default otherwise use the default command based on the operation type
 		if commandName == "" {
-			switch ctxt.Request().Method {
+			switch method {
 			case http.MethodPost:
 				commandName = "create"
 			case http.MethodPut:
@@ -37,6 +40,13 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 				commandName = "delete"
 			}
 		}
+	}
+
+	return func(ctxt echo.Context) error {
+		var weosID string
+		var sequenceNo string
+		var seq int
+
 		//getting etag from context
 		etag := ctxt.Request().Header.Get("If-Match")
 		if etag != "" {
@@ -84,7 +94,7 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 	}
 }
 
-func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operation *openapi3.Operation) echo.HandlerFunc {
+func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		return nil
 	}

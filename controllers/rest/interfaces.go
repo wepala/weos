@@ -14,7 +14,7 @@ type (
 	//Middleware that is bound to an OpenAPI operation
 	Middleware func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc
 	//Controller is the handler for a specific operation
-	Controller func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation *openapi3.Operation) echo.HandlerFunc
+	Controller func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc
 	//OperationInitializer initialzers that are run when processing OpenAPI operations
 	GlobalInitializer    func(context.Context, Container, *openapi3.Swagger) (context.Context, error)
 	OperationInitializer func(context.Context, Container, string, string, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) (context.Context, error)

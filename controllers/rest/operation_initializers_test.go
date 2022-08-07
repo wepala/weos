@@ -177,7 +177,6 @@ paths:
 	api.RegisterEventStore("HealthCheck", &EventRepositoryMock{})
 	api.RegisterProjection("Default", &ProjectionMock{})
 	api.RegisterProjection("Custom", &ProjectionMock{})
-	api.RegisterMiddleware("DefaultResponseMiddleware", rest.DefaultResponseMiddleware)
 	t.Run("attach user defined controller", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
 		if err != nil {
@@ -330,7 +329,7 @@ func TestRouteInitializer(t *testing.T) {
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
-	api.RegisterController("ViewController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation *openapi3.Operation) echo.HandlerFunc {
+	api.RegisterController("ViewController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			controllerTriggered = true
 			return nil
@@ -354,7 +353,6 @@ func TestRouteInitializer(t *testing.T) {
 	})
 	api.RegisterCommandDispatcher("Default", &CommandDispatcherMock{})
 	api.RegisterEventStore("Default", &EventRepositoryMock{})
-	api.RegisterMiddleware("DefaultResponseMiddleware", rest.DefaultResponseMiddleware)
 	t.Run("setup meta projection", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
 		if err != nil {

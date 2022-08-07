@@ -266,7 +266,7 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	tcontroller := t.MethodByName(name)
 	//only show error if handler was set
 	if tcontroller.IsValid() {
-		return tcontroller.Interface().(func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation *openapi3.Operation) echo.HandlerFunc), nil
+		return tcontroller.Interface().(func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc), nil
 	}
 
 	return nil, fmt.Errorf("controller '%s' not found", name)
@@ -467,7 +467,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterGlobalInitializer(Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
-	p.RegisterOperationInitializer(ContentTypeResponseInitializer)
 	p.RegisterOperationInitializer(EntityFactoryInitializer)
 	p.RegisterOperationInitializer(UserDefinedInitializer)
 	p.RegisterOperationInitializer(AuthorizationInitializer)

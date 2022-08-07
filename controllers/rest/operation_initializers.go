@@ -30,18 +30,6 @@ func ContextInitializer(ctxt context.Context, api Container, path string, method
 	return ctxt, nil
 }
 
-//ContentTypeResponseInitializer add ContentTypeResponseMiddleware middleware to path
-func ContentTypeResponseInitializer(ctxt context.Context, api Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
-	middlewares := GetOperationMiddlewares(ctxt)
-	contentMiddleware, err := api.GetMiddleware("ContentTypeResponseMiddleware")
-	if err != nil {
-		return ctxt, err
-	}
-	middlewares = append(middlewares, contentMiddleware)
-	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
-	return ctxt, nil
-}
-
 //AuthorizationInitializer setup authorization
 func AuthorizationInitializer(ctxt context.Context, tapi Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	if authRaw, ok := operation.Extensions[AuthorizationConfigExtension]; ok {
@@ -261,18 +249,7 @@ func UserDefinedInitializer(ctxt context.Context, tapi Container, path string, m
 			api.EchoInstance().Logger.Errorf("unable to unmarshal middleware '%s'", err)
 			return ctxt, fmt.Errorf("middlewares in the specification should be an array of strings on '%s'", path)
 		}
-		found := false
-		for _, middlewareN := range middlewareNames {
-			if middlewareN == "DefaultResponseMiddleware" {
-				found = true
-			}
-		}
-		if !found {
-			middlewareNames = append(middlewareNames, "DefaultResponseMiddleware")
-		}
-
 		//get the existing middleware from context and then add user defined middleware to it
-
 		for _, middlewareName := range middlewareNames {
 			middleware, err := api.GetMiddleware(middlewareName)
 			if err != nil {
@@ -281,12 +258,6 @@ func UserDefinedInitializer(ctxt context.Context, tapi Container, path string, m
 			middlewares = append(middlewares, middleware)
 		}
 
-	} else {
-		middleware, err := api.GetMiddleware("DefaultResponseMiddleware")
-		if err != nil {
-			return ctxt, fmt.Errorf("unregistered middleware '%s' specified on path '%s'", "DefaultResponseMiddleware", path)
-		}
-		middlewares = append(middlewares, middleware)
 	}
 	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	if projectionExtension, ok := operation.ExtensionProps.Extensions[ProjectionExtension]; ok {
@@ -723,7 +694,7 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 
 	if controller == nil {
 		//once no controller is set, the default controller and middleware is added to the path
-		controller, err = api.GetController("DefaultResponseController")
+		controller, err = api.GetController("DefaultReadController")
 		if err != nil {
 			api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
 			return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", "DefaultResponseController", path)
@@ -733,7 +704,9 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 	//only set up routes if controller is set because echo returns an error if the handler for a route is nil
 	if controller != nil {
 		var handler echo.HandlerFunc
-		handler = controller(api, commandDispatcher, repository, operation)
+		handler = controller(api, commandDispatcher, repository, map[string]*openapi3.Operation{
+			method: operation,
+		})
 		middlewares := GetOperationMiddlewares(ctxt)
 		var pathMiddleware []echo.MiddlewareFunc
 		for _, tmiddleware := range middlewares {
