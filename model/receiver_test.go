@@ -44,7 +44,6 @@ func TestCreateContentType(t *testing.T) {
 	ctx2 = context.WithValue(ctx2, weosContext.USER_ID, "123")
 	commandDispatcher := &model.DefaultCommandDispatcher{}
 	commandDispatcher.AddSubscriber(model.Create(context.Background(), nil, contentEntity, ""), model.CreateHandler)
-	commandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, contentEntity), model.CreateBatchHandler)
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 			var event *model.Event
@@ -76,12 +75,6 @@ func TestCreateContentType(t *testing.T) {
 			return nil
 		},
 	}
-	projectionMock := &ProjectionMock{
-		GetByPropertiesFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
-			return nil, nil
-		},
-	}
-
 	t.Run("Testing basic create entity with a auto generating id ksuid", func(t *testing.T) {
 
 		mockAuthor := map[string]interface{}{"firstName": "New ", "lastName": "New nEW"}
@@ -90,7 +83,9 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		_, err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, contentEntity, "fsdf32432"), nil, projectionMock, echo.New().Logger)
+		repository := &EntityRepositoryMock{}
+
+		_, err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, contentEntity, "fsdf32432"), nil, repository, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -107,7 +102,9 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		_, err1 := commandDispatcher.Dispatch(ctx1, model.Create(ctx1, reqBytes, contentEntity, "fsdf32432"), nil, projectionMock, echo.New().Logger)
+		repository := &EntityRepositoryMock{}
+
+		_, err1 := commandDispatcher.Dispatch(ctx1, model.Create(ctx1, reqBytes, contentEntity, "fsdf32432"), nil, repository, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -117,7 +114,7 @@ func TestCreateContentType(t *testing.T) {
 		}
 	})
 	t.Run("Testing basic batch create where the id is specified but the format is not specified", func(t *testing.T) {
-
+		repository := &EntityRepositoryMock{}
 		mockArchives := [3]map[string]interface{}{
 			{"title": "Blog 1"},
 			{"title": "Blog 2"},
@@ -128,7 +125,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		_, err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity), nil, projectionMock, echo.New().Logger)
+		_, err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity), nil, repository, echo.New().Logger)
 		if err1 == nil {
 			t.Fatalf("expected error dispatching command but got nil")
 		}
@@ -183,7 +180,7 @@ func TestUpdateContentType(t *testing.T) {
 	}
 
 	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
-	reqBytes, err := json.Marshal(existingPayload)
+
 	existingBlog := &model.ContentEntity{
 		AggregateRoot: model.AggregateRoot{
 			BasicEntity: model.BasicEntity{
@@ -194,32 +191,6 @@ func TestUpdateContentType(t *testing.T) {
 	}
 	event := model.NewEntityEvent("update", existingBlog, existingBlog.ID, existingPayload)
 	existingBlog.NewChange(event)
-
-	projectionMock := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
-			return existingBlog, nil
-		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
-			return new(model.ContentEntity).Init(context.Background(), reqBytes)
-		},
-	}
-
-	application := &ServiceMock{
-		DispatcherFunc: func() model.CommandDispatcher {
-			return commandDispatcher
-		},
-		EventRepositoryFunc: func() model.EventRepository {
-			return mockEventRepository
-		},
-		ProjectionsFunc: func() []model.Projection {
-			return []model.Projection{projectionMock}
-		},
-	}
-
-	err1 := model.Initialize(application)
-	if err1 != nil {
-		t.Fatalf("unexpected error setting up model '%s'", err1)
-	}
 
 	t.Run("Testing basic update entity", func(t *testing.T) {
 		t.SkipNow()
@@ -293,7 +264,6 @@ func TestDeleteContentType(t *testing.T) {
 	}
 
 	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
-	reqBytes, err := json.Marshal(existingPayload)
 	existingBlog := &model.ContentEntity{
 		AggregateRoot: model.AggregateRoot{
 			BasicEntity: model.BasicEntity{
@@ -305,17 +275,9 @@ func TestDeleteContentType(t *testing.T) {
 	event := model.NewEntityEvent("delete", existingBlog, existingBlog.ID, existingPayload)
 	existingBlog.NewChange(event)
 
-	projectionMock := &ProjectionMock{
-		GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
-			return existingBlog, nil
-		},
-		GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
-			return new(model.ContentEntity).Init(context.Background(), reqBytes)
-		},
-	}
-
 	t.Run("Testing basic delete entity", func(t *testing.T) {
-		_, err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"), nil, projectionMock, echo.New().Logger)
+		repository := &EntityRepositoryMock{}
+		_, err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"), nil, repository, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}

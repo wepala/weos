@@ -1710,17 +1710,11 @@ func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
 
 func definesAProjection(arg1, arg2 string) error {
 	mockProjections[arg2] = &ProjectionMock{
-		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
-			return nil, nil
-		},
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			return nil, nil
 		},
 		GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			return nil, nil
-		},
-		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-			return []map[string]interface{}{}, 0, nil
 		},
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return nil, nil
@@ -1750,7 +1744,7 @@ func setTheDefaultProjectionAs(arg1, arg2 string) error {
 
 func theProjectionIsCalled(arg1 string) error {
 	if projection, ok := mockProjections[arg1]; ok {
-		if len(projection.GetContentEntitiesCalls()) == 0 && len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByEntityIDCalls()) == 0 && len(projection.GetByKeyCalls()) == 0 && len(projection.GetContentEntitiesCalls()) == 0 {
+		if len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByKeyCalls()) == 0 {
 			return fmt.Errorf("projection '%s' not called", arg1)
 		}
 		return nil
@@ -1795,7 +1789,7 @@ func setTheDefaultEventStoreAs(arg1, arg2 string) error {
 
 func theProjectionIsNotCalled(arg1 string) error {
 	if projection, ok := mockProjections[arg1]; ok {
-		if !(len(projection.GetContentEntitiesCalls()) == 0 && len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByEntityIDCalls()) == 0 && len(projection.GetByKeyCalls()) == 0 && len(projection.GetContentEntitiesCalls()) == 0) {
+		if !(len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByKeyCalls()) == 0) {
 			return fmt.Errorf("projection '%s' called", arg1)
 		}
 		return nil

@@ -480,7 +480,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		defaultCommandDispatcher := &model.DefaultCommandDispatcher{}
 		//setup default commands
 		defaultCommandDispatcher.AddSubscriber(model.Create(context.Background(), nil, "", ""), model.CreateHandler)
-		defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), model.CreateBatchHandler)
 		defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), model.UpdateHandler)
 		defaultCommandDispatcher.AddSubscriber(model.Delete(context.Background(), "", ""), model.DeleteHandler)
 		p.RegisterCommandDispatcher("Default", defaultCommandDispatcher)

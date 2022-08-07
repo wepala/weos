@@ -6,7 +6,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
-	"golang.org/x/net/context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,11 +28,11 @@ func TestDefaultWriteController(t *testing.T) {
 			},
 		}
 		commandDispatcher := &CommandDispatcherMock{
-			DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+			DispatchFunc: func(ctx context3.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (interface{}, error) {
 				if command.Type != model.CREATE_COMMAND {
 					t.Errorf("expected command type '%s', got '%s'", model.CREATE_COMMAND, command.Type)
 				}
-				return nil
+				return nil, nil
 			},
 		}
 		repository := &EntityRepositoryMock{
@@ -70,11 +69,11 @@ func TestDefaultWriteController(t *testing.T) {
 			},
 		}
 		commandDispatcher := &CommandDispatcherMock{
-			DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+			DispatchFunc: func(ctx context3.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (interface{}, error) {
 				if command.Type != model.UPDATE_COMMAND {
 					t.Errorf("expected command type '%s', got '%s'", model.UPDATE_COMMAND, command.Type)
 				}
-				return nil
+				return nil, nil
 			},
 		}
 		repository := &EntityRepositoryMock{
@@ -109,11 +108,11 @@ func TestDefaultWriteController(t *testing.T) {
 			},
 		}
 		commandDispatcher := &CommandDispatcherMock{
-			DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+			DispatchFunc: func(ctx context3.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (interface{}, error) {
 				if command.Type != model.DELETE_COMMAND {
-					t.Errorf("expected command type '%s', got '%s'", model.DELETE_COMMAND, command.Type)
+					t.Errorf("expected command type '%s', got '%s'", model.CREATE_COMMAND, command.Type)
 				}
-				return nil
+				return nil, nil
 			},
 		}
 		repository := &EntityRepositoryMock{

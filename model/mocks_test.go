@@ -9,7 +9,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
-	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -1495,7 +1494,7 @@ var _ model.CommandDispatcher = &CommandDispatcherMock{}
 // 			AddSubscriberFunc: func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler {
 // 				panic("mock out the AddSubscriber method")
 // 			},
-// 			DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+// 			DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (interface{}, error) {
 // 				panic("mock out the Dispatch method")
 // 			},
 // 			GetSubscribersFunc: func() map[string][]model.CommandHandler {
@@ -1512,7 +1511,7 @@ type CommandDispatcherMock struct {
 	AddSubscriberFunc func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error
+	DispatchFunc func(ctx context.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (interface{}, error)
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
 	GetSubscribersFunc func() map[string][]model.CommandHandler
@@ -1534,10 +1533,8 @@ type CommandDispatcherMock struct {
 			Command *model.Command
 			// Container is the container argument value.
 			Container model.Container
-			// EventStore is the eventStore argument value.
-			EventStore model.EventRepository
-			// Projection is the projection argument value.
-			Projection model.Projection
+			// Repository is the repository argument value.
+			Repository model.EntityRepository
 			// Logger is the logger argument value.
 			Logger model.Log
 		}
@@ -1586,7 +1583,7 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (any, error) {
+func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (interface{}, error) {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
@@ -1594,21 +1591,19 @@ func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model
 		Ctx        context.Context
 		Command    *model.Command
 		Container  model.Container
-		EventStore model.EventRepository
-		Projection model.Projection
+		Repository model.EntityRepository
 		Logger     model.Log
 	}{
 		Ctx:        ctx,
 		Command:    command,
 		Container:  container,
-		EventStore: eventStore,
-		Projection: repository,
+		Repository: repository,
 		Logger:     logger,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return nil, mock.DispatchFunc(ctx, command, container, eventStore, repository, logger)
+	return mock.DispatchFunc(ctx, command, container, repository, logger)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
@@ -1618,16 +1613,14 @@ func (mock *CommandDispatcherMock) DispatchCalls() []struct {
 	Ctx        context.Context
 	Command    *model.Command
 	Container  model.Container
-	EventStore model.EventRepository
-	Projection model.Projection
+	Repository model.EntityRepository
 	Logger     model.Log
 } {
 	var calls []struct {
 		Ctx        context.Context
 		Command    *model.Command
 		Container  model.Container
-		EventStore model.EventRepository
-		Projection model.Projection
+		Repository model.EntityRepository
 		Logger     model.Log
 	}
 	mock.lockDispatch.RLock()

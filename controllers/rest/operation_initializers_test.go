@@ -1,6 +1,7 @@
 package rest_test
 
 import (
+	context3 "context"
 	"fmt"
 	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -171,8 +172,8 @@ paths:
 	})
 
 	api.RegisterCommandDispatcher("HealthCheck", &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
-			return nil
+		DispatchFunc: func(ctx context3.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (interface{}, error) {
+			return nil, nil
 		}})
 	api.RegisterEventStore("HealthCheck", &EventRepositoryMock{})
 	api.RegisterProjection("Default", &ProjectionMock{})

@@ -36,13 +36,13 @@ type DefaultCommandDispatcher struct {
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (any, error) {
+func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error) {
 	//mutex helps keep state between routines
 	e.dispatch.Lock()
 	defer e.dispatch.Unlock()
 	var wg sync.WaitGroup
 	var err error
-	var result any
+	var result interface{}
 	var allHandlers []CommandHandler
 	//first preference is handlers for specific command type and entity type
 	if handlers, ok := e.handlers[command.Type+command.Metadata.EntityType]; ok {
@@ -92,4 +92,4 @@ func (e *DefaultCommandDispatcher) GetSubscribers() map[string][]CommandHandler 
 	return e.handlers
 }
 
-type CommandHandler func(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (any, error)
+type CommandHandler func(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error)

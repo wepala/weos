@@ -14,7 +14,7 @@ import (
 )
 
 type CommandDispatcher interface {
-	Dispatch(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (any, error)
+	Dispatch(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error)
 	AddSubscriber(command *Command, handler CommandHandler) map[string][]CommandHandler
 	GetSubscribers() map[string][]CommandHandler
 }

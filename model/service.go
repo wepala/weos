@@ -1,6 +1,7 @@
 package model
 
 //go:generate moq -out mocks_test.go -pkg model_test . EventRepository Projection Log CommandDispatcher Service EntityFactory EntityRepository
+//go:generate moq -out container_mock_test.go -pkg model_test . Container
 
 import (
 	"database/sql"
