@@ -453,6 +453,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterController("HealthCheck", HealthCheck)
 	p.RegisterController("APIDiscovery", APIDiscovery)
 	p.RegisterController("DefaultWriteController", DefaultWriteController)
+	p.RegisterController("DefaultReadController", DefaultReadController)
 
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)

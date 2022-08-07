@@ -83,3 +83,9 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		}
 	}
 }
+
+func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operation *openapi3.Operation) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		return nil
+	}
+}

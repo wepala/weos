@@ -351,8 +351,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Post.RequestBody.Value.Content {
 					if value.Schema != nil && strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-						handler = "CreateController"
-						middlewareNames["CreateMiddleware"] = true
+						handler = "DefaultWriteController"
 						autoConfigure = true
 					} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
 						attach := true
@@ -364,8 +363,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 							}
 						}
 						if attach {
-							handler = "CreateBatchController"
-							middlewareNames["CreateBatchMiddleware"] = true
+							handler = "DefaultWriteController"
 							autoConfigure = true
 						}
 
@@ -407,8 +405,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 								}
 							}
 							if allParam {
-								handler = "UpdateController"
-								middlewareNames["UpdateMiddleware"] = true
+								handler = "DefaultWriteController"
 								autoConfigure = true
 								break
 							}
@@ -417,8 +414,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 							for _, param := range pathItem.Put.Parameters {
 
 								if "id" == param.Value.Name {
-									handler = "UpdateController"
-									middlewareNames["UpdateMiddleware"] = true
+									handler = "DefaultWriteController"
 									autoConfigure = true
 									break
 								}
@@ -471,8 +467,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 								}
 							}
 							if allParam {
-								handler = "UpdateController"
-								middlewareNames["UpdateMiddleware"] = true
+								handler = "DefaultWriteController"
 								autoConfigure = true
 								break
 							}
@@ -481,8 +476,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 							for _, param := range pathItem.Patch.Parameters {
 
 								if "id" == param.Value.Name {
-									handler = "UpdateController"
-									middlewareNames["UpdateMiddleware"] = true
+									handler = "DefaultWriteController"
 									autoConfigure = true
 									break
 								}
@@ -555,16 +549,14 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 							}
 						}
 						if allParam {
-							handler = "ViewController"
-							middlewareNames["ViewMiddleware"] = true
+							handler = "DefaultReadController"
 							autoConfigure = true
 							break
 						}
 					} else {
 						//checks if the response refers to an array schema
 						if val.Schema != nil && val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-							handler = "ListController"
-							middlewareNames["ListMiddleware"] = true
+							handler = "DefaultReadController"
 							autoConfigure = true
 							break
 						} else {
@@ -577,8 +569,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 										json.Unmarshal(bytesContext, &alias)
 										if alias == "items" {
 											if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-												handler = "ListController"
-												middlewareNames["ListMiddleware"] = true
+												handler = "DefaultReadController"
 												autoConfigure = true
 												break
 											}
@@ -652,8 +643,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 					}
 				}
 				if allParam {
-					handler = "DeleteController"
-					middlewareNames["DeleteMiddleware"] = true
+					handler = "DefaultWriteController"
 					autoConfigure = true
 					break
 				}
@@ -662,8 +652,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 			for _, param := range pathItem.Delete.Parameters {
 
 				if "id" == param.Value.Name {
-					handler = "DeleteController"
-					middlewareNames["DeleteMiddleware"] = true
+					handler = "DefaultWriteController"
 					autoConfigure = true
 					break
 				}
@@ -672,8 +661,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 					bytesContext := interfaceContext.(json.RawMessage)
 					json.Unmarshal(bytesContext, &contextName)
 					if "id" == contextName {
-						handler = "DeleteController"
-						middlewareNames["DeleteMiddleware"] = true
+						handler = "DefaultWriteController"
 						autoConfigure = true
 						break
 					}

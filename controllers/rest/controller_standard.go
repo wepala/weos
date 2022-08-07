@@ -26,6 +26,7 @@ import (
 	"golang.org/x/net/context"
 )
 
+//Deprecated use DefaultWriteController instead
 //CreateMiddleware is used for a single payload. It dispatches this to the model which then validates and creates it.
 func CreateMiddleware(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -86,6 +87,7 @@ func CreateMiddleware(api Container, projection projections.Repository, commandD
 	}
 }
 
+//Deprecated use DefaultWriteController instead
 //CreateController is used for a single payload. It dispatches this to the model which then validates and creates it.
 func CreateController(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
@@ -112,6 +114,7 @@ func CreateController(api Container, projection projections.Repository, commandD
 	}
 }
 
+//Deprecated use DefaultWriteController instead
 //CreateBatchMiddleware is used for an array of payloads. It dispatches this to the model which then validates and creates it.
 func CreateBatchMiddleware(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -141,6 +144,7 @@ func CreateBatchMiddleware(api Container, projection projections.Repository, com
 	}
 }
 
+//Deprecated use DefaultWriteController instead
 //CreateBatchController is used for an array of payloads. It dispatches this to the model which then validates and creates it.
 func CreateBatchController(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
@@ -149,6 +153,8 @@ func CreateBatchController(api Container, projection projections.Repository, com
 	}
 }
 
+//Deprecated use DefaultWriteController instead
+//UpdateMiddleware is used for a single payload. It dispatches this to the model which then validates and updates it.
 func UpdateMiddleware(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
@@ -208,6 +214,7 @@ func UpdateMiddleware(api Container, projection projections.Repository, commandD
 	}
 }
 
+//UpdateController - Deprecated use DefaultWriteController instead
 func UpdateController(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		var err error
@@ -316,6 +323,7 @@ func APIDiscovery(api Container, commandDispatcher model.CommandDispatcher, repo
 	}
 }
 
+//ViewMiddleware - Deprecated use DefaultReadController instead
 func ViewMiddleware(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
@@ -439,6 +447,7 @@ func ViewMiddleware(api Container, projection projections.Repository, commandDis
 
 }
 
+//ViewController - Deprecated use DefaultReadController instead
 func ViewController(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
@@ -466,6 +475,7 @@ func ViewController(api Container, projection projections.Repository, commandDis
 	}
 }
 
+//ListMiddleware - Deprecated use DefaultReadController instead
 func ListMiddleware(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {
@@ -531,6 +541,7 @@ func ListMiddleware(api Container, projection projections.Repository, commandDis
 	}
 }
 
+//ListController - Deprecated use DefaultReadController instead
 func ListController(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
 
 	return func(ctxt echo.Context) error {
@@ -543,7 +554,7 @@ func ListController(api Container, projection projections.Repository, commandDis
 	}
 }
 
-//DeleteMiddleware delete entity
+//DeleteMiddleware - Deprecated use DefaultWriteController instead
 func DeleteMiddleware(api Container, projection projections.Repository, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctxt echo.Context) error {

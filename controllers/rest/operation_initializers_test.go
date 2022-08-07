@@ -254,12 +254,11 @@ func TestStandardInitializer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error loading api '%s'", err)
 	}
-	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
-	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
+	api.RegisterController("DefaultReadController", rest.DefaultReadController)
 	//api.RegisterController("ListController", rest.ListController)
 	t.Run("attach standard create", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -270,7 +269,7 @@ func TestStandardInitializer(t *testing.T) {
 	})
 
 	t.Run("attach standard list view ", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/posts/", http.MethodGet, api.Swagger, api.Swagger.Paths["/posts/"], api.Swagger.Paths["/posts/"].Get)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/posts/", http.MethodGet, api.Swagger, api.Swagger.Paths["/posts/"], api.Swagger.Paths["/posts/"].Get)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -281,7 +280,7 @@ func TestStandardInitializer(t *testing.T) {
 	})
 
 	t.Run("attach standard list view with alias ", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Get)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Get)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -291,7 +290,7 @@ func TestStandardInitializer(t *testing.T) {
 		}
 	})
 	t.Run("attach standard view", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -301,7 +300,7 @@ func TestStandardInitializer(t *testing.T) {
 		}
 	})
 	t.Run("attach standard update", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{}", http.MethodPut, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Put)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs/{}", http.MethodPut, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Put)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -311,7 +310,7 @@ func TestStandardInitializer(t *testing.T) {
 		}
 	})
 	t.Run("attach standard delete", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{id}", http.MethodDelete, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Delete)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs/{id}", http.MethodDelete, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Delete)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}

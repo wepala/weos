@@ -1,6 +1,7 @@
 package rest_test
 
 import (
+	context3 "context"
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
@@ -123,5 +124,82 @@ func TestDefaultWriteController(t *testing.T) {
 
 	t.Run("test custom command", func(t *testing.T) {
 
+	})
+}
+
+func TestDefaultReadController(t *testing.T) {
+	swagger, err := LoadConfig(t, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("error loading api config '%s'", err)
+	}
+
+	t.Run("test get item", func(t *testing.T) {
+		container := &ContainerMock{}
+		repository := &EntityRepositoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+		}
+
+		path := swagger.Paths.Find("/blogs/:id")
+
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, path.Get)
+		e := echo.New()
+		e.GET("/blogs/:id", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.GET, "/blogs/1", nil)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
+		}
+
+		if len(repository.GetByKeyCalls()) != 1 {
+			t.Errorf("expected repository.GetByKey to be called once, got %d", len(repository.GetByKeyCalls()))
+		}
+
+		if len(resp.Body.String()) == 0 {
+			t.Errorf("expected body to be not empty")
+		}
+
+		//TODO check that the response body is correct
+	})
+
+	t.Run("test get list of items", func(t *testing.T) {
+		container := &ContainerMock{}
+		repository := &EntityRepositoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+		}
+
+		path := swagger.Paths.Find("/blogs")
+
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, path.Get)
+		e := echo.New()
+		e.GET("/blogs", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.GET, "/blogs", nil)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
+		}
+
+		if len(repository.GetListCalls()) != 1 {
+			t.Errorf("expected repository.GetByKey to be called once, got %d", len(repository.GetByKeyCalls()))
+		}
+
+		if len(resp.Body.String()) == 0 {
+			t.Errorf("expected body to be not empty")
+		}
+
+		//TODO check that the response body is correct
 	})
 }
