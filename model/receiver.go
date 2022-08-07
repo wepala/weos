@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	weosContext "github.com/wepala/weos/context"
@@ -125,14 +124,14 @@ func DeleteHandler(ctx context.Context, command *Command, container Container, e
 //Deprecated: 01/30/2022 These are setup in the api initializer
 //Initialize sets up the command handlers
 func Initialize(service Service) error {
-	var payload json.RawMessage
+	//var payload json.RawMessage
 	//Initialize receiver
 	receiver := &Receiver{service: service}
 	//add command handlers to the application's command dispatcher
-	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), CreateHandler)
-	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), CreateBatchHandler)
-	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), UpdateHandler)
-	service.Dispatcher().AddSubscriber(Delete(context.Background(), "", ""), DeleteHandler)
+	//service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), CreateHandler)
+	//service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), CreateBatchHandler)
+	//service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), UpdateHandler)
+	//service.Dispatcher().AddSubscriber(Delete(context.Background(), "", ""), DeleteHandler)
 	//initialize any services
 	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil, nil)
 

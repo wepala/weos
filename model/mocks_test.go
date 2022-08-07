@@ -9,6 +9,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
+	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -1585,7 +1586,7 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (any, error) {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
@@ -1601,13 +1602,13 @@ func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.
 		Command:    command,
 		Container:  container,
 		EventStore: eventStore,
-		Projection: projection,
+		Projection: repository,
 		Logger:     logger,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, command, container, eventStore, projection, logger)
+	return nil, mock.DispatchFunc(ctx, command, container, eventStore, repository, logger)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.

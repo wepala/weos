@@ -66,7 +66,7 @@ func CreateMiddleware(api Container, projection projections.Repository, commandD
 				weosID = ksuid.New().String()
 			}
 
-			err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), nil, eventSource, projection, ctxt.Logger())
+			_, err := commandDispatcher.Dispatch(newContext, model.Create(newContext, payload, entityFactory.Name(), weosID), nil, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					if errr.Unwrap() != nil {
@@ -130,7 +130,7 @@ func CreateBatchMiddleware(api Container, projection projections.Repository, com
 			}
 			payload := weoscontext.GetPayload(newContext)
 
-			err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), nil, eventSource, projection, ctxt.Logger())
+			_, err := commandDispatcher.Dispatch(newContext, model.CreateBatch(newContext, payload, entityFactory.Name()), nil, projection, ctxt.Logger())
 			if err != nil {
 				ctxt.Logger().Debugf("error creating batch '%s", err)
 				if errr, ok := err.(*model.DomainError); ok {
@@ -189,7 +189,7 @@ func UpdateMiddleware(api Container, projection projections.Repository, commandD
 				}
 			}
 
-			err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), nil, eventSource, projection, ctxt.Logger())
+			_, err = commandDispatcher.Dispatch(newContext, model.Update(newContext, payload, entityFactory.Name()), nil, projection, ctxt.Logger())
 			if err != nil {
 				ctxt.Logger().Errorf("error persisting entity '%s'", err)
 				if errr, ok := err.(*model.DomainError); ok {
@@ -628,7 +628,7 @@ func DeleteMiddleware(api Container, projection projections.Repository, commandD
 			}
 
 			//Dispatch the actual delete to projections
-			err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), nil, eventSource, projection, ctxt.Logger())
+			_, err = commandDispatcher.Dispatch(newContext, model.Delete(newContext, entityFactory.Name(), weosID), nil, projection, ctxt.Logger())
 			if err != nil {
 				if errr, ok := err.(*model.DomainError); ok {
 					if strings.Contains(errr.Error(), "error deleting entity. This is a stale item") {

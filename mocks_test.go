@@ -1713,7 +1713,7 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (any, error) {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
@@ -1727,13 +1727,13 @@ func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model
 		Ctx:        ctx,
 		Command:    command,
 		EventStore: eventStore,
-		Projection: projection,
+		Projection: repository,
 		Logger:     logger,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, command, eventStore, projection, logger)
+	return nil, mock.DispatchFunc(ctx, command, eventStore, repository, logger)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.

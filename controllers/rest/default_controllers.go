@@ -63,7 +63,7 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		if err != nil {
 			ctxt.Logger().Errorf("error getting event repository: %s", err)
 		}
-		err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, api, eventRepository, entityRepository, ctxt.Logger())
+		_, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, api, entityRepository, ctxt.Logger())
 		if err != nil {
 			//TODO the type of error return should determine the status code
 			ctxt.Logger().Debugf("error dispatching command: %s", err)
