@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/google/uuid"
+	"github.com/segmentio/ksuid"
 	weosContext "github.com/wepala/weos/context"
 	"strconv"
 	"strings"
@@ -37,11 +39,11 @@ type FilterProperty struct {
 	Values   []interface{} `json:"values"`
 }
 
-func (p *GORMDB) DB() *gorm.DB {
-	return p.db
+func (d *GORMDB) DB() *gorm.DB {
+	return d.db
 }
 
-func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
+func (d *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
 	contentEntity, err := entityFactory.NewEntity(ctxt)
 	if err != nil {
 		return nil, err
@@ -72,9 +74,9 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 		}
 	}
 
-	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
+	model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
-	result := p.db.Table(entityFactory.Name()).Model(model).Preload(clause.Associations).Scopes(ContentQuery()).Find(model, identifiers)
+	result := d.db.Table(entityFactory.Name()).Model(model).Preload(clause.Associations).Scopes(ContentQuery()).Find(model, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -90,18 +92,18 @@ func (p *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 }
 
 //Persist save entity information in database. It does NOT use a batch create because to use a batch we'd need a strongly typed array of items
-func (p *GORMDB) Persist(entities []weos.Entity) error {
+func (d *GORMDB) Persist(entities []weos.Entity) error {
 	var tableName string
-	transaction := p.DB().Begin()
+	transaction := d.DB().Begin()
 	for _, entity := range entities {
 		if tentity, ok := entity.(*weos.ContentEntity); ok {
 			payload, err := json.Marshal(tentity.ToMap())
 			tableName = tentity.Name
-			tmodel, err := p.GORMModel(tentity.Name, tentity.Schema, payload)
+			tmodel, err := d.GORMModel(tentity.Name, tentity.Schema, payload)
 			if err != nil {
 				return err
 			}
-			result := transaction.Table(tableName).Debug().Save(tmodel)
+			result := transaction.Table(tableName).Save(tmodel)
 			if result.Error != nil {
 				transaction.Rollback()
 				return result.Error
@@ -119,14 +121,14 @@ func (p *GORMDB) Persist(entities []weos.Entity) error {
 }
 
 //Remove entity
-func (p *GORMDB) Remove(entities []weos.Entity) error {
+func (d *GORMDB) Remove(entities []weos.Entity) error {
 	var tableName string
-	transaction := p.DB().Begin()
+	transaction := d.DB().Begin()
 	for _, entity := range entities {
 		if tentity, ok := entity.(*weos.ContentEntity); ok {
 			payload, err := json.Marshal(tentity.ToMap())
 			tableName = tentity.Name
-			tmodel, err := p.GORMModel(tentity.Name, tentity.Schema, payload)
+			tmodel, err := d.GORMModel(tentity.Name, tentity.Schema, payload)
 			if err != nil {
 				return err
 			}
@@ -155,12 +157,12 @@ func (p *GORMDB) Remove(entities []weos.Entity) error {
 	return transaction.Commit().Error
 }
 
-func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
+func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 
 	var models []interface{}
 	if schema != nil {
 		for name, tschema := range schema.Components.Schemas {
-			model, err := p.GORMModel(name, tschema.Value, nil)
+			model, err := d.GORMModel(name, tschema.Value, nil)
 			if err != nil {
 				return err
 			}
@@ -169,7 +171,7 @@ func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 					}`), &model)
 			models = append(models, model)
 			//drop columns
-			if p.db.Migrator().HasTable(model) {
+			if d.db.Migrator().HasTable(model) {
 				if columnsToRemove, ok := tschema.Value.Extensions["x-remove"]; ok {
 					var columns []string
 					err = json.Unmarshal(columnsToRemove.(json.RawMessage), &columns)
@@ -177,8 +179,8 @@ func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 						return fmt.Errorf("x-remove should be a list of columns name to remove '%s'", err)
 					}
 					for _, column := range columns {
-						if p.db.Migrator().HasColumn(model, column) {
-							err = p.db.Migrator().DropColumn(model, column)
+						if d.db.Migrator().HasColumn(model, column) {
+							err = d.db.Migrator().DropColumn(model, column)
 							if err != nil {
 								return fmt.Errorf("could not remove column '%s'. if it is a primary key column try creating another primary key and then removing. original error '%s'", column, err)
 							}
@@ -190,13 +192,13 @@ func (p *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 		}
 	}
 
-	err := p.db.Migrator().AutoMigrate(models...)
+	err := d.db.Migrator().AutoMigrate(models...)
 	return err
 }
 
 //GORMModel return gorm model that is generated recursively.
-func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte) (interface{}, error) {
-	builder, _, err := p.GORMModelBuilder(name, schema, 0)
+func (d *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte) (interface{}, error) {
+	builder, _, err := d.GORMModelBuilder(name, schema, 0)
 
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
@@ -231,8 +233,8 @@ func (p *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 }
 
 //GORMModels return slice of gorm models
-func (p *GORMDB) GORMModels(name string, schema *openapi3.Schema) (interface{}, error) {
-	builder, _, err := p.GORMModelBuilder(name, schema, 0)
+func (d *GORMDB) GORMModels(name string, schema *openapi3.Schema) (interface{}, error) {
+	builder, _, err := d.GORMModelBuilder(name, schema, 0)
 
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
@@ -241,11 +243,11 @@ func (p *GORMDB) GORMModels(name string, schema *openapi3.Schema) (interface{}, 
 	return model, nil
 }
 
-func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) (ds.Builder, map[string]interface{}, error) {
+func (d *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) (ds.Builder, map[string]interface{}, error) {
 	titleCaseName := strings.Title(name)
 	//get the builder from "cache". This is to avoid issues with the gorm cache that uses the model interface to create a cache key
-	if builder, ok := p.SchemaBuilder[titleCaseName]; ok {
-		return builder, p.keys[titleCaseName], nil
+	if builder, ok := d.SchemaBuilder[titleCaseName]; ok {
+		return builder, d.keys[titleCaseName], nil
 	}
 
 	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
@@ -323,7 +325,7 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 			prop.Value.Nullable = false
 		}
 
-		defaultValue, gormParts, valueKeys := p.GORMPropertyDefaultValue(name, tname, prop, gormParts, depth)
+		defaultValue, gormParts, valueKeys := d.GORMPropertyDefaultValue(name, tname, prop, gormParts, depth)
 
 		//setup gorm field tag string
 		if len(gormParts) > 0 {
@@ -377,14 +379,14 @@ func (p *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 	}
 
 	//add to "cache"
-	p.SchemaBuilder[titleCaseName] = instance
-	p.keys[titleCaseName] = primaryKeysMap
+	d.SchemaBuilder[titleCaseName] = instance
+	d.keys[titleCaseName] = primaryKeysMap
 
 	return instance, primaryKeysMap, nil
 }
 
 //GORMPropertyDefaultValue convert schema property to GORM Model property
-func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
+func (d *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
 	var defaultValue interface{}
 	if schema.Value != nil {
 		switch schema.Value.Type {
@@ -475,7 +477,7 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 		case "array":
 			if schema.Value != nil && schema.Value.Items != nil && schema.Value.Items.Value != nil && depth < 5 {
 				if schema.Value.Items.Ref != "" {
-					tbuilder, _, err := p.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
+					tbuilder, _, err := d.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
 					if err != nil {
 						return nil, nil, nil
 					}
@@ -486,13 +488,13 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 					//setup gorm field tag string
 					gormParts = append(gormParts, "many2many:"+utils.SnakeCase(parentName)+"_"+utils.SnakeCase(name))
 				} else {
-					return p.GORMInlineProperty(parentName, name, schema, gormParts, depth)
+					return d.GORMInlineProperty(parentName, name, schema, gormParts, depth)
 				}
 			}
 		default:
 			//Belongs to https://gorm.io/docs/belongs_to.html
 			if schema.Ref != "" && schema.Value != nil && depth < 5 {
-				tbuilder, keys, err := p.GORMModelBuilder(name, schema.Value, depth+1)
+				tbuilder, keys, err := d.GORMModelBuilder(name, schema.Value, depth+1)
 				if err != nil {
 					return nil, nil, nil
 				}
@@ -513,7 +515,7 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				gormParts = append(gormParts, "References:"+strings.Join(keyNames, ","))
 				return defaultValue, gormParts, keys
 			} else {
-				return p.GORMInlineProperty(parentName, name, schema, gormParts, depth)
+				return d.GORMInlineProperty(parentName, name, schema, gormParts, depth)
 			}
 		}
 
@@ -522,7 +524,7 @@ func (p *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 }
 
 //GORMInlineProperty convert schema inline property to GORM model property.
-func (p *GORMDB) GORMInlineProperty(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
+func (d *GORMDB) GORMInlineProperty(parentName string, name string, schema *openapi3.SchemaRef, gormParts []string, depth int) (interface{}, []string, map[string]interface{}) {
 	var defaultValue interface{}
 	if schema.Value != nil {
 		switch schema.Value.Type {
@@ -550,7 +552,7 @@ func (p *GORMDB) GORMInlineProperty(parentName string, name string, schema *open
 	return defaultValue, gormParts, nil
 }
 
-func (p *GORMDB) GetEventHandler() weos.EventHandler {
+func (d *GORMDB) GetEventHandler() weos.EventHandler {
 	return func(ctx context.Context, event weos.Event) error {
 		entityFactory := weos.GetEntityFactory(ctx)
 		switch event.Type {
@@ -559,18 +561,18 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 			if entityFactory != nil {
 				entity, err := entityFactory.CreateEntityWithValues(ctx, event.Payload)
 				if err != nil {
-					p.logger.Errorf("error creating entity '%s'", err)
+					d.logger.Errorf("error creating entity '%s'", err)
 					return err
 				}
 				entity.SequenceNo = event.Meta.SequenceNo
 				//Adding the entityid to the payload since the event payload doesn't have it
 				entity.ID = event.Meta.EntityID
 				payload, err := json.Marshal(entity.ToMap())
-				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
+				model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
 				json.Unmarshal([]byte(`{"weos_id":"`+entity.ID+`","sequence_no":`+strconv.Itoa(int(entity.SequenceNo))+`}`), &model)
-				db := p.db.Table(entityFactory.Name()).Create(model)
+				db := d.db.Table(entityFactory.Name()).Create(model)
 				if db.Error != nil {
-					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
+					d.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
 				}
 			}
@@ -578,18 +580,18 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 			if entityFactory != nil {
 				entity, err := entityFactory.NewEntity(ctx)
 				if err != nil {
-					p.logger.Errorf("error creating entity '%s'", err)
+					d.logger.Errorf("error creating entity '%s'", err)
 					return err
 				}
 				entity.ID = event.Meta.EntityID
 				err = json.Unmarshal(event.Payload, &entity)
 				if err != nil {
-					p.logger.Errorf("error creating entity '%s'", err)
+					d.logger.Errorf("error creating entity '%s'", err)
 					return err
 				}
 				entity.SequenceNo = event.Meta.SequenceNo
 				payload, err := json.Marshal(entity)
-				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
+				model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
 				json.Unmarshal([]byte(`{"weos_id":"`+entity.ID+`","sequence_no":"`+strconv.Itoa(int(entity.SequenceNo))+`"}`), &model)
 				reader := ds.NewReader(model)
 
@@ -598,31 +600,31 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
 					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
 						field := reader.GetField(strings.Title(key))
-						err = p.db.Model(model).Association(strings.Title(key)).Replace(field.Interface())
+						err = d.db.Model(model).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
-							p.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
+							d.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
 							return err
 						}
 					}
 				}
 
 				//update database value
-				db := p.db.Table(entityFactory.Name()).Updates(model)
+				db := d.db.Table(entityFactory.Name()).Updates(model)
 				if db.Error != nil {
-					p.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
+					d.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
 				}
 			}
 		case "delete":
 			if entityFactory != nil {
-				model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
+				model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 				if err != nil {
-					p.logger.Errorf("error generating entity model '%s'", err)
+					d.logger.Errorf("error generating entity model '%s'", err)
 					return err
 				}
-				db := p.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
+				db := d.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
 				if db.Error != nil {
-					p.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
+					d.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
 				}
 			}
@@ -631,17 +633,17 @@ func (p *GORMDB) GetEventHandler() weos.EventHandler {
 	}
 }
 
-func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
+func (d *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.EntityFactory, weosID string) (*weos.ContentEntity, error) {
 	newEntity, err := entityFactory.NewEntity(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
+	model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
-	result := p.db.Table(entityFactory.TableName()).Model(model).Preload(clause.Associations).Find(model, "weos_id = ? ", weosID)
+	result := d.db.Table(entityFactory.TableName()).Model(model).Preload(clause.Associations).Find(model, "weos_id = ? ", weosID)
 	if result.Error != nil {
-		p.logger.Errorf("unexpected error retrieving entity , got: '%s'", result.Error)
+		d.logger.Errorf("unexpected error retrieving entity , got: '%s'", result.Error)
 		return nil, result.Error
 	}
 
@@ -656,7 +658,7 @@ func (p *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 }
 
 //GetList returns a list of content entities as well as the total found
-func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*weos.ContentEntity, int64, error) {
+func (d *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*weos.ContentEntity, int64, error) {
 	var count int64
 	var result *gorm.DB
 	if entityFactory == nil {
@@ -669,9 +671,9 @@ func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 	if err != nil {
 		return nil, int64(0), err
 	}
-	model, err := p.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
-	models, err := p.GORMModels(entityFactory.Name(), entityFactory.Schema())
-	result = p.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
+	model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
+	models, err := d.GORMModels(entityFactory.Name(), entityFactory.Schema())
+	result = d.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -687,11 +689,11 @@ func (p *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 	return contentEntities, count, result.Error
 }
 
-func (p *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
-	results, err := p.GORMModels(entityFactory.Name(), entityFactory.Schema())
-	result := p.db.Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
+func (d *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
+	results, err := d.GORMModels(entityFactory.Name(), entityFactory.Schema())
+	result := d.db.Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
 	if result.Error != nil {
-		p.logger.Errorf("unexpected error retrieving created entity, got: '%s'", result.Error)
+		d.logger.Errorf("unexpected error retrieving created entity, got: '%s'", result.Error)
 	}
 	bytes, err := json.Marshal(results)
 	if err != nil {
@@ -759,6 +761,54 @@ func (d *GORMDB) DynamicStruct(ctx context.Context) ds.DynamicStruct {
 
 func (d *GORMDB) Builder(ctx context.Context) ds.Builder {
 	return d.builder
+}
+
+func (d *GORMDB) GenerateID(entity *weos.ContentEntity) (*weos.ContentEntity, error) {
+	identifier, err := entity.Identifier()
+	if err != nil {
+		return nil, err
+	}
+	//if there is only one part to the id and it's not a string then the database can auto generate the id
+	if len(identifier) == 1 {
+		for k, _ := range identifier {
+			if entity.Schema.Properties[k].Value.Type != "string" {
+				return entity, nil
+			}
+		}
+	}
+
+	generatedIdentifier := make(map[string]interface{})
+	for k, v := range identifier {
+		if entity.Schema.Properties[k].Value.Type == "string" {
+			if idValue, ok := v.(string); !ok || idValue == "" {
+				switch entity.Schema.Properties[k].Value.Format {
+				case "uuid":
+					generatedIdentifier[k] = uuid.New().String()
+				case "ksuid":
+					generatedIdentifier[k] = ksuid.New().String()
+				default:
+					return entity, fmt.Errorf("unable to generate id for '%s'", k)
+				}
+			}
+		}
+	}
+	var identifierBytes []byte
+	identifierBytes, err = json.Marshal(generatedIdentifier)
+	if err != nil {
+		return entity, err
+	}
+	err = json.Unmarshal(identifierBytes, &entity)
+	return entity, err
+}
+
+func (d *GORMDB) Delete(ctxt context.Context, entity *weos.ContentEntity) error {
+	payload, err := json.Marshal(entity.ToMap())
+	tmodel, err := d.GORMModel(entity.Name, entity.Schema, payload)
+	if err != nil {
+		return err
+	}
+	result := d.db.Table(entity.Name).Delete(tmodel)
+	return result.Error
 }
 
 //DateTimeChecks checks to make sure the format is correctly as well as it manipulates the date

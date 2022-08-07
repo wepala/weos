@@ -1,5 +1,9 @@
 package model
 
+import "errors"
+
+var EntityNotFound = errors.New("entity not found")
+
 //goland:noinspection GoNameStartsWithPackageName
 type WeOSError struct {
 	message     string

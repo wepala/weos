@@ -2509,11 +2509,17 @@ var _ model.EntityRepository = &EntityRepositoryMock{}
 // 			CreateEntityWithValuesFunc: func(ctx context.Context, payload []byte) (*model.ContentEntity, error) {
 // 				panic("mock out the CreateEntityWithValues method")
 // 			},
+// 			DeleteFunc: func(ctxt context.Context, entity *model.ContentEntity) error {
+// 				panic("mock out the Delete method")
+// 			},
 // 			DynamicStructFunc: func(ctx context.Context) ds.DynamicStruct {
 // 				panic("mock out the DynamicStruct method")
 // 			},
 // 			FromSchemaAndBuilderFunc: func(s string, schema *openapi3.Schema, builder ds.Builder) model.EntityFactory {
 // 				panic("mock out the FromSchemaAndBuilder method")
+// 			},
+// 			GenerateIDFunc: func(entity *model.ContentEntity) (*model.ContentEntity, error) {
+// 				panic("mock out the GenerateID method")
 // 			},
 // 			GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 // 				panic("mock out the GetByKey method")
@@ -2564,11 +2570,17 @@ type EntityRepositoryMock struct {
 	// CreateEntityWithValuesFunc mocks the CreateEntityWithValues method.
 	CreateEntityWithValuesFunc func(ctx context.Context, payload []byte) (*model.ContentEntity, error)
 
+	// DeleteFunc mocks the Delete method.
+	DeleteFunc func(ctxt context.Context, entity *model.ContentEntity) error
+
 	// DynamicStructFunc mocks the DynamicStruct method.
 	DynamicStructFunc func(ctx context.Context) ds.DynamicStruct
 
 	// FromSchemaAndBuilderFunc mocks the FromSchemaAndBuilder method.
 	FromSchemaAndBuilderFunc func(s string, schema *openapi3.Schema, builder ds.Builder) model.EntityFactory
+
+	// GenerateIDFunc mocks the GenerateID method.
+	GenerateIDFunc func(entity *model.ContentEntity) (*model.ContentEntity, error)
 
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error)
@@ -2620,6 +2632,13 @@ type EntityRepositoryMock struct {
 			// Payload is the payload argument value.
 			Payload []byte
 		}
+		// Delete holds details about calls to the Delete method.
+		Delete []struct {
+			// Ctxt is the ctxt argument value.
+			Ctxt context.Context
+			// Entity is the entity argument value.
+			Entity *model.ContentEntity
+		}
 		// DynamicStruct holds details about calls to the DynamicStruct method.
 		DynamicStruct []struct {
 			// Ctx is the ctx argument value.
@@ -2633,6 +2652,11 @@ type EntityRepositoryMock struct {
 			Schema *openapi3.Schema
 			// Builder is the builder argument value.
 			Builder ds.Builder
+		}
+		// GenerateID holds details about calls to the GenerateID method.
+		GenerateID []struct {
+			// Entity is the entity argument value.
+			Entity *model.ContentEntity
 		}
 		// GetByKey holds details about calls to the GetByKey method.
 		GetByKey []struct {
@@ -2715,8 +2739,10 @@ type EntityRepositoryMock struct {
 	}
 	lockBuilder                sync.RWMutex
 	lockCreateEntityWithValues sync.RWMutex
+	lockDelete                 sync.RWMutex
 	lockDynamicStruct          sync.RWMutex
 	lockFromSchemaAndBuilder   sync.RWMutex
+	lockGenerateID             sync.RWMutex
 	lockGetByKey               sync.RWMutex
 	lockGetByProperties        sync.RWMutex
 	lockGetContentEntity       sync.RWMutex
@@ -2797,6 +2823,41 @@ func (mock *EntityRepositoryMock) CreateEntityWithValuesCalls() []struct {
 	return calls
 }
 
+// Delete calls DeleteFunc.
+func (mock *EntityRepositoryMock) Delete(ctxt context.Context, entity *model.ContentEntity) error {
+	if mock.DeleteFunc == nil {
+		panic("EntityRepositoryMock.DeleteFunc: method is nil but EntityRepository.Delete was just called")
+	}
+	callInfo := struct {
+		Ctxt   context.Context
+		Entity *model.ContentEntity
+	}{
+		Ctxt:   ctxt,
+		Entity: entity,
+	}
+	mock.lockDelete.Lock()
+	mock.calls.Delete = append(mock.calls.Delete, callInfo)
+	mock.lockDelete.Unlock()
+	return mock.DeleteFunc(ctxt, entity)
+}
+
+// DeleteCalls gets all the calls that were made to Delete.
+// Check the length with:
+//     len(mockedEntityRepository.DeleteCalls())
+func (mock *EntityRepositoryMock) DeleteCalls() []struct {
+	Ctxt   context.Context
+	Entity *model.ContentEntity
+} {
+	var calls []struct {
+		Ctxt   context.Context
+		Entity *model.ContentEntity
+	}
+	mock.lockDelete.RLock()
+	calls = mock.calls.Delete
+	mock.lockDelete.RUnlock()
+	return calls
+}
+
 // DynamicStruct calls DynamicStructFunc.
 func (mock *EntityRepositoryMock) DynamicStruct(ctx context.Context) ds.DynamicStruct {
 	if mock.DynamicStructFunc == nil {
@@ -2864,6 +2925,37 @@ func (mock *EntityRepositoryMock) FromSchemaAndBuilderCalls() []struct {
 	mock.lockFromSchemaAndBuilder.RLock()
 	calls = mock.calls.FromSchemaAndBuilder
 	mock.lockFromSchemaAndBuilder.RUnlock()
+	return calls
+}
+
+// GenerateID calls GenerateIDFunc.
+func (mock *EntityRepositoryMock) GenerateID(entity *model.ContentEntity) (*model.ContentEntity, error) {
+	if mock.GenerateIDFunc == nil {
+		panic("EntityRepositoryMock.GenerateIDFunc: method is nil but EntityRepository.GenerateID was just called")
+	}
+	callInfo := struct {
+		Entity *model.ContentEntity
+	}{
+		Entity: entity,
+	}
+	mock.lockGenerateID.Lock()
+	mock.calls.GenerateID = append(mock.calls.GenerateID, callInfo)
+	mock.lockGenerateID.Unlock()
+	return mock.GenerateIDFunc(entity)
+}
+
+// GenerateIDCalls gets all the calls that were made to GenerateID.
+// Check the length with:
+//     len(mockedEntityRepository.GenerateIDCalls())
+func (mock *EntityRepositoryMock) GenerateIDCalls() []struct {
+	Entity *model.ContentEntity
+} {
+	var calls []struct {
+		Entity *model.ContentEntity
+	}
+	mock.lockGenerateID.RLock()
+	calls = mock.calls.GenerateID
+	mock.lockGenerateID.RUnlock()
 	return calls
 }
 

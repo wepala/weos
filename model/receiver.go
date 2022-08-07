@@ -21,6 +21,11 @@ func CreateHandler(ctx context.Context, command *Command, container Container, r
 	}
 	if entity.IsValid() {
 		//save entity if the projection is a gorm projection, we can use the persist method
+		entity, err = repository.GenerateID(entity)
+		if err != nil {
+			logger.Errorf("error generating id: %s", err)
+			return nil, err
+		}
 		err = repository.Persist([]Entity{entity})
 		if err != nil {
 			logger.Errorf("error persisting entity: %s", err)
@@ -51,9 +56,26 @@ func UpdateHandler(ctx context.Context, command *Command, container Container, r
 	//get the entity from the repository by id if the entity id is in the command
 	if command.Metadata.EntityID != "" {
 		entity, err = repository.GetContentEntity(ctx, repository, command.Metadata.EntityID)
-		//TODO check if the sequence numbers is the same as in the command otherwise throw error
+		//check if the sequence numbers is the same as in the command otherwise throw error
+		if int(entity.SequenceNo) > command.Metadata.SequenceNo {
+			return nil, fmt.Errorf("sequence number mismatch")
+		}
 	}
-	//TODO if entity is empty then let's get the entity by key
+	//if entity is empty then let's get the entity by key
+	if entity == nil {
+		var identifier map[string]interface{}
+		//create an entity with the payload so we can get the identifier to look up the entity in the repository
+		entity, err = repository.CreateEntityWithValues(ctx, command.Payload)
+		identifier, err = entity.Identifier()
+		entity, err = repository.GetByKey(ctx, repository, identifier)
+		if err != nil {
+			logger.Errorf("error getting entity: %s", err)
+			return nil, err
+		}
+		if entity == nil {
+			return nil, NewDomainError("entity not found", command.Type, command.Metadata.EntityID, EntityNotFound)
+		}
+	}
 	_, err = entity.Update(ctx, command.Payload)
 	if err != nil {
 		logger.Errorf("error updating entity: %s", err)
@@ -90,9 +112,30 @@ func DeleteHandler(ctx context.Context, command *Command, container Container, r
 	//get the entity from the repository by id if the entity id is in the command
 	if command.Metadata.EntityID != "" {
 		entity, err = repository.GetContentEntity(ctx, repository, command.Metadata.EntityID)
-		//TODO check if the sequence numbers is the same as in the command otherwise throw error
+		//check if the sequence numbers is the same as in the command otherwise throw error
+		if int(entity.SequenceNo) > command.Metadata.SequenceNo {
+			return nil, fmt.Errorf("sequence number mismatch")
+		}
 	}
-	//TODO if entity is empty then let's get the entity by key
+	//if entity is empty then let's get the entity by key
+	if entity == nil {
+		var identifier map[string]interface{}
+		//create an entity with the payload so we can get the identifier to look up the entity in the repository
+		entity, err = repository.CreateEntityWithValues(ctx, command.Payload)
+		identifier, err = entity.Identifier()
+		entity, err = repository.GetByKey(ctx, repository, identifier)
+		if err != nil {
+			logger.Errorf("error getting entity: %s", err)
+			return nil, err
+		}
+		if entity == nil {
+			return nil, NewDomainError("entity not found", command.Type, command.Metadata.EntityID, EntityNotFound)
+		}
+	}
+	if err = repository.Delete(ctx, entity); err != nil {
+		logger.Errorf("error deleting entity: %s", err)
+		return nil, err
+	}
 	_, err = entity.Delete(command.Payload)
 	if err != nil {
 		logger.Errorf("error updating entity: %s", err)

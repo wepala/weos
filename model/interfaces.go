@@ -97,6 +97,10 @@ type EntityRepository interface {
 	Projection
 	EntityFactory
 	Repository
+	//GenerateID generates a new id for the entity IF the database doesn't support id generation for that identifier
+	GenerateID(entity *ContentEntity) (*ContentEntity, error)
+	//Delete deletes an entity from the repository
+	Delete(ctxt context.Context, entity *ContentEntity) error
 }
 
 type GormProjection interface {

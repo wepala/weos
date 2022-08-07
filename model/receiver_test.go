@@ -3,12 +3,12 @@ package model_test
 import (
 	context3 "context"
 	"encoding/json"
+	"fmt"
 	"github.com/labstack/echo/v4"
 	api "github.com/wepala/weos/controllers/rest"
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	context2 "github.com/wepala/weos/context"
 	weosContext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
@@ -75,6 +75,11 @@ func TestCreateContentType(t *testing.T) {
 			return nil
 		},
 	}
+	container := &ContainerMock{
+		GetEventStoreFunc: func(name string) (model.EventRepository, error) {
+			return mockEventRepository, nil
+		},
+	}
 	t.Run("Testing basic create entity with a auto generating id ksuid", func(t *testing.T) {
 
 		mockAuthor := map[string]interface{}{"firstName": "New ", "lastName": "New nEW"}
@@ -83,9 +88,23 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		repository := &EntityRepositoryMock{}
+		repository := &EntityRepositoryMock{
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				entity, _ := new(model.ContentEntity).FromSchema(ctx, "Author", swagger.Components.Schemas["Author"].Value)
+				return entity.Init(ctx, payload)
+			},
+			PersistFunc: func(entities []model.Entity) error {
+				if len(entities) != 1 {
+					t.Fatalf("expected %d entities to be saved, got %d", 1, len(entities))
+				}
+				return nil
+			},
+			GenerateIDFunc: func(entity *model.ContentEntity) (*model.ContentEntity, error) {
+				return entity, nil
+			},
+		}
 
-		_, err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, contentEntity, "fsdf32432"), nil, repository, echo.New().Logger)
+		_, err1 := commandDispatcher.Dispatch(ctx, model.Create(ctx, reqBytes, contentEntity, "fsdf32432"), container, repository, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -102,9 +121,23 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		repository := &EntityRepositoryMock{}
+		repository := &EntityRepositoryMock{
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				entity, _ := new(model.ContentEntity).FromSchema(ctx, "Category", swagger.Components.Schemas["Category"].Value)
+				return entity.Init(ctx, payload)
+			},
+			PersistFunc: func(entities []model.Entity) error {
+				if len(entities) != 1 {
+					t.Fatalf("expected %d entities to be saved, got %d", 1, len(entities))
+				}
+				return nil
+			},
+			GenerateIDFunc: func(entity *model.ContentEntity) (*model.ContentEntity, error) {
+				return entity, nil
+			},
+		}
 
-		_, err1 := commandDispatcher.Dispatch(ctx1, model.Create(ctx1, reqBytes, contentEntity, "fsdf32432"), nil, repository, echo.New().Logger)
+		_, err1 := commandDispatcher.Dispatch(ctx1, model.Create(ctx1, reqBytes, contentEntity, "fsdf32432"), container, repository, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}
@@ -114,7 +147,11 @@ func TestCreateContentType(t *testing.T) {
 		}
 	})
 	t.Run("Testing basic batch create where the id is specified but the format is not specified", func(t *testing.T) {
-		repository := &EntityRepositoryMock{}
+		repository := &EntityRepositoryMock{
+			GenerateIDFunc: func(entity *model.ContentEntity) (*model.ContentEntity, error) {
+				return entity, fmt.Errorf("unexpected error generating id")
+			},
+		}
 		mockArchives := [3]map[string]interface{}{
 			{"title": "Blog 1"},
 			{"title": "Blog 2"},
@@ -125,7 +162,7 @@ func TestCreateContentType(t *testing.T) {
 			t.Fatalf("error converting payload to bytes %s", err)
 		}
 
-		_, err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity), nil, repository, echo.New().Logger)
+		_, err1 := commandDispatcher.Dispatch(ctx2, model.CreateBatch(ctx2, reqBytes, contentEntity), container, repository, echo.New().Logger)
 		if err1 == nil {
 			t.Fatalf("expected error dispatching command but got nil")
 		}
@@ -137,79 +174,80 @@ func TestCreateContentType(t *testing.T) {
 }
 
 func TestUpdateContentType(t *testing.T) {
-	t.SkipNow()
-	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+	swagger, err := LoadConfig(t, "../controllers/rest/fixtures/blog.yaml")
 	if err != nil {
-		t.Fatalf("unexpected error occured '%s'", err)
-	}
-	var contentType string
-	var contentTypeSchema *openapi3.SchemaRef
-	contentType = "Blog"
-	contentTypeSchema = swagger.Components.Schemas[contentType]
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, weosContext.CONTENT_TYPE, &weosContext.ContentType{
-		Name:   contentType,
-		Schema: contentTypeSchema.Value,
-	})
-	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
-	commandDispatcher := &model.DefaultCommandDispatcher{}
-	mockEventRepository := &EventRepositoryMock{
-		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
-			var event *model.Event
-			var ok bool
-			entities := entity.GetNewChanges()
-			if len(entities) != 2 {
-				t.Fatalf("expected %d event to be saved, got %d", 2, len(entities))
-			}
-
-			if event, ok = entities[0].(*model.Event); !ok {
-				t.Fatalf("the entity is not an event")
-			}
-
-			if event.Type != "update" {
-				t.Errorf("expected event to be '%s', got '%s'", "update", event.Type)
-			}
-			if event.Meta.EntityType == "" {
-				t.Errorf("expected event to be '%s', got '%s'", "", event.Type)
-			}
-
-			return nil
-		},
-		AddSubscriberFunc: func(handler model.EventHandler) {
-		},
+		t.Fatalf("error loading swagger spec %s", err)
 	}
 
-	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+	t.Run("basic entity update", func(t *testing.T) {
+		repository := &EntityRepositoryMock{
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				if len(identifiers) != 1 {
+					t.Fatalf("expected %d identifiers, got %d", 1, len(identifiers))
+				}
+				if identifiers["id"] != "123" {
+					t.Fatalf("expected id '%s', got '%s'", "123", identifiers["id"])
+				}
 
-	existingBlog := &model.ContentEntity{
-		AggregateRoot: model.AggregateRoot{
-			BasicEntity: model.BasicEntity{
-				ID: "dsafdsdfdsf",
+				return new(model.ContentEntity).FromSchemaWithValues(ctxt, swagger.Components.Schemas["Blog"].Value, []byte(`{"id":"123","title":"Blog", "url":"http://www.example.com"}`))
 			},
-			SequenceNo: int64(0),
-		},
-	}
-	event := model.NewEntityEvent("update", existingBlog, existingBlog.ID, existingPayload)
-	existingBlog.NewChange(event)
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
+			},
+			PersistFunc: func(entities []model.Entity) error {
+				if len(entities) != 1 {
+					t.Fatalf("expected %d entities to be saved, got %d", 1, len(entities))
+				}
+				return nil
+			},
+		}
 
-	t.Run("Testing basic update entity", func(t *testing.T) {
-		t.SkipNow()
-		updatedPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "title": "Update Blog", "description": "Update Description", "url": "www.Updated!.com"}
-		entityType := "Blog"
-		ctx = context.WithValue(ctx, context2.SEQUENCE_NO, 1)
-		reqBytes, err := json.Marshal(updatedPayload)
+		mockEventRepository := &EventRepositoryMock{
+			PersistFunc: func(ctxt context3.Context, entity model.AggregateInterface) error {
+				return nil
+			},
+		}
+
+		container := &ContainerMock{
+			GetEventStoreFunc: func(name string) (model.EventRepository, error) {
+				return mockEventRepository, nil
+			},
+		}
+
+		command := &model.Command{
+			Type:    model.UPDATE_COMMAND,
+			Payload: []byte(`{"id":"123","title": "New Blog"}`),
+			Metadata: model.CommandMetadata{
+				EntityType: "Blog",
+			},
+		}
+		result, err := model.UpdateHandler(context.TODO(), command, container, repository, &LogMock{})
 		if err != nil {
-			t.Fatalf("error converting content type to bytes %s", err)
+			t.Fatalf("unexpected error dispatching command '%s'", err)
+		}
+		if len(repository.GetByKeyCalls()) != 1 {
+			t.Errorf("expected repository get by key to be called '%d' times, got '%d'", 1, len(repository.GetByKeyCalls()))
 		}
 
-		_, err1 := commandDispatcher.Dispatch(ctx, model.Update(ctx, reqBytes, entityType), nil, nil, nil)
-		if err1 != nil {
-			t.Fatalf("unexpected error dispatching command '%s'", err1)
+		if len(repository.PersistCalls()) != 1 {
+			t.Errorf("expected repository get by key to be called '%d' times, got '%d'", 1, len(repository.PersistCalls()))
 		}
 
-		if len(mockEventRepository.PersistCalls()) != 1 {
-			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 1, len(mockEventRepository.PersistCalls()))
+		if entity, ok := result.(*model.ContentEntity); ok {
+			if len(entity.GetNewChanges()) != 1 {
+				t.Errorf("expected 1 new change, got '%d'", len(entity.GetNewChanges()))
+			}
+		} else {
+			t.Errorf("expected result to be a content entity, got '%T'", result)
 		}
+	})
+
+	t.Run("update stale entity", func(t *testing.T) {
+
+	})
+
+	t.Run("identifier not given", func(t *testing.T) {
+
 	})
 }
 
@@ -235,7 +273,7 @@ func TestDeleteContentType(t *testing.T) {
 	ctx = context.WithValue(ctx, weosContext.USER_ID, "123")
 
 	commandDispatcher := &model.DefaultCommandDispatcher{}
-	commandDispatcher.AddSubscriber(model.Delete(context.Background(), "", ""), model.DeleteHandler)
+	commandDispatcher.AddSubscriber(model.Delete(context.Background(), "", "", 0), model.DeleteHandler)
 	mockEventRepository := &EventRepositoryMock{
 		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
 			var event *model.Event
@@ -275,9 +313,42 @@ func TestDeleteContentType(t *testing.T) {
 	event := model.NewEntityEvent("delete", existingBlog, existingBlog.ID, existingPayload)
 	existingBlog.NewChange(event)
 
+	container := &ContainerMock{
+		GetEventStoreFunc: func(name string) (model.EventRepository, error) {
+			return mockEventRepository, nil
+		},
+	}
+
 	t.Run("Testing basic delete entity", func(t *testing.T) {
-		repository := &EntityRepositoryMock{}
-		_, err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf"), nil, repository, echo.New().Logger)
+		repository := &EntityRepositoryMock{
+			GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				return existingBlog, nil
+			},
+			DeleteFunc: func(ctxt context3.Context, entity *model.ContentEntity) error {
+				return nil
+			},
+		}
+		_, err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "dsafdsdfdsf", 1), container, repository, echo.New().Logger)
+		if err1 != nil {
+			t.Fatalf("unexpected error dispatching command '%s'", err1)
+		}
+
+		if len(repository.DeleteCalls()) != 1 {
+			t.Errorf("expected repository delete to be called '%d' times, got '%d'", 1, len(repository.DeleteCalls()))
+		}
+
+		if len(mockEventRepository.PersistCalls()) != 1 {
+			t.Fatalf("expected change events to be persisted '%d' got persisted '%d' times", 1, len(mockEventRepository.PersistCalls()))
+		}
+	})
+
+	t.Run("Testing delete based on identifier", func(t *testing.T) {
+		repository := &EntityRepositoryMock{
+			GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
+				return existingBlog, nil
+			},
+		}
+		_, err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "", 0), container, repository, echo.New().Logger)
 		if err1 != nil {
 			t.Fatalf("unexpected error dispatching command '%s'", err1)
 		}

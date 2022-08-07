@@ -26,7 +26,7 @@ func Create(ctx context.Context, payload json.RawMessage, entityType string, ent
 func CreateBatch(ctx context.Context, payload json.RawMessage, entityType string) *Command {
 
 	command := &Command{
-		Type:    "create_batch",
+		Type:    "create",
 		Payload: payload,
 		Metadata: CommandMetadata{
 			Version:    1,
@@ -53,7 +53,7 @@ func Update(ctx context.Context, payload json.RawMessage, entityType string) *Co
 	return command
 }
 
-func Delete(ctx context.Context, entityType string, entityID string) *Command {
+func Delete(ctx context.Context, entityType string, entityID string, sequenceNo int) *Command {
 
 	command := &Command{
 		Type: "delete",
@@ -63,6 +63,7 @@ func Delete(ctx context.Context, entityType string, entityID string) *Command {
 			AccountID:  weoscontext.GetAccount(ctx),
 			EntityType: entityType,
 			EntityID:   entityID,
+			SequenceNo: sequenceNo,
 		},
 	}
 	return command
