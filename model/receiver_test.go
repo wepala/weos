@@ -347,6 +347,15 @@ func TestDeleteContentType(t *testing.T) {
 			GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 				return existingBlog, nil
 			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas[entityType].Value, payload)
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return existingBlog, nil
+			},
+			DeleteFunc: func(ctxt context3.Context, entity *model.ContentEntity) error {
+				return nil
+			},
 		}
 		_, err1 := commandDispatcher.Dispatch(ctx, model.Delete(ctx, entityType, "", 0), container, repository, echo.New().Logger)
 		if err1 != nil {

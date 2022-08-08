@@ -61,10 +61,6 @@ func NewGormEvent(event *Event) (GormEvent, error) {
 }
 
 func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInterface) error {
-	//TODO use the information in the context to get account info, module info. //didn't think it should barf if an empty list is passed
-	entityFact := ctxt.Value(context2.ENTITY_FACTORY)
-	schemaName := entityFact.(EntityFactory).Name()
-
 	var gormEvents []GormEvent
 	entities := entity.GetNewChanges()
 	savePointID := "s" + ksuid.New().String() //NOTE the save point can't start with a number
@@ -89,7 +85,9 @@ func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInte
 			event.Meta.AccountID = context2.GetAccount(ctxt)
 		}
 		if event.Meta.EntityType == "ContentEntity" || event.Meta.EntityType == "" {
-			event.Meta.EntityType = schemaName
+			if ce, ok := entity.(*ContentEntity); ok {
+				event.Meta.EntityType = ce.Name
+			}
 		}
 		if !event.IsValid() {
 			for _, terr := range event.GetErrors() {

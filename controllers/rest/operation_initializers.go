@@ -12,6 +12,7 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
+	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"net/http"
 	"regexp"
@@ -102,8 +103,8 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 	return ctxt, nil
 }
 
-//EntityFactoryInitializer setups the EntityFactory for a specific route
-func EntityFactoryInitializer(ctxt context.Context, api Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+//EntityRepositoryInitializer setups the EntityFactory for a specific route
+func EntityRepositoryInitializer(ctxt context.Context, api Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	jsonSchema := operation.ExtensionProps.Extensions[SchemaExtension]
 	if jsonSchema != nil {
 		contentType := ""
@@ -118,9 +119,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 
 		//get the schema details from the swagger file
 		if schema, ok := swagger.Components.Schemas[contentType]; ok {
-			entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-			newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-			api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+			repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+			if err != nil {
+				return ctxt, err
+			}
+			newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
+			api.RegisterEntityRepository(repository.Name(), repository)
 			return newContext, nil
 		}
 
@@ -134,9 +138,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 					contentType := strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
 					//get the schema details from the swagger file
 					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+						if err != nil {
+							return ctxt, err
+						}
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
+						api.RegisterEntityRepository(repository.Name(), repository)
 						return newContext, nil
 					}
 					break
@@ -145,9 +152,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 				if requestContent.Schema.Value.Items != nil && strings.Contains(requestContent.Schema.Value.Items.Ref, "#/components/schemas/") {
 					contentType := strings.Replace(requestContent.Schema.Value.Items.Ref, "#/components/schemas/", "", -1)
 					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+						if err != nil {
+							return ctxt, err
+						}
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
+						api.RegisterEntityRepository(repository.Name(), repository)
 						return newContext, nil
 					}
 				}
@@ -162,9 +172,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 				if respContent.Schema.Ref != "" {
 					contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
 					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+						if err != nil {
+							return ctxt, err
+						}
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
+						api.RegisterEntityRepository(repository.Name(), repository)
 						return newContext, nil
 					}
 				}
@@ -172,9 +185,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 				if respContent.Schema.Value.Properties["items"] != nil && respContent.Schema.Value.Properties["items"].Value.Items != nil {
 					contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
 					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+						repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+						if err != nil {
+							return ctxt, err
+						}
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
+						api.RegisterEntityRepository(repository.Name(), repository)
 						return newContext, nil
 					}
 				} else {
@@ -189,9 +205,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 								if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
 									contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
 									if schema, ok := swagger.Components.Schemas[contentType]; ok {
-										entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-										newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-										api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+										repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+										if err != nil {
+											return ctxt, err
+										}
+										newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
+										api.RegisterEntityRepository(repository.Name(), repository)
 										return newContext, nil
 									}
 								}
@@ -687,7 +706,7 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 	if eventStore == nil {
 		eventStore, err = api.GetEventStore("Default")
 	}
-	entityFactory := GetEntityFactory(ctxt)
+	entityFactory := GetEntityRepository(ctxt)
 	if entityFactory == nil {
 
 	}
@@ -787,7 +806,7 @@ func GetOperationProjection(ctx context.Context) model.Projection {
 }
 
 func GetOperationRepository(ctx context.Context) model.EntityRepository {
-	if value, ok := ctx.Value(weoscontext.REPOSITORY).(model.EntityRepository); ok {
+	if value, ok := ctx.Value(weoscontext.ENTITY_REPOSITORY).(model.EntityRepository); ok {
 		return value
 	}
 	return nil
@@ -800,9 +819,9 @@ func GetOperationProjections(ctx context.Context) []model.Projection {
 	return nil
 }
 
-//GetEntityFactory get the configured event factory from the context
-func GetEntityFactory(ctx context.Context) model.EntityFactory {
-	if value, ok := ctx.Value(weoscontext.ENTITY_FACTORY).(model.EntityFactory); ok {
+//GetEntityRepository get the configured event factory from the context
+func GetEntityRepository(ctx context.Context) model.EntityRepository {
+	if value, ok := ctx.Value(weoscontext.ENTITY_REPOSITORY).(model.EntityRepository); ok {
 		return value
 	}
 	return nil

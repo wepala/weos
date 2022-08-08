@@ -41,7 +41,7 @@ var _ rest.Container = &ContainerMock{}
 // 				panic("mock out the GetEntityFactories method")
 // 			},
 // 			GetEntityFactoryFunc: func(name string) (weos.EntityFactory, error) {
-// 				panic("mock out the GetEntityFactory method")
+// 				panic("mock out the GetEntityRepository method")
 // 			},
 // 			GetEntityRepositoryFunc: func(name string) (weos.EntityRepository, error) {
 // 				panic("mock out the GetEntityRepository method")
@@ -158,7 +158,7 @@ type ContainerMock struct {
 	// GetEntityFactoriesFunc mocks the GetEntityFactories method.
 	GetEntityFactoriesFunc func() map[string]weos.EntityFactory
 
-	// GetEntityFactoryFunc mocks the GetEntityFactory method.
+	// GetEntityFactoryFunc mocks the GetEntityRepository method.
 	GetEntityFactoryFunc func(name string) (weos.EntityFactory, error)
 
 	// GetEntityRepositoryFunc mocks the GetEntityRepository method.
@@ -277,7 +277,7 @@ type ContainerMock struct {
 		// GetEntityFactories holds details about calls to the GetEntityFactories method.
 		GetEntityFactories []struct {
 		}
-		// GetEntityFactory holds details about calls to the GetEntityFactory method.
+		// GetEntityRepository holds details about calls to the GetEntityRepository method.
 		GetEntityFactory []struct {
 			// Name is the name argument value.
 			Name string
@@ -634,10 +634,10 @@ func (mock *ContainerMock) GetEntityFactoriesCalls() []struct {
 	return calls
 }
 
-// GetEntityFactory calls GetEntityFactoryFunc.
+// GetEntityRepository calls GetEntityFactoryFunc.
 func (mock *ContainerMock) GetEntityFactory(name string) (weos.EntityFactory, error) {
 	if mock.GetEntityFactoryFunc == nil {
-		panic("ContainerMock.GetEntityFactoryFunc: method is nil but Container.GetEntityFactory was just called")
+		panic("ContainerMock.GetEntityFactoryFunc: method is nil but Container.GetEntityRepository was just called")
 	}
 	callInfo := struct {
 		Name string
@@ -650,7 +650,7 @@ func (mock *ContainerMock) GetEntityFactory(name string) (weos.EntityFactory, er
 	return mock.GetEntityFactoryFunc(name)
 }
 
-// GetEntityFactoryCalls gets all the calls that were made to GetEntityFactory.
+// GetEntityFactoryCalls gets all the calls that were made to GetEntityRepository.
 // Check the length with:
 //     len(mockedContainer.GetEntityFactoryCalls())
 func (mock *ContainerMock) GetEntityFactoryCalls() []struct {

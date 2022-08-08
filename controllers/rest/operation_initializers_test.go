@@ -16,21 +16,20 @@ import (
 	"testing"
 )
 
-func TestEntityFactoryInitializer(t *testing.T) {
+func TestEntityRepositoryInitializer(t *testing.T) {
 	api, err := rest.New("./fixtures/blog.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error loading api '%s'", err)
 	}
-	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
-	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.Schemas = schemas
+	baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
+	api.RegisterLog("Default", &LogMock{})
 	t.Run("get schema from request body", func(t *testing.T) {
 
-		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		entityFactory := rest.GetEntityFactory(ctxt)
+		entityFactory := rest.GetEntityRepository(ctxt)
 		if entityFactory == nil {
 			t.Fatalf("expected entity factory to be in the context")
 		}
@@ -43,12 +42,13 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		api.Schemas = schemas
-		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		api.RegisterLog("Default", &LogMock{})
+		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		entityFactory := rest.GetEntityFactory(ctxt)
+		entityFactory := rest.GetEntityRepository(ctxt)
 		if entityFactory == nil {
 			t.Fatalf("expected entity factory to be in the context")
 		}
@@ -61,12 +61,13 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		api.Schemas = schemas
-		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		api.RegisterLog("Default", &LogMock{})
+		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		entityFactory := rest.GetEntityFactory(ctxt)
+		entityFactory := rest.GetEntityRepository(ctxt)
 		if entityFactory == nil {
 			t.Fatalf("expected entity factory to be in the context")
 		}
@@ -79,12 +80,13 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		api.Schemas = schemas
-		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		api.RegisterLog("Default", &LogMock{})
+		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		entityFactory := rest.GetEntityFactory(ctxt)
+		entityFactory := rest.GetEntityRepository(ctxt)
 		if entityFactory == nil {
 			t.Fatalf("expected entity factory to be in the context")
 		}

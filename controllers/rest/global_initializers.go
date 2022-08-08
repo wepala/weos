@@ -49,7 +49,7 @@ func SQLDatabase(ctxt context.Context, tapi Container, swagger *openapi3.Swagger
 	api := tapi.(*RESTAPI)
 	var err error
 	if api.GetConfig() != nil {
-		if weosConfigData, ok := api.GetConfig().Extensions[WeOSConfigExtension]; ok {
+		if weosConfigData, ok := swagger.Extensions[WeOSConfigExtension]; ok {
 			var config *APIConfig
 			if err = json.Unmarshal(weosConfigData.(json.RawMessage), &config); err == nil {
 				//if the legacy way of instantiating a connection is present then use that as the default

@@ -771,7 +771,7 @@ func (d *GORMDB) GenerateID(entity *weos.ContentEntity) (*weos.ContentEntity, er
 	//if there is only one part to the id and it's not a string then the database can auto generate the id
 	if len(identifier) == 1 {
 		for k, _ := range identifier {
-			if entity.Schema.Properties[k].Value.Type != "string" {
+			if k == "id" || entity.Schema.Properties[k].Value.Type != "string" {
 				return entity, nil
 			}
 		}
@@ -864,6 +864,78 @@ type QueryFilterModifier func(options map[string]FilterProperty) func(db *gorm.D
 
 var ContentQuery QueryModifier
 var FilterQuery QueryFilterModifier
+
+func NewGORMRepository(ctx context.Context, container weos.Container, name string, schema *openapi3.Schema) (*GORMDB, error) {
+	gormdb, err := container.GetGormDBConnection("Default")
+	if err != nil {
+		return nil, err
+	}
+	logger, err := container.GetLog("Default")
+	if err != nil {
+		return nil, err
+	}
+
+	FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {
+		return func(db *gorm.DB) *gorm.DB {
+			if options != nil {
+				for _, filter := range options {
+					operator := "="
+					switch filter.Operator {
+					case "gt":
+						operator = ">"
+					case "lt":
+						operator = "<"
+					case "ne":
+						operator = "!="
+					case "like":
+						if db.Dialector.Name() == "postgres" {
+							operator = "ILIKE"
+						} else {
+							operator = " LIKE"
+						}
+					case "in":
+						operator = "IN"
+
+					}
+
+					if len(filter.Values) == 0 {
+						if filter.Operator == "like" {
+							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+						} else {
+							db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Value)
+						}
+
+					} else {
+						db.Where(utils.SnakeCase(filter.Field)+" "+operator+" ?", filter.Values)
+					}
+
+				}
+			}
+			return db
+		}
+	}
+
+	ContentQuery = func() func(db *gorm.DB) *gorm.DB {
+		return func(db *gorm.DB) *gorm.DB {
+			if db.Dialector.Name() == "sqlite" {
+				//gorm sqlite generates the query incorrectly if there are composite keys when preloading.  This may cause panics.
+				//https://github.com/go-gorm/gorm/issues/3585
+				return db
+			} else {
+				return db.Preload(clause.Associations, func(tx *gorm.DB) *gorm.DB { return tx.Omit("weos_id, sequence_no, table") })
+			}
+		}
+	}
+
+	return &GORMDB{
+		db:            gormdb,
+		schema:        schema,
+		name:          name,
+		logger:        logger,
+		SchemaBuilder: make(map[string]ds.Builder),
+		keys:          make(map[string]map[string]interface{}),
+	}, nil
+}
 
 //NewProjection creates an instance of the projection
 func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, error) {
