@@ -9,7 +9,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	ds "github.com/ompluscator/dynamic-struct"
 	"github.com/wepala/weos/model"
-	context2 "golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
 	"sync"
@@ -1495,7 +1494,7 @@ var _ model.CommandDispatcher = &CommandDispatcherMock{}
 // 			AddSubscriberFunc: func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler {
 // 				panic("mock out the AddSubscriber method")
 // 			},
-// 			DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+// 			DispatchFunc: func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 // 				panic("mock out the Dispatch method")
 // 			},
 // 			GetSubscribersFunc: func() map[string][]model.CommandHandler {
@@ -1512,7 +1511,7 @@ type CommandDispatcherMock struct {
 	AddSubscriberFunc func(command *model.Command, handler model.CommandHandler) map[string][]model.CommandHandler
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error
+	DispatchFunc func(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
 	GetSubscribersFunc func() map[string][]model.CommandHandler
@@ -1532,6 +1531,8 @@ type CommandDispatcherMock struct {
 			Ctx context.Context
 			// Command is the command argument value.
 			Command *model.Command
+			// Container is the container argument value.
+			Container model.Container
 			// EventStore is the eventStore argument value.
 			EventStore model.EventRepository
 			// Projection is the projection argument value.
@@ -1584,19 +1585,21 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
+func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *model.Command, container model.Container, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
 		Command    *model.Command
+		Container  model.Container
 		EventStore model.EventRepository
 		Projection model.Projection
 		Logger     model.Log
 	}{
 		Ctx:        ctx,
 		Command:    command,
+		Container:  container,
 		EventStore: eventStore,
 		Projection: projection,
 		Logger:     logger,
@@ -1604,7 +1607,7 @@ func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, command, eventStore, projection, logger)
+	return mock.DispatchFunc(ctx, command, container, eventStore, projection, logger)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
@@ -1613,6 +1616,7 @@ func (mock *CommandDispatcherMock) Dispatch(ctx context2.Context, command *model
 func (mock *CommandDispatcherMock) DispatchCalls() []struct {
 	Ctx        context.Context
 	Command    *model.Command
+	Container  model.Container
 	EventStore model.EventRepository
 	Projection model.Projection
 	Logger     model.Log
@@ -1620,6 +1624,7 @@ func (mock *CommandDispatcherMock) DispatchCalls() []struct {
 	var calls []struct {
 		Ctx        context.Context
 		Command    *model.Command
+		Container  model.Container
 		EventStore model.EventRepository
 		Projection model.Projection
 		Logger     model.Log
