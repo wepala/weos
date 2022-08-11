@@ -487,89 +487,14 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 				}
 			}
 		case "GET":
-			allParam := true
-			//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-			//checks if the response refers to a schema
-			if pathItem.Get != nil && pathItem.Get.Responses != nil && pathItem.Get.Responses["200"] != nil && pathItem.Get.Responses["200"].Value.Content != nil {
-				for _, val := range pathItem.Get.Responses["200"].Value.Content {
-					if val.Schema != nil && strings.Contains(val.Schema.Ref, "#/components/schemas/") {
-						var identifiers []string
-						identifierExtension := swagger.Components.Schemas[strings.Replace(val.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
-						if identifierExtension != nil {
-							bytesId := identifierExtension.(json.RawMessage)
-							err := json.Unmarshal(bytesId, &identifiers)
-							if err != nil {
-								return ctxt, err
-							}
-						}
-						var contextName string
-						if identifiers != nil && len(identifiers) > 0 {
-							for _, identifier := range identifiers {
-								foundIdentifier := false
-								//check the parameters
-								for _, param := range pathItem.Get.Parameters {
-									cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-									if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
-										foundIdentifier = true
-										break
-									}
-								}
-								if !foundIdentifier {
-									allParam = false
-									api.e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-									break
-								}
-							}
-						} else {
-							//check the parameters for id
-							if pathItem.Get.Parameters != nil && len(pathItem.Get.Parameters) != 0 {
-								for _, param := range pathItem.Get.Parameters {
-									if "id" == param.Value.Name {
-										allParam = true
-									}
-									contextInterface := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-									if contextInterface != nil {
-										bytesContext := contextInterface.(json.RawMessage)
-										json.Unmarshal(bytesContext, &contextName)
-										if "id" == contextName {
-											allParam = true
-										}
-									}
-								}
-							}
-						}
-						if allParam {
-							handler = "DefaultReadController"
-							autoConfigure = true
-							break
-						}
-					} else {
-						//checks if the response refers to an array schema
-						if val.Schema != nil && val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-							handler = "DefaultReadController"
-							autoConfigure = true
-							break
-						} else {
-							if val.Schema != nil && val.Schema.Value.Properties != nil {
-								var alias string
-								for _, prop := range val.Schema.Value.Properties {
-									aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
-									if aliasInterface != nil {
-										bytesContext := aliasInterface.(json.RawMessage)
-										json.Unmarshal(bytesContext, &alias)
-										if alias == "items" {
-											if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-												handler = "DefaultReadController"
-												autoConfigure = true
-												break
-											}
-										}
-									}
-								}
-							}
-						}
+			//assume list controller
+			handler = "DefaultListController"
+			//if there is a schema in the response then it's probably a view action
+			if response := operation.Responses.Get(http.StatusOK); response != nil && response.Value != nil {
+				for _, content := range response.Value.Content {
+					if tschema := content.Schema; tschema != nil && tschema.Ref != "" {
+						handler = "DefaultReadController"
 					}
-
 				}
 			}
 		case "DELETE":

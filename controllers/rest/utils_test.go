@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -216,4 +217,35 @@ func TestGetJwkUrl(t *testing.T) {
 
 	})
 
+}
+
+func TestResolveResponseType(t *testing.T) {
+	swagger, err := LoadConfig(t, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unable to load swagger: %s", err)
+	}
+	path := swagger.Paths.Find("/blogs/:id")
+	t.Run("any response type", func(t *testing.T) {
+		expectedContentType := "application/json"
+		contentType := api.ResolveResponseType("*/*", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
+
+	t.Run("application types", func(t *testing.T) {
+		expectedContentType := "application/json"
+		contentType := api.ResolveResponseType("application/*", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
+
+	t.Run("multiple types", func(t *testing.T) {
+		expectedContentType := "application/json"
+		contentType := api.ResolveResponseType("text/html, application/xhtml+xml, application/json;q=0.9, */*;q=0.8", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
 }

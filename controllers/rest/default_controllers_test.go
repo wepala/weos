@@ -2,6 +2,7 @@ package rest_test
 
 import (
 	context3 "context"
+	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
@@ -155,7 +156,10 @@ func TestDefaultReadController(t *testing.T) {
 				return "Blog"
 			},
 			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
-				return nil, nil
+				return new(model.ContentEntity).FromSchemaWithValues(ctxt, swagger.Components.Schemas["Blog"].Value, []byte(`{"id":1,"title":"test"}`))
+			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{}`))
 			},
 		}
 
@@ -182,7 +186,18 @@ func TestDefaultReadController(t *testing.T) {
 			t.Errorf("expected body to be not empty")
 		}
 
-		//TODO check that the response body is correct
+		var blog map[string]interface{}
+		if err := json.Unmarshal(resp.Body.Bytes(), &blog); err != nil {
+			t.Errorf("error unmarshalling body: %s", err)
+		}
+		//check that the response body is correct
+		if blog["id"] != float64(1) {
+			t.Errorf("expected id to be 1, got %d", blog["id"])
+		}
+
+		if blog["title"] != "test" {
+			t.Errorf("expected title to be 'test', got '%s'", blog["title"])
+		}
 	})
 
 	t.Run("test get list of items", func(t *testing.T) {
@@ -212,7 +227,7 @@ func TestDefaultReadController(t *testing.T) {
 		}
 
 		if len(repository.GetListCalls()) != 1 {
-			t.Errorf("expected repository.GetByKey to be called once, got %d", len(repository.GetByKeyCalls()))
+			t.Errorf("expected repository.GetList to be called once, got %d", len(repository.GetListCalls()))
 		}
 
 		if len(resp.Body.String()) == 0 {

@@ -9,6 +9,7 @@ import (
 	"github.com/wepala/weos/model"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 //DefaultWriteController handles the write operations (create, update, delete)
@@ -90,8 +91,80 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 	}
 }
 
-func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+//DefaultReadController handles the read operations viewing a specific item
+func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
-		return nil
+		var entity *model.ContentEntity
+		var err error
+		//get identifier from context
+		entity, err = entityRepository.CreateEntityWithValues(ctxt.Request().Context(), []byte("{}"))
+		if err != nil {
+			return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
+		}
+		identifier, err := entity.Identifier()
+		if err != nil {
+			return NewControllerError("unexpected error getting identifier", err, http.StatusBadRequest)
+		}
+		entity, err = entityRepository.GetByKey(ctxt.Request().Context(), entityRepository, identifier)
+		if err != nil {
+			return NewControllerError("unexpected error getting entity", err, http.StatusBadRequest)
+		}
+
+		//check the accepts header
+
+		return ctxt.JSON(http.StatusOK, entity)
+	}
+}
+
+//DefaultListController handles the read operations viewing a list of items
+func DefaultListController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		var filterOptions map[string]interface{}
+		newContext := ctxt.Request().Context()
+		//gets the filter, limit and page from context
+		limit, _ := newContext.Value("limit").(int)
+		page, _ := newContext.Value("page").(int)
+		filters := newContext.Value("_filters")
+
+		schema := entityRepository.Schema()
+		if filters != nil {
+			filterOptions = map[string]interface{}{}
+			filterOptions = filters.(map[string]interface{})
+			for key, values := range filterOptions {
+				if len(values.(*FilterProperties).Values) != 0 && values.(*FilterProperties).Operator != "in" {
+					msg := "this operator " + values.(*FilterProperties).Operator + " does not support multiple values "
+					return NewControllerError(msg, nil, http.StatusBadRequest)
+				}
+				// checking if the field is valid based on schema provided, split on "."
+				parts := strings.Split(key, ".")
+				if schema.Properties[parts[0]] == nil {
+					if key == "id" && schema.ExtensionProps.Extensions[IdentifierExtension] == nil {
+						continue
+					}
+					msg := "invalid property found in filter: " + key
+					return NewControllerError(msg, nil, http.StatusBadRequest)
+				}
+
+			}
+		}
+		if page == 0 {
+			page = 1
+		}
+		var count int64
+		var err error
+		var contentEntities []*model.ContentEntity
+		// sort by default is by id
+		sorts := map[string]string{"id": "asc"}
+
+		contentEntities, count, err = entityRepository.GetList(newContext, entityRepository, page, limit, "", sorts, filterOptions)
+		if err != nil {
+			return NewControllerError(err.Error(), err, http.StatusBadRequest)
+		}
+		resp := ListApiResponse{
+			Total: count,
+			Page:  page,
+			Items: contentEntities,
+		}
+		return ctxt.JSON(http.StatusOK, resp)
 	}
 }
