@@ -1,19 +1,23 @@
 package model
 
-import "errors"
+import (
+	"errors"
+	"net/http"
+)
 
 var EntityNotFound = errors.New("entity not found")
 
 //goland:noinspection GoNameStartsWithPackageName
 type WeOSError struct {
-	message     string
+	Message     string
+	Code        int
 	err         error
 	Application string
 	AccountID   string
 }
 
 func (e *WeOSError) Error() string {
-	return e.message
+	return e.Message
 }
 
 func (e *WeOSError) Unwrap() error {
@@ -28,15 +32,17 @@ type DomainError struct {
 
 func NewError(message string, err error) *WeOSError {
 	return &WeOSError{
-		message: message,
+		Message: message,
 		err:     err,
 	}
 }
 
 func NewDomainError(message string, entityType string, entityID string, err error) *DomainError {
-	return &DomainError{
+	terror := &DomainError{
 		WeOSError:  NewError(message, err),
 		EntityID:   entityID,
 		EntityType: entityType,
 	}
+	terror.Code = http.StatusBadRequest
+	return terror
 }
