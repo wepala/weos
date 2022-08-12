@@ -110,6 +110,12 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 		for _, resp := range operation.Responses {
 			//for 200 responses look at the accept header and determine what to render
 			//TODO make this compatible with all status codes
+			if templateExtension, ok := resp.Value.ExtensionProps.Extensions[TemplateExtension]; ok {
+				err := json.Unmarshal(templateExtension.(json.RawMessage), &templates)
+				if err != nil {
+					logger.Error(err)
+				}
+			}
 			if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
 				folderPath := ""
 				err = json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
