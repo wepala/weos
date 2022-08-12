@@ -97,6 +97,60 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 
 //DefaultReadController handles the read operations viewing a specific item
 func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
+	logger, err := api.GetLog("Default")
+	if err != nil {
+		log.Fatal("no logger defined")
+	}
+	fileName := ""
+	folderFound := true
+	folderErr := ""
+	currentPath := "/" //TODO HUGE hack. The path should be injected into the controller
+	var templates []string
+	for _, operation := range operationMap {
+		for _, resp := range operation.Responses {
+			//for 200 responses look at the accept header and determine what to render
+			//TODO make this compatible with all status codes
+			if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
+				folderPath := ""
+				err = json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
+				if err != nil {
+					logger.Error(err)
+				} else {
+					_, err = os.Stat(folderPath)
+					if os.IsNotExist(err) {
+						folderFound = false
+						folderErr = "error finding folder: " + folderPath + " specified on path: " + currentPath
+						logger.Errorf(folderErr)
+					} else if err != nil {
+						logger.Error(err)
+					} else {
+						api.(*RESTAPI).e.Static(currentPath, folderPath)
+					}
+				}
+			}
+			if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
+				filePath := ""
+				err = json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
+				if err != nil {
+					logger.Error(err)
+				} else {
+					_, err = os.Stat(filePath)
+					if os.IsNotExist(err) {
+						logger.Debugf("error finding file: '%s' specified on path: '%s'", filePath, currentPath)
+					} else if err != nil {
+						logger.Error(err)
+					} else {
+						fileName = filePath
+					}
+				}
+			}
+
+			if !folderFound {
+				logger.Errorf(folderErr)
+			}
+		}
+	}
+
 	return func(ctxt echo.Context) error {
 		var entity *model.ContentEntity
 		var err error
@@ -116,91 +170,37 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 			}
 
 		}
-
 		//render html if that is configured
 
-		for _, operation := range operationMap {
-			for statusCode, resp := range operation.Responses {
-				//for 200 responses look at the accept header and determine what to render
-				//TODO make this compatible with all status codes
-				if statusCode == "200" {
-					//check header to determine response check the accepts header
-					acceptHeader := ctxt.Request().Header.Get("Accept")
-					contentType := ResolveResponseType(acceptHeader, resp.Value.Content)
-					switch contentType {
-					case "application/json":
-						if entity != nil {
-							return ctxt.JSON(http.StatusOK, entity)
-						}
-					}
+		//check header to determine response check the accepts header
+		acceptHeader := ctxt.Request().Header.Get("Accept")
+		contentType := ResolveResponseType(acceptHeader, operationMap[http.MethodGet].Responses["200"].Value.Content)
+		switch contentType {
+		case "application/json":
+			if entity != nil {
+				return ctxt.JSON(http.StatusOK, entity)
+			}
+		default:
+			if fileName != "" {
+				return ctxt.File(fileName)
+			} else if len(templates) > 0 {
+				contextValues := ReturnContextValues(ctxt.Request().Context())
+				t := template.New(path1.Base(templates[0]))
+				t, err := t.ParseFiles(templates...)
+				if err != nil {
+					ctxt.Logger().Debugf("unexpected error %s ", err)
+					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
 
-					fileName := ""
-					folderFound := true
-					folderErr := ""
-					var templates []string
-
-					if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
-						folderPath := ""
-						err = json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
-						if err != nil {
-							ctxt.Logger().Error(err)
-						} else {
-							_, err = os.Stat(folderPath)
-							if os.IsNotExist(err) {
-								folderFound = false
-								folderErr = "error finding folder: " + folderPath + " specified on path: " + ctxt.Request().URL.Path
-								ctxt.Logger().Errorf(folderErr)
-							} else if err != nil {
-								ctxt.Logger().Error(err)
-							} else {
-								api.(*RESTAPI).e.Static(ctxt.Request().URL.Path, folderPath)
-							}
-						}
-					}
-					if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
-						filePath := ""
-						err := json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
-						if err != nil {
-							ctxt.Logger().Error(err)
-						} else {
-							_, err = os.Stat(filePath)
-							if os.IsNotExist(err) {
-								ctxt.Logger().Warnf("error finding file: '%s' specified on path: '%s'", filePath, ctxt.Request().URL.Path)
-							} else if err != nil {
-								ctxt.Logger().Error(err)
-							} else {
-								fileName = filePath
-							}
-						}
-					}
-
-					if !folderFound {
-						ctxt.Logger().Errorf(folderErr)
-						return NewControllerError(folderErr, nil, http.StatusNotFound)
-					}
-
-					if fileName != "" {
-						return ctxt.File(fileName)
-					} else if len(templates) > 0 {
-						contextValues := ReturnContextValues(ctxt.Request().Context())
-						t := template.New(path1.Base(templates[0]))
-						t, err := t.ParseFiles(templates...)
-						if err != nil {
-							ctxt.Logger().Debugf("unexpected error %s ", err)
-							return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
-
-						}
-						err = t.Execute(ctxt.Response().Writer, contextValues)
-						if err != nil {
-							ctxt.Logger().Debugf("unexpected error %s ", err)
-							return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
-
-						}
-					}
 				}
+				err = t.Execute(ctxt.Response().Writer, contextValues)
+				if err != nil {
+					ctxt.Logger().Debugf("unexpected error %s ", err)
+					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
 
+				}
 			}
 		}
+
 		return nil
 	}
 }

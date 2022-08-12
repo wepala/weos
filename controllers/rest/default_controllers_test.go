@@ -151,7 +151,11 @@ func TestDefaultReadController(t *testing.T) {
 	}
 
 	t.Run("test get item", func(t *testing.T) {
-		container := &ContainerMock{}
+		container := &ContainerMock{
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
+		}
 		repository := &EntityRepositoryMock{
 			NameFunc: func() string {
 				return "Blog"
@@ -202,7 +206,11 @@ func TestDefaultReadController(t *testing.T) {
 	})
 
 	t.Run("test get list of items", func(t *testing.T) {
-		container := &ContainerMock{}
+		container := &ContainerMock{
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
+		}
 		repository := &EntityRepositoryMock{
 			NameFunc: func() string {
 				return "Blog"
@@ -210,11 +218,21 @@ func TestDefaultReadController(t *testing.T) {
 			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 				return nil, nil
 			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{}`))
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+			GetListFunc: func(ctx context3.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
+				entity, _ := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{"id":1,"title":"test"}`))
+				return []*model.ContentEntity{entity}, 1, nil
+			},
 		}
 
 		path := swagger.Paths.Find("/blogs")
 
-		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.Operation{
+		controller := rest.DefaultListController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.Operation{
 			http.MethodGet: path.Get,
 		})
 		e := echo.New()
@@ -239,7 +257,11 @@ func TestDefaultReadController(t *testing.T) {
 	})
 
 	t.Run("test render static html with multiple templates", func(t *testing.T) {
-		container := &ContainerMock{}
+		container := &ContainerMock{
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
+		}
 		repository := &EntityRepositoryMock{
 			NameFunc: func() string {
 				return "Blog"
