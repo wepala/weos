@@ -2,12 +2,16 @@ package rest
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 	context2 "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
+	"html/template"
 	"net/http"
+	"os"
+	path1 "path"
 	"strconv"
 	"strings"
 )
@@ -111,12 +115,93 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 				return NewControllerError("unexpected error getting entity", err, http.StatusBadRequest)
 			}
 
-			//check the accepts header
-
-			return ctxt.JSON(http.StatusOK, entity)
 		}
 
-		return ctxt.NoContent(http.StatusOK)
+		//render html if that is configured
+
+		for _, operation := range operationMap {
+			for statusCode, resp := range operation.Responses {
+				//for 200 responses look at the accept header and determine what to render
+				//TODO make this compatible with all status codes
+				if statusCode == "200" {
+					//check header to determine response check the accepts header
+					acceptHeader := ctxt.Request().Header.Get("Accept")
+					contentType := ResolveResponseType(acceptHeader, resp.Value.Content)
+					switch contentType {
+					case "application/json":
+						if entity != nil {
+							return ctxt.JSON(http.StatusOK, entity)
+						}
+					}
+
+					fileName := ""
+					folderFound := true
+					folderErr := ""
+					var templates []string
+
+					if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
+						folderPath := ""
+						err = json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
+						if err != nil {
+							ctxt.Logger().Error(err)
+						} else {
+							_, err = os.Stat(folderPath)
+							if os.IsNotExist(err) {
+								folderFound = false
+								folderErr = "error finding folder: " + folderPath + " specified on path: " + ctxt.Request().URL.Path
+								ctxt.Logger().Errorf(folderErr)
+							} else if err != nil {
+								ctxt.Logger().Error(err)
+							} else {
+								api.(*RESTAPI).e.Static(ctxt.Request().URL.Path, folderPath)
+							}
+						}
+					}
+					if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
+						filePath := ""
+						err := json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
+						if err != nil {
+							ctxt.Logger().Error(err)
+						} else {
+							_, err = os.Stat(filePath)
+							if os.IsNotExist(err) {
+								ctxt.Logger().Warnf("error finding file: '%s' specified on path: '%s'", filePath, ctxt.Request().URL.Path)
+							} else if err != nil {
+								ctxt.Logger().Error(err)
+							} else {
+								fileName = filePath
+							}
+						}
+					}
+
+					if !folderFound {
+						ctxt.Logger().Errorf(folderErr)
+						return NewControllerError(folderErr, nil, http.StatusNotFound)
+					}
+
+					if fileName != "" {
+						return ctxt.File(fileName)
+					} else if len(templates) > 0 {
+						contextValues := ReturnContextValues(ctxt.Request().Context())
+						t := template.New(path1.Base(templates[0]))
+						t, err := t.ParseFiles(templates...)
+						if err != nil {
+							ctxt.Logger().Debugf("unexpected error %s ", err)
+							return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
+
+						}
+						err = t.Execute(ctxt.Response().Writer, contextValues)
+						if err != nil {
+							ctxt.Logger().Debugf("unexpected error %s ", err)
+							return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
+
+						}
+					}
+				}
+
+			}
+		}
+		return nil
 	}
 }
 

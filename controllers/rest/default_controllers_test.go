@@ -7,6 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -235,5 +236,46 @@ func TestDefaultReadController(t *testing.T) {
 		}
 
 		//TODO check that the response body is correct
+	})
+
+	t.Run("test render static html with multiple templates", func(t *testing.T) {
+		container := &ContainerMock{}
+		repository := &EntityRepositoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{}`))
+			},
+		}
+
+		path := swagger.Paths.Find("/multipletemplates")
+
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.Operation{
+			http.MethodGet: path.Get,
+		})
+		e := echo.New()
+		e.GET("/multipletemplates", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.GET, "/multipletemplates", nil)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		e.ServeHTTP(resp, req)
+		response := resp.Result()
+		defer response.Body.Close()
+		expectResp := "<html>\n    <body>\n        <h1>About</h1>\n\n\n        \n<p>About us page now</p>\n\n    </body>\n</html>"
+
+		if resp.Code != http.StatusOK {
+			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
+		}
+		results, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Errorf("unexpected error reading the response body: %s", err)
+		}
+		if !strings.Contains(expectResp, string(results)) {
+			t.Errorf("expected results to be %s got %s", expectResp, string(results))
+		}
 	})
 }
