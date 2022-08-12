@@ -96,23 +96,27 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 	return func(ctxt echo.Context) error {
 		var entity *model.ContentEntity
 		var err error
-		//get identifier from context
-		entity, err = entityRepository.CreateEntityWithValues(ctxt.Request().Context(), []byte("{}"))
-		if err != nil {
-			return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
-		}
-		identifier, err := entity.Identifier()
-		if err != nil {
-			return NewControllerError("unexpected error getting identifier", err, http.StatusBadRequest)
-		}
-		entity, err = entityRepository.GetByKey(ctxt.Request().Context(), entityRepository, identifier)
-		if err != nil {
-			return NewControllerError("unexpected error getting entity", err, http.StatusBadRequest)
+		//get identifier from context if there is an entity repository (some endpoints may not have a schema associated)
+		if entityRepository != nil {
+			entity, err = entityRepository.CreateEntityWithValues(ctxt.Request().Context(), []byte("{}"))
+			if err != nil {
+				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
+			}
+			identifier, err := entity.Identifier()
+			if err != nil {
+				return NewControllerError("unexpected error getting identifier", err, http.StatusBadRequest)
+			}
+			entity, err = entityRepository.GetByKey(ctxt.Request().Context(), entityRepository, identifier)
+			if err != nil {
+				return NewControllerError("unexpected error getting entity", err, http.StatusBadRequest)
+			}
+
+			//check the accepts header
+
+			return ctxt.JSON(http.StatusOK, entity)
 		}
 
-		//check the accepts header
-
-		return ctxt.JSON(http.StatusOK, entity)
+		return ctxt.NoContent(http.StatusOK)
 	}
 }
 
