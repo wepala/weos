@@ -9,11 +9,11 @@ var EntityNotFound = errors.New("entity not found")
 
 //goland:noinspection GoNameStartsWithPackageName
 type WeOSError struct {
-	Message     string
-	Code        int
+	Message     string `json:"message"`
+	Code        int    `json:"code"`
 	err         error
-	Application string
-	AccountID   string
+	Application string `json:"application"`
+	AccountID   string `json:"accountId"`
 }
 
 func (e *WeOSError) Error() string {
@@ -26,8 +26,8 @@ func (e *WeOSError) Unwrap() error {
 
 type DomainError struct {
 	*WeOSError
-	EntityID   string
-	EntityType string
+	EntityID   string `json:"entityId"`
+	EntityType string `json:"entityType"`
 }
 
 func NewError(message string, err error) *WeOSError {
