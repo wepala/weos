@@ -130,7 +130,7 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 					} else if err != nil {
 						logger.Error(err)
 					} else {
-						api.(*RESTAPI).e.Static(currentPath, folderPath)
+						api.(*RESTAPI).e.Static(api.GetWeOSConfig().BasePath+currentPath, folderPath)
 					}
 				}
 			}
