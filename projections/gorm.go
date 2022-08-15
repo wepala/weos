@@ -206,7 +206,7 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 func (d *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte) (interface{}, error) {
 	builder, _, err := d.GORMModelBuilder(name, schema, 0)
 
-	if err != nil && !errors.Is(err, inlineSchemaErr) {
+	if err != nil {
 		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
 	}
 	model := builder.Build().New()
@@ -252,7 +252,7 @@ func (d *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 func (d *GORMDB) GORMModels(name string, schema *openapi3.Schema) (interface{}, error) {
 	builder, _, err := d.GORMModelBuilder(name, schema, 0)
 
-	if err != nil && !errors.Is(err, inlineSchemaErr) {
+	if err != nil {
 		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
 	}
 	model := builder.Build().NewSliceOfStructs()
