@@ -203,7 +203,7 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 func (d *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte) (interface{}, error) {
 	builder, _, err := d.GORMModelBuilder(name, schema, 0)
 
-	if err != nil {
+	if err != nil && !errors.Is(err, inlineSchemaErr) {
 		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
 	}
 	model := builder.Build().New()
@@ -249,7 +249,7 @@ func (d *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 func (d *GORMDB) GORMModels(name string, schema *openapi3.Schema) (interface{}, error) {
 	builder, _, err := d.GORMModelBuilder(name, schema, 0)
 
-	if err != nil {
+	if err != nil && !errors.Is(err, inlineSchemaErr) {
 		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
 	}
 	model := builder.Build().NewSliceOfStructs()
@@ -266,7 +266,7 @@ func (d *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
 	dfs, _ := json.Marshal(ref.Extensions["x-remove"])
 	if _, ok := ref.Extensions["x-inline"]; ok {
-		return nil, nil, weos.NewError("%s is an inline schema", inlineSchemaErr)
+		return nil, nil, weos.NewError(fmt.Sprintf("%s is an inline schema", name), inlineSchemaErr)
 	}
 
 	primaryKeys := []string{}
@@ -515,7 +515,9 @@ func (d *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 			//Belongs to https://gorm.io/docs/belongs_to.html
 			if schema.Ref != "" && schema.Value != nil && depth < 5 {
 				tbuilder, keys, err := d.GORMModelBuilder(name, schema.Value, depth+1)
-				if err != nil {
+				if errors.Is(err, inlineSchemaErr) {
+					return d.GORMInlineProperty(parentName, name, schema, gormParts, depth)
+				} else {
 					return nil, nil, nil
 				}
 				//setup key for rthe gorm tag
