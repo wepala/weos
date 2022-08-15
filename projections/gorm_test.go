@@ -332,6 +332,125 @@ func TestGORMDB_GORMModels(t *testing.T) {
 		}
 
 	})
+
+	t.Run("convert array item schema marked inline to inline string", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["identifier"] = []struct {
+			Use    string `json:"use"`
+			System string `json:"system"`
+			Value  string `json:"value"`
+			Type   struct {
+				Coding []struct {
+					System  string `json:"system"`
+					Code    string `json:"code"`
+					Display string `json:"display"`
+				} `json:"coding"`
+				Text string `json:"text"`
+			} `json:"type"`
+		}{
+			{
+				Use:    "official",
+				System: "test",
+				Value:  "someid",
+				Type: struct {
+					Coding []struct {
+						System  string `json:"system"`
+						Code    string `json:"code"`
+						Display string `json:"display"`
+					} `json:"coding"`
+					Text string `json:"text"`
+				}{
+					Coding: []struct {
+						System  string `json:"system"`
+						Code    string `json:"code"`
+						Display string `json:"display"`
+					}{
+						{
+							System: "http://terminology.hl7.org/CodeSystem/v2-0203",
+							Code:   "MR",
+						},
+					},
+					Text: "display",
+				},
+			},
+		}
+
+		payloadData, err := json.Marshal(&payload)
+		if err != nil {
+			t.Fatalf("unexpected error setting up payload '%s'", err)
+		}
+
+		model, err := projection.GORMModel("Patient", api.GetConfig().Components.Schemas["Patient"].Value, payloadData)
+		if err != nil {
+			t.Fatalf("unexpected error setting up model '%s'", err)
+		}
+
+		reader := ds.NewReader(model)
+		if !reader.HasField("Identifier") {
+			t.Fatalf("expected contact field to exist")
+		}
+
+		identifierString := reader.GetField("Identifier").String()
+		if identifierString == "" {
+			t.Fatalf("expected contact to be json string")
+		}
+
+		var actualIdentifiers []map[string]interface{}
+		err = json.Unmarshal([]byte(identifierString), &actualIdentifiers)
+		if err != nil {
+			t.Fatalf("error unmarshiling conact '%s'", err)
+		}
+
+		if actualIdentifiers[0]["value"] != "someid" {
+			t.Errorf("expected identifier value to be '%s', got '%s'", "someid", actualIdentifiers[0]["value"])
+		}
+
+	})
+	t.Run("convert object schema marked inline to inline string", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["maritalStatus"] = []struct {
+			Use    string `json:"use"`
+			System string `json:"system"`
+			Value  string `json:"value"`
+		}{
+			{
+				Use:    "official",
+				System: "test",
+				Value:  "someid",
+			},
+		}
+
+		payloadData, err := json.Marshal(&payload)
+		if err != nil {
+			t.Fatalf("unexpected error setting up payload '%s'", err)
+		}
+
+		model, err := projection.GORMModel("Patient", api.GetConfig().Components.Schemas["Patient"].Value, payloadData)
+		if err != nil {
+			t.Fatalf("unexpected error setting up model '%s'", err)
+		}
+
+		reader := ds.NewReader(model)
+		if !reader.HasField("Identifier") {
+			t.Fatalf("expected contact field to exist")
+		}
+
+		identifierString := reader.GetField("Identifier").String()
+		if identifierString == "" {
+			t.Fatalf("expected contact to be json string")
+		}
+
+		var actualIdentifiers []map[string]interface{}
+		err = json.Unmarshal([]byte(identifierString), &actualIdentifiers)
+		if err != nil {
+			t.Fatalf("error unmarshiling conact '%s'", err)
+		}
+
+		if actualIdentifiers[0]["value"] != "someid" {
+			t.Errorf("expected identifier value to be '%s', got '%s'", "someid", actualIdentifiers[0]["value"])
+		}
+
+	})
 }
 
 type TestBlog struct {

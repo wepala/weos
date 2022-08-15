@@ -124,19 +124,22 @@ components:
       required:
         - contentType
     CodeableConcept:
-      type: object
-      properties:
-        coding:
-          type: array
-          nullable: true
-          items:
-            $ref: "#/components/schemas/Coding"
-        text:
-          type: string
-          nullable: true
-      example:
-        coding:
-          - system: test
+      x-inline: true
+      type: array
+      items:
+        type: object
+        properties:
+          coding:
+            type: array
+            nullable: true
+            items:
+              $ref: "#/components/schemas/Coding"
+          text:
+            type: string
+            nullable: true
+        example:
+          coding:
+            - system: test
     Coding:
       type: object
       properties:
@@ -196,6 +199,7 @@ components:
         - use
     Identifier:
       type: object
+      x-inline: true
       properties:
         use:
           type: string
@@ -261,7 +265,7 @@ components:
         identifier:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/Identifier"
         name:
           type: array
           items:

@@ -2,6 +2,7 @@ package projections
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
@@ -18,6 +19,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+var inlineSchemaErr = errors.New("inline schema")
 
 //GORMDB interface struct
 type GORMDB struct {
@@ -216,7 +219,17 @@ func (d *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 		for k, v := range tpayload {
 			//get the property from the schema and check if it's an inline object, simple array, array with inline objects
 			if tproperty, ok := schema.Properties[k]; ok {
-				if (tproperty.Ref == "" && tproperty.Value.Type == "object") || (tproperty.Value.Type == "array" && tproperty.Value.Items.Ref == "") {
+				//check if property reference is an array and the reference has a `x-inline` extension on it
+				inline := false
+				if tproperty.Value.Type == "array" && tproperty.Value.Items != nil && tproperty.Value.Items.Value != nil {
+					_, inline = tproperty.Value.Items.Value.Extensions["x-inline"]
+				}
+
+				if tproperty.Value.Type == "object" && tproperty.Value != nil {
+					_, inline = tproperty.Value.Extensions["x-inline"]
+				}
+
+				if (inline || tproperty.Ref == "" && tproperty.Value.Type == "object") || (tproperty.Value.Type == "array" && tproperty.Value.Items.Ref == "") {
 					valueBytes, err := json.Marshal(v)
 					if err != nil {
 						return nil, fmt.Errorf("error marshalling inline object in '%s' '%s'", name, k)
@@ -252,6 +265,9 @@ func (d *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 
 	pks, _ := json.Marshal(ref.Extensions["x-identifier"])
 	dfs, _ := json.Marshal(ref.Extensions["x-remove"])
+	if _, ok := ref.Extensions["x-inline"]; ok {
+		return nil, nil, weos.NewError("%s is an inline schema", inlineSchemaErr)
+	}
 
 	primaryKeys := []string{}
 	deletedFields := []string{}
@@ -479,7 +495,11 @@ func (d *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				if schema.Value.Items.Ref != "" {
 					tbuilder, _, err := d.GORMModelBuilder(strings.Replace(schema.Value.Items.Ref, "#/components/schemas/", "", -1), schema.Value.Items.Value, depth+1)
 					if err != nil {
-						return nil, nil, nil
+						if errors.Is(err, inlineSchemaErr) {
+							return d.GORMInlineProperty(parentName, name, schema, gormParts, depth)
+						} else {
+							return nil, nil, nil
+						}
 					}
 					defaultValue = tbuilder.Build().NewSliceOfStructs()
 					json.Unmarshal([]byte(`[{

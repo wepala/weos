@@ -334,6 +334,20 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 					}
 				}
 			case "array":
+				inline := false
+				if property.Value != nil && property.Value.Items.Value != nil {
+					_, inline = property.Value.Items.Value.Extensions["x-inline"]
+				}
+				//if the value is a string and/or the schema is marked inline try to convert to json and deserialize
+				if value, ok := data[k].(string); ok || inline {
+					var tvalue []interface{}
+					err = json.Unmarshal([]byte(value), &tvalue)
+					if err != nil {
+						return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '[]', got '%s'", k, value), w.Schema.Title, w.ID, err)
+					}
+					data[k] = tvalue
+				}
+
 				//use schema to see which items in payload needs an id generated and do it.
 				if values, ok := data[k].([]interface{}); ok {
 					if property.Value != nil && property.Value.Items != nil && property.Value.Items.Value != nil {
@@ -349,19 +363,13 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 						}
 					}
 				}
-
-				//if the value is a string try to convert to json and deserialize
-				if value, ok := data[k].(string); ok {
-					var tvalue []interface{}
-					err = json.Unmarshal([]byte(value), &tvalue)
-					if err != nil {
-						return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '[]', got '%s'", k, value), w.Schema.Title, w.ID, err)
-					}
-					data[k] = tvalue
-				}
 			case "object":
 				//if the value is a string try to convert to json and deserialize
-				if value, ok := data[k].(string); ok {
+				inline := false
+				if property.Value != nil {
+					_, inline = property.Value.Extensions["x-inline"]
+				}
+				if value, ok := data[k].(string); ok || inline {
 					var tvalue map[string]interface{}
 					err = json.Unmarshal([]byte(value), &tvalue)
 					if err != nil {
