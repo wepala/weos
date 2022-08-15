@@ -276,6 +276,60 @@ func TestGORMDB_GORMModel(t *testing.T) {
 			t.Errorf("error removing table '%s' '%s'", "Post", err)
 		}
 	})
+	t.Run("setup model with reference to inline schemas", func(t *testing.T) {
+		api, err := rest.New("./fixtures/complex-spec.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error setting up api: %s", err)
+		}
+		contentType1 := "Patient"
+		p1 := map[string]interface{}{"title": "test", "description": "Lorem Ipsum", "url": "https://wepala.com", "created": "2006-01-02T15:04:00Z"}
+		payload1, err := json.Marshal(p1)
+		if err != nil {
+			t.Errorf("unexpected error marshalling entity; %s", err)
+		}
+		schemas := rest.CreateSchema(context.Background(), api.EchoInstance(), api.Swagger)
+		entityFactory1 := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType1, api.Swagger.Components.Schemas[contentType1].Value, schemas[contentType1])
+		projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		//check the builder returned to ensure it has what is expected
+		gormModel, err := projection.GORMModel(entityFactory1.Name(), entityFactory1.Schema(), payload1)
+		if err != nil {
+			t.Fatalf("unexpected error creating builder '%s'", err)
+		}
+		json.Unmarshal(payload1, &gormModel)
+		json.Unmarshal([]byte(`{
+						"table_alias": "`+`Patient`+`"
+					}`), &gormModel)
+		reader := ds.NewReader(gormModel)
+
+		//check if the table property is set on the main entity
+		if !reader.HasField("Table") {
+			t.Fatalf("expected the main model to have a table field")
+		}
+
+		if reader.GetField("Table").String() != "Patient" {
+			t.Errorf("expected the table for the main model to be '%s', got '%s'", "Blog", reader.GetField("Table").String())
+		}
+
+		//run migrations and confirm that the model can be created
+		err = projection.DB().Debug().AutoMigrate(gormModel)
+		if err != nil {
+			t.Fatalf("error running auto migration '%s'", err)
+		}
+
+		//check that the expected tables have been created
+		if !projection.DB().Migrator().HasTable("Patient") {
+			t.Fatalf("expected the blog table to be created")
+		}
+		//check the no table Identifier is created
+		if projection.DB().Migrator().HasTable("Identifier") {
+			t.Fatalf("expected the identifier table to not be created")
+		}
+
+		defer gormDB.Migrator().DropTable("Patient")
+	})
 }
 
 func TestGORMDB_GORMModels(t *testing.T) {
