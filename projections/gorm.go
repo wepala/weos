@@ -207,7 +207,7 @@ func (d *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 	builder, _, err := d.GORMModelBuilder(name, schema, 0)
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate gorm model builder '%s'", err)
+		return nil, err
 	}
 	model := builder.Build().New()
 	//if there is a payload let's serialize that
