@@ -167,6 +167,9 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 		for name, tschema := range schema.Components.Schemas {
 			model, err := d.GORMModel(name, tschema.Value, nil)
 			if err != nil {
+				if errors.Is(err, inlineSchemaErr) {
+					continue
+				}
 				return err
 			}
 			json.Unmarshal([]byte(`{
