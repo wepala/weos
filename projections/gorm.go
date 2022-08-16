@@ -100,7 +100,11 @@ func (d *GORMDB) Persist(entities []weos.Entity) error {
 	transaction := d.DB().Begin()
 	for _, entity := range entities {
 		if tentity, ok := entity.(*weos.ContentEntity); ok {
-			payload, err := json.Marshal(tentity.ToMap())
+			entityMap := tentity.ToMap()
+			//had to put this in here since these two important pieces of info is not output by toMap at the moment
+			entityMap["weos_id"] = tentity.ID
+			entityMap["sequence_no"] = tentity.SequenceNo
+			payload, err := json.Marshal(entityMap)
 			tableName = tentity.Name
 			tmodel, err := d.GORMModel(tentity.Name, tentity.Schema, payload)
 			if err != nil {
@@ -796,7 +800,7 @@ func (d *GORMDB) GenerateID(entity *weos.ContentEntity) (*weos.ContentEntity, er
 	//if there is only one part to the id and it's not a string then the database can auto generate the id
 	if len(identifier) == 1 {
 		for k, _ := range identifier {
-			if k == "id" || entity.Schema.Properties[k].Value.Type != "string" {
+			if k == "id" || (entity.Schema.Properties[k] != nil && entity.Schema.Properties[k].Value.Type != "string") {
 				return entity, nil
 			}
 		}
@@ -804,7 +808,7 @@ func (d *GORMDB) GenerateID(entity *weos.ContentEntity) (*weos.ContentEntity, er
 
 	generatedIdentifier := make(map[string]interface{})
 	for k, v := range identifier {
-		if entity.Schema.Properties[k].Value.Type == "string" {
+		if entity.Schema.Properties[k] != nil && entity.Schema.Properties[k].Value.Type == "string" {
 			if idValue, ok := v.(string); !ok || idValue == "" {
 				switch entity.Schema.Properties[k].Value.Format {
 				case "uuid":

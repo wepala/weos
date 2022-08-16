@@ -43,7 +43,7 @@ func (w *ContentEntity) IsValid() bool {
 					}
 
 					//linked objects are allowed to be null
-					if !w.Schema.Properties[key].Value.Nullable && property.Value.Type != "object" {
+					if !w.Schema.Properties[key].Value.Nullable && property.Value.Type != "object" && property.Ref == "" {
 						message := "entity property " + key + " is not nullable"
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					}
@@ -350,9 +350,9 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 						for i, _ := range values {
 							if value, ok := values[i].(map[string]interface{}); ok {
 								value, err = w.SetValue(property.Value.Items.Value, value)
-								tvalue, err := json.Marshal(value)
-								if err != nil {
-									return nil, err
+								tvalue, terr := json.Marshal(value)
+								if terr != nil {
+									return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '[]', got '%T'", k, value), w.Schema.Title, w.ID, terr)
 								}
 								values[i], err = new(ContentEntity).FromSchemaWithValues(context.Background(), schema, tvalue)
 							}
@@ -365,7 +365,7 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 					var tvalue map[string]interface{}
 					err = json.Unmarshal([]byte(value), &tvalue)
 					if err != nil {
-						return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '{}', got '%s'", k, value), w.Schema.Title, w.ID, err)
+						return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '{}', got '%T'", k, value), w.Schema.Title, w.ID, err)
 					}
 					data[k] = tvalue
 				}
@@ -605,10 +605,13 @@ func (w *ContentEntity) Identifier() (map[string]interface{}, error) {
 			identifier[property.(string)] = w.payload[property.(string)]
 		}
 	} else {
-		if id, ok := w.payload["id"]; ok {
-			identifier["id"] = id
-		} else {
-			identifier["weos_id"] = w.ID
+		//only add id if it's NOT an inline entity
+		if _, ok := w.Schema.ExtensionProps.Extensions["x-inline"]; !ok {
+			if id, ok := w.payload["id"]; ok {
+				identifier["id"] = id
+			} else {
+				identifier["weos_id"] = w.ID
+			}
 		}
 	}
 

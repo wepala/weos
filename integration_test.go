@@ -626,17 +626,16 @@ func TestIntegration_FHIR(t *testing.T) {
 		t.Fatalf("expected there to be an patient table")
 	}
 
-	//expectedColumns := []string{"gender"}
-	//columns, _ := gormDB.Migrator().ColumnTypes("Patient")
-	//actualColumns := make([]string, len(columns))
-	//for k, column := range columns {
-	//	actualColumns[k] = column.Name()
-	//}
-	//
-	//for _, expectedColumn := range expectedColumns {
-	//	if !model.InList(actualColumns, expectedColumn) {
-	//		t.Errorf("expected the column '%s' to exist", expectedColumn)
-	//	}
-	//}
-	//dropDB()
+	requestBody := `{"active":true,"address":[{"use":"home","type":"physical","country":""}],"contact":[{"name":[{"family":"123","given":"123","text":"","use":""}],"relationship":[{"coding":[{"system":"http://terminology.hl7.org/CodeSystem/v2-0131","code":"C","display":"Emergency Contact"}]}],"relationshipText":"","telecom":[{"system":"phone","value":"123","use":"home","rank":""}]}],"gender":"female","identifier":[{"value":"TRI-IOIwQYm4R","use":"official"},{"value":"123123123","type":{"coding":[{"system":"http://hl7.org/fhir/v2/0203","code":"DL","display":"DL"}]},"use":"usual"}],"name":[{"family":"Tubman","given":"Harriet","prefix":"Prefix N/A","suffix":"Suffix N/A","text":"","use":"official"}]}`
+	rw := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/Patient", strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	tapi.EchoInstance().ServeHTTP(rw, req)
+	if err != nil {
+		t.Errorf("Error: %s", err)
+	}
+	resp := rw.Result()
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("Expected response code %d, got %d", http.StatusCreated, resp.StatusCode)
+	}
 }
