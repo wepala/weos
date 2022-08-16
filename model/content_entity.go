@@ -361,11 +361,7 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 				}
 			case "object":
 				//if the value is a string try to convert to json and deserialize
-				inline := false
-				if property.Value != nil {
-					_, inline = property.Value.Extensions["x-inline"]
-				}
-				if value, ok := data[k].(string); ok || inline {
+				if value, ok := data[k].(string); ok {
 					var tvalue map[string]interface{}
 					err = json.Unmarshal([]byte(value), &tvalue)
 					if err != nil {
