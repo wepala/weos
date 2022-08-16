@@ -334,12 +334,8 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 					}
 				}
 			case "array":
-				inline := false
-				if property.Value != nil && property.Value.Items.Value != nil {
-					_, inline = property.Value.Items.Value.Extensions["x-inline"]
-				}
 				//if the value is a string and/or the schema is marked inline try to convert to json and deserialize
-				if value, ok := data[k].(string); ok || inline {
+				if value, ok := data[k].(string); ok {
 					var tvalue []interface{}
 					err = json.Unmarshal([]byte(value), &tvalue)
 					if err != nil {
