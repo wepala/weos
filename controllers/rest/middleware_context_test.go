@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
+	"github.com/wepala/weos/context"
+	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
 	"io/ioutil"
 	"mime/multipart"
@@ -15,11 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/labstack/echo/v4"
-	"github.com/wepala/weos/context"
-	"github.com/wepala/weos/controllers/rest"
 )
 
 func TestContext(t *testing.T) {
@@ -67,6 +66,29 @@ func TestContext(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
 		req.Header.Set(context.HeaderXAccountID, accountID)
+		e.GET("/blogs", handler)
+		e.ServeHTTP(resp, req)
+	})
+
+	t.Run("check that basePath is added by default", func(t *testing.T) {
+		api, err := rest.New("./fixtures/blog-with-basepath.yaml")
+		if err != nil {
+			t.Fatalf("error loading api specification '%s'", err)
+		}
+
+		path := api.GetConfig().Paths.Find("/blogs")
+		mw := rest.Context(api, nil, nil, nil, entityFactory, path, path.Get)
+		handler := mw(func(ctxt echo.Context) error {
+			//check that certain parameters are in the context
+			cc := ctxt.Request().Context()
+			basePath := cc.Value("BASE_PATH").(string)
+			if basePath != "/base/path" {
+				t.Errorf("expected the base path to be '/base/path', got '%s'", basePath)
+			}
+			return nil
+		})
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
 		e.GET("/blogs", handler)
 		e.ServeHTTP(resp, req)
 	})
