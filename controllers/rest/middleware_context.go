@@ -32,6 +32,10 @@ func Context(api Container, commandDispatcher model.CommandDispatcher, repositor
 			if accountID != "" {
 				cc = context.WithValue(cc, weosContext.ACCOUNT_ID, accountID)
 			}
+			//set the basePath in context so that urls can be generated correctly #216
+			if api.GetWeOSConfig() != nil {
+				cc = context.WithValue(cc, "BASE_PATH", api.GetWeOSConfig().BasePath)
+			}
 			//use the path information to get the parameter values
 			contextValues, err := parseParams(c, path.Parameters, repository)
 			//add parameter values to the context
