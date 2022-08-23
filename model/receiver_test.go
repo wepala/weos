@@ -302,16 +302,6 @@ func TestDeleteContentType(t *testing.T) {
 	}
 
 	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
-	existingBlog := &model.ContentEntity{
-		AggregateRoot: model.AggregateRoot{
-			BasicEntity: model.BasicEntity{
-				ID: "dsafdsdfdsf",
-			},
-			SequenceNo: int64(0),
-		},
-	}
-	event := model.NewEntityEvent("delete", existingBlog, existingBlog.ID, existingPayload)
-	existingBlog.NewChange(event)
 
 	container := &ContainerMock{
 		GetEventStoreFunc: func(name string) (model.EventRepository, error) {
@@ -320,6 +310,16 @@ func TestDeleteContentType(t *testing.T) {
 	}
 
 	t.Run("Testing basic delete entity", func(t *testing.T) {
+		existingBlog := &model.ContentEntity{
+			AggregateRoot: model.AggregateRoot{
+				BasicEntity: model.BasicEntity{
+					ID: "dsafdsdfdsf",
+				},
+				SequenceNo: int64(0),
+			},
+		}
+		event := model.NewEntityEvent("delete", existingBlog, existingBlog.ID, existingPayload)
+		existingBlog.NewChange(event)
 		repository := &EntityRepositoryMock{
 			GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 				return existingBlog, nil
@@ -343,6 +343,16 @@ func TestDeleteContentType(t *testing.T) {
 	})
 
 	t.Run("Testing delete based on identifier", func(t *testing.T) {
+		existingBlog := &model.ContentEntity{
+			AggregateRoot: model.AggregateRoot{
+				BasicEntity: model.BasicEntity{
+					ID: "dsafdsdfdsf",
+				},
+				SequenceNo: int64(0),
+			},
+		}
+		event := model.NewEntityEvent("delete", existingBlog, existingBlog.ID, existingPayload)
+		existingBlog.NewChange(event)
 		repository := &EntityRepositoryMock{
 			GetContentEntityFunc: func(ctx context3.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 				return existingBlog, nil

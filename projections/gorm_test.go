@@ -485,17 +485,17 @@ func TestGORMDB_GORMModels(t *testing.T) {
 		}
 
 		reader := ds.NewReader(model)
-		if !reader.HasField("Identifier") {
-			t.Fatalf("expected contact field to exist")
+		if !reader.HasField("MaritalStatus") {
+			t.Fatalf("expected MaritalStatus field to exist")
 		}
 
-		identifierString := reader.GetField("Identifier").String()
-		if identifierString == "" {
+		maritalStatusString := reader.GetField("MaritalStatus").String()
+		if maritalStatusString == "" {
 			t.Fatalf("expected contact to be json string")
 		}
 
 		var actualIdentifiers []map[string]interface{}
-		err = json.Unmarshal([]byte(identifierString), &actualIdentifiers)
+		err = json.Unmarshal([]byte(maritalStatusString), &actualIdentifiers)
 		if err != nil {
 			t.Fatalf("error unmarshiling conact '%s'", err)
 		}

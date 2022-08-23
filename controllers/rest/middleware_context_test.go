@@ -72,7 +72,7 @@ func TestContext(t *testing.T) {
 		}
 
 		path := api.GetConfig().Paths.Find("/blogs")
-		mw := rest.Context(api, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(api, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()

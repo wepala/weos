@@ -524,8 +524,6 @@ func (d *GORMDB) GORMPropertyDefaultValue(parentName string, name string, schema
 				tbuilder, keys, err := d.GORMModelBuilder(name, schema.Value, depth+1)
 				if errors.Is(err, inlineSchemaErr) {
 					return d.GORMInlineProperty(parentName, name, schema, gormParts, depth)
-				} else {
-					return nil, nil, nil
 				}
 				//setup key for rthe gorm tag
 				keyNames := []string{}
