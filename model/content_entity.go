@@ -599,10 +599,15 @@ func (w *ContentEntity) Identifier() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("unexpected error: schema is not set")
 	}
 	identifier := make(map[string]interface{})
-	properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
-	if properties != nil {
-		for _, property := range properties.([]interface{}) {
-			identifier[property.(string)] = w.payload[property.(string)]
+	tproperties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+	if tproperties != nil {
+		var properties []string
+		err := json.Unmarshal(tproperties.(json.RawMessage), &properties)
+		if err != nil {
+			return nil, err
+		}
+		for _, property := range properties {
+			identifier[property] = w.payload[property]
 		}
 	} else {
 		//only add id if it's NOT an inline entity

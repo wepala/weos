@@ -237,90 +237,6 @@ func TestRESTAPI_Initialize_RequiredField(t *testing.T) {
 	})
 }
 
-func TestRESTAPI_Initialize_UpdateAddedToPut(t *testing.T) {
-	os.Remove("test.db")
-	tapi, err := api.New("./fixtures/blog.yaml")
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	err = tapi.Initialize(nil)
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	e := tapi.EchoInstance()
-	found := false
-	method := "PUT"
-	path := "/blogs/:id"
-	middleware := "Update"
-	routes := e.Routes()
-	for _, route := range routes {
-		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected to find update path")
-	}
-
-}
-
-func TestRESTAPI_Initialize_UpdateAddedToPatch(t *testing.T) {
-	os.Remove("test.db")
-	tapi, err := api.New("./fixtures/blog-create-batch.yaml")
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	err = tapi.Initialize(nil)
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	e := tapi.EchoInstance()
-	found := false
-	method := "PATCH"
-	path := "/blogs/:id"
-	middleware := "Update"
-	routes := e.Routes()
-	for _, route := range routes {
-		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected to find update path")
-	}
-
-}
-
-func TestRESTAPI_Initialize_ViewAddedToGet(t *testing.T) {
-	os.Remove("test.db")
-	tapi, err := api.New("./fixtures/blog.yaml")
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	err = tapi.Initialize(nil)
-	if err != nil {
-		t.Fatalf("un expected error loading spec '%s'", err)
-	}
-	e := tapi.EchoInstance()
-
-	found := false
-	method := "GET"
-	path := "/blogs/:id"
-	middleware := "ViewController"
-	routes := e.Routes()
-	for _, route := range routes {
-		if route.Method == method && route.Path == path && strings.Contains(route.Name, middleware) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected to find update path")
-	}
-}
-
 func TestRESTAPI_Initialize_ListAddedToGet(t *testing.T) {
 	os.Remove("test.db")
 	tapi, err := api.New("./fixtures/blog-create-batch.yaml")
@@ -435,30 +351,6 @@ func TestRESTAPI_Initialize_DiscoveryAddedToGet(t *testing.T) {
 	if !found {
 		t.Errorf("expected to find get path")
 	}
-}
-
-func TestRESTAPI_Initialize_DefaultResponseMiddlware(t *testing.T) {
-	//make sure Default middleware is added
-	os.Remove("test.db")
-	tapi, err := api.New("./fixtures/blog.yaml")
-	if err != nil {
-		t.Fatalf("unexpected error loading spec '%s'", err)
-	}
-	err = tapi.Initialize(context.TODO())
-	if err != nil {
-		t.Fatalf("unexpected error loading spec '%s'", err)
-	}
-	e := tapi.EchoInstance()
-
-	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	e.ServeHTTP(resp, req)
-	//confirm that the response is not 404
-	if resp.Result().StatusCode == http.StatusNotFound {
-		t.Errorf("expected the response code to not be %d, got %d", http.StatusNotFound, resp.Result().StatusCode)
-	}
-	os.Remove("test.db")
-	time.Sleep(1 * time.Second)
 }
 
 func TestRESTAPI_Static(t *testing.T) {

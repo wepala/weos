@@ -51,6 +51,7 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		var weosID string
 		var sequenceNo string
 		var seq int
+		var commandResponse interface{}
 
 		//getting etag from context
 		etag := ctxt.Request().Header.Get("If-Match")
@@ -74,7 +75,7 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 				AccountID:  context2.GetAccount(ctxt.Request().Context()),
 			},
 		}
-		_, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, api, entityRepository, ctxt.Logger())
+		commandResponse, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, api, entityRepository, ctxt.Logger())
 		if err != nil {
 			//TODO the type of error return should determine the status code
 			ctxt.Logger().Debugf("error dispatching command: %s", err)
@@ -84,7 +85,12 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		//TODO the type of command and/or the api configuration should determine the status code
 		switch commandName {
 		case "create":
-			return ctxt.JSON(http.StatusCreated, make(map[string]string))
+			//set etag in response header
+			if entity, ok := commandResponse.(*model.ContentEntity); ok {
+				ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", entity.ID, entity.SequenceNo))
+				return ctxt.JSON(http.StatusCreated, entity)
+			}
+			return ctxt.JSON(http.StatusCreated, commandResponse)
 		case "update":
 			return ctxt.JSON(http.StatusOK, make(map[string]string))
 		case "delete":

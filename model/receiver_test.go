@@ -274,42 +274,42 @@ func TestDeleteContentType(t *testing.T) {
 
 	commandDispatcher := &model.DefaultCommandDispatcher{}
 	commandDispatcher.AddSubscriber(model.Delete(context.Background(), "", "", 0), model.DeleteHandler)
-	mockEventRepository := &EventRepositoryMock{
-		PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
-			var event *model.Event
-			var ok bool
-			entities := entity.GetNewChanges()
-			if len(entities) != 2 {
-				t.Fatalf("expected %d event to be saved, got %d", 2, len(entities))
-			}
-
-			if event, ok = entities[0].(*model.Event); !ok {
-				t.Fatalf("the entity is not an event")
-			}
-
-			if event.Type != "delete" {
-				t.Errorf("expected event to be '%s', got '%s'", "update", event.Type)
-			}
-
-			if event.Meta.EntityType == "" {
-				t.Errorf("expected event to be '%s', got '%s'", "", event.Type)
-			}
-
-			return nil
-		},
-		AddSubscriberFunc: func(handler model.EventHandler) {
-		},
-	}
-
-	existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
-
-	container := &ContainerMock{
-		GetEventStoreFunc: func(name string) (model.EventRepository, error) {
-			return mockEventRepository, nil
-		},
-	}
 
 	t.Run("Testing basic delete entity", func(t *testing.T) {
+		mockEventRepository := &EventRepositoryMock{
+			PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+				var event *model.Event
+				var ok bool
+				entities := entity.GetNewChanges()
+				if len(entities) != 2 {
+					t.Fatalf("expected %d event to be saved, got %d", 2, len(entities))
+				}
+
+				if event, ok = entities[0].(*model.Event); !ok {
+					t.Fatalf("the entity is not an event")
+				}
+
+				if event.Type != "delete" {
+					t.Errorf("expected event to be '%s', got '%s'", "update", event.Type)
+				}
+
+				if event.Meta.EntityType == "" {
+					t.Errorf("expected event to be '%s', got '%s'", "", event.Type)
+				}
+
+				return nil
+			},
+			AddSubscriberFunc: func(handler model.EventHandler) {
+			},
+		}
+
+		existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+
+		container := &ContainerMock{
+			GetEventStoreFunc: func(name string) (model.EventRepository, error) {
+				return mockEventRepository, nil
+			},
+		}
 		existingBlog := &model.ContentEntity{
 			AggregateRoot: model.AggregateRoot{
 				BasicEntity: model.BasicEntity{
@@ -343,6 +343,40 @@ func TestDeleteContentType(t *testing.T) {
 	})
 
 	t.Run("Testing delete based on identifier", func(t *testing.T) {
+		mockEventRepository := &EventRepositoryMock{
+			PersistFunc: func(ctxt context.Context, entity model.AggregateInterface) error {
+				var event *model.Event
+				var ok bool
+				entities := entity.GetNewChanges()
+				if len(entities) != 2 {
+					t.Fatalf("expected %d event to be saved, got %d", 2, len(entities))
+				}
+
+				if event, ok = entities[0].(*model.Event); !ok {
+					t.Fatalf("the entity is not an event")
+				}
+
+				if event.Type != "delete" {
+					t.Errorf("expected event to be '%s', got '%s'", "update", event.Type)
+				}
+
+				if event.Meta.EntityType == "" {
+					t.Errorf("expected event to be '%s', got '%s'", "", event.Type)
+				}
+
+				return nil
+			},
+			AddSubscriberFunc: func(handler model.EventHandler) {
+			},
+		}
+
+		existingPayload := map[string]interface{}{"weos_id": "dsafdsdfdsf", "sequence_no": int64(1), "title": "blog 1", "description": "Description testing 1", "url": "www.TestBlog1.com"}
+
+		container := &ContainerMock{
+			GetEventStoreFunc: func(name string) (model.EventRepository, error) {
+				return mockEventRepository, nil
+			},
+		}
 		existingBlog := &model.ContentEntity{
 			AggregateRoot: model.AggregateRoot{
 				BasicEntity: model.BasicEntity{

@@ -491,69 +491,69 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	entityFactory := API.GetEntityFactories()
-	if schema, ok := entityFactory[contentType]; ok {
-		entity, err := schema.NewEntity(context.TODO())
-		if err != nil {
-			return err
-		}
-		apiProjection, err := API.GetProjection("Default")
-		var tprojection *projections.GORMDB
-		if tprojection, ok = apiProjection.(*projections.GORMDB); !ok {
-			return fmt.Errorf("default projection is not a GORM projection")
-		}
-		payload, _ := json.Marshal(entity.ToMap())
-		model, err := tprojection.GORMModel(contentType, schema.Schema(), payload)
-		if err != nil {
-			return err
-		}
-		var resultdb *gorm.DB
-		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&model, "weos_id = ?", weosID)
-		//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.payload)
-		if resultdb.Error != nil {
-			return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
-		}
-		//put the result in the entity
-		data, err := json.Marshal(model)
-		if err != nil {
-			return fmt.Errorf("unable to marshal result '%s'", err)
-		}
-		err = json.Unmarshal(data, &entity)
-		if err != nil {
-			return fmt.Errorf("unable to unmarshal result '%s'", err)
-		}
-		entityProperty = entity
-		contentEntity = entity.ToMap()
-		if contentEntity == nil {
-			return fmt.Errorf("unexpected error finding content type in db")
-		}
-		for key, value := range compare {
-			if contentEntity[key] != value {
-				v, ok := value.(string)
-				if ok && v == "<Generated>" && contentEntity[key] != nil {
-					continue
-				}
-				if cv, ok := contentEntity[key].(*string); ok {
-					if cv != nil && strings.EqualFold(*cv, v) {
-						continue
-					}
-					if cv == nil {
-						return fmt.Errorf("expected %s %s %s, got nil", contentType, key, v)
-					} else {
-						return fmt.Errorf("expected %s %s %s, got %s", contentType, key, v, *cv)
-					}
-
-				}
-
-				return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
-			}
-		}
-
-		contentTypeID[strings.ToLower(contentType)] = true
-		return nil
+	entityRepository, err := API.GetEntityRepository(contentType)
+	if err != nil {
+		return fmt.Errorf("schema '%s' doesn't exist in spec", contentType)
 	}
 
-	return fmt.Errorf("schema '%s' doesn't exist in spec", contentType)
+	entity, err := entityRepository.NewEntity(context.TODO())
+	if err != nil {
+		return err
+	}
+	var tprojection *projections.GORMDB
+	var ok bool
+	if tprojection, ok = entityRepository.(*projections.GORMDB); !ok {
+		return fmt.Errorf("default projection is not a GORM projection")
+	}
+	payload, _ := json.Marshal(entity.ToMap())
+	model, err := tprojection.GORMModel(contentType, entityRepository.Schema(), payload)
+	if err != nil {
+		return err
+	}
+	var resultdb *gorm.DB
+	resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(model, "weos_id = ?", weosID)
+	//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.payload)
+	if resultdb.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
+	}
+	//put the result in the entity
+	data, err := json.Marshal(model)
+	if err != nil {
+		return fmt.Errorf("unable to marshal result '%s'", err)
+	}
+	err = json.Unmarshal(data, &entity)
+	if err != nil {
+		return fmt.Errorf("unable to unmarshal result '%s'", err)
+	}
+	entityProperty = entity
+	contentEntity = entity.ToMap()
+	if contentEntity == nil {
+		return fmt.Errorf("unexpected error finding content type in db")
+	}
+	for key, value := range compare {
+		if contentEntity[key] != value {
+			v, ok := value.(string)
+			if ok && v == "<Generated>" && contentEntity[key] != nil {
+				continue
+			}
+			if cv, ok := contentEntity[key].(*string); ok {
+				if cv != nil && strings.EqualFold(*cv, v) {
+					continue
+				}
+				if cv == nil {
+					return fmt.Errorf("expected %s %s %s, got nil", contentType, key, v)
+				} else {
+					return fmt.Errorf("expected %s %s %s, got %s", contentType, key, v, *cv)
+				}
+
+			}
+
+			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+		}
+	}
+
+	contentTypeID[strings.ToLower(contentType)] = true
+	return nil
 }
 
 func theIsSubmitted(contentType string) error {
@@ -2150,7 +2150,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1343",
-			//Tags: "WEOS-1343 && ~skipped",
+			//Tags: "focus && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

@@ -413,8 +413,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 									bytesContext := interfaceContext.(json.RawMessage)
 									json.Unmarshal(bytesContext, &contextName)
 									if "id" == contextName {
-										handler = "UpdateController"
-										middlewareNames["UpdateMiddleware"] = true
+										handler = "DefaultWriteController"
 										autoConfigure = true
 										break
 									}
@@ -475,8 +474,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 									bytesContext := interfaceContext.(json.RawMessage)
 									json.Unmarshal(bytesContext, &contextName)
 									if "id" == contextName {
-										handler = "UpdateController"
-										middlewareNames["UpdateMiddleware"] = true
+										handler = "DefaultWriteController"
 										autoConfigure = true
 										break
 									}
