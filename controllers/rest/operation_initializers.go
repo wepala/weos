@@ -646,7 +646,9 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 	//only set up routes if controller is set because echo returns an error if the handler for a route is nil
 	if controller != nil {
 		var handler echo.HandlerFunc
-		handler = controller(api, commandDispatcher, repository, map[string]*openapi3.Operation{
+		handler = controller(api, commandDispatcher, repository, map[string]*openapi3.PathItem{
+			path: pathItem,
+		}, map[string]*openapi3.Operation{
 			method: operation,
 		})
 		middlewares := GetOperationMiddlewares(ctxt)

@@ -13,7 +13,7 @@ import (
 	"strconv"
 )
 
-func APIDiscovery(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+func APIDiscovery(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		newContext := ctxt.Request().Context()
 
@@ -29,7 +29,7 @@ func APIDiscovery(api Container, commandDispatcher model.CommandDispatcher, repo
 	}
 }
 
-func HealthCheck(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+func HealthCheck(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 	return func(context echo.Context) error {
 		response := &HealthCheckResponse{
 			Version: api.GetConfig().Info.Version,

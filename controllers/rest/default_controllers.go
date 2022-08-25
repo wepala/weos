@@ -17,7 +17,7 @@ import (
 )
 
 //DefaultWriteController handles the write operations (create, update, delete)
-func DefaultWriteController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+func DefaultWriteController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 	var commandName string
 	var err error
 
@@ -102,63 +102,64 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 }
 
 //DefaultReadController handles the read operations viewing a specific item
-func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
+func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
 	logger, err := api.GetLog("Default")
 	if err != nil {
 		log.Fatal("no logger defined")
 	}
+	var templates []string
 	fileName := ""
 	folderFound := true
 	folderErr := ""
-	currentPath := "/" //TODO HUGE hack. The path should be injected into the controller
-	var templates []string
-	for _, operation := range operationMap {
-		for _, resp := range operation.Responses {
-			//for 200 responses look at the accept header and determine what to render
-			//TODO make this compatible with all status codes
-			if templateExtension, ok := resp.Value.ExtensionProps.Extensions[TemplateExtension]; ok {
-				err := json.Unmarshal(templateExtension.(json.RawMessage), &templates)
-				if err != nil {
-					logger.Error(err)
-				}
-			}
-			if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
-				folderPath := ""
-				err = json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
-				if err != nil {
-					logger.Error(err)
-				} else {
-					_, err = os.Stat(folderPath)
-					if os.IsNotExist(err) {
-						folderFound = false
-						folderErr = "error finding folder: " + folderPath + " specified on path: " + currentPath
-						logger.Errorf(folderErr)
-					} else if err != nil {
+	for currentPath, _ := range pathMap {
+		for _, operation := range operationMap {
+			for _, resp := range operation.Responses {
+				//for 200 responses look at the accept header and determine what to render
+				//TODO make this compatible with all status codes
+				if templateExtension, ok := resp.Value.ExtensionProps.Extensions[TemplateExtension]; ok {
+					err := json.Unmarshal(templateExtension.(json.RawMessage), &templates)
+					if err != nil {
 						logger.Error(err)
-					} else {
-						api.(*RESTAPI).e.Static(api.GetWeOSConfig().BasePath+currentPath, folderPath)
 					}
 				}
-			}
-			if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
-				filePath := ""
-				err = json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
-				if err != nil {
-					logger.Error(err)
-				} else {
-					_, err = os.Stat(filePath)
-					if os.IsNotExist(err) {
-						logger.Debugf("error finding file: '%s' specified on path: '%s'", filePath, currentPath)
-					} else if err != nil {
+				if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
+					folderPath := ""
+					err = json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
+					if err != nil {
 						logger.Error(err)
 					} else {
-						fileName = filePath
+						_, err = os.Stat(folderPath)
+						if os.IsNotExist(err) {
+							folderFound = false
+							folderErr = "error finding folder: " + folderPath + " specified on path: " + currentPath
+							logger.Errorf(folderErr)
+						} else if err != nil {
+							logger.Error(err)
+						} else {
+							api.(*RESTAPI).e.Static(api.GetWeOSConfig().BasePath+currentPath, folderPath)
+						}
 					}
 				}
-			}
+				if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
+					filePath := ""
+					err = json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
+					if err != nil {
+						logger.Error(err)
+					} else {
+						_, err = os.Stat(filePath)
+						if os.IsNotExist(err) {
+							logger.Debugf("error finding file: '%s' specified on path: '%s'", filePath, currentPath)
+						} else if err != nil {
+							logger.Error(err)
+						} else {
+							fileName = filePath
+						}
+					}
+				}
 
-			if !folderFound {
-				logger.Errorf(folderErr)
+				if !folderFound {
+					logger.Errorf(folderErr)
+				}
 			}
 		}
 	}
@@ -218,7 +219,7 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 }
 
 //DefaultListController handles the read operations viewing a list of items
-func DefaultListController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
+func DefaultListController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		var filterOptions map[string]interface{}
 		newContext := ctxt.Request().Context()
