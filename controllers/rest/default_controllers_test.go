@@ -45,7 +45,7 @@ func TestDefaultWriteController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs")
 
-		controller := rest.DefaultWriteController(container, commandDispatcher, repository, map[string]*openapi3.Operation{
+		controller := rest.DefaultWriteController(container, commandDispatcher, repository, nil, map[string]*openapi3.Operation{
 			http.MethodPost: path.Post,
 		})
 		e := echo.New()
@@ -86,7 +86,7 @@ func TestDefaultWriteController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs/:id")
 
-		controller := rest.DefaultWriteController(container, commandDispatcher, repository, map[string]*openapi3.Operation{
+		controller := rest.DefaultWriteController(container, commandDispatcher, repository, nil, map[string]*openapi3.Operation{
 			http.MethodPut: path.Put,
 		})
 		e := echo.New()
@@ -125,7 +125,7 @@ func TestDefaultWriteController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs/:id")
 
-		controller := rest.DefaultWriteController(container, commandDispatcher, repository, map[string]*openapi3.Operation{
+		controller := rest.DefaultWriteController(container, commandDispatcher, repository, nil, map[string]*openapi3.Operation{
 			http.MethodDelete: path.Delete,
 		})
 		e := echo.New()
@@ -170,7 +170,9 @@ func TestDefaultReadController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs/:id")
 
-		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.Operation{
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.PathItem{
+			"/blogs/1": path,
+		}, map[string]*openapi3.Operation{
 			http.MethodGet: path.Get,
 		})
 		e := echo.New()
@@ -232,7 +234,9 @@ func TestDefaultReadController(t *testing.T) {
 
 		path := swagger.Paths.Find("/blogs")
 
-		controller := rest.DefaultListController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.Operation{
+		controller := rest.DefaultListController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.PathItem{
+			"/blogs": path,
+		}, map[string]*openapi3.Operation{
 			http.MethodGet: path.Get,
 		})
 		e := echo.New()
@@ -276,7 +280,9 @@ func TestDefaultReadController(t *testing.T) {
 
 		path := swagger.Paths.Find("/multipletemplates")
 
-		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.Operation{
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.PathItem{
+			"/multipletemplates": path,
+		}, map[string]*openapi3.Operation{
 			http.MethodGet: path.Get,
 		})
 		e := echo.New()

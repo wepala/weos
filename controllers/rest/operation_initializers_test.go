@@ -332,7 +332,7 @@ func TestRouteInitializer(t *testing.T) {
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
-	api.RegisterController("ViewController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+	api.RegisterController("ViewController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			controllerTriggered = true
 			return nil
