@@ -12,7 +12,6 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"net/http"
 	"regexp"
@@ -118,13 +117,12 @@ func EntityRepositoryInitializer(ctxt context.Context, api Container, path strin
 		}
 
 		//get the schema details from the swagger file
-		if schema, ok := swagger.Components.Schemas[contentType]; ok {
-			repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+		if _, ok := swagger.Components.Schemas[contentType]; ok {
+			repository, err := api.GetEntityRepository(contentType)
 			if err != nil {
 				return ctxt, err
 			}
 			newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
-			api.RegisterEntityRepository(repository.Name(), repository)
 			return newContext, nil
 		}
 
@@ -137,13 +135,12 @@ func EntityRepositoryInitializer(ctxt context.Context, api Container, path strin
 				if requestContent.Schema.Ref != "" {
 					contentType := strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
 					//get the schema details from the swagger file
-					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+					if _, ok := swagger.Components.Schemas[contentType]; ok {
+						repository, err := api.GetEntityRepository(contentType)
 						if err != nil {
 							return ctxt, err
 						}
 						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
-						api.RegisterEntityRepository(repository.Name(), repository)
 						return newContext, nil
 					}
 					break
@@ -151,13 +148,12 @@ func EntityRepositoryInitializer(ctxt context.Context, api Container, path strin
 				//use the first schema ref to determine the entity type
 				if requestContent.Schema.Value.Items != nil && strings.Contains(requestContent.Schema.Value.Items.Ref, "#/components/schemas/") {
 					contentType := strings.Replace(requestContent.Schema.Value.Items.Ref, "#/components/schemas/", "", -1)
-					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+					if _, ok := swagger.Components.Schemas[contentType]; ok {
+						repository, err := api.GetEntityRepository(contentType)
 						if err != nil {
 							return ctxt, err
 						}
 						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
-						api.RegisterEntityRepository(repository.Name(), repository)
 						return newContext, nil
 					}
 				}
@@ -171,26 +167,24 @@ func EntityRepositoryInitializer(ctxt context.Context, api Container, path strin
 				//use the first schema ref to determine the entity type
 				if respContent.Schema.Ref != "" {
 					contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
-					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+					if _, ok := swagger.Components.Schemas[contentType]; ok {
+						repository, err := api.GetEntityRepository(contentType)
 						if err != nil {
 							return ctxt, err
 						}
 						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
-						api.RegisterEntityRepository(repository.Name(), repository)
 						return newContext, nil
 					}
 				}
 				//use the first schema ref to determine the entity type
 				if respContent.Schema.Value.Properties["items"] != nil && respContent.Schema.Value.Properties["items"].Value.Items != nil {
 					contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
-					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+					if _, ok := swagger.Components.Schemas[contentType]; ok {
+						repository, err := api.GetEntityRepository(contentType)
 						if err != nil {
 							return ctxt, err
 						}
 						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
-						api.RegisterEntityRepository(repository.Name(), repository)
 						return newContext, nil
 					}
 				} else {
@@ -204,13 +198,12 @@ func EntityRepositoryInitializer(ctxt context.Context, api Container, path strin
 							if alias == "items" {
 								if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
 									contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
-									if schema, ok := swagger.Components.Schemas[contentType]; ok {
-										repository, err := projections.NewGORMRepository(ctxt, api, contentType, schema.Value)
+									if _, ok := swagger.Components.Schemas[contentType]; ok {
+										repository, err := api.GetEntityRepository(contentType)
 										if err != nil {
 											return ctxt, err
 										}
 										newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
-										api.RegisterEntityRepository(repository.Name(), repository)
 										return newContext, nil
 									}
 								}

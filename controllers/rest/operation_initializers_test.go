@@ -24,7 +24,10 @@ func TestEntityRepositoryInitializer(t *testing.T) {
 	baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
 	api.RegisterLog("Default", &LogMock{})
 	t.Run("get schema from request body", func(t *testing.T) {
-
+		baseCtxt, err = rest.RegisterEntityRepositories(baseCtxt, api, api.Swagger)
+		if err != nil {
+			t.Fatalf("error setting up entity repositories %s", err)
+		}
 		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
@@ -42,7 +45,13 @@ func TestEntityRepositoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		api.RegisterLog("Default", &LogMock{})
+		baseCtxt, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		baseCtxt, err = rest.DefaultProjection(baseCtxt, api, api.Swagger)
+		baseCtxt, err = rest.RegisterEntityRepositories(baseCtxt, api, api.Swagger)
+		if err != nil {
+			t.Fatalf("error setting up entity repositories %s", err)
+		}
 		api.RegisterLog("Default", &LogMock{})
 		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
@@ -61,7 +70,13 @@ func TestEntityRepositoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		api.RegisterLog("Default", &LogMock{})
+		baseCtxt, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		baseCtxt, err = rest.DefaultProjection(baseCtxt, api, api.Swagger)
+		baseCtxt, err = rest.RegisterEntityRepositories(baseCtxt, api, api.Swagger)
+		if err != nil {
+			t.Fatalf("error setting up entity repositories %s", err)
+		}
 		api.RegisterLog("Default", &LogMock{})
 		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
@@ -80,7 +95,13 @@ func TestEntityRepositoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		api.RegisterLog("Default", &LogMock{})
+		baseCtxt, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		baseCtxt, err = rest.DefaultProjection(baseCtxt, api, api.Swagger)
+		baseCtxt, err = rest.RegisterEntityRepositories(baseCtxt, api, api.Swagger)
+		if err != nil {
+			t.Fatalf("error setting up entity repositories %s", err)
+		}
 		api.RegisterLog("Default", &LogMock{})
 		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {

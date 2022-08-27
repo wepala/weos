@@ -200,3 +200,18 @@ func DefaultEventStore(ctxt context.Context, tapi Container, swagger *openapi3.S
 	}
 	return ctxt, nil
 }
+
+//RegisterEntityRepositories registers the entity repositories based on the schema definitions
+func RegisterEntityRepositories(ctxt context.Context, api Container, swagger *openapi3.Swagger) (context.Context, error) {
+	for schemaName, schema := range swagger.Components.Schemas {
+		if _, ok := schema.Value.Extensions["x-inline"]; !ok {
+			//get the schema details from the swagger file
+			repository, err := projections.NewGORMRepository(ctxt, api, schemaName, schema.Value)
+			if err != nil {
+				return ctxt, err
+			}
+			api.RegisterEntityRepository(repository.Name(), repository)
+		}
+	}
+	return ctxt, nil
+}

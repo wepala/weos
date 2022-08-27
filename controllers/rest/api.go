@@ -64,13 +64,6 @@ type RESTAPI struct {
 	entityRepositories             map[string]model.EntityRepository
 }
 
-type schema struct {
-	Name       string
-	Type       string
-	Ref        string
-	Properties []schema
-}
-
 //define an interface that all plugins must implement
 type APIInterface interface {
 	AddPathConfig(path string, config *PathConfig) error
@@ -464,6 +457,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register standard global initializers
 	p.RegisterGlobalInitializer(SQLDatabase)
 	p.RegisterGlobalInitializer(DefaultProjection)
+	p.RegisterGlobalInitializer(RegisterEntityRepositories)
 	p.RegisterGlobalInitializer(DefaultEventStore)
 	p.RegisterGlobalInitializer(Security)
 	//register standard operation initializers
