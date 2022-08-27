@@ -427,6 +427,9 @@ func SaveUploadedFiles(uploadFolder map[string]interface{}, file multipart.File,
 
 func ResolveResponseType(header string, content openapi3.Content) string {
 	//TODO process the header string to make a list and order it based on the quality score @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept
+	if header == "" {
+		return ""
+	}
 	mimeTypes := strings.Split(header, ",")
 	for _, mimeType := range mimeTypes {
 		for contentType, _ := range content {
