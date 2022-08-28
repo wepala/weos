@@ -436,7 +436,7 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 }
 
 //ConvertFormToJson This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.EntityFactory, media *openapi3.MediaType) (json.RawMessage, error, string) {
+func ConvertFormToJson(r *http.Request, contentType string, entityRepository model.EntityRepository, media *openapi3.MediaType) (json.RawMessage, error, string) {
 	var err error
 	uploadHit := false
 	parsedForm := map[string]interface{}{}
@@ -450,7 +450,7 @@ func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.
 
 		for k, v := range r.PostForm {
 			for _, value := range v {
-				parsedForm, err = parseFormPayload(parsedForm, entityfactory.Schema(), k, value, len(v))
+				parsedForm, err = parseFormPayload(parsedForm, entityRepository.Schema(), k, value, len(v))
 			}
 		}
 
@@ -463,7 +463,7 @@ func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.
 
 		for k, v := range r.MultipartForm.Value {
 			for _, value := range v {
-				parsedForm, err = parseFormPayload(parsedForm, entityfactory.Schema(), k, value, len(v))
+				parsedForm, err = parseFormPayload(parsedForm, entityRepository.Schema(), k, value, len(v))
 			}
 
 		}
@@ -499,7 +499,7 @@ func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.
 
 			} else {
 				//This checks if there is any x-upload defined on a property for a schema
-				for name, prop := range entityfactory.Schema().Properties {
+				for name, prop := range entityRepository.Schema().Properties {
 					if uploadExtension, ok := prop.Value.ExtensionProps.Extensions[UploadExtension]; ok {
 						_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
 
