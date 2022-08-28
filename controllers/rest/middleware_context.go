@@ -56,7 +56,6 @@ func Context(api Container, commandDispatcher model.CommandDispatcher, repositor
 			cc, err = AddToContext(c, cc, contextValues, repository)
 
 			//use the operation information to get the parameter values and add them to the context
-
 			cc, err = parseResponses(c, cc, operation)
 
 			//add OperationID to context
@@ -78,8 +77,10 @@ func Context(api Container, commandDispatcher model.CommandDispatcher, repositor
 						case "application/json":
 							payload, err = ioutil.ReadAll(c.Request().Body)
 						case "application/x-www-form-urlencoded", "multipart/form-data":
-							payload, formErr, status = ConvertFormToJson(c.Request(), ct, repository, mimeType)
-
+							//if there is a repository then convert to json
+							if repository != nil {
+								payload, formErr, status = ConvertFormToJson(c.Request(), ct, repository, mimeType)
+							}
 						}
 						//set payload to context
 						cc = context.WithValue(cc, weosContext.PAYLOAD, payload)
