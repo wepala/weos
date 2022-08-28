@@ -119,7 +119,8 @@ type Container interface {
 	GetCommandDispatcher(name string) (CommandDispatcher, error)
 	//RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
 	RegisterEntityFactory(name string, factory EntityFactory)
-	//GetEntityFactory DEPRECATED: 08/23/2022 Use EntityRepository instead
+	//GetEntityFactory
+	//Deprecated: 08/23/2022 Use EntityRepository instead
 	GetEntityFactory(name string) (EntityFactory, error)
 	//GetEntityFactories get event factories
 	GetEntityFactories() map[string]EntityFactory
