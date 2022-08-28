@@ -77,9 +77,7 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		}
 		commandResponse, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, api, entityRepository, ctxt.Logger())
 		if err != nil {
-			//TODO the type of error return should determine the status code
-			ctxt.Logger().Debugf("error dispatching command: %s", err)
-			return ctxt.JSON(http.StatusBadRequest, err)
+			return err
 		}
 
 		//TODO the type of command and/or the api configuration should determine the status code
