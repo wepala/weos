@@ -749,14 +749,14 @@ func (d *GORMDB) NewEntity(ctxt context.Context) (*weos.ContentEntity, error) {
 	if d.builder != nil {
 		return new(weos.ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
 	}
-	return new(weos.ContentEntity).FromSchema(ctxt, "", d.schema)
+	return new(weos.ContentEntity).FromSchema(ctxt, d.Name(), d.Schema())
 }
 
 func (d *GORMDB) CreateEntityWithValues(ctxt context.Context, payload []byte) (*weos.ContentEntity, error) {
 	var entity *weos.ContentEntity
 	var err error
 	if d.builder != nil {
-		entity, err = new(weos.ContentEntity).FromSchemaAndBuilder(ctxt, d.schema, d.builder)
+		entity, err = new(weos.ContentEntity).FromSchemaAndBuilder(ctxt, d.Schema(), d.builder)
 	} else {
 		entity, err = new(weos.ContentEntity).FromSchema(ctxt, d.Name(), d.Schema())
 	}
