@@ -327,6 +327,12 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 		middlewareNames := make(map[string]bool)
 		switch strings.ToUpper(method) {
 		case "POST":
+			if _, ok := pathItem.Post.Extensions["x-command"]; ok {
+				handler = "DefaultWriteController"
+				autoConfigure = true
+				break
+			}
+
 			if pathItem.Post.RequestBody == nil {
 				api.e.Logger.Warnf("unexpected error: expected request body but got nil")
 				break
@@ -356,6 +362,11 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 			}
 		case "PUT":
 			allParam := true
+			if _, ok := pathItem.Post.Extensions["x-command"]; ok {
+				handler = "DefaultWriteController"
+				autoConfigure = true
+				break
+			}
 			if pathItem.Put.RequestBody == nil {
 				break
 			} else {
@@ -419,6 +430,11 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 
 		case "PATCH":
 			allParam := true
+			if _, ok := pathItem.Post.Extensions["x-command"]; ok {
+				handler = "DefaultWriteController"
+				autoConfigure = true
+				break
+			}
 			if pathItem.Patch.RequestBody == nil {
 				break
 			} else {
@@ -492,7 +508,11 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 			var strContentType string
 			allParam := true
 			contentTypeExt := pathItem.Delete.ExtensionProps.Extensions[SchemaExtension]
-
+			if _, ok := pathItem.Post.Extensions["x-command"]; ok {
+				handler = "DefaultWriteController"
+				autoConfigure = true
+				break
+			}
 			if pathItem.Delete.RequestBody == nil && contentTypeExt == nil {
 				break
 			}
