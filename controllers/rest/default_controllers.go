@@ -89,12 +89,8 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 				return ctxt.JSON(http.StatusCreated, entity)
 			}
 			return ctxt.JSON(http.StatusCreated, commandResponse)
-		case "update":
-			return ctxt.JSON(http.StatusOK, make(map[string]string))
-		case "delete":
-			return ctxt.JSON(http.StatusOK, make(map[string]string))
 		default:
-			return ctxt.NoContent(http.StatusOK)
+			return ctxt.JSON(http.StatusOK, commandResponse)
 		}
 	}
 }
