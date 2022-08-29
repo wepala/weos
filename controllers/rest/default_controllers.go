@@ -38,11 +38,11 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		if commandName == "" {
 			switch method {
 			case http.MethodPost:
-				commandName = "create"
+				commandName = model.CREATE_COMMAND
 			case http.MethodPut:
-				commandName = "update"
+				commandName = model.UPDATE_COMMAND
 			case http.MethodDelete:
-				commandName = "delete"
+				commandName = model.DELETE_COMMAND
 			}
 		}
 	}
