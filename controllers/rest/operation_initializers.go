@@ -362,7 +362,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 			}
 		case "PUT":
 			allParam := true
-			if _, ok := pathItem.Post.Extensions["x-command"]; ok {
+			if _, ok := pathItem.Put.Extensions["x-command"]; ok {
 				handler = "DefaultWriteController"
 				autoConfigure = true
 				break
