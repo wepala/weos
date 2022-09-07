@@ -168,17 +168,15 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 		var payload []byte
 		//get identifier from context if there is an entity repository (some endpoints may not have a schema associated)
 		if entityRepository != nil {
-			contextValues := ReturnContextValues(ctxt.Request().Context())
-			payload, err = json.Marshal(contextValues)
-			if err != nil {
-				ctxt.Logger().Errorf("error marshalling context values '%s'", err)
-				return NewControllerError("unexpected error getting entity", err, http.StatusInternalServerError)
-			}
 			entity, err = entityRepository.CreateEntityWithValues(ctxt.Request().Context(), payload)
 			if err != nil {
 				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
 			}
 			identifier, err := entity.Identifier()
+			for k, _ := range identifier {
+				//get from context since the middleware restricts param to what wsa configured in the spec
+				identifier[k] = ctxt.Request().Context().Value(k)
+			}
 			if err != nil {
 				return NewControllerError("unexpected error getting identifier", err, http.StatusBadRequest)
 			}

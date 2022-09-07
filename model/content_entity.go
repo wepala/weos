@@ -615,7 +615,7 @@ func (w *ContentEntity) Identifier() (map[string]interface{}, error) {
 			if id, ok := w.payload["id"]; ok {
 				identifier["id"] = id
 			} else {
-				identifier["weos_id"] = w.ID
+				identifier["id"] = 0
 			}
 		}
 	}
