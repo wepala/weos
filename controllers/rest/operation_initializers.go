@@ -430,7 +430,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 
 		case "PATCH":
 			allParam := true
-			if _, ok := pathItem.Post.Extensions["x-command"]; ok {
+			if _, ok := pathItem.Patch.Extensions["x-command"]; ok {
 				handler = "DefaultWriteController"
 				autoConfigure = true
 				break
@@ -508,7 +508,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 			var strContentType string
 			allParam := true
 			contentTypeExt := pathItem.Delete.ExtensionProps.Extensions[SchemaExtension]
-			if _, ok := pathItem.Post.Extensions["x-command"]; ok {
+			if _, ok := pathItem.Delete.Extensions["x-command"]; ok {
 				handler = "DefaultWriteController"
 				autoConfigure = true
 				break
