@@ -303,7 +303,7 @@ func (d *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 	}
 	instance := ds.NewStruct()
 	//add default weos_id field
-	instance.AddField("WeosID", "", `json:"weos_id" gorm:"unique;<-:create"`)
+	instance.AddField("WeosID", "", `json:"weos_id" gorm:"<-:create"`)
 	instance.AddField("SequenceNo", uint(0), `json:"sequence_no"`)
 	//add table field so that it works with gorm functions that try to fetch the name.
 	//It's VERY important that the gorm default is set for this (spent hours trying to figure out why table names wouldn't show for related entities)
