@@ -504,6 +504,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 					}
 				}
 			}
+			autoConfigure = true
 		case "DELETE":
 			var strContentType string
 			allParam := true
