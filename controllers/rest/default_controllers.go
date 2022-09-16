@@ -225,46 +225,48 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 		limit, _ := newContext.Value("limit").(int)
 		page, _ := newContext.Value("page").(int)
 		filters := newContext.Value("_filters")
-
-		schema := entityRepository.Schema()
-		if filters != nil {
-			filterOptions = map[string]interface{}{}
-			filterOptions = filters.(map[string]interface{})
-			for key, values := range filterOptions {
-				if len(values.(*FilterProperties).Values) != 0 && values.(*FilterProperties).Operator != "in" {
-					msg := "this operator " + values.(*FilterProperties).Operator + " does not support multiple values "
-					return NewControllerError(msg, nil, http.StatusBadRequest)
-				}
-				// checking if the field is valid based on schema provided, split on "."
-				parts := strings.Split(key, ".")
-				if schema.Properties[parts[0]] == nil {
-					if key == "id" && schema.ExtensionProps.Extensions[IdentifierExtension] == nil {
-						continue
+		if entityRepository != nil {
+			schema := entityRepository.Schema()
+			if filters != nil {
+				filterOptions = map[string]interface{}{}
+				filterOptions = filters.(map[string]interface{})
+				for key, values := range filterOptions {
+					if len(values.(*FilterProperties).Values) != 0 && values.(*FilterProperties).Operator != "in" {
+						msg := "this operator " + values.(*FilterProperties).Operator + " does not support multiple values "
+						return NewControllerError(msg, nil, http.StatusBadRequest)
 					}
-					msg := "invalid property found in filter: " + key
-					return NewControllerError(msg, nil, http.StatusBadRequest)
+					// checking if the field is valid based on schema provided, split on "."
+					parts := strings.Split(key, ".")
+					if schema.Properties[parts[0]] == nil {
+						if key == "id" && schema.ExtensionProps.Extensions[IdentifierExtension] == nil {
+							continue
+						}
+						msg := "invalid property found in filter: " + key
+						return NewControllerError(msg, nil, http.StatusBadRequest)
+					}
+
 				}
-
 			}
-		}
-		if page == 0 {
-			page = 1
-		}
-		var count int64
-		var err error
-		var contentEntities []*model.ContentEntity
-		// sort by default is by id
-		sorts := map[string]string{"id": "asc"}
+			if page == 0 {
+				page = 1
+			}
+			var count int64
+			var err error
+			var contentEntities []*model.ContentEntity
+			// sort by default is by id
+			sorts := map[string]string{"id": "asc"}
 
-		contentEntities, count, err = entityRepository.GetList(newContext, entityRepository, page, limit, "", sorts, filterOptions)
-		if err != nil {
-			return NewControllerError(err.Error(), err, http.StatusBadRequest)
+			contentEntities, count, err = entityRepository.GetList(newContext, entityRepository, page, limit, "", sorts, filterOptions)
+			if err != nil {
+				return NewControllerError(err.Error(), err, http.StatusBadRequest)
+			}
+			resp := ListApiResponse{
+				Total: count,
+				Page:  page,
+				Items: contentEntities,
+			}
+			return ctxt.JSON(http.StatusOK, resp)
 		}
-		resp := ListApiResponse{
-			Total: count,
-			Page:  page,
-			Items: contentEntities,
-		}
-		return ctxt.JSON(http.StatusOK, resp)
+		return ctxt.NoContent(http.StatusOK)
 	}
 }
