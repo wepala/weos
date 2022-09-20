@@ -909,8 +909,12 @@ func NewGORMRepository(ctx context.Context, container weos.Container, name strin
 					switch filter.Operator {
 					case "gt":
 						operator = ">"
+					case "gte":
+						operator = ">="
 					case "lt":
 						operator = "<"
+					case "lte":
+						operator = "<="
 					case "ne":
 						operator = "!="
 					case "like":
