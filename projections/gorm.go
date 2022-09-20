@@ -874,7 +874,7 @@ func sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		for key, value := range order {
 			//only support certain values since GORM doesn't protect the order function https://gorm.io/docs/security.html#SQL-injection-Methods
-			if (value != "asc" && value != "desc" && value != "") || (key != "id") {
+			if value != "asc" && value != "desc" && value != "" {
 				return db
 			}
 			db.Order(key + " " + value)
