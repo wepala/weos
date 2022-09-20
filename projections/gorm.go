@@ -337,8 +337,7 @@ func (d *GORMDB) GORMModelBuilder(name string, ref *openapi3.Schema, depth int) 
 				gormParts = append(gormParts, "unique")
 			}
 		}
-
-		if strings.Contains(strings.Join(primaryKeys, " "), strings.ToLower(tname)) {
+		if weos.InList(primaryKeys, tname) {
 			gormParts = append(gormParts, "primaryKey", "size:512")
 			//only add NOT null if it's not already in the array to avoid issue if a user also add the field to the required array
 			if !strings.Contains(strings.Join(gormParts, ";"), "NOT NULL") {
