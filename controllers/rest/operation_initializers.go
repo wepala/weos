@@ -502,6 +502,9 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 					if tschema := content.Schema; tschema != nil && tschema.Ref != "" {
 						handler = "DefaultReadController"
 					}
+					if response.Value.Extensions["x-templates"] != nil {
+						handler = "DefaultReadController"
+					}
 				}
 			}
 			autoConfigure = true
