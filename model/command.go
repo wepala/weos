@@ -66,7 +66,7 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 			defer func() {
 				if r := recover(); r != nil {
 					e.handlerPanicked = true
-					err = fmt.Errorf("handler error '%v'", r)
+					err = fmt.Errorf("handler error '%+v'", r)
 				}
 				wg.Done()
 			}()
