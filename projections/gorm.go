@@ -169,6 +169,10 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 	var models []interface{}
 	if schema != nil {
 		for name, tschema := range schema.Components.Schemas {
+			//check if the schema has an alias and use that as the name instead
+			if dbAlias, ok := tschema.Value.Extensions["x-db-alias"].(string); ok {
+				name = dbAlias
+			}
 			model, err := d.GORMModel(name, tschema.Value, nil)
 			if err != nil {
 				if errors.Is(err, inlineSchemaErr) {
@@ -179,6 +183,10 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 			json.Unmarshal([]byte(`{
 						"table_alias": "`+name+`"
 					}`), &model)
+			//check if there is a migration indicator
+			if migration, ok := tschema.Value.Extensions["x-migrate"].(bool); ok && !migration {
+				continue
+			}
 			models = append(models, model)
 			//drop columns
 			if d.db.Migrator().HasTable(model) {
@@ -201,7 +209,6 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 			}
 		}
 	}
-
 	err := d.db.Migrator().AutoMigrate(models...)
 	return err
 }
@@ -221,7 +228,12 @@ func (d *GORMDB) GORMModel(name string, schema *openapi3.Schema, payload []byte)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal payload into model '%s'", err)
 		}
-		tpayload["table_alias"] = name
+		if dbAlias, ok := schema.Extensions["x-db-alias"].(string); ok {
+			tpayload["table_alias"] = dbAlias
+		} else {
+			tpayload["table_alias"] = name
+		}
+
 		//use the schema to convert simple arrays and inline objects to a json string
 		for k, v := range tpayload {
 			//get the property from the schema and check if it's an inline object, simple array, array with inline objects
