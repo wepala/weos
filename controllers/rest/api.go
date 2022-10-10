@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/alexbrainman/odbc"
 	"github.com/rakyll/statik/fs"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/projections/dialects"
