@@ -608,6 +608,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
 	case "odbc":
 		connStr = fmt.Sprintf("DSN=%s;USER=%s;PASSWORD=%s", config.Database, config.User, config.Password)
+		log.Debugf(connStr)
 	default:
 		return nil, nil, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 	}
