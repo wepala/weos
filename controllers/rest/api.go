@@ -608,7 +608,6 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
 	case "odbc":
 		connStr = fmt.Sprintf("DSN=%s;USER=%s;PASSWORD=%s", config.Database, config.User, config.Password)
-		log.Debugf(connStr)
 	default:
 		return nil, nil, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 	}
@@ -629,7 +628,8 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			Conn: db,
 		}), nil)
 		if err != nil {
-			return nil, nil, err
+			terr := errors.New(fmt.Sprintf("error setting up gorm connection to database '%s' with connection '%s'", err, connStr))
+			return nil, nil, terr
 		}
 	case "sqlite3":
 		gormDB, err = gorm.Open(&dialects.SQLite{
