@@ -63,12 +63,17 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 			}
 		}
 
+		var entityType string
+		if entityRepository != nil {
+			entityType = entityRepository.Name()
+		}
+
 		command := &model.Command{
 			Type:    commandName,
 			Payload: context2.GetPayload(ctxt.Request().Context()),
 			Metadata: model.CommandMetadata{
 				EntityID:   weosID,
-				EntityType: entityRepository.Name(),
+				EntityType: entityType,
 				SequenceNo: seq,
 				Version:    1,
 				UserID:     context2.GetUser(ctxt.Request().Context()),
