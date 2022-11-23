@@ -605,8 +605,6 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 	case "postgres":
 		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
-	case "odbc":
-		connStr = fmt.Sprintf("DSN=%s", config.Host)
 	default:
 		return nil, nil, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 	}
@@ -622,7 +620,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 	//setup gorm
 	var gormDB *gorm.DB
 	switch config.Driver {
-	case "postgres", "odbc":
+	case "postgres":
 		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
 			Conn: db,
 		}), nil)
