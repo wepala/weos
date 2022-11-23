@@ -20,3 +20,5 @@ APIs (WeOS Services) that you can use to create applications. We developed the e
 easy to deploy (no Docker required), and easy to maintain. You can use Open API to model your data, create data stores, 
 configure routes and set up functionality for endpoints. You can also configure middleware to make sophisticated
 microservices.
+
+There is also support for the odbc driver

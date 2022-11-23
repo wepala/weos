@@ -3,6 +3,7 @@ module github.com/wepala/weos
 go 1.16
 
 require (
+	github.com/alexbrainman/odbc v0.0.0-20211220213544-9c9a2e61c5e2 // indirect
 	github.com/casbin/casbin/v2 v2.47.3
 	github.com/casbin/gorm-adapter/v3 v3.7.2
 	github.com/coreos/go-oidc/v3 v3.1.0
