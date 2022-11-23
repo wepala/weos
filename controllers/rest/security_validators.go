@@ -57,7 +57,7 @@ func (o OpenIDConnect) Validate(ctxt echo.Context) (bool, interface{}, string, s
 			authorizationHeader := ctxt.Request().Header.Get("Authorization")
 			tokenString := strings.Replace(authorizationHeader, "Bearer ", "", -1)
 			token, err := tokenVerifier.Verify(ctxt.Request().Context(), tokenString)
-			err = fmt.Errorf("invalid token '%s': %s", tokenString, err)
+			err = fmt.Errorf("invalid token '%s': %s. Headers '%s'", tokenString, err, ctxt.Request().Header)
 
 			var userID string
 			var role string
