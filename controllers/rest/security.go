@@ -130,7 +130,8 @@ func (s *SecurityConfiguration) Middleware(api Container, commandDispatcher mode
 					}
 					//check permissions to ensure the user can access this endpoint
 					if enforcer, err := api.GetPermissionEnforcer("Default"); err == nil {
-						success, err = enforcer.Enforce(userID, ctxt.Request().URL.Path, ctxt.Request().Method)
+						tpath := strings.Replace(ctxt.Request().URL.Path, api.GetWeOSConfig().BasePath, "", 1)
+						success, err = enforcer.Enforce(userID, tpath, ctxt.Request().Method)
 						//fmt.Printf("explanations %v", explanations)
 						if err != nil {
 							ctxt.Logger().Errorf("error looking up permissions '%s'", err)
@@ -139,9 +140,12 @@ func (s *SecurityConfiguration) Middleware(api Container, commandDispatcher mode
 							return next(ctxt)
 						}
 						//check if the role has access to the endpoint
-						success, err = enforcer.Enforce(role, ctxt.Request().URL.Path, ctxt.Request().Method)
+						success, err = enforcer.Enforce(role, tpath, ctxt.Request().Method)
 						if success {
 							return next(ctxt)
+						}
+						if err != nil {
+							ctxt.Logger().Errorf("the role '%s' does not have access to '%s' action '%s': original error", role, tpath, ctxt.Request().Method, err)
 						}
 						return ctxt.NoContent(http.StatusForbidden)
 					}
