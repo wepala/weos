@@ -115,7 +115,7 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 		}
 
 		api := &rest.RESTAPI{}
-		db, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
+		db, _, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
 		if err != nil {
 			t.Fatalf("unexpected error getting connection '%s'", err)
 		}
@@ -148,7 +148,7 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 		}
 
 		api := &rest.RESTAPI{}
-		db, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
+		db, _, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
 		if err != nil {
 			t.Fatalf("unexpected error getting connection '%s'", err)
 		}
@@ -186,7 +186,7 @@ func TestNewApplicationFromConfig_SQLite(t *testing.T) {
 		}
 
 		api := &rest.RESTAPI{}
-		db, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
+		db, _, _, err := api.SQLConnectionFromConfig(sqliteConfig.Database)
 		if err != nil {
 			t.Fatalf("unexpected error getting connection '%s'", err)
 		}

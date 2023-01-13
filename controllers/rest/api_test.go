@@ -3,6 +3,7 @@ package rest_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"github.com/labstack/echo/v4"
 	"io/ioutil"
 	"net/http"
@@ -294,7 +295,7 @@ func TestRESTAPI_DefaultProjectionRegisteredBefore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("un expected error loading spec '%s'", err)
 	}
-	_, gormDB, err := tapi.SQLConnectionFromConfig(tapi.Config.Database)
+	_, gormDB, _, err := tapi.SQLConnectionFromConfig(tapi.Config.Database)
 	gormProjection, err := projections.NewProjection(context.TODO(), gormDB, tapi.EchoInstance().Logger)
 	if err != nil {
 		t.Fatalf("error setting up gorm projection")
@@ -323,6 +324,66 @@ func TestRESTAPI_DefaultProjectionRegisteredBefore(t *testing.T) {
 	}); !ok {
 		t.Errorf("expected the projection to be the one that was set")
 	}
+}
+
+func TestRESTAPI_SQLConnectionFromConfig(t *testing.T) {
+	t.Run("test with valid config", func(t *testing.T) {
+		apiYaml := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+  - url: http://localhost:8681
+x-weos-config:
+  databases:
+    - name: Default
+      driver: postgres
+      password: test-password
+      aws-iam: true
+      aws-region: us-east-1	
+`
+		tapi, err := api.New(apiYaml)
+		if err != nil {
+			t.Fatalf("un expected error loading spec '%s'", err)
+		}
+		var connectionString string
+		_, _, connectionString, err = tapi.SQLConnectionFromConfig(tapi.Config.Databases[0])
+		if strings.Contains(connectionString, "test-password") {
+			t.Errorf("expected the connection string to not contain password '%s', '%s'", "test-password", connectionString)
+		}
+	})
+	t.Run("unsupported driver", func(t *testing.T) {
+		apiYaml := `openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+  - url: http://localhost:8681
+x-weos-config:
+  databases:
+    - name: Default
+      driver: sqlite3
+      password: test-password
+      aws-iam: true
+      aws-region: us-east-1	
+`
+		tapi, err := api.New(apiYaml)
+		if err != nil {
+			t.Fatalf("un expected error loading spec '%s'", err)
+		}
+		_, _, _, err = tapi.SQLConnectionFromConfig(tapi.Config.Databases[0])
+		if !errors.Is(err, api.InvalidAWSDriver) {
+			t.Errorf("expected the error to be '%s', got '%s'", api.InvalidAWSDriver, err)
+		}
+	})
 }
 
 func TestRESTAPI_Initialize_DiscoveryAddedToGet(t *testing.T) {

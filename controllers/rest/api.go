@@ -31,6 +31,8 @@ import (
 	"github.com/wepala/weos/projections"
 )
 
+var InvalidAWSDriver = errors.New("invalid aws driver specified, must be postgres or mysql")
+
 //RESTAPI is used to manage the API
 type RESTAPI struct {
 	Application                    model.Service
@@ -562,7 +564,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 }
 
 //SQLConnectionFromConfig get db connection based on a Config
-func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gorm.DB, error) {
+func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gorm.DB, string, error) {
 	var connStr string
 	var err error
 
@@ -574,7 +576,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			if _, err = os.Stat(config.Database); os.IsNotExist(err) {
 				_, err = os.Create(strings.Replace(config.Database, ":memory:", "", -1))
 				if err != nil {
-					return nil, nil, model.NewError(fmt.Sprintf("error creating sqlite database '%s'", config.Database), err)
+					return nil, nil, "", model.NewError(fmt.Sprintf("error creating sqlite database '%s'", config.Database), err)
 				}
 			}
 		}
@@ -606,12 +608,12 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
 	default:
-		return nil, nil, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
+		return nil, nil, connStr, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 	}
 
 	db, err := sql.Open(config.Driver, connStr)
 	if err != nil {
-		return nil, nil, errors.New(fmt.Sprintf("error setting up connection to database '%s' with connection '%s'", err, connStr))
+		return nil, nil, connStr, errors.New(fmt.Sprintf("error setting up connection to database '%s' with connection '%s'", err, connStr))
 	}
 
 	db.SetMaxOpenConns(config.MaxOpen)
@@ -625,7 +627,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			Conn: db,
 		}), nil)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	case "sqlite3":
 		gormDB, err = gorm.Open(&dialects.SQLite{
@@ -634,14 +636,14 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			},
 		}, nil)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	case "mysql":
 		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
 			Conn: db,
 		}), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	case "ramsql": //this is for testing
 		gormDB = &gorm.DB{}
@@ -650,17 +652,17 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			Conn: db,
 		}), nil)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	case "clickhouse":
 		gormDB, err = gorm.Open(clickhouse.New(clickhouse.Config{
 			Conn: db,
 		}), nil)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	default:
-		return nil, nil, errors.New(fmt.Sprintf("we don't support database driver '%s'", config.Driver))
+		return nil, nil, connStr, errors.New(fmt.Sprintf("we don't support database driver '%s'", config.Driver))
 	}
-	return db, gormDB, err
+	return db, gormDB, connStr, err
 }

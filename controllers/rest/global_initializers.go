@@ -56,7 +56,7 @@ func SQLDatabase(ctxt context.Context, tapi Container, swagger *openapi3.Swagger
 				if config.ServiceConfig != nil && config.ServiceConfig.Database != nil {
 					var connection *sql.DB
 					var gormDB *gorm.DB
-					if connection, gormDB, err = api.SQLConnectionFromConfig(config.Database); err == nil {
+					if connection, gormDB, _, err = api.SQLConnectionFromConfig(config.Database); err == nil {
 						api.RegisterDBConnection("Default", connection)
 						api.RegisterGORMDB("Default", gormDB)
 					}
@@ -66,7 +66,7 @@ func SQLDatabase(ctxt context.Context, tapi Container, swagger *openapi3.Swagger
 					for _, dbconfig := range config.ServiceConfig.Databases {
 						var connection *sql.DB
 						var gormDB *gorm.DB
-						if connection, gormDB, err = api.SQLConnectionFromConfig(dbconfig); err == nil {
+						if connection, gormDB, _, err = api.SQLConnectionFromConfig(dbconfig); err == nil {
 							api.RegisterDBConnection(dbconfig.Name, connection)
 							api.RegisterGORMDB(dbconfig.Name, gormDB)
 						}
