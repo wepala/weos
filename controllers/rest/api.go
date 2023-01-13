@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	"github.com/casbin/casbin/v2"
 	"net/http"
 	"os"
@@ -568,47 +570,80 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 	var connStr string
 	var err error
 
-	switch config.Driver {
-	case "sqlite3":
-		//check if file exists and if not create it. We only do this if a memory only db is NOT asked for
-		//(Note that if it's a combination we go ahead and create the file) https://www.sqlite.org/inmemorydb.html
-		if config.Database != ":memory:" {
-			if _, err = os.Stat(config.Database); os.IsNotExist(err) {
-				_, err = os.Create(strings.Replace(config.Database, ":memory:", "", -1))
-				if err != nil {
-					return nil, nil, "", model.NewError(fmt.Sprintf("error creating sqlite database '%s'", config.Database), err)
+	if config.AwsIam {
+		dbName := config.Database
+		dbUser := config.User
+		dbHost := config.Host
+		dbPort := config.Port
+		dbEndpoint := fmt.Sprintf("%s:%d", dbHost, dbPort)
+		region := config.AwsRegion
+
+		cfg, err := awsconfig.LoadDefaultConfig(context.TODO())
+		if err != nil {
+			log.Printf("aws configuration error: " + err.Error())
+		}
+
+		authenticationToken, err := auth.BuildAuthToken(
+			context.TODO(), dbEndpoint, region, dbUser, cfg.Credentials)
+		if err != nil {
+			log.Printf("failed to create aws authentication token: " + err.Error())
+		}
+
+		switch config.Driver {
+		case "mysql":
+			connStr = fmt.Sprintf("%s:%s@tcp(%s)/%s?tls=true&allowCleartextPasswords=true",
+				dbUser, authenticationToken, dbEndpoint, dbName,
+			)
+		case "postgres":
+			connStr = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+				dbHost, dbPort, dbUser, authenticationToken, dbName,
+			)
+		default:
+			return nil, nil, "", InvalidAWSDriver
+		}
+	} else {
+		switch config.Driver {
+		case "sqlite3":
+			//check if file exists and if not create it. We only do this if a memory only db is NOT asked for
+			//(Note that if it's a combination we go ahead and create the file) https://www.sqlite.org/inmemorydb.html
+			if config.Database != ":memory:" {
+				if _, err = os.Stat(config.Database); os.IsNotExist(err) {
+					_, err = os.Create(strings.Replace(config.Database, ":memory:", "", -1))
+					if err != nil {
+						return nil, nil, "", model.NewError(fmt.Sprintf("error creating sqlite database '%s'", config.Database), err)
+					}
 				}
 			}
-		}
 
-		connStr = fmt.Sprintf("%s",
-			config.Database)
+			connStr = fmt.Sprintf("%s",
+				config.Database)
 
-		//update connection string to include authentication IF a username is set
-		if config.User != "" {
-			authenticationString := fmt.Sprintf("?_auth&_auth_user=%s&_auth_pass=%s&_auth_crypt=sha512&_foreign_keys=on",
-				config.User, config.Password)
-			connStr = connStr + authenticationString
-		} else {
-			connStr = connStr + "?_foreign_keys=on"
+			//update connection string to include authentication IF a username is set
+			if config.User != "" {
+				authenticationString := fmt.Sprintf("?_auth&_auth_user=%s&_auth_pass=%s&_auth_crypt=sha512&_foreign_keys=on",
+					config.User, config.Password)
+				connStr = connStr + authenticationString
+			} else {
+				connStr = connStr + "?_foreign_keys=on"
+			}
+			log.Debugf("sqlite connection string '%s'", connStr)
+		case "sqlserver":
+			connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%s/%s",
+				config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
+		case "ramsql":
+			connStr = "Testing"
+		case "mysql":
+			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=true",
+				config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
+		case "clickhouse":
+			connStr = fmt.Sprintf("tcp://%s:%s?username=%s&password=%s&database=%s",
+				config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
+		case "postgres":
+			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+				config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
+		default:
+			return nil, nil, connStr, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 		}
-		log.Debugf("sqlite connection string '%s'", connStr)
-	case "sqlserver":
-		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%s/%s",
-			config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
-	case "ramsql":
-		connStr = "Testing"
-	case "mysql":
-		connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=true",
-			config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
-	case "clickhouse":
-		connStr = fmt.Sprintf("tcp://%s:%s?username=%s&password=%s&database=%s",
-			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
-	case "postgres":
-		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
-	default:
-		return nil, nil, connStr, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 	}
 
 	db, err := sql.Open(config.Driver, connStr)
