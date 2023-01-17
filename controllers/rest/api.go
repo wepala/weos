@@ -591,11 +591,11 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 
 		switch config.Driver {
 		case "mysql":
-			connStr = fmt.Sprintf("%s:%s@tcp(%s)/%s?tls=true&allowCleartextPasswords=true",
+			connStr = fmt.Sprintf("%s:%s@tcp(%s)/%s?tls=true&sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&allowCleartextPasswords=true&parseTime=true",
 				dbUser, authenticationToken, dbEndpoint, dbName,
 			)
 		case "postgres":
-			connStr = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+			connStr = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 				dbHost, dbPort, dbUser, authenticationToken, dbName,
 			)
 		default:
