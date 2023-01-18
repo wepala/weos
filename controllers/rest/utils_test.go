@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/wepala/weos/model"
+	"github.com/getkin/kin-openapi/openapi3"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,9 +18,15 @@ import (
 )
 
 func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
+	swagger, err := LoadConfig(t, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading swagger config '%s'", err)
+	}
 
+	repository := &EntityRepositoryMock{SchemaFunc: func() *openapi3.Schema {
+		return swagger.Components.Schemas["Blog"].Value
+	}}
 	t.Run("application/x-www-form-urlencoded content type", func(t *testing.T) {
-		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Blog", nil, nil)
 		data := url.Values{}
 		data.Set("title", "Test Blog")
 		data.Set("url", "MyBlogUrl")
@@ -29,7 +36,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err, _ := api.ConvertFormToJson(req, "application/x-www-form-urlencoded", entityFactory, nil)
+		payload, err, _ := api.ConvertFormToJson(req, "application/x-www-form-urlencoded", repository, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -54,7 +61,6 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 	})
 
 	t.Run("multipart/form-data content type", func(t *testing.T) {
-		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Blog", nil, nil)
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
 		writer.WriteField("title", "Test Blog")
@@ -64,7 +70,7 @@ func TestUtils_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err, _ := api.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
+		payload, err, _ := api.ConvertFormToJson(req, "multipart/form-data", repository, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -216,4 +222,35 @@ func TestGetJwkUrl(t *testing.T) {
 
 	})
 
+}
+
+func TestResolveResponseType(t *testing.T) {
+	swagger, err := LoadConfig(t, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unable to load swagger: %s", err)
+	}
+	path := swagger.Paths.Find("/blogs/:id")
+	t.Run("any response type", func(t *testing.T) {
+		expectedContentType := "application/json"
+		contentType := api.ResolveResponseType("*/*", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
+
+	t.Run("application types", func(t *testing.T) {
+		expectedContentType := "application/json"
+		contentType := api.ResolveResponseType("application/*", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
+
+	t.Run("multiple types", func(t *testing.T) {
+		expectedContentType := "application/json"
+		contentType := api.ResolveResponseType("text/html, application/xhtml+xml, application/json;q=0.9, */*;q=0.8", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
 }

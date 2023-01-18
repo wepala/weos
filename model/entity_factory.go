@@ -8,18 +8,6 @@ import (
 	"strings"
 )
 
-type EntityFactory interface {
-	FromSchemaAndBuilder(string, *openapi3.Schema, ds.Builder) EntityFactory
-	NewEntity(ctx context.Context) (*ContentEntity, error)
-	//CreateEntityWithValues add an entity for the first type to the system with the following values
-	CreateEntityWithValues(ctx context.Context, payload []byte) (*ContentEntity, error)
-	DynamicStruct(ctx context.Context) ds.DynamicStruct
-	Name() string
-	TableName() string
-	Schema() *openapi3.Schema
-	Builder(ctx context.Context) ds.Builder
-}
-
 type DefaultEntityFactory struct {
 	name    string
 	schema  *openapi3.Schema

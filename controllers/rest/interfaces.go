@@ -6,16 +6,15 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 )
 
 type (
 	//Middleware that is bound to an OpenAPI operation
-	Middleware func(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc
+	Middleware func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc
 	//Controller is the handler for a specific operation
-	Controller func(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc
+	Controller func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc
 	//OperationInitializer initialzers that are run when processing OpenAPI operations
 	GlobalInitializer    func(context.Context, Container, *openapi3.Swagger) (context.Context, error)
 	OperationInitializer func(context.Context, Container, string, string, *openapi3.Swagger, *openapi3.PathItem, *openapi3.Operation) (context.Context, error)

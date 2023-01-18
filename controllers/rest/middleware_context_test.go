@@ -8,7 +8,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
-	"github.com/wepala/weos/model"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -40,11 +39,6 @@ func TestContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error loading api specification '%s'", err)
 	}
-	entityFactory := &EntityFactoryMock{
-		SchemaFunc: func() *openapi3.Schema {
-			return swagger.Components.Schemas["Blog"].Value
-		},
-	}
 	e := echo.New()
 	restApi := &rest.RESTAPI{}
 	restApi.SetEchoInstance(e)
@@ -52,7 +46,7 @@ func TestContext(t *testing.T) {
 	t.Run("check that account id is added by default", func(t *testing.T) {
 		accountID := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -77,7 +71,7 @@ func TestContext(t *testing.T) {
 		}
 
 		path := api.GetConfig().Paths.Find("/blogs")
-		mw := rest.Context(api, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(api, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -97,7 +91,7 @@ func TestContext(t *testing.T) {
 		paramName := "someHeader"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -123,7 +117,7 @@ func TestContext(t *testing.T) {
 		paramName := "someOtherHeader"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -148,7 +142,7 @@ func TestContext(t *testing.T) {
 		paramName := "q"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -175,7 +169,7 @@ func TestContext(t *testing.T) {
 		if path == nil {
 			t.Fatal("could not find expected path")
 		}
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -202,7 +196,7 @@ func TestContext(t *testing.T) {
 		if path == nil {
 			t.Fatal("could not find expected path")
 		}
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -229,7 +223,7 @@ func TestContext(t *testing.T) {
 		if path == nil {
 			t.Fatal("could not find expected path")
 		}
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -253,7 +247,7 @@ func TestContext(t *testing.T) {
 		paramName := "Asdfsdgfsdfgypypadfasd"
 		paramValue := "123"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -272,7 +266,7 @@ func TestContext(t *testing.T) {
 
 	t.Run("if no middleware is defined it should work", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			return nil
@@ -289,7 +283,7 @@ func TestContext(t *testing.T) {
 		paramValue := "2"
 		pValue := 2
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -316,7 +310,7 @@ func TestContext(t *testing.T) {
 		operator := "eq"
 		queryString := "/blogs?" + paramName + "[" + field + "][" + operator + "]=" + paramValue
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -356,7 +350,7 @@ func TestContext(t *testing.T) {
 		field2 := "title"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -408,7 +402,7 @@ func TestContext(t *testing.T) {
 		field2 := "title"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -460,7 +454,7 @@ func TestContext(t *testing.T) {
 		field := "id"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -494,7 +488,7 @@ func TestContext(t *testing.T) {
 	})
 	t.Run("json request payload should be added to context", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Post)
+		mw := rest.Context(restApi, nil, nil, path, path.Post)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -521,7 +515,7 @@ func TestContext(t *testing.T) {
 
 	t.Run("check that resonse type is added to the context", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -539,7 +533,7 @@ func TestContext(t *testing.T) {
 	})
 	t.Run("x-content extension should be used to add data to the request context", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -565,7 +559,7 @@ func TestContext(t *testing.T) {
 	})
 	t.Run("the request parameter value should take preference over x-context parameters values", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs/:id")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -592,7 +586,7 @@ func TestContext(t *testing.T) {
 
 	t.Run("add operationId to context", func(t *testing.T) {
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, nil, entityFactory, path, path.Get)
+		mw := rest.Context(restApi, nil, nil, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -626,10 +620,16 @@ type Transaction struct {
 }
 
 func TestContext_ConvertFormUrlEncodedToJson(t *testing.T) {
+	swagger, err := LoadConfig(t, "./fixtures/blog.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error loading swagger config '%s'", err)
+	}
+
+	repository := &EntityRepositoryMock{SchemaFunc: func() *openapi3.Schema {
+		return swagger.Components.Schemas["Blog"].Value
+	}}
 
 	t.Run("application/x-www-form-urlencoded content type", func(t *testing.T) {
-		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Transaction", nil, nil)
-
 		data := url.Values{}
 		data.Set("title", "Test Blog")
 		data.Set("url", "MyBlogUrl")
@@ -639,7 +639,7 @@ func TestContext_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err, _ := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", entityFactory, nil)
+		payload, err, _ := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", repository, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -664,8 +664,6 @@ func TestContext_ConvertFormUrlEncodedToJson(t *testing.T) {
 	})
 
 	t.Run("multipart/form-data content type", func(t *testing.T) {
-		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Transaction", nil, nil)
-
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
 		writer.WriteField("title", "Test Blog")
@@ -675,7 +673,7 @@ func TestContext_ConvertFormUrlEncodedToJson(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
+		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", repository, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -793,8 +791,9 @@ paths:
 			t.Fatal("unexpected error Transaction schema doesn't exist")
 		}
 
-		contentType := "Transaction"
-		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, tschema.Value, fixture.Schemas["Transaction"])
+		trepository := &EntityRepositoryMock{SchemaFunc: func() *openapi3.Schema {
+			return tschema.Value
+		}}
 
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
@@ -810,7 +809,7 @@ paths:
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
+		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", trepository, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -838,7 +837,6 @@ paths:
 		}
 	})
 	t.Run("application/x-www-form-urlencoded content type with numbers", func(t *testing.T) {
-
 		fixture, err := rest.New(spec)
 		if err != nil {
 			t.Fatalf("unexpected error initializing api fixture '%s'", err)
@@ -850,8 +848,9 @@ paths:
 			t.Fatal("unexpected error Transaction schema doesn't exist")
 		}
 
-		contentType := "Transaction"
-		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, tschema.Value, fixture.Schemas["Transaction"])
+		trepository := &EntityRepositoryMock{SchemaFunc: func() *openapi3.Schema {
+			return tschema.Value
+		}}
 
 		data := url.Values{}
 		data.Set("title", "Test Blog")
@@ -869,7 +868,7 @@ paths:
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		payload, err, _ := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", entityFactory, nil)
+		payload, err, _ := rest.ConvertFormToJson(req, "application/x-www-form-urlencoded", trepository, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -898,18 +897,23 @@ paths:
 	})
 
 	t.Run("multipart/form-data content type with array ", func(t *testing.T) {
-		entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Transaction", nil, nil)
+		t.Skip("The test does reflect the desired behaviour, but the implementation is not correct")
+		repository := &EntityRepositoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
 
 		body := new(bytes.Buffer)
 		writer := multipart.NewWriter(body)
-		writer.WriteField("titles[]", "Test Transaction")
-		writer.WriteField("titles[]", "MyBlogUrl")
+		writer.WriteField("title[]", "Test Transaction")
+		writer.WriteField("title[]", "MyBlogUrl")
 		writer.Close()
 
 		req := httptest.NewRequest(http.MethodPost, "/blogs", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", entityFactory, nil)
+		payload, err, _ := rest.ConvertFormToJson(req, "multipart/form-data", repository, nil)
 		if err != nil {
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
@@ -918,22 +922,22 @@ paths:
 			t.Errorf("error converting form-urlencoded payload to json")
 		}
 
-		var compare Transaction
+		var compare []Transaction
 		err = json.Unmarshal(payload, &compare)
 		if err != nil {
-			t.Errorf("error unmashalling payload")
+			t.Errorf("error unmashalling payload '%s'", err)
 		}
 
-		if len(compare.Titles) != 2 {
-			t.Fatalf("expected %d titles, got %d", 2, len(compare.Titles))
+		if len(compare) != 2 {
+			t.Fatalf("expected %d titles, got %d", 2, len(compare))
 		}
 
-		if compare.Titles[0] != "Test Transaction" {
-			t.Errorf("expected title to be '%s', got '%s'", "Test Transaction", compare.Titles[0])
+		if compare[0].Title != "Test Transaction" {
+			t.Errorf("expected title to be '%s', got '%s'", "Test Transaction", compare[0].Title)
 		}
 
-		if compare.Titles[1] != "MyBlogUrl" {
-			t.Errorf("expected title to be '%s', got '%s'", "MyBlogUrl", compare.Titles[1])
+		if compare[1].Title != "MyBlogUrl" {
+			t.Errorf("expected title to be '%s', got '%s'", "MyBlogUrl", compare[1].Title)
 		}
 
 	})

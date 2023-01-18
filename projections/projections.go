@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-//Projection interface that all projections should implement
-type Projection interface {
-	weos.Projection
+//Repository interface that all projections should implement
+type Repository interface {
+	weos.EntityRepository
 }
 
 type DefaultProjection struct {
@@ -22,12 +22,12 @@ type DefaultProjection struct {
 
 //MetaProjection makes it easier to work with multiple projections.
 type MetaProjection struct {
-	ordinalProjections []Projection
+	ordinalProjections []weos.Projection
 	projections        map[reflect.Value]int
 }
 
 //Add appends projection to the meta projection
-func (m *MetaProjection) Add(projection Projection) *MetaProjection {
+func (m *MetaProjection) Add(projection weos.Projection) *MetaProjection {
 	if m.projections == nil {
 		m.projections = make(map[reflect.Value]int)
 	}

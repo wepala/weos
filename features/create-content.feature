@@ -176,7 +176,7 @@ Feature: Create content
         | 1     | 24Kj3zfpocMlmFNV2KwkFfP2bgf | 1           | Blog 1       | Some Blog      |
         | 2     | 24Kj7ExtIFvuGgTOTLBgpZgCl0n | 1           | Blog 2       | Some Blog 2    |
       And the service is running
-
+    
     Scenario: Create a basic item
 
       This is creating a basic item

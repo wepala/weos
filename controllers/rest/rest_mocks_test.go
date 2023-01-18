@@ -41,7 +41,10 @@ var _ rest.Container = &ContainerMock{}
 // 				panic("mock out the GetEntityFactories method")
 // 			},
 // 			GetEntityFactoryFunc: func(name string) (weos.EntityFactory, error) {
-// 				panic("mock out the GetEntityFactory method")
+// 				panic("mock out the GetEntityRepository method")
+// 			},
+// 			GetEntityRepositoryFunc: func(name string) (weos.EntityRepository, error) {
+// 				panic("mock out the GetEntityRepository method")
 // 			},
 // 			GetEventStoreFunc: func(name string) (weos.EventRepository, error) {
 // 				panic("mock out the GetEventStore method")
@@ -93,6 +96,9 @@ var _ rest.Container = &ContainerMock{}
 // 			},
 // 			RegisterEntityFactoryFunc: func(name string, factory weos.EntityFactory)  {
 // 				panic("mock out the RegisterEntityFactory method")
+// 			},
+// 			RegisterEntityRepositoryFunc: func(name string, repository weos.EntityRepository)  {
+// 				panic("mock out the RegisterEntityRepository method")
 // 			},
 // 			RegisterEventStoreFunc: func(name string, repository weos.EventRepository)  {
 // 				panic("mock out the RegisterEventStore method")
@@ -152,8 +158,11 @@ type ContainerMock struct {
 	// GetEntityFactoriesFunc mocks the GetEntityFactories method.
 	GetEntityFactoriesFunc func() map[string]weos.EntityFactory
 
-	// GetEntityFactoryFunc mocks the GetEntityFactory method.
+	// GetEntityFactoryFunc mocks the GetEntityRepository method.
 	GetEntityFactoryFunc func(name string) (weos.EntityFactory, error)
+
+	// GetEntityRepositoryFunc mocks the GetEntityRepository method.
+	GetEntityRepositoryFunc func(name string) (weos.EntityRepository, error)
 
 	// GetEventStoreFunc mocks the GetEventStore method.
 	GetEventStoreFunc func(name string) (weos.EventRepository, error)
@@ -205,6 +214,9 @@ type ContainerMock struct {
 
 	// RegisterEntityFactoryFunc mocks the RegisterEntityFactory method.
 	RegisterEntityFactoryFunc func(name string, factory weos.EntityFactory)
+
+	// RegisterEntityRepositoryFunc mocks the RegisterEntityRepository method.
+	RegisterEntityRepositoryFunc func(name string, repository weos.EntityRepository)
 
 	// RegisterEventStoreFunc mocks the RegisterEventStore method.
 	RegisterEventStoreFunc func(name string, repository weos.EventRepository)
@@ -265,8 +277,13 @@ type ContainerMock struct {
 		// GetEntityFactories holds details about calls to the GetEntityFactories method.
 		GetEntityFactories []struct {
 		}
-		// GetEntityFactory holds details about calls to the GetEntityFactory method.
+		// GetEntityRepository holds details about calls to the GetEntityRepository method.
 		GetEntityFactory []struct {
+			// Name is the name argument value.
+			Name string
+		}
+		// GetEntityRepository holds details about calls to the GetEntityRepository method.
+		GetEntityRepository []struct {
 			// Name is the name argument value.
 			Name string
 		}
@@ -351,6 +368,13 @@ type ContainerMock struct {
 			// Factory is the factory argument value.
 			Factory weos.EntityFactory
 		}
+		// RegisterEntityRepository holds details about calls to the RegisterEntityRepository method.
+		RegisterEntityRepository []struct {
+			// Name is the name argument value.
+			Name string
+			// Repository is the repository argument value.
+			Repository weos.EntityRepository
+		}
 		// RegisterEventStore holds details about calls to the RegisterEventStore method.
 		RegisterEventStore []struct {
 			// Name is the name argument value.
@@ -432,6 +456,7 @@ type ContainerMock struct {
 	lockGetDBConnection               sync.RWMutex
 	lockGetEntityFactories            sync.RWMutex
 	lockGetEntityFactory              sync.RWMutex
+	lockGetEntityRepository           sync.RWMutex
 	lockGetEventStore                 sync.RWMutex
 	lockGetGlobalInitializers         sync.RWMutex
 	lockGetGormDBConnection           sync.RWMutex
@@ -449,6 +474,7 @@ type ContainerMock struct {
 	lockRegisterController            sync.RWMutex
 	lockRegisterDBConnection          sync.RWMutex
 	lockRegisterEntityFactory         sync.RWMutex
+	lockRegisterEntityRepository      sync.RWMutex
 	lockRegisterEventStore            sync.RWMutex
 	lockRegisterGORMDB                sync.RWMutex
 	lockRegisterGlobalInitializer     sync.RWMutex
@@ -608,10 +634,10 @@ func (mock *ContainerMock) GetEntityFactoriesCalls() []struct {
 	return calls
 }
 
-// GetEntityFactory calls GetEntityFactoryFunc.
+// GetEntityRepository calls GetEntityFactoryFunc.
 func (mock *ContainerMock) GetEntityFactory(name string) (weos.EntityFactory, error) {
 	if mock.GetEntityFactoryFunc == nil {
-		panic("ContainerMock.GetEntityFactoryFunc: method is nil but Container.GetEntityFactory was just called")
+		panic("ContainerMock.GetEntityFactoryFunc: method is nil but Container.GetEntityRepository was just called")
 	}
 	callInfo := struct {
 		Name string
@@ -624,7 +650,7 @@ func (mock *ContainerMock) GetEntityFactory(name string) (weos.EntityFactory, er
 	return mock.GetEntityFactoryFunc(name)
 }
 
-// GetEntityFactoryCalls gets all the calls that were made to GetEntityFactory.
+// GetEntityFactoryCalls gets all the calls that were made to GetEntityRepository.
 // Check the length with:
 //     len(mockedContainer.GetEntityFactoryCalls())
 func (mock *ContainerMock) GetEntityFactoryCalls() []struct {
@@ -636,6 +662,37 @@ func (mock *ContainerMock) GetEntityFactoryCalls() []struct {
 	mock.lockGetEntityFactory.RLock()
 	calls = mock.calls.GetEntityFactory
 	mock.lockGetEntityFactory.RUnlock()
+	return calls
+}
+
+// GetEntityRepository calls GetEntityRepositoryFunc.
+func (mock *ContainerMock) GetEntityRepository(name string) (weos.EntityRepository, error) {
+	if mock.GetEntityRepositoryFunc == nil {
+		panic("ContainerMock.GetEntityRepositoryFunc: method is nil but Container.GetEntityRepository was just called")
+	}
+	callInfo := struct {
+		Name string
+	}{
+		Name: name,
+	}
+	mock.lockGetEntityRepository.Lock()
+	mock.calls.GetEntityRepository = append(mock.calls.GetEntityRepository, callInfo)
+	mock.lockGetEntityRepository.Unlock()
+	return mock.GetEntityRepositoryFunc(name)
+}
+
+// GetEntityRepositoryCalls gets all the calls that were made to GetEntityRepository.
+// Check the length with:
+//     len(mockedContainer.GetEntityRepositoryCalls())
+func (mock *ContainerMock) GetEntityRepositoryCalls() []struct {
+	Name string
+} {
+	var calls []struct {
+		Name string
+	}
+	mock.lockGetEntityRepository.RLock()
+	calls = mock.calls.GetEntityRepository
+	mock.lockGetEntityRepository.RUnlock()
 	return calls
 }
 
@@ -1149,6 +1206,41 @@ func (mock *ContainerMock) RegisterEntityFactoryCalls() []struct {
 	mock.lockRegisterEntityFactory.RLock()
 	calls = mock.calls.RegisterEntityFactory
 	mock.lockRegisterEntityFactory.RUnlock()
+	return calls
+}
+
+// RegisterEntityRepository calls RegisterEntityRepositoryFunc.
+func (mock *ContainerMock) RegisterEntityRepository(name string, repository weos.EntityRepository) {
+	if mock.RegisterEntityRepositoryFunc == nil {
+		panic("ContainerMock.RegisterEntityRepositoryFunc: method is nil but Container.RegisterEntityRepository was just called")
+	}
+	callInfo := struct {
+		Name       string
+		Repository weos.EntityRepository
+	}{
+		Name:       name,
+		Repository: repository,
+	}
+	mock.lockRegisterEntityRepository.Lock()
+	mock.calls.RegisterEntityRepository = append(mock.calls.RegisterEntityRepository, callInfo)
+	mock.lockRegisterEntityRepository.Unlock()
+	mock.RegisterEntityRepositoryFunc(name, repository)
+}
+
+// RegisterEntityRepositoryCalls gets all the calls that were made to RegisterEntityRepository.
+// Check the length with:
+//     len(mockedContainer.RegisterEntityRepositoryCalls())
+func (mock *ContainerMock) RegisterEntityRepositoryCalls() []struct {
+	Name       string
+	Repository weos.EntityRepository
+} {
+	var calls []struct {
+		Name       string
+		Repository weos.EntityRepository
+	}
+	mock.lockRegisterEntityRepository.RLock()
+	calls = mock.calls.RegisterEntityRepository
+	mock.lockRegisterEntityRepository.RUnlock()
 	return calls
 }
 

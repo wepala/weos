@@ -13,6 +13,7 @@ x-weos-config:
 components:
   schemas:
     Address:
+      x-inline: true
       type: object
       properties:
         use:
@@ -34,7 +35,9 @@ components:
           nullable: true
           description: Text representation of the address
         line:
-          type: string
+          type: array
+          items:
+            type: string
           nullable: true
           description: Street name, number, direction & P.O. Box etc.
         city:
@@ -61,12 +64,13 @@ components:
     Appointment:
       type: object
       properties:
-        identifier:
-          type: array
-          items:
-            $ref: "#/components/schemas/Identifier"
+        #        identifier:
+        #          type: array
+        #          items:
+        #            $ref: "#/components/schemas/Identifier"
         status:
           type: string
+          nullable: true
           enum:
             - proposed
             - pending
@@ -78,36 +82,36 @@ components:
             - entered-in-error
             - checked-in
             - waitlist
-        cancelationReason:
-          $ref: "#/components/schemas/CodeableConcept"
-        serviceCategory:
-          type: array
-          nullable: true
-          items:
-            $ref: "#/components/schemas/CodeableConcept"
-          description: A broad categorization of the service that is to be performed during this appointment
-        serviceType:
-          type: array
-          nullable: true
-          items:
-            $ref: "#/components/schemas/CodeableConcept"
-        speciality:
-          type: array
-          nullable: true
-          items:
-            $ref: "#/components/schemas/CodeableConcept"
-        appointmentType:
-          $ref: "#/components/schemas/CodeableConcept"
-        reasonCode:
-          type: array
-          nullable: true
-          items:
-            $ref: "#/components/schemas/CodeableConcept"
-        reasonReference:
-          type: array
-          nullable: true
-          items:
-            $ref: "#/components/schemas/Procedure"
+        #        cancelationReason:
+        #          $ref: "#/components/schemas/CodeableConcept"
+        #        serviceCategory:
+        #          type: array
+        #          nullable: true
+        #          items:
+        #            $ref: "#/components/schemas/CodeableConcept"
+        #          description: A broad categorization of the service that is to be performed during this appointment
+        #        serviceType:
+        #          type: array
+        #          nullable: true
+        #          items:
+        #            $ref: "#/components/schemas/CodeableConcept"
+        #        speciality:
+        #          type: array
+        #          nullable: true
+        #          items:
+        #            $ref: "#/components/schemas/CodeableConcept"
+        #        appointmentType:
+        #          $ref: "#/components/schemas/CodeableConcept"
+        #        reasonCode:
+        #          type: array
+        #          nullable: true
+        #          items:
+        #            $ref: "#/components/schemas/CodeableConcept"
+        #        reasonReference:
+        #          type: array
+        #          nullable: true
+        #          items:
+        #            $ref: "#/components/schemas/Procedure"
         priority:
           type: integer
           nullable: true
@@ -128,11 +132,11 @@ components:
         minutesDuration:
           type: integer
           nullable: true
-        slot:
-          type: array
-          nullable: true
-          items:
-            $ref: "#/components/schemas/Slot"
+        #        slot:
+        #          type: array
+        #          nullable: true
+        #          items:
+        #            $ref: "#/components/schemas/Slot"
         created:
           type: string
           format: date-time
@@ -143,30 +147,87 @@ components:
         patientInstruction:
           type: string
           nullable: true
-        basedOn:
-          type: array
-          nullable: true
-        items:
-          $ref: "#/components/schemas/ServiceRequest"
+        #        basedOn:
+        #          type: array
+        #          nullable: true
+        #          items:
+        #            $ref: "#/components/schemas/ServiceRequest"
         participant:
-          type: object
-          properties:
-            type:
-              type: array
-              nullable: true
-              items:
-                $ref: "#/components/schemas/CodeableConcept"
-            actor:
-              $ref: "#/components/schemas/Patient"
-            required:
-              type: string
-              nullable: true
-            status:
-              type: string
-            period:
-              $ref: "#/components/schemas/Period"
-      required:
-        - participant
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/CodeableConcept"
+              actor:
+                $ref: "#/components/schemas/Patient"
+              required:
+                type: string
+                nullable: true
+              status:
+                type: string
+              period:
+                $ref: "#/components/schemas/Period"
+    AllergyIntolerance:
+      type: object
+      properties:
+        type:
+          type: string
+        clinicalStatus:
+          $ref: "#/components/schemas/CodeableConcept"
+        verificationStatus:
+          $ref: "#/components/schemas/CodeableConcept"
+        category:
+          type: array
+          items:
+            type: string
+            enum:
+              - food
+              - medication
+              - environment
+              - biologic
+        criticality:
+          type: string
+          enum:
+            - low
+            - high
+            - unable-to-access
+        code:
+          $ref: "#/components/schemas/CodeableConcept"
+        patient:
+          $ref: "#/components/schemas/Patient"
+
+    Bundle:
+      type: object
+      properties:
+        id:
+          type: string
+          format: ksuid
+          nullable: true
+        type:
+          type: string
+        entry:
+          type: array
+          items:
+            type: object
+            properties:
+              link:
+                type: array
+                items:
+                  type: string
+              fullUrl:
+                type: string
+                format: uri
+              search:
+                type: object
+                properties:
+                  mode:
+                    type: string
+                  score:
+                    type: string
 
     Procedure:
       type: object
@@ -175,22 +236,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Identifier"
-
-    ServiceRequest:
-      type: object
-      properties:
-        identifier:
-          type: array
-          items:
-            $ref: "#/components/schemas/Identifier"
-        instantiateCanonical:
-          type: array
-          items:
-            $ref: ""
-
-
-
-
 
     Attachment:
       type: object
@@ -210,19 +255,27 @@ components:
       required:
         - contentType
     CodeableConcept:
-      type: object
-      properties:
-        coding:
-          type: array
-          nullable: true
-          items:
-            $ref: "#/components/schemas/Coding"
-        text:
-          type: string
-          nullable: true
+      x-inline: true
+      type: array
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+            format: ksuid
+          coding:
+            type: array
+            nullable: true
+            items:
+              $ref: "#/components/schemas/Coding"
+          text:
+            type: string
+            nullable: true
       example:
         coding:
           - system: test
+      x-identifiers:
+        - id
     Coding:
       type: object
       properties:
@@ -248,6 +301,7 @@ components:
           description: If this coding was chosen directly by the user
           nullable: true
     ContactPoint:
+      x-inline: true
       type: object
       properties:
         system:
@@ -280,7 +334,33 @@ components:
       required:
         - system
         - use
+    Encounter:
+      type: object
+      properties:
+        #        identifier:
+        #          type: array
+        #          items:
+        #            $ref: "#/components/schemas/Identifier"
+        status:
+          type: string
+          nullable: true
+          enum:
+            - in-progress
+            - planned
+            - onhold
+            - completed
+            - cancelled
+            - entered-in-error
+            - unkown
+        #TODO this is supposed to be `subject` not `patient`. change when https://wepala.atlassian.net/browse/WEOS-1527 is fixed
+        patient:
+          $ref: "#/components/schemas/Patient"
+        appointment:
+          $ref: "#/components/schemas/Appointment"
+        period:
+          $ref: "#/components/schemas/Period"
     HumanName:
+      x-inline: true
       type: object
       properties:
         use:
@@ -313,6 +393,7 @@ components:
       required:
         - use
     Identifier:
+      x-inline: true
       type: object
       properties:
         use:
@@ -389,10 +470,12 @@ components:
           type: boolean
         telecom:
           type: array
+          nullable: true
           items:
             $ref: "#/components/schemas/ContactPoint"
         gender:
           type: string
+          nullable: true
           enum:
             - male
             - female
@@ -411,7 +494,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Address"
-          nullable: false
+          nullable: true
         maritalStatus:
           $ref: "#/components/schemas/CodeableConcept"
         multipleBirth:
@@ -426,6 +509,7 @@ components:
             $ref: "#/components/schemas/Attachment"
         contact:
           type: array
+          nullable: true
           items:
             type: object
             properties:
@@ -456,6 +540,7 @@ components:
               preferred:
                 type: boolean
           description: A language which may be used to communicate with the patient about his or her health
+          nullable: true
         generalPractitioner:
           type: array
           items:
@@ -463,6 +548,29 @@ components:
           nullable: true
         managingOrganization:
           $ref: "#/components/schemas/Organization"
+    Questionnaire:
+      type: object
+      properties:
+        identifier:
+          type: array
+          items:
+            $ref: "#/components/schemas/Identifier"
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        status:
+          type: string
+        subjectType:
+          type: array
+          items:
+            type: string
+      required:
+        - subjectType
+        - status
     Slot:
       type: object
       properties:
@@ -508,7 +616,50 @@ components:
           nullable: true
       required:
         - status
-
+    ServiceRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          nullable: true
+          enum:
+            - draft
+            - active
+            - on-hold
+            - revoked
+            - completed
+            - entered-in-error
+        intent:
+          type: string
+          nullable: true
+          enum:
+            - proposal
+            - plan
+            - directive
+            - order
+            - original-order
+            - reflex-order
+            - filler-order
+            - instance-order
+            - option
+        priority:
+          type: string
+          nullable: true
+          enum:
+            - routine
+            - urgent
+            - asap
+            - stat
+        category:
+          type: array
+          items:
+            $ref: "#/components/schemas/CodeableConcept"
+        subject:
+          $ref: "#/components/schemas/Patient"
+        encounter:
+          $ref: "#/components/schemas/Encounter"
+        code:
+          $ref: "#/components/schemas/CodeableConcept"
 
 
 
@@ -535,7 +686,7 @@ paths:
             application/json:
               schema:
                 type: string
-  /patient:
+  /Patient:
     post:
       operationId: Create Patient
       summary: Create a patient
@@ -559,6 +710,7 @@ paths:
     get:
       operationId: Get Patients
       summary: Get List of Patients
+      x-schema: "#/components/schemas/Patient"
       responses:
         200:
           description: List of Patients
@@ -621,13 +773,6 @@ paths:
             type: string
           required: true
           description: patient
-      requestBody:
-        description: patient
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Patient"
       summary: Delete Patient
       operationId: Delete Patient
       responses:
@@ -664,6 +809,33 @@ paths:
     get:
       operationId: Get Appointments
       summary: Get List of Appointments
+      parameters:
+        - in: query
+          name: _filters
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              value:
+                type: string
+              values:
+                type: array
+                items:
+                  type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: start
+          schema:
+            type: string
+      x-schema: "#/components/schemas/Appointment"
       responses:
         200:
           description: List of Appointments
@@ -672,7 +844,7 @@ paths:
               schema:
                 type: object
                 items:
-                  $ref: "#/components/schemas/Appointment"
+                  $ref: "#/components/schemas/Bundle"
 
   /appointment/{id}:
     get:
@@ -725,15 +897,9 @@ paths:
             type: string
           required: true
           description: Appointment
-      requestBody:
-        description: Appointment
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Appointment"
       summary: Delete Appointment
       operationId: Delete Appointment
+      x-schema: "#/components/schemas/Appointment"
       responses:
         200:
           description: Appointment Deleted
@@ -743,3 +909,128 @@ paths:
                 $ref: "#/components/schemas/Appointment"
         400:
           description: Invalid Appointment Submitted
+
+  /encounter:
+    post:
+      operationId: Create Encounter
+      summary: Create an Encounter
+      requestBody:
+        description: Encounter info that is submitted
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Encounter"
+      responses:
+        201:
+          description: Encounter Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Encounter"
+        400:
+          description: Invalid Information
+
+    get:
+      operationId: Get Encounters
+      summary: Get List of Encounters
+      parameters:
+        - in: query
+          name: _filters
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              value:
+                type: string
+              values:
+                type: array
+                items:
+                  type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: start
+          schema:
+            type: string
+      x-schema: "#/components/schemas/Encounter"
+      responses:
+        200:
+          description: List of Encounters
+          content:
+            application/json:
+              schema:
+                type: object
+                items:
+                  $ref: "#/components/schemas/Bundle"
+
+  /encounter/{id}:
+    get:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      summary: Get encounter by id
+      operationId: Get encounter
+      responses:
+        200:
+          description: Get Encounter Information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Encounter"
+
+    put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      summary: Update encounter information
+      operationId: Update encounter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Encounter"
+      responses:
+        200:
+          description: Update Encounter Information
+        400:
+          description: Bad Request
+        401:
+          description: User is not authenticated
+        403:
+          description: User is authenticated but is not authorized to access this information
+
+    delete:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: Encounter
+      summary: Delete Encounter
+      operationId: Delete Encounter
+      x-schema: "#/components/schemas/Encounter"
+      responses:
+        200:
+          description: Encounter Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Encounter"
+        400:
+          description: Invalid Encounter Submitted

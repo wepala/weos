@@ -12,7 +12,6 @@ import (
 	ds "github.com/ompluscator/dynamic-struct"
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"net/http"
 	"regexp"
@@ -27,18 +26,6 @@ func ContextInitializer(ctxt context.Context, api Container, path string, method
 		return ctxt, err
 	}
 	middlewares = append(middlewares, contextMiddleware)
-	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
-	return ctxt, nil
-}
-
-//ContentTypeResponseInitializer add ContentTypeResponseMiddleware middleware to path
-func ContentTypeResponseInitializer(ctxt context.Context, api Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
-	middlewares := GetOperationMiddlewares(ctxt)
-	contentMiddleware, err := api.GetMiddleware("ContentTypeResponseMiddleware")
-	if err != nil {
-		return ctxt, err
-	}
-	middlewares = append(middlewares, contentMiddleware)
 	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	return ctxt, nil
 }
@@ -115,8 +102,8 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 	return ctxt, nil
 }
 
-//EntityFactoryInitializer setups the EntityFactory for a specific route
-func EntityFactoryInitializer(ctxt context.Context, api Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
+//EntityRepositoryInitializer setups the EntityFactory for a specific route
+func EntityRepositoryInitializer(ctxt context.Context, api Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	jsonSchema := operation.ExtensionProps.Extensions[SchemaExtension]
 	if jsonSchema != nil {
 		contentType := ""
@@ -130,10 +117,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 		}
 
 		//get the schema details from the swagger file
-		if schema, ok := swagger.Components.Schemas[contentType]; ok {
-			entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-			newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-			api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+		if _, ok := swagger.Components.Schemas[contentType]; ok {
+			repository, err := api.GetEntityRepository(contentType)
+			if err != nil {
+				return ctxt, err
+			}
+			newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
 			return newContext, nil
 		}
 
@@ -146,10 +135,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 				if requestContent.Schema.Ref != "" {
 					contentType := strings.Replace(requestContent.Schema.Ref, "#/components/schemas/", "", -1)
 					//get the schema details from the swagger file
-					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+					if _, ok := swagger.Components.Schemas[contentType]; ok {
+						repository, err := api.GetEntityRepository(contentType)
+						if err != nil {
+							return ctxt, err
+						}
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
 						return newContext, nil
 					}
 					break
@@ -157,10 +148,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 				//use the first schema ref to determine the entity type
 				if requestContent.Schema.Value.Items != nil && strings.Contains(requestContent.Schema.Value.Items.Ref, "#/components/schemas/") {
 					contentType := strings.Replace(requestContent.Schema.Value.Items.Ref, "#/components/schemas/", "", -1)
-					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+					if _, ok := swagger.Components.Schemas[contentType]; ok {
+						repository, err := api.GetEntityRepository(contentType)
+						if err != nil {
+							return ctxt, err
+						}
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
 						return newContext, nil
 					}
 				}
@@ -174,20 +167,24 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 				//use the first schema ref to determine the entity type
 				if respContent.Schema.Ref != "" {
 					contentType := strings.Replace(respContent.Schema.Ref, "#/components/schemas/", "", -1)
-					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+					if _, ok := swagger.Components.Schemas[contentType]; ok {
+						repository, err := api.GetEntityRepository(contentType)
+						if err != nil {
+							return ctxt, err
+						}
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
 						return newContext, nil
 					}
 				}
 				//use the first schema ref to determine the entity type
 				if respContent.Schema.Value.Properties["items"] != nil && respContent.Schema.Value.Properties["items"].Value.Items != nil {
 					contentType := strings.Replace(respContent.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/", "", -1)
-					if schema, ok := swagger.Components.Schemas[contentType]; ok {
-						entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-						newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-						api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+					if _, ok := swagger.Components.Schemas[contentType]; ok {
+						repository, err := api.GetEntityRepository(contentType)
+						if err != nil {
+							return ctxt, err
+						}
+						newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
 						return newContext, nil
 					}
 				} else {
@@ -201,10 +198,12 @@ func EntityFactoryInitializer(ctxt context.Context, api Container, path string, 
 							if alias == "items" {
 								if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
 									contentType := strings.Replace(prop.Value.Items.Ref, "#/components/schemas/", "", -1)
-									if schema, ok := swagger.Components.Schemas[contentType]; ok {
-										entityFactory := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType, schema.Value, nil)
-										newContext := context.WithValue(ctxt, weoscontext.ENTITY_FACTORY, entityFactory)
-										api.RegisterEntityFactory(entityFactory.Name(), entityFactory)
+									if _, ok := swagger.Components.Schemas[contentType]; ok {
+										repository, err := api.GetEntityRepository(contentType)
+										if err != nil {
+											return ctxt, err
+										}
+										newContext := context.WithValue(ctxt, weoscontext.ENTITY_REPOSITORY, repository)
 										return newContext, nil
 									}
 								}
@@ -262,18 +261,7 @@ func UserDefinedInitializer(ctxt context.Context, tapi Container, path string, m
 			api.EchoInstance().Logger.Errorf("unable to unmarshal middleware '%s'", err)
 			return ctxt, fmt.Errorf("middlewares in the specification should be an array of strings on '%s'", path)
 		}
-		found := false
-		for _, middlewareN := range middlewareNames {
-			if middlewareN == "DefaultResponseMiddleware" {
-				found = true
-			}
-		}
-		if !found {
-			middlewareNames = append(middlewareNames, "DefaultResponseMiddleware")
-		}
-
 		//get the existing middleware from context and then add user defined middleware to it
-
 		for _, middlewareName := range middlewareNames {
 			middleware, err := api.GetMiddleware(middlewareName)
 			if err != nil {
@@ -282,12 +270,6 @@ func UserDefinedInitializer(ctxt context.Context, tapi Container, path string, m
 			middlewares = append(middlewares, middleware)
 		}
 
-	} else {
-		middleware, err := api.GetMiddleware("DefaultResponseMiddleware")
-		if err != nil {
-			return ctxt, fmt.Errorf("unregistered middleware '%s' specified on path '%s'", "DefaultResponseMiddleware", path)
-		}
-		middlewares = append(middlewares, middleware)
 	}
 	ctxt = context.WithValue(ctxt, weoscontext.MIDDLEWARES, middlewares)
 	if projectionExtension, ok := operation.ExtensionProps.Extensions[ProjectionExtension]; ok {
@@ -345,6 +327,12 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 		middlewareNames := make(map[string]bool)
 		switch strings.ToUpper(method) {
 		case "POST":
+			if _, ok := pathItem.Post.Extensions["x-command"]; ok {
+				handler = "DefaultWriteController"
+				autoConfigure = true
+				break
+			}
+
 			if pathItem.Post.RequestBody == nil {
 				api.e.Logger.Warnf("unexpected error: expected request body but got nil")
 				break
@@ -352,8 +340,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 				//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
 				for _, value := range pathItem.Post.RequestBody.Value.Content {
 					if value.Schema != nil && strings.Contains(value.Schema.Ref, "#/components/schemas/") {
-						handler = "CreateController"
-						middlewareNames["CreateMiddleware"] = true
+						handler = "DefaultWriteController"
 						autoConfigure = true
 					} else if value.Schema.Value.Type == "array" && value.Schema.Value.Items != nil && strings.Contains(value.Schema.Value.Items.Ref, "#/components/schemas/") {
 						attach := true
@@ -365,8 +352,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 							}
 						}
 						if attach {
-							handler = "CreateBatchController"
-							middlewareNames["CreateBatchMiddleware"] = true
+							handler = "DefaultWriteController"
 							autoConfigure = true
 						}
 
@@ -376,6 +362,11 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 			}
 		case "PUT":
 			allParam := true
+			if _, ok := pathItem.Put.Extensions["x-command"]; ok {
+				handler = "DefaultWriteController"
+				autoConfigure = true
+				break
+			}
 			if pathItem.Put.RequestBody == nil {
 				break
 			} else {
@@ -408,8 +399,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 								}
 							}
 							if allParam {
-								handler = "UpdateController"
-								middlewareNames["UpdateMiddleware"] = true
+								handler = "DefaultWriteController"
 								autoConfigure = true
 								break
 							}
@@ -418,8 +408,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 							for _, param := range pathItem.Put.Parameters {
 
 								if "id" == param.Value.Name {
-									handler = "UpdateController"
-									middlewareNames["UpdateMiddleware"] = true
+									handler = "DefaultWriteController"
 									autoConfigure = true
 									break
 								}
@@ -428,8 +417,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 									bytesContext := interfaceContext.(json.RawMessage)
 									json.Unmarshal(bytesContext, &contextName)
 									if "id" == contextName {
-										handler = "UpdateController"
-										middlewareNames["UpdateMiddleware"] = true
+										handler = "DefaultWriteController"
 										autoConfigure = true
 										break
 									}
@@ -442,6 +430,11 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 
 		case "PATCH":
 			allParam := true
+			if _, ok := pathItem.Patch.Extensions["x-command"]; ok {
+				handler = "DefaultWriteController"
+				autoConfigure = true
+				break
+			}
 			if pathItem.Patch.RequestBody == nil {
 				break
 			} else {
@@ -472,8 +465,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 								}
 							}
 							if allParam {
-								handler = "UpdateController"
-								middlewareNames["UpdateMiddleware"] = true
+								handler = "DefaultWriteController"
 								autoConfigure = true
 								break
 							}
@@ -482,8 +474,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 							for _, param := range pathItem.Patch.Parameters {
 
 								if "id" == param.Value.Name {
-									handler = "UpdateController"
-									middlewareNames["UpdateMiddleware"] = true
+									handler = "DefaultWriteController"
 									autoConfigure = true
 									break
 								}
@@ -492,8 +483,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 									bytesContext := interfaceContext.(json.RawMessage)
 									json.Unmarshal(bytesContext, &contextName)
 									if "id" == contextName {
-										handler = "UpdateController"
-										middlewareNames["UpdateMiddleware"] = true
+										handler = "DefaultWriteController"
 										autoConfigure = true
 										break
 									}
@@ -504,99 +494,29 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 				}
 			}
 		case "GET":
-			allParam := true
-			//check to see if the path can be autoconfigured. If not show a warning to the developer is made aware
-			//checks if the response refers to a schema
-			if pathItem.Get != nil && pathItem.Get.Responses != nil && pathItem.Get.Responses["200"] != nil && pathItem.Get.Responses["200"].Value.Content != nil {
-				for _, val := range pathItem.Get.Responses["200"].Value.Content {
-					if val.Schema != nil && strings.Contains(val.Schema.Ref, "#/components/schemas/") {
-						var identifiers []string
-						identifierExtension := swagger.Components.Schemas[strings.Replace(val.Schema.Ref, "#/components/schemas/", "", -1)].Value.ExtensionProps.Extensions[IdentifierExtension]
-						if identifierExtension != nil {
-							bytesId := identifierExtension.(json.RawMessage)
-							err := json.Unmarshal(bytesId, &identifiers)
-							if err != nil {
-								return ctxt, err
-							}
-						}
-						var contextName string
-						if identifiers != nil && len(identifiers) > 0 {
-							for _, identifier := range identifiers {
-								foundIdentifier := false
-								//check the parameters
-								for _, param := range pathItem.Get.Parameters {
-									cName := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-									if identifier == param.Value.Name || (cName != nil && identifier == cName.(string)) {
-										foundIdentifier = true
-										break
-									}
-								}
-								if !foundIdentifier {
-									allParam = false
-									api.e.Logger.Warnf("unexpected error: a parameter for each part of the identifier must be set")
-									break
-								}
-							}
-						} else {
-							//check the parameters for id
-							if pathItem.Get.Parameters != nil && len(pathItem.Get.Parameters) != 0 {
-								for _, param := range pathItem.Get.Parameters {
-									if "id" == param.Value.Name {
-										allParam = true
-									}
-									contextInterface := param.Value.ExtensionProps.Extensions[ContextNameExtension]
-									if contextInterface != nil {
-										bytesContext := contextInterface.(json.RawMessage)
-										json.Unmarshal(bytesContext, &contextName)
-										if "id" == contextName {
-											allParam = true
-										}
-									}
-								}
-							}
-						}
-						if allParam {
-							handler = "ViewController"
-							middlewareNames["ViewMiddleware"] = true
-							autoConfigure = true
-							break
-						}
-					} else {
-						//checks if the response refers to an array schema
-						if val.Schema != nil && val.Schema.Value.Properties != nil && val.Schema.Value.Properties["items"] != nil && val.Schema.Value.Properties["items"].Value.Type == "array" && val.Schema.Value.Properties["items"].Value.Items != nil && strings.Contains(val.Schema.Value.Properties["items"].Value.Items.Ref, "#/components/schemas/") {
-							handler = "ListController"
-							middlewareNames["ListMiddleware"] = true
-							autoConfigure = true
-							break
-						} else {
-							if val.Schema != nil && val.Schema.Value.Properties != nil {
-								var alias string
-								for _, prop := range val.Schema.Value.Properties {
-									aliasInterface := prop.Value.ExtensionProps.Extensions[AliasExtension]
-									if aliasInterface != nil {
-										bytesContext := aliasInterface.(json.RawMessage)
-										json.Unmarshal(bytesContext, &alias)
-										if alias == "items" {
-											if prop.Value.Type == "array" && prop.Value.Items != nil && strings.Contains(prop.Value.Items.Ref, "#/components/schemas/") {
-												handler = "ListController"
-												middlewareNames["ListMiddleware"] = true
-												autoConfigure = true
-												break
-											}
-										}
-									}
-								}
-							}
-						}
+			//assume list controller
+			handler = "DefaultListController"
+			//if there is a schema in the response then it's probably a view action
+			if response := operation.Responses.Get(http.StatusOK); response != nil && response.Value != nil {
+				for _, content := range response.Value.Content {
+					if tschema := content.Schema; tschema != nil && tschema.Ref != "" {
+						handler = "DefaultReadController"
 					}
-
+					if response.Value.Extensions["x-templates"] != nil {
+						handler = "DefaultReadController"
+					}
 				}
 			}
+			autoConfigure = true
 		case "DELETE":
 			var strContentType string
 			allParam := true
 			contentTypeExt := pathItem.Delete.ExtensionProps.Extensions[SchemaExtension]
-
+			if _, ok := pathItem.Delete.Extensions["x-command"]; ok {
+				handler = "DefaultWriteController"
+				autoConfigure = true
+				break
+			}
 			if pathItem.Delete.RequestBody == nil && contentTypeExt == nil {
 				break
 			}
@@ -653,8 +573,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 					}
 				}
 				if allParam {
-					handler = "DeleteController"
-					middlewareNames["DeleteMiddleware"] = true
+					handler = "DefaultWriteController"
 					autoConfigure = true
 					break
 				}
@@ -663,8 +582,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 			for _, param := range pathItem.Delete.Parameters {
 
 				if "id" == param.Value.Name {
-					handler = "DeleteController"
-					middlewareNames["DeleteMiddleware"] = true
+					handler = "DefaultWriteController"
 					autoConfigure = true
 					break
 				}
@@ -673,8 +591,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 					bytesContext := interfaceContext.(json.RawMessage)
 					json.Unmarshal(bytesContext, &contextName)
 					if "id" == contextName {
-						handler = "DeleteController"
-						middlewareNames["DeleteMiddleware"] = true
+						handler = "DefaultWriteController"
 						autoConfigure = true
 						break
 					}
@@ -717,20 +634,7 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 	re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
 	echoPath := re.ReplaceAllString(path, `:$1`)
 	controller := GetOperationController(ctxt)
-	projection := GetOperationProjection(ctxt)
-	if projection == nil {
-		//if there are user defined projections on the operation let's create a MetaProjection and use that
-		definedProjections := GetOperationProjections(ctxt)
-		if len(definedProjections) > 0 {
-			metaProjection := new(projections.MetaProjection)
-			for _, userProjection := range definedProjections {
-				metaProjection.Add(userProjection)
-			}
-			projection = metaProjection
-		} else {
-			projection, err = api.GetProjection("Default")
-		}
-	}
+	repository := GetOperationRepository(ctxt)
 	commandDispatcher := GetOperationCommandDispatcher(ctxt)
 	if commandDispatcher == nil {
 		commandDispatcher, err = api.GetCommandDispatcher("Default")
@@ -742,14 +646,14 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 	if eventStore == nil {
 		eventStore, err = api.GetEventStore("Default")
 	}
-	entityFactory := GetEntityFactory(ctxt)
+	entityFactory := GetEntityRepository(ctxt)
 	if entityFactory == nil {
 
 	}
 
 	if controller == nil {
 		//once no controller is set, the default controller and middleware is added to the path
-		controller, err = api.GetController("DefaultResponseController")
+		controller, err = api.GetController("DefaultReadController")
 		if err != nil {
 			api.e.Logger.Warnf("unexpected error initializing controller: %s", err)
 			return ctxt, fmt.Errorf("controller '%s' set on path '%s' not found", "DefaultResponseController", path)
@@ -759,12 +663,16 @@ func RouteInitializer(ctxt context.Context, tapi Container, path string, method 
 	//only set up routes if controller is set because echo returns an error if the handler for a route is nil
 	if controller != nil {
 		var handler echo.HandlerFunc
-		handler = controller(api, projection, commandDispatcher, eventStore, entityFactory)
+		handler = controller(api, commandDispatcher, repository, map[string]*openapi3.PathItem{
+			path: pathItem,
+		}, map[string]*openapi3.Operation{
+			method: operation,
+		})
 		middlewares := GetOperationMiddlewares(ctxt)
 		var pathMiddleware []echo.MiddlewareFunc
 		for _, tmiddleware := range middlewares {
 			//Not sure if CORS middleware and any other middlewares needs to be added
-			pathMiddleware = append(pathMiddleware, tmiddleware(api, projection, commandDispatcher, eventStore, entityFactory, pathItem, operation))
+			pathMiddleware = append(pathMiddleware, tmiddleware(api, commandDispatcher, repository, pathItem, operation))
 		}
 		pathMiddleware = append(pathMiddleware, middleware.CORS())
 		if controllerExtension, ok := operation.ExtensionProps.Extensions[ControllerExtension]; ok {
@@ -832,23 +740,30 @@ func GetOperationEventStore(ctx context.Context) model.EventRepository {
 	return nil
 }
 
-func GetOperationProjection(ctx context.Context) projections.Projection {
-	if value, ok := ctx.Value(weoscontext.PROJECTION).(projections.Projection); ok {
+func GetOperationProjection(ctx context.Context) model.Projection {
+	if value, ok := ctx.Value(weoscontext.PROJECTION).(model.Projection); ok {
 		return value
 	}
 	return nil
 }
 
-func GetOperationProjections(ctx context.Context) []projections.Projection {
-	if value, ok := ctx.Value(weoscontext.PROJECTIONS).([]projections.Projection); ok {
+func GetOperationRepository(ctx context.Context) model.EntityRepository {
+	if value, ok := ctx.Value(weoscontext.ENTITY_REPOSITORY).(model.EntityRepository); ok {
 		return value
 	}
 	return nil
 }
 
-//GetEntityFactory get the configured event factory from the context
-func GetEntityFactory(ctx context.Context) model.EntityFactory {
-	if value, ok := ctx.Value(weoscontext.ENTITY_FACTORY).(model.EntityFactory); ok {
+func GetOperationProjections(ctx context.Context) []model.Projection {
+	if value, ok := ctx.Value(weoscontext.PROJECTIONS).([]model.Projection); ok {
+		return value
+	}
+	return nil
+}
+
+//GetEntityRepository get the configured event factory from the context
+func GetEntityRepository(ctx context.Context) model.EntityRepository {
+	if value, ok := ctx.Value(weoscontext.ENTITY_REPOSITORY).(model.EntityRepository); ok {
 		return value
 	}
 	return nil

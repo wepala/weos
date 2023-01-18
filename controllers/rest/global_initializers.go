@@ -49,14 +49,14 @@ func SQLDatabase(ctxt context.Context, tapi Container, swagger *openapi3.Swagger
 	api := tapi.(*RESTAPI)
 	var err error
 	if api.GetConfig() != nil {
-		if weosConfigData, ok := api.GetConfig().Extensions[WeOSConfigExtension]; ok {
+		if weosConfigData, ok := swagger.Extensions[WeOSConfigExtension]; ok {
 			var config *APIConfig
 			if err = json.Unmarshal(weosConfigData.(json.RawMessage), &config); err == nil {
 				//if the legacy way of instantiating a connection is present then use that as the default
 				if config.ServiceConfig != nil && config.ServiceConfig.Database != nil {
 					var connection *sql.DB
 					var gormDB *gorm.DB
-					if connection, gormDB, err = api.SQLConnectionFromConfig(config.Database); err == nil {
+					if connection, gormDB, _, err = api.SQLConnectionFromConfig(config.Database); err == nil {
 						api.RegisterDBConnection("Default", connection)
 						api.RegisterGORMDB("Default", gormDB)
 					}
@@ -66,7 +66,7 @@ func SQLDatabase(ctxt context.Context, tapi Container, swagger *openapi3.Swagger
 					for _, dbconfig := range config.ServiceConfig.Databases {
 						var connection *sql.DB
 						var gormDB *gorm.DB
-						if connection, gormDB, err = api.SQLConnectionFromConfig(dbconfig); err == nil {
+						if connection, gormDB, _, err = api.SQLConnectionFromConfig(dbconfig); err == nil {
 							api.RegisterDBConnection(dbconfig.Name, connection)
 							api.RegisterGORMDB(dbconfig.Name, gormDB)
 						}
@@ -192,15 +192,26 @@ func DefaultEventStore(ctxt context.Context, tapi Container, swagger *openapi3.S
 	if gormDB, err = api.GetGormDBConnection("Default"); err == nil {
 		var defaultEventStore model.EventRepository
 		defaultEventStore, err = model.NewBasicEventRepository(gormDB, api.EchoInstance().Logger, false, "", "")
-		//if there is a default projection then add it as a listener to the default event store
-		if defaultProjection, err := api.GetProjection("Default"); err == nil {
-			defaultEventStore.AddSubscriber(defaultProjection.GetEventHandler())
-		}
 		err = defaultEventStore.Migrate(ctxt)
 		api.RegisterEventStore("Default", defaultEventStore)
 	}
 	if err != nil {
 		api.EchoInstance().Logger.Warnf("Default projection not created '%s'", err)
+	}
+	return ctxt, nil
+}
+
+//RegisterEntityRepositories registers the entity repositories based on the schema definitions
+func RegisterEntityRepositories(ctxt context.Context, api Container, swagger *openapi3.Swagger) (context.Context, error) {
+	for schemaName, schema := range swagger.Components.Schemas {
+		if _, ok := schema.Value.Extensions["x-inline"]; !ok {
+			//get the schema details from the swagger file
+			repository, err := projections.NewGORMRepository(ctxt, api, schemaName, schema.Value)
+			if err != nil {
+				return ctxt, err
+			}
+			api.RegisterEntityRepository(repository.Name(), repository)
+		}
 	}
 	return ctxt, nil
 }

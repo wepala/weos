@@ -10,7 +10,6 @@ import (
 	"github.com/labstack/gommon/log"
 	context2 "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"net/http"
 	"strings"
 )
@@ -47,7 +46,7 @@ func (s *SecurityConfiguration) FromSchema(schemas map[string]*openapi3.Security
 	return s, err
 }
 
-func (s *SecurityConfiguration) Middleware(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func (s *SecurityConfiguration) Middleware(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	//check that the schemes exist
 	var validators []Validator
 	logger, _ := api.GetLog("Default")
@@ -131,7 +130,8 @@ func (s *SecurityConfiguration) Middleware(api Container, projection projections
 					}
 					//check permissions to ensure the user can access this endpoint
 					if enforcer, err := api.GetPermissionEnforcer("Default"); err == nil {
-						success, err = enforcer.Enforce(userID, ctxt.Request().URL.Path, ctxt.Request().Method)
+						tpath := strings.Replace(ctxt.Request().URL.Path, api.GetWeOSConfig().BasePath, "", 1)
+						success, err = enforcer.Enforce(userID, tpath, ctxt.Request().Method)
 						//fmt.Printf("explanations %v", explanations)
 						if err != nil {
 							ctxt.Logger().Errorf("error looking up permissions '%s'", err)
@@ -140,9 +140,12 @@ func (s *SecurityConfiguration) Middleware(api Container, projection projections
 							return next(ctxt)
 						}
 						//check if the role has access to the endpoint
-						success, err = enforcer.Enforce(role, ctxt.Request().URL.Path, ctxt.Request().Method)
+						success, err = enforcer.Enforce(role, tpath, ctxt.Request().Method)
 						if success {
 							return next(ctxt)
+						}
+						if err != nil {
+							ctxt.Logger().Errorf("the role '%s' does not have access to '%s' action '%s': original error", role, tpath, ctxt.Request().Method, err)
 						}
 						return ctxt.NoContent(http.StatusForbidden)
 					}

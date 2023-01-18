@@ -1,6 +1,7 @@
 package rest_test
 
 import (
+	context3 "context"
 	"fmt"
 	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -8,7 +9,6 @@ import (
 	weoscontext "github.com/wepala/weos/context"
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"net/http"
@@ -16,21 +16,23 @@ import (
 	"testing"
 )
 
-func TestEntityFactoryInitializer(t *testing.T) {
+func TestEntityRepositoryInitializer(t *testing.T) {
 	api, err := rest.New("./fixtures/blog.yaml")
 	if err != nil {
 		t.Fatalf("unexpected error loading api '%s'", err)
 	}
-	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
-	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.Schemas = schemas
+	baseCtxt, err := rest.SQLDatabase(context.TODO(), api, api.Swagger)
+	api.RegisterLog("Default", &LogMock{})
 	t.Run("get schema from request body", func(t *testing.T) {
-
-		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		baseCtxt, err = rest.RegisterEntityRepositories(baseCtxt, api, api.Swagger)
+		if err != nil {
+			t.Fatalf("error setting up entity repositories %s", err)
+		}
+		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		entityFactory := rest.GetEntityFactory(ctxt)
+		entityFactory := rest.GetEntityRepository(ctxt)
 		if entityFactory == nil {
 			t.Fatalf("expected entity factory to be in the context")
 		}
@@ -43,12 +45,19 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		api.Schemas = schemas
-		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		api.RegisterLog("Default", &LogMock{})
+		baseCtxt, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		baseCtxt, err = rest.DefaultProjection(baseCtxt, api, api.Swagger)
+		baseCtxt, err = rest.RegisterEntityRepositories(baseCtxt, api, api.Swagger)
+		if err != nil {
+			t.Fatalf("error setting up entity repositories %s", err)
+		}
+		api.RegisterLog("Default", &LogMock{})
+		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		entityFactory := rest.GetEntityFactory(ctxt)
+		entityFactory := rest.GetEntityRepository(ctxt)
 		if entityFactory == nil {
 			t.Fatalf("expected entity factory to be in the context")
 		}
@@ -61,12 +70,19 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		api.Schemas = schemas
-		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		api.RegisterLog("Default", &LogMock{})
+		baseCtxt, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		baseCtxt, err = rest.DefaultProjection(baseCtxt, api, api.Swagger)
+		baseCtxt, err = rest.RegisterEntityRepositories(baseCtxt, api, api.Swagger)
+		if err != nil {
+			t.Fatalf("error setting up entity repositories %s", err)
+		}
+		api.RegisterLog("Default", &LogMock{})
+		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		entityFactory := rest.GetEntityFactory(ctxt)
+		entityFactory := rest.GetEntityRepository(ctxt)
 		if entityFactory == nil {
 			t.Fatalf("expected entity factory to be in the context")
 		}
@@ -79,12 +95,19 @@ func TestEntityFactoryInitializer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		api.Schemas = schemas
-		ctxt, err := rest.EntityFactoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		api.RegisterLog("Default", &LogMock{})
+		baseCtxt, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		baseCtxt, err = rest.DefaultProjection(baseCtxt, api, api.Swagger)
+		baseCtxt, err = rest.RegisterEntityRepositories(baseCtxt, api, api.Swagger)
+		if err != nil {
+			t.Fatalf("error setting up entity repositories %s", err)
+		}
+		api.RegisterLog("Default", &LogMock{})
+		ctxt, err := rest.EntityRepositoryInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
-		entityFactory := rest.GetEntityFactory(ctxt)
+		entityFactory := rest.GetEntityRepository(ctxt)
 		if entityFactory == nil {
 			t.Fatalf("expected entity factory to be in the context")
 		}
@@ -162,7 +185,7 @@ paths:
 	api.RegisterController("HealthCheck", rest.HealthCheck)
 
 	middlewareCalled := false
-	api.RegisterMiddleware("Recover", func(api rest.Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	api.RegisterMiddleware("Recover", func(api rest.Container, commandDispatcher model.CommandDispatcher, eventSource model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
 			return func(c echo.Context) error {
 				middlewareCalled = true
@@ -172,13 +195,12 @@ paths:
 	})
 
 	api.RegisterCommandDispatcher("HealthCheck", &CommandDispatcherMock{
-		DispatchFunc: func(ctx context.Context, command *model.Command, eventStore model.EventRepository, projection model.Projection, logger model.Log) error {
-			return nil
+		DispatchFunc: func(ctx context3.Context, command *model.Command, container model.Container, repository model.EntityRepository, logger model.Log) (interface{}, error) {
+			return nil, nil
 		}})
 	api.RegisterEventStore("HealthCheck", &EventRepositoryMock{})
 	api.RegisterProjection("Default", &ProjectionMock{})
 	api.RegisterProjection("Custom", &ProjectionMock{})
-	api.RegisterMiddleware("DefaultResponseMiddleware", rest.DefaultResponseMiddleware)
 	t.Run("attach user defined controller", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/health", http.MethodGet, api.Swagger, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)
 		if err != nil {
@@ -203,7 +225,7 @@ paths:
 		req := &http.Request{}
 		ct.SetRequest(req)
 		for _, middleware := range middlewares {
-			err = middleware(api, nil, nil, nil, nil, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)(func(c echo.Context) error {
+			err = middleware(api, nil, nil, api.Swagger.Paths["/health"], api.Swagger.Paths["/health"].Get)(func(c echo.Context) error {
 				return nil
 			})(ct)
 
@@ -255,15 +277,11 @@ func TestStandardInitializer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error loading api '%s'", err)
 	}
-	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
-	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.RegisterController("CreateController", rest.CreateController)
-	api.RegisterController("ListController", rest.ListController)
-	api.RegisterController("UpdateController", rest.UpdateController)
-	api.RegisterController("ViewController", rest.ViewController)
-	api.RegisterController("DeleteController", rest.DeleteController)
+	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
+	api.RegisterController("DefaultReadController", rest.DefaultReadController)
+	//api.RegisterController("ListController", rest.ListController)
 	t.Run("attach standard create", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -274,7 +292,7 @@ func TestStandardInitializer(t *testing.T) {
 	})
 
 	t.Run("attach standard list view ", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/posts/", http.MethodGet, api.Swagger, api.Swagger.Paths["/posts/"], api.Swagger.Paths["/posts/"].Get)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/posts/", http.MethodGet, api.Swagger, api.Swagger.Paths["/posts/"], api.Swagger.Paths["/posts/"].Get)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -285,7 +303,7 @@ func TestStandardInitializer(t *testing.T) {
 	})
 
 	t.Run("attach standard list view with alias ", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Get)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Get)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -295,7 +313,7 @@ func TestStandardInitializer(t *testing.T) {
 		}
 	})
 	t.Run("attach standard view", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -305,7 +323,7 @@ func TestStandardInitializer(t *testing.T) {
 		}
 	})
 	t.Run("attach standard update", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{}", http.MethodPut, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Put)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs/{}", http.MethodPut, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Put)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -315,7 +333,7 @@ func TestStandardInitializer(t *testing.T) {
 		}
 	})
 	t.Run("attach standard delete", func(t *testing.T) {
-		ctxt, err := rest.StandardInitializer(baseCtxt, api, "/blogs/{id}", http.MethodDelete, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Delete)
+		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs/{id}", http.MethodDelete, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Delete)
 		if err != nil {
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
@@ -334,19 +352,13 @@ func TestRouteInitializer(t *testing.T) {
 	}
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
-	api.RegisterController("CreateController", rest.CreateController)
-	api.RegisterController("ListController", rest.ListController)
-	api.RegisterController("UpdateController", rest.UpdateController)
-	api.RegisterController("ViewController", func(api rest.Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc {
+	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
+	api.RegisterController("ViewController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			controllerTriggered = true
-			if _, ok := projection.(*projections.MetaProjection); !ok {
-				t.Fatalf("expected the projection to be a meta projection because there are multiple projections defined")
-			}
 			return nil
 		}
 	})
-	api.RegisterController("DeleteController", rest.DeleteController)
 	api.RegisterProjection("Custom", &ProjectionMock{
 		MigrateFunc: func(ctx context.Context, schema *openapi3.Swagger) error {
 			return nil
@@ -365,7 +377,6 @@ func TestRouteInitializer(t *testing.T) {
 	})
 	api.RegisterCommandDispatcher("Default", &CommandDispatcherMock{})
 	api.RegisterEventStore("Default", &EventRepositoryMock{})
-	api.RegisterMiddleware("DefaultResponseMiddleware", rest.DefaultResponseMiddleware)
 	t.Run("setup meta projection", func(t *testing.T) {
 		ctxt, err := rest.UserDefinedInitializer(baseCtxt, api, "/blogs/{id}", http.MethodGet, api.Swagger, api.Swagger.Paths["/blogs/{id}"], api.Swagger.Paths["/blogs/{id}"].Get)
 		if err != nil {

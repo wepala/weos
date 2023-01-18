@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
+	ds "github.com/ompluscator/dynamic-struct"
 	"net/http"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 )
 
 type CommandDispatcher interface {
-	Dispatch(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error
+	Dispatch(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error)
 	AddSubscriber(command *Command, handler CommandHandler) map[string][]CommandHandler
 	GetSubscribers() map[string][]CommandHandler
 }
@@ -91,6 +92,17 @@ type Projection interface {
 	GetByProperties(ctxt context.Context, entityFactory EntityFactory, identifiers map[string]interface{}) ([]*ContentEntity, error)
 }
 
+//EntityRepository is a repository that can be used to store and create entities
+type EntityRepository interface {
+	Projection
+	EntityFactory
+	Repository
+	//GenerateID generates a new id for the entity IF the database doesn't support id generation for that identifier
+	GenerateID(entity *ContentEntity) (*ContentEntity, error)
+	//Delete deletes an entity from the repository
+	Delete(ctxt context.Context, entity *ContentEntity) error
+}
+
 type GormProjection interface {
 	Projection
 	DB() *gorm.DB
@@ -107,7 +119,8 @@ type Container interface {
 	GetCommandDispatcher(name string) (CommandDispatcher, error)
 	//RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
 	RegisterEntityFactory(name string, factory EntityFactory)
-	//GetEntityFactory get entity factory
+	//GetEntityFactory
+	//Deprecated: 08/23/2022 Use EntityRepository instead
 	GetEntityFactory(name string) (EntityFactory, error)
 	//GetEntityFactories get event factories
 	GetEntityFactories() map[string]EntityFactory
@@ -137,4 +150,18 @@ type Container interface {
 	RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer)
 	//GetPermissionEnforcer get Casbin enforcer
 	GetPermissionEnforcer(name string) (*casbin.Enforcer, error)
+	RegisterEntityRepository(name string, repository EntityRepository)
+	GetEntityRepository(name string) (EntityRepository, error)
+}
+
+type EntityFactory interface {
+	FromSchemaAndBuilder(string, *openapi3.Schema, ds.Builder) EntityFactory
+	NewEntity(ctx context.Context) (*ContentEntity, error)
+	//CreateEntityWithValues add an entity for the first type to the system with the following values
+	CreateEntityWithValues(ctx context.Context, payload []byte) (*ContentEntity, error)
+	DynamicStruct(ctx context.Context) ds.DynamicStruct
+	Name() string
+	TableName() string
+	Schema() *openapi3.Schema
+	Builder(ctx context.Context) ds.Builder
 }

@@ -276,6 +276,60 @@ func TestGORMDB_GORMModel(t *testing.T) {
 			t.Errorf("error removing table '%s' '%s'", "Post", err)
 		}
 	})
+	t.Run("setup model with reference to inline schemas", func(t *testing.T) {
+		api, err := rest.New("./fixtures/complex-spec.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error setting up api: %s", err)
+		}
+		contentType1 := "Patient"
+		p1 := map[string]interface{}{"title": "test", "description": "Lorem Ipsum", "url": "https://wepala.com", "created": "2006-01-02T15:04:00Z"}
+		payload1, err := json.Marshal(p1)
+		if err != nil {
+			t.Errorf("unexpected error marshalling entity; %s", err)
+		}
+		schemas := rest.CreateSchema(context.Background(), api.EchoInstance(), api.Swagger)
+		entityFactory1 := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType1, api.Swagger.Components.Schemas[contentType1].Value, schemas[contentType1])
+		projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		//check the builder returned to ensure it has what is expected
+		gormModel, err := projection.GORMModel(entityFactory1.Name(), entityFactory1.Schema(), payload1)
+		if err != nil {
+			t.Fatalf("unexpected error creating builder '%s'", err)
+		}
+		json.Unmarshal(payload1, &gormModel)
+		json.Unmarshal([]byte(`{
+						"table_alias": "`+`Patient`+`"
+					}`), &gormModel)
+		reader := ds.NewReader(gormModel)
+
+		//check if the table property is set on the main entity
+		if !reader.HasField("Table") {
+			t.Fatalf("expected the main model to have a table field")
+		}
+
+		if reader.GetField("Table").String() != "Patient" {
+			t.Errorf("expected the table for the main model to be '%s', got '%s'", "Blog", reader.GetField("Table").String())
+		}
+
+		//run migrations and confirm that the model can be created
+		err = projection.DB().Debug().AutoMigrate(gormModel)
+		if err != nil {
+			t.Fatalf("error running auto migration '%s'", err)
+		}
+
+		//check that the expected tables have been created
+		if !projection.DB().Migrator().HasTable("Patient") {
+			t.Fatalf("expected the blog table to be created")
+		}
+		//check the no table Identifier is created
+		if projection.DB().Migrator().HasTable("Identifier") {
+			t.Fatalf("expected the identifier table to not be created")
+		}
+
+		defer gormDB.Migrator().DropTable("Patient")
+	})
 }
 
 func TestGORMDB_GORMModels(t *testing.T) {
@@ -329,6 +383,125 @@ func TestGORMDB_GORMModels(t *testing.T) {
 
 		if actualContacts[0]["name"] != "Medgar Evans" {
 			t.Errorf("expected contact name to be '%s', got '%s'", "Medgar Evans", actualContacts[0]["name"])
+		}
+
+	})
+
+	t.Run("convert array item schema marked inline to inline string", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["identifier"] = []struct {
+			Use    string `json:"use"`
+			System string `json:"system"`
+			Value  string `json:"value"`
+			Type   struct {
+				Coding []struct {
+					System  string `json:"system"`
+					Code    string `json:"code"`
+					Display string `json:"display"`
+				} `json:"coding"`
+				Text string `json:"text"`
+			} `json:"type"`
+		}{
+			{
+				Use:    "official",
+				System: "test",
+				Value:  "someid",
+				Type: struct {
+					Coding []struct {
+						System  string `json:"system"`
+						Code    string `json:"code"`
+						Display string `json:"display"`
+					} `json:"coding"`
+					Text string `json:"text"`
+				}{
+					Coding: []struct {
+						System  string `json:"system"`
+						Code    string `json:"code"`
+						Display string `json:"display"`
+					}{
+						{
+							System: "http://terminology.hl7.org/CodeSystem/v2-0203",
+							Code:   "MR",
+						},
+					},
+					Text: "display",
+				},
+			},
+		}
+
+		payloadData, err := json.Marshal(&payload)
+		if err != nil {
+			t.Fatalf("unexpected error setting up payload '%s'", err)
+		}
+
+		model, err := projection.GORMModel("Patient", api.GetConfig().Components.Schemas["Patient"].Value, payloadData)
+		if err != nil {
+			t.Fatalf("unexpected error setting up model '%s'", err)
+		}
+
+		reader := ds.NewReader(model)
+		if !reader.HasField("Identifier") {
+			t.Fatalf("expected contact field to exist")
+		}
+
+		identifierString := reader.GetField("Identifier").String()
+		if identifierString == "" {
+			t.Fatalf("expected contact to be json string")
+		}
+
+		var actualIdentifiers []map[string]interface{}
+		err = json.Unmarshal([]byte(identifierString), &actualIdentifiers)
+		if err != nil {
+			t.Fatalf("error unmarshiling conact '%s'", err)
+		}
+
+		if actualIdentifiers[0]["value"] != "someid" {
+			t.Errorf("expected identifier value to be '%s', got '%s'", "someid", actualIdentifiers[0]["value"])
+		}
+
+	})
+	t.Run("convert object schema marked inline to inline string", func(t *testing.T) {
+		payload := make(map[string]interface{})
+		payload["maritalStatus"] = []struct {
+			Use    string `json:"use"`
+			System string `json:"system"`
+			Value  string `json:"value"`
+		}{
+			{
+				Use:    "official",
+				System: "test",
+				Value:  "someid",
+			},
+		}
+
+		payloadData, err := json.Marshal(&payload)
+		if err != nil {
+			t.Fatalf("unexpected error setting up payload '%s'", err)
+		}
+
+		model, err := projection.GORMModel("Patient", api.GetConfig().Components.Schemas["Patient"].Value, payloadData)
+		if err != nil {
+			t.Fatalf("unexpected error setting up model '%s'", err)
+		}
+
+		reader := ds.NewReader(model)
+		if !reader.HasField("MaritalStatus") {
+			t.Fatalf("expected MaritalStatus field to exist")
+		}
+
+		maritalStatusString := reader.GetField("MaritalStatus").String()
+		if maritalStatusString == "" {
+			t.Fatalf("expected contact to be json string")
+		}
+
+		var actualIdentifiers []map[string]interface{}
+		err = json.Unmarshal([]byte(maritalStatusString), &actualIdentifiers)
+		if err != nil {
+			t.Fatalf("error unmarshiling conact '%s'", err)
+		}
+
+		if actualIdentifiers[0]["value"] != "someid" {
+			t.Errorf("expected identifier value to be '%s', got '%s'", "someid", actualIdentifiers[0]["value"])
 		}
 
 	})

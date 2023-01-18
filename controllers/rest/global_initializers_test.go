@@ -339,3 +339,49 @@ x-weos-config:
 		}
 	})
 }
+
+func TestRegisterEntityRepositories(t *testing.T) {
+	t.Run("register entity repositories for ", func(t *testing.T) {
+		api, err := rest.New("./fixtures/blog.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		api.RegisterLog("Default", &LogMock{})
+		_, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		_, err = rest.DefaultProjection(context.TODO(), api, api.Swagger)
+		_, err = rest.RegisterEntityRepositories(context.TODO(), api, api.Swagger)
+		if err != nil {
+			t.Fatalf("unexpected error registering entity repositories '%s'", err)
+		}
+		_, err = api.GetEntityRepository("Blog")
+		if err != nil {
+			t.Errorf("expected a entity repository '%s' to be created, got error '%s'", "Blog", err)
+		}
+		_, err = api.GetEntityRepository("Post")
+		if err != nil {
+			t.Errorf("expected a entity repository '%s' to be created, got error '%s'", "Post", err)
+		}
+		_, err = api.GetEntityRepository("Author")
+		if err != nil {
+			t.Errorf("expected a entity repository '%s' to be created, got error '%s'", "Author", err)
+		}
+	})
+
+	t.Run("skip x-inline schemas", func(t *testing.T) {
+		api, err := rest.New("./fixtures/fhir.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error loading api '%s'", err)
+		}
+		api.RegisterLog("Default", &LogMock{})
+		_, err = rest.SQLDatabase(context.TODO(), api, api.Swagger)
+		_, err = rest.DefaultProjection(context.TODO(), api, api.Swagger)
+		_, err = rest.RegisterEntityRepositories(context.TODO(), api, api.Swagger)
+		if err != nil {
+			t.Fatalf("unexpected error registering entity repositories '%s'", err)
+		}
+		_, err = api.GetEntityRepository("Address")
+		if err == nil {
+			t.Errorf("expected inline schema to be skipped, got no error")
+		}
+	})
+}

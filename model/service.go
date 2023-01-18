@@ -1,6 +1,7 @@
 package model
 
-//go:generate moq -out mocks_test.go -pkg model_test . EventRepository Projection Log CommandDispatcher Service EntityFactory
+//go:generate moq -out mocks_test.go -pkg model_test . EventRepository Projection Log CommandDispatcher Service EntityFactory EntityRepository
+//go:generate moq -out container_mock_test.go -pkg model_test . Container
 
 import (
 	"database/sql"
@@ -33,15 +34,17 @@ type ServiceConfig struct {
 }
 
 type DBConfig struct {
-	Name     string `json:"name"`
-	Host     string `json:"host"`
-	User     string `json:"username"`
-	Password string `json:"password"`
-	Port     int    `json:"port"`
-	Database string `json:"database"`
-	Driver   string `json:"driver"`
-	MaxOpen  int    `json:"max-open"`
-	MaxIdle  int    `json:"max-idle"`
+	Name      string `json:"name"`
+	Host      string `json:"host"`
+	User      string `json:"username"`
+	Password  string `json:"password"`
+	Port      int    `json:"port"`
+	Database  string `json:"database"`
+	Driver    string `json:"driver"`
+	MaxOpen   int    `json:"max-open"`
+	MaxIdle   int    `json:"max-idle"`
+	AwsIam    bool   `json:"aws-iam"`
+	AwsRegion string `json:"aws-region"`
 }
 
 type LogConfig struct {

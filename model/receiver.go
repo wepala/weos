@@ -1,10 +1,7 @@
 package model
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	weosContext "github.com/wepala/weos/context"
 	"golang.org/x/net/context"
 )
 
@@ -13,137 +10,143 @@ type Receiver struct {
 	domainService *DomainService
 }
 
-//CreateHandler is used for a single payload. It takes in the command and context which is used to dispatch and the persist the incoming request.
-func CreateHandler(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
-	if logger == nil {
-		return fmt.Errorf("no logger set")
-	}
-	entityFactory := GetEntityFactory(ctx)
-	if entityFactory == nil {
-		err := errors.New("no entity factory found")
-		logger.Error(err)
-		return err
-	}
-	//add the weos id to the context IF it's not empty.
-	//TODO This is more about backward compatability and should be reconsidered in the future
-	if command.Metadata.EntityID != "" {
-		ctx = context.WithValue(ctx, weosContext.WEOS_ID, command.Metadata.EntityID)
-	}
-	newEntity, err := entityFactory.CreateEntityWithValues(ctx, command.Payload)
-	if errr, ok := err.(*DomainError); ok {
-		return errr
-	} else if err != nil {
-		err = NewDomainError("unexpected error creating entity", command.Metadata.EntityType, "", err)
-		logger.Debug(err)
-		return err
-	}
-
-	domainService := NewDomainService(ctx, eventStore, projection, logger)
-	err = domainService.ValidateUnique(ctx, newEntity)
+//CreateHandler is used to add entities to the repository.
+func CreateHandler(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error) {
+	var err error
+	var entity *ContentEntity
+	entity, err = repository.CreateEntityWithValues(ctx, command.Payload)
 	if err != nil {
-		return err
+		logger.Errorf("error creating entity: %s", err)
+		return nil, err
 	}
-	if ok := newEntity.IsValid(); !ok {
-		errors := newEntity.GetErrors()
-		if len(errors) != 0 {
-			return NewDomainError(errors[0].Error(), command.Metadata.EntityType, newEntity.ID, errors[0])
-		}
-	}
-	err = eventStore.Persist(ctx, newEntity)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-//CreateBatchHandler is used for an array of payloads. It takes in the command and context which is used to dispatch and the persist the incoming request.
-func CreateBatchHandler(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
-	domainService := NewDomainService(ctx, eventStore, projection, logger)
-	entities, err := domainService.CreateBatch(ctx, command.Payload, command.Metadata.EntityType)
-	if err != nil {
-		return err
-	}
-	for _, entity := range entities {
-		err = eventStore.Persist(ctx, entity)
+	if entity.IsValid() {
+		//save entity if the projection is a gorm projection, we can use the persist method
+		entity, err = repository.GenerateID(entity)
 		if err != nil {
-			return err
+			logger.Errorf("error generating id: %s", err)
+			return nil, err
 		}
+		err = repository.Persist([]Entity{entity})
+		if err != nil {
+			logger.Errorf("error persisting entity: %s", err)
+			return nil, err
+		}
+		eventStore, err := container.GetEventStore("Default")
+		if err != nil {
+			logger.Errorf("error getting event store: %s", err)
+			return nil, err
+		}
+		return entity, eventStore.Persist(ctx, entity)
+
+	} else {
+		return nil, entity.GetErrors()[0]
 	}
-	return nil
 }
 
 //UpdateHandler is used for a single payload. It takes in the command and context which is used to dispatch and updated the specified entity.
-func UpdateHandler(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
+func UpdateHandler(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error) {
+	var err error
+	var entity *ContentEntity
 	if logger == nil {
-		return fmt.Errorf("no logger set")
+		logger, err = container.GetLog("Default")
+		if err != nil {
+			return nil, fmt.Errorf("no logger set")
+		}
 	}
-	entityFactory := GetEntityFactory(ctx)
-	if entityFactory == nil {
-		err := errors.New("no entity factory found")
-		logger.Error(err)
-		return err
+	//get the entity from the repository by id if the entity id is in the command
+	if command.Metadata.EntityID != "" {
+		entity, err = repository.GetContentEntity(ctx, repository, command.Metadata.EntityID)
+		//check if the sequence numbers is the same as in the command otherwise throw error
+		if int(entity.SequenceNo) > command.Metadata.SequenceNo {
+			return nil, fmt.Errorf("sequence number mismatch")
+		}
 	}
-	//initialize any services
-	domainService := NewDomainService(context.Background(), eventStore, projection, logger)
-	updatedEntity, err := domainService.Update(ctx, command.Payload, command.Metadata.EntityType)
+	//if entity is empty then let's get the entity by key
+	if entity == nil {
+		var identifier map[string]interface{}
+		//create an entity with the payload so we can get the identifier to look up the entity in the repository
+		entity, err = repository.CreateEntityWithValues(ctx, command.Payload)
+		identifier, err = entity.Identifier()
+		entity, err = repository.GetByKey(ctx, repository, identifier)
+		if err != nil {
+			logger.Errorf("error getting entity: %s", err)
+			return nil, err
+		}
+		if entity == nil {
+			return nil, NewDomainError("entity not found", command.Type, command.Metadata.EntityID, EntityNotFound)
+		}
+	}
+	_, err = entity.Update(ctx, command.Payload)
 	if err != nil {
-		return err
+		logger.Errorf("error updating entity: %s", err)
+		return nil, err
 	}
-	err = eventStore.Persist(ctx, updatedEntity)
-	if err != nil {
-		return err
+	if entity.IsValid() {
+		err = repository.Persist([]Entity{entity})
+		if err != nil {
+			logger.Errorf("error persisting entity: %s", err)
+			return nil, err
+		}
+		var eventStore EventRepository
+		eventStore, err = container.GetEventStore("Default")
+		if err != nil {
+			logger.Errorf("error getting event store: %s", err)
+			return nil, err
+		}
+		err = eventStore.Persist(ctx, entity)
 	}
-	return nil
+	return entity, err
 }
 
 //DeleteHandler is used for a single entity. It takes in the command and context which is used to dispatch and delete the specified entity.
-func DeleteHandler(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
+func DeleteHandler(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error) {
+	var err error
+	var entity *ContentEntity
 	if logger == nil {
-		return fmt.Errorf("no logger set")
-	}
-	entityFactory := GetEntityFactory(ctx)
-	if entityFactory == nil {
-		err := errors.New("no entity factory found")
-		logger.Error(err)
-		return err
-	}
-
-	//initialize any services
-	domainService := NewDomainService(ctx, eventStore, projection, logger)
-	deletedEntity, err := domainService.Delete(ctx, command.Metadata.EntityID, command.Metadata.EntityType)
-	if err != nil {
-		return err
-	}
-
-	err = eventStore.Persist(ctx, deletedEntity)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-//Deprecated: 01/30/2022 These are setup in the api initializer
-//Initialize sets up the command handlers
-func Initialize(service Service) error {
-	var payload json.RawMessage
-	//Initialize receiver
-	receiver := &Receiver{service: service}
-	//add command handlers to the application's command dispatcher
-	service.Dispatcher().AddSubscriber(Create(context.Background(), payload, "", ""), CreateHandler)
-	service.Dispatcher().AddSubscriber(CreateBatch(context.Background(), payload, ""), CreateBatchHandler)
-	service.Dispatcher().AddSubscriber(Update(context.Background(), payload, ""), UpdateHandler)
-	service.Dispatcher().AddSubscriber(Delete(context.Background(), "", ""), DeleteHandler)
-	//initialize any services
-	receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), nil, nil)
-
-	for _, projection := range service.Projections() {
-		if projections, ok := projection.(Projection); ok {
-			receiver.domainService = NewDomainService(context.Background(), service.EventRepository(), projections, nil)
+		logger, err = container.GetLog("Default")
+		if err != nil {
+			return nil, fmt.Errorf("no logger set")
 		}
 	}
 
-	if receiver.domainService == nil {
-		return NewError("no projection provided", nil)
+	//get the entity from the repository by id if the entity id is in the command
+	if command.Metadata.EntityID != "" {
+		entity, err = repository.GetContentEntity(ctx, repository, command.Metadata.EntityID)
+		//check if the sequence numbers is the same as in the command otherwise throw error
+		if int(entity.SequenceNo) > command.Metadata.SequenceNo {
+			return nil, fmt.Errorf("sequence number mismatch")
+		}
 	}
-	return nil
+	//if entity is empty then let's get the entity by key
+	if entity == nil {
+		var identifier map[string]interface{}
+		//create an entity with the payload so we can get the identifier to look up the entity in the repository
+		entity, err = repository.CreateEntityWithValues(ctx, command.Payload)
+		identifier, err = entity.Identifier()
+		entity, err = repository.GetByKey(ctx, repository, identifier)
+		if err != nil {
+			logger.Errorf("error getting entity: %s", err)
+			return nil, err
+		}
+		if entity == nil {
+			return nil, NewDomainError("entity not found", command.Type, command.Metadata.EntityID, EntityNotFound)
+		}
+	}
+	if err = repository.Delete(ctx, entity); err != nil {
+		logger.Errorf("error deleting entity: %s", err)
+		return nil, err
+	}
+	_, err = entity.Delete(command.Payload)
+	if err != nil {
+		logger.Errorf("error updating entity: %s", err)
+		return nil, err
+	}
+	var eventStore EventRepository
+	eventStore, err = container.GetEventStore("Default")
+	if err != nil {
+		logger.Errorf("error getting event store: %s", err)
+		return nil, err
+	}
+	err = eventStore.Persist(ctx, entity)
+	return entity, err
 }

@@ -491,69 +491,69 @@ func theIsCreated(contentType string, details *godog.Table) error {
 		}
 	}
 
-	entityFactory := API.GetEntityFactories()
-	if schema, ok := entityFactory[contentType]; ok {
-		entity, err := schema.NewEntity(context.TODO())
-		if err != nil {
-			return err
-		}
-		apiProjection, err := API.GetProjection("Default")
-		var tprojection *projections.GORMDB
-		if tprojection, ok = apiProjection.(*projections.GORMDB); !ok {
-			return fmt.Errorf("default projection is not a GORM projection")
-		}
-		payload, _ := json.Marshal(entity.ToMap())
-		model, err := tprojection.GORMModel(contentType, schema.Schema(), payload)
-		if err != nil {
-			return err
-		}
-		var resultdb *gorm.DB
-		resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(&model, "weos_id = ?", weosID)
-		//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.payload)
-		if resultdb.Error != nil {
-			return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
-		}
-		//put the result in the entity
-		data, err := json.Marshal(model)
-		if err != nil {
-			return fmt.Errorf("unable to marshal result '%s'", err)
-		}
-		err = json.Unmarshal(data, &entity)
-		if err != nil {
-			return fmt.Errorf("unable to unmarshal result '%s'", err)
-		}
-		entityProperty = entity
-		contentEntity = entity.ToMap()
-		if contentEntity == nil {
-			return fmt.Errorf("unexpected error finding content type in db")
-		}
-		for key, value := range compare {
-			if contentEntity[key] != value {
-				v, ok := value.(string)
-				if ok && v == "<Generated>" && contentEntity[key] != nil {
-					continue
-				}
-				if cv, ok := contentEntity[key].(*string); ok {
-					if cv != nil && strings.EqualFold(*cv, v) {
-						continue
-					}
-					if cv == nil {
-						return fmt.Errorf("expected %s %s %s, got nil", contentType, key, v)
-					} else {
-						return fmt.Errorf("expected %s %s %s, got %s", contentType, key, v, *cv)
-					}
-
-				}
-
-				return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
-			}
-		}
-
-		contentTypeID[strings.ToLower(contentType)] = true
-		return nil
+	entityRepository, err := API.GetEntityRepository(contentType)
+	if err != nil {
+		return fmt.Errorf("schema '%s' doesn't exist in spec", contentType)
 	}
 
-	return fmt.Errorf("schema '%s' doesn't exist in spec", contentType)
+	entity, err := entityRepository.NewEntity(context.TODO())
+	if err != nil {
+		return err
+	}
+	var tprojection *projections.GORMDB
+	var ok bool
+	if tprojection, ok = entityRepository.(*projections.GORMDB); !ok {
+		return fmt.Errorf("default projection is not a GORM projection")
+	}
+	payload, _ := json.Marshal(entity.ToMap())
+	model, err := tprojection.GORMModel(contentType, entityRepository.Schema(), payload)
+	if err != nil {
+		return err
+	}
+	var resultdb *gorm.DB
+	resultdb = gormDB.Debug().Table(strings.Title(contentType)).Preload(clause.Associations).Find(model, "weos_id = ?", weosID)
+	//resultdb = gormDB.Where("weos_id = ?", weosID).First(entity.payload)
+	if resultdb.Error != nil {
+		return fmt.Errorf("unexpected error finding content type: %s", resultdb.Error)
+	}
+	//put the result in the entity
+	data, err := json.Marshal(model)
+	if err != nil {
+		return fmt.Errorf("unable to marshal result '%s'", err)
+	}
+	err = json.Unmarshal(data, &entity)
+	if err != nil {
+		return fmt.Errorf("unable to unmarshal result '%s'", err)
+	}
+	entityProperty = entity
+	contentEntity = entity.ToMap()
+	if contentEntity == nil {
+		return fmt.Errorf("unexpected error finding content type in db")
+	}
+	for key, value := range compare {
+		if contentEntity[key] != value {
+			v, ok := value.(string)
+			if ok && v == "<Generated>" && contentEntity[key] != nil {
+				continue
+			}
+			if cv, ok := contentEntity[key].(*string); ok {
+				if cv != nil && strings.EqualFold(*cv, v) {
+					continue
+				}
+				if cv == nil {
+					return fmt.Errorf("expected %s %s %s, got nil", contentType, key, v)
+				} else {
+					return fmt.Errorf("expected %s %s %s, got %s", contentType, key, v, *cv)
+				}
+
+			}
+
+			return fmt.Errorf("expected %s %s %s, got %s", contentType, key, value, contentEntity[key])
+		}
+	}
+
+	contentTypeID[strings.ToLower(contentType)] = true
+	return nil
 }
 
 func theIsSubmitted(contentType string) error {
@@ -803,7 +803,7 @@ func theServiceIsRunning() error {
 	buf = bytes.Buffer{}
 	API.DB = db
 	API.EchoInstance().Logger.SetOutput(&buf)
-	API.RegisterMiddleware("Handler", func(api api.Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	API.RegisterMiddleware("Handler", func(api api.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
 			return func(c echo.Context) error {
 				contextWithValues = c.Request().Context()
@@ -1710,17 +1710,11 @@ func thereShouldBeAKeyInTheRequestContextWithValue(key, value string) error {
 
 func definesAProjection(arg1, arg2 string) error {
 	mockProjections[arg2] = &ProjectionMock{
-		GetByEntityIDFunc: func(ctxt context.Context, entityFactory model.EntityFactory, id string) (map[string]interface{}, error) {
-			return nil, nil
-		},
 		GetByKeyFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
 			return nil, nil
 		},
 		GetByPropertiesFunc: func(ctxt context.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) ([]*model.ContentEntity, error) {
 			return nil, nil
-		},
-		GetContentEntitiesFunc: func(ctx context.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]map[string]interface{}, int64, error) {
-			return []map[string]interface{}{}, 0, nil
 		},
 		GetContentEntityFunc: func(ctx context.Context, entityFactory model.EntityFactory, weosID string) (*model.ContentEntity, error) {
 			return nil, nil
@@ -1750,7 +1744,7 @@ func setTheDefaultProjectionAs(arg1, arg2 string) error {
 
 func theProjectionIsCalled(arg1 string) error {
 	if projection, ok := mockProjections[arg1]; ok {
-		if len(projection.GetContentEntitiesCalls()) == 0 && len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByEntityIDCalls()) == 0 && len(projection.GetByKeyCalls()) == 0 && len(projection.GetContentEntitiesCalls()) == 0 {
+		if len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByKeyCalls()) == 0 {
 			return fmt.Errorf("projection '%s' not called", arg1)
 		}
 		return nil
@@ -1795,7 +1789,7 @@ func setTheDefaultEventStoreAs(arg1, arg2 string) error {
 
 func theProjectionIsNotCalled(arg1 string) error {
 	if projection, ok := mockProjections[arg1]; ok {
-		if !(len(projection.GetContentEntitiesCalls()) == 0 && len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByEntityIDCalls()) == 0 && len(projection.GetByKeyCalls()) == 0 && len(projection.GetContentEntitiesCalls()) == 0) {
+		if !(len(projection.GetContentEntityCalls()) == 0 && len(projection.GetEventHandlerCalls()) == 0 && len(projection.GetByKeyCalls()) == 0) {
 			return fmt.Errorf("projection '%s' called", arg1)
 		}
 		return nil
@@ -2156,7 +2150,7 @@ func TestBDD(t *testing.T) {
 			Format: "pretty",
 			Tags:   "~long && ~skipped",
 			//Tags: "WEOS-1343",
-			//Tags: "WEOS-1343 && ~skipped",
+			//Tags: "focus && ~skipped",
 		},
 	}.Run()
 	if status != 0 {

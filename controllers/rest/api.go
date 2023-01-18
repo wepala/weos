@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	"github.com/casbin/casbin/v2"
 	"net/http"
 	"os"
@@ -31,12 +33,13 @@ import (
 	"github.com/wepala/weos/projections"
 )
 
+var InvalidAWSDriver = errors.New("invalid aws driver specified, must be postgres or mysql")
+
 //RESTAPI is used to manage the API
 type RESTAPI struct {
 	Application                    model.Service
 	Log                            model.Log
 	DB                             *sql.DB
-	Client                         *http.Client
 	projection                     *projections.GORMDB
 	Config                         *APIConfig
 	securityConfiguration          *SecurityConfiguration
@@ -48,7 +51,7 @@ type RESTAPI struct {
 	controllers                    map[string]Controller
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
-	projections                    map[string]projections.Projection
+	projections                    map[string]model.Projection
 	logs                           map[string]model.Log
 	httpClients                    map[string]*http.Client
 	globalInitializers             []GlobalInitializer
@@ -62,13 +65,7 @@ type RESTAPI struct {
 	dbConnections                  map[string]*sql.DB
 	gormConnections                map[string]*gorm.DB
 	enforcers                      map[string]*casbin.Enforcer
-}
-
-type schema struct {
-	Name       string
-	Type       string
-	Ref        string
-	Properties []schema
+	entityRepositories             map[string]model.EntityRepository
 }
 
 //define an interface that all plugins must implement
@@ -195,7 +192,7 @@ func (p *RESTAPI) RegisterCommandDispatcher(name string, dispatcher model.Comman
 //RegisterProjection Add command dispatcher so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterProjection(name string, projection model.Projection) {
 	if p.projections == nil {
-		p.projections = make(map[string]projections.Projection)
+		p.projections = make(map[string]model.Projection)
 	}
 	p.projections[name] = projection
 }
@@ -249,7 +246,7 @@ func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	tmiddleware := t.MethodByName(name)
 	//only show error if handler was set
 	if tmiddleware.IsValid() {
-		return tmiddleware.Interface().(func(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc), nil
+		return tmiddleware.Interface().(func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc), nil
 	}
 
 	return nil, fmt.Errorf("middleware '%s' not found", name)
@@ -266,7 +263,7 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	tcontroller := t.MethodByName(name)
 	//only show error if handler was set
 	if tcontroller.IsValid() {
-		return tcontroller.Interface().(func(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory) echo.HandlerFunc), nil
+		return tcontroller.Interface().(func(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc), nil
 	}
 
 	return nil, fmt.Errorf("controller '%s' not found", name)
@@ -294,6 +291,20 @@ func (p *RESTAPI) GetProjection(name string) (model.Projection, error) {
 		return tdispatcher, nil
 	}
 	return nil, fmt.Errorf("projection '%s' not found", name)
+}
+
+func (p *RESTAPI) RegisterEntityRepository(name string, repository model.EntityRepository) {
+	if p.entityRepositories == nil {
+		p.entityRepositories = make(map[string]model.EntityRepository)
+	}
+	p.entityRepositories[name] = repository
+}
+
+func (p *RESTAPI) GetEntityRepository(name string) (model.EntityRepository, error) {
+	if trepository, ok := p.entityRepositories[name]; ok {
+		return trepository, nil
+	}
+	return nil, fmt.Errorf("entity repository '%s' not found", name)
 }
 
 //GetGlobalInitializers get global intializers in the order they were registered
@@ -436,38 +447,26 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		Timeout:   time.Second * 10,
 	})
 	//register standard controllers
-	p.RegisterController("CreateController", CreateController)
-	p.RegisterController("UpdateController", UpdateController)
-	p.RegisterController("ListController", ListController)
-	p.RegisterController("ViewController", ViewController)
-	p.RegisterController("DeleteController", DeleteController)
 	p.RegisterController("HealthCheck", HealthCheck)
-	p.RegisterController("CreateBatchController", CreateBatchController)
 	p.RegisterController("APIDiscovery", APIDiscovery)
-	p.RegisterController("DefaultResponseController", DefaultResponseController)
+	p.RegisterController("DefaultWriteController", DefaultWriteController)
+	p.RegisterController("DefaultReadController", DefaultReadController)
+	p.RegisterController("DefaultListController", DefaultListController)
 
 	//register standard middleware
 	p.RegisterMiddleware("Context", Context)
-	p.RegisterMiddleware("CreateMiddleware", CreateMiddleware)
-	p.RegisterMiddleware("CreateBatchMiddleware", CreateBatchMiddleware)
-	p.RegisterMiddleware("UpdateMiddleware", UpdateMiddleware)
-	p.RegisterMiddleware("ListMiddleware", ListMiddleware)
-	p.RegisterMiddleware("ViewMiddleware", ViewMiddleware)
-	p.RegisterMiddleware("DeleteMiddleware", DeleteMiddleware)
 	p.RegisterMiddleware("Recover", Recover)
-	p.RegisterMiddleware("ContentTypeResponseMiddleware", ContentTypeResponseMiddleware)
-	p.RegisterMiddleware("DefaultResponseMiddleware", DefaultResponseMiddleware)
 	p.RegisterMiddleware("LogLevel", LogLevel)
 	p.RegisterMiddleware("ZapLogger", ZapLogger)
 	//register standard global initializers
 	p.RegisterGlobalInitializer(SQLDatabase)
 	p.RegisterGlobalInitializer(DefaultProjection)
+	p.RegisterGlobalInitializer(RegisterEntityRepositories)
 	p.RegisterGlobalInitializer(DefaultEventStore)
 	p.RegisterGlobalInitializer(Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
-	p.RegisterOperationInitializer(ContentTypeResponseInitializer)
-	p.RegisterOperationInitializer(EntityFactoryInitializer)
+	p.RegisterOperationInitializer(EntityRepositoryInitializer)
 	p.RegisterOperationInitializer(UserDefinedInitializer)
 	p.RegisterOperationInitializer(AuthorizationInitializer)
 	p.RegisterOperationInitializer(StandardInitializer)
@@ -480,9 +479,8 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 		defaultCommandDispatcher := &model.DefaultCommandDispatcher{}
 		//setup default commands
 		defaultCommandDispatcher.AddSubscriber(model.Create(context.Background(), nil, "", ""), model.CreateHandler)
-		defaultCommandDispatcher.AddSubscriber(model.CreateBatch(context.Background(), nil, ""), model.CreateBatchHandler)
 		defaultCommandDispatcher.AddSubscriber(model.Update(context.Background(), nil, ""), model.UpdateHandler)
-		defaultCommandDispatcher.AddSubscriber(model.Delete(context.Background(), "", ""), model.DeleteHandler)
+		defaultCommandDispatcher.AddSubscriber(model.Delete(context.Background(), "", "", 0), model.DeleteHandler)
 		p.RegisterCommandDispatcher("Default", defaultCommandDispatcher)
 	}
 
@@ -515,13 +513,6 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//}
 	//all routes setup after this will use this middleware
 	p.e.Use(middlewares...)
-
-	//initialize app
-	if p.Client == nil {
-		p.Client = &http.Client{
-			Timeout: time.Second * 10,
-		}
-	}
 	//set log level to debug
 	p.EchoInstance().Logger.SetLevel(log.DEBUG)
 
@@ -575,56 +566,89 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 }
 
 //SQLConnectionFromConfig get db connection based on a Config
-func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gorm.DB, error) {
+func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gorm.DB, string, error) {
 	var connStr string
 	var err error
 
-	switch config.Driver {
-	case "sqlite3":
-		//check if file exists and if not create it. We only do this if a memory only db is NOT asked for
-		//(Note that if it's a combination we go ahead and create the file) https://www.sqlite.org/inmemorydb.html
-		if config.Database != ":memory:" {
-			if _, err = os.Stat(config.Database); os.IsNotExist(err) {
-				_, err = os.Create(strings.Replace(config.Database, ":memory:", "", -1))
-				if err != nil {
-					return nil, nil, model.NewError(fmt.Sprintf("error creating sqlite database '%s'", config.Database), err)
+	if config.AwsIam {
+		dbName := config.Database
+		dbUser := config.User
+		dbHost := config.Host
+		dbPort := config.Port
+		dbEndpoint := fmt.Sprintf("%s:%d", dbHost, dbPort)
+		region := config.AwsRegion
+
+		cfg, err := awsconfig.LoadDefaultConfig(context.TODO())
+		if err != nil {
+			log.Printf("aws configuration error: " + err.Error())
+		}
+
+		authenticationToken, err := auth.BuildAuthToken(
+			context.TODO(), dbEndpoint, region, dbUser, cfg.Credentials)
+		if err != nil {
+			log.Printf("failed to create aws authentication token: " + err.Error())
+		}
+
+		switch config.Driver {
+		case "mysql":
+			connStr = fmt.Sprintf("%s:%s@tcp(%s)/%s?tls=true&sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&allowCleartextPasswords=true&parseTime=true",
+				dbUser, authenticationToken, dbEndpoint, dbName,
+			)
+		case "postgres":
+			connStr = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+				dbHost, dbPort, dbUser, authenticationToken, dbName,
+			)
+		default:
+			return nil, nil, "", InvalidAWSDriver
+		}
+	} else {
+		switch config.Driver {
+		case "sqlite3":
+			//check if file exists and if not create it. We only do this if a memory only db is NOT asked for
+			//(Note that if it's a combination we go ahead and create the file) https://www.sqlite.org/inmemorydb.html
+			if config.Database != ":memory:" {
+				if _, err = os.Stat(config.Database); os.IsNotExist(err) {
+					_, err = os.Create(strings.Replace(config.Database, ":memory:", "", -1))
+					if err != nil {
+						return nil, nil, "", model.NewError(fmt.Sprintf("error creating sqlite database '%s'", config.Database), err)
+					}
 				}
 			}
-		}
 
-		connStr = fmt.Sprintf("%s",
-			config.Database)
+			connStr = fmt.Sprintf("%s",
+				config.Database)
 
-		//update connection string to include authentication IF a username is set
-		if config.User != "" {
-			authenticationString := fmt.Sprintf("?_auth&_auth_user=%s&_auth_pass=%s&_auth_crypt=sha512&_foreign_keys=on",
-				config.User, config.Password)
-			connStr = connStr + authenticationString
-		} else {
-			connStr = connStr + "?_foreign_keys=on"
+			//update connection string to include authentication IF a username is set
+			if config.User != "" {
+				authenticationString := fmt.Sprintf("?_auth&_auth_user=%s&_auth_pass=%s&_auth_crypt=sha512&_foreign_keys=on",
+					config.User, config.Password)
+				connStr = connStr + authenticationString
+			} else {
+				connStr = connStr + "?_foreign_keys=on"
+			}
+			log.Debugf("sqlite connection string '%s'", connStr)
+		case "sqlserver":
+			connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%s/%s",
+				config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
+		case "ramsql":
+			connStr = "Testing"
+		case "mysql":
+			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=true",
+				config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
+		case "clickhouse":
+			connStr = fmt.Sprintf("tcp://%s:%s?username=%s&password=%s&database=%s",
+				config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
+		case "postgres":
+			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+				config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
+		default:
+			return nil, nil, connStr, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 		}
-		log.Debugf("sqlite connection string '%s'", connStr)
-	case "sqlserver":
-		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%s/%s",
-			config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
-	case "ramsql":
-		connStr = "Testing"
-	case "mysql":
-		connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=true",
-			config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
-	case "clickhouse":
-		connStr = fmt.Sprintf("tcp://%s:%s?username=%s&password=%s&database=%s",
-			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
-	case "postgres":
-		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-			config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
-	default:
-		return nil, nil, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
 	}
 
 	db, err := sql.Open(config.Driver, connStr)
 	if err != nil {
-		return nil, nil, errors.New(fmt.Sprintf("error setting up connection to database '%s' with connection '%s'", err, connStr))
+		return nil, nil, connStr, errors.New(fmt.Sprintf("error setting up connection to database '%s' with connection '%s'", err, connStr))
 	}
 
 	db.SetMaxOpenConns(config.MaxOpen)
@@ -638,7 +662,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			Conn: db,
 		}), nil)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	case "sqlite3":
 		gormDB, err = gorm.Open(&dialects.SQLite{
@@ -647,14 +671,14 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			},
 		}, nil)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	case "mysql":
 		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
 			Conn: db,
 		}), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	case "ramsql": //this is for testing
 		gormDB = &gorm.DB{}
@@ -663,17 +687,17 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			Conn: db,
 		}), nil)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	case "clickhouse":
 		gormDB, err = gorm.Open(clickhouse.New(clickhouse.Config{
 			Conn: db,
 		}), nil)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, connStr, err
 		}
 	default:
-		return nil, nil, errors.New(fmt.Sprintf("we don't support database driver '%s'", config.Driver))
+		return nil, nil, connStr, errors.New(fmt.Sprintf("we don't support database driver '%s'", config.Driver))
 	}
-	return db, gormDB, err
+	return db, gormDB, connStr, err
 }

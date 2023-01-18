@@ -9,6 +9,10 @@ import (
 	"golang.org/x/net/context"
 )
 
+const CREATE_COMMAND = "create"
+const UPDATE_COMMAND = "update"
+const DELETE_COMMAND = "delete"
+
 //Command is a common interface that all incoming requests should implement.
 type Command struct {
 	Type     string          `json:"type"`
@@ -18,6 +22,7 @@ type Command struct {
 
 type CommandMetadata struct {
 	EntityID      string
+	SequenceNo    int
 	EntityType    string
 	Version       int64
 	ExecutionDate *time.Time
@@ -31,12 +36,13 @@ type DefaultCommandDispatcher struct {
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, container Container, eventStore EventRepository, projection Projection, logger Log) error {
+func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error) {
 	//mutex helps keep state between routines
 	e.dispatch.Lock()
 	defer e.dispatch.Unlock()
 	var wg sync.WaitGroup
 	var err error
+	var result interface{}
 	var allHandlers []CommandHandler
 	//first preference is handlers for specific command type and entity type
 	if handlers, ok := e.handlers[command.Type+command.Metadata.EntityType]; ok {
@@ -60,17 +66,18 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 			defer func() {
 				if r := recover(); r != nil {
 					e.handlerPanicked = true
-					err = fmt.Errorf("handler error '%s'", r)
+					fmt.Println(fmt.Sprintf("%+v", r))
+					err = fmt.Errorf("handler error '%v'", r)
 				}
 				wg.Done()
 			}()
-			err = handler(ctx, command, container, eventStore, projection, logger)
+			result, err = handler(ctx, command, container, repository, logger)
 		}()
 	}
 
 	wg.Wait()
 
-	return err
+	return result, err
 }
 
 func (e *DefaultCommandDispatcher) AddSubscriber(command *Command, handler CommandHandler) map[string][]CommandHandler {
@@ -86,4 +93,4 @@ func (e *DefaultCommandDispatcher) GetSubscribers() map[string][]CommandHandler 
 	return e.handlers
 }
 
-type CommandHandler func(ctx context.Context, command *Command, container Container, eventRepository EventRepository, projection Projection, logger Log) error
+type CommandHandler func(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error)

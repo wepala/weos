@@ -9,7 +9,6 @@ import (
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos/context"
 	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
 	"net/http"
 )
 
@@ -30,7 +29,7 @@ func RequestID(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIte
 	}
 }
 
-func Recover(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func Recover(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return middleware.Recover()(next)
 	}

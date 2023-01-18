@@ -3,6 +3,8 @@ module github.com/wepala/weos
 go 1.16
 
 require (
+	github.com/aws/aws-sdk-go-v2/config v1.18.8
+	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.2.5
 	github.com/casbin/casbin/v2 v2.47.3
 	github.com/casbin/gorm-adapter/v3 v3.7.2
 	github.com/coreos/go-oidc/v3 v3.1.0

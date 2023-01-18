@@ -12,17 +12,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wepala/weos/model"
-	"github.com/wepala/weos/projections"
-
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	weosContext "github.com/wepala/weos/context"
+	"github.com/wepala/weos/model"
 	"golang.org/x/net/context"
 )
 
 //Context CreateHandler go context and add parameter values to context
-func Context(api Container, projection projections.Projection, commandDispatcher model.CommandDispatcher, eventSource model.EventRepository, entityFactory model.EntityFactory, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+func Context(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			var err error
@@ -39,9 +37,9 @@ func Context(api Container, projection projections.Projection, commandDispatcher
 				cc = context.WithValue(cc, "BASE_PATH", api.GetWeOSConfig().BasePath)
 			}
 			//use the path information to get the parameter values
-			contextValues, err := parseParams(c, path.Parameters, entityFactory)
+			contextValues, err := parseParams(c, path.Parameters, repository)
 			//add parameter values to the context
-			cc, err = AddToContext(c, cc, contextValues, entityFactory)
+			cc, err = AddToContext(c, cc, contextValues, repository)
 
 			//use x-context to get parameter
 			if tcontextParams, ok := operation.ExtensionProps.Extensions[ContextExtension]; ok {
@@ -49,16 +47,15 @@ func Context(api Container, projection projections.Projection, commandDispatcher
 				err = json.Unmarshal(tcontextParams.(json.RawMessage), &contextParams)
 				if err == nil {
 					//use the operation information to get the parameter values
-					cc, err = AddToContext(c, cc, contextParams, entityFactory)
+					cc, err = AddToContext(c, cc, contextParams, repository)
 				}
 			}
 			//use the operation information to get the parameter values
-			contextValues, err = parseParams(c, operation.Parameters, entityFactory)
+			contextValues, err = parseParams(c, operation.Parameters, repository)
 			//add parameter values to the context
-			cc, err = AddToContext(c, cc, contextValues, entityFactory)
+			cc, err = AddToContext(c, cc, contextValues, repository)
 
 			//use the operation information to get the parameter values and add them to the context
-
 			cc, err = parseResponses(c, cc, operation)
 
 			//add OperationID to context
@@ -80,8 +77,10 @@ func Context(api Container, projection projections.Projection, commandDispatcher
 						case "application/json":
 							payload, err = ioutil.ReadAll(c.Request().Body)
 						case "application/x-www-form-urlencoded", "multipart/form-data":
-							payload, formErr, status = ConvertFormToJson(c.Request(), ct, entityFactory, mimeType)
-
+							//if there is a repository then convert to json
+							if repository != nil {
+								payload, formErr, status = ConvertFormToJson(c.Request(), ct, repository, mimeType)
+							}
 						}
 						//set payload to context
 						cc = context.WithValue(cc, weosContext.PAYLOAD, payload)
@@ -438,7 +437,7 @@ func convertProperties(properties map[string]interface{}, schema *openapi3.Schem
 }
 
 //ConvertFormToJson This function is used for "application/x-www-form-urlencoded" content-type to convert req body to json
-func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.EntityFactory, media *openapi3.MediaType) (json.RawMessage, error, string) {
+func ConvertFormToJson(r *http.Request, contentType string, entityRepository model.EntityRepository, media *openapi3.MediaType) (json.RawMessage, error, string) {
 	var err error
 	uploadHit := false
 	parsedForm := map[string]interface{}{}
@@ -452,7 +451,7 @@ func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.
 
 		for k, v := range r.PostForm {
 			for _, value := range v {
-				parsedForm, err = parseFormPayload(parsedForm, entityfactory.Schema(), k, value, len(v))
+				parsedForm, err = parseFormPayload(parsedForm, entityRepository.Schema(), k, value, len(v))
 			}
 		}
 
@@ -465,7 +464,7 @@ func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.
 
 		for k, v := range r.MultipartForm.Value {
 			for _, value := range v {
-				parsedForm, err = parseFormPayload(parsedForm, entityfactory.Schema(), k, value, len(v))
+				parsedForm, err = parseFormPayload(parsedForm, entityRepository.Schema(), k, value, len(v))
 			}
 
 		}
@@ -501,7 +500,7 @@ func ConvertFormToJson(r *http.Request, contentType string, entityfactory model.
 
 			} else {
 				//This checks if there is any x-upload defined on a property for a schema
-				for name, prop := range entityfactory.Schema().Properties {
+				for name, prop := range entityRepository.Schema().Properties {
 					if uploadExtension, ok := prop.Value.ExtensionProps.Extensions[UploadExtension]; ok {
 						_ = json.Unmarshal(uploadExtension.(json.RawMessage), &uploadFolder)
 

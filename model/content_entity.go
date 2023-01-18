@@ -43,7 +43,7 @@ func (w *ContentEntity) IsValid() bool {
 					}
 
 					//linked objects are allowed to be null
-					if !w.Schema.Properties[key].Value.Nullable && property.Value.Type != "object" {
+					if !w.Schema.Properties[key].Value.Nullable && property.Value.Type != "object" && property.Ref == "" {
 						message := "entity property " + key + " is not nullable"
 						w.AddError(NewDomainError(message, w.Schema.Title, w.ID, nil))
 					}
@@ -334,23 +334,7 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 					}
 				}
 			case "array":
-				//use schema to see which items in payload needs an id generated and do it.
-				if values, ok := data[k].([]interface{}); ok {
-					if property.Value != nil && property.Value.Items != nil && property.Value.Items.Value != nil {
-						for i, _ := range values {
-							if value, ok := values[i].(map[string]interface{}); ok {
-								value, err = w.SetValue(property.Value.Items.Value, value)
-								tvalue, err := json.Marshal(value)
-								if err != nil {
-									return nil, err
-								}
-								values[i], err = new(ContentEntity).FromSchemaWithValues(context.Background(), schema, tvalue)
-							}
-						}
-					}
-				}
-
-				//if the value is a string try to convert to json and deserialize
+				//if the value is a string and/or the schema is marked inline try to convert to json and deserialize
 				if value, ok := data[k].(string); ok {
 					var tvalue []interface{}
 					err = json.Unmarshal([]byte(value), &tvalue)
@@ -359,13 +343,29 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 					}
 					data[k] = tvalue
 				}
+
+				//use schema to see which items in payload needs an id generated and do it.
+				if values, ok := data[k].([]interface{}); ok {
+					if property.Value != nil && property.Value.Items != nil && property.Value.Items.Value != nil {
+						for i, _ := range values {
+							if value, ok := values[i].(map[string]interface{}); ok {
+								value, err = w.SetValue(property.Value.Items.Value, value)
+								tvalue, terr := json.Marshal(value)
+								if terr != nil {
+									return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '[]', got '%T'", k, value), w.Schema.Title, w.ID, terr)
+								}
+								values[i], err = new(ContentEntity).FromSchemaWithValues(context.Background(), schema, tvalue)
+							}
+						}
+					}
+				}
 			case "object":
 				//if the value is a string try to convert to json and deserialize
 				if value, ok := data[k].(string); ok {
 					var tvalue map[string]interface{}
 					err = json.Unmarshal([]byte(value), &tvalue)
 					if err != nil {
-						return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '{}', got '%s'", k, value), w.Schema.Title, w.ID, err)
+						return nil, NewDomainError(fmt.Sprintf("invalid json set for '%s' it should be in the format '{}', got '%T'", k, value), w.Schema.Title, w.ID, err)
 					}
 					data[k] = tvalue
 				}
@@ -599,16 +599,24 @@ func (w *ContentEntity) Identifier() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("unexpected error: schema is not set")
 	}
 	identifier := make(map[string]interface{})
-	properties := w.Schema.ExtensionProps.Extensions["x-identifier"]
-	if properties != nil {
-		for _, property := range properties.([]interface{}) {
-			identifier[property.(string)] = w.payload[property.(string)]
+	tproperties := w.Schema.ExtensionProps.Extensions["x-identifier"]
+	if tproperties != nil {
+		var properties []string
+		err := json.Unmarshal(tproperties.(json.RawMessage), &properties)
+		if err != nil {
+			return nil, err
+		}
+		for _, property := range properties {
+			identifier[property] = w.payload[property]
 		}
 	} else {
-		if id, ok := w.payload["id"]; ok {
-			identifier["id"] = id
-		} else {
-			identifier["weos_id"] = w.ID
+		//only add id if it's NOT an inline entity
+		if _, ok := w.Schema.ExtensionProps.Extensions["x-inline"]; !ok {
+			if id, ok := w.payload["id"]; ok {
+				identifier["id"] = id
+			} else {
+				identifier["id"] = 0
+			}
 		}
 	}
 
