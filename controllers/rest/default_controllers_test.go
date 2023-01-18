@@ -180,6 +180,7 @@ func TestDefaultReadController(t *testing.T) {
 		resp := httptest.NewRecorder()
 		req := httptest.NewRequest(echo.GET, "/blogs/1", nil)
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		req.Header.Add(echo.HeaderAccept, echo.MIMEApplicationJSON)
 		e.ServeHTTP(resp, req)
 		if resp.Code != http.StatusOK {
 			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
