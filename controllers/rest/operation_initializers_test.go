@@ -183,7 +183,6 @@ paths:
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 
 	api.RegisterController("HealthCheck", rest.HealthCheck)
-
 	middlewareCalled := false
 	api.RegisterMiddleware("Recover", func(api rest.Container, commandDispatcher model.CommandDispatcher, eventSource model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
@@ -355,6 +354,23 @@ func TestRouteInitializer(t *testing.T) {
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
+	api.RegisterController("DefaultReadController", rest.DefaultReadController)
+	logger := &LogMock{
+		DebugfFunc: func(format string, args ...interface{}) {
+
+		},
+		DebugFunc: func(args ...interface{}) {
+
+		},
+		ErrorfFunc: func(format string, args ...interface{}) {
+
+		},
+		ErrorFunc: func(args ...interface{}) {
+
+		},
+	}
+	api.RegisterLog("Default", logger)
+
 	api.RegisterController("ViewController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			controllerTriggered = true
