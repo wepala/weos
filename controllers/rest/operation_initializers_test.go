@@ -279,6 +279,8 @@ func TestStandardInitializer(t *testing.T) {
 	}
 	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
 	api.RegisterController("DefaultReadController", rest.DefaultReadController)
+	api.RegisterController("DefaultListController", rest.DefaultReadController)
+
 	//api.RegisterController("ListController", rest.ListController)
 	t.Run("attach standard create", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
