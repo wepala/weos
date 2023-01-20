@@ -595,7 +595,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 				dbUser, authenticationToken, dbEndpoint, dbName,
 			)
 		case "postgres":
-			connStr = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			connStr = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
 				dbHost, dbPort, dbUser, authenticationToken, dbName,
 			)
 		default:
