@@ -217,8 +217,8 @@ paths:
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
 		middlewares := rest.GetOperationMiddlewares(ctxt)
-		if len(middlewares) != 2 {
-			t.Fatalf("expected the middlewares in context to be %d, got %d", 2, len(middlewares))
+		if len(middlewares) != 1 {
+			t.Fatalf("expected the middlewares in context to be %d, got %d", 1, len(middlewares))
 		}
 		ct := echo.New().AcquireContext()
 		req := &http.Request{}
