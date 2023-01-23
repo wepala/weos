@@ -307,4 +307,108 @@ func TestDefaultReadController(t *testing.T) {
 			t.Errorf("expected results to be %s got %s", expectResp, string(results))
 		}
 	})
+
+	t.Run("test get item that's not found", func(t *testing.T) {
+		container := &ContainerMock{
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
+		}
+		repository := &EntityRepositoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{}`))
+			},
+		}
+
+		path := swagger.Paths.Find("/blogs/:id")
+
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.PathItem{
+			"/blogs/1": path,
+		}, map[string]*openapi3.Operation{
+			http.MethodGet: path.Get,
+		})
+		e := echo.New()
+		e.GET("/blogs/:id", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.GET, "/blogs/1", nil)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		req.Header.Add(echo.HeaderAccept, echo.MIMEApplicationJSON)
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusNotFound {
+			t.Errorf("expected status code %d, got %d", http.StatusNotFound, resp.Code)
+		}
+
+		if len(repository.GetByKeyCalls()) != 1 {
+			t.Errorf("expected repository.GetByKey to be called once, got %d", len(repository.GetByKeyCalls()))
+		}
+
+		body := resp.Body.String()
+
+		if strings.Contains("null", body) {
+			t.Errorf("expected body to be empty")
+		}
+	})
+
+	t.Run("test get item with no accept header", func(t *testing.T) {
+		container := &ContainerMock{
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
+		}
+		repository := &EntityRepositoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctxt, swagger.Components.Schemas["Blog"].Value, []byte(`{"id":1,"title":"test"}`))
+			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{}`))
+			},
+		}
+
+		path := swagger.Paths.Find("/blogs/:id")
+
+		controller := rest.DefaultReadController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.PathItem{
+			"/blogs/1": path,
+		}, map[string]*openapi3.Operation{
+			http.MethodGet: path.Get,
+		})
+		e := echo.New()
+		e.GET("/blogs/:id", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.GET, "/blogs/1", nil)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
+		}
+
+		if len(repository.GetByKeyCalls()) != 1 {
+			t.Errorf("expected repository.GetByKey to be called once, got %d", len(repository.GetByKeyCalls()))
+		}
+
+		if len(resp.Body.String()) == 0 {
+			t.Errorf("expected body to be not empty")
+		}
+
+		var blog map[string]interface{}
+		if err := json.Unmarshal(resp.Body.Bytes(), &blog); err != nil {
+			t.Errorf("error unmarshalling body: %s", err)
+		}
+		//check that the response body is correct
+		if blog["id"] != float64(1) {
+			t.Errorf("expected id to be 1, got %d", blog["id"])
+		}
+
+		if blog["title"] != "test" {
+			t.Errorf("expected title to be 'test', got '%s'", blog["title"])
+		}
+	})
 }

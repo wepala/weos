@@ -248,7 +248,21 @@ func TestResolveResponseType(t *testing.T) {
 
 	t.Run("multiple types", func(t *testing.T) {
 		expectedContentType := "application/json"
-		contentType := api.ResolveResponseType("text/html, application/xhtml+xml, application/json;q=0.9, */*;q=0.8", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		contentType := api.ResolveResponseType("text/html, application/xhtml+xml, application/json, */*;q=0.8", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
+
+	t.Run("test application/ld+json", func(t *testing.T) {
+		swagger, err = LoadConfig(t, "./fixtures/blog-json-ld.yaml")
+		if err != nil {
+			t.Fatalf("unable to load swagger: %s", err)
+		}
+		path = swagger.Paths.Find("/blogs")
+
+		expectedContentType := "application/ld+json"
+		contentType := api.ResolveResponseType("application/ld+json", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
 		if contentType != expectedContentType {
 			t.Errorf("expected %s, got %s", expectedContentType, contentType)
 		}

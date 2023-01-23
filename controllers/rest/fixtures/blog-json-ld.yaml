@@ -1,0 +1,222 @@
+openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
+  database:
+    driver: sqlite3
+    database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
+  rest:
+    middleware:
+      - RequestID
+      - Recover
+      - ZapLogger
+components:
+  schemas:
+    Category:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+      required:
+        - title
+      x-identifier:
+        - title
+    Author:
+      type: object
+      properties:
+        id:
+          type: string
+          format: ksuid
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+      required:
+        - firstName
+        - lastName
+      x-identifier:
+        - id
+        - email
+    Blog:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          x-unique: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        author:
+          $ref: "#/components/schemas/Author"
+        cost:
+          type: number
+          format: double
+          nullable: true
+        status:
+          type: string
+          nullable: true
+          enum:
+            - "null"
+            - unpublished
+            - published
+        image:
+          type: string
+          format: byte
+          nullable: true
+        categories:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Category"
+        posts:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Post"
+        lastUpdated:
+          type: string
+          format: date-time
+          nullable: true
+          x-update:
+            - Add Blog
+            - Update Blog
+        created:
+          type: string
+          format: date-time
+          nullable: true
+          x-update:
+            - Add Blog
+      required:
+        - title
+        - url
+    Post:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        author:
+          $ref: "#/components/schemas/Author"
+        created:
+          type: string
+          format: date-time
+paths:
+  /health:
+    summary: Health Check
+    get:
+      x-controller: HealthCheck
+      x-middleware:
+        - Recover
+        - ZapLogger
+      responses:
+        200:
+          description: Health Response
+        500:
+          description: API Internal Error
+  /api:
+    get:
+      operationId: Get API Details
+      x-controller: APIDiscovery
+      responses:
+        200:
+          description: API Details
+          content:
+            application/json:
+              schema:
+                type: string
+  /blogs:
+    get:
+      operationId: Get Blogs
+      summary: Get List of Blogs
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: l
+          x-alias: limit
+          schema:
+            type: integer
+        - in: query
+          name: _filters
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              values:
+                type: array
+                items:
+                  type: string
+
+          required: false
+          description: query string
+      x-context:
+        _filters:
+          - field: status
+            operator: eq
+            value: Active
+          - field: lastUpdated
+            operator: between
+            values:
+              - 2021-12-17 15:46:00
+              - 2021-12-18 15:46:00
+          - field: categories
+            operator: in
+            values:
+              - Technology
+              - Javascript
+        _sorts:
+          - field: title
+            order: asc
+        page: 1
+        limit: 10
+      responses:
+        200:
+          description: List of blogs
+          content:
+            application/ld+json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  blogs:
+                    type: array
+                    x-alias: items
+                    items:
+                      $ref: "#/components/schemas/Blog"
