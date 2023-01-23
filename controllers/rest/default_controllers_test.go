@@ -272,7 +272,7 @@ func TestDefaultReadController(t *testing.T) {
 				return "Blog"
 			},
 			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
-				return new(model.ContentEntity).FromSchemaWithValues(ctxt, swagger.Components.Schemas["Blog"].Value, []byte(`{}`))
+				return nil, nil
 			},
 			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
 				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{}`))

@@ -185,7 +185,7 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 				return NewControllerError("unexpected error getting entity", err, http.StatusBadRequest)
 			}
 
-			if entity == nil {
+			if entity == nil && len(templates) == 0 {
 				return ctxt.JSON(http.StatusNotFound, nil)
 			}
 		}
