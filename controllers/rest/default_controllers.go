@@ -193,6 +193,12 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 
 		//check header to determine response check the accepts header
 		acceptHeader := ctxt.Request().Header.Get("Accept")
+
+		// if no accept header is found it defaults to application/json
+		if acceptHeader == "" {
+			acceptHeader = "application/json"
+		}
+
 		contentType := ResolveResponseType(acceptHeader, operationMap[http.MethodGet].Responses["200"].Value.Content)
 		switch contentType {
 		case "application/json":
