@@ -185,11 +185,20 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 				return NewControllerError("unexpected error getting entity", err, http.StatusBadRequest)
 			}
 
+			if entity == nil && len(templates) == 0 {
+				return ctxt.JSON(http.StatusNotFound, nil)
+			}
 		}
 		//render html if that is configured
 
 		//check header to determine response check the accepts header
 		acceptHeader := ctxt.Request().Header.Get("Accept")
+
+		// if no accept header is found it defaults to application/json
+		if acceptHeader == "" {
+			acceptHeader = "application/json"
+		}
+
 		contentType := ResolveResponseType(acceptHeader, operationMap[http.MethodGet].Responses["200"].Value.Content)
 		switch contentType {
 		case "application/json":

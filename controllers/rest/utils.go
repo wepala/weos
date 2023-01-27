@@ -433,7 +433,10 @@ func ResolveResponseType(header string, content openapi3.Content) string {
 	mimeTypes := strings.Split(header, ",")
 	for _, mimeType := range mimeTypes {
 		for contentType, _ := range content {
-			match, _ := regexp.MatchString("^"+mimeType, contentType)
+			mimeType = strings.ReplaceAll(mimeType, " ", "")
+			mimeType = strings.ReplaceAll(mimeType, "+", "")
+
+			match, _ := regexp.MatchString("^"+mimeType, strings.ReplaceAll(contentType, "+", ""))
 			if match {
 				return contentType
 			}
