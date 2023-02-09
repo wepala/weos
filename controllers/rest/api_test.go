@@ -472,6 +472,10 @@ paths:
         200:
           description: file found
           x-folder: "./fixtures/staticF"
+          content:
+            text/html:
+              example: |
+                <html><body>Test</body></html>
         404:
           description: file not found
 `
@@ -571,6 +575,10 @@ paths:
         200:
           description: file found
           x-file: "./fixtures/staticF/index"
+          content:
+            text/html:
+              example: |
+                <html><body>Test</body></html>
         404:
           description: file not found
 `
@@ -630,8 +638,8 @@ func TestRESTAPI_Initialize_ExampleResponse(t *testing.T) {
 	req.Close = true
 	e.ServeHTTP(resp, req)
 
-	if resp.Result().StatusCode != http.StatusCreated {
-		t.Fatalf("expected to get status %d got %d", http.StatusCreated, resp.Result().StatusCode)
+	if resp.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected to get status %d got %d", http.StatusOK, resp.Result().StatusCode)
 	}
 	os.Remove("test.db")
 }
