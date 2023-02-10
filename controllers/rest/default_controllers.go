@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -239,6 +240,10 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 		limit, _ := newContext.Value("limit").(int)
 		page, _ := newContext.Value("page").(int)
 		filters := newContext.Value("_filters")
+		format := newContext.Value("_format").(string)
+
+		responseType := ResolveResponseType(format, operationMap[http.MethodGet].Responses["200"].Value.Content)
+
 		if entityRepository != nil {
 			schema := entityRepository.Schema()
 			if filters != nil {
@@ -279,7 +284,33 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 				Page:  page,
 				Items: contentEntities,
 			}
-			return ctxt.JSON(http.StatusOK, resp)
+
+			if responseType == "application/json" {
+				return ctxt.JSON(http.StatusOK, resp)
+			} else if responseType == "text/csv" {
+				// generate csv
+				var buffer bytes.Buffer
+
+				keys := []string{"id", "firstName", "lastName"}
+				buffer.WriteString(strings.Join(keys, ",") + "\n")
+
+				for i := 0; i < int(count); i++ {
+					entityMap := contentEntities[i].ToMap()
+					row := make([]string, len(keys))
+					for j, key := range keys {
+						row[j] = fmt.Sprintf("%v", entityMap[key])
+					}
+
+					buffer.WriteString(strings.Join(row, ",") + "\n")
+					if err != nil {
+						return ctxt.NoContent(http.StatusInternalServerError)
+					}
+				}
+
+				content := buffer.String()
+
+				return ctxt.JSON(http.StatusOK, content)
+			}
 		}
 		return ctxt.NoContent(http.StatusOK)
 	}

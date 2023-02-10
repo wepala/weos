@@ -267,4 +267,18 @@ func TestResolveResponseType(t *testing.T) {
 			t.Errorf("expected %s, got %s", expectedContentType, contentType)
 		}
 	})
+
+	t.Run("test text/csv", func(t *testing.T) {
+		swagger, err = LoadConfig(t, "./fixtures/csv.yaml")
+		if err != nil {
+			t.Fatalf("unable to load swagger: %s", err)
+		}
+		path = swagger.Paths.Find("/customers")
+
+		expectedContentType := "text/csv"
+		contentType := api.ResolveResponseType("text/csv", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
 }

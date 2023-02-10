@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: Customer API
+  description: Customer Service
+  version: 1.0.0
+servers:
+  - url: 'https://localhost:8683'
+x-weos-config:
+  basePath: ${BASE_PATH}
+  database:
+    driver: ${DB_DRIVER}
+    host: ${DB_HOST}
+    database: ${DB_NAME}
+    port: ${DB_PORT}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    aws-region: ${AWS_REGION}
+    aws-iam: ${USE_IAM}
+    max-open: 10
+    max-idle: 3
+components:
+  schemas:
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+    FilterOptions:
+      x-inline: true
+      type: object
+      properties:
+        eq:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          nullable: false
+        lt:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          nullable: false
+        gt:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          nullable: false
+        like:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          nullable: false
+
+paths:
+  /health:
+    get:
+      responses:
+        200:
+          description: Health Endpoint
+          content:
+            text/html:
+              example: |
+                <html><body>Health</body></html>
+  /customers:
+    get:
+      summary: Get customers
+      description: Get customers
+      operationId: get.customers
+      parameters:
+        - in: query
+          name: _filters
+          description: Filter Customers
+          style: deepObject
+          explode: true
+          required: false
+          schema:
+            $ref: '#/components/schemas/FilterOptions'
+        - in: query
+          name: _headers
+          description: Customer Headers
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: _format
+          description: content type
+          required: false
+          schema:
+            type: string
+      responses:
+        200:
+          description: Customer
+          content:
+            text/csv:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Customer'
+

@@ -174,6 +174,12 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, entityFactory m
 					if val.(string) == "" {
 						delete(contextValues, contextName)
 					}
+				case "_format":
+					queryValue := strings.Split(c.Request().URL.RawQuery, "=")
+					val = queryValue[1]
+					if val.(string) == "" {
+						delete(contextValues, contextName)
+					}
 				default:
 					if paramType != nil && paramType.Value != nil {
 						pType := paramType.Value.Type
@@ -330,6 +336,14 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 				contextValues[key] = filters
 			}
 		case "If-Match", "If-None-Match": //default type is string
+			if value != nil {
+				if value.(string) == "" {
+					delete(contextValues, key)
+					break
+				}
+				contextValues[key] = value.(string)
+			}
+		case "_format":
 			if value != nil {
 				if value.(string) == "" {
 					delete(contextValues, key)
