@@ -65,8 +65,8 @@ type FilterProperties struct {
 }
 
 type HeaderProperties struct {
-	Header string `json:"header"`
-	Field  string `json:"field"`
+	Header string `json:"header"` // csv file header
+	Field  string `json:"field"`  // field in db
 }
 
 type CResponseType struct {

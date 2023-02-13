@@ -170,6 +170,46 @@ func TestFiltersSplit(t *testing.T) {
 	})
 }
 
+func TestSplitHeaders(t *testing.T) {
+	t.Run("testing splitheaders", func(t *testing.T) {
+		queryString := "_headers[familyName]=Last Name"
+		header := "Last Name"
+		field := "familyName"
+		headerProp := api.SplitHeaders(queryString)
+
+		if headerProp == nil {
+			t.Fatalf("expected to get a header property but go nil")
+		}
+
+		if headerProp.Field != field {
+			t.Errorf("expected field to be %s got %s", field, headerProp.Field)
+		}
+
+		if headerProp.Header != header {
+			t.Errorf("expected header to be %s got %s", header, headerProp.Header)
+		}
+	})
+
+	t.Run("testing splitheaders with a '+' in the header value", func(t *testing.T) {
+		queryString := "_headers[givenName]=First+Name"
+		header := "First Name"
+		field := "givenName"
+		headerProp := api.SplitHeaders(queryString)
+
+		if headerProp == nil {
+			t.Fatalf("expected to get a header property but go nil")
+		}
+
+		if headerProp.Field != field {
+			t.Errorf("expected field to be %s got %s", field, headerProp.Field)
+		}
+
+		if headerProp.Header != header {
+			t.Errorf("expected header to be %s got %s", header, headerProp.Header)
+		}
+	})
+}
+
 func TestConvertStringToType(t *testing.T) {
 	tests := []struct {
 		desiredType string

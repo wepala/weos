@@ -8,6 +8,7 @@ import (
 	"github.com/wepala/weos/controllers/rest"
 	"github.com/wepala/weos/model"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -418,7 +419,7 @@ func TestDefaultListController(t *testing.T) {
 		t.Fatalf("error loading api config '%s'", err)
 	}
 
-	t.Run("test format parameter", func(t *testing.T) {
+	t.Run("test _format & _headers parameters", func(t *testing.T) {
 		container := &ContainerMock{
 			GetLogFunc: func(name string) (model.Log, error) {
 				return &LogMock{}, nil
@@ -462,7 +463,7 @@ func TestDefaultListController(t *testing.T) {
 		e := echo.New()
 		e.GET("/customers", controller)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(echo.GET, "/customers?_format=text/csv&_filters[lastName][eq]=Doe&_filters[firstName][eq]=John", nil)
+		req := httptest.NewRequest(echo.GET, "/customers?_format=text/csv&_headers[firstName]=First+Name&_headers[lastName]=Last+Name", nil)
 		req.Header.Set(echo.HeaderContentType, "text/csv")
 		e.ServeHTTP(resp, req)
 		if resp.Code != http.StatusOK {
@@ -475,6 +476,22 @@ func TestDefaultListController(t *testing.T) {
 
 		if len(resp.Body.String()) == 0 {
 			t.Errorf("expected body to be not empty")
+		}
+
+		if resp.Header().Get("Content-Type") != "text/csv" {
+			t.Errorf("expected content type to be %s got %s", "text/csv", resp.Header().Get("Content-Type"))
+		}
+
+		// check contents of csv
+		data, err := ioutil.ReadFile("./fixtures/customers.csv")
+		if err != nil {
+			t.Errorf("error reading customers.csv")
+		}
+		expected := string(data)
+		results := resp.Body.String()
+
+		if expected != results {
+			t.Errorf("expected response body to be %s got %s", expected, results)
 		}
 
 	})

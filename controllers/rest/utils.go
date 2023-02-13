@@ -268,10 +268,27 @@ func SplitFilter(filter string) *FilterProperties {
 	return property
 }
 
-func splitHeaders(header string) *HeaderProperties {
+func SplitHeaders(header string) *HeaderProperties {
 	var property *HeaderProperties
 	if header == "" {
 		return nil
+	}
+	field := strings.Split(header, "[")
+	if len(field) != 2 {
+		return nil
+	}
+	if field[0] != "_headers" {
+		return nil
+	}
+	field[1] = strings.Replace(field[1], "]", "", -1)
+	headerProps := strings.Split(field[1], "=")
+	if len(headerProps) != 2 {
+		return nil
+	}
+	headerProps[1] = strings.Replace(headerProps[1], "+", " ", -1)
+	property = &HeaderProperties{
+		Header: headerProps[1],
+		Field:  headerProps[0],
 	}
 
 	return property

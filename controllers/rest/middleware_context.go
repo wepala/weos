@@ -287,26 +287,27 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 					break
 				}
 
-				//if the filter comes from x-context do this conversion
-				filters := map[string]interface{}{}
 				decodedQuery, err := url.PathUnescape(val)
 				if err != nil {
 					errors = fmt.Errorf("Error decoding the string %v", err)
 					continue
 				}
 
-				filtersArray := SplitFilters(decodedQuery)
-				if filtersArray != nil && len(filtersArray) > 0 {
-					for _, value := range filtersArray {
-						if strings.Contains(value, "_headers") {
-							prop := SplitFilter(value)
-							if prop == nil {
-								errors = fmt.Errorf("unexpected error filter format is incorrect: %s", value)
+				contextValues[key] = make([]*HeaderProperties, 0)
+
+				headersArray := SplitFilters(decodedQuery)
+				if headersArray != nil && len(headersArray) > 0 {
+					for _, headerValue := range headersArray {
+						if strings.Contains(headerValue, "_headers") {
+							headerProp := SplitHeaders(headerValue)
+							if headerProp == nil {
+								errors = fmt.Errorf("unexpected error header format is incorrect: %s", value)
 								break
 							}
-							filters[prop.Field] = prop
+							contextValues[key] = append(contextValues[key].([]*HeaderProperties), headerProp)
 						}
 					}
+					continue
 				}
 			}
 		case "_filters":

@@ -241,6 +241,7 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 		page, _ := newContext.Value("page").(int)
 		filters := newContext.Value("_filters")
 		format := newContext.Value("_format")
+		headers := newContext.Value("_headers")
 
 		responseType := "application/json"
 
@@ -295,17 +296,27 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 				// generate csv
 				w := ctxt.Response().Writer
 				w.Header().Set("Content-Disposition", "attachment;filename=data.csv")
+				w.Header().Set("Content-Type", responseType)
 
 				writer := csv.NewWriter(w)
 
-				keys := []string{"id", "firstName", "lastName"}
-				err = writer.Write(keys)
+				var csvKeys []string
+				var dbFields []string
+
+				if headerProperties, ok := headers.([]*HeaderProperties); ok {
+					for _, headerProperty := range headerProperties {
+						csvKeys = append(csvKeys, headerProperty.Header)
+						dbFields = append(dbFields, headerProperty.Field)
+					}
+				}
+
+				err = writer.Write(csvKeys)
 
 				for i := 0; i < int(count); i++ {
 					entityMap := contentEntities[i].ToMap()
-					row := make([]string, len(keys))
-					for j, key := range keys {
-						row[j] = fmt.Sprintf("%v", entityMap[key])
+					row := make([]string, len(dbFields))
+					for j, field := range dbFields {
+						row[j] = fmt.Sprintf("%v", entityMap[field])
 					}
 
 					err := writer.Write(row)
