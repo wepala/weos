@@ -274,6 +274,11 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 			if page == 0 {
 				page = 1
 			}
+
+			if responseType == "text/csv" {
+				limit = 0
+			}
+
 			var count int64
 			var err error
 			var contentEntities []*model.ContentEntity
