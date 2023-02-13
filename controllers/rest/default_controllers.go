@@ -1,7 +1,7 @@
 package rest
 
 import (
-	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -240,9 +240,13 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 		limit, _ := newContext.Value("limit").(int)
 		page, _ := newContext.Value("page").(int)
 		filters := newContext.Value("_filters")
-		format := newContext.Value("_format").(string)
+		format := newContext.Value("_format")
 
-		responseType := ResolveResponseType(format, operationMap[http.MethodGet].Responses["200"].Value.Content)
+		responseType := "application/json"
+
+		if format != nil {
+			responseType = ResolveResponseType(format.(string), operationMap[http.MethodGet].Responses["200"].Value.Content)
+		}
 
 		if entityRepository != nil {
 			schema := entityRepository.Schema()
@@ -289,10 +293,13 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 				return ctxt.JSON(http.StatusOK, resp)
 			} else if responseType == "text/csv" {
 				// generate csv
-				var buffer bytes.Buffer
+				w := ctxt.Response().Writer
+				w.Header().Set("Content-Disposition", "attachment;filename=data.csv")
+
+				writer := csv.NewWriter(w)
 
 				keys := []string{"id", "firstName", "lastName"}
-				buffer.WriteString(strings.Join(keys, ",") + "\n")
+				err = writer.Write(keys)
 
 				for i := 0; i < int(count); i++ {
 					entityMap := contentEntities[i].ToMap()
@@ -301,15 +308,19 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 						row[j] = fmt.Sprintf("%v", entityMap[key])
 					}
 
-					buffer.WriteString(strings.Join(row, ",") + "\n")
+					err := writer.Write(row)
 					if err != nil {
 						return ctxt.NoContent(http.StatusInternalServerError)
 					}
 				}
 
-				content := buffer.String()
+				writer.Flush()
 
-				return ctxt.JSON(http.StatusOK, content)
+				if writer.Error() != nil {
+					return ctxt.NoContent(http.StatusInternalServerError)
+				}
+
+				return ctxt.NoContent(http.StatusOK)
 			}
 		}
 		return ctxt.NoContent(http.StatusOK)

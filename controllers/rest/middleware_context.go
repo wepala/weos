@@ -175,8 +175,19 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, entityFactory m
 						delete(contextValues, contextName)
 					}
 				case "_format":
-					queryValue := strings.Split(c.Request().URL.RawQuery, "=")
-					val = queryValue[1]
+					parsedURL, err := url.Parse("?" + c.Request().URL.RawQuery)
+					if err != nil {
+						fmt.Println("error parsing query string:", err)
+						return nil, err
+					}
+					params := parsedURL.Query()
+
+					val = params.Get("_format")
+					if val.(string) == "" {
+						delete(contextValues, contextName)
+					}
+				case "_headers":
+					val = c.Request().URL.RawQuery
 					if val.(string) == "" {
 						delete(contextValues, contextName)
 					}
@@ -263,6 +274,39 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 				v, err := strconv.ParseBool(val)
 				if err == nil {
 					contextValues[key] = v
+				}
+			}
+		case "_headers":
+			if value == nil {
+				errors = fmt.Errorf("unexpected error no filters specified")
+				continue
+			}
+			if val, ok := value.(string); ok {
+				if value.(string) == "" {
+					delete(contextValues, key)
+					break
+				}
+
+				//if the filter comes from x-context do this conversion
+				filters := map[string]interface{}{}
+				decodedQuery, err := url.PathUnescape(val)
+				if err != nil {
+					errors = fmt.Errorf("Error decoding the string %v", err)
+					continue
+				}
+
+				filtersArray := SplitFilters(decodedQuery)
+				if filtersArray != nil && len(filtersArray) > 0 {
+					for _, value := range filtersArray {
+						if strings.Contains(value, "_headers") {
+							prop := SplitFilter(value)
+							if prop == nil {
+								errors = fmt.Errorf("unexpected error filter format is incorrect: %s", value)
+								break
+							}
+							filters[prop.Field] = prop
+						}
+					}
 				}
 			}
 		case "_filters":

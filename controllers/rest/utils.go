@@ -268,6 +268,15 @@ func SplitFilter(filter string) *FilterProperties {
 	return property
 }
 
+func splitHeaders(header string) *HeaderProperties {
+	var property *HeaderProperties
+	if header == "" {
+		return nil
+	}
+
+	return property
+}
+
 //Deprecated: 06/20/2022 Use GetOpenIDConfig to get the map of the entire config
 //GetJwkUrl fetches the jwk url from the open id connect url
 func GetJwkUrl(openIdUrl string) (string, error) {

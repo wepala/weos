@@ -441,8 +441,12 @@ func TestDefaultListController(t *testing.T) {
 				return swagger.Components.Schemas["Customer"].Value
 			},
 			GetListFunc: func(ctx context3.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
-				entity, _ := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Customer"].Value, []byte(`{"id":123,"firstName":"John", "lastName":"Doe"}`))
-				return []*model.ContentEntity{entity}, 1, nil
+				entity1, _ := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Customer"].Value, []byte(`{"id":123,"firstName":"John", "lastName":"Doe"}`))
+				entity2, _ := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Customer"].Value, []byte(`{"id":123,"firstName":"Jane", "lastName":"Doe"}`))
+				var entities []*model.ContentEntity
+				entities = append(entities, entity1)
+				entities = append(entities, entity2)
+				return entities, 2, nil
 			},
 		}
 
@@ -458,7 +462,7 @@ func TestDefaultListController(t *testing.T) {
 		e := echo.New()
 		e.GET("/customers", controller)
 		resp := httptest.NewRecorder()
-		req := httptest.NewRequest(echo.GET, "/customers?_format=text/csv", nil)
+		req := httptest.NewRequest(echo.GET, "/customers?_format=text/csv&_filters[lastName][eq]=Doe&_filters[firstName][eq]=John", nil)
 		req.Header.Set(echo.HeaderContentType, "text/csv")
 		e.ServeHTTP(resp, req)
 		if resp.Code != http.StatusOK {

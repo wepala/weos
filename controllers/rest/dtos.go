@@ -64,6 +64,11 @@ type FilterProperties struct {
 	Values   []interface{} `json:"values"`
 }
 
+type HeaderProperties struct {
+	Header string `json:"header"`
+	Field  string `json:"field"`
+}
+
 type CResponseType struct {
 	Status string `json:"status"`
 	Type   string `json:"Type"`
