@@ -293,9 +293,9 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 			if responseType == "application/json" {
 				return ctxt.JSON(http.StatusOK, resp)
 			} else if responseType == "text/csv" {
+
 				// generate csv
 				w := ctxt.Response().Writer
-				w.Header().Set("Content-Disposition", "attachment;filename=data.csv")
 				w.Header().Set("Content-Type", responseType)
 
 				writer := csv.NewWriter(w)
@@ -303,11 +303,17 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 				var csvKeys []string
 				var dbFields []string
 
-				if headerProperties, ok := headers.([]*HeaderProperties); ok {
+				if headerProperties, ok := headers.([]*HeaderProperties); ok && len(headerProperties) != 0 {
 					for _, headerProperty := range headerProperties {
 						csvKeys = append(csvKeys, headerProperty.Header)
 						dbFields = append(dbFields, headerProperty.Field)
 					}
+				} else {
+					entity := contentEntities[0].ToMap()
+					for key := range entity {
+						csvKeys = append(csvKeys, key)
+					}
+					dbFields = csvKeys
 				}
 
 				err = writer.Write(csvKeys)
