@@ -102,6 +102,14 @@ paths:
         200:
           description: Customer
           content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Customer'
             text/csv:
               schema:
                 type: object
@@ -110,4 +118,3 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Customer'
-
