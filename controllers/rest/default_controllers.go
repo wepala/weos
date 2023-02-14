@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -14,6 +15,7 @@ import (
 	path1 "path"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //DefaultWriteController handles the write operations (create, update, delete)
@@ -239,6 +241,15 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 		limit, _ := newContext.Value("limit").(int)
 		page, _ := newContext.Value("page").(int)
 		filters := newContext.Value("_filters")
+		format := newContext.Value("_format")
+		headers := newContext.Value("_headers")
+
+		responseType := "application/json"
+
+		if format != nil {
+			responseType = ResolveResponseType(format.(string), operationMap[http.MethodGet].Responses["200"].Value.Content)
+		}
+
 		if entityRepository != nil {
 			schema := entityRepository.Schema()
 			if filters != nil {
@@ -264,6 +275,11 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 			if page == 0 {
 				page = 1
 			}
+
+			if responseType == "text/csv" {
+				limit = 0
+			}
+
 			var count int64
 			var err error
 			var contentEntities []*model.ContentEntity
@@ -279,7 +295,62 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 				Page:  page,
 				Items: contentEntities,
 			}
-			return ctxt.JSON(http.StatusOK, resp)
+
+			if responseType == "application/json" {
+				return ctxt.JSON(http.StatusOK, resp)
+			} else if responseType == "text/csv" {
+
+				fileName := entityRepository.Name()
+				currentTime := time.Now().Format("2006-01-02+15:04:05")
+
+				w := ctxt.Response().Writer
+				w.Header().Set("Content-Type", responseType)
+				w.Header().Set("Content-Disposition", "attachment;filename="+fileName+"+"+currentTime+".csv")
+
+				writer := csv.NewWriter(w)
+
+				var csvKeys []string
+				var dbFields []string
+
+				// get csv headers and db fields if the _headers parameter was set
+				if headerProperties, ok := headers.([]*QueryProperties); ok && len(headerProperties) != 0 {
+					for _, headerProperty := range headerProperties {
+						csvKeys = append(csvKeys, headerProperty.Value)
+						dbFields = append(dbFields, headerProperty.Field)
+					}
+				} else {
+					// if no _headers parameter was set then return all the fields from the db
+					entity := contentEntities[0].ToMap()
+					for key := range entity {
+						csvKeys = append(csvKeys, key)
+					}
+					dbFields = csvKeys
+				}
+
+				// generate csv
+				err = writer.Write(csvKeys)
+
+				for i := 0; i < int(count); i++ {
+					entityMap := contentEntities[i].ToMap()
+					row := make([]string, len(dbFields))
+					for j, field := range dbFields {
+						row[j] = fmt.Sprintf("%v", entityMap[field])
+					}
+
+					err := writer.Write(row)
+					if err != nil {
+						return ctxt.NoContent(http.StatusInternalServerError)
+					}
+				}
+
+				writer.Flush()
+
+				if writer.Error() != nil {
+					return ctxt.NoContent(http.StatusInternalServerError)
+				}
+
+				return ctxt.NoContent(http.StatusOK)
+			}
 		}
 		return ctxt.NoContent(http.StatusOK)
 	}

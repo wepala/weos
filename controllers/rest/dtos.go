@@ -64,6 +64,12 @@ type FilterProperties struct {
 	Values   []interface{} `json:"values"`
 }
 
+//QueryProperties is the properties needed to use key value pair query parameters
+type QueryProperties struct {
+	Value string `json:"value"`
+	Field string `json:"field"`
+}
+
 type CResponseType struct {
 	Status string `json:"status"`
 	Type   string `json:"Type"`

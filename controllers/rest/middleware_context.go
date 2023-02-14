@@ -174,6 +174,23 @@ func parseParams(c echo.Context, parameters openapi3.Parameters, entityFactory m
 					if val.(string) == "" {
 						delete(contextValues, contextName)
 					}
+				case "_format":
+					parsedURL, err := url.Parse("?" + c.Request().URL.RawQuery)
+					if err != nil {
+						fmt.Println("error parsing query string:", err)
+						return nil, err
+					}
+					params := parsedURL.Query()
+
+					val = params.Get("_format")
+					if val.(string) == "" {
+						delete(contextValues, contextName)
+					}
+				case "_headers":
+					val = c.Request().URL.RawQuery
+					if val.(string) == "" {
+						delete(contextValues, contextName)
+					}
 				default:
 					if paramType != nil && paramType.Value != nil {
 						pType := paramType.Value.Type
@@ -259,6 +276,40 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 					contextValues[key] = v
 				}
 			}
+		case "_headers":
+			if value == nil {
+				errors = fmt.Errorf("unexpected error no filters specified")
+				continue
+			}
+			if val, ok := value.(string); ok {
+				if value.(string) == "" {
+					delete(contextValues, key)
+					break
+				}
+
+				decodedQuery, err := url.PathUnescape(val)
+				if err != nil {
+					errors = fmt.Errorf("Error decoding the string %v", err)
+					continue
+				}
+
+				contextValues[key] = make([]*QueryProperties, 0)
+
+				headersArray := SplitFilters(decodedQuery)
+				if headersArray != nil && len(headersArray) > 0 {
+					for _, headerValue := range headersArray {
+						if strings.Contains(headerValue, "_headers") {
+							headerProp := SplitQueryParameters(headerValue, "_headers")
+							if headerProp == nil {
+								errors = fmt.Errorf("unexpected error header format is incorrect: %s", value)
+								break
+							}
+							contextValues[key] = append(contextValues[key].([]*QueryProperties), headerProp)
+						}
+					}
+					continue
+				}
+			}
 		case "_filters":
 			if value == nil {
 				errors = fmt.Errorf("unexpected error no filters specified")
@@ -330,6 +381,14 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 				contextValues[key] = filters
 			}
 		case "If-Match", "If-None-Match": //default type is string
+			if value != nil {
+				if value.(string) == "" {
+					delete(contextValues, key)
+					break
+				}
+				contextValues[key] = value.(string)
+			}
+		case "_format":
 			if value != nil {
 				if value.(string) == "" {
 					delete(contextValues, key)

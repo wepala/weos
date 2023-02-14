@@ -170,6 +170,46 @@ func TestFiltersSplit(t *testing.T) {
 	})
 }
 
+func TestSplitQueryParameters(t *testing.T) {
+	t.Run("testing splitheaders", func(t *testing.T) {
+		queryString := "_headers[familyName]=Last Name"
+		header := "Last Name"
+		field := "familyName"
+		headerProp := api.SplitQueryParameters(queryString, "_headers")
+
+		if headerProp == nil {
+			t.Fatalf("expected to get a header property but go nil")
+		}
+
+		if headerProp.Field != field {
+			t.Errorf("expected field to be %s got %s", field, headerProp.Field)
+		}
+
+		if headerProp.Value != header {
+			t.Errorf("expected header to be %s got %s", header, headerProp.Value)
+		}
+	})
+
+	t.Run("testing splitheaders with a '+' in the header value", func(t *testing.T) {
+		queryString := "_headers[givenName]=First+Name"
+		header := "First Name"
+		field := "givenName"
+		headerProp := api.SplitQueryParameters(queryString, "_headers")
+
+		if headerProp == nil {
+			t.Fatalf("expected to get a header property but go nil")
+		}
+
+		if headerProp.Field != field {
+			t.Errorf("expected field to be %s got %s", field, headerProp.Field)
+		}
+
+		if headerProp.Value != header {
+			t.Errorf("expected header to be %s got %s", header, headerProp.Value)
+		}
+	})
+}
+
 func TestConvertStringToType(t *testing.T) {
 	tests := []struct {
 		desiredType string
@@ -263,6 +303,20 @@ func TestResolveResponseType(t *testing.T) {
 
 		expectedContentType := "application/ld+json"
 		contentType := api.ResolveResponseType("application/ld+json", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
+		if contentType != expectedContentType {
+			t.Errorf("expected %s, got %s", expectedContentType, contentType)
+		}
+	})
+
+	t.Run("test text/csv", func(t *testing.T) {
+		swagger, err = LoadConfig(t, "./fixtures/csv.yaml")
+		if err != nil {
+			t.Fatalf("unable to load swagger: %s", err)
+		}
+		path = swagger.Paths.Find("/customers")
+
+		expectedContentType := "text/csv"
+		contentType := api.ResolveResponseType("text/csv", path.Get.Responses[strconv.Itoa(http.StatusOK)].Value.Content)
 		if contentType != expectedContentType {
 			t.Errorf("expected %s, got %s", expectedContentType, contentType)
 		}

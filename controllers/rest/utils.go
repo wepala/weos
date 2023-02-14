@@ -268,6 +268,33 @@ func SplitFilter(filter string) *FilterProperties {
 	return property
 }
 
+//SplitQueryParameters is used to split key value pair query parameters
+func SplitQueryParameters(query string, key string) *QueryProperties {
+	var property *QueryProperties
+	if query == "" {
+		return nil
+	}
+	field := strings.Split(query, "[")
+	if len(field) != 2 {
+		return nil
+	}
+	if field[0] != key {
+		return nil
+	}
+	field[1] = strings.Replace(field[1], "]", "", -1)
+	queryProps := strings.Split(field[1], "=")
+	if len(queryProps) != 2 {
+		return nil
+	}
+	queryProps[1] = strings.Replace(queryProps[1], "+", " ", -1)
+	property = &QueryProperties{
+		Value: queryProps[1],
+		Field: queryProps[0],
+	}
+
+	return property
+}
+
 //Deprecated: 06/20/2022 Use GetOpenIDConfig to get the map of the entire config
 //GetJwkUrl fetches the jwk url from the open id connect url
 func GetJwkUrl(openIdUrl string) (string, error) {
