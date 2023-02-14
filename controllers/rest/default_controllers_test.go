@@ -482,6 +482,10 @@ func TestDefaultListController(t *testing.T) {
 			t.Errorf("expected content type to be %s got %s", "text/csv", resp.Header().Get("Content-Type"))
 		}
 
+		if !strings.Contains(resp.Header().Get("Content-Disposition"), repository.Name()) {
+			t.Errorf("expected Content-Disposition header to contain  %s got %s", repository.Name(), resp.Header().Get("Content-Disposition"))
+		}
+
 		// check contents of csv
 		data, err := ioutil.ReadFile("./fixtures/customers.csv")
 		if err != nil {
@@ -557,6 +561,10 @@ func TestDefaultListController(t *testing.T) {
 
 		if resp.Header().Get("Content-Type") != "text/csv" {
 			t.Errorf("expected content type to be %s got %s", "text/csv", resp.Header().Get("Content-Type"))
+		}
+
+		if !strings.Contains(resp.Header().Get("Content-Disposition"), repository.Name()) {
+			t.Errorf("expected Content-Disposition header to contain  %s got %s", repository.Name(), resp.Header().Get("Content-Disposition"))
 		}
 
 		results := resp.Body.String()

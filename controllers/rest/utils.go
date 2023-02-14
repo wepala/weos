@@ -268,27 +268,28 @@ func SplitFilter(filter string) *FilterProperties {
 	return property
 }
 
-func SplitHeaders(header string) *HeaderProperties {
-	var property *HeaderProperties
-	if header == "" {
+//SplitQueryParameters is used to split key value pair query parameters
+func SplitQueryParameters(query string, key string) *QueryProperties {
+	var property *QueryProperties
+	if query == "" {
 		return nil
 	}
-	field := strings.Split(header, "[")
+	field := strings.Split(query, "[")
 	if len(field) != 2 {
 		return nil
 	}
-	if field[0] != "_headers" {
+	if field[0] != key {
 		return nil
 	}
 	field[1] = strings.Replace(field[1], "]", "", -1)
-	headerProps := strings.Split(field[1], "=")
-	if len(headerProps) != 2 {
+	queryProps := strings.Split(field[1], "=")
+	if len(queryProps) != 2 {
 		return nil
 	}
-	headerProps[1] = strings.Replace(headerProps[1], "+", " ", -1)
-	property = &HeaderProperties{
-		Header: headerProps[1],
-		Field:  headerProps[0],
+	queryProps[1] = strings.Replace(queryProps[1], "+", " ", -1)
+	property = &QueryProperties{
+		Value: queryProps[1],
+		Field: queryProps[0],
 	}
 
 	return property

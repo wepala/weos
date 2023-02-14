@@ -293,18 +293,18 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 					continue
 				}
 
-				contextValues[key] = make([]*HeaderProperties, 0)
+				contextValues[key] = make([]*QueryProperties, 0)
 
 				headersArray := SplitFilters(decodedQuery)
 				if headersArray != nil && len(headersArray) > 0 {
 					for _, headerValue := range headersArray {
 						if strings.Contains(headerValue, "_headers") {
-							headerProp := SplitHeaders(headerValue)
+							headerProp := SplitQueryParameters(headerValue, "_headers")
 							if headerProp == nil {
 								errors = fmt.Errorf("unexpected error header format is incorrect: %s", value)
 								break
 							}
-							contextValues[key] = append(contextValues[key].([]*HeaderProperties), headerProp)
+							contextValues[key] = append(contextValues[key].([]*QueryProperties), headerProp)
 						}
 					}
 					continue

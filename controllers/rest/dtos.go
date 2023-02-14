@@ -64,9 +64,10 @@ type FilterProperties struct {
 	Values   []interface{} `json:"values"`
 }
 
-type HeaderProperties struct {
-	Header string `json:"header"` // csv file header
-	Field  string `json:"field"`  // field in db
+//QueryProperties is the properties needed to use key value pair query parameters
+type QueryProperties struct {
+	Value string `json:"value"`
+	Field string `json:"field"`
 }
 
 type CResponseType struct {

@@ -15,6 +15,7 @@ import (
 	path1 "path"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //DefaultWriteController handles the write operations (create, update, delete)
@@ -299,21 +300,26 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 				return ctxt.JSON(http.StatusOK, resp)
 			} else if responseType == "text/csv" {
 
-				// generate csv
+				fileName := entityRepository.Name()
+				currentTime := time.Now().Format("2006-01-02+15:04:05")
+
 				w := ctxt.Response().Writer
 				w.Header().Set("Content-Type", responseType)
+				w.Header().Set("Content-Disposition", "attachment;filename="+fileName+"+"+currentTime+".csv")
 
 				writer := csv.NewWriter(w)
 
 				var csvKeys []string
 				var dbFields []string
 
-				if headerProperties, ok := headers.([]*HeaderProperties); ok && len(headerProperties) != 0 {
+				// get csv headers and db fields if the _headers parameter was set
+				if headerProperties, ok := headers.([]*QueryProperties); ok && len(headerProperties) != 0 {
 					for _, headerProperty := range headerProperties {
-						csvKeys = append(csvKeys, headerProperty.Header)
+						csvKeys = append(csvKeys, headerProperty.Value)
 						dbFields = append(dbFields, headerProperty.Field)
 					}
 				} else {
+					// if no _headers parameter was set then return all the fields from the db
 					entity := contentEntities[0].ToMap()
 					for key := range entity {
 						csvKeys = append(csvKeys, key)
@@ -321,6 +327,7 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 					dbFields = csvKeys
 				}
 
+				// generate csv
 				err = writer.Write(csvKeys)
 
 				for i := 0; i < int(count); i++ {
