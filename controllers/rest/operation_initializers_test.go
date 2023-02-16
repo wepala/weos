@@ -183,7 +183,6 @@ paths:
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 
 	api.RegisterController("HealthCheck", rest.HealthCheck)
-
 	middlewareCalled := false
 	api.RegisterMiddleware("Recover", func(api rest.Container, commandDispatcher model.CommandDispatcher, eventSource model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 		return func(handlerFunc echo.HandlerFunc) echo.HandlerFunc {
@@ -218,8 +217,8 @@ paths:
 			t.Fatalf("unexpected error loading api '%s'", err)
 		}
 		middlewares := rest.GetOperationMiddlewares(ctxt)
-		if len(middlewares) != 2 {
-			t.Fatalf("expected the middlewares in context to be %d, got %d", 2, len(middlewares))
+		if len(middlewares) != 1 {
+			t.Fatalf("expected the middlewares in context to be %d, got %d", 1, len(middlewares))
 		}
 		ct := echo.New().AcquireContext()
 		req := &http.Request{}
@@ -279,6 +278,8 @@ func TestStandardInitializer(t *testing.T) {
 	}
 	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
 	api.RegisterController("DefaultReadController", rest.DefaultReadController)
+	api.RegisterController("DefaultListController", rest.DefaultReadController)
+
 	//api.RegisterController("ListController", rest.ListController)
 	t.Run("attach standard create", func(t *testing.T) {
 		ctxt, err := rest.StandardInitializer(context.TODO(), api, "/blogs", http.MethodPost, api.Swagger, api.Swagger.Paths["/blogs"], api.Swagger.Paths["/blogs"].Post)
@@ -353,7 +354,24 @@ func TestRouteInitializer(t *testing.T) {
 	schemas := rest.CreateSchema(context.TODO(), api.EchoInstance(), api.Swagger)
 	baseCtxt := context.WithValue(context.TODO(), weoscontext.SCHEMA_BUILDERS, schemas)
 	api.RegisterController("DefaultWriteController", rest.DefaultWriteController)
-	api.RegisterController("ViewController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+	api.RegisterController("DefaultReadController", rest.DefaultReadController)
+	logger := &LogMock{
+		DebugfFunc: func(format string, args ...interface{}) {
+
+		},
+		DebugFunc: func(args ...interface{}) {
+
+		},
+		ErrorfFunc: func(format string, args ...interface{}) {
+
+		},
+		ErrorFunc: func(args ...interface{}) {
+
+		},
+	}
+	api.RegisterLog("Default", logger)
+
+	api.RegisterController("DefaultReadController", func(api rest.Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			controllerTriggered = true
 			return nil

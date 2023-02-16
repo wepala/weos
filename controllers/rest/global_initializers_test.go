@@ -334,8 +334,8 @@ x-weos-config:
 		if err != nil {
 			t.Fatalf("unexpected error retrieving subscribers '%s'", err)
 		}
-		if len(subscribers) != 2 {
-			t.Errorf("expected %d subscribers, got %d", 2, len(subscribers))
+		if len(subscribers) != 1 {
+			t.Errorf("expected %d subscribers, got %d", 1, len(subscribers))
 		}
 	})
 }

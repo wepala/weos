@@ -502,7 +502,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 					if tschema := content.Schema; tschema != nil && tschema.Ref != "" {
 						handler = "DefaultReadController"
 					}
-					if response.Value.Extensions["x-templates"] != nil {
+					if response.Value.Extensions["x-templates"] != nil || response.Value.Extensions["x-file"] != nil || response.Value.Extensions["x-folder"] != nil {
 						handler = "DefaultReadController"
 					}
 				}
