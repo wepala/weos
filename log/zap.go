@@ -1,15 +1,13 @@
 package logs
 
 import (
-	"io"
-	"os"
-
 	"github.com/labstack/gommon/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"io"
 )
 
-func NewZap(level string) (*Zap, error) {
+func NewZap(prefix string, level string) (*Zap, error) {
 	var logger *zap.Logger
 	lvl := zap.NewAtomicLevel()
 	err := lvl.UnmarshalText([]byte(level))
@@ -23,16 +21,38 @@ func NewZap(level string) (*Zap, error) {
 		return nil, err
 	}
 	return &Zap{
-		logger.Sugar(),
-		&lvl,
-		"zap",
+		SugaredLogger: logger.Sugar(),
+		level:         &lvl,
+		prefix:        prefix,
 	}, err
 }
 
 type Zap struct {
 	*zap.SugaredLogger
-	level  *zap.AtomicLevel
-	prefix string
+	level         *zap.AtomicLevel
+	prefix        string
+	writer        io.Writer
+	requestFields []zapcore.Field
+}
+
+func (z *Zap) WithRequestID(prefix string, level string, requestID string) (*Zap, error) {
+
+	var logger *zap.Logger
+	lvl := zap.NewAtomicLevel()
+	err := lvl.UnmarshalText([]byte(level))
+	if err != nil {
+		return nil, err
+	}
+	cfg := zap.NewProductionConfig()
+	cfg.Level = lvl
+	logger, err = cfg.Build()
+	if err != nil {
+		return nil, err
+	}
+	z.SugaredLogger = logger.Sugar().Named(prefix).With(zap.String("request_id", requestID))
+	z.level = &lvl
+	z.prefix = prefix
+	return z, err
 }
 
 func (z *Zap) Printf(format string, args ...interface{}) {
@@ -44,18 +64,19 @@ func (z *Zap) Print(args ...interface{}) {
 }
 
 func (z *Zap) Output() io.Writer {
-	return zapcore.AddSync(os.Stdout)
+	//return zapcore.AddSync(os.Stdout)
+	return z.writer
 }
 
 func (z *Zap) SetOutput(w io.Writer) {
-
-	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
-		zapcore.AddSync(w),
-		zap.NewAtomicLevelAt(z.level.Level()),
-	)
-	logger := zap.New(core)
-	z.SugaredLogger = logger.Sugar()
+	z.writer = w
+	//core := zapcore.NewCore(
+	//	zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+	//	zapcore.AddSync(w),
+	//	zap.NewAtomicLevelAt(z.level.Level()),
+	//)
+	//logger := zap.New(core)
+	//z.SugaredLogger = logger.Sugar()
 }
 
 func (z *Zap) Prefix() string {
@@ -126,3 +147,4 @@ func (z *Zap) Fatalj(j log.JSON) {
 func (z *Zap) Panicj(j log.JSON) {
 	z.Panic(j)
 }
+
