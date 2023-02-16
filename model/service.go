@@ -49,6 +49,7 @@ type DBConfig struct {
 
 type LogConfig struct {
 	Level        string `json:"level"`
+	Name         string `json:"name"`
 	ReportCaller bool   `json:"report-caller"`
 	Formatter    string `json:"formatter"`
 }
