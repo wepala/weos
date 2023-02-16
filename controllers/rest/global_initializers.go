@@ -215,3 +215,12 @@ func RegisterEntityRepositories(ctxt context.Context, api Container, swagger *op
 	}
 	return ctxt, nil
 }
+
+//ZapLoggerInitializer add middleware to all paths to log the request and setup zap logger
+func ZapLoggerInitializer(ctxt context.Context, tapi Container, swagger *openapi3.Swagger) (context.Context, error) {
+	middlewares := GetOperationMiddlewares(ctxt)
+	middlewares = append(middlewares, ZapLogger)
+	ctxt = context.WithValue(ctxt, weosContext.MIDDLEWARES, middlewares)
+	return ctxt, nil
+}
+
