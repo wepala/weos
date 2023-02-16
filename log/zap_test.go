@@ -6,7 +6,7 @@ import (
 )
 
 func TestZap_Level(t *testing.T) {
-	zlogger, err := NewZap("debug")
+	zlogger, err := NewZap("test","debug")
 	if err != nil {
 		t.Fatalf("unexpected error setting up logger '%s'", err)
 	}
@@ -17,7 +17,7 @@ func TestZap_Level(t *testing.T) {
 }
 
 func TestZap_SetLevel(t *testing.T) {
-	zlogger, err := NewZap("info")
+	zlogger, err := NewZap("test","info")
 	if err != nil {
 		t.Fatalf("unexpected error setting up logger '%s'", err)
 	}

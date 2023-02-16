@@ -966,6 +966,11 @@ type LogMock struct {
 
 	// DebugfFunc mocks the Debugf method.
 	DebugfFunc func(format string, args ...interface{})
+	// Warnfunc mocks the Debug method.
+	WarnFunc func(args ...interface{})
+
+	// WarnfFunc mocks the Debugf method.
+	WarnfFunc func(format string, args ...interface{})
 
 	// ErrorFunc mocks the Error method.
 	ErrorFunc func(args ...interface{})
@@ -1006,6 +1011,18 @@ type LogMock struct {
 		}
 		// Debugf holds details about calls to the Debugf method.
 		Debugf []struct {
+			// Format is the format argument value.
+			Format string
+			// Args is the args argument value.
+			Args []interface{}
+		}
+		// Debug holds details about calls to the Debug method.
+		Warn []struct {
+			// Args is the args argument value.
+			Args []interface{}
+		}
+		// Debugf holds details about calls to the Debugf method.
+		Warnf []struct {
 			// Format is the format argument value.
 			Format string
 			// Args is the args argument value.
@@ -1074,6 +1091,8 @@ type LogMock struct {
 	}
 	lockDebug  sync.RWMutex
 	lockDebugf sync.RWMutex
+	lockWarn  sync.RWMutex
+	lockWarnf sync.RWMutex
 	lockError  sync.RWMutex
 	lockErrorf sync.RWMutex
 	lockFatal  sync.RWMutex
@@ -1117,6 +1136,37 @@ func (mock *LogMock) DebugCalls() []struct {
 	return calls
 }
 
+// Warn calls WarnFunc.
+func (mock *LogMock) Warn(args ...interface{}) {
+	if mock.WarnFunc == nil {
+		panic("LogMock.DebugFunc: method is nil but Log.Debug was just called")
+	}
+	callInfo := struct {
+		Args []interface{}
+	}{
+		Args: args,
+	}
+	mock.lockWarn.Lock()
+	mock.calls.Warn = append(mock.calls.Warn, callInfo)
+	mock.lockWarn.Unlock()
+	mock.WarnFunc(args...)
+}
+
+// WarnCalls gets all the calls that were made to Debug.
+// Check the length with:
+//     len(mockedLog.WarnCalls())
+func (mock *LogMock) WarnCalls() []struct {
+	Args []interface{}
+} {
+	var calls []struct {
+		Args []interface{}
+	}
+	mock.lockWarn.RLock()
+	calls = mock.calls.Warn
+	mock.lockWarn.RUnlock()
+	return calls
+}
+
 // Debugf calls DebugfFunc.
 func (mock *LogMock) Debugf(format string, args ...interface{}) {
 	if mock.DebugfFunc == nil {
@@ -1149,6 +1199,41 @@ func (mock *LogMock) DebugfCalls() []struct {
 	mock.lockDebugf.RLock()
 	calls = mock.calls.Debugf
 	mock.lockDebugf.RUnlock()
+	return calls
+}
+
+// Debugf calls WarnfFunc.
+func (mock *LogMock) Warnf(format string, args ...interface{}) {
+	if mock.WarnfFunc == nil {
+		panic("LogMock.DebugfFunc: method is nil but Log.Warnf was just called")
+	}
+	callInfo := struct {
+		Format string
+		Args   []interface{}
+	}{
+		Format: format,
+		Args:   args,
+	}
+	mock.lockWarnf.Lock()
+	mock.calls.Warnf = append(mock.calls.Warnf, callInfo)
+	mock.lockWarnf.Unlock()
+	mock.WarnfFunc(format, args...)
+}
+
+// DebugfCalls gets all the calls that were made to Debugf.
+// Check the length with:
+//     len(mockedLog.DebugfCalls())
+func (mock *LogMock) WarnfCalls() []struct {
+	Format string
+	Args   []interface{}
+} {
+	var calls []struct {
+		Format string
+		Args   []interface{}
+	}
+	mock.lockWarnf.RLock()
+	calls = mock.calls.Warnf
+	mock.lockWarnf.RUnlock()
 	return calls
 }
 
