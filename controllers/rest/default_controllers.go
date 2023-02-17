@@ -84,6 +84,9 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		}
 		commandResponse, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, api, entityRepository, ctxt.Logger())
 		if err != nil {
+			if err.(*model.DomainError).Code == 400 {
+				return ctxt.JSON(http.StatusBadRequest, commandResponse)
+			}
 			return err
 		}
 
@@ -112,6 +115,7 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 	fileName := ""
 	folderFound := true
 	folderErr := ""
+	isFolder := false
 	for currentPath, _ := range pathMap {
 		for _, operation := range operationMap {
 			for _, resp := range operation.Responses {
@@ -124,6 +128,7 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 					}
 				}
 				if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
+					isFolder = true
 					folderPath := ""
 					err = json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
 					if err != nil {
@@ -187,7 +192,11 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 				return NewControllerError("unexpected error getting entity", err, http.StatusBadRequest)
 			}
 
-			if entity == nil && len(templates) == 0 {
+			if entity == nil && len(templates) == 0 && fileName == "" {
+				return ctxt.JSON(http.StatusNotFound, nil)
+			}
+
+			if isFolder && !folderFound {
 				return ctxt.JSON(http.StatusNotFound, nil)
 			}
 		}

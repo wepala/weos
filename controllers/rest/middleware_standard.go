@@ -8,8 +8,11 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/segmentio/ksuid"
 	context2 "github.com/wepala/weos/context"
+	logs "github.com/wepala/weos/log"
 	"github.com/wepala/weos/model"
+	"go.uber.org/zap"
 	"net/http"
+	"time"
 )
 
 //RequestID generate request id
@@ -74,6 +77,53 @@ func CSVUpload(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIte
 			request := c.Request().WithContext(cc)
 			c.SetRequest(request)
 			return next(c)
+		}
+	}
+}
+
+//ZapLogger switches the echo context logger to be ZapLogger
+func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		var configuredLevel string
+		if api.GetWeOSConfig().Log != nil {
+			configuredLevel = api.GetWeOSConfig().Log.Level
+		}
+		return func(c echo.Context) error {
+			//setting the default logger in the context as zap with the default mode being error
+			req := c.Request()
+			id := req.Header.Get(echo.HeaderXRequestID)
+			if id == "" {
+				id = ksuid.New().String()
+				req.Header.Set(echo.HeaderXRequestID, id)
+			}
+			level := req.Header.Get(context2.HeaderXLogLevel)
+			if level == "" {
+				if configuredLevel != "" {
+					level = configuredLevel
+				} else { //by default only show errors
+					level = "info"
+				}
+			}
+			zapLogger, err := new(logs.Zap).WithRequestID("weos-service", level, id)
+			if err != nil {
+				c.Logger().Errorf("Unexpected error setting the context logger : %s", err)
+			}
+			c.SetLogger(zapLogger)
+			start := time.Now()
+			next(c)
+			response := c.Response()
+			zapLogger.With(
+				zap.String("remote_ip", c.RealIP()),
+				zap.String("uri", req.RequestURI),
+				zap.Int("status", response.Status),
+				zap.String("method", c.Request().Method),
+				zap.Duration("latency", time.Since(start)),
+				zap.Int64("response_size", response.Size),
+				zap.String("referer", req.Referer()),
+				zap.String("user", context2.GetUser(req.Context())),
+				zap.String("user_agent", req.UserAgent()),
+			).Info("request")
+			return nil
 		}
 	}
 }

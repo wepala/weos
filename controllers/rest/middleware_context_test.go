@@ -278,12 +278,17 @@ func TestContext(t *testing.T) {
 		e.ServeHTTP(resp, req)
 	})
 	t.Run("parameter in query string that has an alias should be added to context", func(t *testing.T) {
+		repository := &EntityRepositoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
 		paramName := "l"
 		alias := "limit"
 		paramValue := "2"
 		pValue := 2
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, repository, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -303,6 +308,11 @@ func TestContext(t *testing.T) {
 		e.ServeHTTP(resp, req)
 	})
 	t.Run("a filter in query string that should be added to context", func(t *testing.T) {
+		repository := &EntityRepositoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
 		paramName := "_filters"
 		paramValue := "2"
 		convertValue := uint64(2)
@@ -310,7 +320,7 @@ func TestContext(t *testing.T) {
 		operator := "eq"
 		queryString := "/blogs?" + paramName + "[" + field + "][" + operator + "]=" + paramValue
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, repository, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -342,6 +352,11 @@ func TestContext(t *testing.T) {
 		e.ServeHTTP(resp, req)
 	})
 	t.Run("multiple filters in query string that should be added to context", func(t *testing.T) {
+		repository := &EntityRepositoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
 		paramName := "_filters"
 		paramValue := "2"
 		convertValue := uint64(2)
@@ -350,7 +365,7 @@ func TestContext(t *testing.T) {
 		field2 := "title"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, repository, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -392,6 +407,11 @@ func TestContext(t *testing.T) {
 		e.ServeHTTP(resp, req)
 	})
 	t.Run("multiple filters with a filter that has multiple values in query string that should be added to context", func(t *testing.T) {
+		repository := &EntityRepositoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
 		paramName := "_filters"
 		paramValue := "2"
 		convertValue := uint64(2)
@@ -402,7 +422,7 @@ func TestContext(t *testing.T) {
 		field2 := "title"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, repository, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()
@@ -447,6 +467,11 @@ func TestContext(t *testing.T) {
 		e.ServeHTTP(resp, req)
 	})
 	t.Run("a filter that has multiple values in query string that should be added to context", func(t *testing.T) {
+		repository := &EntityRepositoryMock{
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+		}
 		paramName := "_filters"
 		value1 := "35"
 		value2 := "54"
@@ -454,7 +479,7 @@ func TestContext(t *testing.T) {
 		field := "id"
 		operator := "eq"
 		path := swagger.Paths.Find("/blogs")
-		mw := rest.Context(restApi, nil, nil, path, path.Get)
+		mw := rest.Context(restApi, nil, repository, path, path.Get)
 		handler := mw(func(ctxt echo.Context) error {
 			//check that certain parameters are in the context
 			cc := ctxt.Request().Context()

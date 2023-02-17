@@ -5,7 +5,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 	weoscontext "github.com/wepala/weos/context"
-	logs "github.com/wepala/weos/log"
 	"github.com/wepala/weos/model"
 	_ "github.com/wepala/weos/swaggerui"
 	"golang.org/x/net/context"
@@ -80,21 +79,6 @@ func LogLevel(tapi Container, commandDispatcher model.CommandDispatcher, reposit
 			newContext = context.WithValue(newContext, weoscontext.HeaderXLogLevel, level)
 			request := c.Request().WithContext(newContext)
 			c.SetRequest(request)
-			return next(c)
-		}
-	}
-}
-
-//ZapLogger switches the echo context logger to be ZapLogger
-func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			//setting the default logger in the context as zap with the default mode being error
-			zapLogger, err := logs.NewZap("error")
-			if err != nil {
-				c.Logger().Errorf("Unexpected error setting the context logger : %s", err)
-			}
-			c.SetLogger(zapLogger)
 			return next(c)
 		}
 	}
