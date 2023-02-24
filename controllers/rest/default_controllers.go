@@ -328,12 +328,10 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 						dbFields = append(dbFields, headerProperty.Field)
 					}
 				} else {
-					// if no _headers parameter was set then return all the fields from the db
-					entity := contentEntities[0].ToMap()
-					for key := range entity {
-						if key != "weos_id" && key != "table_alias" && key != "sequence_no" {
-							csvKeys = append(csvKeys, key)
-						}
+					// if no _headers parameter was set then return all the properties from the schema
+					properties := entityRepository.Schema().Properties
+					for field := range properties {
+						csvKeys = append(csvKeys, field)
 					}
 					dbFields = csvKeys
 				}
@@ -345,9 +343,7 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 					entityMap := contentEntities[i].ToMap()
 					row := make([]string, len(dbFields))
 					for j, field := range dbFields {
-						if field != "weos_id" && field != "table_alias" && field != "sequence_no" {
-							row[j] = fmt.Sprintf("%v", entityMap[field])
-						}
+						row[j] = fmt.Sprintf("%v", entityMap[field])
 					}
 
 					err := writer.Write(row)
