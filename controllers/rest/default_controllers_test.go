@@ -660,4 +660,81 @@ func TestDefaultListController(t *testing.T) {
 			t.Errorf("csv file must not contain table_alias")
 		}
 	})
+	t.Run("test empty database", func(t *testing.T) {
+		container := &ContainerMock{
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
+			GetWeOSConfigFunc: func() *rest.APIConfig {
+				return nil
+			},
+		}
+		repository := &EntityRepositoryMock{
+			NameFunc: func() string {
+				return "Customer"
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Customer"].Value, []byte(`{}`))
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Customer"].Value
+			},
+			GetListFunc: func(ctx context3.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
+				var entities []*model.ContentEntity
+				return entities, 0, nil
+			},
+		}
+
+		path := swagger.Paths.Find("/customers")
+
+		mw := rest.Context(container, &CommandDispatcherMock{}, repository, path, path.Get)
+
+		controller := mw(rest.DefaultListController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.PathItem{
+			"/customers": path,
+		}, map[string]*openapi3.Operation{
+			http.MethodGet: path.Get,
+		}))
+		e := echo.New()
+		e.GET("/customers", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.GET, "/customers?_format=text/csv", nil)
+		req.Header.Set(echo.HeaderContentType, "text/csv")
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
+		}
+
+		if len(repository.GetListCalls()) != 1 {
+			t.Errorf("expected repository.GetList to be called once, got %d", len(repository.GetListCalls()))
+		}
+
+		if len(resp.Body.String()) == 0 {
+			t.Errorf("expected body to be not empty")
+		}
+
+		if resp.Header().Get("Content-Type") != "text/csv" {
+			t.Errorf("expected content type to be %s got %s", "text/csv", resp.Header().Get("Content-Type"))
+		}
+
+		if !strings.Contains(resp.Header().Get("Content-Disposition"), repository.Name()) {
+			t.Errorf("expected Content-Disposition header to contain  %s got %s", repository.Name(), resp.Header().Get("Content-Disposition"))
+		}
+
+		results := resp.Body.String()
+
+		if !strings.Contains(results, "id") {
+			t.Errorf("expected id to be in csv file")
+		}
+
+		if !strings.Contains(results, "firstName") {
+			t.Errorf("expected firstName to be in csv file")
+		}
+
+		if !strings.Contains(results, "lastName") {
+			t.Errorf("expected lastName to be in csv file")
+		}
+	})
 }
