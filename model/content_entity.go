@@ -133,7 +133,7 @@ func (w *ContentEntity) IsEnumValid(propertyName string, property *openapi3.Sche
 				} else if property.Value.Format == "date-time" {
 					for _, v := range property.Value.Enum {
 						if val, ok := v.(string); ok {
-							currTime, _ := time.Parse("2006-01-02T15:04:05Z", val)
+							currTime, _ := time.Parse(time.RFC3339, val)
 							currentTime := NewTime(currTime)
 							enumFound = enumFound || value.(*Time).String() == currentTime.String()
 						}
@@ -295,9 +295,9 @@ func (w *ContentEntity) SetValue(schema *openapi3.Schema, data map[string]interf
 				case "date-time":
 					//if the value is a string let's try to convert to time
 					if value, ok := data[k].(string); ok {
-						ttime, err := time.Parse("2006-01-02T15:04:05Z", value)
+						ttime, err := time.Parse(time.RFC3339, value)
 						if err != nil {
-							return nil, NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '2006-01-02T15:04:05Z', got '%s'", k, value), w.Schema.Title, w.ID, err)
+							return nil, NewDomainError(fmt.Sprintf("invalid date time set for '%s' it should be in the format '%s', got '%s'", k, time.RFC3339, value), w.Schema.Title, w.ID, err)
 						}
 						data[k] = NewTime(ttime)
 					}

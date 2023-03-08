@@ -960,6 +960,7 @@ var _ model.Log = &LogMock{}
 //
 // 	}
 type LogMock struct {
+	model.Log
 	// DebugFunc mocks the Debug method.
 	DebugFunc func(args ...interface{})
 
