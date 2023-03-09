@@ -2700,6 +2700,35 @@ components:
 			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
 		}
 	})
+	t.Run("testing date time filters(like) ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "like",
+			Value:    "2006",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
+	})
 	t.Run("testing invalid date time format on filter ", func(t *testing.T) {
 		page := 1
 		limit := 0
