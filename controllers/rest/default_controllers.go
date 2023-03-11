@@ -83,10 +83,8 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 			},
 		}
 		commandResponse, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, api, entityRepository, ctxt.Logger())
+		//an error handler `HTTPErrorHandler` can be defined on the echo instance to handle error responses
 		if err != nil {
-			if err.(*model.DomainError).Code == 400 {
-				return ctxt.JSON(http.StatusBadRequest, commandResponse)
-			}
 			return err
 		}
 
@@ -100,7 +98,12 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 			}
 			return ctxt.JSON(http.StatusCreated, commandResponse)
 		default:
-			return ctxt.JSON(http.StatusOK, commandResponse)
+			//check to see if the response is a map or string
+			if stringResponse, ok := commandResponse.(string); ok {
+				return ctxt.String(http.StatusOK, stringResponse)
+			} else {
+				return ctxt.JSON(http.StatusOK, commandResponse)
+			}
 		}
 	}
 }
