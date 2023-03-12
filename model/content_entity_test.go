@@ -137,6 +137,27 @@ func TestContentEntity_IsValid(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("Testing date-time", func(t *testing.T) {
+		mockBlog := map[string]interface{}{"title": "test 1", "description": "New Description", "url": "www.NewBlog.com", "date": "2022-01-02T15:04:05Z"}
+		payload, err := json.Marshal(mockBlog)
+		if err != nil {
+			t.Fatalf("error converting payload to bytes %s", err)
+		}
+
+		entity, err := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, payload)
+		if err != nil {
+			t.Fatalf("unexpected error instantiating content entity '%s'", err)
+		}
+
+		if entity.GetString("title") != "test 1" {
+			t.Errorf("expected the title to be '%s', got '%s'", "test 1", entity.GetString("Title"))
+		}
+		isValid := entity.IsValid()
+		if !isValid {
+			t.Fatalf("unexpected error expected entity to be valid got invalid '%s'", entity.GetErrors()[0])
+		}
+	})
 }
 
 func TestContentEntity_Update(t *testing.T) {
