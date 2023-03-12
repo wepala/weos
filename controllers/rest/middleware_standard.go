@@ -105,6 +105,9 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 				} else { //by default only show errors
 					level = "info"
 				}
+			} else {
+				//only allow setting the level to debug from this header for security reasons
+				level = "debug"
 			}
 			if serviceName == "" {
 				serviceName = "weos"
@@ -115,6 +118,10 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 			}
 			c.SetLogger(zapLogger)
 			start := time.Now()
+			cc := c.Request().Context()
+			cc = context.WithValue(cc, echo.HeaderXRequestID, id)
+			request := c.Request().WithContext(cc)
+			c.SetRequest(request)
 			next(c)
 			response := c.Response()
 			zapLogger.With(
