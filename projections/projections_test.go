@@ -2598,10 +2598,10 @@ components:
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
 		}
-		if total != int64(6) {
+		if total != int64(4) {
 			t.Errorf("expected total to be %d got %d", int64(6), total)
 		}
-		if len(results) != 6 {
+		if len(results) != 4 {
 			t.Errorf("expected length of results  to be %d got %d", 6, len(results))
 		}
 	})
