@@ -849,6 +849,17 @@ func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]Filte
 					return nil, err
 				}
 			}
+			if value.Operator == "eq" {
+				var newValue string
+				newValue = strings.Replace(properties[key].Value.(string), "T", " ", 1)
+				filter := FilterProperty{
+					Field:    key,
+					Operator: "eq",
+					Value:    newValue,
+					Values:   nil,
+				}
+				properties[key] = filter
+			}
 		}
 	}
 
