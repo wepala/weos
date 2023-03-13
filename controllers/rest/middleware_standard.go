@@ -85,8 +85,10 @@ func CSVUpload(app model.Service, spec *openapi3.Swagger, path *openapi3.PathIte
 func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, repository model.EntityRepository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		var configuredLevel string
+		var serviceName string
 		if api.GetWeOSConfig().Log != nil {
 			configuredLevel = api.GetWeOSConfig().Log.Level
+			serviceName = api.GetWeOSConfig().Log.Name
 		}
 		return func(c echo.Context) error {
 			//setting the default logger in the context as zap with the default mode being error
@@ -103,13 +105,23 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 				} else { //by default only show errors
 					level = "info"
 				}
+			} else {
+				//only allow setting the level to debug from this header for security reasons
+				level = "debug"
 			}
-			zapLogger, err := new(logs.Zap).WithRequestID("weos-service", level, id)
+			if serviceName == "" {
+				serviceName = "weos"
+			}
+			zapLogger, err := new(logs.Zap).WithRequestID(serviceName, level, id)
 			if err != nil {
 				c.Logger().Errorf("Unexpected error setting the context logger : %s", err)
 			}
 			c.SetLogger(zapLogger)
 			start := time.Now()
+			cc := c.Request().Context()
+			cc = context.WithValue(cc, echo.HeaderXRequestID, id)
+			request := c.Request().WithContext(cc)
+			c.SetRequest(request)
 			next(c)
 			response := c.Response()
 			zapLogger.With(
