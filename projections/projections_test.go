@@ -2372,14 +2372,19 @@ components:
 	blogWeosID2 := "abc123wer"
 	blogWeosID3 := "abc123ewrgth"
 	blogWeosID4 := "abc123hngtjn"
+	blogWeosID5 := "abcdefghijklmnop"
 
 	t1, _ := time.Parse(time.RFC3339, "2006-01-02T15:04:00Z")
 	t2, _ := time.Parse(time.RFC3339, "2005-01-02T15:04:00Z")
 	t3, _ := time.Parse(time.RFC3339, "2007-01-02T13:04:00Z")
+	t5, _ := time.Parse(time.RFC3339, "2023-03-10T12:58:10+00:00")
+	t6, _ := time.Parse(time.RFC3339, "2023-03-12T12:58:10+00:00")
 
 	blog := map[string]interface{}{"weos_id": blogWeosID, "title": "hugs1", "description": "first blog", "sequence_no": int64(1), "last_updated": t1}
 	blog1 := map[string]interface{}{"weos_id": blogWeosID1, "title": "hugs2", "description": "first blog", "sequence_no": int64(1), "last_updated": t2}
 	blog2 := map[string]interface{}{"weos_id": blogWeosID2, "title": "hugs3", "description": "third blog", "sequence_no": int64(1), "last_updated": t3}
+	blog5 := map[string]interface{}{"weos_id": blogWeosID5, "title": "hugs5", "description": "fifth blog", "sequence_no": int64(1), "last_updated": t5}
+	blog6 := map[string]interface{}{"weos_id": blogWeosID5, "title": "hugs6", "description": "fifth blog", "sequence_no": int64(1), "last_updated": t6}
 	blog3 := map[string]interface{}{"weos_id": blogWeosID3, "title": "morehugs4", "sequence_no": int64(1)}
 	blog4 := map[string]interface{}{"weos_id": blogWeosID4, "id": uint(123), "title": "morehugs5", "description": "last blog", "sequence_no": int64(1)}
 
@@ -2394,6 +2399,8 @@ components:
 	gormDB.Table("Blog").Create(blog2)
 	gormDB.Table("Blog").Create(blog3)
 	gormDB.Table("Blog").Create(blog4)
+	gormDB.Table("Blog").Create(blog5)
+	gormDB.Table("Blog").Create(blog6)
 	gormDB.Table("Post").Create(postModel)
 
 	t.Run("testing filter with the eq operator on 2 fields", func(t *testing.T) {
@@ -2451,11 +2458,11 @@ components:
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
 		}
-		if total != int64(4) {
-			t.Errorf("expected total to be %d got %d", int64(4), total)
+		if total != int64(6) {
+			t.Errorf("expected total to be %d got %d", int64(6), total)
 		}
-		if len(results) != 4 {
-			t.Errorf("expected length of results to be %d got %d", 4, len(results))
+		if len(results) != 6 {
+			t.Errorf("expected length of results to be %d got %d", 6, len(results))
 		}
 	})
 	t.Run("testing filters with the like operator", func(t *testing.T) {
@@ -2591,11 +2598,11 @@ components:
 		if results == nil || len(results) == 0 {
 			t.Errorf("expected to get results but got nil")
 		}
-		if total != int64(2) {
-			t.Errorf("expected total to be %d got %d", int64(2), total)
+		if total != int64(4) {
+			t.Errorf("expected total to be %d got %d", int64(6), total)
 		}
-		if len(results) != 2 {
-			t.Errorf("expected length of results  to be %d got %d", 2, len(results))
+		if len(results) != 4 {
+			t.Errorf("expected length of results  to be %d got %d", 6, len(results))
 		}
 	})
 	t.Run("testing filters with the multiple operators", func(t *testing.T) {
@@ -2682,6 +2689,122 @@ components:
 			Field:    "last_updated",
 			Operator: "gt",
 			Value:    "2006-01-02T15:04:00Z",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(3) {
+			t.Errorf("expected total to be %d got %d", int64(3), total)
+		}
+		if len(results) != 3 {
+			t.Errorf("expected length of results  to be %d got %d", 3, len(results))
+		}
+	})
+	t.Run("testing date time filters(like) ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "like",
+			Value:    "2006",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
+	})
+	t.Run("testing date time filters(less than) ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "lt",
+			Value:    "2023-03-10T12:58:10+00:00",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(4) {
+			t.Errorf("expected total to be %d got %d", int64(4), total)
+		}
+		if len(results) != 4 {
+			t.Errorf("expected length of results  to be %d got %d", 4, len(results))
+		}
+	})
+	t.Run("testing date time filters(greater than) ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "gt",
+			Value:    "2023-03-10T12:58:10+00:00",
+			Values:   nil,
+		}
+
+		filters := map[string]interface{}{filter.Field: filter}
+		results, total, err := p.GetList(ctxt, blogEntityFactory, page, limit, "", sortOptions, filters)
+		if err != nil {
+			t.Errorf("error getting content entities: %s", err)
+		}
+		if results == nil || len(results) == 0 {
+			t.Errorf("expected to get results but got nil")
+		}
+		if total != int64(1) {
+			t.Errorf("expected total to be %d got %d", int64(1), total)
+		}
+		if len(results) != 1 {
+			t.Errorf("expected length of results  to be %d got %d", 1, len(results))
+		}
+	})
+	t.Run("testing date time filters(equal) ", func(t *testing.T) {
+		page := 1
+		limit := 0
+		sortOptions := map[string]string{
+			"id": "asc",
+		}
+		ctxt := context.Background()
+		filter := &projections.FilterProperty{
+			Field:    "last_updated",
+			Operator: "eq",
+			Value:    "2023-03-10T12:58:10+00:00",
 			Values:   nil,
 		}
 

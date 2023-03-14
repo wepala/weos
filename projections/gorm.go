@@ -842,12 +842,24 @@ func DateTimeCheck(entityFactory weos.EntityFactory, properties map[string]Filte
 	var err error
 	schema := entityFactory.Schema()
 	for key, value := range properties {
-		if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
-			_, err := time.Parse(time.RFC3339, value.Value.(string))
-			if err != nil {
-				return nil, err
+		if value.Operator != "like" {
+			if schema.Properties[key] != nil && schema.Properties[key].Value.Format == "date-time" {
+				_, err := time.Parse(time.RFC3339, value.Value.(string))
+				if err != nil {
+					return nil, err
+				}
 			}
-
+			if value.Operator == "eq" {
+				var newValue string
+				newValue = strings.Replace(properties[key].Value.(string), "T", " ", 1)
+				filter := FilterProperty{
+					Field:    key,
+					Operator: "eq",
+					Value:    newValue,
+					Values:   nil,
+				}
+				properties[key] = filter
+			}
 		}
 	}
 
