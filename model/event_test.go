@@ -1,7 +1,10 @@
 package model_test
 
 import (
+	"encoding/json"
+	"github.com/getkin/kin-openapi/openapi3"
 	weos "github.com/wepala/weos/model"
+	"golang.org/x/net/context"
 	"testing"
 )
 
@@ -117,4 +120,65 @@ func TestNewAggregateEvent(t *testing.T) {
 	if event.Meta.EntityType != "BaseAggregate" {
 		t.Errorf("expected the entity to have entityType '%s', got '%s'", "BaseAggregate", event.Meta.EntityType)
 	}
+}
+
+func TestNewEntityEvent(t *testing.T) {
+	t.Run("content entity with a name should use that name as the event type", func(t *testing.T) {
+		//load open api spec
+		swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error occured '%s'", err)
+		}
+		var contentType string
+		contentType = "Blog"
+		ctx := context.Background()
+		blog := make(map[string]interface{})
+		blog["title"] = "Test"
+		payload, err := json.Marshal(blog)
+		if err != nil {
+			t.Fatalf("unexpected error marshalling payload '%s'", err)
+		}
+
+		entity, err := new(weos.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas[contentType].Value, payload)
+		if err != nil {
+			t.Fatalf("unexpected error instantiating content entity '%s'", err)
+		}
+		entity.Name = "Blog"
+		event := weos.NewEntityEvent("TEST_EVENT", entity, "", nil)
+		if event.Type != "TEST_EVENT" {
+			t.Errorf("expected event to be type '%s', got '%s'", "TEST_EVENT", event.Type)
+		}
+		if event.Meta.EntityType != "Blog" {
+			t.Errorf("expected the entity to have entityType '%s', got '%s'", "Blog", event.Meta.EntityType)
+		}
+	})
+	t.Run("content entity without name should return ContentEntity as the type", func(t *testing.T) {
+		//load open api spec
+		swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile("../controllers/rest/fixtures/blog.yaml")
+		if err != nil {
+			t.Fatalf("unexpected error occured '%s'", err)
+		}
+		var contentType string
+		contentType = "Blog"
+		ctx := context.Background()
+		blog := make(map[string]interface{})
+		blog["title"] = "Test"
+		payload, err := json.Marshal(blog)
+		if err != nil {
+			t.Fatalf("unexpected error marshalling payload '%s'", err)
+		}
+
+		entity, err := new(weos.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas[contentType].Value, payload)
+		if err != nil {
+			t.Fatalf("unexpected error instantiating content entity '%s'", err)
+		}
+		entity.Name = "Blog"
+		event := weos.NewEntityEvent("TEST_EVENT", entity, "", nil)
+		if event.Type != "TEST_EVENT" {
+			t.Errorf("expected event to be type '%s', got '%s'", "TEST_EVENT", event.Type)
+		}
+		if event.Meta.EntityType != "Blog" {
+			t.Errorf("expected the entity to have entityType '%s', got '%s'", "Blog", event.Meta.EntityType)
+		}
+	})
 }

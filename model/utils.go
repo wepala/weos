@@ -49,8 +49,21 @@ func NewTime(time time.Time) *Time {
 
 func GetType(myvar interface{}) string {
 	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Ptr {
+		if t.Elem().Name() == "ContentEntity" {
+			ttype := myvar.(*ContentEntity).Name
+			if ttype != "" {
+				return ttype
+			}
+
+		}
 		return t.Elem().Name()
 	} else {
+		if t.Name() == "ContentEntity" {
+			ttype := myvar.(*ContentEntity).Name
+			if ttype != "" {
+				return ttype
+			}
+		}
 		return t.Name()
 	}
 }
