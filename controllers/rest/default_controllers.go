@@ -84,7 +84,7 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		}
 		commandResponse, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, api, entityRepository, ctxt.Logger())
 		if err != nil {
-			if err.(*model.DomainError).Code == 400 {
+			if derr, ok := err.(*model.DomainError); ok && derr.Code == 400 {
 				return ctxt.JSON(http.StatusBadRequest, commandResponse)
 			}
 			return err
