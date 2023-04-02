@@ -123,7 +123,7 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 			cc = context.WithValue(cc, echo.HeaderXRequestID, id)
 			request := c.Request().WithContext(cc)
 			c.SetRequest(request)
-			next(c)
+			err = next(c)
 			response := c.Response()
 			if strings.Contains(req.URL.Path,"/health") {
 				zapLogger.With(
@@ -149,7 +149,7 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 					zap.String("user_agent", req.UserAgent()),
 				).Debug("request")
 			}
-			return nil
+			return err
 		}
 	}
 }
