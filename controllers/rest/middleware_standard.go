@@ -127,7 +127,7 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 			err = next(c)
 			response := c.Response()
 			re := regexp.MustCompile(`^` + os.Getenv("BASE_PATH") + `/health`)
-			if re.MatchString(request.URL.Path) {
+			if !re.MatchString(request.URL.Path) {
 				zapLogger.With(
 					zap.String("remote_ip", c.RealIP()),
 					zap.String("uri", req.RequestURI),
