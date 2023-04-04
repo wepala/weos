@@ -12,7 +12,8 @@ import (
 	"github.com/wepala/weos/model"
 	"go.uber.org/zap"
 	"net/http"
-	"strings"
+	"os"
+	"regexp"
 	"time"
 )
 
@@ -125,7 +126,8 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 			c.SetRequest(request)
 			err = next(c)
 			response := c.Response()
-			if !strings.Contains(req.URL.Path, "/health") {
+			re := regexp.MustCompile(`^` + os.Getenv("BASE_PATH") + `/health`)
+			if re.MatchString(request.URL.Path) {
 				zapLogger.With(
 					zap.String("remote_ip", c.RealIP()),
 					zap.String("uri", req.RequestURI),
