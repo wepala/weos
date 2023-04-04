@@ -125,7 +125,7 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 			c.SetRequest(request)
 			err = next(c)
 			response := c.Response()
-			if strings.Contains(req.URL.Path,"/health") {
+			if !strings.Contains(req.URL.Path, "/health") {
 				zapLogger.With(
 					zap.String("remote_ip", c.RealIP()),
 					zap.String("uri", req.RequestURI),
@@ -134,20 +134,8 @@ func ZapLogger(api Container, commandDispatcher model.CommandDispatcher, reposit
 					zap.Duration("latency", time.Since(start)),
 					zap.Int64("response_size", response.Size),
 					zap.String("referer", req.Referer()),
-					zap.String("user", context2.GetUser(req.Context())),
 					zap.String("user_agent", req.UserAgent()),
 				).Info("request")
-			} else {
-				zapLogger.With(
-					zap.String("remote_ip", c.RealIP()),
-					zap.String("uri", req.RequestURI),
-					zap.Int("status", response.Status),
-					zap.String("method", c.Request().Method),
-					zap.Duration("latency", time.Since(start)),
-					zap.Int64("response_size", response.Size),
-					zap.String("referer", req.Referer()),
-					zap.String("user_agent", req.UserAgent()),
-				).Debug("request")
 			}
 			return err
 		}
