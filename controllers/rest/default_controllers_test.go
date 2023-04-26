@@ -737,4 +737,142 @@ func TestDefaultListController(t *testing.T) {
 			t.Errorf("expected lastName to be in csv file")
 		}
 	})
+
+	t.Run("test _sorts filter", func(t *testing.T) {
+		swagger, err = LoadConfig(t, "./fixtures/blog.yaml")
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		container := &ContainerMock{
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
+			GetWeOSConfigFunc: func() *rest.APIConfig {
+				return nil
+			},
+		}
+		repository := &EntityRepositoryMock{
+			NameFunc: func() string {
+				return "Blog"
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{}`))
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Blog"].Value
+			},
+			GetListFunc: func(ctx context3.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
+				if sortOptions == nil {
+					t.Errorf("sort options not found")
+				}
+
+				if title, ok := sortOptions["title"]; ok {
+					if title != "asc" {
+						t.Errorf("expected title sort option to be asc got %s", title)
+					}
+				} else {
+					t.Errorf("expected the sort option to be title")
+				}
+
+				entity, _ := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Blog"].Value, []byte(`{"id":1,"title":"test"}`))
+				return []*model.ContentEntity{entity}, 1, nil
+			},
+		}
+
+		path := swagger.Paths.Find("/blogs")
+
+		mw := rest.Context(container, &CommandDispatcherMock{}, repository, path, path.Get)
+
+		controller := mw(rest.DefaultListController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.PathItem{
+			"/blogs": path,
+		}, map[string]*openapi3.Operation{
+			http.MethodGet: path.Get,
+		}))
+		e := echo.New()
+		e.GET("/blogs", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.GET, "/blogs", nil)
+		req.Header.Set(echo.HeaderContentType, "application/json")
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
+		}
+
+		if len(repository.GetListCalls()) != 1 {
+			t.Errorf("expected repository.GetList to be called once, got %d", len(repository.GetListCalls()))
+		}
+	})
+
+	t.Run("test no _sorts filter", func(t *testing.T) {
+		swagger, err = LoadConfig(t, "./fixtures/blog.yaml")
+		if err != nil {
+			t.Fatalf("error loading api config '%s'", err)
+		}
+
+		container := &ContainerMock{
+			GetLogFunc: func(name string) (model.Log, error) {
+				return &LogMock{}, nil
+			},
+			GetWeOSConfigFunc: func() *rest.APIConfig {
+				return nil
+			},
+		}
+		repository := &EntityRepositoryMock{
+			NameFunc: func() string {
+				return "Post"
+			},
+			GetByKeyFunc: func(ctxt context3.Context, entityFactory model.EntityFactory, identifiers map[string]interface{}) (*model.ContentEntity, error) {
+				return nil, nil
+			},
+			CreateEntityWithValuesFunc: func(ctx context3.Context, payload []byte) (*model.ContentEntity, error) {
+				return new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Post"].Value, []byte(`{}`))
+			},
+			SchemaFunc: func() *openapi3.Schema {
+				return swagger.Components.Schemas["Post"].Value
+			},
+			GetListFunc: func(ctx context3.Context, entityFactory model.EntityFactory, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]*model.ContentEntity, int64, error) {
+				if sortOptions == nil {
+					t.Errorf("sort options not found")
+				}
+
+				if id, ok := sortOptions["id"]; ok {
+					if id != "asc" {
+						t.Errorf("expected title sort option to be asc got %s", id)
+					}
+				} else {
+					t.Errorf("expected the sort option to be id")
+				}
+
+				entity, _ := new(model.ContentEntity).FromSchemaWithValues(ctx, swagger.Components.Schemas["Post"].Value, []byte(`{"id":1,"title":"first post"}`))
+				return []*model.ContentEntity{entity}, 1, nil
+			},
+		}
+
+		path := swagger.Paths.Find("/posts/")
+
+		mw := rest.Context(container, &CommandDispatcherMock{}, repository, path, path.Get)
+
+		controller := mw(rest.DefaultListController(container, &CommandDispatcherMock{}, repository, map[string]*openapi3.PathItem{
+			"/posts/": path,
+		}, map[string]*openapi3.Operation{
+			http.MethodGet: path.Get,
+		}))
+		e := echo.New()
+		e.GET("/posts/", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.GET, "/posts/", nil)
+		req.Header.Set(echo.HeaderContentType, "application/json")
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
+		}
+
+		if len(repository.GetListCalls()) != 1 {
+			t.Errorf("expected repository.GetList to be called once, got %d", len(repository.GetListCalls()))
+		}
+	})
 }

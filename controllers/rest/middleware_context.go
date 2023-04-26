@@ -407,7 +407,7 @@ func AddToContext(c echo.Context, cc context.Context, contextValues map[string]i
 					errors = fmt.Errorf("unexpected error all sort fields are not filled out")
 					continue
 				}
-				sortOptions[sortOption.(map[string]interface{})["field"].(string)] = sortOption.(map[string]interface{})["field"].(string)
+				sortOptions[sortOption.(map[string]interface{})["field"].(string)] = sortOption.(map[string]interface{})["order"].(string)
 			}
 			contextValues[key] = sortOptions
 		}

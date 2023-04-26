@@ -251,6 +251,8 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 func DefaultListController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		var filterOptions map[string]interface{}
+		var sortOptions map[string]string
+		var ok bool
 		newContext := ctxt.Request().Context()
 		//gets the filter, limit and page from context
 		limit, _ := newContext.Value("limit").(int)
@@ -271,7 +273,7 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 				filterOptions = map[string]interface{}{}
 				filterOptions = filters.(map[string]interface{})
 				for key, values := range filterOptions {
-					if len(values.(*FilterProperties).Values) != 0 && values.(*FilterProperties).Operator != "in" {
+					if len(values.(*FilterProperties).Values) != 0 && values.(*FilterProperties).Operator != "in" && values.(*FilterProperties).Operator != "between" {
 						msg := "this operator " + values.(*FilterProperties).Operator + " does not support multiple values "
 						return NewControllerError(msg, nil, http.StatusBadRequest)
 					}
@@ -298,10 +300,13 @@ func DefaultListController(api Container, commandDispatcher model.CommandDispatc
 			var count int64
 			var err error
 			var contentEntities []*model.ContentEntity
-			// sort by default is by id
-			sorts := map[string]string{"id": "asc"}
 
-			contentEntities, count, err = entityRepository.GetList(newContext, entityRepository, page, limit, "", sorts, filterOptions)
+			// sort by default is by id
+			if sortOptions, ok = newContext.Value("_sorts").(map[string]string); !ok {
+				sortOptions = map[string]string{"id": "asc"}
+			}
+
+			contentEntities, count, err = entityRepository.GetList(newContext, entityRepository, page, limit, "", sortOptions, filterOptions)
 			if err != nil {
 				return NewControllerError(err.Error(), err, http.StatusBadRequest)
 			}
