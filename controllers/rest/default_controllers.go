@@ -87,6 +87,8 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		if err != nil {
 			if derr, ok := err.(*model.DomainError); ok && derr.Code == 400 {
 				return ctxt.JSON(http.StatusBadRequest, derr)
+			} else if weosErr, ok := err.(*model.WeOSError); ok && weosErr.Code == 400 {
+				return ctxt.JSON(http.StatusBadRequest, weosErr)
 			}
 			return err
 		}
