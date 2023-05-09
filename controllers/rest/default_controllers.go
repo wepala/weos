@@ -86,7 +86,7 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		//an error handler `HTTPErrorHandler` can be defined on the echo instance to handle error responses
 		if err != nil {
 			if derr, ok := err.(*model.DomainError); ok && derr.Code == 400 {
-				return ctxt.JSON(http.StatusBadRequest, commandResponse)
+				return ctxt.JSON(http.StatusBadRequest, derr.Message)
 			}
 			return err
 		}
