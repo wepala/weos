@@ -144,10 +144,9 @@ func (s *SecurityConfiguration) Middleware(api Container, commandDispatcher mode
 						if success {
 							return next(ctxt)
 						}
-						if err != nil {
+						if err != nil || !success {
 							ctxt.Logger().Errorf("the role '%s' does not have access to '%s' action '%s': original error", role, tpath, ctxt.Request().Method, err)
 						}
-						ctxt.Logger().Errorf("the role '%s' does not have access to '%s' action '%s': original error", role, tpath, ctxt.Request().Method, err)
 						return ctxt.NoContent(http.StatusForbidden)
 					}
 					return next(ctxt)
