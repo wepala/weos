@@ -653,8 +653,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 
 	db.SetMaxOpenConns(config.MaxOpen)
 	db.SetMaxIdleConns(config.MaxIdle)
-	db.SetConnMaxIdleTime(0)
-
+	db.SetConnMaxIdleTime(time.Duration(config.MaxIdleTime))
 	//setup gorm
 	var gormDB *gorm.DB
 	switch config.Driver {
