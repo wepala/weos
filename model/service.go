@@ -34,17 +34,18 @@ type ServiceConfig struct {
 }
 
 type DBConfig struct {
-	Name      string `json:"name"`
-	Host      string `json:"host"`
-	User      string `json:"username"`
-	Password  string `json:"password"`
-	Port      int    `json:"port"`
-	Database  string `json:"database"`
-	Driver    string `json:"driver"`
-	MaxOpen   int    `json:"max-open"`
-	MaxIdle   int    `json:"max-idle"`
-	AwsIam    bool   `json:"aws-iam"`
-	AwsRegion string `json:"aws-region"`
+	Name        string `json:"name"`
+	Host        string `json:"host"`
+	User        string `json:"username"`
+	Password    string `json:"password"`
+	Port        int    `json:"port"`
+	Database    string `json:"database"`
+	Driver      string `json:"driver"`
+	MaxOpen     int    `json:"max-open"`
+	MaxIdle     int    `json:"max-idle"`
+	MaxIdleTime int    `json:"max-idle-time"`
+	AwsIam      bool   `json:"aws-iam"`
+	AwsRegion   string `json:"aws-region"`
 }
 
 type LogConfig struct {
