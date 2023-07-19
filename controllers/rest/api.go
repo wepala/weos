@@ -126,7 +126,8 @@ func (p *RESTAPI) RegisterEventStore(name string, repository model.EventReposito
 	p.eventStores[name] = repository
 }
 
-//RegisterGlobalInitializer add global initializer if it's not already there
+// RegisterGlobalInitializer  add global initializer if it's not already there
+// Deprecated: Use RegisterInitializer instead
 func (p *RESTAPI) RegisterGlobalInitializer(initializer GlobalInitializer) {
 	if p.registeredInitializers == nil {
 		p.registeredInitializers = make(map[string]int)
@@ -138,7 +139,16 @@ func (p *RESTAPI) RegisterGlobalInitializer(initializer GlobalInitializer) {
 		p.globalInitializers = append(p.globalInitializers, initializer)
 		p.registeredInitializers[functionName] = len(p.globalInitializers)
 	}
+}
 
+func (p *RESTAPI) RegisterInitializer(key string, initializer GlobalInitializer) {
+	if p.registeredInitializers == nil {
+		p.registeredInitializers = make(map[string]int)
+	}
+	if _, ok := p.registeredInitializers[key]; !ok {
+		p.globalInitializers = append(p.globalInitializers, initializer)
+		p.registeredInitializers[key] = len(p.globalInitializers)
+	}
 }
 
 //RegisterOperationInitializer add operation initializer if it's not already there
@@ -462,11 +472,11 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("LogLevel", LogLevel)
 	p.RegisterMiddleware("ZapLogger", ZapLogger)
 	//register standard global initializers
-	p.RegisterGlobalInitializer(SQLDatabase)
-	p.RegisterGlobalInitializer(DefaultProjection)
-	p.RegisterGlobalInitializer(RegisterEntityRepositories)
-	p.RegisterGlobalInitializer(DefaultEventStore)
-	p.RegisterGlobalInitializer(Security)
+	p.RegisterInitializer("SQLDatabase",SQLDatabase)
+	p.RegisterInitializer("DefaultProjection",DefaultProjection)
+	p.RegisterInitializer("RegisterEntityRepositories",RegisterEntityRepositories)
+	p.RegisterInitializer("DefaultEventStore",DefaultEventStore)
+	p.RegisterInitializer("Security",Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityRepositoryInitializer)
