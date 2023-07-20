@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -56,7 +57,7 @@ type RESTAPI struct {
 	httpClients                    map[string]*http.Client
 	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
-	registeredInitializers         map[reflect.Value]int
+	registeredInitializers         map[string]int
 	prePathInitializers            []PathInitializer
 	registeredPrePathInitializers  map[reflect.Value]int
 	postPathInitializers           []PathInitializer
@@ -126,30 +127,42 @@ func (p *RESTAPI) RegisterEventStore(name string, repository model.EventReposito
 	p.eventStores[name] = repository
 }
 
-//RegisterGlobalInitializer add global initializer if it's not already there
+// RegisterGlobalInitializer  add global initializer if it's not already there
+// Deprecated: Use RegisterInitializer instead
 func (p *RESTAPI) RegisterGlobalInitializer(initializer GlobalInitializer) {
 	if p.registeredInitializers == nil {
-		p.registeredInitializers = make(map[reflect.Value]int)
+		p.registeredInitializers = make(map[string]int)
 	}
 	//only add initializer if it doesn't already exist
 	tpoint := reflect.ValueOf(initializer)
-	if _, ok := p.registeredInitializers[tpoint]; !ok {
+	functionName := runtime.FuncForPC(tpoint.Pointer()).Name()
+	if _, ok := p.registeredInitializers[functionName]; !ok {
 		p.globalInitializers = append(p.globalInitializers, initializer)
-		p.registeredInitializers[tpoint] = len(p.globalInitializers)
+		p.registeredInitializers[functionName] = len(p.globalInitializers)
 	}
+}
 
+func (p *RESTAPI) RegisterInitializer(key string, initializer GlobalInitializer) {
+	if p.registeredInitializers == nil {
+		p.registeredInitializers = make(map[string]int)
+	}
+	if _, ok := p.registeredInitializers[key]; !ok {
+		p.globalInitializers = append(p.globalInitializers, initializer)
+		p.registeredInitializers[key] = len(p.globalInitializers)
+	}
 }
 
 //RegisterOperationInitializer add operation initializer if it's not already there
 func (p *RESTAPI) RegisterOperationInitializer(initializer OperationInitializer) {
 	if p.registeredInitializers == nil {
-		p.registeredInitializers = make(map[reflect.Value]int)
+		p.registeredInitializers = make(map[string]int)
 	}
 	//only add initializer if it doesn't already exist
 	tpoint := reflect.ValueOf(initializer)
-	if _, ok := p.registeredInitializers[tpoint]; !ok {
+	functionName := runtime.FuncForPC(tpoint.Pointer()).Name()
+	if _, ok := p.registeredInitializers[functionName]; !ok {
 		p.operationInitializers = append(p.operationInitializers, initializer)
-		p.registeredInitializers[tpoint] = len(p.operationInitializers)
+		p.registeredInitializers[functionName] = len(p.operationInitializers)
 	}
 
 }
@@ -460,11 +473,11 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("LogLevel", LogLevel)
 	p.RegisterMiddleware("ZapLogger", ZapLogger)
 	//register standard global initializers
-	p.RegisterGlobalInitializer(SQLDatabase)
-	p.RegisterGlobalInitializer(DefaultProjection)
-	p.RegisterGlobalInitializer(RegisterEntityRepositories)
-	p.RegisterGlobalInitializer(DefaultEventStore)
-	p.RegisterGlobalInitializer(Security)
+	p.RegisterInitializer("SQLDatabase",SQLDatabase)
+	p.RegisterInitializer("DefaultProjection",DefaultProjection)
+	p.RegisterInitializer("RegisterEntityRepositories",RegisterEntityRepositories)
+	p.RegisterInitializer("DefaultEventStore",DefaultEventStore)
+	p.RegisterInitializer("Security",Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityRepositoryInitializer)
