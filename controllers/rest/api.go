@@ -64,6 +64,7 @@ type RESTAPI struct {
 	entityFactories                map[string]model.EntityFactory
 	dbConnections                  map[string]*sql.DB
 	gormConnections                map[string]*gorm.DB
+	gormConnection                 *gorm.DB
 	enforcers                      map[string]*casbin.Enforcer
 	entityRepositories             map[string]model.EntityRepository
 }
@@ -654,50 +655,55 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 	db.SetMaxOpenConns(config.MaxOpen)
 	db.SetMaxIdleConns(config.MaxIdle)
 	db.SetConnMaxIdleTime(time.Duration(config.MaxIdleTime))
-	//setup gorm
-	var gormDB *gorm.DB
-	switch config.Driver {
-	case "postgres":
-		gormDB, err = gorm.Open(dialects.NewPostgres(postgres.Config{
-			Conn: db,
-		}), nil)
-		if err != nil {
-			return nil, nil, connStr, err
-		}
-	case "sqlite3":
-		gormDB, err = gorm.Open(&dialects.SQLite{
-			sqlite.Dialector{
+
+	if p.gormConnection == nil {
+		//setup gorm
+		switch config.Driver {
+		case "postgres":
+			p.gormConnection, err = gorm.Open(dialects.NewPostgres(postgres.Config{
 				Conn: db,
-			},
-		}, nil)
-		if err != nil {
-			return nil, nil, connStr, err
+			}), nil)
+			if err != nil {
+				return nil, nil, connStr, err
+			}
+		case "sqlite3":
+			p.gormConnection, err = gorm.Open(&dialects.SQLite{
+				sqlite.Dialector{
+					Conn: db,
+				},
+			}, nil)
+			if err != nil {
+				return nil, nil, connStr, err
+			}
+		case "mysql":
+			p.gormConnection, err = gorm.Open(dialects.NewMySQL(mysql.Config{
+				Conn: db,
+			}), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
+			if err != nil {
+				return nil, nil, connStr, err
+			}
+		case "ramsql": //this is for testing
+			p.gormConnection = &gorm.DB{}
+		case "sqlserver":
+			p.gormConnection, err = gorm.Open(sqlserver.New(sqlserver.Config{
+				Conn: db,
+			}), nil)
+			if err != nil {
+				return nil, nil, connStr, err
+			}
+		case "clickhouse":
+			p.gormConnection, err = gorm.Open(clickhouse.New(clickhouse.Config{
+				Conn: db,
+			}), nil)
+			if err != nil {
+				return nil, nil, connStr, err
+			}
+		default:
+			return nil, nil, connStr, errors.New(fmt.Sprintf("we don't support database driver '%s'", config.Driver))
 		}
-	case "mysql":
-		gormDB, err = gorm.Open(dialects.NewMySQL(mysql.Config{
-			Conn: db,
-		}), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
-		if err != nil {
-			return nil, nil, connStr, err
-		}
-	case "ramsql": //this is for testing
-		gormDB = &gorm.DB{}
-	case "sqlserver":
-		gormDB, err = gorm.Open(sqlserver.New(sqlserver.Config{
-			Conn: db,
-		}), nil)
-		if err != nil {
-			return nil, nil, connStr, err
-		}
-	case "clickhouse":
-		gormDB, err = gorm.Open(clickhouse.New(clickhouse.Config{
-			Conn: db,
-		}), nil)
-		if err != nil {
-			return nil, nil, connStr, err
-		}
-	default:
-		return nil, nil, connStr, errors.New(fmt.Sprintf("we don't support database driver '%s'", config.Driver))
+	} else {
+		p.gormConnection.ConnPool = db
 	}
-	return db, gormDB, connStr, err
+
+	return db, p.gormConnection, connStr, err
 }
