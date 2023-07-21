@@ -646,6 +646,10 @@ func (mock *ContainerMock) GetPermissionEnforcerCalls() []struct {
 	return calls
 }
 
+func (mock *ContainerMock) GetGormDB() *gorm.DB {
+	return mock.GetGormDB()
+}
+
 // GetProjection calls GetProjectionFunc.
 func (mock *ContainerMock) GetProjection(name string) (model.Projection, error) {
 	if mock.GetProjectionFunc == nil {

@@ -906,10 +906,7 @@ var ContentQuery QueryModifier
 var FilterQuery QueryFilterModifier
 
 func NewGORMRepository(ctx context.Context, container weos.Container, name string, schema *openapi3.Schema) (*GORMDB, error) {
-	gormdb, err := container.GetGormDBConnection("Default")
-	if err != nil {
-		return nil, err
-	}
+	gormdb := container.GetGormDB()
 	logger, err := container.GetLog("Default")
 	if err != nil {
 		return nil, err

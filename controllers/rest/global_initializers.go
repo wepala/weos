@@ -83,7 +83,8 @@ func DefaultProjection(ctxt context.Context, tapi Container, swagger *openapi3.S
 	api := tapi.(*RESTAPI)
 	var gormDB *gorm.DB
 	var err error
-	if gormDB, err = api.GetGormDBConnection("Default"); err == nil {
+	gormDB = api.gormConnection
+	if gormDB != nil {
 		//setup default projection if gormDB is configured
 		defaultProjection, _ := api.GetProjection("Default")
 		if defaultProjection == nil {
@@ -188,8 +189,9 @@ func DefaultEventStore(ctxt context.Context, tapi Container, swagger *openapi3.S
 	api := tapi.(*RESTAPI)
 	var err error
 	var gormDB *gorm.DB
+	gormDB = api.gormConnection
 	//if there is a projection then add the event handler as a subscriber to the event store
-	if gormDB, err = api.GetGormDBConnection("Default"); err == nil {
+	if gormDB != nil {
 		var defaultEventStore model.EventRepository
 		defaultEventStore, err = model.NewBasicEventRepository(gormDB, api.EchoInstance().Logger, false, "", "")
 		err = defaultEventStore.Migrate(ctxt)
@@ -223,4 +225,3 @@ func ZapLoggerInitializer(ctxt context.Context, tapi Container, swagger *openapi
 	ctxt = context.WithValue(ctxt, weosContext.MIDDLEWARES, middlewares)
 	return ctxt, nil
 }
-

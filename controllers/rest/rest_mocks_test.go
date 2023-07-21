@@ -593,6 +593,11 @@ func (mock *ContainerMock) GetDBConnection(name string) (*sql.DB, error) {
 	return mock.GetDBConnectionFunc(name)
 }
 
+// GetCommandDispatcher calls GetCommandDispatcherFunc.
+func (mock *ContainerMock) GetGormDB() *gorm.DB {
+	return mock.GetGormDB()
+}
+
 // GetDBConnectionCalls gets all the calls that were made to GetDBConnection.
 // Check the length with:
 //     len(mockedContainer.GetDBConnectionCalls())

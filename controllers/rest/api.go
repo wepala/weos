@@ -377,6 +377,10 @@ func (p *RESTAPI) GetGormDBConnection(name string) (*gorm.DB, error) {
 	return nil, fmt.Errorf("gorm database connection '%s' not found", name)
 }
 
+func (p *RESTAPI) GetGormDB() *gorm.DB {
+	return p.gormConnection
+}
+
 func (p *RESTAPI) GetConfig() *openapi3.Swagger {
 	return p.Swagger
 }
@@ -473,11 +477,11 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	p.RegisterMiddleware("LogLevel", LogLevel)
 	p.RegisterMiddleware("ZapLogger", ZapLogger)
 	//register standard global initializers
-	p.RegisterInitializer("SQLDatabase",SQLDatabase)
-	p.RegisterInitializer("DefaultProjection",DefaultProjection)
-	p.RegisterInitializer("RegisterEntityRepositories",RegisterEntityRepositories)
-	p.RegisterInitializer("DefaultEventStore",DefaultEventStore)
-	p.RegisterInitializer("Security",Security)
+	p.RegisterInitializer("SQLDatabase", SQLDatabase)
+	p.RegisterInitializer("DefaultProjection", DefaultProjection)
+	p.RegisterInitializer("RegisterEntityRepositories", RegisterEntityRepositories)
+	p.RegisterInitializer("DefaultEventStore", DefaultEventStore)
+	p.RegisterInitializer("Security", Security)
 	//register standard operation initializers
 	p.RegisterOperationInitializer(ContextInitializer)
 	p.RegisterOperationInitializer(EntityRepositoryInitializer)

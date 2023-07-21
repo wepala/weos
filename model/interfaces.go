@@ -152,6 +152,7 @@ type Container interface {
 	GetPermissionEnforcer(name string) (*casbin.Enforcer, error)
 	RegisterEntityRepository(name string, repository EntityRepository)
 	GetEntityRepository(name string) (EntityRepository, error)
+	GetGormDB() *gorm.DB
 }
 
 type EntityFactory interface {
