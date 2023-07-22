@@ -68,6 +68,7 @@ type RESTAPI struct {
 	gormConnection                 *gorm.DB
 	enforcers                      map[string]*casbin.Enforcer
 	entityRepositories             map[string]model.EntityRepository
+	defaultProjection 			   model.Projection
 }
 
 //define an interface that all plugins must implement
@@ -205,10 +206,7 @@ func (p *RESTAPI) RegisterCommandDispatcher(name string, dispatcher model.Comman
 
 //RegisterProjection Add command dispatcher so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterProjection(name string, projection model.Projection) {
-	if p.projections == nil {
-		p.projections = make(map[string]model.Projection)
-	}
-	p.projections[name] = projection
+	p.defaultProjection = projection
 }
 
 //RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
@@ -298,10 +296,7 @@ func (p *RESTAPI) GetCommandDispatcher(name string) (model.CommandDispatcher, er
 
 //GetProjection get event dispatcher by name
 func (p *RESTAPI) GetProjection(name string) (model.Projection, error) {
-	if tdispatcher, ok := p.projections[name]; ok {
-		return tdispatcher, nil
-	}
-	return nil, fmt.Errorf("projection '%s' not found", name)
+	return p.defaultProjection, nil
 }
 
 func (p *RESTAPI) RegisterEntityRepository(name string, repository model.EntityRepository) {
