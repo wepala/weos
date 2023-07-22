@@ -86,7 +86,7 @@ func DefaultProjection(ctxt context.Context, tapi Container, swagger *openapi3.S
 		//setup default projection if gormDB is configured
 		defaultProjection, _ := api.GetProjection("Default")
 		if defaultProjection == nil {
-			defaultProjection, err = projections.NewProjection(ctxt, api.gormConnection, api.EchoInstance().Logger)
+			defaultProjection, err = projections.NewProjection(ctxt, tapi, api.gormConnection, api.EchoInstance().Logger)
 			api.RegisterProjection("Default", defaultProjection)
 
 			//---- TODO clean up setting up schemas here

@@ -1049,7 +1049,7 @@ func TestContentEntity_CreateWithCollection(t *testing.T) {
 		}
 
 		var model interface{}
-		projection, err := projections.NewProjection(context.Background(), nil, api.EchoInstance().Logger)
+		projection, err := projections.NewProjection(context.Background(), nil, nil, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -241,7 +241,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -307,7 +307,7 @@ components:
 
 		//automigrate table again to ensure no issue on multiple migrates
 		for i := 0; i < 10; i++ {
-			_, err = projections.NewProjection(context.Background(), nil, nil)
+			_, err = projections.NewProjection(context.Background(), nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -408,7 +408,7 @@ components:
 		if err != nil {
 			t.Fatalf("error loading api config '%s'", err)
 		}
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -535,7 +535,7 @@ components:
 		t.Fatalf("error loading api config '%s'", err)
 	}
 
-	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +629,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -750,7 +750,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -814,7 +814,7 @@ components:
 
 		//automigrate table again to ensure no issue on multiple migrates
 		for i := 0; i < 20; i++ {
-			_, err = projections.NewProjection(context.Background(), nil, nil)
+			_, err = projections.NewProjection(context.Background(), nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -902,7 +902,7 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1018,7 +1018,7 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1187,7 +1187,7 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1286,7 +1286,7 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1462,7 +1462,7 @@ components:
 	}
 
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1594,7 +1594,7 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1751,7 +1751,7 @@ components:
 		t.Fatalf("error loading api config '%s'", err)
 	}
 
-	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1889,7 +1889,7 @@ components:
 		gormDB.Logger.LogMode(logger.Info)
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2027,7 +2027,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2147,7 +2147,7 @@ components:
 	}
 
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2347,7 +2347,7 @@ components:
 	}
 
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2941,7 +2941,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3043,7 +3043,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err = projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3161,7 +3161,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3268,7 +3268,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err = projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3389,7 +3389,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3480,7 +3480,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err = projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3552,7 +3552,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3642,7 +3642,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err = projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err = projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3750,7 +3750,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -3847,7 +3847,7 @@ components:
 		t.Fatalf("error loading api config '%s'", err)
 	}
 	schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-	p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3966,7 +3966,7 @@ components:
 		}
 
 		schemes := rest.CreateSchema(context.Background(), echo.New(), api.Swagger)
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -4102,7 +4102,7 @@ components:
 			t.Fatalf("error loading api config '%s'", err)
 		}
 
-		p, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		p, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -38,7 +38,7 @@ func TestGORMDB_GORMModel(t *testing.T) {
 		}
 		schemas := rest.CreateSchema(context.Background(), api.EchoInstance(), api.Swagger)
 		entityFactory1 := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType1, api.Swagger.Components.Schemas[contentType1].Value, schemas[contentType1])
-		projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +148,7 @@ func TestGORMDB_GORMModel(t *testing.T) {
 			t.Errorf("unexpected error marshalling entity; %s", err)
 		}
 		entityFactory1 := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType1, api.Swagger.Components.Schemas[contentType1].Value, nil)
-		projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -218,7 +218,7 @@ func TestGORMDB_GORMModel(t *testing.T) {
 		entityFactory2 := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Blog", api.Swagger.Components.Schemas["Blog"].Value, schemas["Blog"])
 		entityFactory3 := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Author", api.Swagger.Components.Schemas["Author"].Value, schemas["Author"])
 		entityFactory4 := new(model.DefaultEntityFactory).FromSchemaAndBuilder("Category", api.Swagger.Components.Schemas["Category"].Value, schemas["Category"])
-		projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -289,7 +289,7 @@ func TestGORMDB_GORMModel(t *testing.T) {
 		}
 		schemas := rest.CreateSchema(context.Background(), api.EchoInstance(), api.Swagger)
 		entityFactory1 := new(model.DefaultEntityFactory).FromSchemaAndBuilder(contentType1, api.Swagger.Components.Schemas[contentType1].Value, schemas[contentType1])
-		projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+		projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -338,7 +338,7 @@ func TestGORMDB_GORMModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error setting up api: %s", err)
 	}
-	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestGORMDB_Persist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error setting up api: %s", err)
 	}
-	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,7 +589,7 @@ func TestGORMDB_Remove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error setting up api: %s", err)
 	}
-	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,7 +673,7 @@ func TestGORMDB_GetByKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error setting up api: %s", err)
 	}
-	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +744,7 @@ func TestGORMDB_GetContentEntity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error setting up api: %s", err)
 	}
-	projection, err := projections.NewProjection(context.Background(), gormDB, api.EchoInstance().Logger)
+	projection, err := projections.NewProjection(context.Background(), nil, gormDB, api.EchoInstance().Logger)
 	if err != nil {
 		t.Fatal(err)
 	}

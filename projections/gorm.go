@@ -980,9 +980,10 @@ func NewGORMRepository(ctx context.Context, container weos.Container, name strin
 }
 
 //NewProjection creates an instance of the projection
-func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, error) {
+func NewProjection(ctx context.Context, container weos.Container, db *gorm.DB, logger weos.Log) (*GORMDB, error) {
 
 	projection := &GORMDB{
+		container: container,
 		logger:        logger,
 		SchemaBuilder: make(map[string]ds.Builder),
 		keys:          make(map[string]map[string]interface{}),
