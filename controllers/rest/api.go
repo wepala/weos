@@ -68,7 +68,7 @@ type RESTAPI struct {
 	gormConnection                 *gorm.DB
 	enforcers                      map[string]*casbin.Enforcer
 	entityRepositories             map[string]model.EntityRepository
-	defaultProjection 			   *projections.GORMDB
+	defaultProjection 			   model.Projection
 }
 
 //define an interface that all plugins must implement
@@ -206,7 +206,7 @@ func (p *RESTAPI) RegisterCommandDispatcher(name string, dispatcher model.Comman
 
 //RegisterProjection Add command dispatcher so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterProjection(name string, projection model.Projection) {
-	p.defaultProjection = projection.(*projections.GORMDB)
+	p.defaultProjection = projection
 }
 
 //RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
