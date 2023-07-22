@@ -24,7 +24,7 @@ var inlineSchemaErr = errors.New("inline schema")
 
 //GORMDB interface struct
 type GORMDB struct {
-	db              *gorm.DB
+	container 	 weos.Container
 	logger          weos.Log
 	migrationFolder string
 	SchemaBuilder   map[string]ds.Builder
@@ -43,7 +43,8 @@ type FilterProperty struct {
 }
 
 func (d *GORMDB) DB() *gorm.DB {
-	return d.db
+	 t,_ := d.container.GetGormDBConnection("default")
+	 return t
 }
 
 func (d *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) (*weos.ContentEntity, error) {
@@ -79,7 +80,7 @@ func (d *GORMDB) GetByKey(ctxt context.Context, entityFactory weos.EntityFactory
 
 	model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
-	result := d.db.Table(entityFactory.Name()).Model(model).Preload(clause.Associations).Scopes(ContentQuery()).Find(model, identifiers)
+	result := d.DB().Table(entityFactory.Name()).Model(model).Preload(clause.Associations).Scopes(ContentQuery()).Find(model, identifiers)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -181,7 +182,7 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 					}`), &model)
 			models = append(models, model)
 			//drop columns
-			if d.db.Migrator().HasTable(model) {
+			if d.DB().Migrator().HasTable(model) {
 				if columnsToRemove, ok := tschema.Value.Extensions["x-remove"]; ok {
 					var columns []string
 					err = json.Unmarshal(columnsToRemove.(json.RawMessage), &columns)
@@ -189,8 +190,8 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 						return fmt.Errorf("x-remove should be a list of columns name to remove '%s'", err)
 					}
 					for _, column := range columns {
-						if d.db.Migrator().HasColumn(model, column) {
-							err = d.db.Migrator().DropColumn(model, column)
+						if d.DB().Migrator().HasColumn(model, column) {
+							err = d.DB().Migrator().DropColumn(model, column)
 							if err != nil {
 								return fmt.Errorf("could not remove column '%s'. if it is a primary key column try creating another primary key and then removing. original error '%s'", column, err)
 							}
@@ -202,7 +203,7 @@ func (d *GORMDB) Migrate(ctx context.Context, schema *openapi3.Swagger) error {
 		}
 	}
 
-	err := d.db.Migrator().AutoMigrate(models...)
+	err := d.DB().Migrator().AutoMigrate(models...)
 	return err
 }
 
@@ -596,7 +597,7 @@ func (d *GORMDB) GetEventHandler() weos.EventHandler {
 				payload, err := json.Marshal(entity.ToMap())
 				model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), payload)
 				json.Unmarshal([]byte(`{"weos_id":"`+entity.ID+`","sequence_no":`+strconv.Itoa(int(entity.SequenceNo))+`}`), &model)
-				db := d.db.Table(entityFactory.Name()).Create(model)
+				db := d.DB().Table(entityFactory.Name()).Create(model)
 				if db.Error != nil {
 					d.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -626,7 +627,7 @@ func (d *GORMDB) GetEventHandler() weos.EventHandler {
 					//check to see if the property is an array with items defined that is a reference to another schema (inline array will be stored as json in the future)
 					if property.Value != nil && property.Value.Type == "array" && property.Value.Items != nil && property.Value.Items.Ref != "" {
 						field := reader.GetField(strings.Title(key))
-						err = d.db.Model(model).Association(strings.Title(key)).Replace(field.Interface())
+						err = d.DB().Model(model).Association(strings.Title(key)).Replace(field.Interface())
 						if err != nil {
 							d.logger.Errorf("error clearing association %s for %s, got %s", strings.Title(key), entityFactory.Name(), err)
 							return err
@@ -635,7 +636,7 @@ func (d *GORMDB) GetEventHandler() weos.EventHandler {
 				}
 
 				//update database value
-				db := d.db.Table(entityFactory.Name()).Updates(model)
+				db := d.DB().Table(entityFactory.Name()).Updates(model)
 				if db.Error != nil {
 					d.logger.Errorf("error creating %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -648,7 +649,7 @@ func (d *GORMDB) GetEventHandler() weos.EventHandler {
 					d.logger.Errorf("error generating entity model '%s'", err)
 					return err
 				}
-				db := d.db.Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
+				db := d.DB().Table(entityFactory.Name()).Where("weos_id = ?", event.Meta.EntityID).Delete(model)
 				if db.Error != nil {
 					d.logger.Errorf("error deleting %s, got %s", entityFactory.Name(), db.Error)
 					return db.Error
@@ -667,7 +668,7 @@ func (d *GORMDB) GetContentEntity(ctx context.Context, entityFactory weos.Entity
 
 	model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 
-	result := d.db.Table(entityFactory.TableName()).Model(model).Preload(clause.Associations).Find(model, "weos_id = ? ", weosID)
+	result := d.DB().Table(entityFactory.TableName()).Model(model).Preload(clause.Associations).Find(model, "weos_id = ? ", weosID)
 	if result.Error != nil {
 		d.logger.Errorf("unexpected error retrieving entity , got: '%s'", result.Error)
 		return nil, result.Error
@@ -699,7 +700,7 @@ func (d *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 	}
 	model, err := d.GORMModel(entityFactory.Name(), entityFactory.Schema(), nil)
 	models, err := d.GORMModels(entityFactory.Name(), entityFactory.Schema())
-	result = d.db.Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
+	result = d.DB().Table(entityFactory.Name()).Scopes(FilterQuery(filtersProp)).Model(model).Preload(clause.Associations).Omit("weos_id, sequence_no, table").Count(&count).Scopes(paginate(page, limit), sort(sortOptions)).Find(models)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -717,7 +718,7 @@ func (d *GORMDB) GetList(ctx context.Context, entityFactory weos.EntityFactory, 
 
 func (d *GORMDB) GetByProperties(ctxt context.Context, entityFactory weos.EntityFactory, identifiers map[string]interface{}) ([]*weos.ContentEntity, error) {
 	results, err := d.GORMModels(entityFactory.Name(), entityFactory.Schema())
-	result := d.db.Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
+	result := d.DB().Table(entityFactory.TableName()).Scopes(ContentQuery()).Find(results, identifiers)
 	if result.Error != nil {
 		d.logger.Errorf("unexpected error retrieving created entity, got: '%s'", result.Error)
 	}
@@ -833,7 +834,7 @@ func (d *GORMDB) Delete(ctxt context.Context, entity *weos.ContentEntity) error 
 	if err != nil {
 		return err
 	}
-	result := d.db.Table(entity.Name).Delete(tmodel)
+	result := d.DB().Table(entity.Name).Delete(tmodel)
 	return result.Error
 }
 
@@ -968,13 +969,13 @@ func NewGORMRepository(ctx context.Context, container weos.Container, name strin
 	}
 
 	tdb := &GORMDB{
+		container: container,
 		schema:        schema,
 		name:          name,
 		logger:        logger,
 		SchemaBuilder: make(map[string]ds.Builder),
 		keys:          make(map[string]map[string]interface{}),
 	}
-	tdb.db, err = container.GetGormDBConnection("Default")
 	return tdb, nil
 }
 
@@ -982,7 +983,6 @@ func NewGORMRepository(ctx context.Context, container weos.Container, name strin
 func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, error) {
 
 	projection := &GORMDB{
-		db:            db,
 		logger:        logger,
 		SchemaBuilder: make(map[string]ds.Builder),
 		keys:          make(map[string]map[string]interface{}),
@@ -1001,7 +1001,7 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 					case "ne":
 						operator = "!="
 					case "like":
-						if projection.db.Dialector.Name() == "postgres" {
+						if projection.DB().Dialector.Name() == "postgres" {
 							operator = "ILIKE"
 						} else {
 							operator = " LIKE"
@@ -1030,7 +1030,7 @@ func NewProjection(ctx context.Context, db *gorm.DB, logger weos.Log) (*GORMDB, 
 
 	ContentQuery = func() func(db *gorm.DB) *gorm.DB {
 		return func(db *gorm.DB) *gorm.DB {
-			if projection.db.Dialector.Name() == "sqlite" {
+			if projection.DB().Dialector.Name() == "sqlite" {
 				//gorm sqlite generates the query incorrectly if there are composite keys when preloading.  This may cause panics.
 				//https://github.com/go-gorm/gorm/issues/3585
 				return db
