@@ -906,7 +906,6 @@ var ContentQuery QueryModifier
 var FilterQuery QueryFilterModifier
 
 func NewGORMRepository(ctx context.Context, container weos.Container, name string, schema *openapi3.Schema) (*GORMDB, error) {
-	gormdb,_ := container.GetGormDBConnection("Default")
 	logger, err := container.GetLog("Default")
 	if err != nil {
 		return nil, err
@@ -968,14 +967,15 @@ func NewGORMRepository(ctx context.Context, container weos.Container, name strin
 		}
 	}
 
-	return &GORMDB{
-		db:            gormdb,
+	tdb := &GORMDB{
 		schema:        schema,
 		name:          name,
 		logger:        logger,
 		SchemaBuilder: make(map[string]ds.Builder),
 		keys:          make(map[string]map[string]interface{}),
-	}, nil
+	}
+	tdb.db, err = container.GetGormDBConnection("Default")
+	return tdb, nil
 }
 
 //NewProjection creates an instance of the projection

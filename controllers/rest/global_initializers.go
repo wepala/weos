@@ -81,14 +81,12 @@ func SQLDatabase(ctxt context.Context, tapi Container, swagger *openapi3.Swagger
 //DefaultProjection setup default gorm projection
 func DefaultProjection(ctxt context.Context, tapi Container, swagger *openapi3.Swagger) (context.Context, error) {
 	api := tapi.(*RESTAPI)
-	var gormDB *gorm.DB
 	var err error
-	gormDB = api.gormConnection
-	if gormDB != nil {
+	if api.gormConnection != nil {
 		//setup default projection if gormDB is configured
 		defaultProjection, _ := api.GetProjection("Default")
 		if defaultProjection == nil {
-			defaultProjection, err = projections.NewProjection(ctxt, gormDB, api.EchoInstance().Logger)
+			defaultProjection, err = projections.NewProjection(ctxt, api.gormConnection, api.EchoInstance().Logger)
 			api.RegisterProjection("Default", defaultProjection)
 
 			//---- TODO clean up setting up schemas here
