@@ -229,10 +229,7 @@ func (p *RESTAPI) RegisterDBConnection(name string, connection *sql.DB) {
 
 //RegisterGORMDB save gorm connection
 func (p *RESTAPI) RegisterGORMDB(name string, connection *gorm.DB) {
-	if p.gormConnections == nil {
-		p.gormConnections = make(map[string]*gorm.DB)
-	}
-	p.gormConnections[name] = connection
+	p.gormConnection = connection
 }
 
 func (p *RESTAPI) RegisterPermissionEnforcer(name string, enforcer *casbin.Enforcer) {
@@ -371,14 +368,7 @@ func (p *RESTAPI) GetDBConnection(name string) (*sql.DB, error) {
 
 //GetGormDBConnection get gorm connection by name
 func (p *RESTAPI) GetGormDBConnection(name string) (*gorm.DB, error) {
-	if tconnection, ok := p.gormConnections[name]; ok {
-		return tconnection, nil
-	}
-	return nil, fmt.Errorf("gorm database connection '%s' not found", name)
-}
-
-func (p *RESTAPI) GetGormDB() *gorm.DB {
-	return p.gormConnection
+	return p.gormConnection, nil
 }
 
 func (p *RESTAPI) GetConfig() *openapi3.Swagger {

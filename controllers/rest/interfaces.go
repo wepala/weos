@@ -61,5 +61,4 @@ type Container interface {
 	GetWeOSConfig() *APIConfig
 	RegisterSecurityConfiguration(configuration *SecurityConfiguration)
 	GetSecurityConfiguration() *SecurityConfiguration
-	GetGormDB() *gorm.DB
 }
