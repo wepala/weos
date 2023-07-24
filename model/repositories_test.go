@@ -77,8 +77,8 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	eventRepo.Persist(newContext, entity3)
 
 	t.Run("replay events - drop tables", func(t *testing.T) {
-		if eventRepo.DB.Migrator().HasTable("Blog") {
-			err = eventRepo.DB.Migrator().DropTable("Blog")
+		if eventRepo.DB().Migrator().HasTable("Blog") {
+			err = eventRepo.DB().Migrator().DropTable("Blog")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,12 +123,12 @@ func TestEventRepository_ReplayEvents(t *testing.T) {
 	t.Run("replay events - remove rows", func(t *testing.T) {
 		output := map[string]interface{}{}
 
-		searchResult := eventRepo.DB.Table("Blog").Where("weos_id = ?", "12345").Delete(&output)
+		searchResult := eventRepo.DB().Table("Blog").Where("weos_id = ?", "12345").Delete(&output)
 		if searchResult.Error != nil {
 			t.Fatal(searchResult.Error)
 		}
 
-		searchResult = eventRepo.DB.Table("Blog").Where("weos_id = ?", "123456").Delete(&output)
+		searchResult = eventRepo.DB().Table("Blog").Where("weos_id = ?", "123456").Delete(&output)
 		if searchResult.Error != nil {
 			t.Fatal(searchResult.Error)
 		}

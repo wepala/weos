@@ -189,7 +189,7 @@ func DefaultEventStore(ctxt context.Context, tapi Container, swagger *openapi3.S
 	//if there is a projection then add the event handler as a subscriber to the event store
 	if api.gormConnection != nil {
 		var defaultEventStore model.EventRepository
-		defaultEventStore, err = model.NewBasicEventRepository(api.gormConnection, api.EchoInstance().Logger, false, "", "")
+		defaultEventStore, err = model.NewBasicEventRepository(api.gormConnection, api.EchoInstance().Logger, false, "", "", tapi)
 		err = defaultEventStore.Migrate(ctxt)
 		api.RegisterEventStore("Default", defaultEventStore)
 	}
