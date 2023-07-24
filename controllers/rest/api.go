@@ -50,6 +50,7 @@ type RESTAPI struct {
 	Swagger                        *openapi3.Swagger
 	middlewares                    map[string]Middleware
 	controllers                    map[string]Controller
+	defaultEventStore              model.EventRepository
 	eventStores                    map[string]model.EventRepository
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]model.Projection
@@ -68,7 +69,7 @@ type RESTAPI struct {
 	gormConnection                 *gorm.DB
 	enforcers                      map[string]*casbin.Enforcer
 	entityRepositories             map[string]model.EntityRepository
-	defaultProjection 			   model.Projection
+	defaultProjection              model.Projection
 }
 
 //define an interface that all plugins must implement
@@ -122,10 +123,7 @@ func (p *RESTAPI) RegisterController(name string, controller Controller) {
 
 //RegisterEventStore Add event store so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterEventStore(name string, repository model.EventRepository) {
-	if p.eventStores == nil {
-		p.eventStores = make(map[string]model.EventRepository)
-	}
-	p.eventStores[name] = repository
+	p.defaultEventStore = repository
 }
 
 // RegisterGlobalInitializer  add global initializer if it's not already there
@@ -280,10 +278,7 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 
 //GetEventStore get event dispatcher by name
 func (p *RESTAPI) GetEventStore(name string) (model.EventRepository, error) {
-	if repository, ok := p.eventStores[name]; ok {
-		return repository, nil
-	}
-	return nil, fmt.Errorf("event repository '%s' not found", name)
+	return p.defaultEventStore, nil
 }
 
 //GetCommandDispatcher get event dispatcher by name
