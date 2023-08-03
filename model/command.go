@@ -68,6 +68,7 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 					e.handlerPanicked = true
 					fmt.Println(fmt.Sprintf("%+v", r))
 					err = fmt.Errorf("handler error '%v'", r)
+					logger.Errorf("handler error '%v'", r)
 				}
 				wg.Done()
 			}()
