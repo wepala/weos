@@ -94,6 +94,10 @@ func Context(api Container, commandDispatcher model.CommandDispatcher, repositor
 			//if there are any errors
 			if err != nil {
 				c.Logger().Error(err)
+
+				if payload != nil || len(payload) > 0 {
+					c.Logger().Debugf("payload: %s", payload)
+				}
 			}
 
 			//This check ensures that this was not an x-upload related form error
