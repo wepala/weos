@@ -118,9 +118,9 @@ func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInte
 
 	var errs []error
 	for _, entity := range entities {
-		errs = e.eventDispatcher.Dispatch(ctxt, *entity.(*Event))
-		if len(errs) > 0 {
-			errs = append(errs, errs...)
+		errors := e.eventDispatcher.Dispatch(ctxt, *entity.(*Event))
+		if len(errors) > 0 {
+			errs = append(errs, errors...)
 		}
 	}
 
