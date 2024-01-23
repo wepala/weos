@@ -116,9 +116,16 @@ func (e *EventRepositoryGorm) Persist(ctxt context.Context, entity AggregateInte
 	//call persist on the aggregate root to clear the new changes array
 	entity.Persist()
 
+	var errs []error
 	for _, entity := range entities {
-		e.eventDispatcher.Dispatch(ctxt, *entity.(*Event))
+		errs = e.eventDispatcher.Dispatch(ctxt, *entity.(*Event))
+		errs = append(errs, errs...)
 	}
+
+	if len(errs) > 0 {
+		return errs[0]
+	}
+
 	return nil
 }
 
