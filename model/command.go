@@ -37,9 +37,6 @@ type DefaultCommandDispatcher struct {
 }
 
 func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, container Container, repository EntityRepository, logger Log) (interface{}, error) {
-	//mutex helps keep state between routines
-	e.dispatch.Lock()
-	defer e.dispatch.Unlock()
 	var wg sync.WaitGroup
 	var err error
 	var result interface{}
@@ -65,7 +62,6 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					e.handlerPanicked = true
 					fmt.Println(fmt.Sprintf("%+v", r))
 					err = fmt.Errorf("handler error '%v'", r)
 					logger.Errorf("handler error '%v'", r)
