@@ -90,8 +90,11 @@ func (z *Zap) Errorf(format string, args ...interface{}) {
 }
 
 func (z *Zap) Error(args ...interface{}) {
-	fields, _ := z.extractTags(args...)
-	z.SugaredLogger.Error(fields...)
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Error(arguments...)
 }
 
 func (z *Zap) Warnf(format string, args ...interface{}) {
@@ -103,8 +106,11 @@ func (z *Zap) Warnf(format string, args ...interface{}) {
 }
 
 func (z *Zap) Warn(args ...interface{}) {
-	fields, _ := z.extractTags(args...)
-	z.SugaredLogger.Error(fields...)
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Warn(arguments...)
 }
 
 func (z *Zap) Debugf(format string, args ...interface{}) {
@@ -116,8 +122,11 @@ func (z *Zap) Debugf(format string, args ...interface{}) {
 }
 
 func (z *Zap) Debug(args ...interface{}) {
-	fields, _ := z.extractTags(args...)
-	z.SugaredLogger.Error(fields...)
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Debug(arguments...)
 }
 
 func (z *Zap) Output() io.Writer {
