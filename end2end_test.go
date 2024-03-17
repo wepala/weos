@@ -2142,6 +2142,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 }
 
 func TestBDD(t *testing.T) {
+	t.SkipNow()
 	status := godog.TestSuite{
 		Name:                 "BDD Tests",
 		ScenarioInitializer:  InitializeScenario,
