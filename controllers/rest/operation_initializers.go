@@ -15,6 +15,7 @@ import (
 	"golang.org/x/net/context"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strings"
 )
 
@@ -41,6 +42,12 @@ func AuthorizationInitializer(ctxt context.Context, tapi Container, path string,
 		if err != nil {
 			return ctxt, err
 		}
+
+		defer func() {
+			if err1 := recover(); err1 != nil {
+				log.Error("panic occurred ", string(debug.Stack()))
+			}
+		}()
 
 		//update path so that the open api way of specifying url parameters is change to wildcards. This is to support the casbin policy
 		//note ideal we would use the open api way of specifying url parameters but this is not supported by casbin
