@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-//ContextInitializer add context middleware to path
+// ContextInitializer add context middleware to path
 func ContextInitializer(ctxt context.Context, api Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	middlewares := GetOperationMiddlewares(ctxt)
 	contextMiddleware, err := api.GetMiddleware("Context")
@@ -30,11 +30,17 @@ func ContextInitializer(ctxt context.Context, api Container, path string, method
 	return ctxt, nil
 }
 
-//AuthorizationInitializer setup authorization
+// AuthorizationInitializer setup authorization
 func AuthorizationInitializer(ctxt context.Context, tapi Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	if authRaw, ok := operation.Extensions[AuthorizationConfigExtension]; ok {
 		var enforcer *casbin.Enforcer
 		var err error
+
+		//get default logger
+		log, err := tapi.GetLog("Default")
+		if err != nil {
+			return ctxt, err
+		}
 
 		//update path so that the open api way of specifying url parameters is change to wildcards. This is to support the casbin policy
 		//note ideal we would use the open api way of specifying url parameters but this is not supported by casbin
@@ -78,10 +84,14 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 				//setup users
 				if u, ok := allowRules.(map[string]interface{})["users"]; ok {
 					for _, user := range u.([]interface{}) {
+						if user == nil {
+							log.Warnf("user is nil on path '%s' for method '%s'", path, method)
+							continue
+						}
 						var success bool
 						success, err = enforcer.AddPolicy(user.(string), path, method)
 						if !success {
-							//TODO show warning to developer or something
+							log.Warnf("unable to add policy for user '%s' on path '%s' for method '%s'", user, path, method)
 						}
 					}
 				}
@@ -89,9 +99,13 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 				if u, ok := allowRules.(map[string]interface{})["roles"]; ok {
 					for _, user := range u.([]interface{}) {
 						var success bool
+						if user == nil {
+							log.Warnf("user is nil on path '%s' for method '%s'", path, method)
+							continue
+						}
 						success, err = enforcer.AddPolicy(user.(string), path, method)
 						if !success {
-							//TODO show warning to developer or something
+							log.Warnf("unable to add policy for role '%s' on path '%s' for method '%s'", user, path, method)
 						}
 					}
 				}
@@ -102,7 +116,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 	return ctxt, nil
 }
 
-//EntityRepositoryInitializer setups the EntityFactory for a specific route
+// EntityRepositoryInitializer setups the EntityFactory for a specific route
 func EntityRepositoryInitializer(ctxt context.Context, api Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	jsonSchema := operation.ExtensionProps.Extensions[SchemaExtension]
 	if jsonSchema != nil {
@@ -218,7 +232,7 @@ func EntityRepositoryInitializer(ctxt context.Context, api Container, path strin
 	return ctxt, nil
 }
 
-//UserDefinedInitializer adds user defined middleware, controller, command dispatchers and event store to the initialize context
+// UserDefinedInitializer adds user defined middleware, controller, command dispatchers and event store to the initialize context
 func UserDefinedInitializer(ctxt context.Context, tapi Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	api := tapi.(*RESTAPI)
 	//if the controller extension is set then add controller to the context
@@ -318,7 +332,7 @@ func UserDefinedInitializer(ctxt context.Context, tapi Container, path string, m
 	return ctxt, nil
 }
 
-//StandardInitializer adds standard controller and middleware if not already setup
+// StandardInitializer adds standard controller and middleware if not already setup
 func StandardInitializer(ctxt context.Context, tapi Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	api := tapi.(*RESTAPI)
 	if GetOperationController(ctxt) == nil {
@@ -625,7 +639,7 @@ func StandardInitializer(ctxt context.Context, tapi Container, path string, meth
 	return ctxt, nil
 }
 
-//RouteInitializer creates route using information in the initialization context
+// RouteInitializer creates route using information in the initialization context
 func RouteInitializer(ctxt context.Context, tapi Container, path string, method string, swagger *openapi3.Swagger, pathItem *openapi3.PathItem, operation *openapi3.Operation) (context.Context, error) {
 	var err error
 
@@ -761,7 +775,7 @@ func GetOperationProjections(ctx context.Context) []model.Projection {
 	return nil
 }
 
-//GetEntityRepository get the configured event factory from the context
+// GetEntityRepository get the configured event factory from the context
 func GetEntityRepository(ctx context.Context) model.EntityRepository {
 	if value, ok := ctx.Value(weoscontext.ENTITY_REPOSITORY).(model.EntityRepository); ok {
 		return value
@@ -769,7 +783,7 @@ func GetEntityRepository(ctx context.Context) model.EntityRepository {
 	return nil
 }
 
-//GetSchemaBuilders get a map of the dynamic struct builders for the schemas from the context
+// GetSchemaBuilders get a map of the dynamic struct builders for the schemas from the context
 func GetSchemaBuilders(ctx context.Context) map[string]ds.Builder {
 	if value, ok := ctx.Value(weoscontext.SCHEMA_BUILDERS).(map[string]ds.Builder); ok {
 		return value
