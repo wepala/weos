@@ -91,7 +91,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 						var success bool
 						success, err = enforcer.AddPolicy(user.(string), path, method)
 						if !success {
-							log.Warnf("unable to add policy for user '%s' on path '%s' for method '%s'", user, path, method)
+							//TODO show warning to developer or something
 						}
 					}
 				}
@@ -105,7 +105,7 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 						}
 						success, err = enforcer.AddPolicy(user.(string), path, method)
 						if !success {
-							log.Warnf("unable to add policy for role '%s' on path '%s' for method '%s'", user, path, method)
+							//TODO show warning to developer or something
 						}
 					}
 				}
