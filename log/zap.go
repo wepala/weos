@@ -55,12 +55,78 @@ func (z *Zap) WithRequestID(prefix string, level string, requestID string) (*Zap
 	return z, err
 }
 
+func (z *Zap) extractTags(args ...interface{}) (fields []interface{}, arguments []interface{}) {
+	//check to see which ones are zap fields
+	for _, arg := range args {
+		switch arg.(type) {
+		case zapcore.Field:
+			fields = append(fields, arg)
+		default:
+			arguments = append(arguments, arg)
+		}
+	}
+	return fields, arguments
+}
+
 func (z *Zap) Printf(format string, args ...interface{}) {
-	z.Infof(format, args...)
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.With(fields...)
+	}
+	z.Infof(format, arguments...)
 }
 
 func (z *Zap) Print(args ...interface{}) {
-	z.Info(args...)
+	fields, _ := z.extractTags(args...)
+	z.Info(fields...)
+}
+
+func (z *Zap) Errorf(format string, args ...interface{}) {
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Errorf(format, arguments...)
+}
+
+func (z *Zap) Error(args ...interface{}) {
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Error(arguments...)
+}
+
+func (z *Zap) Warnf(format string, args ...interface{}) {
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Warnf(format, arguments...)
+}
+
+func (z *Zap) Warn(args ...interface{}) {
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Warn(arguments...)
+}
+
+func (z *Zap) Debugf(format string, args ...interface{}) {
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Debugf(format, arguments...)
+}
+
+func (z *Zap) Debug(args ...interface{}) {
+	fields, arguments := z.extractTags(args...)
+	if len(fields) > 0 {
+		z.SugaredLogger.With(fields...)
+	}
+	z.SugaredLogger.Debug(arguments...)
 }
 
 func (z *Zap) Output() io.Writer {
@@ -147,4 +213,3 @@ func (z *Zap) Fatalj(j log.JSON) {
 func (z *Zap) Panicj(j log.JSON) {
 	z.Panic(j)
 }
-
