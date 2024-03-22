@@ -36,7 +36,7 @@ import (
 
 var InvalidAWSDriver = errors.New("invalid aws driver specified, must be postgres or mysql")
 
-//RESTAPI is used to manage the API
+// RESTAPI is used to manage the API
 type RESTAPI struct {
 	Application                    model.Service
 	Log                            model.Log
@@ -55,6 +55,7 @@ type RESTAPI struct {
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]model.Projection
 	logs                           map[string]model.Log
+	logger                         model.Log
 	httpClients                    map[string]*http.Client
 	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
@@ -72,7 +73,7 @@ type RESTAPI struct {
 	defaultProjection              model.Projection
 }
 
-//define an interface that all plugins must implement
+// define an interface that all plugins must implement
 type APIInterface interface {
 	AddPathConfig(path string, config *PathConfig) error
 	AddConfig(config *APIConfig) error
@@ -81,14 +82,14 @@ type APIInterface interface {
 	SetEchoInstance(e *echo.Echo)
 }
 
-//Deprecated: 02/13/2022 made Config public
+// Deprecated: 02/13/2022 made Config public
 func (p *RESTAPI) AddConfig(config *APIConfig) error {
 	p.Config = config
 	return nil
 }
 
-//Deprecated: 02/13/2022 This should not but actively used
-//AddPathConfig add path Config
+// Deprecated: 02/13/2022 This should not but actively used
+// AddPathConfig add path Config
 func (p *RESTAPI) AddPathConfig(path string, config *PathConfig) error {
 	if p.PathConfigs == nil {
 		p.PathConfigs = make(map[string]*PathConfig)
@@ -105,7 +106,7 @@ func (p *RESTAPI) SetEchoInstance(e *echo.Echo) {
 	p.e = e
 }
 
-//RegisterMiddleware Add middleware so that it can be referenced in the OpenAPI spec
+// RegisterMiddleware Add middleware so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterMiddleware(name string, middleware Middleware) {
 	if p.middlewares == nil {
 		p.middlewares = make(map[string]Middleware)
@@ -113,7 +114,7 @@ func (p *RESTAPI) RegisterMiddleware(name string, middleware Middleware) {
 	p.middlewares[name] = middleware
 }
 
-//RegisterController Add controller so that it can be referenced in the OpenAPI spec
+// RegisterController Add controller so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterController(name string, controller Controller) {
 	if p.controllers == nil {
 		p.controllers = make(map[string]Controller)
@@ -121,7 +122,7 @@ func (p *RESTAPI) RegisterController(name string, controller Controller) {
 	p.controllers[name] = controller
 }
 
-//RegisterEventStore Add event store so that it can be referenced in the OpenAPI spec
+// RegisterEventStore Add event store so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterEventStore(name string, repository model.EventRepository) {
 	p.defaultEventStore = repository
 }
@@ -151,7 +152,7 @@ func (p *RESTAPI) RegisterInitializer(key string, initializer GlobalInitializer)
 	}
 }
 
-//RegisterOperationInitializer add operation initializer if it's not already there
+// RegisterOperationInitializer add operation initializer if it's not already there
 func (p *RESTAPI) RegisterOperationInitializer(initializer OperationInitializer) {
 	if p.registeredInitializers == nil {
 		p.registeredInitializers = make(map[string]int)
@@ -166,7 +167,7 @@ func (p *RESTAPI) RegisterOperationInitializer(initializer OperationInitializer)
 
 }
 
-//RegisterPrePathInitializer add path initializer that runs BEFORE operation initializers if it's not already there
+// RegisterPrePathInitializer add path initializer that runs BEFORE operation initializers if it's not already there
 func (p *RESTAPI) RegisterPrePathInitializer(initializer PathInitializer) {
 	if p.registeredPrePathInitializers == nil {
 		p.registeredPrePathInitializers = make(map[reflect.Value]int)
@@ -180,7 +181,7 @@ func (p *RESTAPI) RegisterPrePathInitializer(initializer PathInitializer) {
 
 }
 
-//RegisterPostPathInitializer add path initializer that runs AFTER operation initializers if it's not already there
+// RegisterPostPathInitializer add path initializer that runs AFTER operation initializers if it's not already there
 func (p *RESTAPI) RegisterPostPathInitializer(initializer PathInitializer) {
 	if p.registeredPostPathInitializers == nil {
 		p.registeredPostPathInitializers = make(map[reflect.Value]int)
@@ -194,7 +195,7 @@ func (p *RESTAPI) RegisterPostPathInitializer(initializer PathInitializer) {
 
 }
 
-//RegisterCommandDispatcher Add command dispatcher so that it can be referenced in the OpenAPI spec
+// RegisterCommandDispatcher Add command dispatcher so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterCommandDispatcher(name string, dispatcher model.CommandDispatcher) {
 	if p.commandDispatchers == nil {
 		p.commandDispatchers = make(map[string]model.CommandDispatcher)
@@ -202,12 +203,12 @@ func (p *RESTAPI) RegisterCommandDispatcher(name string, dispatcher model.Comman
 	p.commandDispatchers[name] = dispatcher
 }
 
-//RegisterProjection Add command dispatcher so that it can be referenced in the OpenAPI spec
+// RegisterProjection Add command dispatcher so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterProjection(name string, projection model.Projection) {
 	p.defaultProjection = projection
 }
 
-//RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
+// RegisterEntityFactory Adds entity factory so that it can be referenced in the OpenAPI spec
 func (p *RESTAPI) RegisterEntityFactory(name string, factory model.EntityFactory) {
 	if p.entityFactories == nil {
 		p.entityFactories = make(map[string]model.EntityFactory)
@@ -215,7 +216,7 @@ func (p *RESTAPI) RegisterEntityFactory(name string, factory model.EntityFactory
 	p.entityFactories[name] = factory
 }
 
-//RegisterDBConnection save db connection
+// RegisterDBConnection save db connection
 func (p *RESTAPI) RegisterDBConnection(name string, connection *sql.DB) {
 	if p.dbConnections == nil {
 		p.dbConnections = make(map[string]*sql.DB)
@@ -223,7 +224,7 @@ func (p *RESTAPI) RegisterDBConnection(name string, connection *sql.DB) {
 	p.dbConnections[name] = connection
 }
 
-//RegisterGORMDB save gorm connection
+// RegisterGORMDB save gorm connection
 func (p *RESTAPI) RegisterGORMDB(name string, connection *gorm.DB) {
 	p.gormConnection = connection
 }
@@ -242,7 +243,7 @@ func (p *RESTAPI) GetPermissionEnforcer(name string) (*casbin.Enforcer, error) {
 	return nil, fmt.Errorf("permission enforcer '%s' not found", name)
 }
 
-//GetMiddleware get middleware by name
+// GetMiddleware get middleware by name
 func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	if tmiddleware, ok := p.middlewares[name]; ok {
 		return tmiddleware, nil
@@ -259,7 +260,7 @@ func (p *RESTAPI) GetMiddleware(name string) (Middleware, error) {
 	return nil, fmt.Errorf("middleware '%s' not found", name)
 }
 
-//GetController get controller by name
+// GetController get controller by name
 func (p *RESTAPI) GetController(name string) (Controller, error) {
 	if tcontroller, ok := p.controllers[name]; ok {
 		return tcontroller, nil
@@ -276,12 +277,12 @@ func (p *RESTAPI) GetController(name string) (Controller, error) {
 	return nil, fmt.Errorf("controller '%s' not found", name)
 }
 
-//GetEventStore get event dispatcher by name
+// GetEventStore get event dispatcher by name
 func (p *RESTAPI) GetEventStore(name string) (model.EventRepository, error) {
 	return p.defaultEventStore, nil
 }
 
-//GetCommandDispatcher get event dispatcher by name
+// GetCommandDispatcher get event dispatcher by name
 func (p *RESTAPI) GetCommandDispatcher(name string) (model.CommandDispatcher, error) {
 	if tdispatcher, ok := p.commandDispatchers[name]; ok {
 		return tdispatcher, nil
@@ -289,7 +290,7 @@ func (p *RESTAPI) GetCommandDispatcher(name string) (model.CommandDispatcher, er
 	return nil, fmt.Errorf("command disptacher '%s' not found", name)
 }
 
-//GetProjection get event dispatcher by name
+// GetProjection get event dispatcher by name
 func (p *RESTAPI) GetProjection(name string) (model.Projection, error) {
 	return p.defaultProjection, nil
 }
@@ -308,22 +309,22 @@ func (p *RESTAPI) GetEntityRepository(name string) (model.EntityRepository, erro
 	return nil, fmt.Errorf("entity repository '%s' not found", name)
 }
 
-//GetGlobalInitializers get global intializers in the order they were registered
+// GetGlobalInitializers get global intializers in the order they were registered
 func (p *RESTAPI) GetGlobalInitializers() []GlobalInitializer {
 	return p.globalInitializers
 }
 
-//GetOperationInitializers get operation intializers in the order they were registered
+// GetOperationInitializers get operation intializers in the order they were registered
 func (p *RESTAPI) GetOperationInitializers() []OperationInitializer {
 	return p.operationInitializers
 }
 
-//GetPrePathInitializers get path intializers in the order they were registered that run BEFORE the operations are processed
+// GetPrePathInitializers get path intializers in the order they were registered that run BEFORE the operations are processed
 func (p *RESTAPI) GetPrePathInitializers() []PathInitializer {
 	return p.prePathInitializers
 }
 
-//GetPostPathInitializers get path intializers in the order they were registered that run AFTER the operations are processed
+// GetPostPathInitializers get path intializers in the order they were registered that run AFTER the operations are processed
 func (p *RESTAPI) GetPostPathInitializers() []PathInitializer {
 	return p.postPathInitializers
 }
@@ -336,7 +337,7 @@ func (p *RESTAPI) GetSchemas() (map[string]interface{}, error) {
 	return schemes, nil
 }
 
-//GetEntityFactories get event factories
+// GetEntityFactories get event factories
 func (p *RESTAPI) GetEntityFactories() map[string]model.EntityFactory {
 	return p.entityFactories
 }
@@ -348,7 +349,7 @@ func (p *RESTAPI) GetEntityFactory(name string) (model.EntityFactory, error) {
 	return nil, fmt.Errorf("entity factory '%s' not found", name)
 }
 
-//GetDBConnection get db connection by name
+// GetDBConnection get db connection by name
 func (p *RESTAPI) GetDBConnection(name string) (*sql.DB, error) {
 	if tconnection, ok := p.dbConnections[name]; ok {
 		return tconnection, nil
@@ -356,7 +357,7 @@ func (p *RESTAPI) GetDBConnection(name string) (*sql.DB, error) {
 	return nil, fmt.Errorf("database connection '%s' not found", name)
 }
 
-//GetGormDBConnection get gorm connection by name
+// GetGormDBConnection get gorm connection by name
 func (p *RESTAPI) GetGormDBConnection(name string) (*gorm.DB, error) {
 	return p.gormConnection, nil
 }
@@ -369,12 +370,20 @@ func (p *RESTAPI) GetWeOSConfig() *APIConfig {
 	return p.Config
 }
 
-//RegisterLog setup a log
+// RegisterLog setup a log
 func (p *RESTAPI) RegisterLog(name string, logger model.Log) {
 	if p.logs == nil {
 		p.logs = make(map[string]model.Log)
 	}
 	p.logs[name] = logger
+}
+
+func (p *RESTAPI) RegisterLogger(logger model.Log) {
+	p.logger = logger
+}
+
+func (p *RESTAPI) GetLogger() model.Log {
+	return p.logger
 }
 
 func (p *RESTAPI) GetLog(name string) (model.Log, error) {
@@ -409,7 +418,7 @@ func (p *RESTAPI) GetSecurityConfiguration() *SecurityConfiguration {
 const SWAGGERUIENDPOINT = "/_discover/"
 const SWAGGERJSONENDPOINT = "/_discover_json"
 
-//RegisterSwaggerAPI creates default swagger api from binary
+// RegisterSwaggerAPI creates default swagger api from binary
 func (p *RESTAPI) RegisterDefaultSwaggerAPI(pathMiddleware []echo.MiddlewareFunc) error {
 	statikFS, err := fs.New()
 	if err != nil {
@@ -423,7 +432,7 @@ func (p *RESTAPI) RegisterDefaultSwaggerAPI(pathMiddleware []echo.MiddlewareFunc
 	return nil
 }
 
-//RegisterDefaultSwaggerJson registers a default swagger json response
+// RegisterDefaultSwaggerJson registers a default swagger json response
 func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFunc) error {
 	p.e.GET(p.Config.BasePath+SWAGGERJSONENDPOINT, func(c echo.Context) error {
 		return c.JSON(http.StatusOK, p.Swagger)
@@ -431,7 +440,7 @@ func (p *RESTAPI) RegisterDefaultSwaggerJSON(pathMiddleware []echo.MiddlewareFun
 	return nil
 }
 
-//Initialize and setup configurations for RESTAPI
+// Initialize and setup configurations for RESTAPI
 func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	//register logger
 	p.RegisterLog("Default", p.e.Logger)
@@ -563,7 +572,7 @@ func (p *RESTAPI) Initialize(ctxt context.Context) error {
 	return err
 }
 
-//SQLConnectionFromConfig get db connection based on a Config
+// SQLConnectionFromConfig get db connection based on a Config
 func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gorm.DB, string, error) {
 	var connStr string
 	var err error
