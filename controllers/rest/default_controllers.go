@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-//DefaultWriteController handles the write operations (create, update, delete)
+// DefaultWriteController handles the write operations (create, update, delete)
 func DefaultWriteController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 	var commandName string
 	var err error
@@ -87,6 +87,8 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 		if err != nil {
 			if derr, ok := err.(*model.DomainError); ok && derr.Code == 400 {
 				return ctxt.JSON(http.StatusBadRequest, derr)
+			} else if derr, ok = err.(*model.DomainError); ok && derr.Code == 401 {
+				return ctxt.JSON(http.StatusUnauthorized, derr)
 			}
 			return err
 		}
@@ -111,7 +113,7 @@ func DefaultWriteController(api Container, commandDispatcher model.CommandDispat
 	}
 }
 
-//DefaultReadController handles the read operations viewing a specific item
+// DefaultReadController handles the read operations viewing a specific item
 func DefaultReadController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
 	logger, err := api.GetLog("Default")
 	if err != nil {
@@ -247,7 +249,7 @@ func DefaultReadController(api Container, commandDispatcher model.CommandDispatc
 	}
 }
 
-//DefaultListController handles the read operations viewing a list of items
+// DefaultListController handles the read operations viewing a list of items
 func DefaultListController(api Container, commandDispatcher model.CommandDispatcher, entityRepository model.EntityRepository, pathMap map[string]*openapi3.PathItem, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
 	return func(ctxt echo.Context) error {
 		var filterOptions map[string]interface{}
