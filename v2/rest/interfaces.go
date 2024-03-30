@@ -1,4 +1,4 @@
-//go:generate moq -out rest_mocks_test.go -pkg rest_test . Log Repository Projection
+//go:generate moq -out rest_mocks_test.go -pkg rest_test . Log Repository Projection CommandDispatcher EventDispatcher EventStore
 package rest
 
 import (
@@ -47,6 +47,12 @@ type EventDispatcher interface {
 	AddSubscriber(handler EventHandlerConfig) error
 	GetSubscribers() []EventHandler
 	Dispatch(ctx context.Context, event Event, logger Log) []error
+}
+
+type EventStore interface {
+	Repository
+	EventDispatcher
+	Projection
 }
 
 type Projection interface {

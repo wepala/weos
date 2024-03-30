@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"io"
 	"net/http"
 	"strconv"
 )
@@ -64,9 +65,12 @@ func DefaultWriteController(logger Log, commandDispatcher CommandDispatcher, res
 		}
 
 		var resource *BasicResource
-		if err := ctxt.Bind(&resource); err != nil {
-			return NewControllerError("unexpected resource", err, http.StatusBadRequest)
+		body, err := io.ReadAll(ctxt.Request().Body)
+		if err != nil {
+			ctxt.Logger().Debugf("unexpected error reading request body: %s", err)
+			return NewControllerError("unexpected error reading request body", err, http.StatusBadRequest)
 		}
+		resource, err = new(BasicResource).FromSchema(api, body)
 		//not sure this is correct
 		payload, err := json.Marshal(&ResourceCreateParams{
 			Resource: resource,

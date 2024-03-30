@@ -32,7 +32,7 @@ var API = fx.Module("rest",
 		NewGORM,
 		NewGORMResourceRepository,
 		NewCommandDispatcher,
-		NewEventDispatcher,
+		NewGORMEventStore,
 	),
 	fx.Invoke(RouteInitializer, registerHooks),
 )

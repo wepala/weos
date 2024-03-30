@@ -2,6 +2,7 @@ package rest
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/segmentio/ksuid"
 	"time"
@@ -9,7 +10,7 @@ import (
 
 type EventSourced interface {
 	NewChange(event *Event)
-	GetNewChanges() []*Event
+	GetNewChanges() []Resource
 	Persist()
 }
 
@@ -23,7 +24,7 @@ type Resource interface {
 type BasicResource struct {
 	body      map[string]interface{}
 	Metadata  ResourceMetadata
-	newEvents []*Event
+	newEvents []Resource
 }
 
 type ResourceMetadata struct {
@@ -53,23 +54,19 @@ func (r *BasicResource) UnmarshalJSON(data []byte) error {
 }
 
 // FromSchema creates a new BasicResource from a schema and data
-func (r *BasicResource) FromSchema(schemaName string, schema *openapi3.Schema, data []byte) (*BasicResource, error) {
+func (r *BasicResource) FromSchema(schema *openapi3.T, data []byte) (*BasicResource, error) {
 	err := r.UnmarshalJSON(data)
 	//TODO use the schema to validate the data
 	//TODO fill in any missing blanks
 	if r.GetType() == "" {
-		if resourceType, ok := schema.Extensions["x-rdf-type"]; ok {
-			r.body["@type"] = resourceType
-		} else {
-			r.body["@type"] = schemaName
-		}
+		return nil, fmt.Errorf("missing type")
 	}
 	r.NewChange(NewResourceEvent("create", r, r.body))
 	return r, err
 }
 
 func (r *BasicResource) IsValid() bool {
-	//TODO implement me
+	//TODO this should use the matched schema from the OpenAPI spec to validate the resource
 	panic("implement me")
 }
 
@@ -108,7 +105,7 @@ func (r *BasicResource) NewChange(event *Event) {
 }
 
 // GetNewChanges returns the list of new events
-func (r *BasicResource) GetNewChanges() []*Event {
+func (r *BasicResource) GetNewChanges() []Resource {
 	return r.newEvents
 }
 

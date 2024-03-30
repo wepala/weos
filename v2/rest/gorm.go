@@ -17,6 +17,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -206,4 +207,121 @@ func (w GORMResourceRepository) Save(ctxt context.Context, logger Log, resource 
 func (w GORMResourceRepository) Delete(ctxt context.Context, logger Log, resource *BasicResource) error {
 	result := w.db.Delete(resource)
 	return result.Error
+}
+
+type GORMEventStoreParams struct {
+	fx.In
+	GORMDB       *gorm.DB
+	EventConfigs []EventHandlerConfig `group:"eventHandlers"`
+}
+
+type GORMEventStoreResult struct {
+	fx.Out
+	Dispatcher EventDispatcher
+}
+
+func NewGORMEventStore(p GORMEventStoreParams) GORMEventStoreResult {
+	dispatcher := &GORMEventStore{
+		handlers: make(map[string]map[string][]EventHandler),
+	}
+	for _, config := range p.EventConfigs {
+		dispatcher.AddSubscriber(config)
+	}
+	return GORMEventStoreResult{}
+}
+
+type EventHandlerConfig struct {
+	ResourceType string
+	Type         string
+	Handler      EventHandler
+}
+
+type GORMEventStore struct {
+	handlers        map[string]map[string][]EventHandler
+	handlerPanicked bool
+}
+
+func (e *GORMEventStore) Dispatch(ctx context.Context, event Event, logger Log) []error {
+	//mutex helps keep state between routines
+	var errors []error
+	var wg sync.WaitGroup
+	if resourceTypeHandlers, ok := e.handlers[event.Meta.ResourceType]; ok {
+
+		if handlers, ok := resourceTypeHandlers[event.Type]; ok {
+			//check to see if there were handlers registered for the event type that is not specific to a resource type
+			if event.Meta.ResourceType != "" {
+				if eventTypeHandlers, ok := e.handlers[""]; ok {
+					if ehandlers, ok := eventTypeHandlers[event.Type]; ok {
+						handlers = append(handlers, ehandlers...)
+					}
+				}
+			}
+			for i := 0; i < len(handlers); i++ {
+				handler := handlers[i]
+				wg.Add(1)
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.Errorf("handler panicked %s", r)
+						}
+						wg.Done()
+					}()
+
+					err := handler(ctx, logger, event)
+					if err != nil {
+						errors = append(errors, err)
+					}
+
+				}()
+			}
+			wg.Wait()
+		}
+
+	}
+
+	return errors
+}
+
+func (e *GORMEventStore) AddSubscriber(handler EventHandlerConfig) error {
+	if handler.Handler == nil {
+		return fmt.Errorf("event handler cannot be nil")
+	}
+	if e.handlers == nil {
+		e.handlers = make(map[string]map[string][]EventHandler)
+	}
+	if _, ok := e.handlers[handler.ResourceType]; !ok {
+		e.handlers[handler.ResourceType] = make(map[string][]EventHandler)
+	}
+	if _, ok := e.handlers[handler.ResourceType][handler.Type]; !ok {
+		e.handlers[handler.ResourceType][handler.Type] = make([]EventHandler, 0)
+	}
+	e.handlers[handler.ResourceType][handler.Type] = append(e.handlers[handler.ResourceType][handler.Type], handler.Handler)
+	return nil
+}
+
+func (e *GORMEventStore) GetSubscribers(resourceType string) map[string][]EventHandler {
+	if handlers, ok := e.handlers[resourceType]; ok {
+		return handlers
+	}
+	return nil
+}
+
+func (e *GORMEventStore) GetByURI(ctxt context.Context, logger Log, uri string) (Resource, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (e *GORMEventStore) GetByKey(ctxt context.Context, identifiers map[string]interface{}) (Resource, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (e *GORMEventStore) GetList(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]Resource, int64, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (e *GORMEventStore) GetByProperties(ctxt context.Context, identifiers map[string]interface{}) ([]Entity, error) {
+	//TODO implement me
+	panic("implement me")
 }
