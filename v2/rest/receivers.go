@@ -7,7 +7,7 @@ import (
 )
 
 type ResourceCreateParams struct {
-	Resource *BasicResource
+	Resource Resource
 	Schema   *openapi3.Schema
 }
 

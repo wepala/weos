@@ -11,7 +11,46 @@ import (
 )
 
 // DefaultWriteController handles the write operations (create, update, delete)
-func DefaultWriteController(logger Log, commandDispatcher CommandDispatcher, resourceRepository Repository, api *openapi3.T, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+func DefaultWriteController(logger Log, commandDispatcher CommandDispatcher, resourceRepository *ResourceRepository, api *openapi3.T, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
+
+	var err error
+
+	return func(ctxt echo.Context) error {
+		var sequenceNo string
+		var seq int
+
+		//getting etag from context
+		etag := ctxt.Request().Header.Get("If-Match")
+		if etag != "" {
+			_, sequenceNo = SplitEtag(etag)
+			seq, err = strconv.Atoi(sequenceNo)
+			if err != nil {
+				return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
+			}
+		}
+
+		body, err := io.ReadAll(ctxt.Request().Body)
+		if err != nil {
+			ctxt.Logger().Debugf("unexpected error reading request body: %s", err)
+			return NewControllerError("unexpected error reading request body", err, http.StatusBadRequest)
+		}
+		resource, err := resourceRepository.Initialize(ctxt.Request().Context(), logger, body)
+		//if the sequence number is not one more than the current sequence number then return an error
+		if seq != 0 && resource.GetSequenceNo() != seq+1 {
+			return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusPreconditionFailed)
+		}
+		//set etag in response header
+		ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", resource.GetID(), resource.GetSequenceNo()))
+		if resource.GetSequenceNo() == 1 {
+			return ctxt.JSON(http.StatusCreated, resource)
+		} else {
+			return ctxt.JSON(http.StatusOK, resource)
+		}
+	}
+}
+
+// DefaultExecuteController handles the write operations that have a command associated with them
+func DefaultExecuteController(logger Log, commandDispatcher CommandDispatcher, resourceRepository *ResourceRepository, api *openapi3.T, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
 	var commandName string
 	var err error
 	var schema *openapi3.Schema
@@ -52,7 +91,6 @@ func DefaultWriteController(logger Log, commandDispatcher CommandDispatcher, res
 	return func(ctxt echo.Context) error {
 		var sequenceNo string
 		var seq int
-		var commandResponse interface{}
 
 		//getting etag from context
 		etag := ctxt.Request().Header.Get("If-Match")
@@ -64,13 +102,12 @@ func DefaultWriteController(logger Log, commandDispatcher CommandDispatcher, res
 			}
 		}
 
-		var resource *BasicResource
 		body, err := io.ReadAll(ctxt.Request().Body)
 		if err != nil {
 			ctxt.Logger().Debugf("unexpected error reading request body: %s", err)
 			return NewControllerError("unexpected error reading request body", err, http.StatusBadRequest)
 		}
-		resource, err = new(BasicResource).FromSchema(api, body)
+		resource, err := resourceRepository.Initialize(ctxt.Request().Context(), logger, body)
 		//not sure this is correct
 		payload, err := json.Marshal(&ResourceCreateParams{
 			Resource: resource,
@@ -89,28 +126,17 @@ func DefaultWriteController(logger Log, commandDispatcher CommandDispatcher, res
 				AccountID:  GetAccount(ctxt.Request().Context()),
 			},
 		}
-		commandResponse, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, resourceRepository, ctxt.Logger())
+		_, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, resourceRepository, ctxt.Logger())
 		//an error handler `HTTPErrorHandler` can be defined on the echo instance to handle error responses
 		if err != nil {
 
 		}
-
-		//TODO the type of command and/or the api configuration should determine the status code
-		switch commandName {
-		case "create":
-			//set etag in response header
-			if entity, ok := commandResponse.(*BasicResource); ok {
-				ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", entity.GetID(), entity.GetSequenceNo()))
-				return ctxt.JSON(http.StatusCreated, entity)
-			}
-			return ctxt.JSON(http.StatusCreated, commandResponse)
-		default:
-			//check to see if the response is a map or string
-			if stringResponse, ok := commandResponse.(string); ok {
-				return ctxt.String(http.StatusOK, stringResponse)
-			} else {
-				return ctxt.JSON(http.StatusOK, commandResponse)
-			}
+		//set etag in response header
+		ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", resource.GetID(), resource.GetSequenceNo()))
+		if resource.GetSequenceNo() == 1 {
+			return ctxt.JSON(http.StatusCreated, resource)
+		} else {
+			return ctxt.JSON(http.StatusOK, resource)
 		}
 	}
 }

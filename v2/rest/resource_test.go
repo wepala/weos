@@ -12,7 +12,7 @@ func TestBasicResource_FromSchema(t *testing.T) {
 		t.Fatalf("error encountered loading schema '%s'", err)
 	}
 	t.Run("create a simple resource", func(t *testing.T) {
-		resource, err := new(rest.BasicResource).FromSchema(schema, []byte(`{
+		resource, err := new(rest.BasicResource).FromBytes(schema, []byte(`{
         "@id": "http://example.com/resource/1",
 		"@type": "http://schema.org/Blog",
 		"title": "test"
@@ -44,7 +44,7 @@ func TestBasicResource_FromSchema(t *testing.T) {
 		}
 	})
 	t.Run("resource type not specified should return an error", func(t *testing.T) {
-		_, err := new(rest.BasicResource).FromSchema(schema, []byte(`{
+		_, err := new(rest.BasicResource).FromBytes(schema, []byte(`{
         "@id": "http://example.com/resource/1",
 		"title": "test"
 }`))

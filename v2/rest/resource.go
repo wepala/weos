@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/segmentio/ksuid"
+	"gorm.io/datatypes"
 	"time"
 )
 
@@ -19,16 +19,19 @@ type Resource interface {
 	GetType() string
 	GetSequenceNo() int
 	GetID() string
+	FromBytes(schema *openapi3.T, data []byte) (Resource, error)
+	IsValid() bool
+	GetErrors() []error
 }
 
 type BasicResource struct {
-	body      map[string]interface{}
-	Metadata  ResourceMetadata
-	newEvents []Resource
+	Body      datatypes.JSONMap `gorm:"default:'[]'; null'"`
+	Metadata  ResourceMetadata  `gorm:"embedded"`
+	newEvents []Resource        `gorm:"-"`
 }
 
 type ResourceMetadata struct {
-	ID         string
+	ID         string `gorm:"primaryKey"`
 	SequenceNo int
 	Type       string
 	Version    int64
@@ -38,30 +41,41 @@ type ResourceMetadata struct {
 
 // MarshalJSON customizes the JSON encoding of BasicResource
 func (r *BasicResource) MarshalJSON() ([]byte, error) {
-	return json.Marshal(r.body)
+	return json.Marshal(r.Body)
 }
 
 // UnmarshalJSON customizes the JSON decoding of BasicResource
-func (r *BasicResource) UnmarshalJSON(data []byte) error {
+func (r *BasicResource) UnmarshalJSON(data []byte) (err error) {
 	// You might want to initialize your map if it's nil
-	if r.body == nil {
-		r.body = make(map[string]interface{})
-		r.body["@context"] = map[string]interface{}{}
-		r.body["@type"] = ""
+	if r.Body == nil {
+		r.Body = make(map[string]interface{})
+		r.Body["@context"] = map[string]interface{}{}
 	}
 	// Unmarshal data into the map
-	return json.Unmarshal(data, &r.body)
+	err = json.Unmarshal(data, &r.Body)
+	if ttype, ok := r.Body["@type"].(string); ok {
+		r.Metadata.Type = ttype
+	}
+
+	if id, ok := r.Body["@id"].(string); ok {
+		r.Metadata.ID = id
+	}
+	return err
 }
 
-// FromSchema creates a new BasicResource from a schema and data
-func (r *BasicResource) FromSchema(schema *openapi3.T, data []byte) (*BasicResource, error) {
+// FromBytes creates a new BasicResource from a schema and data
+func (r *BasicResource) FromBytes(schema *openapi3.T, data []byte) (Resource, error) {
 	err := r.UnmarshalJSON(data)
 	//TODO use the schema to validate the data
 	//TODO fill in any missing blanks
 	if r.GetType() == "" {
 		return nil, fmt.Errorf("missing type")
 	}
-	r.NewChange(NewResourceEvent("create", r, r.body))
+	eventType := "create"
+	if r.GetSequenceNo() > 0 {
+		eventType = "update"
+	}
+	r.NewChange(NewResourceEvent(eventType, r, r.Body))
 	return r, err
 }
 
@@ -81,17 +95,11 @@ func (r *BasicResource) GetErrors() []error {
 }
 
 func (r *BasicResource) GetID() string {
-	if id, ok := r.body["@id"].(string); ok {
-		return id
-	}
-	return ""
+	return r.Metadata.ID
 }
 
 func (r *BasicResource) GetType() string {
-	if ttype, ok := r.body["@type"].(string); ok {
-		return ttype
-	}
-	return ""
+	return r.Metadata.Type
 }
 
 func (r *BasicResource) GetSequenceNo() int {
@@ -114,12 +122,39 @@ func (r *BasicResource) Persist() {
 	r.newEvents = nil
 }
 
+func (r *BasicResource) GetString(propertyName string) string {
+	if value, ok := r.Body[propertyName].(string); ok {
+		return value
+	}
+	return ""
+}
+
+func (r *BasicResource) GetBool(propertyName string) bool {
+	if value, ok := r.Body[propertyName].(bool); ok {
+		return value
+	}
+	return false
+}
+
+func (r *BasicResource) GetInt(propertyName string) int {
+	if value, ok := r.Body[propertyName].(int); ok {
+		return value
+	}
+	return 0
+}
+
+func (r *BasicResource) GetFloat(propertyName string) float64 {
+	if value, ok := r.Body[propertyName].(float64); ok {
+		return value
+	}
+	return 0.0
+}
+
 func NewResourceEvent(eventType string, resource Resource, tpayload map[string]interface{}) *Event {
 	var payload json.RawMessage
 	payload, _ = json.Marshal(tpayload)
 
 	return &Event{
-		ID:      ksuid.New().String(),
 		Type:    eventType,
 		Payload: payload,
 		Version: 2,

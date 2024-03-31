@@ -2,13 +2,15 @@ package rest
 
 import (
 	"encoding/json"
+	"github.com/getkin/kin-openapi/openapi3"
+	"gorm.io/gorm"
 )
 
 type Event struct {
-	ID      string          `json:"id"`
+	gorm.Model
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
-	Meta    EventMeta       `json:"meta"`
+	Meta    EventMeta       `json:"meta" gorm:"embedded"`
 	Version int             `json:"version"`
 	errors  []error
 }
@@ -50,6 +52,21 @@ func (e *Event) GetSequenceNo() int {
 }
 
 func (e *Event) GetID() string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (e *Event) FromBytes(schema *openapi3.T, data []byte) (Resource, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (e *Event) IsValid() bool {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (e *Event) GetErrors() []error {
 	//TODO implement me
 	panic("implement me")
 }

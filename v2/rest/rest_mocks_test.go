@@ -842,6 +842,9 @@ var _ rest.Projection = &ProjectionMock{}
 //			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
 //				panic("mock out the GetByURI method")
 //			},
+//			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
+//				panic("mock out the GetEventHandlers method")
+//			},
 //			GetListFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error) {
 //				panic("mock out the GetList method")
 //			},
@@ -860,6 +863,9 @@ type ProjectionMock struct {
 
 	// GetByURIFunc mocks the GetByURI method.
 	GetByURIFunc func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error)
+
+	// GetEventHandlersFunc mocks the GetEventHandlers method.
+	GetEventHandlersFunc func() []rest.EventHandlerConfig
 
 	// GetListFunc mocks the GetList method.
 	GetListFunc func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error)
@@ -889,6 +895,9 @@ type ProjectionMock struct {
 			// URI is the uri argument value.
 			URI string
 		}
+		// GetEventHandlers holds details about calls to the GetEventHandlers method.
+		GetEventHandlers []struct {
+		}
 		// GetList holds details about calls to the GetList method.
 		GetList []struct {
 			// Ctx is the ctx argument value.
@@ -905,10 +914,11 @@ type ProjectionMock struct {
 			FilterOptions map[string]interface{}
 		}
 	}
-	lockGetByKey        sync.RWMutex
-	lockGetByProperties sync.RWMutex
-	lockGetByURI        sync.RWMutex
-	lockGetList         sync.RWMutex
+	lockGetByKey         sync.RWMutex
+	lockGetByProperties  sync.RWMutex
+	lockGetByURI         sync.RWMutex
+	lockGetEventHandlers sync.RWMutex
+	lockGetList          sync.RWMutex
 }
 
 // GetByKey calls GetByKeyFunc.
@@ -1023,6 +1033,33 @@ func (mock *ProjectionMock) GetByURICalls() []struct {
 	return calls
 }
 
+// GetEventHandlers calls GetEventHandlersFunc.
+func (mock *ProjectionMock) GetEventHandlers() []rest.EventHandlerConfig {
+	if mock.GetEventHandlersFunc == nil {
+		panic("ProjectionMock.GetEventHandlersFunc: method is nil but Projection.GetEventHandlers was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockGetEventHandlers.Lock()
+	mock.calls.GetEventHandlers = append(mock.calls.GetEventHandlers, callInfo)
+	mock.lockGetEventHandlers.Unlock()
+	return mock.GetEventHandlersFunc()
+}
+
+// GetEventHandlersCalls gets all the calls that were made to GetEventHandlers.
+// Check the length with:
+//
+//	len(mockedProjection.GetEventHandlersCalls())
+func (mock *ProjectionMock) GetEventHandlersCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockGetEventHandlers.RLock()
+	calls = mock.calls.GetEventHandlers
+	mock.lockGetEventHandlers.RUnlock()
+	return calls
+}
+
 // GetList calls GetListFunc.
 func (mock *ProjectionMock) GetList(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error) {
 	if mock.GetListFunc == nil {
@@ -1088,7 +1125,7 @@ var _ rest.CommandDispatcher = &CommandDispatcherMock{}
 //			AddSubscriberFunc: func(command rest.CommandConfig) map[string][]rest.CommandHandler {
 //				panic("mock out the AddSubscriber method")
 //			},
-//			DispatchFunc: func(ctx context.Context, command *rest.Command, repository rest.Repository, logger rest.Log) (interface{}, error) {
+//			DispatchFunc: func(ctx context.Context, command *rest.Command, repository *rest.ResourceRepository, logger rest.Log) (interface{}, error) {
 //				panic("mock out the Dispatch method")
 //			},
 //			GetSubscribersFunc: func() map[string][]rest.CommandHandler {
@@ -1105,7 +1142,7 @@ type CommandDispatcherMock struct {
 	AddSubscriberFunc func(command rest.CommandConfig) map[string][]rest.CommandHandler
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, command *rest.Command, repository rest.Repository, logger rest.Log) (interface{}, error)
+	DispatchFunc func(ctx context.Context, command *rest.Command, repository *rest.ResourceRepository, logger rest.Log) (interface{}, error)
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
 	GetSubscribersFunc func() map[string][]rest.CommandHandler
@@ -1124,7 +1161,7 @@ type CommandDispatcherMock struct {
 			// Command is the command argument value.
 			Command *rest.Command
 			// Repository is the repository argument value.
-			Repository rest.Repository
+			Repository *rest.ResourceRepository
 			// Logger is the logger argument value.
 			Logger rest.Log
 		}
@@ -1170,14 +1207,14 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.Command, repository rest.Repository, logger rest.Log) (interface{}, error) {
+func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.Command, repository *rest.ResourceRepository, logger rest.Log) (interface{}, error) {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
 		Command    *rest.Command
-		Repository rest.Repository
+		Repository *rest.ResourceRepository
 		Logger     rest.Log
 	}{
 		Ctx:        ctx,
@@ -1198,13 +1235,13 @@ func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.C
 func (mock *CommandDispatcherMock) DispatchCalls() []struct {
 	Ctx        context.Context
 	Command    *rest.Command
-	Repository rest.Repository
+	Repository *rest.ResourceRepository
 	Logger     rest.Log
 } {
 	var calls []struct {
 		Ctx        context.Context
 		Command    *rest.Command
-		Repository rest.Repository
+		Repository *rest.ResourceRepository
 		Logger     rest.Log
 	}
 	mock.lockDispatch.RLock()
@@ -1253,10 +1290,10 @@ var _ rest.EventDispatcher = &EventDispatcherMock{}
 //			AddSubscriberFunc: func(handler rest.EventHandlerConfig) error {
 //				panic("mock out the AddSubscriber method")
 //			},
-//			DispatchFunc: func(ctx context.Context, event rest.Event, logger rest.Log) []error {
+//			DispatchFunc: func(ctx context.Context, logger rest.Log, event *rest.Event) []error {
 //				panic("mock out the Dispatch method")
 //			},
-//			GetSubscribersFunc: func() []rest.EventHandler {
+//			GetSubscribersFunc: func(resourceType string) map[string][]rest.EventHandler {
 //				panic("mock out the GetSubscribers method")
 //			},
 //		}
@@ -1270,10 +1307,10 @@ type EventDispatcherMock struct {
 	AddSubscriberFunc func(handler rest.EventHandlerConfig) error
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, event rest.Event, logger rest.Log) []error
+	DispatchFunc func(ctx context.Context, logger rest.Log, event *rest.Event) []error
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
-	GetSubscribersFunc func() []rest.EventHandler
+	GetSubscribersFunc func(resourceType string) map[string][]rest.EventHandler
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1286,13 +1323,15 @@ type EventDispatcherMock struct {
 		Dispatch []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Event is the event argument value.
-			Event rest.Event
 			// Logger is the logger argument value.
 			Logger rest.Log
+			// Event is the event argument value.
+			Event *rest.Event
 		}
 		// GetSubscribers holds details about calls to the GetSubscribers method.
 		GetSubscribers []struct {
+			// ResourceType is the resourceType argument value.
+			ResourceType string
 		}
 	}
 	lockAddSubscriber  sync.RWMutex
@@ -1333,23 +1372,23 @@ func (mock *EventDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *EventDispatcherMock) Dispatch(ctx context.Context, event rest.Event, logger rest.Log) []error {
+func (mock *EventDispatcherMock) Dispatch(ctx context.Context, logger rest.Log, event *rest.Event) []error {
 	if mock.DispatchFunc == nil {
 		panic("EventDispatcherMock.DispatchFunc: method is nil but EventDispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
-		Event  rest.Event
 		Logger rest.Log
+		Event  *rest.Event
 	}{
 		Ctx:    ctx,
-		Event:  event,
 		Logger: logger,
+		Event:  event,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, event, logger)
+	return mock.DispatchFunc(ctx, logger, event)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
@@ -1358,13 +1397,13 @@ func (mock *EventDispatcherMock) Dispatch(ctx context.Context, event rest.Event,
 //	len(mockedEventDispatcher.DispatchCalls())
 func (mock *EventDispatcherMock) DispatchCalls() []struct {
 	Ctx    context.Context
-	Event  rest.Event
 	Logger rest.Log
+	Event  *rest.Event
 } {
 	var calls []struct {
 		Ctx    context.Context
-		Event  rest.Event
 		Logger rest.Log
+		Event  *rest.Event
 	}
 	mock.lockDispatch.RLock()
 	calls = mock.calls.Dispatch
@@ -1373,16 +1412,19 @@ func (mock *EventDispatcherMock) DispatchCalls() []struct {
 }
 
 // GetSubscribers calls GetSubscribersFunc.
-func (mock *EventDispatcherMock) GetSubscribers() []rest.EventHandler {
+func (mock *EventDispatcherMock) GetSubscribers(resourceType string) map[string][]rest.EventHandler {
 	if mock.GetSubscribersFunc == nil {
 		panic("EventDispatcherMock.GetSubscribersFunc: method is nil but EventDispatcher.GetSubscribers was just called")
 	}
 	callInfo := struct {
-	}{}
+		ResourceType string
+	}{
+		ResourceType: resourceType,
+	}
 	mock.lockGetSubscribers.Lock()
 	mock.calls.GetSubscribers = append(mock.calls.GetSubscribers, callInfo)
 	mock.lockGetSubscribers.Unlock()
-	return mock.GetSubscribersFunc()
+	return mock.GetSubscribersFunc(resourceType)
 }
 
 // GetSubscribersCalls gets all the calls that were made to GetSubscribers.
@@ -1390,8 +1432,10 @@ func (mock *EventDispatcherMock) GetSubscribers() []rest.EventHandler {
 //
 //	len(mockedEventDispatcher.GetSubscribersCalls())
 func (mock *EventDispatcherMock) GetSubscribersCalls() []struct {
+	ResourceType string
 } {
 	var calls []struct {
+		ResourceType string
 	}
 	mock.lockGetSubscribers.RLock()
 	calls = mock.calls.GetSubscribers
@@ -1412,7 +1456,7 @@ var _ rest.EventStore = &EventStoreMock{}
 //			AddSubscriberFunc: func(handler rest.EventHandlerConfig) error {
 //				panic("mock out the AddSubscriber method")
 //			},
-//			DispatchFunc: func(ctx context.Context, event rest.Event, logger rest.Log) []error {
+//			DispatchFunc: func(ctx context.Context, logger rest.Log, event *rest.Event) []error {
 //				panic("mock out the Dispatch method")
 //			},
 //			GetByKeyFunc: func(ctxt context.Context, identifiers map[string]interface{}) (rest.Resource, error) {
@@ -1424,10 +1468,13 @@ var _ rest.EventStore = &EventStoreMock{}
 //			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
 //				panic("mock out the GetByURI method")
 //			},
+//			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
+//				panic("mock out the GetEventHandlers method")
+//			},
 //			GetListFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error) {
 //				panic("mock out the GetList method")
 //			},
-//			GetSubscribersFunc: func() []rest.EventHandler {
+//			GetSubscribersFunc: func(resourceType string) map[string][]rest.EventHandler {
 //				panic("mock out the GetSubscribers method")
 //			},
 //			PersistFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
@@ -1447,7 +1494,7 @@ type EventStoreMock struct {
 	AddSubscriberFunc func(handler rest.EventHandlerConfig) error
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, event rest.Event, logger rest.Log) []error
+	DispatchFunc func(ctx context.Context, logger rest.Log, event *rest.Event) []error
 
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, identifiers map[string]interface{}) (rest.Resource, error)
@@ -1458,11 +1505,14 @@ type EventStoreMock struct {
 	// GetByURIFunc mocks the GetByURI method.
 	GetByURIFunc func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error)
 
+	// GetEventHandlersFunc mocks the GetEventHandlers method.
+	GetEventHandlersFunc func() []rest.EventHandlerConfig
+
 	// GetListFunc mocks the GetList method.
 	GetListFunc func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error)
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
-	GetSubscribersFunc func() []rest.EventHandler
+	GetSubscribersFunc func(resourceType string) map[string][]rest.EventHandler
 
 	// PersistFunc mocks the Persist method.
 	PersistFunc func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error
@@ -1481,10 +1531,10 @@ type EventStoreMock struct {
 		Dispatch []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Event is the event argument value.
-			Event rest.Event
 			// Logger is the logger argument value.
 			Logger rest.Log
+			// Event is the event argument value.
+			Event *rest.Event
 		}
 		// GetByKey holds details about calls to the GetByKey method.
 		GetByKey []struct {
@@ -1509,6 +1559,9 @@ type EventStoreMock struct {
 			// URI is the uri argument value.
 			URI string
 		}
+		// GetEventHandlers holds details about calls to the GetEventHandlers method.
+		GetEventHandlers []struct {
+		}
 		// GetList holds details about calls to the GetList method.
 		GetList []struct {
 			// Ctx is the ctx argument value.
@@ -1526,6 +1579,8 @@ type EventStoreMock struct {
 		}
 		// GetSubscribers holds details about calls to the GetSubscribers method.
 		GetSubscribers []struct {
+			// ResourceType is the resourceType argument value.
+			ResourceType string
 		}
 		// Persist holds details about calls to the Persist method.
 		Persist []struct {
@@ -1546,15 +1601,16 @@ type EventStoreMock struct {
 			Resources []rest.Resource
 		}
 	}
-	lockAddSubscriber   sync.RWMutex
-	lockDispatch        sync.RWMutex
-	lockGetByKey        sync.RWMutex
-	lockGetByProperties sync.RWMutex
-	lockGetByURI        sync.RWMutex
-	lockGetList         sync.RWMutex
-	lockGetSubscribers  sync.RWMutex
-	lockPersist         sync.RWMutex
-	lockRemove          sync.RWMutex
+	lockAddSubscriber    sync.RWMutex
+	lockDispatch         sync.RWMutex
+	lockGetByKey         sync.RWMutex
+	lockGetByProperties  sync.RWMutex
+	lockGetByURI         sync.RWMutex
+	lockGetEventHandlers sync.RWMutex
+	lockGetList          sync.RWMutex
+	lockGetSubscribers   sync.RWMutex
+	lockPersist          sync.RWMutex
+	lockRemove           sync.RWMutex
 }
 
 // AddSubscriber calls AddSubscriberFunc.
@@ -1590,23 +1646,23 @@ func (mock *EventStoreMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *EventStoreMock) Dispatch(ctx context.Context, event rest.Event, logger rest.Log) []error {
+func (mock *EventStoreMock) Dispatch(ctx context.Context, logger rest.Log, event *rest.Event) []error {
 	if mock.DispatchFunc == nil {
 		panic("EventStoreMock.DispatchFunc: method is nil but EventStore.Dispatch was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
-		Event  rest.Event
 		Logger rest.Log
+		Event  *rest.Event
 	}{
 		Ctx:    ctx,
-		Event:  event,
 		Logger: logger,
+		Event:  event,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, event, logger)
+	return mock.DispatchFunc(ctx, logger, event)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
@@ -1615,13 +1671,13 @@ func (mock *EventStoreMock) Dispatch(ctx context.Context, event rest.Event, logg
 //	len(mockedEventStore.DispatchCalls())
 func (mock *EventStoreMock) DispatchCalls() []struct {
 	Ctx    context.Context
-	Event  rest.Event
 	Logger rest.Log
+	Event  *rest.Event
 } {
 	var calls []struct {
 		Ctx    context.Context
-		Event  rest.Event
 		Logger rest.Log
+		Event  *rest.Event
 	}
 	mock.lockDispatch.RLock()
 	calls = mock.calls.Dispatch
@@ -1741,6 +1797,33 @@ func (mock *EventStoreMock) GetByURICalls() []struct {
 	return calls
 }
 
+// GetEventHandlers calls GetEventHandlersFunc.
+func (mock *EventStoreMock) GetEventHandlers() []rest.EventHandlerConfig {
+	if mock.GetEventHandlersFunc == nil {
+		panic("EventStoreMock.GetEventHandlersFunc: method is nil but EventStore.GetEventHandlers was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockGetEventHandlers.Lock()
+	mock.calls.GetEventHandlers = append(mock.calls.GetEventHandlers, callInfo)
+	mock.lockGetEventHandlers.Unlock()
+	return mock.GetEventHandlersFunc()
+}
+
+// GetEventHandlersCalls gets all the calls that were made to GetEventHandlers.
+// Check the length with:
+//
+//	len(mockedEventStore.GetEventHandlersCalls())
+func (mock *EventStoreMock) GetEventHandlersCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockGetEventHandlers.RLock()
+	calls = mock.calls.GetEventHandlers
+	mock.lockGetEventHandlers.RUnlock()
+	return calls
+}
+
 // GetList calls GetListFunc.
 func (mock *EventStoreMock) GetList(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error) {
 	if mock.GetListFunc == nil {
@@ -1794,16 +1877,19 @@ func (mock *EventStoreMock) GetListCalls() []struct {
 }
 
 // GetSubscribers calls GetSubscribersFunc.
-func (mock *EventStoreMock) GetSubscribers() []rest.EventHandler {
+func (mock *EventStoreMock) GetSubscribers(resourceType string) map[string][]rest.EventHandler {
 	if mock.GetSubscribersFunc == nil {
 		panic("EventStoreMock.GetSubscribersFunc: method is nil but EventStore.GetSubscribers was just called")
 	}
 	callInfo := struct {
-	}{}
+		ResourceType string
+	}{
+		ResourceType: resourceType,
+	}
 	mock.lockGetSubscribers.Lock()
 	mock.calls.GetSubscribers = append(mock.calls.GetSubscribers, callInfo)
 	mock.lockGetSubscribers.Unlock()
-	return mock.GetSubscribersFunc()
+	return mock.GetSubscribersFunc(resourceType)
 }
 
 // GetSubscribersCalls gets all the calls that were made to GetSubscribers.
@@ -1811,8 +1897,10 @@ func (mock *EventStoreMock) GetSubscribers() []rest.EventHandler {
 //
 //	len(mockedEventStore.GetSubscribersCalls())
 func (mock *EventStoreMock) GetSubscribersCalls() []struct {
+	ResourceType string
 } {
 	var calls []struct {
+		ResourceType string
 	}
 	mock.lockGetSubscribers.RLock()
 	calls = mock.calls.GetSubscribers

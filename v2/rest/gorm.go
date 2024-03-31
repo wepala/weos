@@ -2,6 +2,7 @@ package rest
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -171,63 +172,38 @@ func NewGORM(p GORMParams) (GORMResult, error) {
 	}, err
 }
 
-type GORMResourceRepositoryParams struct {
-	fx.In
-	GormDB *gorm.DB
-}
-
-type GORMResourceRepositoryResult struct {
-	fx.Out
-	Repository *GORMResourceRepository
-}
-
-func NewGORMResourceRepository(p GORMResourceRepositoryParams) GORMResourceRepositoryResult {
-	return GORMResourceRepositoryResult{
-		Repository: &GORMResourceRepository{
-			db: p.GormDB,
-		},
-	}
-}
-
-type GORMResourceRepository struct {
-	db *gorm.DB
-}
-
-func (w GORMResourceRepository) GetByURI(ctxt context.Context, logger Log, uri string) (resource *BasicResource, err error) {
-	w.db.First(&resource, "id = ?", uri)
-	err = w.db.Error
-	return resource, err
-}
-
-func (w GORMResourceRepository) Save(ctxt context.Context, logger Log, resource *BasicResource) error {
-	result := w.db.Save(resource)
-	return result.Error
-}
-
-func (w GORMResourceRepository) Delete(ctxt context.Context, logger Log, resource *BasicResource) error {
-	result := w.db.Delete(resource)
-	return result.Error
-}
-
-type GORMEventStoreParams struct {
+type GORMProjectionParams struct {
 	fx.In
 	GORMDB       *gorm.DB
 	EventConfigs []EventHandlerConfig `group:"eventHandlers"`
 }
 
-type GORMEventStoreResult struct {
+type GORMProjectionResult struct {
 	fx.Out
-	Dispatcher EventDispatcher
+	Dispatcher        EventStore
+	DefaultProjection Projection `name:"defaultProjection"`
 }
 
-func NewGORMEventStore(p GORMEventStoreParams) GORMEventStoreResult {
-	dispatcher := &GORMEventStore{
+func NewGORMProjection(p GORMProjectionParams) (result GORMProjectionResult, err error) {
+	dispatcher := &GORMProjection{
 		handlers: make(map[string]map[string][]EventHandler),
+		gormDB:   p.GORMDB,
+	}
+	err = p.GORMDB.AutoMigrate(&Event{}, &BasicResource{})
+	if err != nil {
+		return result, err
 	}
 	for _, config := range p.EventConfigs {
-		dispatcher.AddSubscriber(config)
+		err = dispatcher.AddSubscriber(config)
+		if err != nil {
+			return result, err
+		}
 	}
-	return GORMEventStoreResult{}
+	result = GORMProjectionResult{
+		Dispatcher:        dispatcher,
+		DefaultProjection: dispatcher,
+	}
+	return result, nil
 }
 
 type EventHandlerConfig struct {
@@ -236,12 +212,15 @@ type EventHandlerConfig struct {
 	Handler      EventHandler
 }
 
-type GORMEventStore struct {
+// GORMProjection is a projection that uses GORM to persist events
+type GORMProjection struct {
 	handlers        map[string]map[string][]EventHandler
 	handlerPanicked bool
+	gormDB          *gorm.DB
 }
 
-func (e *GORMEventStore) Dispatch(ctx context.Context, event Event, logger Log) []error {
+// Dispatch dispatches the event to the handlers
+func (e *GORMProjection) Dispatch(ctx context.Context, logger Log, event *Event) []error {
 	//mutex helps keep state between routines
 	var errors []error
 	var wg sync.WaitGroup
@@ -282,7 +261,8 @@ func (e *GORMEventStore) Dispatch(ctx context.Context, event Event, logger Log) 
 	return errors
 }
 
-func (e *GORMEventStore) AddSubscriber(handler EventHandlerConfig) error {
+// AddSubscriber adds a subscriber to the event dispatcher
+func (e *GORMProjection) AddSubscriber(handler EventHandlerConfig) error {
 	if handler.Handler == nil {
 		return fmt.Errorf("event handler cannot be nil")
 	}
@@ -299,29 +279,103 @@ func (e *GORMEventStore) AddSubscriber(handler EventHandlerConfig) error {
 	return nil
 }
 
-func (e *GORMEventStore) GetSubscribers(resourceType string) map[string][]EventHandler {
+func (e *GORMProjection) GetSubscribers(resourceType string) map[string][]EventHandler {
 	if handlers, ok := e.handlers[resourceType]; ok {
 		return handlers
 	}
 	return nil
 }
 
-func (e *GORMEventStore) GetByURI(ctxt context.Context, logger Log, uri string) (Resource, error) {
+func (e *GORMProjection) GetByURI(ctxt context.Context, logger Log, uri string) (Resource, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (e *GORMEventStore) GetByKey(ctxt context.Context, identifiers map[string]interface{}) (Resource, error) {
+func (e *GORMProjection) GetByKey(ctxt context.Context, identifiers map[string]interface{}) (Resource, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (e *GORMEventStore) GetList(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]Resource, int64, error) {
+func (e *GORMProjection) GetList(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]Resource, int64, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (e *GORMEventStore) GetByProperties(ctxt context.Context, identifiers map[string]interface{}) ([]Entity, error) {
+func (e *GORMProjection) GetByProperties(ctxt context.Context, identifiers map[string]interface{}) ([]Entity, error) {
 	//TODO implement me
 	panic("implement me")
+}
+
+// Persist persists the events to the database
+func (e *GORMProjection) Persist(ctxt context.Context, logger Log, resources []Resource) (errs []error) {
+	//TODO not sure this casting is needed
+	var events []*Event
+	for _, resource := range resources {
+		if event, ok := resource.(*Event); ok {
+			events = append(events, event)
+		} else {
+			errs = append(errs, errors.New("resource is not an event"))
+		}
+	}
+	result := e.gormDB.Save(resources)
+	if result.Error != nil {
+		errs = append(errs, result.Error)
+	}
+	for _, event := range events {
+		e.Dispatch(ctxt, logger, event)
+	}
+	return errs
+}
+
+func (e *GORMProjection) Remove(ctxt context.Context, logger Log, resources []Resource) []error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (e *GORMProjection) GetEventHandlers() []EventHandlerConfig {
+	return []EventHandlerConfig{
+		{
+			ResourceType: "",
+			Type:         "create",
+			Handler:      e.ResourceUpdateHandler,
+		},
+		{
+			ResourceType: "",
+			Type:         "update",
+			Handler:      e.ResourceUpdateHandler,
+		},
+		{
+			ResourceType: "",
+			Type:         "delete",
+			Handler:      e.ResourceDeleteHandler,
+		},
+	}
+}
+
+// ResourceUpdateHandler handles Create Update operations
+func (e *GORMProjection) ResourceUpdateHandler(ctx context.Context, logger Log, event *Event) (err error) {
+	basicResource := new(BasicResource)
+	err = json.Unmarshal(event.Payload, &basicResource)
+	if err != nil {
+		return err
+	}
+	result := e.gormDB.Save(basicResource)
+	if result.Error != nil {
+		return result.Error
+	}
+	return err
+}
+
+// ResourceDeleteHandler handles Delete operations
+func (e *GORMProjection) ResourceDeleteHandler(ctx context.Context, logger Log, event *Event) (err error) {
+	basicResource := new(BasicResource)
+	err = json.Unmarshal(event.Payload, &basicResource)
+	if err != nil {
+		return err
+	}
+	result := e.gormDB.Delete(basicResource)
+	if result.Error != nil {
+		return result.Error
+	}
+	return err
 }

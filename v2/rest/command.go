@@ -17,7 +17,6 @@ type CommandDispatcherParams struct {
 	fx.In
 	CommandConfigs []CommandConfig `group:"commandHandlers"`
 	Logger         Log
-	Repository     Repository
 }
 
 type CommandDispatcherResult struct {
@@ -44,7 +43,7 @@ type DefaultCommandDispatcher struct {
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, repository Repository, logger Log) (interface{}, error) {
+func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, repository *ResourceRepository, logger Log) (interface{}, error) {
 	var wg sync.WaitGroup
 	var err error
 	var result interface{}

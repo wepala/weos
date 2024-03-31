@@ -41,16 +41,13 @@ type WeOSConfigResult struct {
 func WeOSConfig(p WeOSConfigParams) (WeOSConfigResult, error) {
 	if p.Config != nil {
 		var config *APIConfig
-		if _, ok := p.Config.Extensions[WeOSConfigExtension]; ok {
-			data, err := p.Config.Extensions[WeOSConfigExtension].(json.RawMessage).MarshalJSON()
+		if data, ok := p.Config.Extensions[WeOSConfigExtension]; ok {
+			dataBytes, err := json.Marshal(data)
 			if err != nil {
+				p.Logger.Errorf("error encountered marshalling config '%s'", err)
 				return WeOSConfigResult{}, err
 			}
-			err = json.Unmarshal(data, &config)
-			if err != nil {
-				return WeOSConfigResult{}, err
-			}
-
+			err = json.Unmarshal(dataBytes, &config)
 			return WeOSConfigResult{
 				Config: config,
 			}, nil

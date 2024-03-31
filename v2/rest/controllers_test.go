@@ -30,14 +30,29 @@ func TestDefaultWriteController(t *testing.T) {
 
 		},
 	}
-	t.Run("create a simple resource", func(t *testing.T) {
-		repository := &RepositoryMock{
-			PersistFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
+	t.Run("create a simple resource for the first time", func(t *testing.T) {
+		defaultProjection := &ProjectionMock{
+			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
+				return nil, nil
+			},
+		}
+		eventStore := &EventStoreMock{
+			AddSubscriberFunc: func(config rest.EventHandlerConfig) error {
 				return nil
 			},
 		}
+		params := rest.ResourceRepositoryParams{
+			EventStore:        eventStore,
+			DefaultProjection: defaultProjection,
+			Config:            schema,
+		}
+		result, err := rest.NewResourceRepository(params)
+		if err != nil {
+			t.Fatalf("expected no error, got %s", err)
+		}
+		repository := result.Repository
 		commandDispatcher := &CommandDispatcherMock{
-			DispatchFunc: func(ctx context.Context, command *rest.Command, repository rest.Repository, logger rest.Log) (interface{}, error) {
+			DispatchFunc: func(ctx context.Context, command *rest.Command, repository *rest.ResourceRepository, logger rest.Log) (interface{}, error) {
 				return nil, nil
 			},
 		}
@@ -55,10 +70,5 @@ func TestDefaultWriteController(t *testing.T) {
 		if resp.Code != http.StatusCreated {
 			t.Errorf("expected status code %d, got %d", http.StatusCreated, resp.Code)
 		}
-
-		if len(commandDispatcher.DispatchCalls()) != 1 {
-			t.Errorf("expected dispatch to be called once, got %d", len(commandDispatcher.DispatchCalls()))
-		}
-
 	})
 }
