@@ -10,59 +10,36 @@ import (
 	"strconv"
 )
 
-// DefaultWriteController handles the write operations (create, update, delete)
-func DefaultWriteController(logger Log, commandDispatcher CommandDispatcher, resourceRepository *ResourceRepository, api *openapi3.T, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
-
-	var err error
-
-	return func(ctxt echo.Context) error {
-		var sequenceNo string
-		var seq int
-
-		//getting etag from context
-		etag := ctxt.Request().Header.Get("If-Match")
-		if etag != "" {
-			_, sequenceNo = SplitEtag(etag)
-			seq, err = strconv.Atoi(sequenceNo)
-			if err != nil {
-				return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
-			}
-		}
-
-		body, err := io.ReadAll(ctxt.Request().Body)
-		if err != nil {
-			ctxt.Logger().Debugf("unexpected error reading request body: %s", err)
-			return NewControllerError("unexpected error reading request body", err, http.StatusBadRequest)
-		}
-		resource, err := resourceRepository.Initialize(ctxt.Request().Context(), logger, body)
-		//if the sequence number is not one more than the current sequence number then return an error
-		if seq != 0 && resource.GetSequenceNo() != seq+1 {
-			return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusPreconditionFailed)
-		}
-		//set etag in response header
-		ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", resource.GetID(), resource.GetSequenceNo()))
-		if resource.GetSequenceNo() == 1 {
-			return ctxt.JSON(http.StatusCreated, resource)
-		} else {
-			return ctxt.JSON(http.StatusOK, resource)
-		}
-	}
+type ControllerParams struct {
+	Logger             Log
+	CommandDispatcher  CommandDispatcher
+	ResourceRepository *ResourceRepository
+	DefaultProjection  *Projection
+	Projections        map[string]Projection
+	Schema             *openapi3.T
+	PathMap            map[string]*openapi3.PathItem
+	Operation          map[string]*openapi3.Operation
+	Echo               *echo.Echo
+	APIConfig          *APIConfig
 }
 
-// DefaultExecuteController handles the write operations that have a command associated with them
-func DefaultExecuteController(logger Log, commandDispatcher CommandDispatcher, resourceRepository *ResourceRepository, api *openapi3.T, pathMap map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc {
-	var commandName string
-	var err error
-	var schema *openapi3.Schema
+// DefaultWriteController handles the write operations (create, update, delete)
+func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 
-	for method, toperation := range operation {
+	var err error
+	var commandName string
+	var resourceType string
+	for method, toperation := range p.Operation {
+		if toperation.RequestBody == nil || toperation.RequestBody.Value == nil {
+			continue
+		}
 		//get the schema for the operation
 		for _, requestContent := range toperation.RequestBody.Value.Content {
 			if requestContent.Schema != nil {
 				//use the first schema ref to determine the entity type
 				if requestContent.Schema.Ref != "" {
 					//get the entity type from the ref
-					schema = api.Components.Schemas[requestContent.Schema.Ref].Value
+					resourceType = requestContent.Schema.Ref
 				}
 			}
 		}
@@ -70,7 +47,7 @@ func DefaultExecuteController(logger Log, commandDispatcher CommandDispatcher, r
 		if rawCommand, ok := toperation.Extensions["x-command"].(json.RawMessage); ok {
 			err := json.Unmarshal(rawCommand, &commandName)
 			if err != nil {
-				logger.Fatalf("error unmarshalling command: %s", err)
+				p.Logger.Fatalf("error unmarshalling command: %s", err)
 			}
 		}
 		//If there is a x-command-name extension then dispatch that command by default otherwise use the default command based on the operation type
@@ -107,168 +84,169 @@ func DefaultExecuteController(logger Log, commandDispatcher CommandDispatcher, r
 			ctxt.Logger().Debugf("unexpected error reading request body: %s", err)
 			return NewControllerError("unexpected error reading request body", err, http.StatusBadRequest)
 		}
-		resource, err := resourceRepository.Initialize(ctxt.Request().Context(), logger, body)
-		//not sure this is correct
-		payload, err := json.Marshal(&ResourceCreateParams{
-			Resource: resource,
-			Schema:   schema,
-		})
+
+		contentType := ctxt.Request().Header.Get(echo.HeaderContentType)
+		//for certain content types treat with it differently
+		switch contentType {
+		case "application/ld+json":
+			resource, err := p.ResourceRepository.Initialize(ctxt.Request().Context(), p.Logger, body)
+			if err != nil {
+				ctxt.Logger().Errorf("unexpected error creating entity: %s", err)
+				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
+			}
+			//if the sequence number is not one more than the current sequence number then return an error
+			if seq != 0 && resource.GetSequenceNo() != seq+1 {
+				return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusPreconditionFailed)
+			}
+			errs := p.ResourceRepository.Persist(ctxt.Request().Context(), p.Logger, []Resource{resource})
+			if len(errs) > 0 {
+				ctxt.Logger().Errorf("unexpected error persisting entity: %s", errs)
+				return NewControllerError("unexpected error persisting entity", errs[0], http.StatusBadRequest)
+			}
+			//set etag in response header
+			ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", resource.GetID(), resource.GetSequenceNo()))
+			if resource.GetSequenceNo() == 1 {
+				return ctxt.JSON(http.StatusCreated, resource)
+			} else {
+				return ctxt.JSON(http.StatusOK, resource)
+			}
+		default:
+			//At the time of this writing only application/ld+json resources can be written. Everything else is
+			var defaultProjection Projection
+			if projection, ok := p.Projections[resourceType]; ok {
+				defaultProjection = projection
+			}
+			response, err := p.CommandDispatcher.Dispatch(ctxt.Request().Context(), &Command{
+				Type: commandName,
+			}, ctxt.Logger(), &CommandOptions{
+				ResourceRepository: p.ResourceRepository,
+				DefaultProjection:  defaultProjection,
+			})
+
+			if response.Code != 0 {
+				return ctxt.JSON(response.Code, response.Body)
+			} else {
+				if err != nil {
+					return ctxt.NoContent(http.StatusInternalServerError)
+				} else {
+					return ctxt.NoContent(http.StatusOK)
+				}
+			}
+		}
+	}
+}
+
+// DefaultExecuteController handles the write operations that have a command associated with them
+func DefaultExecuteController(p *ControllerParams) echo.HandlerFunc {
+	var commandName string
+	var err error
+
+	for method, toperation := range p.Operation {
+		//get the schema for the operation
+		for _, requestContent := range toperation.RequestBody.Value.Content {
+			if requestContent.Schema != nil {
+				//use the first schema ref to determine the entity type
+				if requestContent.Schema.Ref != "" {
+					//get the entity type from the ref
+					//schema = p.Schema.Components.Schemas[requestContent.Schema.Ref].Value
+				}
+			}
+		}
+		//If there is a x-command extension then dispatch that command by default
+		if rawCommand, ok := toperation.Extensions["x-command"].(json.RawMessage); ok {
+			err := json.Unmarshal(rawCommand, &commandName)
+			if err != nil {
+				p.Logger.Fatalf("error unmarshalling command: %s", err)
+			}
+		}
+		//If there is a x-command-name extension then dispatch that command by default otherwise use the default command based on the operation type
+		if commandName == "" {
+			switch method {
+			case http.MethodPost:
+				commandName = UPDATE_COMMAND
+			case http.MethodPut:
+				commandName = UPDATE_COMMAND
+			case http.MethodPatch:
+				commandName = UPDATE_COMMAND
+			case http.MethodDelete:
+				commandName = DELETE_COMMAND
+			}
+		}
+	}
+
+	return func(ctxt echo.Context) error {
+		var sequenceNo string
+		var seq int
+
+		//getting etag from context
+		etag := ctxt.Request().Header.Get("If-Match")
+		if etag != "" {
+			_, sequenceNo = SplitEtag(etag)
+			seq, err = strconv.Atoi(sequenceNo)
+			if err != nil {
+				return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
+			}
+		}
+
+		body, err := io.ReadAll(ctxt.Request().Body)
+		if err != nil {
+			ctxt.Logger().Debugf("unexpected error reading request body: %s", err)
+			return NewControllerError("unexpected error reading request body", err, http.StatusBadRequest)
+		}
 
 		command := &Command{
 			Type:    commandName,
-			Payload: payload,
+			Payload: body,
 			Metadata: CommandMetadata{
-				EntityID:   resource.GetID(),
-				EntityType: resource.GetType(),
 				SequenceNo: seq,
 				Version:    1,
 				UserID:     GetUser(ctxt.Request().Context()),
 				AccountID:  GetAccount(ctxt.Request().Context()),
 			},
 		}
-		_, err = commandDispatcher.Dispatch(ctxt.Request().Context(), command, resourceRepository, ctxt.Logger())
+		response, err := p.CommandDispatcher.Dispatch(ctxt.Request().Context(), command, ctxt.Logger(), &CommandOptions{
+			ResourceRepository: p.ResourceRepository,
+			DefaultProjection:  nil,
+			Projections:        nil,
+		})
 		//an error handler `HTTPErrorHandler` can be defined on the echo instance to handle error responses
 		if err != nil {
-
+			return NewControllerError("unexpected error executing command", err, http.StatusBadRequest)
 		}
-		//set etag in response header
-		ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", resource.GetID(), resource.GetSequenceNo()))
-		if resource.GetSequenceNo() == 1 {
-			return ctxt.JSON(http.StatusCreated, resource)
-		} else {
-			return ctxt.JSON(http.StatusOK, resource)
-		}
+		return ctxt.JSON(response.Code, response.Body)
 	}
 }
 
 // DefaultReadController handles the read operations viewing a specific item
-//func DefaultReadController(logger Log, commandDispatcher CommandDispatcher, entityRepository EntityRepository, pathMap map[string]*openapi3.PathItem, operationMap map[string]*openapi3.Operation) echo.HandlerFunc {
-//	var templates []string
-//	fileName := ""
-//	folderFound := true
-//	folderErr := ""
-//	isFolder := false
-//	for currentPath, _ := range pathMap {
-//		for _, operation := range operationMap {
-//			for _, resp := range operation.Responses {
-//				//for 200 responses look at the accept header and determine what to render
-//				//TODO make this compatible with all status codes
-//				if templateExtension, ok := resp.Value.ExtensionProps.Extensions[TemplateExtension]; ok {
-//					err := json.Unmarshal(templateExtension.(json.RawMessage), &templates)
-//					if err != nil {
-//						logger.Error(err)
-//					}
-//				}
-//				if folderExtension, ok := resp.Value.ExtensionProps.Extensions[FolderExtension]; ok {
-//					isFolder = true
-//					folderPath := ""
-//					err = json.Unmarshal(folderExtension.(json.RawMessage), &folderPath)
-//					if err != nil {
-//						logger.Error(err)
-//					} else {
-//						_, err = os.Stat(folderPath)
-//						if os.IsNotExist(err) {
-//							folderFound = false
-//							folderErr = "error finding folder: " + folderPath + " specified on path: " + currentPath
-//							logger.Errorf(folderErr)
-//						} else if err != nil {
-//							logger.Error(err)
-//						} else {
-//							api.(*RESTAPI).e.Static(api.GetWeOSConfig().BasePath+currentPath, folderPath)
-//						}
-//					}
-//				}
-//				if fileExtension, ok := resp.Value.ExtensionProps.Extensions[FileExtension]; ok {
-//					filePath := ""
-//					err = json.Unmarshal(fileExtension.(json.RawMessage), &filePath)
-//					if err != nil {
-//						logger.Error(err)
-//					} else {
-//						_, err = os.Stat(filePath)
-//						if os.IsNotExist(err) {
-//							logger.Debugf("error finding file: '%s' specified on path: '%s'", filePath, currentPath)
-//						} else if err != nil {
-//							logger.Error(err)
-//						} else {
-//							fileName = filePath
-//						}
-//					}
-//				}
-//
-//				if !folderFound {
-//					logger.Errorf(folderErr)
-//				}
-//			}
-//		}
-//	}
-//
-//	return func(ctxt echo.Context) error {
-//		var entity *model.ContentEntity
-//		var err error
-//		//get identifier from context if there is an entity repository (some endpoints may not have a schema associated)
-//		if entityRepository != nil {
-//			entity, err = entityRepository.CreateEntityWithValues(ctxt.Request().Context(), []byte("{}"))
-//			if err != nil {
-//				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
-//			}
-//			identifier, err := entity.Identifier()
-//			for k, _ := range identifier {
-//				//get from context since the middleware restricts param to what wsa configured in the spec
-//				identifier[k] = ctxt.Request().Context().Value(k)
-//			}
-//			if err != nil {
-//				return NewControllerError("unexpected error getting identifier", err, http.StatusBadRequest)
-//			}
-//			entity, err = entityRepository.GetByKey(ctxt.Request().Context(), entityRepository, identifier)
-//			if err != nil {
-//				return NewControllerError("unexpected error getting entity", err, http.StatusBadRequest)
-//			}
-//
-//			if entity == nil && len(templates) == 0 && fileName == "" {
-//				return ctxt.JSON(http.StatusNotFound, nil)
-//			}
-//
-//			if isFolder && !folderFound {
-//				return ctxt.JSON(http.StatusNotFound, nil)
-//			}
-//		}
-//		//render html if that is configured
-//
-//		//check header to determine response check the accepts header
-//		acceptHeader := ctxt.Request().Header.Get("Accept")
-//
-//		// if no accept header is found it defaults to application/json
-//		if acceptHeader == "" {
-//			acceptHeader = "application/json"
-//		}
-//
-//		contentType := ResolveResponseType(acceptHeader, operationMap[http.MethodGet].Responses["200"].Value.Content)
-//		switch contentType {
-//		case "application/json":
-//			if entity != nil {
-//				return ctxt.JSON(http.StatusOK, entity)
-//			}
-//		default:
-//			if fileName != "" {
-//				return ctxt.File(fileName)
-//			} else if len(templates) > 0 {
-//				contextValues := ReturnContextValues(ctxt.Request().Context())
-//				t := template.New(path1.Base(templates[0]))
-//				t, err := t.ParseFiles(templates...)
-//				if err != nil {
-//					ctxt.Logger().Debugf("unexpected error %s ", err)
-//					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
-//
-//				}
-//				err = t.Execute(ctxt.Response().Writer, contextValues)
-//				if err != nil {
-//					ctxt.Logger().Debugf("unexpected error %s ", err)
-//					return NewControllerError(fmt.Sprintf("unexpected error %s ", err), err, http.StatusInternalServerError)
-//
-//				}
-//			}
-//		}
-//
-//		return nil
-//	}
-//}
+func DefaultReadController(p *ControllerParams) echo.HandlerFunc {
+	return func(ctxt echo.Context) error {
+		contentType := ctxt.Request().Header.Get(echo.HeaderContentType)
+		//for certain content types treat with it differently
+		switch contentType {
+		case "application/ld+json":
+			resource, err := p.ResourceRepository.Initialize(ctxt.Request().Context(), p.Logger, []byte("{}"))
+			if err != nil {
+				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
+			}
+			var payload []byte
+			//if the sequence no is one that means it's a new resource and the resource doesn't exist
+			if resource.GetSequenceNo() == 1 {
+				return ctxt.NoContent(http.StatusNotFound)
+			}
+			payload, err = json.Marshal(resource)
+			return ctxt.Blob(http.StatusOK, "application/ld+json", payload)
+		default:
+			//if there a path map then use that to get the resource
+			for path, _ := range p.PathMap {
+				if path != p.APIConfig.BasePath+"/*" {
+					//TODO check to see if there is a type in the path and try to get the projection
+					//TODO check to see the params and try to get the item by that
+				} else {
+					return ctxt.NoContent(http.StatusNotFound)
+				}
+			}
+		}
+
+		return ctxt.NoContent(http.StatusNotFound)
+	}
+}

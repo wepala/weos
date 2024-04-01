@@ -43,10 +43,8 @@ type DefaultCommandDispatcher struct {
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, repository *ResourceRepository, logger Log) (interface{}, error) {
+func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, logger Log, options *CommandOptions) (response *CommandResponse, err error) {
 	var wg sync.WaitGroup
-	var err error
-	var result interface{}
 	var allHandlers []CommandHandler
 	//first preference is handlers for specific command type and entity type
 	if handlers, ok := e.handlers[command.Type+command.Metadata.EntityType]; ok {
@@ -75,13 +73,13 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 				}
 				wg.Done()
 			}()
-			result, err = handler(ctx, command, repository, logger)
+			response, err = handler(ctx, command, options.ResourceRepository, logger)
 		}()
 	}
 
 	wg.Wait()
 
-	return result, err
+	return response, err
 }
 
 func (e *DefaultCommandDispatcher) AddSubscriber(command CommandConfig) map[string][]CommandHandler {
@@ -118,4 +116,17 @@ type CommandMetadata struct {
 	ExecutionDate *time.Time
 	UserID        string
 	AccountID     string
+}
+
+type CommandResponse struct {
+	Success bool
+	Message string
+	Code    int
+	Body    interface{}
+}
+
+type CommandOptions struct {
+	ResourceRepository *ResourceRepository
+	DefaultProjection  Projection
+	Projections        map[string]Projection
 }

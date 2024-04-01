@@ -1125,7 +1125,7 @@ var _ rest.CommandDispatcher = &CommandDispatcherMock{}
 //			AddSubscriberFunc: func(command rest.CommandConfig) map[string][]rest.CommandHandler {
 //				panic("mock out the AddSubscriber method")
 //			},
-//			DispatchFunc: func(ctx context.Context, command *rest.Command, repository *rest.ResourceRepository, logger rest.Log) (interface{}, error) {
+//			DispatchFunc: func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (*rest.CommandResponse, error) {
 //				panic("mock out the Dispatch method")
 //			},
 //			GetSubscribersFunc: func() map[string][]rest.CommandHandler {
@@ -1142,7 +1142,7 @@ type CommandDispatcherMock struct {
 	AddSubscriberFunc func(command rest.CommandConfig) map[string][]rest.CommandHandler
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, command *rest.Command, repository *rest.ResourceRepository, logger rest.Log) (interface{}, error)
+	DispatchFunc func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (*rest.CommandResponse, error)
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
 	GetSubscribersFunc func() map[string][]rest.CommandHandler
@@ -1160,10 +1160,10 @@ type CommandDispatcherMock struct {
 			Ctx context.Context
 			// Command is the command argument value.
 			Command *rest.Command
-			// Repository is the repository argument value.
-			Repository *rest.ResourceRepository
 			// Logger is the logger argument value.
 			Logger rest.Log
+			// Options is the options argument value.
+			Options *rest.CommandOptions
 		}
 		// GetSubscribers holds details about calls to the GetSubscribers method.
 		GetSubscribers []struct {
@@ -1207,25 +1207,25 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.Command, repository *rest.ResourceRepository, logger rest.Log) (interface{}, error) {
+func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (*rest.CommandResponse, error) {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
-		Ctx        context.Context
-		Command    *rest.Command
-		Repository *rest.ResourceRepository
-		Logger     rest.Log
+		Ctx     context.Context
+		Command *rest.Command
+		Logger  rest.Log
+		Options *rest.CommandOptions
 	}{
-		Ctx:        ctx,
-		Command:    command,
-		Repository: repository,
-		Logger:     logger,
+		Ctx:     ctx,
+		Command: command,
+		Logger:  logger,
+		Options: options,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, command, repository, logger)
+	return mock.DispatchFunc(ctx, command, logger, options)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
@@ -1233,16 +1233,16 @@ func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.C
 //
 //	len(mockedCommandDispatcher.DispatchCalls())
 func (mock *CommandDispatcherMock) DispatchCalls() []struct {
-	Ctx        context.Context
-	Command    *rest.Command
-	Repository *rest.ResourceRepository
-	Logger     rest.Log
+	Ctx     context.Context
+	Command *rest.Command
+	Logger  rest.Log
+	Options *rest.CommandOptions
 } {
 	var calls []struct {
-		Ctx        context.Context
-		Command    *rest.Command
-		Repository *rest.ResourceRepository
-		Logger     rest.Log
+		Ctx     context.Context
+		Command *rest.Command
+		Logger  rest.Log
+		Options *rest.CommandOptions
 	}
 	mock.lockDispatch.RLock()
 	calls = mock.calls.Dispatch

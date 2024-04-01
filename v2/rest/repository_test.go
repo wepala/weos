@@ -31,6 +31,9 @@ func TestResourceRepository_Initialize(t *testing.T) {
 			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
 				return nil, nil
 			},
+			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
+				return nil
+			},
 		}
 		eventStore := &EventStoreMock{
 			AddSubscriberFunc: func(config rest.EventHandlerConfig) error {
@@ -76,6 +79,9 @@ func TestResourceRepository_Initialize(t *testing.T) {
 					},
 				}
 				return resource, nil
+			},
+			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
+				return nil
 			},
 		}
 		eventStore := &EventStoreMock{

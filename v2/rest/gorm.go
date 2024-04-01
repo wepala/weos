@@ -317,7 +317,7 @@ func (e *GORMProjection) Persist(ctxt context.Context, logger Log, resources []R
 			errs = append(errs, errors.New("resource is not an event"))
 		}
 	}
-	result := e.gormDB.Save(resources)
+	result := e.gormDB.Save(events)
 	if result.Error != nil {
 		errs = append(errs, result.Error)
 	}

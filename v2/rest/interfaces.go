@@ -9,14 +9,14 @@ import (
 
 type (
 	//Middleware that is bound to an OpenAPI operation
-	Middleware func(commandDispatcher CommandDispatcher, repository Repository, path *openapi3.PathItem, operation *openapi3.Operation) echo.MiddlewareFunc
+	Middleware func(params *MiddlewareParams) echo.MiddlewareFunc
 	//Controller is the handler for a specific operation
-	Controller func(commandDispatcher CommandDispatcher, repository *ResourceRepository, path map[string]*openapi3.PathItem, operation map[string]*openapi3.Operation) echo.HandlerFunc
+	Controller func(params *ControllerParams) echo.HandlerFunc
 	//OperationInitializer initialzers that are run when processing OpenAPI operations
 	GlobalInitializer    func(context.Context, *openapi3.T) (context.Context, error)
 	OperationInitializer func(context.Context, string, string, *openapi3.T, *openapi3.PathItem, *openapi3.Operation) (context.Context, error)
 	PathInitializer      func(context.Context, string, *openapi3.T, *openapi3.PathItem) (context.Context, error)
-	CommandHandler       func(ctx context.Context, command *Command, repository *ResourceRepository, logger Log) (interface{}, error)
+	CommandHandler       func(ctx context.Context, command *Command, repository *ResourceRepository, logger Log) (response *CommandResponse, err error)
 	EventHandler         func(ctx context.Context, logger Log, event *Event) error
 )
 
@@ -38,7 +38,7 @@ type Repository interface {
 }
 
 type CommandDispatcher interface {
-	Dispatch(ctx context.Context, command *Command, repository *ResourceRepository, logger Log) (interface{}, error)
+	Dispatch(ctx context.Context, command *Command, logger Log, options *CommandOptions) (response *CommandResponse, err error)
 	AddSubscriber(command CommandConfig) map[string][]CommandHandler
 	GetSubscribers() map[string][]CommandHandler
 }

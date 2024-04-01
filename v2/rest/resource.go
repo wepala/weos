@@ -51,15 +51,19 @@ func (r *BasicResource) UnmarshalJSON(data []byte) (err error) {
 		r.Body = make(map[string]interface{})
 		r.Body["@context"] = map[string]interface{}{}
 	}
+	//created a temporary map to hold the data because the JSONMAP creates an empty map in it's own UnmarshalJSON
+	var tbody map[string]interface{}
+	tbody = map[string]interface{}(r.Body)
 	// Unmarshal data into the map
-	err = json.Unmarshal(data, &r.Body)
-	if ttype, ok := r.Body["@type"].(string); ok {
+	err = json.Unmarshal(data, &tbody)
+	if ttype, ok := tbody["@type"].(string); ok {
 		r.Metadata.Type = ttype
 	}
 
-	if id, ok := r.Body["@id"].(string); ok {
+	if id, ok := tbody["@id"].(string); ok {
 		r.Metadata.ID = id
 	}
+	r.Body = tbody
 	return err
 }
 

@@ -9,9 +9,6 @@ import (
 	"os"
 )
 
-// WeOSConfigExtension weos configuration key
-const WeOSConfigExtension = "x-weos-config"
-
 // Config loads the OpenAPI spec from the environment
 func Config() (*openapi3.T, error) {
 	spec := os.Getenv("WEOS_SPEC")
