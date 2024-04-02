@@ -1,4 +1,5 @@
 //go:generate moq -out rest_mocks_test.go -pkg rest_test . Log Repository Projection CommandDispatcher EventDispatcher EventStore
+
 package rest
 
 import (

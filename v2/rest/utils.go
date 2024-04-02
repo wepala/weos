@@ -311,9 +311,9 @@ func GetJwkUrl(openIdUrl string) (string, error) {
 }
 
 // GetOpenIDConfig returns map of openID content
-func GetOpenIDConfig(openIdUrl string) (map[string]interface{}, error) {
+func GetOpenIDConfig(openIdUrl string, httpClient *http.Client) (map[string]interface{}, error) {
 	//fetches the response from the url
-	resp, err := http.Get(openIdUrl)
+	resp, err := httpClient.Get(openIdUrl)
 	if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected error fetching open id connect url")
 	}

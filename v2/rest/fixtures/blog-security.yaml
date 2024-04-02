@@ -8,15 +8,44 @@ servers:
     description: WeOS Dev
   - url: https://prod1.weos.sh/blog/v1
 x-weos-config:
+  event-source:
+    - title: default
+      driver: service
+      endpoint: https://prod1.weos.sh/events/v1
+    - title: event
+      driver: sqlite3
+      database: test.db
   database:
     driver: sqlite3
     database: test.db
+  databases:
+    - title: default
+      driver: sqlite3
+      database: test.db
   rest:
     middleware:
       - RequestID
       - Recover
       - ZapLogger
 components:
+  securitySchemes:
+    WeAuth:
+      type: openIdConnect
+      openIdConnectUrl: https://example.org/.well-known/openid-configuration
+      x-jwt-map:
+        user: sub
+        role: tag
+        account: sub
+    Auth0:
+      type: openIdConnect
+      openIdConnectUrl: https://example.org/.well-known/openid-configuration
+      x-skip-expiry-check: true
+      x-jwt-map:
+        user: sub
+        role: tag
+        account: sub
+        application: iss
+
   schemas:
     Category:
       type: object
@@ -25,6 +54,7 @@ components:
           type: string
         description:
           type: string
+          nullable: true
       required:
         - title
       x-identifier:
@@ -37,11 +67,14 @@ components:
           format: ksuid
         firstName:
           type: string
+          nullable: true
         lastName:
           type: string
+          nullable: true
         email:
           type: string
           format: email
+          nullable: true
       required:
         - firstName
         - lastName
@@ -49,23 +82,15 @@ components:
         - id
         - email
     Blog:
-      x-rdf-type: "http://schema.org/Blog"
       type: object
       properties:
         url:
           type: string
           format: uri
-          x-unique: true
         title:
           type: string
         description:
           type: string
-          nullable: true
-        author:
-          $ref: "#/components/schemas/Author"
-        cost:
-          type: number
-          format: double
           nullable: true
         status:
           type: string
@@ -74,37 +99,28 @@ components:
             - "null"
             - unpublished
             - published
-        date:
-          type: string
-          nullable: true
-          format: date-time
         image:
           type: string
           format: byte
           nullable: true
         categories:
           type: array
-          nullable: true
           items:
             $ref: "#/components/schemas/Category"
+          nullable: true
         posts:
           type: array
-          nullable: true
           items:
             $ref: "#/components/schemas/Post"
+          nullable: true
         lastUpdated:
           type: string
           format: date-time
           nullable: true
-          x-update:
-            - Add Blog
-            - Update Blog
         created:
           type: string
           format: date-time
           nullable: true
-          x-update:
-            - Add Blog
       required:
         - title
         - url
@@ -121,159 +137,23 @@ components:
         created:
           type: string
           format: date-time
-paths:
-  /:
-    get:
-      operationId: Homepage
-      responses:
-        201:
-          description: Application Homepage
-          content:
-            text/html:
-              example: |
-                <html>
-                  <head>
-                      <title>Health</title>
-                  </head>
-                  <body>
-                    This is a landing page
-                  </body>
-                </html>
-  /page:
-    get:
-      summary: Test
-      parameters:
-        - in: header
-          name: Accept
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Test Page
-          content:
-            text/html:
-              example: |
-                <html>
-                  <head>
-                      <title>Test Page</title>
-                  </head>
-                  <body>
-                    This is a test page
-                  </body>
-                </html>
-              schema:
-                type: string
-            application/json:
-              example:
-                blog:
-                  value: {
-                    "title": "API Testing",
-                    "url": "www.example.com",
-                    "email": "testing@example.com"
-                  }
-  /another:
-    get:
-      operationId: Homepage
-      parameters:
-        - in: header
-          name: Accept
-          schema:
-            type: string
-      responses:
-        201:
-          description: Application Homepage
-          content:
-            text/html:
+          nullable: true
+security:
+  - Auth0: ["email"]
 
-            application/json:
-              example:
-                blog:
-                  value: {
-                    "title": "API Testing",
-                    "url": "www.example.com",
-                    "email": "testing@example.com"
-                  }
-  /badtemplates:
-    get:
-      operationId: getAsset
-      responses:
-        200:
-          description: Homepage
-          x-templates:
-            - ./fixtures/templates/base12.html
-        404:
-          description: File not found
-        402:
-          description: User not authenticated
-  /badtemplates1:
-    get:
-      operationId: getAsset
-      responses:
-        200:
-          description: Homepage
-          x-templates:
-            - ./fixtures/templates/badTem.html
-        404:
-          description: File not found
-        402:
-          description: User not authenticated
-  /multipletemplates:
-    get:
-      operationId: getAsset
-      responses:
-        200:
-          description: Homepage
-          x-templates:
-            - ./fixtures/templates/index.html
-            - ./fixtures/templates/ibase.html
-        404:
-          description: File not found
-        402:
-          description: User not authenticated
-  /templates:
-    get:
-      operationId: getAsset
-      parameters:
-        - in: query
-          name: title
-          schema:
-            type: string
-        - in: query
-          name: content
-          schema:
-            type: string
-      responses:
-        200:
-          description: Homepage
-          x-templates:
-            - ./fixtures/templates/base1.html
-        404:
-          description: File not found
-        402:
-          description: User not authenticated
+paths:
   /health:
     summary: Health Check
     get:
+      security: []
       x-controller: HealthCheck
       x-middleware:
         - Recover
-        - ZapLogger
       responses:
         200:
           description: Health Response
         500:
           description: API Internal Error
-  /api:
-      get:
-        operationId: Get API Details
-        x-controller: APIDiscovery
-        responses:
-          200:
-            description: API Details
-            content:
-              application/json:
-                schema:
-                  type: string
   /blogs:
     parameters:
       - in: header
@@ -309,6 +189,15 @@ paths:
       x-projection: Default
       x-event-dispatcher: Default
       x-command-disptacher: Default
+      parameters:
+        - in: header
+          name: Authorization
+          schema:
+            type: string
+      x-auth:
+        allow:
+          users:
+            - auth0|60d0c84316f69600691c1614
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -344,27 +233,28 @@ paths:
             type: integer
         - in: query
           name: _filters
-          style: deepObject
-          explode: true
           schema:
-            type: object
-            properties:
-              field:
-                type: string
-              operator:
-                type: string
-              values:
-                type: array
-                items:
+            type: array
+            items:
+              type: object
+              properties:
+                field:
                   type: string
+                operator:
+                  type: string
+                values:
+                  type: array
+                  items:
+                    type: string
 
           required: false
           description: query string
       x-context:
-        _filters:
+        filters:
           - field: status
             operator: eq
-            value: Active
+            values:
+              - Active
           - field: lastUpdated
             operator: between
             values:
@@ -375,7 +265,7 @@ paths:
             values:
               - Technology
               - Javascript
-        _sorts:
+        sorts:
           - field: title
             order: asc
         page: 1
@@ -441,10 +331,10 @@ paths:
           schema:
             type: number
             format: double
-      x-context:
-        id: 2
       summary: Get Blog by id
       operationId: Get Blog
+      security:
+        - Auth0: ["name"]
       responses:
         200:
           description: Blog details without any supporting collections
@@ -509,11 +399,6 @@ paths:
 
   /posts/:
     post:
-      parameters:
-        - in: header
-          name: someHeader
-          schema:
-            type: string
       operationId: Create Blog Post
       summary: Create Blog Post
       requestBody:
@@ -558,30 +443,9 @@ paths:
       summary: Get a blog's list of posts
       parameters:
         - in: query
-          name: page
+          name: q
           schema:
-            type: integer
-        - in: query
-          name: l
-          x-alias: limit
-          schema:
-            type: integer
-        - in: query
-          name: _filters
-          style: deepObject
-          explode: true
-          schema:
-            type: object
-            properties:
-              field:
-                type: string
-              operator:
-                type: string
-              values:
-                type: array
-                items:
-                  type: string
-
+            type: string
           required: false
           description: query string
       responses:
@@ -844,6 +708,10 @@ paths:
             format: email
           required: true
       summary: Update Author details
+      x-auth:
+        allow:
+          users:
+            - auth0|1234
       requestBody:
         required: true
         content:
@@ -880,4 +748,3 @@ paths:
       responses:
         200:
           description: Delete author
-

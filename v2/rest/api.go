@@ -4,6 +4,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
 	"golang.org/x/net/context"
+	"os"
 )
 
 // registerHooks registers the hooks for the application
@@ -11,7 +12,7 @@ func registerHooks(lifecycle fx.Lifecycle, e *echo.Echo) {
 	lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			go func() {
-				if err := e.Start(":8681"); err != nil {
+				if err := e.Start(":" + os.Getenv("WEOS_PORT")); err != nil {
 					e.Logger.Info("shutting down the server")
 				}
 			}()
@@ -29,10 +30,12 @@ var API = fx.Module("rest",
 		Config,
 		NewEcho,
 		NewZap,
+		NewClient,
 		NewGORM,
 		NewCommandDispatcher,
 		NewResourceRepository,
 		NewGORMProjection,
+		NewSecurityConfiguration,
 	),
 	fx.Invoke(RouteInitializer, registerHooks),
 )
