@@ -87,6 +87,7 @@ func RouteInitializer(p RouteParams) (err error) {
 			CommandDispatcher:  p.CommandDispatcher,
 			ResourceRepository: p.ResourceRepository,
 			Schema:             p.Config,
+			APIConfig:          p.APIConfig,
 		}))
 		//set up the security middleware if there is a config setup
 		if len(p.Config.Security) > 0 {
@@ -94,6 +95,7 @@ func RouteInitializer(p RouteParams) (err error) {
 				Logger:          p.Logger,
 				SecuritySchemes: p.SecuritySchemes,
 				Schema:          p.Config,
+				APIConfig:       p.APIConfig,
 			}))
 
 		}
@@ -116,9 +118,9 @@ func RouteInitializer(p RouteParams) (err error) {
 			}
 		}
 
-		var handler echo.HandlerFunc
 		var methodsFound []string
 		for method, operation := range pathItem.Operations() {
+			var handler echo.HandlerFunc
 			methodsFound = append(methodsFound, method)
 			if controller, ok := operation.Extensions["x-controller"].(string); ok {
 				if c, ok := controllers[controller]; ok {
@@ -127,6 +129,7 @@ func RouteInitializer(p RouteParams) (err error) {
 						CommandDispatcher:  p.CommandDispatcher,
 						ResourceRepository: p.ResourceRepository,
 						Schema:             p.Config,
+						APIConfig:          p.APIConfig,
 						PathMap: map[string]*openapi3.PathItem{
 							path: pathItem,
 						},
@@ -146,6 +149,7 @@ func RouteInitializer(p RouteParams) (err error) {
 						CommandDispatcher:  p.CommandDispatcher,
 						ResourceRepository: p.ResourceRepository,
 						Schema:             p.Config,
+						APIConfig:          p.APIConfig,
 						PathMap: map[string]*openapi3.PathItem{
 							path: pathItem,
 						},
@@ -159,6 +163,7 @@ func RouteInitializer(p RouteParams) (err error) {
 						CommandDispatcher:  p.CommandDispatcher,
 						ResourceRepository: p.ResourceRepository,
 						Schema:             p.Config,
+						APIConfig:          p.APIConfig,
 						PathMap: map[string]*openapi3.PathItem{
 							path: pathItem,
 						},
@@ -194,7 +199,9 @@ func RouteInitializer(p RouteParams) (err error) {
 			allMiddleware = append(allMiddleware, pathMiddleware...)
 			allMiddleware = append(allMiddleware, operationMiddleware...)
 			// Add the middleware to the routes
-			p.Echo.Add(method, p.APIConfig.BasePath+path, handler, allMiddleware...)
+			re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+			echoPath := re.ReplaceAllString(path, `:$1`)
+			p.Echo.Add(method, p.APIConfig.BasePath+echoPath, handler, allMiddleware...)
 
 			//setup security enforcer
 			if authRaw, ok := operation.Extensions[AuthorizationConfigExtension]; ok {

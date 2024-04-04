@@ -46,7 +46,7 @@ func (e *Event) GetType() string {
 	panic("implement me")
 }
 
-func (e *Event) GetSequenceNo() int {
+func (e *Event) GetSequenceNo() int64 {
 	//TODO implement me
 	panic("implement me")
 }

@@ -183,15 +183,6 @@ paths:
           x-file: "./controllers/rest/fixtures/staticF/index"
         404:
           description: file not found
-  /health:
-    summary: Health Check
-    get:
-      x-controller: HealthCheck
-      responses:
-        200:
-          description: Health Response
-        500:
-          description: API Internal Error
   /api/json:
         get:
           operationId: Get API Details

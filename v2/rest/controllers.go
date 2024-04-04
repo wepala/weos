@@ -25,8 +25,6 @@ type ControllerParams struct {
 
 // DefaultWriteController handles the write operations (create, update, delete)
 func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
-
-	var err error
 	var commandName string
 	var resourceType string
 	for method, toperation := range p.Operation {
@@ -44,11 +42,9 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 			}
 		}
 		//If there is a x-command extension then dispatch that command by default
-		if rawCommand, ok := toperation.Extensions["x-command"].(json.RawMessage); ok {
-			err := json.Unmarshal(rawCommand, &commandName)
-			if err != nil {
-				p.Logger.Fatalf("error unmarshalling command: %s", err)
-			}
+		var ok bool
+		if commandName, ok = toperation.Extensions["x-command"].(string); ok {
+			p.Logger.Debugf("command configured: %s", commandName)
 		}
 		//If there is a x-command-name extension then dispatch that command by default otherwise use the default command based on the operation type
 		if commandName == "" {
@@ -67,16 +63,17 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 
 	return func(ctxt echo.Context) error {
 		var sequenceNo string
-		var seq int
+		var seq int64
 
 		//getting etag from context
 		etag := ctxt.Request().Header.Get("If-Match")
 		if etag != "" {
 			_, sequenceNo = SplitEtag(etag)
-			seq, err = strconv.Atoi(sequenceNo)
+			tseq, err := strconv.Atoi(sequenceNo)
 			if err != nil {
 				return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusBadRequest)
 			}
+			seq = int64(tseq)
 		}
 
 		body, err := io.ReadAll(ctxt.Request().Body)

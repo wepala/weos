@@ -15,7 +15,7 @@ const DELETE_COMMAND = "delete"
 
 type CommandDispatcherParams struct {
 	fx.In
-	CommandConfigs []CommandConfig `group:"commandHandlers"`
+	CommandConfigs []CommandConfig
 	Logger         Log
 }
 
@@ -43,7 +43,7 @@ type DefaultCommandDispatcher struct {
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, logger Log, options *CommandOptions) (response *CommandResponse, err error) {
+func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, logger Log, options *CommandOptions) (response CommandResponse, err error) {
 	var wg sync.WaitGroup
 	var allHandlers []CommandHandler
 	//first preference is handlers for specific command type and entity type
@@ -73,7 +73,7 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 				}
 				wg.Done()
 			}()
-			response, err = handler(ctx, command, options.ResourceRepository, logger)
+			response, err = handler(ctx, command, logger, options)
 		}()
 	}
 

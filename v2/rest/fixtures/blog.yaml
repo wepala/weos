@@ -306,9 +306,6 @@ paths:
     post:
       operationId: Add Blog
       summary: Create Blog
-      x-projection: Default
-      x-event-dispatcher: Default
-      x-command-disptacher: Default
       requestBody:
         description: Blog info that is submitted
         required: true
@@ -339,7 +336,6 @@ paths:
             type: integer
         - in: query
           name: l
-          x-alias: limit
           schema:
             type: integer
         - in: query
@@ -475,6 +471,7 @@ paths:
             format: double
       summary: Update blog details
       operationId: Update Blog
+      x-command: CreateBlog
       requestBody:
         required: true
         content:

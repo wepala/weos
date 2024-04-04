@@ -22,10 +22,5 @@ func main() {
 	//use fx Module to start the server
 	fx.New(
 		rest.API,
-		//fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
-		//	return &fxevent.ZapLogger{
-		//		Logger: log,
-		//	}
-		//}),
 	).Run()
 }

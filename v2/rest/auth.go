@@ -51,8 +51,8 @@ type SecurityConfiguration struct {
 	AuthEnforcer    *casbin.Enforcer
 }
 
-func NewSecurityConfiguration(p SecurityParams) (result *SecurityConfiguration, err error) {
-	result = &SecurityConfiguration{
+func NewSecurityConfiguration(p SecurityParams) (result SecurityConfiguration, err error) {
+	result = SecurityConfiguration{
 		SecuritySchemes: make(map[string]Validator),
 	}
 	for name, schema := range p.Config.Components.SecuritySchemes {
@@ -63,7 +63,7 @@ func NewSecurityConfiguration(p SecurityParams) (result *SecurityConfiguration, 
 				result.SecuritySchemes[name], err = new(OpenIDConnect).FromSchema(ctxt, schema.Value, p.HttpClient)
 			default:
 				err = fmt.Errorf("unsupported security scheme '%s'", name)
-				return nil, err
+				return result, err
 			}
 		}
 	}
@@ -71,7 +71,7 @@ func NewSecurityConfiguration(p SecurityParams) (result *SecurityConfiguration, 
 	//setup casbin enforcer
 	adapter, err := gormadapter.NewAdapterByDB(p.GORMDB)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 
 	//default REST permission model

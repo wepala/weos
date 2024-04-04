@@ -60,8 +60,10 @@ func TestDefaultWriteController(t *testing.T) {
 		}
 		repository := result.Repository
 		commandDispatcher := &CommandDispatcherMock{
-			DispatchFunc: func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (*rest.CommandResponse, error) {
-				return nil, nil
+			DispatchFunc: func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (rest.CommandResponse, error) {
+				return rest.CommandResponse{
+					Code: 200,
+				}, nil
 			},
 		}
 		controller := rest.DefaultWriteController(&rest.ControllerParams{

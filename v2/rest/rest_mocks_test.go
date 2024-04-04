@@ -1125,7 +1125,7 @@ var _ rest.CommandDispatcher = &CommandDispatcherMock{}
 //			AddSubscriberFunc: func(command rest.CommandConfig) map[string][]rest.CommandHandler {
 //				panic("mock out the AddSubscriber method")
 //			},
-//			DispatchFunc: func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (*rest.CommandResponse, error) {
+//			DispatchFunc: func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (rest.CommandResponse, error) {
 //				panic("mock out the Dispatch method")
 //			},
 //			GetSubscribersFunc: func() map[string][]rest.CommandHandler {
@@ -1142,7 +1142,7 @@ type CommandDispatcherMock struct {
 	AddSubscriberFunc func(command rest.CommandConfig) map[string][]rest.CommandHandler
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (*rest.CommandResponse, error)
+	DispatchFunc func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (rest.CommandResponse, error)
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
 	GetSubscribersFunc func() map[string][]rest.CommandHandler
@@ -1207,7 +1207,7 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (*rest.CommandResponse, error) {
+func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (rest.CommandResponse, error) {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}

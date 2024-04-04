@@ -199,6 +199,8 @@ func NewGORMProjection(p GORMProjectionParams) (result GORMProjectionResult, err
 			return result, err
 		}
 	}
+	//add handlers for create, update and delete
+
 	result = GORMProjectionResult{
 		Dispatcher:        dispatcher,
 		DefaultProjection: dispatcher,
@@ -224,39 +226,38 @@ func (e *GORMProjection) Dispatch(ctx context.Context, logger Log, event *Event)
 	//mutex helps keep state between routines
 	var errors []error
 	var wg sync.WaitGroup
-	if resourceTypeHandlers, ok := e.handlers[event.Meta.ResourceType]; ok {
+	var handlers []EventHandler
+	var ok bool
+	if globalHandlers := e.handlers[""]; globalHandlers != nil {
+		if handlers, ok = globalHandlers[event.Type]; ok {
 
-		if handlers, ok := resourceTypeHandlers[event.Type]; ok {
-			//check to see if there were handlers registered for the event type that is not specific to a resource type
-			if event.Meta.ResourceType != "" {
-				if eventTypeHandlers, ok := e.handlers[""]; ok {
-					if ehandlers, ok := eventTypeHandlers[event.Type]; ok {
-						handlers = append(handlers, ehandlers...)
-					}
-				}
-			}
-			for i := 0; i < len(handlers); i++ {
-				handler := handlers[i]
-				wg.Add(1)
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							logger.Errorf("handler panicked %s", r)
-						}
-						wg.Done()
-					}()
-
-					err := handler(ctx, logger, event)
-					if err != nil {
-						errors = append(errors, err)
-					}
-
-				}()
-			}
-			wg.Wait()
 		}
-
 	}
+	if resourceTypeHandlers, ok := e.handlers[event.Meta.ResourceType]; ok {
+		if thandlers, ok := resourceTypeHandlers[event.Type]; ok {
+			handlers = append(handlers, thandlers...)
+		}
+	}
+
+	for i := 0; i < len(handlers); i++ {
+		handler := handlers[i]
+		wg.Add(1)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Errorf("handler panicked %s", r)
+				}
+				wg.Done()
+			}()
+
+			err := handler(ctx, logger, event)
+			if err != nil {
+				errors = append(errors, err)
+			}
+
+		}()
+	}
+	wg.Wait()
 
 	return errors
 }
@@ -287,8 +288,16 @@ func (e *GORMProjection) GetSubscribers(resourceType string) map[string][]EventH
 }
 
 func (e *GORMProjection) GetByURI(ctxt context.Context, logger Log, uri string) (Resource, error) {
-	//TODO implement me
-	panic("implement me")
+	resource := new(BasicResource)
+	result := e.gormDB.Where("id = ?", uri).First(resource)
+	if result.Error != nil {
+		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, result.Error
+		} else {
+			return nil, nil
+		}
+	}
+	return resource, nil
 }
 
 func (e *GORMProjection) GetByKey(ctxt context.Context, identifiers map[string]interface{}) (Resource, error) {
@@ -308,7 +317,6 @@ func (e *GORMProjection) GetByProperties(ctxt context.Context, identifiers map[s
 
 // Persist persists the events to the database
 func (e *GORMProjection) Persist(ctxt context.Context, logger Log, resources []Resource) (errs []error) {
-	//TODO not sure this casting is needed
 	var events []*Event
 	for _, resource := range resources {
 		if event, ok := resource.(*Event); ok {

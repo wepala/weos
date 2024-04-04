@@ -17,7 +17,7 @@ type EventSourced interface {
 type Resource interface {
 	EventSourced
 	GetType() string
-	GetSequenceNo() int
+	GetSequenceNo() int64
 	GetID() string
 	FromBytes(schema *openapi3.T, data []byte) (Resource, error)
 	IsValid() bool
@@ -32,9 +32,9 @@ type BasicResource struct {
 
 type ResourceMetadata struct {
 	ID         string `gorm:"primaryKey"`
-	SequenceNo int
+	SequenceNo int64
 	Type       string
-	Version    int64
+	Version    int
 	UserID     string
 	AccountID  string
 }
@@ -106,13 +106,14 @@ func (r *BasicResource) GetType() string {
 	return r.Metadata.Type
 }
 
-func (r *BasicResource) GetSequenceNo() int {
+func (r *BasicResource) GetSequenceNo() int64 {
 	return r.Metadata.SequenceNo
 }
 
 // NewChange adds a new event to the list of new events
 func (r *BasicResource) NewChange(event *Event) {
 	r.Metadata.SequenceNo += 1
+	event.Meta.SequenceNo = r.Metadata.SequenceNo
 	r.newEvents = append(r.newEvents, event)
 }
 

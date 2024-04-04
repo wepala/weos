@@ -7,6 +7,7 @@ import (
 	"go.uber.org/fx"
 	"net/url"
 	"os"
+	"strings"
 )
 
 // Config loads the OpenAPI spec from the environment
@@ -17,7 +18,18 @@ func Config() (*openapi3.T, error) {
 		if err == nil {
 			return openapi3.NewLoader().LoadFromURI(turl)
 		} else {
-			return openapi3.NewLoader().LoadFromFile(spec)
+			//read the file
+			content, err := os.ReadFile(spec)
+			if err != nil {
+				return nil, err
+			}
+			//change the $ref to another marker so that it doesn't get considered an environment variable WECON-1
+			tempFile := strings.ReplaceAll(string(content), "$ref", "__ref__")
+			//replace environment variables in file
+			tempFile = os.ExpandEnv(string(tempFile))
+			tempFile = strings.ReplaceAll(string(tempFile), "__ref__", "$ref")
+			content = []byte(tempFile)
+			return openapi3.NewLoader().LoadFromData(content)
 
 		}
 	}

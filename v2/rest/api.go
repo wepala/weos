@@ -24,7 +24,7 @@ func registerHooks(lifecycle fx.Lifecycle, e *echo.Echo) {
 	})
 }
 
-var API = fx.Module("rest",
+var Core = fx.Module("weos-basic",
 	fx.Provide(
 		WeOSConfig,
 		Config,
@@ -37,5 +37,9 @@ var API = fx.Module("rest",
 		NewGORMProjection,
 		NewSecurityConfiguration,
 	),
-	fx.Invoke(RouteInitializer, registerHooks),
+	fx.Invoke(RouteInitializer),
 )
+
+var API = fx.Module("rest",
+	Core,
+	fx.Invoke(registerHooks))
