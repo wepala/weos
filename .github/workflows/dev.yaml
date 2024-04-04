@@ -6,6 +6,7 @@ on:
       - dev
       - feature/*
       - release/*
+      - v2
 
 env:
   SLACK_CHANNEL: weos
