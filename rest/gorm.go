@@ -8,6 +8,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	"github.com/labstack/gommon/log"
+	_ "github.com/lib/pq"
 	"go.uber.org/fx"
 	"golang.org/x/net/context"
 	"gorm.io/driver/mysql"
