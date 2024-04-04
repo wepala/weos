@@ -140,11 +140,17 @@ func DefaultReadController(p *ControllerParams) echo.HandlerFunc {
 		//for certain content types treat with it differently
 		switch contentType {
 		case "application/ld+json":
-			resource, err := p.ResourceRepository.Initialize(ctxt.Request().Context(), p.Logger, []byte("{}"))
+
+			// add the entity id to the payload so that it can be used to get the resource
+			payload, err := json.Marshal(map[string]interface{}{"@id": ctxt.Request().URL.String()})
+			if err != nil {
+				return NewControllerError("unexpected error creating entity", err, http.StatusInternalServerError)
+			}
+
+			resource, err := p.ResourceRepository.Initialize(ctxt.Request().Context(), p.Logger, payload)
 			if err != nil {
 				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
 			}
-			var payload []byte
 			//if the sequence no is one that means it's a new resource and the resource doesn't exist
 			if resource.GetSequenceNo() == 1 {
 				return ctxt.NoContent(http.StatusNotFound)

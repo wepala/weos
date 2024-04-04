@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	"go.uber.org/fx"
 	"golang.org/x/net/context"
@@ -58,8 +59,23 @@ type ResourceRepository struct {
 }
 
 func (r *ResourceRepository) Initialize(ctxt context.Context, logger Log, payload []byte) (resource Resource, err error) {
-	//try to get the resource from the default projection and if it doesn't exist create it
-	resource, err = r.defaultProjection.GetByURI(ctxt, logger, "")
+	var body map[string]interface{}
+	var uri string
+	var ok bool
+
+	err = json.Unmarshal(payload, &body)
+	if err != nil {
+		logger.Debugf("error encountered unmarshalling payload '%s'", err)
+		return nil, err
+	}
+
+	if uri, ok = body["@id"].(string); !ok {
+		logger.Debugf("error encountered getting uri from payload")
+		return nil, err
+	}
+
+	//try to get the resource from the default projection and if it doesn't exist, create it
+	resource, err = r.defaultProjection.GetByURI(ctxt, logger, uri)
 	if err != nil {
 		logger.Debugf("error encountered getting resource from default projection '%s'", err)
 		return nil, err
