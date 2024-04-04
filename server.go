@@ -2,7 +2,8 @@ package main
 
 import (
 	"flag"
-	weos "github.com/wepala/weos/controllers/rest"
+	"github.com/wepala/weos/v2/rest"
+	"go.uber.org/fx"
 	"os"
 )
 
@@ -12,12 +13,14 @@ var replay = flag.Bool("replay events", false, "replay events from gorm events")
 
 func main() {
 	flag.Parse()
-	apiFlag := *schema
-	var apiEnv string
-	apiEnv = os.Getenv("WEOS_SPEC")
-	if apiEnv != "" {
-		weos.Start(*port, apiEnv, *replay)
-	} else if *schema != "" {
-		weos.Start(*port, apiFlag, *replay)
+	if schema != nil {
+		os.Setenv("WEOS_SPEC", *schema)
 	}
+	if port != nil {
+		os.Setenv("WEOS_PORT", *port)
+	}
+	//use fx Module to start the server
+	fx.New(
+		rest.API,
+	).Run()
 }
