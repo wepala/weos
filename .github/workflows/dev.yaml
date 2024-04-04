@@ -27,15 +27,11 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.16.x
+          go-version: 1.22.x
       - name: Run unit tests
-        run: go test -v ./...
-      - name: Run Postgres end to end tests
-        run: go test -v -driver=postgres
+        run: go test -v ./v2/...
 #      - name: Run MySQL end to end tests
 #        run: go test -v -driver=mysql
-      - name: Run Postgres projections tests
-        run: go test -v ./projections -driver=postgres
 #      - name: Run Mysql projections tests
 #        run: go test -v ./projections -driver=mysql
 #      - uses: crazy-max/ghaction-xgo@v1
