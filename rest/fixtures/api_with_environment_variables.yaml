@@ -1,0 +1,888 @@
+openapi: 3.0.3
+info:
+  title: Blog
+  description: Blog example
+  version: 1.0.0
+servers:
+  - url: https://prod1.weos.sh/blog/dev
+    description: WeOS Dev
+  - url: https://prod1.weos.sh/blog/v1
+x-weos-config:
+  basePath: ${BASE_PATH}
+  database:
+    driver: ${DB_DRIVER}
+    host: ${DB_HOST}
+    database: ${DB_NAME}
+    port: ${DB_PORT}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    aws-region: ${AWS_REGION}
+    aws-iam: ${USE_IAM}
+    max-open: 10
+    max-idle: 3
+    max-idle-time: 0
+  log:
+    level: ${LOG_LEVEL}
+    name: alert-service
+components:
+  schemas:
+    Category:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+      required:
+        - title
+      x-identifier:
+        - title
+    Author:
+      type: object
+      properties:
+        id:
+          type: string
+          format: ksuid
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+      required:
+        - firstName
+        - lastName
+      x-identifier:
+        - id
+        - email
+    Blog:
+      x-rdf-type: "http://schema.org/Blog"
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          x-unique: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        author:
+          $ref: "#/components/schemas/Author"
+        cost:
+          type: number
+          format: double
+          nullable: true
+        status:
+          type: string
+          nullable: true
+          enum:
+            - "null"
+            - unpublished
+            - published
+        date:
+          type: string
+          nullable: true
+          format: date-time
+        image:
+          type: string
+          format: byte
+          nullable: true
+        categories:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Category"
+        posts:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Post"
+        lastUpdated:
+          type: string
+          format: date-time
+          nullable: true
+          x-update:
+            - Add Blog
+            - Update Blog
+        created:
+          type: string
+          format: date-time
+          nullable: true
+          x-update:
+            - Add Blog
+      required:
+        - title
+        - url
+    Post:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        author:
+          $ref: "#/components/schemas/Author"
+        created:
+          type: string
+          format: date-time
+paths:
+  /:
+    get:
+      operationId: Homepage
+      responses:
+        201:
+          description: Application Homepage
+          content:
+            text/html:
+              example: |
+                <html>
+                  <head>
+                      <title>Health</title>
+                  </head>
+                  <body>
+                    This is a landing page
+                  </body>
+                </html>
+  /page:
+    get:
+      summary: Test
+      parameters:
+        - in: header
+          name: Accept
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Test Page
+          content:
+            text/html:
+              example: |
+                <html>
+                  <head>
+                      <title>Test Page</title>
+                  </head>
+                  <body>
+                    This is a test page
+                  </body>
+                </html>
+              schema:
+                type: string
+            application/json:
+              example:
+                blog:
+                  value: {
+                    "title": "API Testing",
+                    "url": "www.example.com",
+                    "email": "testing@example.com"
+                  }
+  /another:
+    get:
+      operationId: Homepage
+      parameters:
+        - in: header
+          name: Accept
+          schema:
+            type: string
+      responses:
+        201:
+          description: Application Homepage
+          content:
+            text/html:
+
+            application/json:
+              example:
+                blog:
+                  value: {
+                    "title": "API Testing",
+                    "url": "www.example.com",
+                    "email": "testing@example.com"
+                  }
+  /badtemplates:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/base12.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /badtemplates1:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/badTem.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /multipletemplates:
+    get:
+      operationId: getAsset
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/index.html
+            - ./fixtures/templates/ibase.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /templates:
+    get:
+      operationId: getAsset
+      parameters:
+        - in: query
+          name: title
+          schema:
+            type: string
+        - in: query
+          name: content
+          schema:
+            type: string
+      responses:
+        200:
+          description: Homepage
+          x-templates:
+            - ./fixtures/templates/base1.html
+        404:
+          description: File not found
+        402:
+          description: User not authenticated
+  /health:
+    summary: Health Check
+    get:
+      x-controller: HealthCheck
+      x-middleware:
+        - Recover
+        - ZapLogger
+      responses:
+        200:
+          description: Health Response
+        500:
+          description: API Internal Error
+  /api:
+    get:
+      operationId: Get API Details
+      x-controller: APIDiscovery
+      responses:
+        200:
+          description: API Details
+          content:
+            application/json:
+              schema:
+                type: string
+  /blogs:
+    parameters:
+      - in: header
+        name: someHeader
+        schema:
+          type: string
+      - in: header
+        name: someOtherHeader
+        schema:
+          type: string
+        x-context-name: soh
+      - in: header
+        name: X-Account-Id
+        schema:
+          type: string
+        x-context-name: AccountID
+      - in: query
+        name: q
+        schema:
+          type: string
+      - in: query
+        name: cost
+        schema:
+          type: number
+      - in: query
+        name: leverage
+        schema:
+          type: number
+          format: double
+    post:
+      operationId: Add Blog
+      summary: Create Blog
+      requestBody:
+        description: Blog info that is submitted
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Blog"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/Blog"
+      responses:
+        201:
+          description: Add Blog to Aggregator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+    get:
+      operationId: Get Blogs
+      summary: Get List of Blogs
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: l
+          schema:
+            type: integer
+        - in: query
+          name: _filters
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              values:
+                type: array
+                items:
+                  type: string
+
+          required: false
+          description: query string
+      x-context:
+        _filters:
+          - field: status
+            operator: eq
+            value: Active
+          - field: lastUpdated
+            operator: between
+            values:
+              - 2021-12-17 15:46:00
+              - 2021-12-18 15:46:00
+          - field: categories
+            operator: in
+            values:
+              - Technology
+              - Javascript
+        _sorts:
+          - field: title
+            order: asc
+        page: 1
+        limit: 10
+      responses:
+        200:
+          description: List of blogs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  blogs:
+                    type: array
+                    x-alias: items
+                    items:
+                      $ref: "#/components/schemas/Blog"
+    put:
+      operationId: Import blogs
+      requestBody:
+        content:
+          text/csv:
+            schema:
+              type: string
+              format: binary
+      responses:
+        201:
+          description: items created
+
+  /blogs/{id}:
+    parameters:
+      - in: query
+        name: sequence_no
+        schema:
+          type: integer
+      - in: query
+        name: use_entity_id
+        schema:
+          type: boolean
+    get:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+          required: false
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
+      x-context:
+        id: 2
+      summary: Get Blog by id
+      operationId: Get Blog
+      responses:
+        200:
+          description: Blog details without any supporting collections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+    put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+        - in: query
+          name: cost
+          schema:
+            type: number
+        - in: query
+          name: leverage
+          schema:
+            type: number
+            format: double
+      summary: Update blog details
+      operationId: Update Blog
+      x-command: CreateBlog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Blog"
+      responses:
+        200:
+          description: Update Blog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Blog"
+    delete:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: blog id
+        - in: header
+          name: If-Match
+          schema:
+            type: string
+      x-schema: "Blog"
+      summary: Delete blog
+      operationId: Delete Blog
+      responses:
+        200:
+          description: Blog Deleted
+
+  /posts/:
+    post:
+      parameters:
+        - in: header
+          name: someHeader
+          schema:
+            type: string
+      operationId: Create Blog Post
+      summary: Create Blog Post
+      requestBody:
+        description: Post details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Post"
+      responses:
+        201:
+          description: Post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+    put:
+      operationId: Import Blog Posts
+      summary: Import Blog Posts
+      requestBody:
+        description: List of posts to import
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Post"
+          application/x-www-form-urlencoded:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Post"
+      responses:
+        201:
+          description: Post
+    get:
+      operationId: Get Posts
+      summary: Get a blog's list of posts
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: l
+          x-alias: limit
+          schema:
+            type: integer
+        - in: query
+          name: _filters
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              field:
+                type: string
+              operator:
+                type: string
+              values:
+                type: array
+                items:
+                  type: string
+
+          required: false
+          description: query string
+      responses:
+        200:
+          description: List of blog posts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
+
+  /posts/{id}:
+    get:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      summary: Get blog post by id
+      responses:
+        200:
+          description: Get blog post information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+    put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      summary: Update post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
+      responses:
+        200:
+          description: Get blog post information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+    delete:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Post"
+      summary: Delete post
+      responses:
+        200:
+          description: Delete post
+
+
+  /categories/:
+    post:
+      operationId: Create Blog Category
+      summary: Create Blog Category
+      requestBody:
+        description: Post details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Category"
+      responses:
+        201:
+          description: Post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    get:
+      operationId: Get Categories
+      summary: Get a blog's list of categories
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+          description: query string
+      responses:
+        200:
+          description: List of blog categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
+
+  /categories/{title}:
+    get:
+      parameters:
+        - in: path
+          name: title
+          schema:
+            type: string
+          required: true
+      summary: Get blog category by title
+      responses:
+        200:
+          description: Get blog category information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    put:
+      parameters:
+        - in: path
+          name: title
+          schema:
+            type: string
+          required: true
+      summary: Update category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
+      responses:
+        200:
+          description: Get blog category information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+    delete:
+      parameters:
+        - in: path
+          name: title
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Category"
+      summary: Delete category
+      responses:
+        200:
+          description: Delete category
+
+  /authors/:
+    post:
+      operationId: Create Blog Author
+      summary: Create Blog Author
+      requestBody:
+        description: Author details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/Author"
+      responses:
+        201:
+          description: Post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Author"
+    get:
+      operationId: Get Authors
+      summary: Get a blog's list of authors
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+          description: query string
+      responses:
+        200:
+          description: List of blog authors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Author"
+
+  /authors/{id}:
+    get:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: header
+          name: email
+          schema:
+            type: string
+            format: email
+          required: true
+      summary: Get Author by email and id
+      responses:
+        200:
+          description: Get author information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Author"
+    put:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: header
+          name: email
+          schema:
+            type: string
+            format: email
+          required: true
+      summary: Update Author details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
+      responses:
+        200:
+          description: Author details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Author"
+    delete:
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+        - in: header
+          name: email
+          schema:
+            type: string
+            format: email
+          required: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Author"
+      summary: Delete author
+      responses:
+        200:
+          description: Delete author
+
