@@ -297,6 +297,12 @@ func RouteInitializer(p RouteParams) (err error) {
 		ResourceRepository: p.ResourceRepository,
 		Schema:             p.Config,
 	}))
+	p.Echo.Add(http.MethodGet, p.APIConfig.BasePath+"/*", DefaultReadController(&ControllerParams{
+		Logger:             p.Logger,
+		CommandDispatcher:  p.CommandDispatcher,
+		ResourceRepository: p.ResourceRepository,
+		Schema:             p.Config,
+	}))
 
 	return err
 }
