@@ -31,8 +31,8 @@ func TestIntegrations(t *testing.T) {
 	os.Setenv("WEOS_PORT", "8681")
 	os.Setenv("WEOS_SPEC", "./fixtures/blog.yaml")
 	//use fx Module to start the server
-	Receivers := func() []rest.CommandConfig {
-		return []rest.CommandConfig{
+	Receivers := func(commandDispatcher rest.CommandDispatcher) {
+		handlers := []rest.CommandConfig{
 			{
 				Type: "CreateBlog",
 				Handler: func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (response rest.CommandResponse, err error) {
@@ -45,8 +45,11 @@ func TestIntegrations(t *testing.T) {
 				},
 			},
 		}
+		for _, handler := range handlers {
+			commandDispatcher.AddSubscriber(handler)
+		}
 	}
-	app := fxtest.New(t, fx.Provide(Receivers), rest.Core, fx.Invoke(func(techo *echo.Echo) {
+	app := fxtest.New(t, fx.Invoke(Receivers), rest.Core, fx.Invoke(func(techo *echo.Echo) {
 		e = techo
 	}))
 	defer app.RequireStop()

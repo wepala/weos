@@ -42,4 +42,4 @@ For general help using WeOS, please refer to [the official WeOS documentation](h
 
 ## License
 
-See the [LICENSE](./LICENSE) file for licensing information.
+See the [LICENSE](./LICENSE) file for licensing information

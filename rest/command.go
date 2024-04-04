@@ -15,8 +15,7 @@ const DELETE_COMMAND = "delete"
 
 type CommandDispatcherParams struct {
 	fx.In
-	CommandConfigs []CommandConfig
-	Logger         Log
+	Logger Log
 }
 
 type CommandDispatcherResult struct {
@@ -28,9 +27,6 @@ type CommandDispatcherResult struct {
 func NewCommandDispatcher(p CommandDispatcherParams) CommandDispatcherResult {
 	dispatcher := &DefaultCommandDispatcher{
 		handlers: make(map[string][]CommandHandler),
-	}
-	for _, config := range p.CommandConfigs {
-		dispatcher.AddSubscriber(config)
 	}
 	return CommandDispatcherResult{
 		Dispatcher: dispatcher,
