@@ -56,7 +56,7 @@ func RouteInitializer(p RouteParams) (err error) {
 		}
 	}
 
-	p.Echo.Add(http.MethodGet, "/health", func(c echo.Context) error {
+	p.Echo.Add(http.MethodGet, p.APIConfig.BasePath+"/health", func(c echo.Context) error {
 		return c.String(200, "OK")
 	})
 	// get the available methods and headers for each path. If no headers are specified then default to all
