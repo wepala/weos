@@ -119,19 +119,14 @@ func SecurityMiddleware(p *MiddlewareParams) echo.MiddlewareFunc {
 		return func(ctxt echo.Context) error {
 			var success bool
 			var err error
-			var userID string
-			var ttoken interface{} //parsed token
-			var role string
-			var accountID string
-			var applicationID string
 			var result *ValidationResult
 			//loop through the validators and go to the next middleware when one authenticates otherwise return 403
 			for _, validator := range validators {
 				if result, err = validator.Validate(ctxt); result.Valid {
-					newContext := context.WithValue(ctxt.Request().Context(), USER_ID, userID)
-					newContext = context.WithValue(newContext, ROLE, role)
-					newContext = context.WithValue(newContext, ACCOUNT_ID, accountID)
-					newContext = context.WithValue(newContext, APPLICATION_ID, applicationID)
+					newContext := context.WithValue(ctxt.Request().Context(), USER_ID, result.UserID)
+					newContext = context.WithValue(newContext, ROLE, result.Role)
+					newContext = context.WithValue(newContext, ACCOUNT_ID, result.AccountID)
+					newContext = context.WithValue(newContext, APPLICATION_ID, result.ApplicationID)
 					request := ctxt.Request().WithContext(newContext)
 					ctxt.SetRequest(request)
 					//check the scopes of the logged-in user against what is required and if the user doesn't have the required scope deny access
@@ -139,7 +134,7 @@ func SecurityMiddleware(p *MiddlewareParams) echo.MiddlewareFunc {
 						for _, scopes := range securityScheme {
 							for _, scope := range scopes {
 								//account for the different token types that could be returned
-								switch t := ttoken.(type) {
+								switch t := result.Token.(type) {
 								case *oidc.IDToken:
 									claims := make(map[string]interface{})
 									err = t.Claims(&claims)
@@ -174,7 +169,7 @@ func SecurityMiddleware(p *MiddlewareParams) echo.MiddlewareFunc {
 					//check permissions to ensure the user can access this endpoint
 
 					tpath := strings.Replace(ctxt.Request().URL.Path, p.APIConfig.BasePath, "", 1)
-					success, err = p.AuthorizationEnforcer.Enforce(userID, tpath, ctxt.Request().Method)
+					success, err = p.AuthorizationEnforcer.Enforce(result.UserID, tpath, ctxt.Request().Method)
 					//fmt.Printf("explanations %v", explanations)
 					if err != nil {
 						ctxt.Logger().Errorf("error looking up permissions '%s'", err)
@@ -183,12 +178,12 @@ func SecurityMiddleware(p *MiddlewareParams) echo.MiddlewareFunc {
 						return next(ctxt)
 					}
 					//check if the role has access to the endpoint
-					success, err = p.AuthorizationEnforcer.Enforce(role, tpath, ctxt.Request().Method)
+					success, err = p.AuthorizationEnforcer.Enforce(result.Role, tpath, ctxt.Request().Method)
 					if success {
 						return next(ctxt)
 					}
 					if err != nil {
-						ctxt.Logger().Errorf("the role '%s' does not have access to '%s' action '%s': original error '%s'", role, tpath, ctxt.Request().Method, err)
+						ctxt.Logger().Errorf("the role '%s' does not have access to '%s' action '%s': original error '%s'", result.Role, tpath, ctxt.Request().Method, err)
 					}
 					return ctxt.NoContent(http.StatusForbidden)
 				}

@@ -24,7 +24,7 @@ import (
 // ValidationResult is the result of a security validation
 type ValidationResult struct {
 	Valid         bool
-	Token         string
+	Token         interface{}
 	UserID        string
 	Role          string
 	AccountID     string
