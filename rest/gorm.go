@@ -7,8 +7,8 @@ import (
 	"fmt"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
+	_ "github.com/jackc/pgx/v5"
 	"github.com/labstack/gommon/log"
-	_ "github.com/lib/pq"
 	"go.uber.org/fx"
 	"golang.org/x/net/context"
 	"gorm.io/driver/mysql"
@@ -110,7 +110,7 @@ func NewGORM(p GORMParams) (GORMResult, error) {
 		case "mysql":
 			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=true",
 				config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
-		case "postgres":
+		case "postgres", "pgx":
 			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 				config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
 		default:
@@ -130,7 +130,7 @@ func NewGORM(p GORMParams) (GORMResult, error) {
 	if gormConnection == nil {
 		//setup gorm
 		switch config.Driver {
-		case "postgres":
+		case "postgres", "pgx":
 			gormConnection, err = gorm.Open(postgres.New(postgres.Config{
 				Conn: db,
 			}), nil)
