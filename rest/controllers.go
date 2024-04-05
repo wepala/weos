@@ -141,21 +141,16 @@ func DefaultReadController(p *ControllerParams) echo.HandlerFunc {
 		switch contentType {
 		case "application/ld+json":
 
-			// add the entity id to the payload so that it can be used to get the resource
-			payload, err := json.Marshal(map[string]interface{}{"@id": ctxt.Request().URL.String()})
-			if err != nil {
-				return NewControllerError("unexpected error creating entity", err, http.StatusInternalServerError)
-			}
-
-			resource, err := p.ResourceRepository.Initialize(ctxt.Request().Context(), p.Logger, payload)
+			resource, err := p.ResourceRepository.defaultProjection.GetByURI(ctxt.Request().Context(), p.Logger, ctxt.Request().URL.String())
 			if err != nil {
 				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
 			}
-			//if the sequence no is one that means it's a new resource and the resource doesn't exist
-			if resource.GetSequenceNo() == 1 {
+
+			if resource == nil {
 				return ctxt.NoContent(http.StatusNotFound)
 			}
-			payload, err = json.Marshal(resource)
+
+			payload, err := json.Marshal(resource)
 			return ctxt.Blob(http.StatusOK, "application/ld+json", payload)
 		default:
 			//if there a path map then use that to get the resource
