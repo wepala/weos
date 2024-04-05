@@ -69,7 +69,7 @@ func NewGORM(p GORMParams) (GORMResult, error) {
 			connStr = fmt.Sprintf("%s:%s@tcp(%s)/%s?tls=true&sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&allowCleartextPasswords=true&parseTime=true",
 				dbUser, authenticationToken, dbEndpoint, dbName,
 			)
-		case "postgres":
+		case "postgres", "pgx":
 			connStr = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
 				dbHost, dbPort, dbUser, authenticationToken, dbName,
 			)
