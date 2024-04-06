@@ -42,14 +42,15 @@ type RouteParams struct {
 // RouteInitializer initializes the routes for the application using the open api config
 func RouteInitializer(p RouteParams) (err error) {
 	// merge the controller configs into one map
-	var controllers map[string]Controller
+	controllers := make(map[string]Controller)
+
 	for _, config := range p.Controllers {
 		for name, controller := range config {
 			controllers[name] = controller
 		}
 	}
 	// merge the middleware configs into one map
-	var middlewares map[string]Middleware
+	middlewares := make(map[string]Middleware)
 	for _, config := range p.Middlewares {
 		for name, tmiddleware := range config {
 			middlewares[name] = tmiddleware
