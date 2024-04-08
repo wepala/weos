@@ -257,25 +257,6 @@ func RouteInitializer(p RouteParams) (err error) {
 			}
 
 		}
-		//set up endpoint for options
-		//setup CORS middleware
-		var allowedMethods []string
-		var ok bool
-		if allowedMethods, ok = pathMethods[path]; !ok {
-			allowedMethods = []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
-		}
-		//add the methods required by solid protocol
-		allowedMethods = append(allowedMethods, http.MethodOptions, http.MethodHead)
-		corsMiddleware := middleware.CORSWithConfig(middleware.CORSConfig{
-			AllowOrigins: []string{"*"},
-			AllowMethods: allowedMethods,
-			AllowHeaders: []string{"*"},
-		})
-		re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
-		echoPath := re.ReplaceAllString(path, `:$1`)
-		p.Echo.Add(http.MethodOptions, p.APIConfig.BasePath+echoPath, func(c echo.Context) error {
-			return c.NoContent(http.StatusOK)
-		}, corsMiddleware)
 	}
 
 	p.Echo.Add(http.MethodPost, p.APIConfig.BasePath+"/*", DefaultWriteController(&ControllerParams{
@@ -302,14 +283,7 @@ func RouteInitializer(p RouteParams) (err error) {
 		ResourceRepository: p.ResourceRepository,
 		Schema:             p.Config,
 	}))
-	corsMiddleware := middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"*"},
-		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
-		AllowHeaders: []string{"*"},
-	})
-	p.Echo.Add(http.MethodOptions, p.APIConfig.BasePath+"/*", func(c echo.Context) error {
-		return c.NoContent(http.StatusOK)
-	}, corsMiddleware)
+	p.Echo.Use(middleware.CORS())
 
 	return err
 }

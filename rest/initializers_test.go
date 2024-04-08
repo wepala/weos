@@ -215,7 +215,7 @@ func TestRouteInitializer(t *testing.T) {
 		if headers.Get("Access-Control-Allow-Origin") != "*" {
 			t.Errorf("expected Access-Control-Allow-Origin header to be set, got '%s'", headers.Get("Access-Control-Allow-Origin"))
 		}
-		if headers.Get("Access-Control-Allow-Methods") != "GET,OPTIONS,HEAD" {
+		if headers.Get("Access-Control-Allow-Methods") != "GET,HEAD,PUT,PATCH,POST,DELETE" {
 			t.Errorf("expected Access-Control-Allow-Methods header to be set, got '%s'", headers.Get("Access-Control-Allow-Methods"))
 		}
 	})
