@@ -274,7 +274,9 @@ func RouteInitializer(p RouteParams) (err error) {
 			AllowMethods: allowedMethods,
 			AllowHeaders: allowedHeaders,
 		})
-		p.Echo.Add(http.MethodOptions, p.APIConfig.BasePath+path, func(c echo.Context) error {
+		re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
+		echoPath := re.ReplaceAllString(path, `:$1`)
+		p.Echo.Add(http.MethodOptions, p.APIConfig.BasePath+echoPath, func(c echo.Context) error {
 			return c.NoContent(http.StatusOK)
 		}, corsMiddleware)
 	}
