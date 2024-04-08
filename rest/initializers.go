@@ -310,6 +310,7 @@ func RouteInitializer(p RouteParams) (err error) {
 	p.Echo.Add(http.MethodOptions, p.APIConfig.BasePath+"/*", func(c echo.Context) error {
 		return c.NoContent(http.StatusOK)
 	}, corsMiddleware)
+	p.Echo.Use(middleware.CORS())
 
 	return err
 }
