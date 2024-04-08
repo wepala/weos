@@ -259,20 +259,17 @@ func RouteInitializer(p RouteParams) (err error) {
 		}
 		//set up endpoint for options
 		//setup CORS middleware
-		var allowedMethods, allowedHeaders []string
+		var allowedMethods []string
 		var ok bool
 		if allowedMethods, ok = pathMethods[path]; !ok {
 			allowedMethods = []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
-		}
-		if allowedHeaders, ok = pathHeaders[path]; !ok {
-			allowedHeaders = []string{"*"}
 		}
 		//add the methods required by solid protocol
 		allowedMethods = append(allowedMethods, http.MethodOptions, http.MethodHead)
 		corsMiddleware := middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins: []string{"*"},
 			AllowMethods: allowedMethods,
-			AllowHeaders: allowedHeaders,
+			AllowHeaders: []string{"*"},
 		})
 		re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
 		echoPath := re.ReplaceAllString(path, `:$1`)
