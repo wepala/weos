@@ -114,8 +114,8 @@ func TestFiltersSplit(t *testing.T) {
 	})
 	t.Run("testing splitfilter with no data", func(t *testing.T) {
 		prop := api.SplitFilter("")
-		if prop != nil {
-			t.Errorf("expected filters properties to be nil got %s, %s, %s", prop.Field, prop.Value, prop.Operator)
+		if prop.Field != "" || prop.Operator != "" {
+			t.Errorf("expected filters properties to be nil got %s, %s", prop.Field, prop.Operator)
 		}
 
 	})
@@ -125,7 +125,7 @@ func TestFiltersSplit(t *testing.T) {
 		operator := "eq"
 		value := "2"
 		prop := api.SplitFilter(queryString)
-		if prop == nil {
+		if prop.Field == "" || prop.Operator == "" || prop.Value == "" {
 			t.Fatalf("expected to get a property but go nil")
 		}
 		if prop.Field != field {
@@ -144,7 +144,7 @@ func TestFiltersSplit(t *testing.T) {
 		field := "id"
 		operator := "eq"
 		prop := api.SplitFilter(queryString)
-		if prop == nil {
+		if prop.Field == "" || prop.Operator == "" || prop.Values == nil {
 			t.Fatalf("expected to get a property but go nil")
 		}
 		if prop.Field != field {

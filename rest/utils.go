@@ -219,19 +219,18 @@ func SplitFilters(filters string) []string {
 }
 
 // SplitFilter splits a filter with a single value into the field, operator, value
-func SplitFilter(filter string) *FilterProperties {
-	var property *FilterProperties
+func SplitFilter(filter string) (property FilterProperty) {
 	if filter == "" {
-		return nil
+		return property
 	}
 	field := strings.Split(filter, "[")
 	if len(field) != 3 {
-		return nil
+		return property
 	}
 	field[1] = strings.Replace(field[1], "]", "", -1)
 	operator := strings.Split(field[2], "=")
 	if len(operator) != 2 {
-		return nil
+		return property
 	}
 	operator[0] = strings.Replace(operator[0], "]", "", -1)
 	//checks if the there are more than one values specified by checking if there is a comma
@@ -241,14 +240,14 @@ func SplitFilter(filter string) *FilterProperties {
 		for _, val := range values {
 			vals = append(vals, val)
 		}
-		property = &FilterProperties{
+		property = FilterProperty{
 			Field:    field[1],
 			Operator: operator[0],
 			Values:   vals,
 		}
 
 	} else {
-		property = &FilterProperties{
+		property = FilterProperty{
 			Field:    field[1],
 			Operator: operator[0],
 			Value:    operator[1],
@@ -483,8 +482,8 @@ func Contains(arr []string, s string) bool {
 }
 
 // ParseQueryFilters converts the filters in a query string to filter options
-func ParseQueryFilters(query string, logger Log) (filters map[string]*FilterProperties, err error) {
-	filters = make(map[string]*FilterProperties)
+func ParseQueryFilters(query string, logger Log) (filters map[string]FilterProperty, err error) {
+	filters = make(map[string]FilterProperty)
 	decodedQuery, err := url.PathUnescape(query)
 	if err != nil {
 		logger.Errorf("error decoding query string: %s", err.Error())

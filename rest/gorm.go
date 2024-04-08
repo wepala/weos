@@ -390,12 +390,7 @@ func (e *GORMProjection) ResourceDeleteHandler(ctx context.Context, logger Log, 
 }
 
 // List Query Stuff
-type FilterProperty struct {
-	Field    string        `json:"field"`
-	Operator string        `json:"operator"`
-	Value    interface{}   `json:"value"`
-	Values   []interface{} `json:"values"`
-}
+
 type QueryFilterModifier func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB
 
 var FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {
