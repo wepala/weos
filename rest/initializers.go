@@ -1,7 +1,6 @@
 package rest
 
 import (
-	"encoding/json"
 	"github.com/casbin/casbin/v2"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -222,7 +221,7 @@ func RouteInitializer(p RouteParams) (err error) {
 
 				//add rule to the enforcer based on the operation
 				var authConfig map[string]interface{}
-				if err = json.Unmarshal(authRaw.(json.RawMessage), &authConfig); err == nil {
+				if authConfig, ok = authRaw.(map[string]interface{}); ok {
 					if allowRules, ok := authConfig["allow"]; ok {
 						//setup users
 						if u, ok := allowRules.(map[string]interface{})["users"]; ok {
