@@ -305,6 +305,14 @@ func RouteInitializer(p RouteParams) (err error) {
 		ResourceRepository: p.ResourceRepository,
 		Schema:             p.Config,
 	}))
+	corsMiddleware := middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
+		AllowHeaders: []string{"*"},
+	})
+	p.Echo.Add(http.MethodOptions, p.APIConfig.BasePath+"/*", func(c echo.Context) error {
+		return c.NoContent(http.StatusOK)
+	}, corsMiddleware)
 
 	return err
 }
