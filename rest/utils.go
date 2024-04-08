@@ -12,6 +12,7 @@ import (
 	"math"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"regexp"
@@ -459,4 +460,41 @@ func ResolveResponseType(header string, content openapi3.Content) string {
 		}
 	}
 	return ""
+}
+
+func SnakeCase(s string) string {
+	s = strings.Title(s)
+	re := regexp.MustCompile(`[A-Z]+[^A-Z\.]*`)
+	split := re.FindAllString(s, -1)
+	for n, s := range split {
+		s = strings.ToLower(s)
+		split[n] = strings.TrimSuffix(s, "_")
+	}
+	return strings.Join(split, "_")
+}
+
+func Contains(arr []string, s string) bool {
+	for _, a := range arr {
+		if s == a {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseQueryFilters converts the filters in a query string to filter options
+func ParseQueryFilters(query string, logger Log) (filters map[string]*FilterProperties, err error) {
+	filters = make(map[string]*FilterProperties)
+	decodedQuery, err := url.PathUnescape(query)
+	if err != nil {
+		logger.Errorf("error decoding query string: %s", err.Error())
+	}
+	filtersArray := strings.Split(decodedQuery, "&")
+	for _, value := range filtersArray {
+		if strings.Contains(value, "_filters") {
+			options := SplitFilter(value)
+			filters[options.Field] = options
+		}
+	}
+	return filters, err
 }

@@ -388,3 +388,52 @@ func (e *GORMProjection) ResourceDeleteHandler(ctx context.Context, logger Log, 
 	}
 	return err
 }
+
+// List Query Stuff
+type FilterProperty struct {
+	Field    string        `json:"field"`
+	Operator string        `json:"operator"`
+	Value    interface{}   `json:"value"`
+	Values   []interface{} `json:"values"`
+}
+type QueryFilterModifier func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB
+
+var FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		if options != nil {
+			for _, filter := range options {
+				operator := "="
+				switch filter.Operator {
+				case "gt":
+					operator = ">"
+				case "lt":
+					operator = "<"
+				case "ne":
+					operator = "!="
+				case "like":
+					if db.Dialector.Name() == "postgres" {
+						operator = "ILIKE"
+					} else {
+						operator = " LIKE"
+					}
+				case "in":
+					operator = "IN"
+
+				}
+
+				if len(filter.Values) == 0 {
+					if filter.Operator == "like" {
+						db.Where(SnakeCase(filter.Field)+" "+operator+" ?", "%"+filter.Value.(string)+"%")
+					} else {
+						db.Where(SnakeCase(filter.Field)+" "+operator+" ?", filter.Value)
+					}
+
+				} else {
+					db.Where(SnakeCase(filter.Field)+" "+operator+" ?", filter.Values)
+				}
+
+			}
+		}
+		return db
+	}
+}

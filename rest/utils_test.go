@@ -312,3 +312,30 @@ func TestGetJwkUrl(t *testing.T) {
 //		}
 //	})
 //}
+
+func TestParseQueryFilters(t *testing.T) {
+	logger := &LogMock{
+		DebugfFunc: func(format string, args ...interface{}) {
+
+		},
+		ErrorfFunc: func(format string, args ...interface{}) {
+
+		},
+	}
+	t.Run("should parse the query string into a map of filters", func(t *testing.T) {
+		query := "_filters[account_id][eq]=123"
+		filterOptions, err := api.ParseQueryFilters(query, logger)
+		if err != nil {
+			t.Fatalf("expected no error, got %s", err)
+		}
+		if len(filterOptions) != 1 {
+			t.Fatalf("expected 1 filter option, got %d", len(filterOptions))
+		}
+		if filterOptions["account_id"].Field != "account_id" {
+			t.Errorf("expected field to be account_id, got %s", filterOptions["account_id"].Field)
+		}
+		if filterOptions["account_id"].Operator != "eq" {
+			t.Errorf("expected operator to be eq, got %s", filterOptions["account_id"].Operator)
+		}
+	})
+}
