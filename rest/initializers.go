@@ -207,8 +207,6 @@ func RouteInitializer(p RouteParams) (err error) {
 			//setup security enforcer
 			if authRaw, ok := operation.Extensions[AuthorizationConfigExtension]; ok {
 
-				var err error
-
 				defer func() {
 					if err1 := recover(); err1 != nil {
 						log.Error("panic occurred ", string(debug.Stack()))
@@ -254,7 +252,6 @@ func RouteInitializer(p RouteParams) (err error) {
 						}
 					}
 				}
-				return err
 			}
 
 		}
