@@ -92,10 +92,11 @@ func RouteInitializer(p RouteParams) (err error) {
 		//set up the security middleware if there is a config setup
 		if len(p.Config.Security) > 0 {
 			pathMiddleware = append(pathMiddleware, SecurityMiddleware(&MiddlewareParams{
-				Logger:          p.Logger,
-				SecuritySchemes: p.SecuritySchemes,
-				Schema:          p.Config,
-				APIConfig:       p.APIConfig,
+				Logger:                p.Logger,
+				SecuritySchemes:       p.SecuritySchemes,
+				Schema:                p.Config,
+				APIConfig:             p.APIConfig,
+				AuthorizationEnforcer: p.AuthorizationEnforcer,
 			}))
 
 		}
