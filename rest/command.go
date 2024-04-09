@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"go.uber.org/fx"
 	"golang.org/x/net/context"
+	"gorm.io/gorm"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -39,7 +41,7 @@ type DefaultCommandDispatcher struct {
 	dispatch        sync.Mutex
 }
 
-func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Command, logger Log, options *CommandOptions) (response CommandResponse, err error) {
+func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, logger Log, command *Command, options *CommandOptions) (response CommandResponse, err error) {
 	var wg sync.WaitGroup
 	var allHandlers []CommandHandler
 	//first preference is handlers for specific command type and entity type
@@ -69,7 +71,7 @@ func (e *DefaultCommandDispatcher) Dispatch(ctx context.Context, command *Comman
 				}
 				wg.Done()
 			}()
-			response, err = handler(ctx, command, logger, options)
+			response, err = handler(ctx, logger, command, options)
 		}()
 	}
 
@@ -125,4 +127,6 @@ type CommandOptions struct {
 	ResourceRepository *ResourceRepository
 	DefaultProjection  Projection
 	Projections        map[string]Projection
+	HttpClient         *http.Client
+	GORMDB             *gorm.DB
 }

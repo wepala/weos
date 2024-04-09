@@ -11,7 +11,7 @@ func TestDefaultEventDisptacher_AddSubscriber(t *testing.T) {
 		eventDispatcher := new(rest.GORMProjection)
 		err := eventDispatcher.AddSubscriber(rest.EventHandlerConfig{
 			Type: "create",
-			Handler: func(ctx context.Context, logger rest.Log, event *rest.Event) error {
+			Handler: func(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) error {
 				return nil
 			},
 		})
@@ -35,7 +35,7 @@ func TestDefaultEventDisptacher_AddSubscriber(t *testing.T) {
 		err := eventDispatcher.AddSubscriber(rest.EventHandlerConfig{
 			ResourceType: "Article",
 			Type:         "create",
-			Handler: func(ctx context.Context, logger rest.Log, event *rest.Event) error {
+			Handler: func(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) error {
 				return nil
 			},
 		})
@@ -86,7 +86,7 @@ func TestResourceRepository_Dispatch(t *testing.T) {
 		eventDispatcher := new(rest.GORMProjection)
 		err := eventDispatcher.AddSubscriber(rest.EventHandlerConfig{
 			Type: "create",
-			Handler: func(ctx context.Context, logger rest.Log, event *rest.Event) error {
+			Handler: func(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) error {
 				createHandlerHit = true
 				return nil
 			},
@@ -97,7 +97,7 @@ func TestResourceRepository_Dispatch(t *testing.T) {
 		err = eventDispatcher.AddSubscriber(rest.EventHandlerConfig{
 			Type:         "create",
 			ResourceType: "Article",
-			Handler: func(ctx context.Context, logger rest.Log, event *rest.Event) error {
+			Handler: func(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) error {
 				articleCreateHandlerHit = true
 				return nil
 			},
@@ -110,7 +110,7 @@ func TestResourceRepository_Dispatch(t *testing.T) {
 			Meta: rest.EventMeta{
 				ResourceType: "Article",
 			},
-		})
+		}, &rest.EventOptions{})
 		if len(errors) != 0 {
 			t.Errorf("expected no errors, got %d", len(errors))
 		}

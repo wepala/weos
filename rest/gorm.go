@@ -223,7 +223,7 @@ type GORMProjection struct {
 }
 
 // Dispatch dispatches the event to the handlers
-func (e *GORMProjection) Dispatch(ctx context.Context, logger Log, event *Event) []error {
+func (e *GORMProjection) Dispatch(ctx context.Context, logger Log, event *Event, options *EventOptions) []error {
 	//mutex helps keep state between routines
 	var errors []error
 	var wg sync.WaitGroup
@@ -251,7 +251,7 @@ func (e *GORMProjection) Dispatch(ctx context.Context, logger Log, event *Event)
 				wg.Done()
 			}()
 
-			err := handler(ctx, logger, event)
+			err := handler(ctx, logger, event, options)
 			if err != nil {
 				errors = append(errors, err)
 			}
@@ -331,7 +331,9 @@ func (e *GORMProjection) Persist(ctxt context.Context, logger Log, resources []R
 		errs = append(errs, result.Error)
 	}
 	for _, event := range events {
-		e.Dispatch(ctxt, logger, event)
+		e.Dispatch(ctxt, logger, event, &EventOptions{
+			GORMDB: e.gormDB,
+		})
 	}
 	return errs
 }
@@ -362,13 +364,13 @@ func (e *GORMProjection) GetEventHandlers() []EventHandlerConfig {
 }
 
 // ResourceUpdateHandler handles Create Update operations
-func (e *GORMProjection) ResourceUpdateHandler(ctx context.Context, logger Log, event *Event) (err error) {
+func (e *GORMProjection) ResourceUpdateHandler(ctx context.Context, logger Log, event *Event, options *EventOptions) (err error) {
 	basicResource := new(BasicResource)
 	err = json.Unmarshal(event.Payload, &basicResource)
 	if err != nil {
 		return err
 	}
-	result := e.gormDB.Save(basicResource)
+	result := options.GORMDB.Save(basicResource)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -376,13 +378,13 @@ func (e *GORMProjection) ResourceUpdateHandler(ctx context.Context, logger Log, 
 }
 
 // ResourceDeleteHandler handles Delete operations
-func (e *GORMProjection) ResourceDeleteHandler(ctx context.Context, logger Log, event *Event) (err error) {
+func (e *GORMProjection) ResourceDeleteHandler(ctx context.Context, logger Log, event *Event, options *EventOptions) (err error) {
 	basicResource := new(BasicResource)
 	err = json.Unmarshal(event.Payload, &basicResource)
 	if err != nil {
 		return err
 	}
-	result := e.gormDB.Delete(basicResource)
+	result := options.GORMDB.Delete(basicResource)
 	if result.Error != nil {
 		return result.Error
 	}

@@ -15,58 +15,58 @@ var _ rest.Log = &LogMock{}
 
 // LogMock is a mock implementation of rest.Log.
 //
-//	func TestSomethingThatUsesLog(t *testing.T) {
+// 	func TestSomethingThatUsesLog(t *testing.T) {
 //
-//		// make and configure a mocked rest.Log
-//		mockedLog := &LogMock{
-//			DebugFunc: func(args ...interface{})  {
-//				panic("mock out the Debug method")
-//			},
-//			DebugfFunc: func(format string, args ...interface{})  {
-//				panic("mock out the Debugf method")
-//			},
-//			ErrorFunc: func(args ...interface{})  {
-//				panic("mock out the Error method")
-//			},
-//			ErrorfFunc: func(format string, args ...interface{})  {
-//				panic("mock out the Errorf method")
-//			},
-//			FatalFunc: func(args ...interface{})  {
-//				panic("mock out the Fatal method")
-//			},
-//			FatalfFunc: func(format string, args ...interface{})  {
-//				panic("mock out the Fatalf method")
-//			},
-//			InfoFunc: func(args ...interface{})  {
-//				panic("mock out the Info method")
-//			},
-//			InfofFunc: func(format string, args ...interface{})  {
-//				panic("mock out the Infof method")
-//			},
-//			PanicFunc: func(args ...interface{})  {
-//				panic("mock out the Panic method")
-//			},
-//			PanicfFunc: func(format string, args ...interface{})  {
-//				panic("mock out the Panicf method")
-//			},
-//			PrintFunc: func(args ...interface{})  {
-//				panic("mock out the Print method")
-//			},
-//			PrintfFunc: func(format string, args ...interface{})  {
-//				panic("mock out the Printf method")
-//			},
-//			WarnFunc: func(args ...interface{})  {
-//				panic("mock out the Warn method")
-//			},
-//			WarnfFunc: func(format string, args ...interface{})  {
-//				panic("mock out the Warnf method")
-//			},
-//		}
+// 		// make and configure a mocked rest.Log
+// 		mockedLog := &LogMock{
+// 			DebugFunc: func(args ...interface{})  {
+// 				panic("mock out the Debug method")
+// 			},
+// 			DebugfFunc: func(format string, args ...interface{})  {
+// 				panic("mock out the Debugf method")
+// 			},
+// 			ErrorFunc: func(args ...interface{})  {
+// 				panic("mock out the Error method")
+// 			},
+// 			ErrorfFunc: func(format string, args ...interface{})  {
+// 				panic("mock out the Errorf method")
+// 			},
+// 			FatalFunc: func(args ...interface{})  {
+// 				panic("mock out the Fatal method")
+// 			},
+// 			FatalfFunc: func(format string, args ...interface{})  {
+// 				panic("mock out the Fatalf method")
+// 			},
+// 			InfoFunc: func(args ...interface{})  {
+// 				panic("mock out the Info method")
+// 			},
+// 			InfofFunc: func(format string, args ...interface{})  {
+// 				panic("mock out the Infof method")
+// 			},
+// 			PanicFunc: func(args ...interface{})  {
+// 				panic("mock out the Panic method")
+// 			},
+// 			PanicfFunc: func(format string, args ...interface{})  {
+// 				panic("mock out the Panicf method")
+// 			},
+// 			PrintFunc: func(args ...interface{})  {
+// 				panic("mock out the Print method")
+// 			},
+// 			PrintfFunc: func(format string, args ...interface{})  {
+// 				panic("mock out the Printf method")
+// 			},
+// 			WarnFunc: func(args ...interface{})  {
+// 				panic("mock out the Warn method")
+// 			},
+// 			WarnfFunc: func(format string, args ...interface{})  {
+// 				panic("mock out the Warnf method")
+// 			},
+// 		}
 //
-//		// use mockedLog in code that requires rest.Log
-//		// and then make assertions.
+// 		// use mockedLog in code that requires rest.Log
+// 		// and then make assertions.
 //
-//	}
+// 	}
 type LogMock struct {
 	// DebugFunc mocks the Debug method.
 	DebugFunc func(args ...interface{})
@@ -231,8 +231,7 @@ func (mock *LogMock) Debug(args ...interface{}) {
 
 // DebugCalls gets all the calls that were made to Debug.
 // Check the length with:
-//
-//	len(mockedLog.DebugCalls())
+//     len(mockedLog.DebugCalls())
 func (mock *LogMock) DebugCalls() []struct {
 	Args []interface{}
 } {
@@ -265,8 +264,7 @@ func (mock *LogMock) Debugf(format string, args ...interface{}) {
 
 // DebugfCalls gets all the calls that were made to Debugf.
 // Check the length with:
-//
-//	len(mockedLog.DebugfCalls())
+//     len(mockedLog.DebugfCalls())
 func (mock *LogMock) DebugfCalls() []struct {
 	Format string
 	Args   []interface{}
@@ -299,8 +297,7 @@ func (mock *LogMock) Error(args ...interface{}) {
 
 // ErrorCalls gets all the calls that were made to Error.
 // Check the length with:
-//
-//	len(mockedLog.ErrorCalls())
+//     len(mockedLog.ErrorCalls())
 func (mock *LogMock) ErrorCalls() []struct {
 	Args []interface{}
 } {
@@ -333,8 +330,7 @@ func (mock *LogMock) Errorf(format string, args ...interface{}) {
 
 // ErrorfCalls gets all the calls that were made to Errorf.
 // Check the length with:
-//
-//	len(mockedLog.ErrorfCalls())
+//     len(mockedLog.ErrorfCalls())
 func (mock *LogMock) ErrorfCalls() []struct {
 	Format string
 	Args   []interface{}
@@ -367,8 +363,7 @@ func (mock *LogMock) Fatal(args ...interface{}) {
 
 // FatalCalls gets all the calls that were made to Fatal.
 // Check the length with:
-//
-//	len(mockedLog.FatalCalls())
+//     len(mockedLog.FatalCalls())
 func (mock *LogMock) FatalCalls() []struct {
 	Args []interface{}
 } {
@@ -401,8 +396,7 @@ func (mock *LogMock) Fatalf(format string, args ...interface{}) {
 
 // FatalfCalls gets all the calls that were made to Fatalf.
 // Check the length with:
-//
-//	len(mockedLog.FatalfCalls())
+//     len(mockedLog.FatalfCalls())
 func (mock *LogMock) FatalfCalls() []struct {
 	Format string
 	Args   []interface{}
@@ -435,8 +429,7 @@ func (mock *LogMock) Info(args ...interface{}) {
 
 // InfoCalls gets all the calls that were made to Info.
 // Check the length with:
-//
-//	len(mockedLog.InfoCalls())
+//     len(mockedLog.InfoCalls())
 func (mock *LogMock) InfoCalls() []struct {
 	Args []interface{}
 } {
@@ -469,8 +462,7 @@ func (mock *LogMock) Infof(format string, args ...interface{}) {
 
 // InfofCalls gets all the calls that were made to Infof.
 // Check the length with:
-//
-//	len(mockedLog.InfofCalls())
+//     len(mockedLog.InfofCalls())
 func (mock *LogMock) InfofCalls() []struct {
 	Format string
 	Args   []interface{}
@@ -503,8 +495,7 @@ func (mock *LogMock) Panic(args ...interface{}) {
 
 // PanicCalls gets all the calls that were made to Panic.
 // Check the length with:
-//
-//	len(mockedLog.PanicCalls())
+//     len(mockedLog.PanicCalls())
 func (mock *LogMock) PanicCalls() []struct {
 	Args []interface{}
 } {
@@ -537,8 +528,7 @@ func (mock *LogMock) Panicf(format string, args ...interface{}) {
 
 // PanicfCalls gets all the calls that were made to Panicf.
 // Check the length with:
-//
-//	len(mockedLog.PanicfCalls())
+//     len(mockedLog.PanicfCalls())
 func (mock *LogMock) PanicfCalls() []struct {
 	Format string
 	Args   []interface{}
@@ -571,8 +561,7 @@ func (mock *LogMock) Print(args ...interface{}) {
 
 // PrintCalls gets all the calls that were made to Print.
 // Check the length with:
-//
-//	len(mockedLog.PrintCalls())
+//     len(mockedLog.PrintCalls())
 func (mock *LogMock) PrintCalls() []struct {
 	Args []interface{}
 } {
@@ -605,8 +594,7 @@ func (mock *LogMock) Printf(format string, args ...interface{}) {
 
 // PrintfCalls gets all the calls that were made to Printf.
 // Check the length with:
-//
-//	len(mockedLog.PrintfCalls())
+//     len(mockedLog.PrintfCalls())
 func (mock *LogMock) PrintfCalls() []struct {
 	Format string
 	Args   []interface{}
@@ -639,8 +627,7 @@ func (mock *LogMock) Warn(args ...interface{}) {
 
 // WarnCalls gets all the calls that were made to Warn.
 // Check the length with:
-//
-//	len(mockedLog.WarnCalls())
+//     len(mockedLog.WarnCalls())
 func (mock *LogMock) WarnCalls() []struct {
 	Args []interface{}
 } {
@@ -673,8 +660,7 @@ func (mock *LogMock) Warnf(format string, args ...interface{}) {
 
 // WarnfCalls gets all the calls that were made to Warnf.
 // Check the length with:
-//
-//	len(mockedLog.WarnfCalls())
+//     len(mockedLog.WarnfCalls())
 func (mock *LogMock) WarnfCalls() []struct {
 	Format string
 	Args   []interface{}
@@ -695,22 +681,22 @@ var _ rest.Repository = &RepositoryMock{}
 
 // RepositoryMock is a mock implementation of rest.Repository.
 //
-//	func TestSomethingThatUsesRepository(t *testing.T) {
+// 	func TestSomethingThatUsesRepository(t *testing.T) {
 //
-//		// make and configure a mocked rest.Repository
-//		mockedRepository := &RepositoryMock{
-//			PersistFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
-//				panic("mock out the Persist method")
-//			},
-//			RemoveFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
-//				panic("mock out the Remove method")
-//			},
-//		}
+// 		// make and configure a mocked rest.Repository
+// 		mockedRepository := &RepositoryMock{
+// 			PersistFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
+// 				panic("mock out the Persist method")
+// 			},
+// 			RemoveFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
+// 				panic("mock out the Remove method")
+// 			},
+// 		}
 //
-//		// use mockedRepository in code that requires rest.Repository
-//		// and then make assertions.
+// 		// use mockedRepository in code that requires rest.Repository
+// 		// and then make assertions.
 //
-//	}
+// 	}
 type RepositoryMock struct {
 	// PersistFunc mocks the Persist method.
 	PersistFunc func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error
@@ -765,8 +751,7 @@ func (mock *RepositoryMock) Persist(ctxt context.Context, logger rest.Log, resou
 
 // PersistCalls gets all the calls that were made to Persist.
 // Check the length with:
-//
-//	len(mockedRepository.PersistCalls())
+//     len(mockedRepository.PersistCalls())
 func (mock *RepositoryMock) PersistCalls() []struct {
 	Ctxt      context.Context
 	Logger    rest.Log
@@ -805,8 +790,7 @@ func (mock *RepositoryMock) Remove(ctxt context.Context, logger rest.Log, resour
 
 // RemoveCalls gets all the calls that were made to Remove.
 // Check the length with:
-//
-//	len(mockedRepository.RemoveCalls())
+//     len(mockedRepository.RemoveCalls())
 func (mock *RepositoryMock) RemoveCalls() []struct {
 	Ctxt      context.Context
 	Logger    rest.Log
@@ -829,31 +813,31 @@ var _ rest.Projection = &ProjectionMock{}
 
 // ProjectionMock is a mock implementation of rest.Projection.
 //
-//	func TestSomethingThatUsesProjection(t *testing.T) {
+// 	func TestSomethingThatUsesProjection(t *testing.T) {
 //
-//		// make and configure a mocked rest.Projection
-//		mockedProjection := &ProjectionMock{
-//			GetByKeyFunc: func(ctxt context.Context, identifiers map[string]interface{}) (rest.Resource, error) {
-//				panic("mock out the GetByKey method")
-//			},
-//			GetByPropertiesFunc: func(ctxt context.Context, identifiers map[string]interface{}) ([]rest.Entity, error) {
-//				panic("mock out the GetByProperties method")
-//			},
-//			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
-//				panic("mock out the GetByURI method")
-//			},
-//			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
-//				panic("mock out the GetEventHandlers method")
-//			},
-//			GetListFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error) {
-//				panic("mock out the GetList method")
-//			},
-//		}
+// 		// make and configure a mocked rest.Projection
+// 		mockedProjection := &ProjectionMock{
+// 			GetByKeyFunc: func(ctxt context.Context, identifiers map[string]interface{}) (rest.Resource, error) {
+// 				panic("mock out the GetByKey method")
+// 			},
+// 			GetByPropertiesFunc: func(ctxt context.Context, identifiers map[string]interface{}) ([]rest.Entity, error) {
+// 				panic("mock out the GetByProperties method")
+// 			},
+// 			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
+// 				panic("mock out the GetByURI method")
+// 			},
+// 			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
+// 				panic("mock out the GetEventHandlers method")
+// 			},
+// 			GetListFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error) {
+// 				panic("mock out the GetList method")
+// 			},
+// 		}
 //
-//		// use mockedProjection in code that requires rest.Projection
-//		// and then make assertions.
+// 		// use mockedProjection in code that requires rest.Projection
+// 		// and then make assertions.
 //
-//	}
+// 	}
 type ProjectionMock struct {
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, identifiers map[string]interface{}) (rest.Resource, error)
@@ -941,8 +925,7 @@ func (mock *ProjectionMock) GetByKey(ctxt context.Context, identifiers map[strin
 
 // GetByKeyCalls gets all the calls that were made to GetByKey.
 // Check the length with:
-//
-//	len(mockedProjection.GetByKeyCalls())
+//     len(mockedProjection.GetByKeyCalls())
 func (mock *ProjectionMock) GetByKeyCalls() []struct {
 	Ctxt        context.Context
 	Identifiers map[string]interface{}
@@ -977,8 +960,7 @@ func (mock *ProjectionMock) GetByProperties(ctxt context.Context, identifiers ma
 
 // GetByPropertiesCalls gets all the calls that were made to GetByProperties.
 // Check the length with:
-//
-//	len(mockedProjection.GetByPropertiesCalls())
+//     len(mockedProjection.GetByPropertiesCalls())
 func (mock *ProjectionMock) GetByPropertiesCalls() []struct {
 	Ctxt        context.Context
 	Identifiers map[string]interface{}
@@ -1015,8 +997,7 @@ func (mock *ProjectionMock) GetByURI(ctxt context.Context, logger rest.Log, uri 
 
 // GetByURICalls gets all the calls that were made to GetByURI.
 // Check the length with:
-//
-//	len(mockedProjection.GetByURICalls())
+//     len(mockedProjection.GetByURICalls())
 func (mock *ProjectionMock) GetByURICalls() []struct {
 	Ctxt   context.Context
 	Logger rest.Log
@@ -1048,8 +1029,7 @@ func (mock *ProjectionMock) GetEventHandlers() []rest.EventHandlerConfig {
 
 // GetEventHandlersCalls gets all the calls that were made to GetEventHandlers.
 // Check the length with:
-//
-//	len(mockedProjection.GetEventHandlersCalls())
+//     len(mockedProjection.GetEventHandlersCalls())
 func (mock *ProjectionMock) GetEventHandlersCalls() []struct {
 } {
 	var calls []struct {
@@ -1088,8 +1068,7 @@ func (mock *ProjectionMock) GetList(ctx context.Context, page int, limit int, qu
 
 // GetListCalls gets all the calls that were made to GetList.
 // Check the length with:
-//
-//	len(mockedProjection.GetListCalls())
+//     len(mockedProjection.GetListCalls())
 func (mock *ProjectionMock) GetListCalls() []struct {
 	Ctx           context.Context
 	Page          int
@@ -1118,31 +1097,31 @@ var _ rest.CommandDispatcher = &CommandDispatcherMock{}
 
 // CommandDispatcherMock is a mock implementation of rest.CommandDispatcher.
 //
-//	func TestSomethingThatUsesCommandDispatcher(t *testing.T) {
+// 	func TestSomethingThatUsesCommandDispatcher(t *testing.T) {
 //
-//		// make and configure a mocked rest.CommandDispatcher
-//		mockedCommandDispatcher := &CommandDispatcherMock{
-//			AddSubscriberFunc: func(command rest.CommandConfig) map[string][]rest.CommandHandler {
-//				panic("mock out the AddSubscriber method")
-//			},
-//			DispatchFunc: func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (rest.CommandResponse, error) {
-//				panic("mock out the Dispatch method")
-//			},
-//			GetSubscribersFunc: func() map[string][]rest.CommandHandler {
-//				panic("mock out the GetSubscribers method")
-//			},
-//		}
+// 		// make and configure a mocked rest.CommandDispatcher
+// 		mockedCommandDispatcher := &CommandDispatcherMock{
+// 			AddSubscriberFunc: func(command rest.CommandConfig) map[string][]rest.CommandHandler {
+// 				panic("mock out the AddSubscriber method")
+// 			},
+// 			DispatchFunc: func(ctx context.Context, logger rest.Log, command *rest.Command, options *rest.CommandOptions) (rest.CommandResponse, error) {
+// 				panic("mock out the Dispatch method")
+// 			},
+// 			GetSubscribersFunc: func() map[string][]rest.CommandHandler {
+// 				panic("mock out the GetSubscribers method")
+// 			},
+// 		}
 //
-//		// use mockedCommandDispatcher in code that requires rest.CommandDispatcher
-//		// and then make assertions.
+// 		// use mockedCommandDispatcher in code that requires rest.CommandDispatcher
+// 		// and then make assertions.
 //
-//	}
+// 	}
 type CommandDispatcherMock struct {
 	// AddSubscriberFunc mocks the AddSubscriber method.
 	AddSubscriberFunc func(command rest.CommandConfig) map[string][]rest.CommandHandler
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (rest.CommandResponse, error)
+	DispatchFunc func(ctx context.Context, logger rest.Log, command *rest.Command, options *rest.CommandOptions) (rest.CommandResponse, error)
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
 	GetSubscribersFunc func() map[string][]rest.CommandHandler
@@ -1158,10 +1137,10 @@ type CommandDispatcherMock struct {
 		Dispatch []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Command is the command argument value.
-			Command *rest.Command
 			// Logger is the logger argument value.
 			Logger rest.Log
+			// Command is the command argument value.
+			Command *rest.Command
 			// Options is the options argument value.
 			Options *rest.CommandOptions
 		}
@@ -1192,8 +1171,7 @@ func (mock *CommandDispatcherMock) AddSubscriber(command rest.CommandConfig) map
 
 // AddSubscriberCalls gets all the calls that were made to AddSubscriber.
 // Check the length with:
-//
-//	len(mockedCommandDispatcher.AddSubscriberCalls())
+//     len(mockedCommandDispatcher.AddSubscriberCalls())
 func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 	Command rest.CommandConfig
 } {
@@ -1207,41 +1185,40 @@ func (mock *CommandDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (rest.CommandResponse, error) {
+func (mock *CommandDispatcherMock) Dispatch(ctx context.Context, logger rest.Log, command *rest.Command, options *rest.CommandOptions) (rest.CommandResponse, error) {
 	if mock.DispatchFunc == nil {
 		panic("CommandDispatcherMock.DispatchFunc: method is nil but CommandDispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Command *rest.Command
 		Logger  rest.Log
+		Command *rest.Command
 		Options *rest.CommandOptions
 	}{
 		Ctx:     ctx,
-		Command: command,
 		Logger:  logger,
+		Command: command,
 		Options: options,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, command, logger, options)
+	return mock.DispatchFunc(ctx, logger, command, options)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
 // Check the length with:
-//
-//	len(mockedCommandDispatcher.DispatchCalls())
+//     len(mockedCommandDispatcher.DispatchCalls())
 func (mock *CommandDispatcherMock) DispatchCalls() []struct {
 	Ctx     context.Context
-	Command *rest.Command
 	Logger  rest.Log
+	Command *rest.Command
 	Options *rest.CommandOptions
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Command *rest.Command
 		Logger  rest.Log
+		Command *rest.Command
 		Options *rest.CommandOptions
 	}
 	mock.lockDispatch.RLock()
@@ -1265,8 +1242,7 @@ func (mock *CommandDispatcherMock) GetSubscribers() map[string][]rest.CommandHan
 
 // GetSubscribersCalls gets all the calls that were made to GetSubscribers.
 // Check the length with:
-//
-//	len(mockedCommandDispatcher.GetSubscribersCalls())
+//     len(mockedCommandDispatcher.GetSubscribersCalls())
 func (mock *CommandDispatcherMock) GetSubscribersCalls() []struct {
 } {
 	var calls []struct {
@@ -1283,31 +1259,31 @@ var _ rest.EventDispatcher = &EventDispatcherMock{}
 
 // EventDispatcherMock is a mock implementation of rest.EventDispatcher.
 //
-//	func TestSomethingThatUsesEventDispatcher(t *testing.T) {
+// 	func TestSomethingThatUsesEventDispatcher(t *testing.T) {
 //
-//		// make and configure a mocked rest.EventDispatcher
-//		mockedEventDispatcher := &EventDispatcherMock{
-//			AddSubscriberFunc: func(handler rest.EventHandlerConfig) error {
-//				panic("mock out the AddSubscriber method")
-//			},
-//			DispatchFunc: func(ctx context.Context, logger rest.Log, event *rest.Event) []error {
-//				panic("mock out the Dispatch method")
-//			},
-//			GetSubscribersFunc: func(resourceType string) map[string][]rest.EventHandler {
-//				panic("mock out the GetSubscribers method")
-//			},
-//		}
+// 		// make and configure a mocked rest.EventDispatcher
+// 		mockedEventDispatcher := &EventDispatcherMock{
+// 			AddSubscriberFunc: func(handler rest.EventHandlerConfig) error {
+// 				panic("mock out the AddSubscriber method")
+// 			},
+// 			DispatchFunc: func(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) []error {
+// 				panic("mock out the Dispatch method")
+// 			},
+// 			GetSubscribersFunc: func(resourceType string) map[string][]rest.EventHandler {
+// 				panic("mock out the GetSubscribers method")
+// 			},
+// 		}
 //
-//		// use mockedEventDispatcher in code that requires rest.EventDispatcher
-//		// and then make assertions.
+// 		// use mockedEventDispatcher in code that requires rest.EventDispatcher
+// 		// and then make assertions.
 //
-//	}
+// 	}
 type EventDispatcherMock struct {
 	// AddSubscriberFunc mocks the AddSubscriber method.
 	AddSubscriberFunc func(handler rest.EventHandlerConfig) error
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, logger rest.Log, event *rest.Event) []error
+	DispatchFunc func(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) []error
 
 	// GetSubscribersFunc mocks the GetSubscribers method.
 	GetSubscribersFunc func(resourceType string) map[string][]rest.EventHandler
@@ -1327,6 +1303,8 @@ type EventDispatcherMock struct {
 			Logger rest.Log
 			// Event is the event argument value.
 			Event *rest.Event
+			// Options is the options argument value.
+			Options *rest.EventOptions
 		}
 		// GetSubscribers holds details about calls to the GetSubscribers method.
 		GetSubscribers []struct {
@@ -1357,8 +1335,7 @@ func (mock *EventDispatcherMock) AddSubscriber(handler rest.EventHandlerConfig) 
 
 // AddSubscriberCalls gets all the calls that were made to AddSubscriber.
 // Check the length with:
-//
-//	len(mockedEventDispatcher.AddSubscriberCalls())
+//     len(mockedEventDispatcher.AddSubscriberCalls())
 func (mock *EventDispatcherMock) AddSubscriberCalls() []struct {
 	Handler rest.EventHandlerConfig
 } {
@@ -1372,38 +1349,41 @@ func (mock *EventDispatcherMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *EventDispatcherMock) Dispatch(ctx context.Context, logger rest.Log, event *rest.Event) []error {
+func (mock *EventDispatcherMock) Dispatch(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) []error {
 	if mock.DispatchFunc == nil {
 		panic("EventDispatcherMock.DispatchFunc: method is nil but EventDispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
-		Ctx    context.Context
-		Logger rest.Log
-		Event  *rest.Event
+		Ctx     context.Context
+		Logger  rest.Log
+		Event   *rest.Event
+		Options *rest.EventOptions
 	}{
-		Ctx:    ctx,
-		Logger: logger,
-		Event:  event,
+		Ctx:     ctx,
+		Logger:  logger,
+		Event:   event,
+		Options: options,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, logger, event)
+	return mock.DispatchFunc(ctx, logger, event, options)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
 // Check the length with:
-//
-//	len(mockedEventDispatcher.DispatchCalls())
+//     len(mockedEventDispatcher.DispatchCalls())
 func (mock *EventDispatcherMock) DispatchCalls() []struct {
-	Ctx    context.Context
-	Logger rest.Log
-	Event  *rest.Event
+	Ctx     context.Context
+	Logger  rest.Log
+	Event   *rest.Event
+	Options *rest.EventOptions
 } {
 	var calls []struct {
-		Ctx    context.Context
-		Logger rest.Log
-		Event  *rest.Event
+		Ctx     context.Context
+		Logger  rest.Log
+		Event   *rest.Event
+		Options *rest.EventOptions
 	}
 	mock.lockDispatch.RLock()
 	calls = mock.calls.Dispatch
@@ -1429,8 +1409,7 @@ func (mock *EventDispatcherMock) GetSubscribers(resourceType string) map[string]
 
 // GetSubscribersCalls gets all the calls that were made to GetSubscribers.
 // Check the length with:
-//
-//	len(mockedEventDispatcher.GetSubscribersCalls())
+//     len(mockedEventDispatcher.GetSubscribersCalls())
 func (mock *EventDispatcherMock) GetSubscribersCalls() []struct {
 	ResourceType string
 } {
@@ -1449,52 +1428,52 @@ var _ rest.EventStore = &EventStoreMock{}
 
 // EventStoreMock is a mock implementation of rest.EventStore.
 //
-//	func TestSomethingThatUsesEventStore(t *testing.T) {
+// 	func TestSomethingThatUsesEventStore(t *testing.T) {
 //
-//		// make and configure a mocked rest.EventStore
-//		mockedEventStore := &EventStoreMock{
-//			AddSubscriberFunc: func(handler rest.EventHandlerConfig) error {
-//				panic("mock out the AddSubscriber method")
-//			},
-//			DispatchFunc: func(ctx context.Context, logger rest.Log, event *rest.Event) []error {
-//				panic("mock out the Dispatch method")
-//			},
-//			GetByKeyFunc: func(ctxt context.Context, identifiers map[string]interface{}) (rest.Resource, error) {
-//				panic("mock out the GetByKey method")
-//			},
-//			GetByPropertiesFunc: func(ctxt context.Context, identifiers map[string]interface{}) ([]rest.Entity, error) {
-//				panic("mock out the GetByProperties method")
-//			},
-//			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
-//				panic("mock out the GetByURI method")
-//			},
-//			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
-//				panic("mock out the GetEventHandlers method")
-//			},
-//			GetListFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error) {
-//				panic("mock out the GetList method")
-//			},
-//			GetSubscribersFunc: func(resourceType string) map[string][]rest.EventHandler {
-//				panic("mock out the GetSubscribers method")
-//			},
-//			PersistFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
-//				panic("mock out the Persist method")
-//			},
-//			RemoveFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
-//				panic("mock out the Remove method")
-//			},
-//		}
+// 		// make and configure a mocked rest.EventStore
+// 		mockedEventStore := &EventStoreMock{
+// 			AddSubscriberFunc: func(handler rest.EventHandlerConfig) error {
+// 				panic("mock out the AddSubscriber method")
+// 			},
+// 			DispatchFunc: func(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) []error {
+// 				panic("mock out the Dispatch method")
+// 			},
+// 			GetByKeyFunc: func(ctxt context.Context, identifiers map[string]interface{}) (rest.Resource, error) {
+// 				panic("mock out the GetByKey method")
+// 			},
+// 			GetByPropertiesFunc: func(ctxt context.Context, identifiers map[string]interface{}) ([]rest.Entity, error) {
+// 				panic("mock out the GetByProperties method")
+// 			},
+// 			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
+// 				panic("mock out the GetByURI method")
+// 			},
+// 			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
+// 				panic("mock out the GetEventHandlers method")
+// 			},
+// 			GetListFunc: func(ctx context.Context, page int, limit int, query string, sortOptions map[string]string, filterOptions map[string]interface{}) ([]rest.Resource, int64, error) {
+// 				panic("mock out the GetList method")
+// 			},
+// 			GetSubscribersFunc: func(resourceType string) map[string][]rest.EventHandler {
+// 				panic("mock out the GetSubscribers method")
+// 			},
+// 			PersistFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
+// 				panic("mock out the Persist method")
+// 			},
+// 			RemoveFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
+// 				panic("mock out the Remove method")
+// 			},
+// 		}
 //
-//		// use mockedEventStore in code that requires rest.EventStore
-//		// and then make assertions.
+// 		// use mockedEventStore in code that requires rest.EventStore
+// 		// and then make assertions.
 //
-//	}
+// 	}
 type EventStoreMock struct {
 	// AddSubscriberFunc mocks the AddSubscriber method.
 	AddSubscriberFunc func(handler rest.EventHandlerConfig) error
 
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, logger rest.Log, event *rest.Event) []error
+	DispatchFunc func(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) []error
 
 	// GetByKeyFunc mocks the GetByKey method.
 	GetByKeyFunc func(ctxt context.Context, identifiers map[string]interface{}) (rest.Resource, error)
@@ -1535,6 +1514,8 @@ type EventStoreMock struct {
 			Logger rest.Log
 			// Event is the event argument value.
 			Event *rest.Event
+			// Options is the options argument value.
+			Options *rest.EventOptions
 		}
 		// GetByKey holds details about calls to the GetByKey method.
 		GetByKey []struct {
@@ -1631,8 +1612,7 @@ func (mock *EventStoreMock) AddSubscriber(handler rest.EventHandlerConfig) error
 
 // AddSubscriberCalls gets all the calls that were made to AddSubscriber.
 // Check the length with:
-//
-//	len(mockedEventStore.AddSubscriberCalls())
+//     len(mockedEventStore.AddSubscriberCalls())
 func (mock *EventStoreMock) AddSubscriberCalls() []struct {
 	Handler rest.EventHandlerConfig
 } {
@@ -1646,38 +1626,41 @@ func (mock *EventStoreMock) AddSubscriberCalls() []struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *EventStoreMock) Dispatch(ctx context.Context, logger rest.Log, event *rest.Event) []error {
+func (mock *EventStoreMock) Dispatch(ctx context.Context, logger rest.Log, event *rest.Event, options *rest.EventOptions) []error {
 	if mock.DispatchFunc == nil {
 		panic("EventStoreMock.DispatchFunc: method is nil but EventStore.Dispatch was just called")
 	}
 	callInfo := struct {
-		Ctx    context.Context
-		Logger rest.Log
-		Event  *rest.Event
+		Ctx     context.Context
+		Logger  rest.Log
+		Event   *rest.Event
+		Options *rest.EventOptions
 	}{
-		Ctx:    ctx,
-		Logger: logger,
-		Event:  event,
+		Ctx:     ctx,
+		Logger:  logger,
+		Event:   event,
+		Options: options,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, logger, event)
+	return mock.DispatchFunc(ctx, logger, event, options)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
 // Check the length with:
-//
-//	len(mockedEventStore.DispatchCalls())
+//     len(mockedEventStore.DispatchCalls())
 func (mock *EventStoreMock) DispatchCalls() []struct {
-	Ctx    context.Context
-	Logger rest.Log
-	Event  *rest.Event
+	Ctx     context.Context
+	Logger  rest.Log
+	Event   *rest.Event
+	Options *rest.EventOptions
 } {
 	var calls []struct {
-		Ctx    context.Context
-		Logger rest.Log
-		Event  *rest.Event
+		Ctx     context.Context
+		Logger  rest.Log
+		Event   *rest.Event
+		Options *rest.EventOptions
 	}
 	mock.lockDispatch.RLock()
 	calls = mock.calls.Dispatch
@@ -1705,8 +1688,7 @@ func (mock *EventStoreMock) GetByKey(ctxt context.Context, identifiers map[strin
 
 // GetByKeyCalls gets all the calls that were made to GetByKey.
 // Check the length with:
-//
-//	len(mockedEventStore.GetByKeyCalls())
+//     len(mockedEventStore.GetByKeyCalls())
 func (mock *EventStoreMock) GetByKeyCalls() []struct {
 	Ctxt        context.Context
 	Identifiers map[string]interface{}
@@ -1741,8 +1723,7 @@ func (mock *EventStoreMock) GetByProperties(ctxt context.Context, identifiers ma
 
 // GetByPropertiesCalls gets all the calls that were made to GetByProperties.
 // Check the length with:
-//
-//	len(mockedEventStore.GetByPropertiesCalls())
+//     len(mockedEventStore.GetByPropertiesCalls())
 func (mock *EventStoreMock) GetByPropertiesCalls() []struct {
 	Ctxt        context.Context
 	Identifiers map[string]interface{}
@@ -1779,8 +1760,7 @@ func (mock *EventStoreMock) GetByURI(ctxt context.Context, logger rest.Log, uri 
 
 // GetByURICalls gets all the calls that were made to GetByURI.
 // Check the length with:
-//
-//	len(mockedEventStore.GetByURICalls())
+//     len(mockedEventStore.GetByURICalls())
 func (mock *EventStoreMock) GetByURICalls() []struct {
 	Ctxt   context.Context
 	Logger rest.Log
@@ -1812,8 +1792,7 @@ func (mock *EventStoreMock) GetEventHandlers() []rest.EventHandlerConfig {
 
 // GetEventHandlersCalls gets all the calls that were made to GetEventHandlers.
 // Check the length with:
-//
-//	len(mockedEventStore.GetEventHandlersCalls())
+//     len(mockedEventStore.GetEventHandlersCalls())
 func (mock *EventStoreMock) GetEventHandlersCalls() []struct {
 } {
 	var calls []struct {
@@ -1852,8 +1831,7 @@ func (mock *EventStoreMock) GetList(ctx context.Context, page int, limit int, qu
 
 // GetListCalls gets all the calls that were made to GetList.
 // Check the length with:
-//
-//	len(mockedEventStore.GetListCalls())
+//     len(mockedEventStore.GetListCalls())
 func (mock *EventStoreMock) GetListCalls() []struct {
 	Ctx           context.Context
 	Page          int
@@ -1894,8 +1872,7 @@ func (mock *EventStoreMock) GetSubscribers(resourceType string) map[string][]res
 
 // GetSubscribersCalls gets all the calls that were made to GetSubscribers.
 // Check the length with:
-//
-//	len(mockedEventStore.GetSubscribersCalls())
+//     len(mockedEventStore.GetSubscribersCalls())
 func (mock *EventStoreMock) GetSubscribersCalls() []struct {
 	ResourceType string
 } {
@@ -1930,8 +1907,7 @@ func (mock *EventStoreMock) Persist(ctxt context.Context, logger rest.Log, resou
 
 // PersistCalls gets all the calls that were made to Persist.
 // Check the length with:
-//
-//	len(mockedEventStore.PersistCalls())
+//     len(mockedEventStore.PersistCalls())
 func (mock *EventStoreMock) PersistCalls() []struct {
 	Ctxt      context.Context
 	Logger    rest.Log
@@ -1970,8 +1946,7 @@ func (mock *EventStoreMock) Remove(ctxt context.Context, logger rest.Log, resour
 
 // RemoveCalls gets all the calls that were made to Remove.
 // Check the length with:
-//
-//	len(mockedEventStore.RemoveCalls())
+//     len(mockedEventStore.RemoveCalls())
 func (mock *EventStoreMock) RemoveCalls() []struct {
 	Ctxt      context.Context
 	Logger    rest.Log

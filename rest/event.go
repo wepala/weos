@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
 	"gorm.io/gorm"
+	"net/http"
 )
 
 type Event struct {
@@ -24,6 +25,14 @@ type EventMeta struct {
 	RootID        string `json:"rootId"`
 	AccountID     string `json:"accountId"`
 	Created       string `json:"created"`
+}
+
+type EventOptions struct {
+	ResourceRepository *ResourceRepository
+	DefaultProjection  Projection
+	Projections        map[string]Projection
+	HttpClient         *http.Client
+	GORMDB             *gorm.DB
 }
 
 func (e *Event) NewChange(event *Event) {

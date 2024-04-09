@@ -21,6 +21,7 @@ type ControllerParams struct {
 	Operation          map[string]*openapi3.Operation
 	Echo               *echo.Echo
 	APIConfig          *APIConfig
+	HttpClient         *http.Client
 }
 
 // DefaultWriteController handles the write operations (create, update, delete)
@@ -113,11 +114,12 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 			if projection, ok := p.Projections[resourceType]; ok {
 				defaultProjection = projection
 			}
-			response, err := p.CommandDispatcher.Dispatch(ctxt.Request().Context(), &Command{
+			response, err := p.CommandDispatcher.Dispatch(ctxt.Request().Context(), ctxt.Logger(), &Command{
 				Type: commandName,
-			}, ctxt.Logger(), &CommandOptions{
+			}, &CommandOptions{
 				ResourceRepository: p.ResourceRepository,
 				DefaultProjection:  defaultProjection,
+				HttpClient:         p.HttpClient,
 			})
 
 			if response.Code != 0 {

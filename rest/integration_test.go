@@ -35,7 +35,7 @@ func TestIntegrations(t *testing.T) {
 		handlers := []rest.CommandConfig{
 			{
 				Type: "CreateBlog",
-				Handler: func(ctx context.Context, command *rest.Command, logger rest.Log, options *rest.CommandOptions) (response rest.CommandResponse, err error) {
+				Handler: func(ctx context.Context, logger rest.Log, command *rest.Command, options *rest.CommandOptions) (response rest.CommandResponse, err error) {
 					return rest.CommandResponse{
 						Code: 400, //this is set deliberately for testing
 						Body: map[string]interface{}{
