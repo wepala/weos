@@ -879,3 +879,85 @@ paths:
         200:
           description: Delete author
 
+  /*:
+    get:
+      summary: Get resources
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/ld+json:
+              schema:
+                type: object
+                properties:
+                  '@id':
+                    type: string
+                    description: The resource id
+                  '@type':
+                    type: string
+                    description: The resource type
+
+    put:
+      summary: Create resource
+      responses:
+        '201':
+          description: Resource
+          content:
+            application/ld+json:
+              schema:
+                type: object
+                properties:
+                  '@id':
+                    type: string
+                    description: The resource id
+                  '@type':
+                    type: string
+                    description: The resource type
+    post:
+      summary: Create resource
+      responses:
+        '201':
+          description: Resource
+          content:
+            application/ld+json:
+              schema:
+                type: object
+                properties:
+                  '@id':
+                    type: string
+                    description: The resource id
+                  '@type':
+                    type: string
+                    description: The resource type
+    patch:
+      summary: Update resource
+      responses:
+        '201':
+          description: Resource
+          content:
+            application/ld+json:
+              schema:
+                type: object
+                properties:
+                  '@id':
+                    type: string
+                    description: The resource id
+                  '@type':
+                    type: string
+                    description: The resource type
+    delete:
+      summary: Delete resource
+      responses:
+        '201':
+          description: Resource
+          content:
+            application/ld+json:
+              schema:
+                type: object
+                properties:
+                  '@id':
+                    type: string
+                    description: The resource id
+                  '@type':
+                    type: string
+                    description: The resource type

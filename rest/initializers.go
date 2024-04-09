@@ -259,31 +259,6 @@ func RouteInitializer(p RouteParams) (err error) {
 
 		}
 	}
-
-	p.Echo.Add(http.MethodPost, p.APIConfig.BasePath+"/*", DefaultWriteController(&ControllerParams{
-		Logger:             p.Logger,
-		CommandDispatcher:  p.CommandDispatcher,
-		ResourceRepository: p.ResourceRepository,
-		Schema:             p.Config,
-	}))
-	p.Echo.Add(http.MethodPut, p.APIConfig.BasePath+"/*", DefaultWriteController(&ControllerParams{
-		Logger:             p.Logger,
-		CommandDispatcher:  p.CommandDispatcher,
-		ResourceRepository: p.ResourceRepository,
-		Schema:             p.Config,
-	}))
-	p.Echo.Add(http.MethodPatch, p.APIConfig.BasePath+"/*", DefaultWriteController(&ControllerParams{
-		Logger:             p.Logger,
-		CommandDispatcher:  p.CommandDispatcher,
-		ResourceRepository: p.ResourceRepository,
-		Schema:             p.Config,
-	}))
-	p.Echo.Add(http.MethodGet, p.APIConfig.BasePath+"/*", DefaultReadController(&ControllerParams{
-		Logger:             p.Logger,
-		CommandDispatcher:  p.CommandDispatcher,
-		ResourceRepository: p.ResourceRepository,
-		Schema:             p.Config,
-	}))
 	p.Echo.Use(middleware.CORS())
 
 	return err
