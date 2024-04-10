@@ -114,8 +114,10 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 			if projection, ok := p.Projections[resourceType]; ok {
 				defaultProjection = projection
 			}
+			//use the request body as the command payload
 			response, err := p.CommandDispatcher.Dispatch(ctxt.Request().Context(), ctxt.Logger(), &Command{
-				Type: commandName,
+				Type:    commandName,
+				Payload: json.RawMessage(body),
 			}, &CommandOptions{
 				ResourceRepository: p.ResourceRepository,
 				DefaultProjection:  defaultProjection,
