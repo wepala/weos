@@ -122,6 +122,7 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 				ResourceRepository: p.ResourceRepository,
 				DefaultProjection:  defaultProjection,
 				HttpClient:         p.HttpClient,
+				Request:            ctxt.Request(),
 			})
 
 			if response.Code != 0 {

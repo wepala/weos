@@ -129,4 +129,5 @@ type CommandOptions struct {
 	Projections        map[string]Projection
 	HttpClient         *http.Client
 	GORMDB             *gorm.DB
+	Request            *http.Request
 }
