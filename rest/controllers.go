@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 	"io"
 	"net/http"
 	"strconv"
@@ -22,6 +23,7 @@ type ControllerParams struct {
 	Echo               *echo.Echo
 	APIConfig          *APIConfig
 	HttpClient         *http.Client
+	GORMDB             *gorm.DB
 }
 
 // DefaultWriteController handles the write operations (create, update, delete)
@@ -117,12 +119,13 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 			//use the request body as the command payload
 			response, err := p.CommandDispatcher.Dispatch(ctxt.Request().Context(), ctxt.Logger(), &Command{
 				Type:    commandName,
-				Payload: json.RawMessage(body),
+				Payload: body,
 			}, &CommandOptions{
 				ResourceRepository: p.ResourceRepository,
 				DefaultProjection:  defaultProjection,
 				HttpClient:         p.HttpClient,
 				Request:            ctxt.Request(),
+				GORMDB:             p.GORMDB,
 			})
 
 			if response.Code != 0 {
