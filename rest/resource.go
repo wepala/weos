@@ -156,12 +156,10 @@ func (r *BasicResource) GetFloat(propertyName string) float64 {
 }
 
 func NewResourceEvent(eventType string, resource Resource, tpayload map[string]interface{}) *Event {
-	var payload json.RawMessage
-	payload, _ = json.Marshal(tpayload)
 
 	return &Event{
 		Type:    eventType,
-		Payload: payload,
+		Payload: tpayload,
 		Version: 2,
 		Meta: EventMeta{
 			ResourceID:   resource.GetID(),

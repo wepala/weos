@@ -1,18 +1,18 @@
 package rest
 
 import (
-	"encoding/json"
 	"github.com/getkin/kin-openapi/openapi3"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"net/http"
 )
 
 type Event struct {
 	gorm.Model
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
-	Meta    EventMeta       `json:"meta" gorm:"embedded"`
-	Version int             `json:"version"`
+	Type    string            `json:"type"`
+	Payload datatypes.JSONMap `json:"payload"`
+	Meta    EventMeta         `json:"meta" gorm:"embedded"`
+	Version int               `json:"version"`
 	errors  []error
 }
 

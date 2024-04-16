@@ -2,7 +2,6 @@ package rest
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -367,10 +366,7 @@ func (e *GORMProjection) GetEventHandlers() []EventHandlerConfig {
 func (e *GORMProjection) ResourceUpdateHandler(ctx context.Context, logger Log, event *Event, options *EventOptions) (err error) {
 	basicResource := new(BasicResource)
 	basicResource.Metadata.SequenceNo = event.Meta.SequenceNo
-	err = json.Unmarshal(event.Payload, &basicResource)
-	if err != nil {
-		return err
-	}
+	basicResource.Body = event.Payload
 	result := options.GORMDB.Save(basicResource)
 	if result.Error != nil {
 		return result.Error
@@ -381,10 +377,7 @@ func (e *GORMProjection) ResourceUpdateHandler(ctx context.Context, logger Log, 
 // ResourceDeleteHandler handles Delete operations
 func (e *GORMProjection) ResourceDeleteHandler(ctx context.Context, logger Log, event *Event, options *EventOptions) (err error) {
 	basicResource := new(BasicResource)
-	err = json.Unmarshal(event.Payload, &basicResource)
-	if err != nil {
-		return err
-	}
+	basicResource.Body = event.Payload
 	result := options.GORMDB.Delete(basicResource)
 	if result.Error != nil {
 		return result.Error
