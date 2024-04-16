@@ -366,6 +366,7 @@ func (e *GORMProjection) GetEventHandlers() []EventHandlerConfig {
 // ResourceUpdateHandler handles Create Update operations
 func (e *GORMProjection) ResourceUpdateHandler(ctx context.Context, logger Log, event *Event, options *EventOptions) (err error) {
 	basicResource := new(BasicResource)
+	basicResource.Metadata.SequenceNo = event.Meta.SequenceNo
 	err = json.Unmarshal(event.Payload, &basicResource)
 	if err != nil {
 		return err
