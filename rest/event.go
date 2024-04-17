@@ -33,6 +33,7 @@ type EventOptions struct {
 	Projections        map[string]Projection
 	HttpClient         *http.Client
 	GORMDB             *gorm.DB
+	Request            *http.Request
 }
 
 func (e *Event) NewChange(event *Event) {
