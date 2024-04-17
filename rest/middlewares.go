@@ -127,6 +127,8 @@ func SecurityMiddleware(p *MiddlewareParams) echo.MiddlewareFunc {
 					newContext = context.WithValue(newContext, ROLE, result.Role)
 					newContext = context.WithValue(newContext, ACCOUNT_ID, result.AccountID)
 					newContext = context.WithValue(newContext, APPLICATION_ID, result.ApplicationID)
+					newContext = context.WithValue(newContext, AUTHORIZATION_HEADER, ctxt.Request().Header.Get("Authorization"))
+
 					request := ctxt.Request().WithContext(newContext)
 					ctxt.SetRequest(request)
 					//check the scopes of the logged-in user against what is required and if the user doesn't have the required scope deny access

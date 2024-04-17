@@ -13,6 +13,7 @@ const HeaderXAccountID = "X-Account-ID"
 const HeaderXLogLevel = "X-LOG-LEVEL"
 
 // add more keys here if needed
+const AUTHORIZATION_HEADER = "AUTHORIZATION_HEADER"
 const APPLICATION_ID = "APPLICATION_ID"
 const ACCOUNT_ID ContextKey = "ACCOUNT_ID"
 const OPERATION_ID = "OPERATION_ID"
