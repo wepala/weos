@@ -110,7 +110,7 @@ func NewGORM(p GORMParams) (GORMResult, error) {
 			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?sql_mode='ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'&parseTime=true",
 				config.User, config.Password, config.Host, strconv.Itoa(config.Port), config.Database)
 		case "postgres", "pgx":
-			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=prefer",
+			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 				config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
 		default:
 			return GORMResult{}, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
