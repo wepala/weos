@@ -637,7 +637,7 @@ func (p *RESTAPI) SQLConnectionFromConfig(config *model.DBConfig) (*sql.DB, *gor
 			connStr = fmt.Sprintf("tcp://%s:%s?username=%s&password=%s&database=%s",
 				config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
 		case "postgres":
-			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=prefer",
+			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 				config.Host, strconv.Itoa(config.Port), config.User, config.Password, config.Database)
 		default:
 			return nil, nil, connStr, errors.New(fmt.Sprintf("db driver '%s' is not supported ", config.Driver))
