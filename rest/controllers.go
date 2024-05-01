@@ -128,6 +128,12 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 				GORMDB:             p.GORMDB,
 			})
 
+			if response.Headers != nil {
+				for key, value := range response.Headers {
+					ctxt.Response().Header().Set(key, value)
+				}
+			}
+
 			if response.Code != 0 {
 				return ctxt.JSON(response.Code, response.Body)
 			} else {

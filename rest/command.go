@@ -121,6 +121,7 @@ type CommandResponse struct {
 	Message string
 	Code    int
 	Body    interface{}
+	Headers map[string]string
 }
 
 type CommandOptions struct {
