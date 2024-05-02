@@ -15,7 +15,7 @@ type ControllerParams struct {
 	Logger             Log
 	CommandDispatcher  CommandDispatcher
 	ResourceRepository *ResourceRepository
-	DefaultProjection  *Projection
+	DefaultProjection  Projection
 	Projections        map[string]Projection
 	Schema             *openapi3.T
 	PathMap            map[string]*openapi3.PathItem
