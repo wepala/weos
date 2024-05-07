@@ -137,7 +137,8 @@ func RouteInitializer(p RouteParams) (err error) {
 						Operation: map[string]*openapi3.Operation{
 							method: operation,
 						},
-						GORMDB: p.GORMDB,
+						GORMDB:     p.GORMDB,
+						HttpClient: NewClient(),
 					})
 				}
 			}
@@ -158,7 +159,8 @@ func RouteInitializer(p RouteParams) (err error) {
 						Operation: map[string]*openapi3.Operation{
 							method: operation,
 						},
-						GORMDB: p.GORMDB,
+						GORMDB:     p.GORMDB,
+						HttpClient: NewClient(),
 					})
 				default:
 					handler = DefaultWriteController(&ControllerParams{
@@ -173,7 +175,8 @@ func RouteInitializer(p RouteParams) (err error) {
 						Operation: map[string]*openapi3.Operation{
 							method: operation,
 						},
-						GORMDB: p.GORMDB,
+						GORMDB:     p.GORMDB,
+						HttpClient: NewClient(),
 					})
 				}
 			}
