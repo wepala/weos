@@ -55,6 +55,7 @@ type RESTAPI struct {
 	commandDispatchers             map[string]model.CommandDispatcher
 	projections                    map[string]model.Projection
 	logs                           map[string]model.Log
+	logger                         model.Log
 	httpClients                    map[string]*http.Client
 	globalInitializers             []GlobalInitializer
 	operationInitializers          []OperationInitializer
@@ -375,6 +376,14 @@ func (p *RESTAPI) RegisterLog(name string, logger model.Log) {
 		p.logs = make(map[string]model.Log)
 	}
 	p.logs[name] = logger
+}
+
+func (p *RESTAPI) RegisterLogger(logger model.Log) {
+	p.logger = logger
+}
+
+func (p *RESTAPI) GetLogger() model.Log {
+	return p.logger
 }
 
 func (p *RESTAPI) GetLog(name string) (model.Log, error) {
