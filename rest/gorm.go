@@ -331,7 +331,8 @@ func (e *GORMProjection) Persist(ctxt context.Context, logger Log, resources []R
 	}
 	for _, event := range events {
 		e.Dispatch(ctxt, logger, event, &EventOptions{
-			GORMDB: e.gormDB,
+			GORMDB:     e.gormDB,
+			HttpClient: NewClient(),
 		})
 	}
 	return errs
