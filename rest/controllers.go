@@ -31,19 +31,19 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 	var commandName string
 	var resourceType string
 	for method, toperation := range p.Operation {
-		if toperation.RequestBody == nil || toperation.RequestBody.Value == nil {
-			continue
-		}
-		//get the schema for the operation
-		for _, requestContent := range toperation.RequestBody.Value.Content {
-			if requestContent.Schema != nil {
-				//use the first schema ref to determine the entity type
-				if requestContent.Schema.Ref != "" {
-					//get the entity type from the ref
-					resourceType = requestContent.Schema.Ref
+		if toperation.RequestBody != nil && toperation.RequestBody.Value != nil {
+			//get the schema for the operation
+			for _, requestContent := range toperation.RequestBody.Value.Content {
+				if requestContent.Schema != nil {
+					//use the first schema ref to determine the entity type
+					if requestContent.Schema.Ref != "" {
+						//get the entity type from the ref
+						resourceType = requestContent.Schema.Ref
+					}
 				}
 			}
 		}
+
 		//If there is a x-command extension then dispatch that command by default
 		var ok bool
 		if commandName, ok = toperation.Extensions["x-command"].(string); ok {
