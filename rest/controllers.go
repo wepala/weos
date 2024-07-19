@@ -135,6 +135,11 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 			}
 
 			if response.Code != 0 {
+				//if the response code is a redirect then return the location header
+				if response.Code == http.StatusMovedPermanently || response.Code == http.StatusTemporaryRedirect {
+					ctxt.Response().Header().Set("Location", response.Body.(string))
+					return ctxt.NoContent(response.Code)
+				}
 				return ctxt.JSON(response.Code, response.Body)
 			} else {
 				if err != nil {
