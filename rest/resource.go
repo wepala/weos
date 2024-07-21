@@ -141,18 +141,32 @@ func (r *BasicResource) GetBool(propertyName string) bool {
 	return false
 }
 
-func (r *BasicResource) GetInt(propertyName string) int {
-	if value, ok := r.Body[propertyName].(int); ok {
-		return value
+func (r *BasicResource) GetInt(propertyName string) (value int) {
+	var ok bool
+	var tvalue json.Number
+	if value, ok = r.Body[propertyName].(int); ok {
+		return
 	}
-	return 0
+
+	if tvalue, ok = r.Body[propertyName].(json.Number); ok {
+		ttvalue, _ := tvalue.Int64()
+		return int(ttvalue)
+	}
+
+	return value
 }
 
-func (r *BasicResource) GetFloat(propertyName string) float64 {
-	if value, ok := r.Body[propertyName].(float64); ok {
-		return value
+func (r *BasicResource) GetFloat(propertyName string) (value float64) {
+	var ok bool
+	var tvalue json.Number
+	if value, ok = r.Body[propertyName].(float64); ok {
+		return
 	}
-	return 0.0
+	if tvalue, ok = r.Body[propertyName].(json.Number); ok {
+		value, _ = tvalue.Float64()
+		return
+	}
+	return
 }
 
 func NewResourceEvent(eventType string, resource Resource, tpayload map[string]interface{}) *Event {
