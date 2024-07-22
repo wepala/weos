@@ -212,14 +212,6 @@ func (o *OpenIDConnect) FromSchema(ctxt context.Context, scheme *openapi3.Securi
 		o.userIDClaim = "sub"
 	}
 
-	openIDConfig, err := GetOpenIDConfig(o.connectURL, o.httpClient)
-	if err != nil {
-		return o, fmt.Errorf("invalid open id connect url: '%s'", o.connectURL)
-	}
-	if jwks_uri, ok := openIDConfig["jwks_uri"]; ok {
-		//create key set and verifier
-		o.KeySet = oidc.NewRemoteKeySet(ctxt, jwks_uri.(string))
-	}
 	return o, err
 }
 
