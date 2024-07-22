@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-//OpenIDConnect authorizer for OpenID
+// OpenIDConnect authorizer for OpenID
 type OpenIDConnect struct {
 	connectURL       string
 	skipExpiryCheck  bool
@@ -125,11 +125,6 @@ func (o OpenIDConnect) FromSchema(scheme *openapi3.SecurityScheme) (Validator, e
 		o.applicationClaim = jwtMap.Application
 	} else {
 		o.userIDClaim = "sub"
-	}
-
-	_, err = GetOpenIDConfig(o.connectURL)
-	if err != nil {
-		return o, fmt.Errorf("invalid open id connect url: '%s'", o.connectURL)
 	}
 	return o, err
 }
