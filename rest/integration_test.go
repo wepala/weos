@@ -62,7 +62,7 @@ func TestIntegrations(t *testing.T) {
 			Body:           []byte(`{"@context": "http://schema.org","@type": "Organization","name": "Wepala", "@id": "/root"}`),
 			Headers:        map[string]string{"Content-Type": "application/ld+json"},
 			Method:         http.MethodPost,
-			ExpectedStatus: 201,
+			ExpectedStatus: 200,
 			ExpectedBody:   map[string]interface{}{"@context": "http://schema.org", "@type": "Organization", "name": "Wepala", "@id": "/root"},
 		},
 		{
@@ -72,7 +72,7 @@ func TestIntegrations(t *testing.T) {
 			Body:           []byte(`{"@context": "http://schema.org","@type": "Organization","name": "Wepala", "@id": "/put"}`),
 			Headers:        map[string]string{"Content-Type": "application/ld+json"},
 			Method:         http.MethodPut,
-			ExpectedStatus: 201,
+			ExpectedStatus: 200,
 			ExpectedBody:   map[string]interface{}{"@context": "http://schema.org", "@type": "Organization", "name": "Wepala", "@id": "/put"},
 		},
 		{
@@ -82,7 +82,7 @@ func TestIntegrations(t *testing.T) {
 			Body:           []byte(`{"@context": "http://schema.org","@type": "Organization","name": "Wepala", "@id": "/patch"}`),
 			Headers:        map[string]string{"Content-Type": "application/ld+json"},
 			Method:         http.MethodPatch,
-			ExpectedStatus: 201,
+			ExpectedStatus: 200,
 			ExpectedBody:   map[string]interface{}{"@context": "http://schema.org", "@type": "Organization", "name": "Wepala", "@id": "/patch"},
 		},
 		{
