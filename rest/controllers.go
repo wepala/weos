@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
+	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"io"
 	"net/http"
@@ -116,8 +117,17 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 			if projection, ok := p.Projections[resourceType]; ok {
 				defaultProjection = projection
 			}
+			//set the path params to the context
+			newContext := ctxt.Request().Context()
+			for _, name := range ctxt.ParamNames() {
+				newContext = context.WithValue(newContext, name, ctxt.Param(name))
+			}
+			//set the query params to the context
+			for _, name := range ctxt.QueryParams() {
+				newContext = context.WithValue(newContext, name, ctxt.QueryParam(name[0]))
+			}
 			//use the request body as the command payload
-			response, err := p.CommandDispatcher.Dispatch(ctxt.Request().Context(), ctxt.Logger(), &Command{
+			response, err := p.CommandDispatcher.Dispatch(newContext, ctxt.Logger(), &Command{
 				Type:    commandName,
 				Payload: body,
 			}, &CommandOptions{
