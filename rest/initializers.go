@@ -222,7 +222,7 @@ func RouteInitializer(p RouteParams) (err error) {
 				//update path so that the open api way of specifying url parameters is change to wildcards. This is to support the casbin policy
 				//note ideal we would use the open api way of specifying url parameters but this is not supported by casbin
 				re := regexp.MustCompile(`\{([a-zA-Z0-9\-_]+?)\}`)
-				path = re.ReplaceAllString(path, `*`)
+				casbinPath := re.ReplaceAllString(path, `*`)
 
 				//add rule to the enforcer based on the operation
 				var authConfig map[string]interface{}
@@ -232,11 +232,11 @@ func RouteInitializer(p RouteParams) (err error) {
 						if u, ok := allowRules.(map[string]interface{})["users"]; ok {
 							for _, user := range u.([]interface{}) {
 								if user == nil {
-									log.Warnf("user is nil on path '%s' for method '%s'", path, method)
+									log.Warnf("user is nil on path '%s' for method '%s'", casbinPath, method)
 									continue
 								}
 								var success bool
-								success, err = p.AuthorizationEnforcer.AddPolicy(user.(string), path, method)
+								success, err = p.AuthorizationEnforcer.AddPolicy(user.(string), casbinPath, method)
 								if !success {
 									//TODO show warning to developer or something
 								}
@@ -247,10 +247,10 @@ func RouteInitializer(p RouteParams) (err error) {
 							for _, user := range u.([]interface{}) {
 								var success bool
 								if user == nil {
-									log.Warnf("user is nil on path '%s' for method '%s'", path, method)
+									log.Warnf("user is nil on path '%s' for method '%s'", casbinPath, method)
 									continue
 								}
-								success, err = p.AuthorizationEnforcer.AddPolicy(user.(string), path, method)
+								success, err = p.AuthorizationEnforcer.AddPolicy(user.(string), casbinPath, method)
 								if !success {
 									//TODO show warning to developer or something
 								}
