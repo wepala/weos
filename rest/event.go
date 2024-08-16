@@ -55,18 +55,15 @@ func (e *Event) Persist() {
 }
 
 func (e *Event) GetType() string {
-	//TODO implement me
-	panic("implement me")
+	return e.Type
 }
 
 func (e *Event) GetSequenceNo() int64 {
-	//TODO implement me
-	panic("implement me")
+	return e.Meta.SequenceNo
 }
 
 func (e *Event) GetID() string {
-	//TODO implement me
-	panic("implement me")
+	return e.ID
 }
 
 func (e *Event) FromBytes(schema *openapi3.T, data []byte) (Resource, error) {
