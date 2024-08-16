@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	_ "github.com/jackc/pgx/v5"
 	"github.com/labstack/gommon/log"
+	"github.com/segmentio/ksuid"
 	"go.uber.org/fx"
 	"golang.org/x/net/context"
 	"gorm.io/driver/mysql"
@@ -324,6 +325,11 @@ func (e *GORMProjection) Persist(ctxt context.Context, logger Log, resources []R
 	var events []*Event
 	for _, resource := range resources {
 		if event, ok := resource.(*Event); ok {
+			if event.ID == "" {
+				event.ID = ksuid.New().String()
+			}
+			event.CreatedAt = time.Now()
+			event.UpdatedAt = time.Now()
 			events = append(events, event)
 		} else {
 			errs = append(errs, errors.New("resource is not an event"))

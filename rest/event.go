@@ -5,15 +5,18 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"net/http"
+	"time"
 )
 
 type Event struct {
-	gorm.Model
-	Type    string            `json:"type"`
-	Payload datatypes.JSONMap `json:"payload"`
-	Meta    EventMeta         `json:"meta" gorm:"embedded"`
-	Version int               `json:"version"`
-	errors  []error
+	ID        string `gorm:"primarykey"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Type      string            `json:"type"`
+	Payload   datatypes.JSONMap `json:"payload"`
+	Meta      EventMeta         `json:"meta" gorm:"embedded"`
+	Version   int               `json:"version"`
+	errors    []error
 }
 
 type EventMeta struct {
