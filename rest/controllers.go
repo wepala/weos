@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 )
 
@@ -170,7 +171,7 @@ func DefaultReadController(p *ControllerParams) echo.HandlerFunc {
 		switch contentType {
 		case "application/ld+json":
 
-			resource, err := p.ResourceRepository.defaultProjection.GetByURI(ctxt.Request().Context(), p.Logger, ctxt.Request().URL.String())
+			resource, err := p.ResourceRepository.defaultProjection.GetByURI(ctxt.Request().Context(), p.Logger, fmt.Sprintf("%s%s", os.Getenv("BASE_URL"), ctxt.Request().URL.String()))
 			if err != nil {
 				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
 			}
