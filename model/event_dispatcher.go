@@ -15,8 +15,6 @@ func (e *DefaultEventDisptacher) Dispatch(ctx context.Context, event Event) []er
 	//mutex helps keep state between routines
 	var errors []error
 
-	e.dispatch.Lock()
-	defer e.dispatch.Unlock()
 	var wg sync.WaitGroup
 	for i := 0; i < len(e.handlers); i++ {
 		handler := e.handlers[i]
