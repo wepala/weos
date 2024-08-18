@@ -54,6 +54,7 @@ type EventStore interface {
 	Repository
 	EventDispatcher
 	Projection
+	GetByResourceID(ctxt context.Context, logger Log, resourceID string) (events []*Event, err error)
 }
 
 type Projection interface {
