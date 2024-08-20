@@ -91,27 +91,50 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 		//for certain content types treat with it differently
 		switch contentType {
 		case "application/ld+json":
-			resource, err := p.ResourceRepository.Initialize(ctxt.Request().Context(), p.Logger, body)
-			if err != nil {
-				ctxt.Logger().Errorf("unexpected error creating entity: %s", err)
-				return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
+			switch ctxt.Request().Method {
+			case http.MethodDelete:
+				resource, err := p.ResourceRepository.defaultProjection.GetByURI(ctxt.Request().Context(), p.Logger, fmt.Sprintf("%s%s", os.Getenv("BASE_URL"), ctxt.Request().URL.String()))
+				if err != nil {
+					return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
+				}
+
+				if resource == nil {
+					return ctxt.NoContent(http.StatusNotFound)
+				}
+
+				resource.NewChange(NewResourceEvent("delete", resource, nil))
+				errs := p.ResourceRepository.Persist(ctxt.Request().Context(), p.Logger, []Resource{resource})
+				if len(errs) > 0 {
+					ctxt.Logger().Errorf("unexpected error persisting entity: %s", errs)
+					return NewControllerError("unexpected error persisting entity", errs[0], http.StatusBadRequest)
+				}
+				//set etag in response header
+				ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", resource.GetID(), resource.GetSequenceNo()))
+				return ctxt.NoContent(http.StatusOK)
+			default:
+				resource, err := p.ResourceRepository.Initialize(ctxt.Request().Context(), p.Logger, body)
+				if err != nil {
+					ctxt.Logger().Errorf("unexpected error creating entity: %s", err)
+					return NewControllerError("unexpected error creating entity", err, http.StatusBadRequest)
+				}
+				//if the sequence number is not one more than the current sequence number then return an error
+				if seq != 0 && resource.GetSequenceNo() != seq+1 {
+					return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusPreconditionFailed)
+				}
+				errs := p.ResourceRepository.Persist(ctxt.Request().Context(), p.Logger, []Resource{resource})
+				if len(errs) > 0 {
+					ctxt.Logger().Errorf("unexpected error persisting entity: %s", errs)
+					return NewControllerError("unexpected error persisting entity", errs[0], http.StatusBadRequest)
+				}
+				//set etag in response header
+				ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", resource.GetID(), resource.GetSequenceNo()))
+				if resource.GetSequenceNo() == 1 {
+					return ctxt.JSON(http.StatusCreated, resource)
+				} else {
+					return ctxt.JSON(http.StatusOK, resource)
+				}
 			}
-			//if the sequence number is not one more than the current sequence number then return an error
-			if seq != 0 && resource.GetSequenceNo() != seq+1 {
-				return NewControllerError("unexpected error updating content type.  invalid sequence number", err, http.StatusPreconditionFailed)
-			}
-			errs := p.ResourceRepository.Persist(ctxt.Request().Context(), p.Logger, []Resource{resource})
-			if len(errs) > 0 {
-				ctxt.Logger().Errorf("unexpected error persisting entity: %s", errs)
-				return NewControllerError("unexpected error persisting entity", errs[0], http.StatusBadRequest)
-			}
-			//set etag in response header
-			ctxt.Response().Header().Set("ETag", fmt.Sprintf("%s.%d", resource.GetID(), resource.GetSequenceNo()))
-			if resource.GetSequenceNo() == 1 {
-				return ctxt.JSON(http.StatusCreated, resource)
-			} else {
-				return ctxt.JSON(http.StatusOK, resource)
-			}
+
 		default:
 			//At the time of this writing only application/ld+json resources can be written. Everything else is
 			var defaultProjection Projection

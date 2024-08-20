@@ -88,6 +88,69 @@ func TestDefaultWriteController(t *testing.T) {
 			t.Errorf("expected status code %d, got %d", http.StatusCreated, resp.Code)
 		}
 	})
+	t.Run("delete a resource", func(t *testing.T) {
+		defaultProjection := &ProjectionMock{
+			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
+				return &rest.BasicResource{
+					Body: make(datatypes.JSONMap),
+					Metadata: rest.ResourceMetadata{
+						ID: "/blogs/test",
+					},
+				}, nil
+			},
+			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
+				return nil
+			},
+		}
+		eventStore := &EventStoreMock{
+			AddSubscriberFunc: func(config rest.EventHandlerConfig) error {
+				return nil
+			},
+			PersistFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
+				if len(resources) != 1 {
+					t.Fatalf("expected 1 resource to be persisted, got %d", len(resources))
+				}
+				return nil
+			},
+		}
+		params := rest.ResourceRepositoryParams{
+			EventStore:        eventStore,
+			DefaultProjection: defaultProjection,
+			Config:            schema,
+		}
+		result, err := rest.NewResourceRepository(params)
+		if err != nil {
+			t.Fatalf("expected no error, got %s", err)
+		}
+		repository := result.Repository
+		commandDispatcher := &CommandDispatcherMock{
+			DispatchFunc: func(ctx context.Context, logger rest.Log, command *rest.Command, options *rest.CommandOptions) (rest.CommandResponse, error) {
+				return rest.CommandResponse{
+					Code: 200,
+				}, nil
+			},
+		}
+		controller := rest.DefaultWriteController(&rest.ControllerParams{
+			Logger:             logger,
+			CommandDispatcher:  commandDispatcher,
+			ResourceRepository: repository,
+			Schema:             schema,
+			PathMap:            nil,
+			Operation:          nil,
+		})
+		e := echo.New()
+		e.DELETE("/*", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.DELETE, "/blogs/test", nil)
+		req.Header.Set(echo.HeaderContentType, "application/ld+json")
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Errorf("expected status code %d, got %d", http.StatusOK, resp.Code)
+		}
+		if len(eventStore.PersistCalls()) != 1 {
+			t.Errorf("expected 1 call to persist, got %d", len(eventStore.PersistCalls()))
+		}
+	})
 }
 
 func TestDefaultReadController(t *testing.T) {

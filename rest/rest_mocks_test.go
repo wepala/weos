@@ -1444,6 +1444,9 @@ var _ rest.EventStore = &EventStoreMock{}
 // 			GetByPropertiesFunc: func(ctxt context.Context, identifiers map[string]interface{}) ([]rest.Entity, error) {
 // 				panic("mock out the GetByProperties method")
 // 			},
+// 			GetByResourceIDFunc: func(ctxt context.Context, logger rest.Log, resourceID string) ([]*rest.Event, error) {
+// 				panic("mock out the GetByResourceID method")
+// 			},
 // 			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
 // 				panic("mock out the GetByURI method")
 // 			},
@@ -1480,6 +1483,9 @@ type EventStoreMock struct {
 
 	// GetByPropertiesFunc mocks the GetByProperties method.
 	GetByPropertiesFunc func(ctxt context.Context, identifiers map[string]interface{}) ([]rest.Entity, error)
+
+	// GetByResourceIDFunc mocks the GetByResourceID method.
+	GetByResourceIDFunc func(ctxt context.Context, logger rest.Log, resourceID string) ([]*rest.Event, error)
 
 	// GetByURIFunc mocks the GetByURI method.
 	GetByURIFunc func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error)
@@ -1530,6 +1536,15 @@ type EventStoreMock struct {
 			Ctxt context.Context
 			// Identifiers is the identifiers argument value.
 			Identifiers map[string]interface{}
+		}
+		// GetByResourceID holds details about calls to the GetByResourceID method.
+		GetByResourceID []struct {
+			// Ctxt is the ctxt argument value.
+			Ctxt context.Context
+			// Logger is the logger argument value.
+			Logger rest.Log
+			// ResourceID is the resourceID argument value.
+			ResourceID string
 		}
 		// GetByURI holds details about calls to the GetByURI method.
 		GetByURI []struct {
@@ -1586,6 +1601,7 @@ type EventStoreMock struct {
 	lockDispatch         sync.RWMutex
 	lockGetByKey         sync.RWMutex
 	lockGetByProperties  sync.RWMutex
+	lockGetByResourceID  sync.RWMutex
 	lockGetByURI         sync.RWMutex
 	lockGetEventHandlers sync.RWMutex
 	lockGetList          sync.RWMutex
@@ -1735,6 +1751,45 @@ func (mock *EventStoreMock) GetByPropertiesCalls() []struct {
 	mock.lockGetByProperties.RLock()
 	calls = mock.calls.GetByProperties
 	mock.lockGetByProperties.RUnlock()
+	return calls
+}
+
+// GetByResourceID calls GetByResourceIDFunc.
+func (mock *EventStoreMock) GetByResourceID(ctxt context.Context, logger rest.Log, resourceID string) ([]*rest.Event, error) {
+	if mock.GetByResourceIDFunc == nil {
+		panic("EventStoreMock.GetByResourceIDFunc: method is nil but EventStore.GetByResourceID was just called")
+	}
+	callInfo := struct {
+		Ctxt       context.Context
+		Logger     rest.Log
+		ResourceID string
+	}{
+		Ctxt:       ctxt,
+		Logger:     logger,
+		ResourceID: resourceID,
+	}
+	mock.lockGetByResourceID.Lock()
+	mock.calls.GetByResourceID = append(mock.calls.GetByResourceID, callInfo)
+	mock.lockGetByResourceID.Unlock()
+	return mock.GetByResourceIDFunc(ctxt, logger, resourceID)
+}
+
+// GetByResourceIDCalls gets all the calls that were made to GetByResourceID.
+// Check the length with:
+//     len(mockedEventStore.GetByResourceIDCalls())
+func (mock *EventStoreMock) GetByResourceIDCalls() []struct {
+	Ctxt       context.Context
+	Logger     rest.Log
+	ResourceID string
+} {
+	var calls []struct {
+		Ctxt       context.Context
+		Logger     rest.Log
+		ResourceID string
+	}
+	mock.lockGetByResourceID.RLock()
+	calls = mock.calls.GetByResourceID
+	mock.lockGetByResourceID.RUnlock()
 	return calls
 }
 
