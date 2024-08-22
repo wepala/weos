@@ -174,6 +174,13 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 					ctxt.Response().Header().Set("Location", response.Body.(string))
 					return ctxt.NoContent(response.Code)
 				}
+				if !response.Success {
+					if response.Body == nil {
+						return ctxt.JSON(response.Code, map[string]interface{}{
+							"message": response.Message,
+						})
+					}
+				}
 				return ctxt.JSON(response.Code, response.Body)
 			} else {
 				if err != nil {
