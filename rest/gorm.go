@@ -293,7 +293,7 @@ func (e *GORMProjection) GetSubscribers(resourceType string) map[string][]EventH
 }
 
 func (e *GORMProjection) GetByURI(ctxt context.Context, logger Log, uri string) (Resource, error) {
-	resource := new(Event)
+	resource := new(BasicResource)
 	result := e.gormDB.Where("id = ?", uri).First(resource)
 	if result.Error != nil {
 		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
