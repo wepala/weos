@@ -186,7 +186,11 @@ type GORMProjectionResult struct {
 }
 
 func NewGORMProjection(p GORMProjectionParams) (result GORMProjectionResult, err error) {
-	dispatcher := &GORMProjection{
+	defaultProjection := &GORMProjection{
+		handlers: make(map[string]map[string][]EventHandler),
+		gormDB:   p.GORMDB,
+	}
+	dispatcher := &GORMEventStore{
 		handlers: make(map[string]map[string][]EventHandler),
 		gormDB:   p.GORMDB,
 	}
@@ -204,7 +208,7 @@ func NewGORMProjection(p GORMProjectionParams) (result GORMProjectionResult, err
 
 	result = GORMProjectionResult{
 		Dispatcher:        dispatcher,
-		DefaultProjection: dispatcher,
+		DefaultProjection: defaultProjection,
 	}
 	return result, nil
 }
