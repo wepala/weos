@@ -270,6 +270,7 @@ func (e *GORMEventStore) ResourceDeleteHandler(ctx context.Context, logger Log, 
 
 // GetByResourceID gets events by resource id
 func (e *GORMEventStore) GetByResourceID(ctxt context.Context, logger Log, resourceID string) (events []*Event, err error) {
+	events = make([]*Event, 0)
 	result := e.gormDB.Model(&Event{}).Where("resource_id = ?", resourceID).Find(events)
 	if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		logger.Errorf("error getting events for resource %s: %v", resourceID, result.Error)
