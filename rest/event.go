@@ -163,6 +163,12 @@ func (e *GORMEventStore) GetSubscribers(resourceType string) map[string][]EventH
 	return nil
 }
 
+// ResetSubscribers resets the subscribers
+func (e *GORMEventStore) ResetSubscribers(resourceType string) map[string][]EventHandler {
+	e.handlers = make(map[string]map[string][]EventHandler)
+	return nil
+}
+
 func (e *GORMEventStore) GetByURI(ctxt context.Context, logger Log, uri string) (Resource, error) {
 	resource := new(Event)
 	result := e.gormDB.Where("id = ?", uri).First(resource)
