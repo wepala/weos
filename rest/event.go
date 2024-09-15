@@ -163,8 +163,8 @@ func (e *GORMEventStore) GetSubscribers(resourceType string) map[string][]EventH
 	return nil
 }
 
-// ResetSubscribers resets the subscribers
-func (e *GORMEventStore) ResetSubscribers(resourceType string) map[string][]EventHandler {
+// ResetSubscriptions resets the subscriptions
+func (e *GORMEventStore) ResetSubscriptions() map[string][]EventHandler {
 	e.handlers = make(map[string]map[string][]EventHandler)
 	return nil
 }
