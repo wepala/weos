@@ -23,6 +23,6 @@ func NewClient() *http.Client {
 	}
 	return &http.Client{
 		Transport: t,
-		Timeout:   time.Second * time.Duration(10),
+		Timeout:   time.Second * time.Duration(timeout),
 	}
 }
