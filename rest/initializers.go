@@ -89,17 +89,7 @@ func RouteInitializer(p RouteParams) (err error) {
 			Schema:             p.Config,
 			APIConfig:          p.APIConfig,
 		}))
-		//set up the security middleware if there is a config setup
-		if len(p.Config.Security) > 0 {
-			pathMiddleware = append(pathMiddleware, SecurityMiddleware(&MiddlewareParams{
-				Logger:                p.Logger,
-				SecuritySchemes:       p.SecuritySchemes,
-				Schema:                p.Config,
-				APIConfig:             p.APIConfig,
-				AuthorizationEnforcer: p.AuthorizationEnforcer,
-			}))
 
-		}
 		//get the middleware set on the path
 		if tmiddlewares, ok := pathItem.Extensions["x-middleware"].([]string); ok {
 			for _, middlewareName := range tmiddlewares {
@@ -182,6 +172,23 @@ func RouteInitializer(p RouteParams) (err error) {
 			}
 
 			var operationMiddleware []echo.MiddlewareFunc
+			//set up the security middleware if there is a config setup
+			if len(p.Config.Security) > 0 {
+				operationMiddleware = append(operationMiddleware, SecurityMiddleware(&MiddlewareParams{
+					Logger:                p.Logger,
+					SecuritySchemes:       p.SecuritySchemes,
+					Schema:                p.Config,
+					APIConfig:             p.APIConfig,
+					AuthorizationEnforcer: p.AuthorizationEnforcer,
+					PathMap: map[string]*openapi3.PathItem{
+						path: pathItem,
+					},
+					Operation: map[string]*openapi3.Operation{
+						method: operation,
+					},
+				}))
+
+			}
 			if tmiddlewares, ok := operation.Extensions["x-middleware"].([]string); ok {
 				for _, middlewareName := range tmiddlewares {
 					if middleware, ok := middlewares[middlewareName]; ok {
