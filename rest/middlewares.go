@@ -120,82 +120,84 @@ func SecurityMiddleware(p *MiddlewareParams) echo.MiddlewareFunc {
 			var success bool
 			var err error
 			var result *ValidationResult
-			//loop through the validators and go to the next middleware when one authenticates otherwise return 403
-			for _, validator := range validators {
-				if result, err = validator.Validate(ctxt); result.Valid {
-					newContext := context.WithValue(ctxt.Request().Context(), USER_ID, result.UserID)
-					newContext = context.WithValue(newContext, ROLE, result.Role)
-					newContext = context.WithValue(newContext, ACCOUNT_ID, result.AccountID)
-					newContext = context.WithValue(newContext, APPLICATION_ID, result.ApplicationID)
-					newContext = context.WithValue(newContext, AUTHORIZATION_HEADER, ctxt.Request().Header.Get("Authorization"))
+			//if there are security schemes then authenticate the user
+			if len(securitySchemes) > 0 {
+				//loop through the validators and go to the next middleware when one authenticates otherwise return 403
+				for _, validator := range validators {
+					if result, err = validator.Validate(ctxt); result.Valid {
+						newContext := context.WithValue(ctxt.Request().Context(), USER_ID, result.UserID)
+						newContext = context.WithValue(newContext, ROLE, result.Role)
+						newContext = context.WithValue(newContext, ACCOUNT_ID, result.AccountID)
+						newContext = context.WithValue(newContext, APPLICATION_ID, result.ApplicationID)
+						newContext = context.WithValue(newContext, AUTHORIZATION_HEADER, ctxt.Request().Header.Get("Authorization"))
 
-					request := ctxt.Request().WithContext(newContext)
-					ctxt.SetRequest(request)
-					//check the scopes of the logged-in user against what is required and if the user doesn't have the required scope deny access
-					for _, securityScheme := range securitySchemes {
-						for _, scopes := range securityScheme {
-							for _, scope := range scopes {
-								//account for the different token types that could be returned
-								switch t := result.Token.(type) {
-								case *oidc.IDToken:
-									claims := make(map[string]interface{})
-									err = t.Claims(&claims)
-									if err != nil {
-										ctxt.Logger().Debugf("invalid claims '%s'", err)
-									}
-									if _, ok := claims["scope"]; !ok {
-										ctxt.Logger().Debug("token from issuer '%s' does not have scopes", t.Issuer)
-										return ctxt.NoContent(http.StatusForbidden)
-									}
-									//if the required scope is not in the user scope
-									if !strings.Contains(claims["scope"].(string), scope) {
-										ctxt.Logger().Debug("token from issuer '%s' does not have required scope '%s'", t.Issuer, scope)
-										return ctxt.NoContent(http.StatusForbidden)
-									}
-								case *jwt.Token:
-									if claims, ok := t.Claims.(jwt.MapClaims); ok {
+						request := ctxt.Request().WithContext(newContext)
+						ctxt.SetRequest(request)
+						//check the scopes of the logged-in user against what is required and if the user doesn't have the required scope deny access
+						for _, securityScheme := range securitySchemes {
+							for _, scopes := range securityScheme {
+								for _, scope := range scopes {
+									//account for the different token types that could be returned
+									switch t := result.Token.(type) {
+									case *oidc.IDToken:
+										claims := make(map[string]interface{})
+										err = t.Claims(&claims)
+										if err != nil {
+											ctxt.Logger().Debugf("invalid claims '%s'", err)
+										}
 										if _, ok := claims["scope"]; !ok {
-											ctxt.Logger().Debug("token from issuer '%s' does not have scopes", claims["iss"])
+											ctxt.Logger().Debug("token from issuer '%s' does not have scopes", t.Issuer)
 											return ctxt.NoContent(http.StatusForbidden)
 										}
 										//if the required scope is not in the user scope
 										if !strings.Contains(claims["scope"].(string), scope) {
-											ctxt.Logger().Debug("token from issuer '%s' does not have required scope '%s'", claims["iss"], scope)
+											ctxt.Logger().Debug("token from issuer '%s' does not have required scope '%s'", t.Issuer, scope)
 											return ctxt.NoContent(http.StatusForbidden)
+										}
+									case *jwt.Token:
+										if claims, ok := t.Claims.(jwt.MapClaims); ok {
+											if _, ok := claims["scope"]; !ok {
+												ctxt.Logger().Debug("token from issuer '%s' does not have scopes", claims["iss"])
+												return ctxt.NoContent(http.StatusForbidden)
+											}
+											//if the required scope is not in the user scope
+											if !strings.Contains(claims["scope"].(string), scope) {
+												ctxt.Logger().Debug("token from issuer '%s' does not have required scope '%s'", claims["iss"], scope)
+												return ctxt.NoContent(http.StatusForbidden)
+											}
 										}
 									}
 								}
 							}
 						}
-					}
-					//check permissions to ensure the user can access this endpoint
+						//check permissions to ensure the user can access this endpoint
 
-					tpath := strings.Replace(ctxt.Request().URL.Path, p.APIConfig.BasePath, "", 1)
-					success, err = p.AuthorizationEnforcer.Enforce(result.UserID, tpath, ctxt.Request().Method)
-					//fmt.Printf("explanations %v", explanations)
-					if err != nil {
-						ctxt.Logger().Errorf("error looking up permissions '%s'", err)
+						tpath := strings.Replace(ctxt.Request().URL.Path, p.APIConfig.BasePath, "", 1)
+						success, err = p.AuthorizationEnforcer.Enforce(result.UserID, tpath, ctxt.Request().Method)
+						//fmt.Printf("explanations %v", explanations)
+						if err != nil {
+							ctxt.Logger().Errorf("error looking up permissions '%s'", err)
+						}
+						if success {
+							return next(ctxt)
+						}
+						//check if the role has access to the endpoint
+						success, err = p.AuthorizationEnforcer.Enforce(result.Role, tpath, ctxt.Request().Method)
+						if success {
+							return next(ctxt)
+						}
+						if err != nil {
+							ctxt.Logger().Errorf("the role '%s' does not have access to '%s' action '%s': original error '%s'", result.Role, tpath, ctxt.Request().Method, err)
+						}
+						return ctxt.NoContent(http.StatusForbidden)
 					}
-					if success {
-						return next(ctxt)
-					}
-					//check if the role has access to the endpoint
-					success, err = p.AuthorizationEnforcer.Enforce(result.Role, tpath, ctxt.Request().Method)
-					if success {
-						return next(ctxt)
-					}
-					if err != nil {
-						ctxt.Logger().Errorf("the role '%s' does not have access to '%s' action '%s': original error '%s'", result.Role, tpath, ctxt.Request().Method, err)
-					}
-					return ctxt.NoContent(http.StatusForbidden)
+					ctxt.Logger().Debugf("error authenticating '%s'", err)
 				}
-				ctxt.Logger().Debugf("error authenticating '%s'", err)
+				//if there were validators configured then return un authorized status code
+				if len(validators) > 0 {
+					return ctxt.NoContent(http.StatusUnauthorized)
+				}
 			}
-			//if there were validators configured then return un authorized status code
-			if len(validators) > 0 {
-				return ctxt.NoContent(http.StatusUnauthorized)
-			}
-
 			return next(ctxt)
 		}
 	}
