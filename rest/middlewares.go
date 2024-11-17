@@ -96,12 +96,11 @@ func SecurityMiddleware(p *MiddlewareParams) echo.MiddlewareFunc {
 	securitySchemes := p.Schema.Security
 	for _, operation := range p.Operation {
 		if operation.Security != nil {
-			if len(*operation.Security) > 0 {
-				securitySchemes = *operation.Security
-			} else { //if an empty array is set for the security scheme then no security scheme should be set
-				securitySchemes = make(openapi3.SecurityRequirements, 0)
-			}
+			securitySchemes = *operation.Security
 		}
+	}
+	if securitySchemes == nil {
+		securitySchemes = make(openapi3.SecurityRequirements, 0)
 	}
 
 	for _, scheme := range securitySchemes {
