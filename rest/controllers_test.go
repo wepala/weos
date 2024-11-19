@@ -88,6 +88,87 @@ func TestDefaultWriteController(t *testing.T) {
 			t.Errorf("expected status code %d, got %d", http.StatusCreated, resp.Code)
 		}
 	})
+	t.Run("create a form for the first time", func(t *testing.T) {
+		defaultProjection := &ProjectionMock{
+			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {
+				return nil, nil
+			},
+			GetEventHandlersFunc: func() []rest.EventHandlerConfig {
+				return nil
+			},
+		}
+		eventStore := &EventStoreMock{
+			AddSubscriberFunc: func(config rest.EventHandlerConfig) error {
+				return nil
+			},
+			PersistFunc: func(ctxt context.Context, logger rest.Log, resources []rest.Resource) []error {
+				return nil
+			},
+		}
+		params := rest.ResourceRepositoryParams{
+			EventStore:        eventStore,
+			DefaultProjection: defaultProjection,
+			Config:            schema,
+		}
+		result, err := rest.NewResourceRepository(params)
+		if err != nil {
+			t.Fatalf("expected no error, got %s", err)
+		}
+		repository := result.Repository
+		commandDispatcher := &CommandDispatcherMock{
+			DispatchFunc: func(ctx context.Context, logger rest.Log, command *rest.Command, options *rest.CommandOptions) (rest.CommandResponse, error) {
+				var payload map[string]interface{}
+				err = json.Unmarshal(command.Payload, &payload)
+				if err != nil {
+					t.Fatalf("expected no error, got %s", err)
+				}
+
+				if payload["email"] != "test@example" {
+					t.Errorf("expected email to be 'test@example', got %s", payload["email"])
+					return rest.CommandResponse{
+						Code: 400,
+					}, nil
+				}
+
+				if payload["password"] != "test123" {
+					t.Errorf("expected password to be 'test123', got %s", payload["password"])
+					return rest.CommandResponse{
+						Code: 400,
+					}, nil
+				}
+
+				if payload["confirmPassword"] != "test123" {
+					t.Errorf("expected confirmPassword to be 'test123', got %s", payload["confirmPassword"])
+					return rest.CommandResponse{
+						Code: 400,
+					}, nil
+				}
+
+				return rest.CommandResponse{
+					Code: 201,
+				}, nil
+			},
+		}
+		controller := rest.DefaultWriteController(&rest.ControllerParams{
+			Logger:             logger,
+			CommandDispatcher:  commandDispatcher,
+			ResourceRepository: repository,
+			Schema:             schema,
+			PathMap:            nil,
+			Operation:          nil,
+		})
+
+		payload := "email=test@example&password=test123&confirmPassword=test123"
+		e := echo.New()
+		e.POST("/users", controller)
+		resp := httptest.NewRecorder()
+		req := httptest.NewRequest(echo.POST, "/users", strings.NewReader(payload))
+		req.Header.Set(echo.HeaderContentType, "application/x-www-form-urlencoded")
+		e.ServeHTTP(resp, req)
+		if resp.Code != http.StatusCreated {
+			t.Errorf("expected status code %d, got %d", http.StatusCreated, resp.Code)
+		}
+	})
 	t.Run("delete a resource", func(t *testing.T) {
 		defaultProjection := &ProjectionMock{
 			GetByURIFunc: func(ctxt context.Context, logger rest.Log, uri string) (rest.Resource, error) {

@@ -265,16 +265,34 @@ paths:
         500:
           description: API Internal Error
   /api:
-      get:
-        operationId: Get API Details
-        x-controller: APIDiscovery
-        responses:
-          200:
-            description: API Details
-            content:
-              application/json:
-                schema:
+    get:
+      operationId: Get API Details
+      x-controller: APIDiscovery
+      responses:
+        200:
+          description: API Details
+          content:
+            application/json:
+              schema:
+                type: string
+  /users:
+    post:
+      security: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                email:
                   type: string
+                password:
+                  type: string
+                confirmPassword:
+                  type: string
+      responses:
+        201:
+          description: User Created
   /blogs:
     parameters:
       - in: header

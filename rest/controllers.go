@@ -90,6 +90,74 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 		contentType := ctxt.Request().Header.Get(echo.HeaderContentType)
 		//for certain content types treat with it differently
 		switch contentType {
+		case "application/x-www-form-urlencoded":
+			// read request body into a string
+			bodyString := string(body)
+
+			// parse the request body into a map
+			bodyMap := make(map[string]string)
+			bodyMap, err = FormToMap(bodyString)
+			if err != nil {
+				return NewControllerError("unexpected error reading request body", err, http.StatusBadRequest)
+			}
+
+			body, err = json.Marshal(bodyMap)
+			if err != nil {
+				return NewControllerError("unexpected error reading request body", err, http.StatusBadRequest)
+			}
+
+			var defaultProjection Projection
+			if projection, ok := p.Projections[resourceType]; ok {
+				defaultProjection = projection
+			}
+			//set the path params to the context
+			newContext := ctxt.Request().Context()
+			for _, name := range ctxt.ParamNames() {
+				newContext = context.WithValue(newContext, name, ctxt.Param(name))
+			}
+			//set the query params to the context
+			for _, name := range ctxt.QueryParams() {
+				newContext = context.WithValue(newContext, name, ctxt.QueryParam(name[0]))
+			}
+			//use the request body as the command payload
+			response, err := p.CommandDispatcher.Dispatch(newContext, ctxt.Logger(), &Command{
+				Type:    commandName,
+				Payload: body,
+			}, &CommandOptions{
+				ResourceRepository: p.ResourceRepository,
+				DefaultProjection:  defaultProjection,
+				HttpClient:         p.HttpClient,
+				Request:            ctxt.Request(),
+				GORMDB:             p.GORMDB,
+			})
+
+			if response.Headers != nil {
+				for key, value := range response.Headers {
+					ctxt.Response().Header().Set(key, value)
+				}
+			}
+
+			if response.Code != 0 {
+				//if the response code is a redirect, then return the location header
+				if response.Code == http.StatusMovedPermanently || response.Code == http.StatusTemporaryRedirect {
+					ctxt.Response().Header().Set("Location", response.Body.(string))
+					return ctxt.NoContent(response.Code)
+				}
+				if !response.Success {
+					if response.Body == nil {
+						return ctxt.JSON(response.Code, map[string]interface{}{
+							"message": response.Message,
+						})
+					}
+				}
+				return ctxt.JSON(response.Code, response.Body)
+			} else {
+				if err != nil {
+					return ctxt.NoContent(http.StatusInternalServerError)
+				} else {
+					return ctxt.NoContent(http.StatusOK)
+				}
+			}
 		case "application/ld+json":
 			switch ctxt.Request().Method {
 			case http.MethodDelete:

@@ -497,3 +497,26 @@ func ParseQueryFilters(query string, logger Log) (filters map[string]FilterPrope
 	}
 	return filters, err
 }
+
+func FormToMap(input string) (map[string]string, error) {
+	result := make(map[string]string)
+	pairs := strings.Split(input, "&")
+
+	for _, pair := range pairs {
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid input format: %s", pair)
+		}
+		key, err := url.QueryUnescape(parts[0])
+		if err != nil {
+			return nil, fmt.Errorf("error decoding key: %v", err)
+		}
+		value, err := url.QueryUnescape(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("error decoding value: %v", err)
+		}
+		result[key] = value
+	}
+
+	return result, nil
+}
