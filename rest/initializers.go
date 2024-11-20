@@ -91,9 +91,9 @@ func RouteInitializer(p RouteParams) (err error) {
 		}))
 
 		//get the middleware set on the path
-		if tmiddlewares, ok := pathItem.Extensions["x-middleware"].([]string); ok {
+		if tmiddlewares, ok := pathItem.Extensions["x-middleware"].([]interface{}); ok {
 			for _, middlewareName := range tmiddlewares {
-				if middleware, ok := middlewares[middlewareName]; ok {
+				if middleware, ok := middlewares[middlewareName.(string)]; ok {
 					pathMiddleware = append(pathMiddleware, middleware(&MiddlewareParams{
 						Logger:             p.Logger,
 						CommandDispatcher:  p.CommandDispatcher,
@@ -106,6 +106,22 @@ func RouteInitializer(p RouteParams) (err error) {
 						Operation: nil,
 					}))
 				}
+			}
+		}
+
+		if tmiddleware, ok := pathItem.Extensions["x-middleware"].(string); ok {
+			if middleware, ok := middlewares[tmiddleware]; ok {
+				pathMiddleware = append(pathMiddleware, middleware(&MiddlewareParams{
+					Logger:             p.Logger,
+					CommandDispatcher:  p.CommandDispatcher,
+					ResourceRepository: p.ResourceRepository,
+					Schema:             p.Config,
+					APIConfig:          p.APIConfig,
+					PathMap: map[string]*openapi3.PathItem{
+						path: pathItem,
+					},
+					Operation: nil,
+				}))
 			}
 		}
 
@@ -189,9 +205,9 @@ func RouteInitializer(p RouteParams) (err error) {
 				}))
 
 			}
-			if tmiddlewares, ok := operation.Extensions["x-middleware"].([]string); ok {
+			if tmiddlewares, ok := operation.Extensions["x-middleware"].([]interface{}); ok {
 				for _, middlewareName := range tmiddlewares {
-					if middleware, ok := middlewares[middlewareName]; ok {
+					if middleware, ok := middlewares[middlewareName.(string)]; ok {
 						operationMiddleware = append(operationMiddleware, middleware(&MiddlewareParams{
 							Logger:             p.Logger,
 							CommandDispatcher:  p.CommandDispatcher,
@@ -206,6 +222,24 @@ func RouteInitializer(p RouteParams) (err error) {
 							},
 						}))
 					}
+				}
+			}
+
+			if tmiddleware, ok := operation.Extensions["x-middleware"].(string); ok {
+				if middleware, ok := middlewares[tmiddleware]; ok {
+					operationMiddleware = append(operationMiddleware, middleware(&MiddlewareParams{
+						Logger:             p.Logger,
+						CommandDispatcher:  p.CommandDispatcher,
+						ResourceRepository: p.ResourceRepository,
+						Schema:             p.Config,
+						APIConfig:          p.APIConfig,
+						PathMap: map[string]*openapi3.PathItem{
+							path: pathItem,
+						},
+						Operation: map[string]*openapi3.Operation{
+							method: operation,
+						},
+					}))
 				}
 			}
 
