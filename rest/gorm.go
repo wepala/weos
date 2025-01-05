@@ -334,6 +334,13 @@ func (e *GORMProjection) Persist(ctxt context.Context, logger Log, resources []R
 			}
 			event.CreatedAt = time.Now()
 			event.UpdatedAt = time.Now()
+			//check if there is a user an account and if not set to the user and account in the context
+			if userID, ok := ctxt.Value(USER_ID).(string); ok && event.Meta.User == "" {
+				event.Meta.User = userID
+			}
+			if accountID, ok := ctxt.Value(ACCOUNT_ID).(string); ok && event.Meta.AccountID == "" {
+				event.Meta.AccountID = accountID
+			}
 			events = append(events, event)
 		} else {
 			errs = append(errs, errors.New("resource is not an event"))
