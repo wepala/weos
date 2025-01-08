@@ -463,3 +463,33 @@ var FilterQuery = func(options map[string]FilterProperty) func(db *gorm.DB) *gor
 		return db
 	}
 }
+
+// Paginate is used for querying results
+func Paginate(page int, limit int) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		actualLimit := limit
+		actualPage := page
+		if actualLimit == 0 {
+			actualLimit = -1
+		}
+		if actualPage == 0 {
+			actualPage = 1
+		}
+		return db.Offset((page - 1) * limit).Limit(actualLimit)
+	}
+}
+
+// Sort is used to sort the query results
+func Sort(order map[string]string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		for key, value := range order {
+			//only support certain values since GORM doesn't protect the order function https://gorm.io/docs/security.html#SQL-injection-Methods
+			if value != "asc" && value != "desc" && value != "" {
+				return db
+			}
+			db.Order(key + " " + value)
+		}
+
+		return db
+	}
+}
