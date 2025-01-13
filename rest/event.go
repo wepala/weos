@@ -108,11 +108,12 @@ func (e *GORMEventStore) Dispatch(ctx context.Context, logger Log, event *Event,
 	if resourceTypeHandlers, ok := e.handlers[event.Meta.ResourceType]; ok {
 		if thandlers, ok := resourceTypeHandlers[event.Type]; ok {
 			handlers = append(handlers, thandlers...)
-		} else {
-			if thandlers, ok = resourceTypeHandlers[""]; ok {
-				handlers = append(handlers, thandlers...)
-			}
 		}
+
+		if thandlers, ok := resourceTypeHandlers[""]; ok {
+			handlers = append(handlers, thandlers...)
+		}
+
 	}
 
 	for i := 0; i < len(handlers); i++ {
