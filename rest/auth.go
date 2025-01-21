@@ -114,7 +114,7 @@ func (o *OpenIDConnect) Validate(ctxt echo.Context) (result *ValidationResult, e
 		if jwks_uri, ok := openIDConfig["jwks_uri"]; ok {
 			//create key set and verifier
 			if o.KeySet == nil {
-				o.KeySet = oidc.NewRemoteKeySet(ctxt.Request().Context(), jwks_uri.(string))
+				o.KeySet = oidc.NewRemoteKeySet(context.Background(), jwks_uri.(string))
 			}
 			keySet := o.KeySet
 			var algs []string
