@@ -213,7 +213,7 @@ func (e *GORMEventStore) Persist(ctxt context.Context, logger Log, resources []R
 			errs = append(errs, errors.New("resource is not an event"))
 		}
 	}
-	result := e.gormDB.Save(events)
+	result := e.gormDB.CreateInBatches(events, 300)
 	if result.Error != nil {
 		errs = append(errs, result.Error)
 	}
