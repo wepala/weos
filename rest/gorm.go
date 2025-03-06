@@ -45,6 +45,10 @@ func NewGORM(p GORMParams) (GORMResult, error) {
 		config = p.Config.Databases[0]
 	}
 
+	if config == nil {
+		return GORMResult{}, nil
+	}
+
 	if config.AwsIam {
 		dbName := config.Database
 		dbUser := config.User
