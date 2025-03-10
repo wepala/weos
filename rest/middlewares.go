@@ -128,6 +128,7 @@ func SecurityMiddleware(p *MiddlewareParams) echo.MiddlewareFunc {
 						newContext = context.WithValue(newContext, ROLE, result.Role)
 						newContext = context.WithValue(newContext, ACCOUNT_ID, result.AccountID)
 						newContext = context.WithValue(newContext, APPLICATION_ID, result.ApplicationID)
+						newContext = context.WithValue(newContext, SUBSCRIPTION_ID, result.SubscriptionID)
 						newContext = context.WithValue(newContext, AUTHORIZATION_HEADER, ctxt.Request().Header.Get("Authorization"))
 
 						request := ctxt.Request().WithContext(newContext)

@@ -23,12 +23,13 @@ import (
 
 // ValidationResult is the result of a security validation
 type ValidationResult struct {
-	Valid         bool
-	Token         interface{}
-	UserID        string
-	Role          string
-	AccountID     string
-	ApplicationID string
+	Valid          bool
+	Token          interface{}
+	UserID         string
+	Role           string
+	AccountID      string
+	ApplicationID  string
+	SubscriptionID string
 }
 
 //security interfaces
@@ -94,15 +95,16 @@ m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 
 // OpenIDConnect authorizer for OpenID
 type OpenIDConnect struct {
-	connectURL       string
-	skipExpiryCheck  bool
-	clientID         string
-	userIDClaim      string
-	roleClaim        string
-	accountClaim     string
-	applicationClaim string
-	httpClient       *http.Client
-	KeySet           oidc.KeySet
+	connectURL        string
+	skipExpiryCheck   bool
+	clientID          string
+	userIDClaim       string
+	roleClaim         string
+	accountClaim      string
+	applicationClaim  string
+	subscriptionClaim string
+	httpClient        *http.Client
+	KeySet            oidc.KeySet
 }
 
 func (o *OpenIDConnect) Validate(ctxt echo.Context) (result *ValidationResult, err error) {
@@ -146,6 +148,7 @@ func (o *OpenIDConnect) Validate(ctxt echo.Context) (result *ValidationResult, e
 			var role string
 			var accountID string
 			var applicationID string
+			var subscriptionID string
 
 			if token != nil {
 				tclaims := make(map[string]interface{})
@@ -167,16 +170,20 @@ func (o *OpenIDConnect) Validate(ctxt echo.Context) (result *ValidationResult, e
 					if o.applicationClaim != "" {
 						applicationID = tclaims[o.applicationClaim].(string)
 					}
+					if o.subscriptionClaim != "" {
+						subscriptionID = tclaims[o.subscriptionClaim].(string)
+					}
 				}
 			}
 
 			return &ValidationResult{
-				Valid:         token != nil && err == nil,
-				Token:         tokenString,
-				UserID:        userID,
-				Role:          role,
-				AccountID:     accountID,
-				ApplicationID: applicationID,
+				Valid:          token != nil && err == nil,
+				Token:          tokenString,
+				UserID:         userID,
+				Role:           role,
+				AccountID:      accountID,
+				ApplicationID:  applicationID,
+				SubscriptionID: subscriptionID,
 			}, err
 		} else {
 			return result, fmt.Errorf("expected jwks_url to be set")
@@ -207,6 +214,9 @@ func (o *OpenIDConnect) FromSchema(ctxt context.Context, scheme *openapi3.Securi
 		}
 		if value, ok := jwtMapRaw.(map[string]interface{})["application"]; ok {
 			o.applicationClaim = value.(string)
+		}
+		if value, ok := jwtMapRaw.(map[string]interface{})["subscription"]; ok {
+			o.subscriptionClaim = value.(string)
 		}
 	} else {
 		o.userIDClaim = "sub"
