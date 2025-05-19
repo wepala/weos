@@ -36,10 +36,10 @@ var Core = fx.Module("weos-basic",
 		NewResourceRepository,
 		NewGORMProjection,
 		NewSecurityConfiguration,
+		fx.Invoke(RouteInitializer),
 	),
 )
 
 var API = fx.Module("rest",
 	Core,
-	fx.Invoke(RouteInitializer),
 	fx.Invoke(registerHooks))
