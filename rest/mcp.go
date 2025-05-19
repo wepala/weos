@@ -198,6 +198,10 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 
 		}
 	}
+	if err = server.ServeStdio(result.Server); err != nil {
+		p.Logger.Errorf("error starting MCP server: %s", err)
+		return
+	}
 	return
 }
 
@@ -237,9 +241,11 @@ func mcpStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
 }
 
 var MCP = fx.Module("mcp",
-	fx.Provide(Core, NewMCP),
+	Core,
+	fx.Provide(NewMCP),
 	fx.Invoke(mcpStdIOHook))
 
 var MCPSSE = fx.Module("mcp-sse",
-	fx.Provide(Core, NewMCP),
+	Core,
+	fx.Provide(NewMCP),
 	fx.Invoke(mcpSSEStartupHook))

@@ -16,7 +16,7 @@ x-weos-config:
       - RequestID
       - Recover
       - ZapLogger
-  x-mcp:
+  mcp:
     withTools: true
 components:
   schemas:
