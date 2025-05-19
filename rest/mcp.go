@@ -202,7 +202,7 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 }
 
 // mcpStartupHook registers the hooks for the application
-func mcpStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
+func mcpSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
 	//setup MCP SSE Server
 	sseServer := server.NewSSEServer(mcpServer)
 	lifecycle.Append(fx.Hook{
@@ -220,7 +220,28 @@ func mcpStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
 	})
 }
 
+func mcpStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
+	//setup MCP SSE Server
+	sseServer := server.NewSSEServer(mcpServer)
+	lifecycle.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			if err := server.ServeStdio(mcpServer); err != nil {
+				return err
+			}
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			return sseServer.Shutdown(ctx)
+		},
+	})
+}
+
 var MCP = fx.Module("mcp",
 	Core,
 	fx.Provide(NewMCP),
-	fx.Invoke(registerHooks))
+	fx.Invoke(mcpStdIOHook))
+
+var MCPSSE = fx.Module("mcp-sse",
+	Core,
+	fx.Provide(NewMCP),
+	fx.Invoke(mcpSSEStartupHook))
