@@ -237,11 +237,9 @@ func mcpStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
 }
 
 var MCP = fx.Module("mcp",
-	Core,
-	fx.Provide(NewMCP),
+	fx.Provide(Core, NewMCP),
 	fx.Invoke(mcpStdIOHook))
 
 var MCPSSE = fx.Module("mcp-sse",
-	Core,
-	fx.Provide(NewMCP),
+	fx.Provide(Core, NewMCP),
 	fx.Invoke(mcpSSEStartupHook))
