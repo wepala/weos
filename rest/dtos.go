@@ -19,6 +19,7 @@ type ServiceConfig struct {
 	SessionKey    string      `json:"sessionKey"`
 	Secret        string      `json:"secret"`
 	AccountURL    string      `json:"accountURL"`
+	MCPConfig     *MCPConfig  `json:"mcp"`
 }
 
 type DBConfig struct {
@@ -110,4 +111,9 @@ type QueryProperties struct {
 type CResponseType struct {
 	Status string `json:"status"`
 	Type   string `json:"Type"`
+}
+
+type MCPConfig struct {
+	WithTools    bool `json:"withTools"`
+	WithRecovery bool `json:"withRecovery"`
 }
