@@ -198,6 +198,7 @@ func MCPSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer, e *e
 	sseServer := server.NewSSEServer(mcpServer,
 		server.WithSSEEndpoint("/sse"),
 		server.WithMessageEndpoint("/message"),
+		server.WithStaticBasePath("/local"),
 	)
 
 	//set up the security middleware if there is a config setup
