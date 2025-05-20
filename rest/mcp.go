@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/casbin/casbin/v2"
 	"github.com/labstack/echo/v4"
 	"github.com/mark3labs/mcp-go/mcp"
 	"golang.org/x/net/context"
@@ -11,7 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -193,22 +193,77 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 }
 
 // MCPSSEStartupHook registers the hooks for the application
-func MCPSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
+func MCPSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer, e *echo.Echo, apiConfig *APIConfig, config *openapi3.T, logger Log, securitySchemes map[string]Validator, authorizationEnforcer *casbin.Enforcer) {
 	//setup MCP SSE Server
-	sseServer := server.NewSSEServer(mcpServer)
-	lifecycle.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			go func() {
-				if err := sseServer.Start(":" + os.Getenv("WEOS_PORT")); err != nil {
+	sseServer := server.NewSSEServer(mcpServer,
+		server.WithSSEEndpoint("/sse"),
+		server.WithMessageEndpoint("/message"),
+	)
 
-				}
-			}()
-			return nil
-		},
-		OnStop: func(ctx context.Context) error {
-			return sseServer.Shutdown(ctx)
-		},
-	})
+	//set up the security middleware if there is a config setup
+	var sseGetMiddleware []echo.MiddlewareFunc
+	var ssePostMiddleware []echo.MiddlewareFunc
+	var messageGetMiddleware []echo.MiddlewareFunc
+	var messagePostMiddleware []echo.MiddlewareFunc
+	if len(config.Security) > 0 {
+		sseGetMiddleware = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
+			Logger:                logger,
+			SecuritySchemes:       securitySchemes,
+			Schema:                config,
+			APIConfig:             apiConfig,
+			AuthorizationEnforcer: authorizationEnforcer,
+			PathMap: map[string]*openapi3.PathItem{
+				"/sse": config.Paths.Value("/sse"),
+			},
+			Operation: map[string]*openapi3.Operation{
+				http.MethodGet: config.Paths.Value("/sse").Get,
+			},
+		})}
+		ssePostMiddleware = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
+			Logger:                logger,
+			SecuritySchemes:       securitySchemes,
+			Schema:                config,
+			APIConfig:             apiConfig,
+			AuthorizationEnforcer: authorizationEnforcer,
+			PathMap: map[string]*openapi3.PathItem{
+				"/sse": config.Paths.Value("/sse"),
+			},
+			Operation: map[string]*openapi3.Operation{
+				http.MethodPost: config.Paths.Value("/sse").Post,
+			},
+		})}
+		messageGetMiddleware = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
+			Logger:                logger,
+			SecuritySchemes:       securitySchemes,
+			Schema:                config,
+			APIConfig:             apiConfig,
+			AuthorizationEnforcer: authorizationEnforcer,
+			PathMap: map[string]*openapi3.PathItem{
+				"/message": config.Paths.Value("/message"),
+			},
+			Operation: map[string]*openapi3.Operation{
+				http.MethodGet: config.Paths.Value("/message").Get,
+			},
+		})}
+		messagePostMiddleware = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
+			Logger:                logger,
+			SecuritySchemes:       securitySchemes,
+			Schema:                config,
+			APIConfig:             apiConfig,
+			AuthorizationEnforcer: authorizationEnforcer,
+			PathMap: map[string]*openapi3.PathItem{
+				"/message": config.Paths.Value("/message"),
+			},
+			Operation: map[string]*openapi3.Operation{
+				http.MethodPost: config.Paths.Value("/message").Post,
+			},
+		})}
+
+	}
+	e.GET(apiConfig.BasePath+"/sse", echo.WrapHandler(sseServer.SSEHandler()), sseGetMiddleware...)
+	e.POST(apiConfig.BasePath+"/sse", echo.WrapHandler(sseServer.SSEHandler()), ssePostMiddleware...)
+	e.GET(apiConfig.BasePath+"/message", echo.WrapHandler(sseServer.MessageHandler()), messageGetMiddleware...)
+	e.POST(apiConfig.BasePath+"/message", echo.WrapHandler(sseServer.MessageHandler()), messagePostMiddleware...)
 }
 
 func MCPStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
