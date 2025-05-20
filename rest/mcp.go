@@ -125,8 +125,9 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 				}
 
 				toolHandler = func(ctx context.Context, request mcp.CallToolRequest) (response *mcp.CallToolResult, err error) {
+
 					// Create a new HTTP request for the endpoint
-					httpUrl := path
+					httpUrl := p.APIConfig.BasePath + path
 					queryParams := url.Values{}
 					headerValues := make(map[string]string)
 					//for all the path parameters, replace them in the url
@@ -155,6 +156,7 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 					}
 
 					// Create the HTTP request
+					p.Logger.Debugf("mcp call tool '%s' with method '%s' and url '%s'", toolName, method, httpUrl)
 					httpReq := httptest.NewRequest(string(method), httpUrl, reqBody)
 
 					httpReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -175,19 +177,8 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 						return mcp.NewToolResultErrorFromErr("error calling endpoint", fmt.Errorf("error calling endpoint: %s", string(respBody))), fmt.Errorf("error calling endpoint: %s", string(respBody))
 					}
 
-					// Try to parse the response as JSON
-					var jsonResp interface{}
-					if err := json.Unmarshal(respBody, &jsonResp); err == nil {
-						response = mcp.NewToolResultResource(string(respBody), mcp.BlobResourceContents{
-							Blob:     string(respBody),
-							MIMEType: rec.Header().Get(echo.HeaderContentType),
-							URI:      httpUrl,
-						})
-					} else {
-						// If not JSON, use the raw string
-						response = mcp.NewToolResultText(string(respBody))
-					}
-
+					//TODO in the future update the the response based on the response defined in the openapi spec
+					response = mcp.NewToolResultText(string(respBody))
 					return
 				}
 
@@ -198,15 +189,11 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 
 		}
 	}
-	if err = server.ServeStdio(result.Server); err != nil {
-		p.Logger.Errorf("error starting MCP server: %s", err)
-		return
-	}
 	return
 }
 
-// mcpStartupHook registers the hooks for the application
-func mcpSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
+// MCPSSEStartupHook registers the hooks for the application
+func MCPSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
 	//setup MCP SSE Server
 	sseServer := server.NewSSEServer(mcpServer)
 	lifecycle.Append(fx.Hook{
@@ -224,7 +211,7 @@ func mcpSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
 	})
 }
 
-func mcpStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
+func MCPStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
 	//setup MCP SSE Server
 	sseServer := server.NewSSEServer(mcpServer)
 	lifecycle.Append(fx.Hook{
@@ -241,11 +228,9 @@ func mcpStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
 }
 
 var MCP = fx.Module("mcp",
-	Core,
 	fx.Provide(NewMCP),
-	fx.Invoke(mcpStdIOHook))
+	fx.Invoke(MCPStdIOHook))
 
-var MCPSSE = fx.Module("mcp-sse",
-	Core,
+var MCPSSE = fx.Module("mcp",
 	fx.Provide(NewMCP),
-	fx.Invoke(mcpSSEStartupHook))
+	fx.Invoke(MCPSSEStartupHook))
