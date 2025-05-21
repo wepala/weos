@@ -18,6 +18,7 @@ x-weos-config:
       - ZapLogger
   mcp:
     withTools: true
+    excludeAuth: true
 components:
   schemas:
     Category:

@@ -233,7 +233,7 @@ func MCPSSEStartupHook(
 		Schema:             config,
 		APIConfig:          apiConfig,
 	}))
-	if len(config.Security) > 0 {
+	if !apiConfig.MCPConfig.ExcludeAuth && len(config.Security) > 0 {
 		middlewares = append(middlewares, SecurityMiddleware(&MiddlewareParams{
 			Logger:                logger,
 			SecuritySchemes:       securitySchemes,
