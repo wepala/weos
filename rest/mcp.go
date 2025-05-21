@@ -202,69 +202,20 @@ func MCPSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer, e *e
 	)
 
 	//set up the security middleware if there is a config setup
-	var sseGetMiddleware []echo.MiddlewareFunc
-	var ssePostMiddleware []echo.MiddlewareFunc
-	var messageGetMiddleware []echo.MiddlewareFunc
-	var messagePostMiddleware []echo.MiddlewareFunc
+	var middlewares []echo.MiddlewareFunc
 	if len(config.Security) > 0 {
-		sseGetMiddleware = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
+		middlewares = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
 			Logger:                logger,
 			SecuritySchemes:       securitySchemes,
 			Schema:                config,
 			APIConfig:             apiConfig,
 			AuthorizationEnforcer: authorizationEnforcer,
-			PathMap: map[string]*openapi3.PathItem{
-				"/sse": config.Paths.Value("/sse"),
-			},
-			Operation: map[string]*openapi3.Operation{
-				http.MethodGet: config.Paths.Value("/sse").Get,
-			},
+			PathMap:               map[string]*openapi3.PathItem{},
+			Operation:             map[string]*openapi3.Operation{},
 		})}
-		ssePostMiddleware = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
-			Logger:                logger,
-			SecuritySchemes:       securitySchemes,
-			Schema:                config,
-			APIConfig:             apiConfig,
-			AuthorizationEnforcer: authorizationEnforcer,
-			PathMap: map[string]*openapi3.PathItem{
-				"/sse": config.Paths.Value("/sse"),
-			},
-			Operation: map[string]*openapi3.Operation{
-				http.MethodPost: config.Paths.Value("/sse").Post,
-			},
-		})}
-		messageGetMiddleware = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
-			Logger:                logger,
-			SecuritySchemes:       securitySchemes,
-			Schema:                config,
-			APIConfig:             apiConfig,
-			AuthorizationEnforcer: authorizationEnforcer,
-			PathMap: map[string]*openapi3.PathItem{
-				"/message": config.Paths.Value("/message"),
-			},
-			Operation: map[string]*openapi3.Operation{
-				http.MethodGet: config.Paths.Value("/message").Get,
-			},
-		})}
-		messagePostMiddleware = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
-			Logger:                logger,
-			SecuritySchemes:       securitySchemes,
-			Schema:                config,
-			APIConfig:             apiConfig,
-			AuthorizationEnforcer: authorizationEnforcer,
-			PathMap: map[string]*openapi3.PathItem{
-				"/message": config.Paths.Value("/message"),
-			},
-			Operation: map[string]*openapi3.Operation{
-				http.MethodPost: config.Paths.Value("/message").Post,
-			},
-		})}
-
 	}
-	e.GET(apiConfig.BasePath+"/sse", echo.WrapHandler(sseServer.SSEHandler()), sseGetMiddleware...)
-	e.POST(apiConfig.BasePath+"/sse", echo.WrapHandler(sseServer.SSEHandler()), ssePostMiddleware...)
-	e.GET(apiConfig.BasePath+"/message", echo.WrapHandler(sseServer.MessageHandler()), messageGetMiddleware...)
-	e.POST(apiConfig.BasePath+"/message", echo.WrapHandler(sseServer.MessageHandler()), messagePostMiddleware...)
+	e.Any(apiConfig.BasePath+"/sse", echo.WrapHandler(sseServer.SSEHandler()), middlewares...)
+	e.Any(apiConfig.BasePath+"/message", echo.WrapHandler(sseServer.MessageHandler()), middlewares...)
 }
 
 func MCPStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
