@@ -128,9 +128,10 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 				toolHandler = func(ctx context.Context, request mcp.CallToolRequest) (response *mcp.CallToolResult, err error) {
 
 					//get the token from the context
-					authorizationHeader := ctx.Value(AUTHORIZATION_HEADER).(string)
-					//if the header is not in the context, check the environment
-					if authorizationHeader == "" {
+					var authorizationHeader string
+					var ok bool
+					if authorizationHeader, ok = ctx.Value(AUTHORIZATION_HEADER).(string); !ok {
+						//if the header is not in the context, check the environment
 						authorizationHeader = os.Getenv("AUTHORIZATION_HEADER")
 					}
 					// Create a new HTTP request for the endpoint
