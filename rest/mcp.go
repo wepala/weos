@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -126,6 +127,12 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 
 				toolHandler = func(ctx context.Context, request mcp.CallToolRequest) (response *mcp.CallToolResult, err error) {
 
+					//get the token from the context
+					authorizationHeader := ctx.Value(AUTHORIZATION_HEADER).(string)
+					//if the header is not in the context, check the environment
+					if authorizationHeader == "" {
+						authorizationHeader = os.Getenv("AUTHORIZATION_HEADER")
+					}
 					// Create a new HTTP request for the endpoint
 					httpUrl := p.APIConfig.BasePath + path
 					queryParams := url.Values{}
@@ -160,6 +167,10 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 					httpReq := httptest.NewRequest(string(method), httpUrl, reqBody)
 
 					httpReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+					// Set the authorization header if it exists
+					if authorizationHeader != "" {
+						httpReq.Header.Set("Authorization", authorizationHeader)
+					}
 
 					// Create a recorder to capture the response
 					rec := httptest.NewRecorder()
@@ -193,7 +204,18 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 }
 
 // MCPSSEStartupHook registers the hooks for the application
-func MCPSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer, e *echo.Echo, apiConfig *APIConfig, config *openapi3.T, logger Log, securitySchemes map[string]Validator, authorizationEnforcer *casbin.Enforcer) {
+func MCPSSEStartupHook(
+	lifecycle fx.Lifecycle,
+	mcpServer *server.MCPServer,
+	e *echo.Echo,
+	apiConfig *APIConfig,
+	config *openapi3.T,
+	logger Log,
+	securitySchemes map[string]Validator,
+	authorizationEnforcer *casbin.Enforcer,
+	commandDispatcher CommandDispatcher,
+	resourceRepository *ResourceRepository,
+) {
 	//setup MCP SSE Server
 	sseServer := server.NewSSEServer(mcpServer,
 		server.WithSSEEndpoint("/sse"),
@@ -203,8 +225,16 @@ func MCPSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer, e *e
 
 	//set up the security middleware if there is a config setup
 	var middlewares []echo.MiddlewareFunc
+	//set zap logger as a default middleware
+	middlewares = append(middlewares, ZapLogger(&MiddlewareParams{
+		Logger:             logger,
+		CommandDispatcher:  commandDispatcher,
+		ResourceRepository: resourceRepository,
+		Schema:             config,
+		APIConfig:          apiConfig,
+	}))
 	if len(config.Security) > 0 {
-		middlewares = []echo.MiddlewareFunc{SecurityMiddleware(&MiddlewareParams{
+		middlewares = append(middlewares, SecurityMiddleware(&MiddlewareParams{
 			Logger:                logger,
 			SecuritySchemes:       securitySchemes,
 			Schema:                config,
@@ -212,7 +242,7 @@ func MCPSSEStartupHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer, e *e
 			AuthorizationEnforcer: authorizationEnforcer,
 			PathMap:               map[string]*openapi3.PathItem{},
 			Operation:             map[string]*openapi3.Operation{},
-		})}
+		}))
 	}
 	e.Any(apiConfig.BasePath+"/sse", echo.WrapHandler(sseServer.SSEHandler()), middlewares...)
 	e.Any(apiConfig.BasePath+"/message", echo.WrapHandler(sseServer.MessageHandler()), middlewares...)
