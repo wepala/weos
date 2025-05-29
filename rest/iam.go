@@ -3,6 +3,7 @@ package rest
 import "golang.org/x/net/context"
 
 type IAMConnection struct {
+	ID          string `json:"id"`
 	UserID      string `json:"userId"`
 	ProviderID  string `json:"providerID"`
 	ResourceID  string `json:"resourceId"`
