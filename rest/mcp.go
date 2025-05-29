@@ -45,6 +45,15 @@ func WithJSONSchema(name string, schema *openapi3.Schema) mcp.ToolOption {
 			}
 		}
 
+		//check additionalProperties as well
+		if schema.AdditionalProperties.Schema != nil {
+			for propertyName, prop := range schema.AdditionalProperties.Schema.Value.Properties {
+				if prop.Value != nil {
+					properties[propertyName] = prop.Value
+				}
+			}
+		}
+
 		toolInputSchema := mcp.ToolInputSchema{
 			Type:       schema.Type,
 			Properties: properties,
@@ -107,7 +116,7 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 							toolOptions = append(toolOptions, mcp.WithArray(param.Value.Name, options...))
 							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
 						case "object":
-							toolOptions = append(toolOptions, mcp.WithObject(param.Value.Name, options...))
+							toolOptions = append(toolOptions, WithJSONSchema(param.Value.Name, param.Value.Schema.Value))
 							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
 						}
 					}
