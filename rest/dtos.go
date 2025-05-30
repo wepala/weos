@@ -114,7 +114,12 @@ type CResponseType struct {
 }
 
 type MCPConfig struct {
-	WithTools    bool `json:"withTools"`
-	WithRecovery bool `json:"withRecovery"`
-	ExcludeAuth  bool `json:"excludeAuth"`
+	WithTools    bool         `json:"withTools"`
+	WithRecovery bool         `json:"withRecovery"`
+	ExcludeAuth  bool         `json:"excludeAuth"`
+	Allow        *MCPSecurity `json:"allow"`
+}
+
+type MCPSecurity struct {
+	Roles []string `json:"roles"`
 }

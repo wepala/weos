@@ -244,6 +244,29 @@ func MCPSSEStartupHook(
 		APIConfig:          apiConfig,
 	}))
 	if !apiConfig.MCPConfig.ExcludeAuth && len(config.Security) > 0 {
+		//if roles are setup then set permissions for the role
+		if apiConfig.MCPConfig.Allow != nil && len(apiConfig.MCPConfig.Allow.Roles) > 0 {
+			for _, role := range apiConfig.MCPConfig.Allow.Roles {
+				_, err := authorizationEnforcer.AddPolicy(role, apiConfig.BasePath+"/sse", http.MethodGet)
+				if err != nil {
+					logger.Errorf("Error adding policy for role '%s' on path '%s': %s", role, apiConfig.BasePath+"/sse", err.Error())
+				}
+				_, err = authorizationEnforcer.AddPolicy(role, apiConfig.BasePath+"/sse", http.MethodPost)
+				if err != nil {
+					logger.Errorf("Error adding policy for role '%s' on path '%s': %s", role, apiConfig.BasePath+"/sse", err.Error())
+				}
+
+				_, err = authorizationEnforcer.AddPolicy(role, apiConfig.BasePath+"/message", http.MethodGet)
+				if err != nil {
+					logger.Errorf("Error adding policy for role '%s' on path '%s': %s", role, apiConfig.BasePath+"/message", err.Error())
+				}
+
+				_, err = authorizationEnforcer.AddPolicy(role, apiConfig.BasePath+"/message", http.MethodPost)
+				if err != nil {
+					logger.Errorf("Error adding policy for role '%s' on path '%s': %s", role, apiConfig.BasePath+"/message", err.Error())
+				}
+			}
+		}
 		middlewares = append(middlewares, SecurityMiddleware(&MiddlewareParams{
 			Logger:                logger,
 			SecuritySchemes:       securitySchemes,
