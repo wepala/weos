@@ -142,7 +142,9 @@ func (o *OpenIDConnect) Validate(ctxt echo.Context) (result *ValidationResult, e
 			authorizationHeader := ctxt.Request().Header.Get("Authorization")
 			tokenString := strings.Replace(authorizationHeader, "Bearer ", "", -1)
 			token, err := tokenVerifier.Verify(context.Background(), tokenString)
-			ctxt.Logger().Debugf("invalid token: %s", err)
+			if err != nil {
+				ctxt.Logger().Debugf("invalid token: %s", err)
+			}
 
 			var userID string
 			var role string
