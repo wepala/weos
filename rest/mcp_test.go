@@ -306,7 +306,7 @@ func TestToolHandler(t *testing.T) {
 	type ListRequest struct {
 		Filter       Filter   `json:"_filter"`
 		Cursor       string   `json:"cursor"`
-		Integrations []string `json:"integrations"`
+		Integrations []string `query:"integrations"`
 	}
 	var req ListRequest
 	e.GET("/transactions", func(c echo.Context) error {

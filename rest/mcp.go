@@ -293,7 +293,7 @@ func BindComplexParams(c echo.Context, req interface{}) (err error) {
 	}
 	// If serializedParams is false, bind the request parameters normally
 	if !serializedParams {
-		if err := c.Bind(&req); err != nil {
+		if err := c.Bind(req); err != nil {
 			return NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
 		}
 	}
