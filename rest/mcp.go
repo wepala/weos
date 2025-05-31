@@ -177,6 +177,12 @@ func ToolHandler(logger Log, path, toolName, method string, apiConfig *APIConfig
 								queryParams.Add(param.Value.Name, fmt.Sprintf("%v", value))
 							}
 						}
+						// If the parameter is an array, we need to handle it differently
+						if values, ok := request.Params.Arguments[param.Value.Name].([]interface{}); ok {
+							for _, value := range values {
+								queryParams.Add(param.Value.Name, fmt.Sprintf("%v", value))
+							}
+						}
 					case "object":
 						if param.Value.Style == "deepObject" {
 							paramMap := make(map[string]map[string]map[string]string)
