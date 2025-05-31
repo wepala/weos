@@ -153,8 +153,18 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 							httpUrl = strings.ReplaceAll(httpUrl, "{"+param.Value.Name+"}", fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
 						}
 						if param.Value != nil && param.Value.In == "query" {
+							paramterName := param.Value.Name
 							// Add query parameters to the URL
-							queryParams.Add(param.Value.Name, fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
+							if param.Value.Schema != nil && param.Value.Schema.Value != nil {
+								if param.Value.Schema.Value.Type == "array" {
+									paramterName = fmt.Sprintf("%s[]", param.Value.Name) // For array parameters, append [] to the name to be compatible with echo query parameters
+								}
+							}
+							if request.Params.Arguments[param.Value.Name] == nil {
+								// If the parameter is not provided, skip it
+								continue
+							}
+							queryParams.Add(paramterName, fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
 						}
 						if param.Value != nil && param.Value.In == "header" {
 							// Add header parameters to the request
