@@ -1,6 +1,7 @@
 package rest_test
 
 import (
+	"encoding/json"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -292,21 +293,59 @@ func TestToolHandler(t *testing.T) {
 
 		},
 	}
+	type Filter struct {
+		// General fields
+		ID        rest.Operator `json:"id,omitempty"`
+		Created   rest.Operator `json:"created,omitempty"`
+		Updated   rest.Operator `json:"updated,omitempty"`
+		DeletedAt rest.Operator `json:"deletedAt,omitempty"`
+
+		// Transaction fields
+		TransactionType rest.Operator `json:"transactionType,omitempty"`
+		Amount          rest.Operator `json:"amount,omitempty"`
+	}
 	type ListRequest struct {
-		Cursor       string   `query:"cursor"`
-		Integrations []string `query:"integrations"`
+		Filter       Filter   `json:"_filter"`
+		Cursor       string   `json:"cursor"`
+		Integrations []string `json:"integrations"`
 	}
 	var req ListRequest
 	e.GET("/transactions", func(c echo.Context) error {
 		// Extract query parameters from the context
 
-		if err := c.Bind(&req); err != nil {
-			return rest.NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
+		serializedParams := false
+		//check if any query param has square brackets
+		for key := range c.QueryParams() {
+			if len(key) > 0 && key[len(key)-1] == ']' {
+				//if it has square brackets convert to json representation
+				jsonMap := rest.ParseFilterQueryParams(c.QueryParams())
+
+				// You can now use jsonMap which contains the structured data
+				// For example, you could log it or use it in your application:
+				logger.Debugf("Converted filter params to JSON structure: %v", jsonMap)
+
+				jsonBytes, _ := json.Marshal(jsonMap)
+				err = json.Unmarshal(jsonBytes, &req)
+				if err != nil {
+					c.Logger().Debugf("Failed to unmarshal filter params: %v", err)
+					return rest.NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
+				}
+				// jsonStr := string(jsonBytes)
+				serializedParams = true
+				break // Only need to do the conversion once for all parameters
+			}
 		}
-		// Mock handler for the route
-		return c.JSON(http.StatusOK, map[string]string{"message": "List of transactions"})
+		// If serializedParams is false, bind the request parameters normally
+		if !serializedParams {
+			if err := c.Bind(&req); err != nil {
+				return rest.NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
+			}
+		}
+
+		return nil
 	})
-	t.Run("should pass query parameters to the route handler", func(t *testing.T) {
+
+	t.Run("should pass integrations as query parameters to route handler ", func(t *testing.T) {
 		toolHandler := rest.ToolHandler(logger, "/transactions", "listTransactions", http.MethodGet, apiConfig, api.Paths.Value("/transactions").Get, e)
 
 		// Create a context and MCP call tool request with test arguments
@@ -324,6 +363,28 @@ func TestToolHandler(t *testing.T) {
 		if len(req.Integrations) != 1 {
 			t.Fatalf("Expected 1 integration, got %d", len(req.Integrations))
 		}
+	})
+	t.Run("should pass filter query parameters to the route handler", func(t *testing.T) {
+		toolHandler := rest.ToolHandler(logger, "/transactions", "listTransactions", http.MethodGet, apiConfig, api.Paths.Value("/transactions").Get, e)
 
+		// Create a context and MCP call tool request with test arguments
+		ctx := context.Background()
+		request := mcp.CallToolRequest{}
+		request.Params.Name = "listTransactions"
+		request.Params.Arguments = make(map[string]interface{})
+		request.Params.Arguments["_filter"] = map[string]interface{}{
+			"id": map[string]interface{}{
+				"eq": "1234",
+			},
+		}
+
+		// Call tool handler with integration arguments
+		_, err = toolHandler(ctx, request)
+		if err != nil {
+			t.Fatalf("Tool handler returned an error: %v", err)
+		}
+		if req.Filter.ID.Eq != "1234" {
+			t.Fatalf("Expected filter ID to be '1234', got '%s'", req.Filter.ID.Eq)
+		}
 	})
 }

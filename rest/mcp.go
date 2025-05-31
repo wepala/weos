@@ -169,14 +169,43 @@ func ToolHandler(logger Log, path, toolName, method string, apiConfig *APIConfig
 				}
 				// Add query parameters to the URL
 				if param.Value.Schema != nil && param.Value.Schema.Value != nil {
-					if param.Value.Schema.Value.Type == "array" {
+					switch param.Value.Schema.Value.Type {
+					case "array":
+						// If the parameter is an array, we need to handle it differently
 						if values, ok := request.Params.Arguments[param.Value.Name].([]string); ok {
 							for _, value := range values {
 								queryParams.Add(param.Value.Name, fmt.Sprintf("%v", value))
 							}
 						}
+					case "object":
+						if param.Value.Style == "deepObject" {
+							paramMap := make(map[string]map[string]map[string]string)
+							for key, value := range request.Params.Arguments[param.Value.Name].(map[string]interface{}) {
+								if _, exists := paramMap[param.Value.Name]; !exists {
+									paramMap[param.Value.Name] = make(map[string]map[string]string)
+								}
+								if operatorValue, ok := value.(map[string]interface{}); ok {
+									// If the value is a map, we need to handle it as an object
+									for operatorKey, ov := range operatorValue {
+										if _, exists := paramMap[param.Value.Name][key]; !exists {
+											paramMap[param.Value.Name][key] = make(map[string]string)
+										}
+										paramMap[param.Value.Name][key][operatorKey] = fmt.Sprintf("%v", ov)
+									}
+									continue
+								}
 
-					} else {
+							}
+							//add param map to query params where the key is something like "paramName[title][operator]" and the value is the value of the parameter
+							for key, value := range paramMap[param.Value.Name] {
+								for operatorKey, operatorValue := range value {
+									queryParams.Add(fmt.Sprintf("%s[%s][%s]", param.Value.Name, key, operatorKey), operatorValue)
+								}
+							}
+						}
+
+					default:
+						// For other types, we can directly add the value
 						queryParams.Add(param.Value.Name, fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
 					}
 				}

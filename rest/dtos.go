@@ -123,3 +123,20 @@ type MCPConfig struct {
 type MCPSecurity struct {
 	Roles []string `json:"roles"`
 }
+
+type Operator struct {
+	Eq          string   `json:"eq,omitempty"`
+	Lt          string   `json:"lt,omitempty"`
+	Gt          string   `json:"gt,omitempty"`
+	Lte         string   `json:"lte,omitempty"`
+	Gte         string   `json:"gte,omitempty"`
+	Ne          string   `json:"ne,omitempty"`
+	Like        string   `json:"like,omitempty"`
+	NotLike     string   `json:"not_like,omitempty"`
+	Contains    string   `json:"contains,omitempty"`
+	NotContains string   `json:"not_contains,omitempty"`
+	In          []string `json:"in,omitempty"`
+	NotIn       []string `json:"not_in,omitempty"`
+	Between     []string `json:"between,omitempty"`
+	NotBetween  []string `json:"not_between,omitempty"`
+}
