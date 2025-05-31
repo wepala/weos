@@ -262,6 +262,38 @@ func ToolHandler(logger Log, path, toolName, method string, apiConfig *APIConfig
 	}
 }
 
+func BindComplexParams(c echo.Context, req interface{}) (err error) {
+	serializedParams := false
+	//check if any query param has square brackets
+	for key := range c.QueryParams() {
+		if len(key) > 0 && key[len(key)-1] == ']' {
+			//if it has square brackets convert to json representation
+			jsonMap := ParseFilterQueryParams(c.QueryParams())
+
+			// You can now use jsonMap which contains the structured data
+			// For example, you could log it or use it in your application:
+			c.Logger().Debugf("Converted filter params to JSON structure: %v", jsonMap)
+
+			jsonBytes, _ := json.Marshal(jsonMap)
+			err = json.Unmarshal(jsonBytes, req)
+			if err != nil {
+				c.Logger().Debugf("Failed to unmarshal filter params: %v", err)
+				return NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
+			}
+			// jsonStr := string(jsonBytes)
+			serializedParams = true
+			break // Only need to do the conversion once for all parameters
+		}
+	}
+	// If serializedParams is false, bind the request parameters normally
+	if !serializedParams {
+		if err := c.Bind(&req); err != nil {
+			return NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
+		}
+	}
+	return
+}
+
 // MCPSSEStartupHook registers the hooks for the application
 func MCPSSEStartupHook(
 	lifecycle fx.Lifecycle,
