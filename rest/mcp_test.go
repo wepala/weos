@@ -254,3 +254,76 @@ func TestMCPProviderWithComplexAPI(t *testing.T) {
 		}
 	})
 }
+
+func TestToolHandler(t *testing.T) {
+	// Load the blog-mcp.yaml fixture
+	apiPath, err := filepath.Abs("fixtures/mcp-complex.yaml")
+	if err != nil {
+		t.Fatalf("Failed to resolve API path: %v", err)
+	}
+
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+	api, err := loader.LoadFromFile(apiPath)
+	if err != nil {
+		t.Fatalf("Failed to load API spec: %v", err)
+	}
+
+	// Create an Echo instance
+	e := echo.New()
+
+	// Initialize API config with MCP support
+	apiConfig := &rest.APIConfig{
+		ServiceConfig: &rest.ServiceConfig{
+			Title: "Blog with MCP Test",
+			MCPConfig: &rest.MCPConfig{
+				WithTools: true,
+			},
+		},
+		Version: "1.0.0",
+	}
+
+	// Setup a mock logger
+	logger := &LogMock{
+		DebugFunc: func(args ...interface{}) {
+
+		},
+		DebugfFunc: func(format string, args ...interface{}) {
+
+		},
+	}
+	type ListRequest struct {
+		Cursor       string   `query:"cursor"`
+		Integrations []string `query:"integrations"`
+	}
+	var req ListRequest
+	e.GET("/transactions", func(c echo.Context) error {
+		// Extract query parameters from the context
+
+		if err := c.Bind(&req); err != nil {
+			return rest.NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
+		}
+		// Mock handler for the route
+		return c.JSON(http.StatusOK, map[string]string{"message": "List of transactions"})
+	})
+	t.Run("should pass query parameters to the route handler", func(t *testing.T) {
+		toolHandler := rest.ToolHandler(logger, "/transactions", "listTransactions", http.MethodGet, apiConfig, api.Paths.Value("/transactions").Get, e)
+
+		// Create a context and MCP call tool request with test arguments
+		ctx := context.Background()
+		request := mcp.CallToolRequest{}
+		request.Params.Name = "listTransactions"
+		request.Params.Arguments = make(map[string]interface{})
+		request.Params.Arguments["integrations"] = []string{"quickbooks"}
+
+		// Call tool handler with integration arguments
+		_, err = toolHandler(ctx, request)
+		if err != nil {
+			t.Fatalf("Tool handler returned an error: %v", err)
+		}
+		if len(req.Integrations) != 1 {
+			t.Fatalf("Expected 1 integration, got %d", len(req.Integrations))
+		}
+
+	})
+}

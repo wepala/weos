@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/casbin/casbin/v2"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"go.uber.org/fx"
 	"golang.org/x/net/context"
 	"io"
 	"net/http"
@@ -14,10 +17,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/mark3labs/mcp-go/server"
-	"go.uber.org/fx"
 )
 
 type MCPParams struct {
@@ -83,7 +82,6 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 		for method, operation := range pathItem.Operations() {
 			if mcpConfig, ok := operation.Extensions[MCPExtension].(map[string]interface{}); ok {
 				var toolOptions []mcp.ToolOption
-				var toolHandler server.ToolHandlerFunc
 				//check to see if the mcp config has a name for the tool if not use the operation id
 				var toolName string
 				if name, ok := mcpConfig["name"].(string); ok {
@@ -134,89 +132,7 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 					}
 				}
 
-				toolHandler = func(ctx context.Context, request mcp.CallToolRequest) (response *mcp.CallToolResult, err error) {
-
-					//get the token from the context
-					var authorizationHeader string
-					var ok bool
-					if authorizationHeader, ok = ctx.Value(AUTHORIZATION_HEADER).(string); !ok {
-						//if the header is not in the context, check the environment
-						authorizationHeader = os.Getenv("AUTHORIZATION_HEADER")
-					}
-					// Create a new HTTP request for the endpoint
-					httpUrl := p.APIConfig.BasePath + path
-					queryParams := url.Values{}
-					headerValues := make(map[string]string)
-					//for all the path parameters, replace them in the url
-					for _, param := range operation.Parameters {
-						if param.Value != nil && param.Value.In == "path" {
-							httpUrl = strings.ReplaceAll(httpUrl, "{"+param.Value.Name+"}", fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
-						}
-						if param.Value != nil && param.Value.In == "query" {
-							paramterName := param.Value.Name
-							// Add query parameters to the URL
-							if param.Value.Schema != nil && param.Value.Schema.Value != nil {
-								if param.Value.Schema.Value.Type == "array" {
-									paramterName = fmt.Sprintf("%s[]", param.Value.Name) // For array parameters, append [] to the name to be compatible with echo query parameters
-								}
-							}
-							if request.Params.Arguments[param.Value.Name] == nil {
-								// If the parameter is not provided, skip it
-								continue
-							}
-							queryParams.Add(paramterName, fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
-						}
-						if param.Value != nil && param.Value.In == "header" {
-							// Add header parameters to the request
-							headerValues[param.Value.Name] = fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name])
-						}
-					}
-
-					// Create the request body if needed
-					var reqBody io.Reader
-					if request.Params.Arguments["body"] != nil {
-						jsonBody, err := json.Marshal(request.Params.Arguments["body"])
-						if err != nil {
-							return nil, err
-						}
-						reqBody = bytes.NewBuffer(jsonBody)
-					}
-					//add the query parameters to the url
-					if len(queryParams) > 0 {
-						httpUrl += "?" + queryParams.Encode()
-					}
-
-					// Create the HTTP request
-					p.Logger.Debugf("mcp call tool '%s' with method '%s' and url '%s'", toolName, method, httpUrl)
-					httpReq := httptest.NewRequest(string(method), httpUrl, reqBody)
-
-					httpReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-					// Set the authorization header if it exists
-					if authorizationHeader != "" {
-						httpReq.Header.Set("Authorization", authorizationHeader)
-					}
-
-					// Create a recorder to capture the response
-					rec := httptest.NewRecorder()
-					// Call the endpoint
-					p.Echo.ServeHTTP(rec, httpReq)
-
-					// Get the response body
-					respBody, err := io.ReadAll(rec.Body)
-					if err != nil {
-						return mcp.NewToolResultErrorFromErr("error reading response", err), err
-					}
-
-					if rec.Code > 399 {
-						// If the response code is not 2xx, return an error
-						return mcp.NewToolResultErrorFromErr("error calling endpoint", fmt.Errorf("error calling endpoint: %s", string(respBody))), fmt.Errorf("error calling endpoint: %s", string(respBody))
-					}
-
-					//TODO in the future update the the response based on the response defined in the openapi spec
-					response = mcp.NewToolResultText(string(respBody))
-					return
-				}
-
+				toolHandler := ToolHandler(p.Logger, path, toolName, method, p.APIConfig, operation, p.Echo)
 				tool := mcp.NewTool(toolName, toolOptions...)
 				mcpServer.AddTool(tool, toolHandler)
 				p.Logger.Debugf("mcp tool '%s' added for path '%s' with method '%s'", toolName, path, method)
@@ -225,6 +141,96 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 		}
 	}
 	return
+}
+
+func ToolHandler(logger Log, path, toolName, method string, apiConfig *APIConfig, operation *openapi3.Operation, echoInstance *echo.Echo) server.ToolHandlerFunc {
+
+	return func(ctx context.Context, request mcp.CallToolRequest) (response *mcp.CallToolResult, err error) {
+		//get the token from the context
+		var authorizationHeader string
+		var ok bool
+		if authorizationHeader, ok = ctx.Value(AUTHORIZATION_HEADER).(string); !ok {
+			//if the header is not in the context, check the environment
+			authorizationHeader = os.Getenv("AUTHORIZATION_HEADER")
+		}
+		// Create a new HTTP request for the endpoint
+		httpUrl := apiConfig.BasePath + path
+		queryParams := url.Values{}
+		headerValues := make(map[string]string)
+		//for all the path parameters, replace them in the url
+		for _, param := range operation.Parameters {
+			if param.Value != nil && param.Value.In == "path" {
+				httpUrl = strings.ReplaceAll(httpUrl, "{"+param.Value.Name+"}", fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
+			}
+			if param.Value != nil && param.Value.In == "query" {
+				if request.Params.Arguments[param.Value.Name] == nil {
+					// If the parameter is not provided, skip it
+					continue
+				}
+				// Add query parameters to the URL
+				if param.Value.Schema != nil && param.Value.Schema.Value != nil {
+					if param.Value.Schema.Value.Type == "array" {
+						if values, ok := request.Params.Arguments[param.Value.Name].([]string); ok {
+							for _, value := range values {
+								queryParams.Add(param.Value.Name, fmt.Sprintf("%v", value))
+							}
+						}
+
+					} else {
+						queryParams.Add(param.Value.Name, fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
+					}
+				}
+			}
+			if param.Value != nil && param.Value.In == "header" {
+				// Add header parameters to the request
+				headerValues[param.Value.Name] = fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name])
+			}
+		}
+
+		// Create the request body if needed
+		var reqBody io.Reader
+		if request.Params.Arguments["body"] != nil {
+			jsonBody, err := json.Marshal(request.Params.Arguments["body"])
+			if err != nil {
+				return nil, err
+			}
+			reqBody = bytes.NewBuffer(jsonBody)
+		}
+		//add the query parameters to the url
+		if len(queryParams) > 0 {
+			httpUrl += "?" + queryParams.Encode()
+		}
+
+		// Create the HTTP request
+		logger.Debugf("mcp call tool '%s' with method '%s' and url '%s'", toolName, method, httpUrl)
+		httpReq := httptest.NewRequest(string(method), httpUrl, reqBody)
+
+		httpReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		// Set the authorization header if it exists
+		if authorizationHeader != "" {
+			httpReq.Header.Set("Authorization", authorizationHeader)
+		}
+
+		// Create a recorder to capture the response
+		rec := httptest.NewRecorder()
+		// Call the endpoint
+		echoInstance.ServeHTTP(rec, httpReq)
+
+		// Get the response body
+		respBody, err := io.ReadAll(rec.Body)
+		if err != nil {
+			return mcp.NewToolResultErrorFromErr("error reading response", err), err
+		}
+
+		if rec.Code > 399 {
+			// If the response code is not 2xx, return an error
+			return mcp.NewToolResultErrorFromErr("error calling endpoint", fmt.Errorf("error calling endpoint: %s", string(respBody))), fmt.Errorf("error calling endpoint: %s", string(respBody))
+		}
+
+		//TODO in the future update the the response based on the response defined in the openapi spec
+		response = mcp.NewToolResultText(string(respBody))
+		return
+	}
 }
 
 // MCPSSEStartupHook registers the hooks for the application
