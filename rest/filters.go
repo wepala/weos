@@ -41,13 +41,6 @@ func ParseFilterQueryParams(queryParams url.Values) map[string]interface{} {
 
 			// Build the nested map structure
 			buildNestedMap(result, baseKey, keys, values[0])
-		} else {
-			// Regular parameter (no brackets)
-			if len(values) == 1 {
-				result[key] = values[0]
-			} else {
-				result[key] = values
-			}
 		}
 	}
 

@@ -356,4 +356,31 @@ func TestToolHandler(t *testing.T) {
 			t.Fatalf("Expected filter ID to be '1234', got '%s'", req.Filter.ID.Eq)
 		}
 	})
+	t.Run("should pass filter and integration query parameters to the route handler", func(t *testing.T) {
+		toolHandler := rest.ToolHandler(logger, "/transactions", "listTransactions", http.MethodGet, apiConfig, api.Paths.Value("/transactions").Get, e)
+
+		// Create a context and MCP call tool request with test arguments
+		ctx := context.Background()
+		request := mcp.CallToolRequest{}
+		request.Params.Name = "listTransactions"
+		request.Params.Arguments = make(map[string]interface{})
+		request.Params.Arguments["integrations"] = []string{"quickbooks"}
+		request.Params.Arguments["_filter"] = map[string]interface{}{
+			"id": map[string]interface{}{
+				"eq": "1234",
+			},
+		}
+
+		// Call tool handler with integration arguments
+		_, err = toolHandler(ctx, request)
+		if err != nil {
+			t.Fatalf("Tool handler returned an error: %v", err)
+		}
+		if len(req.Integrations) != 1 {
+			t.Errorf("Expected 1 integration, got %d", len(req.Integrations))
+		}
+		if req.Filter.ID.Eq != "1234" {
+			t.Errorf("Expected filter ID to be '1234', got '%s'", req.Filter.ID.Eq)
+		}
+	})
 }
