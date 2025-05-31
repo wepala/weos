@@ -171,6 +171,10 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 						}
 						reqBody = bytes.NewBuffer(jsonBody)
 					}
+					//add the query parameters to the url
+					if len(queryParams) > 0 {
+						httpUrl += "?" + queryParams.Encode()
+					}
 
 					// Create the HTTP request
 					p.Logger.Debugf("mcp call tool '%s' with method '%s' and url '%s'", toolName, method, httpUrl)
