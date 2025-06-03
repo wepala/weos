@@ -111,7 +111,20 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 							toolOptions = append(toolOptions, mcp.WithBoolean(param.Value.Name, options...))
 							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
 						case "array":
-							toolOptions = append(toolOptions, WithJSONSchema(param.Value.Name, param.Value.Schema.Value))
+							if param.Value.Schema.Value.Items != nil && param.Value.Schema.Value.Items.Value != nil {
+								switch param.Value.Schema.Value.Items.Value.Type {
+								case "string":
+									options = append(options, mcp.Items(map[string]any{"type": "string"}))
+								case "integer":
+									options = append(options, mcp.Items(map[string]any{"type": "number"}))
+								case "boolean":
+									options = append(options, mcp.Items(map[string]any{"type": "boolean"}))
+								default:
+									p.Logger.Warnf("Unsupported array item type '%s' for parameter '%s' in tool '%s'", param.Value.Schema.Value.Items.Value.Type, param.Value.Name, toolName)
+									continue
+								}
+							}
+							toolOptions = append(toolOptions, mcp.WithArray(param.Value.Name, options...))
 							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
 						case "object":
 							toolOptions = append(toolOptions, WithJSONSchema(param.Value.Name, param.Value.Schema.Value))
