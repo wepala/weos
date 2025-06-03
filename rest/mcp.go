@@ -111,7 +111,7 @@ func NewMCP(p MCPParams) (result MCPResult, err error) {
 							toolOptions = append(toolOptions, mcp.WithBoolean(param.Value.Name, options...))
 							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
 						case "array":
-							toolOptions = append(toolOptions, mcp.WithArray(param.Value.Name, options...))
+							toolOptions = append(toolOptions, WithJSONSchema(param.Value.Name, param.Value.Schema.Value))
 							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
 						case "object":
 							toolOptions = append(toolOptions, WithJSONSchema(param.Value.Name, param.Value.Schema.Value))
