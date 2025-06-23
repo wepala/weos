@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/casbin/casbin/v2"
 	casbinmodel "github.com/casbin/casbin/v2/model"
 	gormadapter "github.com/casbin/gorm-adapter/v3"
@@ -16,9 +20,6 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // ValidationResult is the result of a security validation
@@ -86,7 +87,7 @@ p = sub, obj, act
 e = some(where (p.eft == allow))
 
 [matchers]
-m = r.sub == p.sub && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
+m = keyMatch(r.sub, p.sub) && keyMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
 	m, _ := casbinmodel.NewModelFromString(text)
 	result.AuthEnforcer, err = casbin.NewEnforcer(m, adapter)
