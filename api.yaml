@@ -27,6 +27,9 @@ x-weos-config:
       - Recover
       - ZapLogger
       - LogLevel
+  mcp:
+    withTools: true
+    withRecover: true
 components:
   schemas:
     Category:

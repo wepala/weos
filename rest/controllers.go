@@ -3,14 +3,15 @@ package rest
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/labstack/echo/v4"
-	"golang.org/x/net/context"
-	"gorm.io/gorm"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
+	"golang.org/x/net/context"
+	"gorm.io/gorm"
 )
 
 type ControllerParams struct {
@@ -116,8 +117,10 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 				newContext = context.WithValue(newContext, name, ctxt.Param(name))
 			}
 			//set the query params to the context
-			for _, name := range ctxt.QueryParams() {
-				newContext = context.WithValue(newContext, name, ctxt.QueryParam(name[0]))
+			for name, values := range ctxt.QueryParams() {
+				if len(values) > 0 {
+					newContext = context.WithValue(newContext, name, values[0])
+				}
 			}
 			//use the request body as the command payload
 			response, err := p.CommandDispatcher.Dispatch(newContext, ctxt.Logger(), &Command{
@@ -215,8 +218,10 @@ func DefaultWriteController(p *ControllerParams) echo.HandlerFunc {
 				newContext = context.WithValue(newContext, name, ctxt.Param(name))
 			}
 			//set the query params to the context
-			for _, name := range ctxt.QueryParams() {
-				newContext = context.WithValue(newContext, name, ctxt.QueryParam(name[0]))
+			for name, values := range ctxt.QueryParams() {
+				if len(values) > 0 {
+					newContext = context.WithValue(newContext, name, values[0])
+				}
 			}
 			//use the request body as the command payload
 			response, err := p.CommandDispatcher.Dispatch(newContext, ctxt.Logger(), &Command{

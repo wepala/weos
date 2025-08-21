@@ -1,0 +1,402 @@
+package rest
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"github.com/casbin/casbin/v2"
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/labstack/echo/v4"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"go.uber.org/fx"
+	"golang.org/x/net/context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+)
+
+type MCPParams struct {
+	fx.In
+	Config     *openapi3.T
+	APIConfig  *APIConfig
+	HttpClient *http.Client
+	Echo       *echo.Echo
+	Logger     Log
+}
+
+type MCPResult struct {
+	fx.Out
+	Server *server.MCPServer
+}
+
+// WithJSONSchema adds an object property to the tool schema.
+func WithJSONSchema(name string, schema *openapi3.Schema) mcp.ToolOption {
+	return func(t *mcp.Tool) {
+		//convert the schema to a mcp ToolInputSchema
+		properties := map[string]interface{}{}
+		for propertyName, prop := range schema.Properties {
+			if prop.Value != nil {
+				properties[propertyName] = prop.Value
+			}
+		}
+
+		//check additionalProperties as well
+		if schema.AdditionalProperties.Schema != nil {
+			for propertyName, prop := range schema.AdditionalProperties.Schema.Value.Properties {
+				if prop.Value != nil {
+					properties[propertyName] = prop.Value
+				}
+			}
+		}
+
+		toolInputSchema := mcp.ToolInputSchema{
+			Type:       schema.Type,
+			Properties: properties,
+			Required:   schema.Required,
+		}
+
+		t.InputSchema.Properties[name] = toolInputSchema
+	}
+}
+
+func NewMCP(p MCPParams) (result MCPResult, err error) {
+	//get the endpoints with the x-mcp endpoint extension
+	var mcpServer *server.MCPServer
+	if p.APIConfig.MCPConfig == nil {
+		return
+	}
+
+	mcpServer = server.NewMCPServer(
+		p.APIConfig.Title,
+		p.APIConfig.Version,
+		server.WithToolCapabilities(p.APIConfig.MCPConfig.WithTools),
+		server.WithRecovery(),
+	)
+	result.Server = mcpServer
+
+	for path, pathItem := range p.Config.Paths.Map() {
+		for method, operation := range pathItem.Operations() {
+			if mcpConfig, ok := operation.Extensions[MCPExtension].(map[string]interface{}); ok {
+				var toolOptions []mcp.ToolOption
+				//check to see if the mcp config has a name for the tool if not use the operation id
+				var toolName string
+				if name, ok := mcpConfig["name"].(string); ok {
+					toolName = name
+				} else {
+					toolName = operation.OperationID
+				}
+				//setup the mcp operation
+				toolOptions = append(toolOptions, mcp.WithDescription(mcpConfig["description"].(string)))
+				//loop through the parameters and add them to the mcp operation
+				for _, param := range operation.Parameters {
+					if param.Value != nil {
+						var options []mcp.PropertyOption
+						//if param is required, add the option
+						if param.Value.Required {
+							options = append(options, mcp.Required())
+						}
+						//check the parameter type and add it to the mcp operation
+						switch param.Value.Schema.Value.Type {
+						case "string":
+							toolOptions = append(toolOptions, mcp.WithString(param.Value.Name, options...))
+							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
+						case "integer":
+							toolOptions = append(toolOptions, mcp.WithNumber(param.Value.Name, options...))
+							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
+						case "boolean":
+							toolOptions = append(toolOptions, mcp.WithBoolean(param.Value.Name, options...))
+							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
+						case "array":
+							if param.Value.Schema.Value.Items != nil && param.Value.Schema.Value.Items.Value != nil {
+								switch param.Value.Schema.Value.Items.Value.Type {
+								case "string":
+									options = append(options, mcp.Items(map[string]any{"type": "string"}))
+								case "integer":
+									options = append(options, mcp.Items(map[string]any{"type": "number"}))
+								case "boolean":
+									options = append(options, mcp.Items(map[string]any{"type": "boolean"}))
+								default:
+									p.Logger.Warnf("Unsupported array item type '%s' for parameter '%s' in tool '%s'", param.Value.Schema.Value.Items.Value.Type, param.Value.Name, toolName)
+									continue
+								}
+							}
+							toolOptions = append(toolOptions, mcp.WithArray(param.Value.Name, options...))
+							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
+						case "object":
+							toolOptions = append(toolOptions, WithJSONSchema(param.Value.Name, param.Value.Schema.Value))
+							p.Logger.Debugf("add option '%s' for mcp tool '%s'", param.Value.Name, toolName)
+						}
+					}
+				}
+				//if there is a request body, add it to the mcp operation
+				if operation.RequestBody != nil {
+					if operation.RequestBody.Value.Content != nil {
+						for _, content := range operation.RequestBody.Value.Content {
+							if content.Schema != nil {
+								if content.Schema.Value != nil {
+									toolOptions = append(toolOptions, WithJSONSchema("body", content.Schema.Value))
+								}
+							}
+						}
+					}
+				}
+
+				toolHandler := ToolHandler(p.Logger, path, toolName, method, p.APIConfig, operation, p.Echo)
+				tool := mcp.NewTool(toolName, toolOptions...)
+				mcpServer.AddTool(tool, toolHandler)
+				p.Logger.Debugf("mcp tool '%s' added for path '%s' with method '%s'", toolName, path, method)
+			}
+
+		}
+	}
+	return
+}
+
+func ToolHandler(logger Log, path, toolName, method string, apiConfig *APIConfig, operation *openapi3.Operation, echoInstance *echo.Echo) server.ToolHandlerFunc {
+
+	return func(ctx context.Context, request mcp.CallToolRequest) (response *mcp.CallToolResult, err error) {
+		//get the token from the context
+		var authorizationHeader string
+		var ok bool
+		if authorizationHeader, ok = ctx.Value(AUTHORIZATION_HEADER).(string); !ok {
+			//if the header is not in the context, check the environment
+			authorizationHeader = os.Getenv("AUTHORIZATION_HEADER")
+		}
+		// Create a new HTTP request for the endpoint
+		httpUrl := apiConfig.BasePath + path
+		queryParams := url.Values{}
+		headerValues := make(map[string]string)
+		//for all the path parameters, replace them in the url
+		for _, param := range operation.Parameters {
+			if param.Value != nil && param.Value.In == "path" {
+				httpUrl = strings.ReplaceAll(httpUrl, "{"+param.Value.Name+"}", fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
+			}
+			if param.Value != nil && param.Value.In == "query" {
+				if request.Params.Arguments[param.Value.Name] == nil {
+					// If the parameter is not provided, skip it
+					continue
+				}
+				// Add query parameters to the URL
+				if param.Value.Schema != nil && param.Value.Schema.Value != nil {
+					switch param.Value.Schema.Value.Type {
+					case "array":
+						// If the parameter is an array, we need to handle it differently
+						if values, ok := request.Params.Arguments[param.Value.Name].([]string); ok {
+							for _, value := range values {
+								queryParams.Add(param.Value.Name, fmt.Sprintf("%v", value))
+							}
+						}
+						// If the parameter is an array, we need to handle it differently
+						if values, ok := request.Params.Arguments[param.Value.Name].([]interface{}); ok {
+							for _, value := range values {
+								queryParams.Add(param.Value.Name, fmt.Sprintf("%v", value))
+							}
+						}
+					case "object":
+						if param.Value.Style == "deepObject" {
+							paramMap := make(map[string]map[string]map[string]string)
+							for key, value := range request.Params.Arguments[param.Value.Name].(map[string]interface{}) {
+								if _, exists := paramMap[param.Value.Name]; !exists {
+									paramMap[param.Value.Name] = make(map[string]map[string]string)
+								}
+								if operatorValue, ok := value.(map[string]interface{}); ok {
+									// If the value is a map, we need to handle it as an object
+									for operatorKey, ov := range operatorValue {
+										if _, exists := paramMap[param.Value.Name][key]; !exists {
+											paramMap[param.Value.Name][key] = make(map[string]string)
+										}
+										paramMap[param.Value.Name][key][operatorKey] = fmt.Sprintf("%v", ov)
+									}
+									continue
+								}
+
+							}
+							//add param map to query params where the key is something like "paramName[title][operator]" and the value is the value of the parameter
+							for key, value := range paramMap[param.Value.Name] {
+								for operatorKey, operatorValue := range value {
+									queryParams.Add(fmt.Sprintf("%s[%s][%s]", param.Value.Name, key, operatorKey), operatorValue)
+								}
+							}
+						}
+
+					default:
+						// For other types, we can directly add the value
+						queryParams.Add(param.Value.Name, fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name]))
+					}
+				}
+			}
+			if param.Value != nil && param.Value.In == "header" {
+				// Add header parameters to the request
+				headerValues[param.Value.Name] = fmt.Sprintf("%v", request.Params.Arguments[param.Value.Name])
+			}
+		}
+
+		// Create the request body if needed
+		var reqBody io.Reader
+		if request.Params.Arguments["body"] != nil {
+			jsonBody, err := json.Marshal(request.Params.Arguments["body"])
+			if err != nil {
+				return nil, err
+			}
+			reqBody = bytes.NewBuffer(jsonBody)
+		}
+		//add the query parameters to the url
+		if len(queryParams) > 0 {
+			httpUrl += "?" + queryParams.Encode()
+		}
+
+		// Create the HTTP request
+		logger.Debugf("mcp call tool '%s' with method '%s' and url '%s'", toolName, method, httpUrl)
+		httpReq := httptest.NewRequest(string(method), httpUrl, reqBody)
+
+		httpReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		// Set the authorization header if it exists
+		if authorizationHeader != "" {
+			httpReq.Header.Set("Authorization", authorizationHeader)
+		}
+
+		// Create a recorder to capture the response
+		rec := httptest.NewRecorder()
+		// Call the endpoint
+		echoInstance.ServeHTTP(rec, httpReq)
+
+		// Get the response body
+		respBody, err := io.ReadAll(rec.Body)
+		if err != nil {
+			return mcp.NewToolResultErrorFromErr("error reading response", err), err
+		}
+
+		if rec.Code > 399 {
+			// If the response code is not 2xx, return an error
+			return mcp.NewToolResultErrorFromErr("error calling endpoint", fmt.Errorf("error calling endpoint: %s", string(respBody))), fmt.Errorf("error calling endpoint: %s", string(respBody))
+		}
+
+		//TODO in the future update the the response based on the response defined in the openapi spec
+		response = mcp.NewToolResultText(string(respBody))
+		return
+	}
+}
+
+func BindComplexParams(c echo.Context, req interface{}) (err error) {
+	//check if any query param has square brackets
+	for key := range c.QueryParams() {
+		if len(key) > 0 && key[len(key)-1] == ']' {
+			//if it has square brackets convert to json representation
+			jsonMap := ParseFilterQueryParams(c.QueryParams())
+
+			// You can now use jsonMap which contains the structured data
+			// For example, you could log it or use it in your application:
+			c.Logger().Debugf("Converted filter params to JSON structure: %v", jsonMap)
+
+			jsonBytes, _ := json.Marshal(jsonMap)
+			err = json.Unmarshal(jsonBytes, req)
+			if err != nil {
+				c.Logger().Debugf("Failed to unmarshal filter params: %v", err)
+				return NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
+			}
+			// jsonStr := string(jsonBytes)
+		}
+	}
+
+	if err := c.Bind(req); err != nil {
+		return NewControllerError("Invalid request parameters", err, http.StatusBadRequest)
+	}
+
+	return
+}
+
+// MCPSSEStartupHook registers the hooks for the application
+func MCPSSEStartupHook(
+	lifecycle fx.Lifecycle,
+	mcpServer *server.MCPServer,
+	e *echo.Echo,
+	apiConfig *APIConfig,
+	config *openapi3.T,
+	logger Log,
+	securitySchemes map[string]Validator,
+	authorizationEnforcer *casbin.Enforcer,
+	commandDispatcher CommandDispatcher,
+	resourceRepository *ResourceRepository,
+) {
+	//setup MCP SSE Server
+	sseServer := server.NewSSEServer(mcpServer,
+		server.WithSSEEndpoint("/sse"),
+		server.WithMessageEndpoint("/message"),
+		server.WithStaticBasePath(apiConfig.BasePath),
+	)
+
+	//set up the security middleware if there is a config setup
+	var middlewares []echo.MiddlewareFunc
+	//set zap logger as a default middleware
+	middlewares = append(middlewares, ZapLogger(&MiddlewareParams{
+		Logger:             logger,
+		CommandDispatcher:  commandDispatcher,
+		ResourceRepository: resourceRepository,
+		Schema:             config,
+		APIConfig:          apiConfig,
+	}))
+	if !apiConfig.MCPConfig.ExcludeAuth && len(config.Security) > 0 {
+		//if roles are setup then set permissions for the role
+		if apiConfig.MCPConfig.Allow != nil && len(apiConfig.MCPConfig.Allow.Roles) > 0 {
+			for _, role := range apiConfig.MCPConfig.Allow.Roles {
+				_, err := authorizationEnforcer.AddPolicy(role, "/sse", http.MethodGet)
+				if err != nil {
+					logger.Errorf("Error adding policy for role '%s' on path '%s': %s", role, apiConfig.BasePath+"/sse", err.Error())
+				}
+				_, err = authorizationEnforcer.AddPolicy(role, "/sse", http.MethodPost)
+				if err != nil {
+					logger.Errorf("Error adding policy for role '%s' on path '%s': %s", role, apiConfig.BasePath+"/sse", err.Error())
+				}
+
+				_, err = authorizationEnforcer.AddPolicy(role, "/message", http.MethodGet)
+				if err != nil {
+					logger.Errorf("Error adding policy for role '%s' on path '%s': %s", role, apiConfig.BasePath+"/message", err.Error())
+				}
+
+				_, err = authorizationEnforcer.AddPolicy(role, "/message", http.MethodPost)
+				if err != nil {
+					logger.Errorf("Error adding policy for role '%s' on path '%s': %s", role, apiConfig.BasePath+"/message", err.Error())
+				}
+			}
+		}
+		middlewares = append(middlewares, SecurityMiddleware(&MiddlewareParams{
+			Logger:                logger,
+			SecuritySchemes:       securitySchemes,
+			Schema:                config,
+			APIConfig:             apiConfig,
+			AuthorizationEnforcer: authorizationEnforcer,
+			PathMap:               map[string]*openapi3.PathItem{},
+			Operation:             map[string]*openapi3.Operation{},
+		}))
+	}
+	e.Any(apiConfig.BasePath+"/sse", echo.WrapHandler(sseServer.SSEHandler()), middlewares...)
+	e.Any(apiConfig.BasePath+"/message", echo.WrapHandler(sseServer.MessageHandler()), middlewares...)
+}
+
+func MCPStdIOHook(lifecycle fx.Lifecycle, mcpServer *server.MCPServer) {
+	//setup MCP SSE Server
+	sseServer := server.NewSSEServer(mcpServer)
+	lifecycle.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			if err := server.ServeStdio(mcpServer); err != nil {
+				return err
+			}
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			return sseServer.Shutdown(ctx)
+		},
+	})
+}
+
+var MCP = fx.Module("mcp",
+	fx.Provide(NewMCP),
+	fx.Invoke(MCPStdIOHook))
+
+var MCPSSE = fx.Module("mcp",
+	fx.Provide(NewMCP),
+	fx.Invoke(MCPSSEStartupHook))

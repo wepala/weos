@@ -12,9 +12,14 @@ func registerHooks(lifecycle fx.Lifecycle, e *echo.Echo) {
 	lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			go func() {
+				//output registered routes
+				for _, route := range e.Routes() {
+					e.Logger.Debugf("registered routes %s: %s", route.Method, route.Path)
+				}
 				if err := e.Start(":" + os.Getenv("WEOS_PORT")); err != nil {
 					e.Logger.Info("shutting down the server")
 				}
+
 			}()
 			return nil
 		},

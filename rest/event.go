@@ -232,47 +232,7 @@ func (e *GORMEventStore) Remove(ctxt context.Context, logger Log, resources []Re
 }
 
 func (e *GORMEventStore) GetEventHandlers() []EventHandlerConfig {
-	return []EventHandlerConfig{
-		{
-			ResourceType: "",
-			Type:         "create",
-			Handler:      e.ResourceUpdateHandler,
-		},
-		{
-			ResourceType: "",
-			Type:         "update",
-			Handler:      e.ResourceUpdateHandler,
-		},
-		{
-			ResourceType: "",
-			Type:         "delete",
-			Handler:      e.ResourceDeleteHandler,
-		},
-	}
-}
-
-// ResourceUpdateHandler handles Create Update operations
-func (e *GORMEventStore) ResourceUpdateHandler(ctx context.Context, logger Log, event *Event, options *EventOptions) (err error) {
-	basicResource := new(BasicResource)
-	basicResource.Metadata.ID = event.Meta.ResourceID
-	basicResource.Metadata.SequenceNo = event.Meta.SequenceNo
-	basicResource.Body = event.Payload
-	result := options.GORMDB.Save(basicResource)
-	if result.Error != nil {
-		return result.Error
-	}
-	return err
-}
-
-// ResourceDeleteHandler handles Delete operations
-func (e *GORMEventStore) ResourceDeleteHandler(ctx context.Context, logger Log, event *Event, options *EventOptions) (err error) {
-	basicResource := new(BasicResource)
-	basicResource.Body = event.Payload
-	result := options.GORMDB.Delete(basicResource)
-	if result.Error != nil {
-		return result.Error
-	}
-	return err
+	return []EventHandlerConfig{}
 }
 
 // GetByResourceID gets events by resource id

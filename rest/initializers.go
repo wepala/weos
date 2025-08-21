@@ -31,8 +31,9 @@ type RouteParams struct {
 	Logger                Log
 	CommandDispatcher     CommandDispatcher
 	ResourceRepository    *ResourceRepository
-	Controllers           []map[string]Controller `group:"controllers"`
-	Middlewares           []map[string]Middleware `group:"middlewares"`
+	Controllers           []map[string]Controller   `group:"controllers"`
+	Middlewares           []map[string]Middleware   `group:"middlewares"`
+	HTTPHandlers          []map[string]http.Handler `group:"http_handlers"`
 	GORMDB                *gorm.DB
 	AuthorizationEnforcer *casbin.Enforcer
 	SecuritySchemes       map[string]Validator
@@ -53,6 +54,14 @@ func RouteInitializer(p RouteParams) (err error) {
 	for _, config := range p.Middlewares {
 		for name, tmiddleware := range config {
 			middlewares[name] = tmiddleware
+		}
+	}
+
+	// merge the http handlers into one map
+	httpHandlers := make(map[string]http.Handler)
+	for _, config := range p.HTTPHandlers {
+		for name, httpHandler := range config {
+			httpHandlers[name] = httpHandler
 		}
 	}
 
@@ -146,6 +155,12 @@ func RouteInitializer(p RouteParams) (err error) {
 						GORMDB:     p.GORMDB,
 						HttpClient: NewClient(),
 					})
+				}
+			}
+
+			if httpHandler, ok := operation.Extensions["x-http-handler"].(string); ok {
+				if h, ok := httpHandlers[httpHandler]; ok {
+					handler = echo.WrapHandler(h)
 				}
 			}
 
