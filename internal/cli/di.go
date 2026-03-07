@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package cli
 
 import (
@@ -14,11 +29,15 @@ import (
 )
 
 // Dependencies holds all the dependencies needed by CLI commands.
-// Add service interfaces here as your application grows.
 type Dependencies struct {
-	// TODO: Add your service interfaces here, e.g.:
-	// MyService application.MyServiceInterface
-	App *fx.App
+	WebsiteService      application.WebsiteService
+	PageService         application.PageService
+	SectionService      application.SectionService
+	ThemeService        application.ThemeService
+	TemplateService     application.TemplateService
+	PersonService       application.PersonService
+	OrganizationService application.OrganizationService
+	App                 *fx.App
 }
 
 // StartContainer starts the Fx container and returns dependencies.
@@ -48,17 +67,32 @@ func StartContainerWithDSN(dsn string) (*Dependencies, error) {
 }
 
 func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
-	// TODO: Add your service variables here to extract from the DI container, e.g.:
-	// var myService application.MyServiceInterface
+	var websiteService application.WebsiteService
+	var pageService application.PageService
+	var sectionService application.SectionService
+	var themeService application.ThemeService
+	var templateService application.TemplateService
+	var personService application.PersonService
+	var organizationService application.OrganizationService
 
 	app := fx.New(
 		application.Module(appCfg),
 		fx.Invoke(func(
-		// TODO: Add service parameters here to extract, e.g.:
-		// svc application.MyServiceInterface,
+			ws application.WebsiteService,
+			ps application.PageService,
+			ss application.SectionService,
+			ts application.ThemeService,
+			tps application.TemplateService,
+			prs application.PersonService,
+			os application.OrganizationService,
 		) {
-			// TODO: Assign extracted services, e.g.:
-			// myService = svc
+			websiteService = ws
+			pageService = ps
+			sectionService = ss
+			themeService = ts
+			templateService = tps
+			personService = prs
+			organizationService = os
 		}),
 	)
 
@@ -80,8 +114,13 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 	}
 
 	return &Dependencies{
-		// TODO: Assign extracted services, e.g.:
-		// MyService: myService,
-		App: app,
+		WebsiteService:      websiteService,
+		PageService:         pageService,
+		SectionService:      sectionService,
+		ThemeService:        themeService,
+		TemplateService:     templateService,
+		PersonService:       personService,
+		OrganizationService: organizationService,
+		App:                 app,
 	}, nil
 }

@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package gorm
 
 import (
@@ -5,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 
+	weosmodels "weos/infrastructure/models"
 	"weos/internal/config"
 
 	"go.uber.org/fx"
@@ -55,13 +71,18 @@ func ProvideGormDB(params struct {
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 
-	// TODO: Add your GORM models here for AutoMigrate, e.g.:
-	// models := []interface{}{
-	// 	&YourModel{},
-	// }
-	// if err := db.AutoMigrate(models...); err != nil {
-	// 	return GormDBResult{}, fmt.Errorf("failed to run auto migrate: %w", err)
-	// }
+	models := []interface{}{
+		&weosmodels.Website{},
+		&weosmodels.Page{},
+		&weosmodels.Section{},
+		&weosmodels.Theme{},
+		&weosmodels.Template{},
+		&weosmodels.Person{},
+		&weosmodels.Organization{},
+	}
+	if err := db.AutoMigrate(models...); err != nil {
+		return GormDBResult{}, fmt.Errorf("failed to run auto migrate: %w", err)
+	}
 
 	return GormDBResult{
 		GormDB: db,

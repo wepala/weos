@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package config
 
 import (
@@ -21,9 +36,6 @@ type Config struct {
 
 	// Server holds configuration for the HTTP server.
 	Server ServerConfig
-
-	// IdentityBasePath is the base URL path for entity IDs.
-	IdentityBasePath string
 
 	// SessionSecret is the secret key for session cookies.
 	SessionSecret string
@@ -71,8 +83,7 @@ func Default() Config {
 			Port: 8080,
 			Host: "0.0.0.0",
 		},
-		IdentityBasePath: "https://example.com/weos",
-		SessionSecret:    "change-me-in-production",
+		SessionSecret: "change-me-in-production",
 	}
 }
 
@@ -95,10 +106,6 @@ func (c *Config) LoadFromEnvironment() {
 
 	if host := os.Getenv("SERVER_HOST"); host != "" {
 		c.Server.Host = host
-	}
-
-	if basePath := os.Getenv("IDENTITY_BASE_PATH"); basePath != "" {
-		c.IdentityBasePath = basePath
 	}
 
 	if secret := os.Getenv("SESSION_SECRET"); secret != "" {

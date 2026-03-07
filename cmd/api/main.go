@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package main
 
 import (
@@ -25,15 +40,25 @@ func main() {
 
 	cfg := loadConfig()
 
-	// TODO: Add service variables to populate from Fx, e.g.:
-	// var myService application.MyServiceInterface
+	var websiteService application.WebsiteService
+	var pageService application.PageService
+	var sectionService application.SectionService
+	var themeService application.ThemeService
+	var templateService application.TemplateService
+	var personService application.PersonService
+	var organizationService application.OrganizationService
 
 	// Start DI container
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg),
-		// TODO: Use fx.Populate to extract services, e.g.:
-		// fx.Populate(&myService),
+		fx.Populate(&websiteService),
+		fx.Populate(&pageService),
+		fx.Populate(&sectionService),
+		fx.Populate(&themeService),
+		fx.Populate(&templateService),
+		fx.Populate(&personService),
+		fx.Populate(&organizationService),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -54,15 +79,60 @@ func main() {
 		Root:       "dist",
 	}))
 
-	// TODO: Create handlers and inject services, e.g.:
-	// myHandler := handlers.NewMyHandler(myService)
+	websiteHandler := handlers.NewWebsiteHandler(websiteService)
+	pageHandler := handlers.NewPageHandler(pageService)
+	sectionHandler := handlers.NewSectionHandler(sectionService)
 
 	// Register API routes under /api prefix
 	api := e.Group("/api")
 	api.GET("/health", handlers.HealthHandler)
-	// TODO: Register your routes here, e.g.:
-	// api.GET("/items", myHandler.List)
-	// api.POST("/items", myHandler.Create)
+
+	api.POST("/websites", websiteHandler.Create)
+	api.GET("/websites", websiteHandler.List)
+	api.GET("/websites/:id", websiteHandler.Get)
+	api.PUT("/websites/:id", websiteHandler.Update)
+	api.DELETE("/websites/:id", websiteHandler.Delete)
+
+	api.POST("/pages", pageHandler.Create)
+	api.GET("/pages", pageHandler.List)
+	api.GET("/pages/:id", pageHandler.Get)
+	api.PUT("/pages/:id", pageHandler.Update)
+	api.DELETE("/pages/:id", pageHandler.Delete)
+
+	api.POST("/sections", sectionHandler.Create)
+	api.GET("/sections", sectionHandler.List)
+	api.GET("/sections/:id", sectionHandler.Get)
+	api.PUT("/sections/:id", sectionHandler.Update)
+	api.DELETE("/sections/:id", sectionHandler.Delete)
+
+	themeHandler := handlers.NewThemeHandler(themeService)
+	api.POST("/themes", themeHandler.Create)
+	api.GET("/themes", themeHandler.List)
+	api.GET("/themes/:id", themeHandler.Get)
+	api.PUT("/themes/:id", themeHandler.Update)
+	api.DELETE("/themes/:id", themeHandler.Delete)
+	api.POST("/themes/upload", themeHandler.Upload)
+
+	templateHandler := handlers.NewTemplateHandler(templateService)
+	api.POST("/templates", templateHandler.Create)
+	api.GET("/templates", templateHandler.List)
+	api.GET("/templates/:id", templateHandler.Get)
+	api.PUT("/templates/:id", templateHandler.Update)
+	api.DELETE("/templates/:id", templateHandler.Delete)
+
+	personHandler := handlers.NewPersonHandler(personService)
+	api.POST("/persons", personHandler.Create)
+	api.GET("/persons", personHandler.List)
+	api.GET("/persons/:id", personHandler.Get)
+	api.PUT("/persons/:id", personHandler.Update)
+	api.DELETE("/persons/:id", personHandler.Delete)
+
+	orgHandler := handlers.NewOrganizationHandler(organizationService)
+	api.POST("/organizations", orgHandler.Create)
+	api.GET("/organizations", orgHandler.List)
+	api.GET("/organizations/:id", orgHandler.Get)
+	api.PUT("/organizations/:id", orgHandler.Update)
+	api.DELETE("/organizations/:id", orgHandler.Delete)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 

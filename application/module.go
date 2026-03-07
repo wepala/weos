@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package application
 
 import (
@@ -5,7 +20,6 @@ import (
 	"weos/infrastructure/events"
 	"weos/infrastructure/logging"
 	"weos/internal/config"
-	"weos/pkg/identity"
 
 	"github.com/gorilla/sessions"
 	"go.uber.org/fx"
@@ -18,11 +32,6 @@ func Module(cfg config.Config) fx.Option {
 		// Provide the config to all providers that need it
 		fx.Provide(func() config.Config {
 			return cfg
-		}),
-
-		// Set the identity base path from config
-		fx.Invoke(func(cfg config.Config) {
-			identity.SetBasePath(cfg.IdentityBasePath)
 		}),
 
 		// Logging providers
@@ -40,24 +49,22 @@ func Module(cfg config.Config) fx.Option {
 			return sessions.NewCookieStore([]byte(cfg.SessionSecret))
 		}),
 
-		// TODO: Add repository providers here, e.g.:
-		// fx.Provide(gorm.ProvideUserRepository),
+		// Repository providers
+		fx.Provide(gorm.ProvideWebsiteRepository),
+		fx.Provide(gorm.ProvidePageRepository),
+		fx.Provide(gorm.ProvideSectionRepository),
+		fx.Provide(gorm.ProvideThemeRepository),
+		fx.Provide(gorm.ProvideTemplateRepository),
+		fx.Provide(gorm.ProvidePersonRepository),
+		fx.Provide(gorm.ProvideOrganizationRepository),
 
-		// TODO: Add EventStore provider for event sourcing, e.g.:
-		// fx.Provide(gorm.ProvideEventStore),
-
-		// TODO: Add service providers here, e.g.:
-		// fx.Provide(ProvideUserService),
-
-		// TODO: Subscribe event handlers, e.g.:
-		// fx.Invoke(SubscribeEventHandlers),
-
-		// TODO: Add lifecycle hooks for startup tasks, e.g.:
-		// fx.Invoke(func(lc fx.Lifecycle, db *gormlib.DB) {
-		// 	lc.Append(fx.Hook{
-		// 		OnStart: func(ctx context.Context) error { return nil },
-		// 		OnStop:  func(ctx context.Context) error { return nil },
-		// 	})
-		// }),
+		// Service providers
+		fx.Provide(ProvideWebsiteService),
+		fx.Provide(ProvidePageService),
+		fx.Provide(ProvideSectionService),
+		fx.Provide(ProvideThemeService),
+		fx.Provide(ProvideTemplateService),
+		fx.Provide(ProvidePersonService),
+		fx.Provide(ProvideOrganizationService),
 	)
 }

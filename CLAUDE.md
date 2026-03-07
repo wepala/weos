@@ -29,7 +29,7 @@ See `.claude/local-context.md` for full product vision, user personas, and busin
 - Echo v4 for HTTP server with SPA middleware
 - Cobra for CLI
 - Zap for structured logging
-- KSUID for entity ID generation
+- KSUID for entity ID generation; website-scoped URN format: Website `urn:<slug>`, Page `urn:<ws>:page:<ksuid>:<ps>`, Section `urn:<ws>:<ps>:section:<ksuid>`
 - Gorilla Sessions for HTTP session management
 - Ontologies: Schema.org, FOAF, vCard, W3C ORG, Activity Streams 2.0, GoodRelations, PROV-O, SKOS
 
@@ -109,7 +109,7 @@ type MyEntity struct {
 **Event Recording:**
 ```go
 func (e *MyEntity) With(name string) (*MyEntity, error) {
-    e.BaseEntity = ddd.NewBaseEntity(identity.New("my-entity"))
+    e.BaseEntity = ddd.NewBaseEntity(identity.NewWebsite(slug))
     e.RecordEvent(MyEntityCreated{Name: name}, "MyEntity.Created")
     return e, nil
 }
@@ -142,7 +142,6 @@ uow.Commit(ctx)
 | `LOG_LEVEL` | Logging level (debug/info/warn/error) | `info` |
 | `SERVER_PORT` / `PORT` | HTTP server port | `8080` |
 | `SERVER_HOST` | HTTP server bind address | `0.0.0.0` |
-| `IDENTITY_BASE_PATH` | Base URL for entity IDs | `https://example.com/weos` |
 | `SESSION_SECRET` | Session cookie secret | `change-me-in-production` |
 
 ### Database

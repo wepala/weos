@@ -54,8 +54,13 @@ bin/
 config/local.yaml
 config/secrets.yaml
 
-# Frontend node_modules (if using web/ frontend)
-web/node_modules/
+# Node modules at all levels
+node_modules/
 
 # Local Claude context (site-specific, not shared)
 .claude/local-context.md
+.claude/settings.local.json
+.idea
+.run
+.nuxt/
+themes
