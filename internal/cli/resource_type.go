@@ -43,14 +43,23 @@ var resourceTypeCreateCmd = &cobra.Command{
 
 		name, _ := cmd.Flags().GetString("name")
 		slug, _ := cmd.Flags().GetString("slug")
+		description, _ := cmd.Flags().GetString("description")
 		ctxStr, _ := cmd.Flags().GetString("context")
+		schemaStr, _ := cmd.Flags().GetString("schema")
 		var ctx json.RawMessage
 		if ctxStr != "" {
 			ctx = json.RawMessage(ctxStr)
 		}
+		var schema json.RawMessage
+		if schemaStr != "" {
+			schema = json.RawMessage(schemaStr)
+		}
 		entity, err := deps.ResourceTypeService.Create(
 			cmd.Context(),
-			application.CreateResourceTypeCommand{Name: name, Slug: slug, Context: ctx},
+			application.CreateResourceTypeCommand{
+				Name: name, Slug: slug, Description: description,
+				Context: ctx, Schema: schema,
+			},
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create resource type: %w", err)
@@ -150,7 +159,9 @@ func init() {
 	_ = resourceTypeCreateCmd.MarkFlagRequired("name")
 	resourceTypeCreateCmd.Flags().String("slug", "", "URL-safe slug")
 	_ = resourceTypeCreateCmd.MarkFlagRequired("slug")
+	resourceTypeCreateCmd.Flags().String("description", "", "Resource type description")
 	resourceTypeCreateCmd.Flags().String("context", "", "JSON-LD context (JSON string)")
+	resourceTypeCreateCmd.Flags().String("schema", "", "JSON Schema for validation (JSON string)")
 
 	resourceTypeListCmd.Flags().Int("limit", 20, "Number of items per page")
 	resourceTypeListCmd.Flags().String("cursor", "", "Pagination cursor")

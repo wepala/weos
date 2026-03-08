@@ -1,18 +1,3 @@
-// Copyright (C) 2026 Wepala, LLC
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 package application
 
 import (
@@ -22,6 +7,8 @@ import (
 	"weos/domain/entities"
 	"weos/domain/repositories"
 
+	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
 )
 
@@ -35,18 +22,24 @@ type OrganizationService interface {
 }
 
 type organizationService struct {
-	repo   repositories.OrganizationRepository
-	logger entities.Logger
+	repo       repositories.OrganizationRepository
+	eventStore domain.EventStore
+	dispatcher *domain.EventDispatcher
+	logger     entities.Logger
 }
 
 func ProvideOrganizationService(params struct {
 	fx.In
-	Repo   repositories.OrganizationRepository
-	Logger entities.Logger
+	Repo       repositories.OrganizationRepository
+	EventStore domain.EventStore
+	Dispatcher *domain.EventDispatcher
+	Logger     entities.Logger
 }) OrganizationService {
 	return &organizationService{
-		repo:   params.Repo,
-		logger: params.Logger,
+		repo:       params.Repo,
+		eventStore: params.EventStore,
+		dispatcher: params.Dispatcher,
+		logger:     params.Logger,
 	}
 }
 
@@ -57,9 +50,15 @@ func (s *organizationService) Create(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create organization: %w", err)
 	}
-	if err := s.repo.Save(ctx, entity); err != nil {
-		return nil, err
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return nil, fmt.Errorf("failed to track organization: %w", err)
 	}
+	if err := uow.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit organization: %w", err)
+	}
+
 	s.logger.Info(ctx, "organization created", "id", entity.GetID())
 	return entity, nil
 }
@@ -83,15 +82,20 @@ func (s *organizationService) Update(
 	if err != nil {
 		return nil, err
 	}
-	if err := entity.Restore(
-		entity.GetID(), cmd.Name, cmd.Slug, cmd.Description,
-		cmd.URL, cmd.LogoURL, cmd.Status, entity.CreatedAt(), entity.GetSequenceNo(),
+	if err := entity.Update(
+		cmd.Name, cmd.Slug, cmd.Description, cmd.URL, cmd.LogoURL, cmd.Status,
 	); err != nil {
 		return nil, fmt.Errorf("failed to update organization: %w", err)
 	}
-	if err := s.repo.Update(ctx, entity); err != nil {
-		return nil, err
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return nil, fmt.Errorf("failed to track organization: %w", err)
 	}
+	if err := uow.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit organization update: %w", err)
+	}
+
 	s.logger.Info(ctx, "organization updated", "id", entity.GetID())
 	return entity, nil
 }
@@ -99,9 +103,22 @@ func (s *organizationService) Update(
 func (s *organizationService) Delete(
 	ctx context.Context, cmd DeleteOrganizationCommand,
 ) error {
-	if err := s.repo.Delete(ctx, cmd.ID); err != nil {
+	entity, err := s.repo.FindByID(ctx, cmd.ID)
+	if err != nil {
 		return err
 	}
+	if err := entity.MarkDeleted(); err != nil {
+		return fmt.Errorf("failed to mark organization deleted: %w", err)
+	}
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return fmt.Errorf("failed to track organization: %w", err)
+	}
+	if err := uow.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit organization deletion: %w", err)
+	}
+
 	s.logger.Info(ctx, "organization deleted", "id", cmd.ID)
 	return nil
 }

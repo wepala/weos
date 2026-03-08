@@ -17,7 +17,7 @@ See `.claude/local-context.md` for full product vision, user personas, and busin
 - **LLM-agnostic** — MCP server interface, no direct LLM calls
 - **Static-first** — static HTML output, server-side rendering only when opted in
 - **Ontology-backed entities** — content objects (products, events, services) are RDF-typed using Schema.org, FOAF, etc. — gives free SEO structured data and grounded LLM reasoning
-- **Knowledge graph** — site structure stored as a graph (pages, sections, content blocks, links, metadata)
+- **Resource types with dynamic projection tables** — when a resource type is created, a dedicated projection table is generated from its JSON Schema. All content (websites, pages, products, etc.) is modeled as resource types + resources.
 - **Template system** — bring-your-own HTML templates annotated with `data-weos-*` attributes (e.g., `data-weos-entity="Product"`, `data-weos-slot="hero.headline"`)
 - **Dual license** — AGPL 3.0 (open source) + commercial license via WeOS Cloud
 
@@ -29,7 +29,7 @@ See `.claude/local-context.md` for full product vision, user personas, and busin
 - Echo v4 for HTTP server with SPA middleware
 - Cobra for CLI
 - Zap for structured logging
-- KSUID for entity ID generation; website-scoped URN format: Website `urn:<slug>`, Page `urn:<ws>:page:<ksuid>:<ps>`, Section `urn:<ws>:<ps>:section:<ksuid>`
+- KSUID for entity ID generation; URN format: ResourceType `urn:type:<slug>`, Resource `urn:<typeSlug>:<ksuid>`
 - Gorilla Sessions for HTTP session management
 - Ontologies: Schema.org, FOAF, vCard, W3C ORG, Activity Streams 2.0, GoodRelations, PROV-O, SKOS
 
@@ -37,9 +37,7 @@ See `.claude/local-context.md` for full product vision, user personas, and busin
 
 ### Building
 ```bash
-make build              # Build all applications (API + CLI)
-make build-api          # Build API server only
-make build-cli          # Build CLI only
+make build              # Build the weos binary
 ```
 
 ### Testing
@@ -53,7 +51,7 @@ go test -v -run TestName ./path/to/package  # Run a single test
 
 ### Development
 ```bash
-make run                # Run the API server (go run ./cmd/api)
+make run                # Run the API server (go run ./cmd/weos serve)
 make fmt                # Format code (go fmt + goimports)
 make lint               # Run golangci-lint
 make vet                # Run go vet
@@ -75,6 +73,17 @@ golangci-lint is configured with strict rules (`.golangci.yml`):
 
 ## Architecture Overview
 
+### Unified Binary
+
+There is a single binary (`cmd/weos/main.go`) that serves as both the CLI and API server. Cobra subcommands provide different modes:
+- `weos serve` — starts the Echo HTTP server (API + SPA middleware)
+- `weos mcp` — starts the MCP server (stdio transport)
+- `weos resource-type ...` — manage resource types
+- `weos resource ...` — manage resources
+- `weos person ...` / `weos organization ...` — manage persons and organizations
+
+Routes are registered under `/api` prefix; all other paths fall through to SPA middleware.
+
 ### Dependency Injection with Uber Fx
 
 The entire application is wired using Uber Fx (`application/module.go`):
@@ -85,14 +94,14 @@ Config
   ↓
 Logger, Database, EventStore, EventDispatcher, SessionStore
   ↓
-Repositories
+Repositories + ProjectionManager
   ↓
 Services
   ↓
-Event Handlers + Lifecycle Hooks
+Lifecycle Hooks (projection table migration)
 ```
 
-**Module Pattern:** The `Module(cfg config.Config)` function accepts a Config and returns an `fx.Option` that provides all dependencies. Applications (CLI, API) create their own Config and pass it to the Module.
+**Module Pattern:** The `Module(cfg config.Config)` function accepts a Config and returns an `fx.Option` that provides all dependencies. Both the CLI and API server create their own Config and pass it to the Module.
 
 **Fx Provider Pattern:** Providers use `fx.In`/`fx.Out` struct injection. See `application/providers.go` for the template. For named dependencies, use `fx.ResultTags` in `module.go` and name tags in provider structs.
 
@@ -109,7 +118,7 @@ type MyEntity struct {
 **Event Recording:**
 ```go
 func (e *MyEntity) With(name string) (*MyEntity, error) {
-    e.BaseEntity = ddd.NewBaseEntity(identity.NewWebsite(slug))
+    e.BaseEntity = ddd.NewBaseEntity(identity.NewResourceType(slug))
     e.RecordEvent(MyEntityCreated{Name: name}, "MyEntity.Created")
     return e, nil
 }
@@ -122,18 +131,27 @@ uow.Track(entity)
 uow.Commit(ctx)
 ```
 
-### Dual Entry Points
+### Resource Types and Dynamic Projection Tables
 
-- **API Server** (`cmd/api/main.go`): Echo HTTP server with Fx DI, SPA middleware, graceful shutdown. Routes are registered under `/api` prefix; all other paths fall through to SPA middleware.
-- **CLI** (`cmd/cli/main.go`): Cobra commands sharing the same Fx DI container via `internal/cli/di.go`. Commands use `StartContainer()` to get services.
+Content is modeled using two core entities:
+- **ResourceType** — defines a type (e.g. "product", "blog-post") with JSON-LD context and optional JSON Schema
+- **Resource** — an instance of a ResourceType, storing JSON-LD data
+
+When a ResourceType is created, the `ProjectionManager` creates a dedicated SQL table for it:
+- Table name derived from slug: `blog-post` → `blog_posts` (hyphens→underscores, pluralized)
+- Standard columns: `id`, `type_slug`, `data`, `status`, `sequence_no`, `created_at`, `updated_at`, `deleted_at`
+- Additional typed columns extracted from JSON Schema properties (camelCase→snake_case, JSON types→SQL types)
+- The `data` column always stores the full JSON-LD blob; typed columns exist for query optimization
+
+The `ResourceRepository` routes CRUD operations to projection tables when available, falling back to the generic `resources` table for pre-existing data.
 
 ### Configuration
 
 **Loading Order** (each step overrides the previous):
 1. `config.Default()` — sensible defaults (SQLite `weos.db`, port 8080)
-2. `godotenv.Load()` — loads `.env` file into process environment (called in entry points)
+2. `godotenv.Load()` — loads `.env` file into process environment (called in entry point)
 3. `cfg.LoadFromEnvironment()` — reads environment variables into Config struct
-4. CLI flags — `--database-dsn`, `--verbose` (CLI only)
+4. CLI flags — `--database-dsn`, `--verbose`
 
 **Environment Variables:**
 | Variable | Purpose | Default |
@@ -164,21 +182,24 @@ logger.Info(ctx, "user created", "userID", user.ID, "email", email)
 
 | Component | Path |
 |-----------|------|
+| Entry Point | `cmd/weos/main.go` |
 | DI Module | `application/module.go` |
 | DI Providers | `application/providers.go` |
-| API Server | `cmd/api/main.go` |
-| CLI Entry | `cmd/cli/main.go` |
+| CLI Root | `internal/cli/root.go` |
 | CLI DI | `internal/cli/di.go` |
+| CLI Serve | `internal/cli/serve.go` |
 | Config | `internal/config/config.go` |
 | Health Handler | `api/handlers/health.go` |
 | SPA Middleware | `api/middleware/static.go` |
 | DB Provider | `infrastructure/database/gorm/provider.go` |
+| ProjectionManager | `infrastructure/database/gorm/projection_manager.go` |
 | Logger | `infrastructure/logging/zap_logger.go` |
 | Event Dispatcher | `infrastructure/events/dispatcher_provider.go` |
 | Identity | `pkg/identity/identity.go` |
 | Pagination | `domain/repositories/pagination.go` |
 | Logger Interface | `domain/entities/logger.go` |
 | Frontend Embed | `web/embed.go` |
+| MCP Server | `internal/mcp/server.go` |
 
 ## Common Patterns When Making Changes
 
@@ -204,12 +225,18 @@ logger.Info(ctx, "user created", "userID", user.ID, "email", email)
 ### Adding a New API Handler
 1. Create handler in `api/handlers/`
 2. Inject service via constructor
-3. Register routes under `/api` group in `cmd/api/main.go`
+3. Register routes under `/api` group in `internal/cli/serve.go`
 
 ### Adding a New CLI Command
 1. Create command file in `internal/cli/`
 2. Register with `rootCmd` in `init()`
 3. Use `StartContainer()` to access services
+
+### Adding a New Resource Type
+1. Define a preset in `application/resource_type_presets.go` (or create via API/MCP)
+2. Include JSON-LD context and optional JSON Schema
+3. On creation, a projection table is auto-generated by `ProjectionManager`
+4. Resources of that type are stored in the dedicated projection table
 
 ### Adding Event Handlers
 1. Create handler in `application/`

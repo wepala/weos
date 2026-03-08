@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"weos/application"
@@ -12,13 +13,13 @@ import (
 )
 
 type CreateResourceInput struct {
-	TypeSlug string          `json:"type_slug" jsonschema:"resource type slug"`
-	Data     json.RawMessage `json:"data" jsonschema:"resource data as JSON"`
+	TypeSlug string `json:"type_slug" jsonschema:"resource type slug"`
+	Data     any    `json:"data" jsonschema:"resource data as JSON object"`
 }
 
 type UpdateResourceInput struct {
-	ID   string          `json:"id" jsonschema:"resource ID (URN)"`
-	Data json.RawMessage `json:"data" jsonschema:"updated resource data as JSON"`
+	ID   string `json:"id" jsonschema:"resource ID (URN)"`
+	Data any    `json:"data" jsonschema:"updated resource data as JSON object"`
 }
 
 type DeleteResourceInput struct {
@@ -36,11 +37,11 @@ type ListResourcesInput struct {
 }
 
 type ResourceOutput struct {
-	ID        string          `json:"id"`
-	TypeSlug  string          `json:"type_slug"`
-	Data      json.RawMessage `json:"data"`
-	Status    string          `json:"status"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID        string    `json:"id"`
+	TypeSlug  string    `json:"type_slug"`
+	Data      any       `json:"data"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type ListResourcesOutput struct {
@@ -50,10 +51,12 @@ type ListResourcesOutput struct {
 }
 
 func toResourceOutput(e *entities.Resource) ResourceOutput {
+	var data any
+	_ = json.Unmarshal(e.Data(), &data)
 	return ResourceOutput{
 		ID:        e.GetID(),
 		TypeSlug:  e.TypeSlug(),
-		Data:      e.Data(),
+		Data:      data,
 		Status:    e.Status(),
 		CreatedAt: e.CreatedAt(),
 	}
@@ -66,8 +69,12 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input CreateResourceInput,
 	) (*mcp.CallToolResult, ResourceOutput, error) {
+		dataBytes, err := json.Marshal(input.Data)
+		if err != nil {
+			return nil, ResourceOutput{}, fmt.Errorf("invalid data: %w", err)
+		}
 		entity, err := svc.Create(ctx, application.CreateResourceCommand{
-			TypeSlug: input.TypeSlug, Data: input.Data,
+			TypeSlug: input.TypeSlug, Data: dataBytes,
 		})
 		if err != nil {
 			return nil, ResourceOutput{}, err
@@ -119,8 +126,12 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input UpdateResourceInput,
 	) (*mcp.CallToolResult, ResourceOutput, error) {
+		dataBytes, err := json.Marshal(input.Data)
+		if err != nil {
+			return nil, ResourceOutput{}, fmt.Errorf("invalid data: %w", err)
+		}
 		entity, err := svc.Update(ctx, application.UpdateResourceCommand{
-			ID: input.ID, Data: input.Data,
+			ID: input.ID, Data: dataBytes,
 		})
 		if err != nil {
 			return nil, ResourceOutput{}, err

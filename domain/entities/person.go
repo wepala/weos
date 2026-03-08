@@ -73,6 +73,22 @@ func (e *Person) AvatarURL() string    { return e.avatarURL }
 func (e *Person) Status() string       { return e.status }
 func (e *Person) CreatedAt() time.Time { return e.createdAt }
 
+func (e *Person) Update(givenName, familyName, email, avatarURL, status string) error {
+	e.givenName = givenName
+	e.familyName = familyName
+	e.email = email
+	e.avatarURL = avatarURL
+	e.status = status
+	event := PersonUpdated{}.With(givenName, familyName, email, avatarURL, status)
+	return e.BaseEntity.RecordEvent(event, event.EventType())
+}
+
+func (e *Person) MarkDeleted() error {
+	e.status = "archived"
+	event := PersonDeleted{}.With()
+	return e.BaseEntity.RecordEvent(event, event.EventType())
+}
+
 func (e *Person) LinkToOrganization(
 	ctx context.Context, orgID string, logger Logger,
 ) error {

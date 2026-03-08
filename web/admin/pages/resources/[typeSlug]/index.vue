@@ -18,15 +18,17 @@
 <template>
   <div>
     <div class="page-header">
-      <h2>Pages</h2>
-      <NuxtLink to="/pages/create">
-        <a-button type="primary">Create Page</a-button>
+      <h2>{{ resourceType?.name || typeSlug }}</h2>
+      <NuxtLink :to="`/resources/${typeSlug}/create`">
+        <a-button type="primary">Create {{ resourceType?.name || typeSlug }}</a-button>
       </NuxtLink>
     </div>
-    <PageTable
+    <ResourceTable
       :items="items"
+      :columns="columns"
       :loading="loading"
       :has-more="hasMore"
+      :type-slug="typeSlug"
       @delete="handleDelete"
       @load-more="loadMore"
     />
@@ -34,17 +36,30 @@
 </template>
 
 <script setup lang="ts">
-const { listPages, deletePage } = usePageApi()
+const route = useRoute()
+const typeSlug = route.params.typeSlug as string
+
+const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
+const { list, remove } = useResourceApi(typeSlug)
+const { schemaToColumns } = useSchemaUtils()
 
 const items = ref<any[]>([])
 const loading = ref(false)
 const hasMore = ref(false)
 const cursor = ref('')
 
+const resourceType = computed(() => getBySlug(typeSlug))
+
+const columns = computed(() => {
+  const schema = resourceType.value?.schema
+  if (schema) return schemaToColumns(schema)
+  return [{ title: 'Name', dataIndex: 'name', key: 'name' }]
+})
+
 async function load() {
   loading.value = true
   try {
-    const res = await listPages(cursor.value)
+    const res = await list(cursor.value)
     items.value = [...items.value, ...res.data]
     hasMore.value = res.has_more
     cursor.value = res.cursor
@@ -58,9 +73,12 @@ async function loadMore() {
 }
 
 async function handleDelete(id: string) {
-  await deletePage(id)
+  await remove(id)
   items.value = items.value.filter((i) => i.id !== id)
 }
 
-onMounted(load)
+onMounted(async () => {
+  if (!loaded.value) await fetchResourceTypes()
+  await load()
+})
 </script>

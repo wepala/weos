@@ -18,28 +18,34 @@
 <template>
   <div>
     <h2>Dashboard</h2>
-    <a-row :gutter="16">
-      <a-col :span="8">
-        <a-card title="Websites" :bordered="false">
-          <p style="font-size: 32px; margin: 0">{{ websiteCount }}</p>
-          <NuxtLink to="/websites">
-            <a-button type="link" style="padding: 0">Manage Websites</a-button>
+    <a-row :gutter="[16, 16]">
+      <a-col
+        v-for="rt in resourceTypes"
+        :key="rt.slug"
+        :xs="24"
+        :sm="12"
+        :md="8"
+      >
+        <a-card :title="rt.name" :bordered="false">
+          <p v-if="rt.description" style="color: #888; margin-bottom: 8px">
+            {{ rt.description }}
+          </p>
+          <NuxtLink :to="`/resources/${rt.slug}`">
+            <a-button type="link" style="padding: 0">Manage {{ rt.name }}</a-button>
           </NuxtLink>
         </a-card>
       </a-col>
-      <a-col :span="8">
-        <a-card title="Pages" :bordered="false">
-          <p style="font-size: 32px; margin: 0">{{ pageCount }}</p>
-          <NuxtLink to="/pages">
-            <a-button type="link" style="padding: 0">Manage Pages</a-button>
+      <a-col :xs="24" :sm="12" :md="8">
+        <a-card title="Persons" :bordered="false">
+          <NuxtLink to="/persons">
+            <a-button type="link" style="padding: 0">Manage Persons</a-button>
           </NuxtLink>
         </a-card>
       </a-col>
-      <a-col :span="8">
-        <a-card title="Sections" :bordered="false">
-          <p style="font-size: 32px; margin: 0">{{ sectionCount }}</p>
-          <NuxtLink to="/sections">
-            <a-button type="link" style="padding: 0">Manage Sections</a-button>
+      <a-col :xs="24" :sm="12" :md="8">
+        <a-card title="Organizations" :bordered="false">
+          <NuxtLink to="/organizations">
+            <a-button type="link" style="padding: 0">Manage Organizations</a-button>
           </NuxtLink>
         </a-card>
       </a-col>
@@ -48,26 +54,9 @@
 </template>
 
 <script setup lang="ts">
-const { listWebsites } = useWebsiteApi()
-const { listPages } = usePageApi()
-const { listSections } = useSectionApi()
-
-const websiteCount = ref(0)
-const pageCount = ref(0)
-const sectionCount = ref(0)
+const { resourceTypes, fetchResourceTypes, loaded } = useResourceTypeStore()
 
 onMounted(async () => {
-  try {
-    const [w, p, s] = await Promise.all([
-      listWebsites('', 1),
-      listPages('', 1),
-      listSections('', 1),
-    ])
-    websiteCount.value = w.data.length + (w.has_more ? '+' as any : 0)
-    pageCount.value = p.data.length + (p.has_more ? '+' as any : 0)
-    sectionCount.value = s.data.length + (s.has_more ? '+' as any : 0)
-  } catch {
-    // API may not be running yet
-  }
+  if (!loaded.value) await fetchResourceTypes()
 })
 </script>

@@ -89,7 +89,7 @@ func websitePreset() PresetDefinition {
 				"Root website entity with name, URL, and language",
 				`{"@vocab":"https://schema.org/","@type":"WebSite"}`,
 				`{"type":"object","properties":{"name":{"type":"string"},"url":{"type":"string","format":"uri"},`+
-					`"inLanguage":{"type":"string"}},"required":["name"]}`,
+					`"description":{"type":"string"},"inLanguage":{"type":"string"}},"required":["name"]}`,
 			),
 			newPresetType("Web Page", "web-page",
 				"Individual page with name, slug, description, and template reference",

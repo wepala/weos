@@ -35,26 +35,21 @@
         <a-menu-item key="dashboard">
           <NuxtLink to="/">Dashboard</NuxtLink>
         </a-menu-item>
-        <a-menu-item key="websites">
-          <NuxtLink to="/websites">Websites</NuxtLink>
-        </a-menu-item>
-        <a-menu-item key="pages">
-          <NuxtLink to="/pages">Pages</NuxtLink>
-        </a-menu-item>
-        <a-menu-item key="sections">
-          <NuxtLink to="/sections">Sections</NuxtLink>
-        </a-menu-item>
-        <a-menu-item key="themes">
-          <NuxtLink to="/themes">Themes</NuxtLink>
-        </a-menu-item>
-        <a-menu-item key="templates">
-          <NuxtLink to="/templates">Templates</NuxtLink>
+        <a-menu-item
+          v-for="rt in visibleResourceTypes"
+          :key="`rt-${rt.slug}`"
+        >
+          <NuxtLink :to="`/resources/${rt.slug}`">{{ rt.name }}</NuxtLink>
         </a-menu-item>
         <a-menu-item key="persons">
           <NuxtLink to="/persons">Persons</NuxtLink>
         </a-menu-item>
         <a-menu-item key="organizations">
           <NuxtLink to="/organizations">Organizations</NuxtLink>
+        </a-menu-item>
+        <a-menu-divider />
+        <a-menu-item key="settings">
+          <NuxtLink to="/settings">Settings</NuxtLink>
         </a-menu-item>
       </a-menu>
     </a-layout-sider>
@@ -76,15 +71,27 @@
 <script setup lang="ts">
 const collapsed = ref(false)
 const route = useRoute()
+const { resourceTypes, fetchResourceTypes } = useResourceTypeStore()
+const { loadSettings, isVisible } = useSidebarSettings()
+
+const visibleResourceTypes = computed(() =>
+  resourceTypes.value.filter((rt) => isVisible(rt.slug))
+)
+
 const selectedKeys = computed(() => {
   const path = route.path
-  if (path.startsWith('/websites')) return ['websites']
-  if (path.startsWith('/pages')) return ['pages']
-  if (path.startsWith('/sections')) return ['sections']
-  if (path.startsWith('/themes')) return ['themes']
-  if (path.startsWith('/templates')) return ['templates']
   if (path.startsWith('/persons')) return ['persons']
   if (path.startsWith('/organizations')) return ['organizations']
+  if (path.startsWith('/settings')) return ['settings']
+  if (path.startsWith('/resources/')) {
+    const slug = route.params.typeSlug as string
+    if (slug) return [`rt-${slug}`]
+  }
   return ['dashboard']
+})
+
+onMounted(() => {
+  loadSettings()
+  fetchResourceTypes()
 })
 </script>

@@ -17,28 +17,23 @@
 
 <template>
   <a-table
-    :columns="columns"
+    :columns="allColumns"
     :data-source="items"
     :loading="loading"
     :pagination="false"
     row-key="id"
   >
     <template #bodyCell="{ column, record }">
-      <template v-if="column.key === 'status'">
-        <a-tag :color="statusColor(record.status)">
-          {{ record.status }}
-        </a-tag>
-      </template>
       <template v-if="column.key === 'actions'">
         <a-space>
-          <NuxtLink :to="`/websites/${record.id}`">
+          <NuxtLink :to="`/resources/${typeSlug}/${record.id}`">
             <a-button size="small">View</a-button>
           </NuxtLink>
-          <NuxtLink :to="`/websites/${record.id}/edit`">
+          <NuxtLink :to="`/resources/${typeSlug}/${record.id}/edit`">
             <a-button size="small">Edit</a-button>
           </NuxtLink>
           <a-popconfirm
-            title="Delete this website?"
+            title="Delete this resource?"
             @confirm="$emit('delete', record.id)"
           >
             <a-button size="small" danger>Delete</a-button>
@@ -53,10 +48,12 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   items: any[]
+  columns: { title: string; dataIndex: string; key: string }[]
   loading: boolean
   hasMore: boolean
+  typeSlug: string
 }>()
 
 defineEmits<{
@@ -64,17 +61,8 @@ defineEmits<{
   'load-more': []
 }>()
 
-const columns = [
-  { title: 'Name', dataIndex: 'name', key: 'name' },
-  { title: 'URL', dataIndex: 'url', key: 'url' },
-  { title: 'Language', dataIndex: 'language', key: 'language' },
-  { title: 'Status', dataIndex: 'status', key: 'status' },
+const allColumns = computed(() => [
+  ...props.columns,
   { title: 'Actions', key: 'actions', width: 250 },
-]
-
-function statusColor(status: string) {
-  if (status === 'published') return 'green'
-  if (status === 'archived') return 'red'
-  return 'blue'
-}
+])
 </script>

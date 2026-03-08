@@ -17,11 +17,13 @@
 
 <template>
   <div>
-    <h2>Edit Template</h2>
+    <h2>Edit {{ resourceType?.name || typeSlug }}</h2>
     <a-spin v-if="loading" />
-    <TemplateForm
-      v-else-if="template"
-      :initial-data="template"
+    <ResourceForm
+      v-else-if="resource && resourceType?.schema"
+      :schema="resourceType.schema"
+      :type-slug="typeSlug"
+      :initial-data="resource"
       :is-edit="true"
       :submitting="submitting"
       @submit="handleSubmit"
@@ -30,28 +32,34 @@
 </template>
 
 <script setup lang="ts">
-const { getTemplate, updateTemplate } = useTemplateApi()
 const route = useRoute()
 const router = useRouter()
-
+const typeSlug = route.params.typeSlug as string
 const id = route.params.id as string
-const template = ref<any>(null)
+
+const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
+const { get, update } = useResourceApi(typeSlug)
+
+const resource = ref<any>(null)
 const loading = ref(true)
 const submitting = ref(false)
 
+const resourceType = computed(() => getBySlug(typeSlug))
+
 onMounted(async () => {
+  if (!loaded.value) await fetchResourceTypes()
   try {
-    template.value = await getTemplate(id)
+    resource.value = await get(id)
   } finally {
     loading.value = false
   }
 })
 
-async function handleSubmit(data: any) {
+async function handleSubmit(data: Record<string, any>) {
   submitting.value = true
   try {
-    await updateTemplate(id, data)
-    router.push('/templates')
+    await update(id, data)
+    router.push(`/resources/${typeSlug}`)
   } finally {
     submitting.value = false
   }

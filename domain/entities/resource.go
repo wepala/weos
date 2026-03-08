@@ -67,6 +67,18 @@ func (e *Resource) With(
 	return e, nil
 }
 
+func (e *Resource) Update(data json.RawMessage) error {
+	e.data = data
+	event := ResourceUpdated{}.With(data)
+	return e.BaseEntity.RecordEvent(event, event.EventType())
+}
+
+func (e *Resource) MarkDeleted() error {
+	e.status = "archived"
+	event := ResourceDeleted{}.With()
+	return e.BaseEntity.RecordEvent(event, event.EventType())
+}
+
 func (e *Resource) TypeSlug() string      { return e.typeSlug }
 func (e *Resource) Data() json.RawMessage { return e.data }
 func (e *Resource) Status() string        { return e.status }

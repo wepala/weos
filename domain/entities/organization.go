@@ -70,6 +70,25 @@ func (e *Organization) LogoURL() string      { return e.logoURL }
 func (e *Organization) Status() string       { return e.status }
 func (e *Organization) CreatedAt() time.Time { return e.createdAt }
 
+func (e *Organization) Update(
+	name, slug, description, url, logoURL, status string,
+) error {
+	e.name = name
+	e.slug = slug
+	e.description = description
+	e.url = url
+	e.logoURL = logoURL
+	e.status = status
+	event := OrganizationUpdated{}.With(name, slug, description, url, logoURL, status)
+	return e.BaseEntity.RecordEvent(event, event.EventType())
+}
+
+func (e *Organization) MarkDeleted() error {
+	e.status = "archived"
+	event := OrganizationDeleted{}.With()
+	return e.BaseEntity.RecordEvent(event, event.EventType())
+}
+
 func (e *Organization) Restore(
 	id, name, slug, description, url, logoURL, status string,
 	createdAt time.Time, sequenceNo int,

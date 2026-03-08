@@ -1,18 +1,3 @@
-// Copyright (C) 2026 Wepala, LLC
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 package application
 
 import (
@@ -22,6 +7,8 @@ import (
 	"weos/domain/entities"
 	"weos/domain/repositories"
 
+	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
 )
 
@@ -50,21 +37,27 @@ type ResourceTypeService interface {
 }
 
 type resourceTypeService struct {
-	repo    repositories.ResourceTypeRepository
-	projMgr repositories.ProjectionManager
-	logger  entities.Logger
+	repo       repositories.ResourceTypeRepository
+	projMgr    repositories.ProjectionManager
+	eventStore domain.EventStore
+	dispatcher *domain.EventDispatcher
+	logger     entities.Logger
 }
 
 func ProvideResourceTypeService(params struct {
 	fx.In
-	Repo    repositories.ResourceTypeRepository
-	ProjMgr repositories.ProjectionManager
-	Logger  entities.Logger
+	Repo       repositories.ResourceTypeRepository
+	ProjMgr    repositories.ProjectionManager
+	EventStore domain.EventStore
+	Dispatcher *domain.EventDispatcher
+	Logger     entities.Logger
 }) ResourceTypeService {
 	return &resourceTypeService{
-		repo:    params.Repo,
-		projMgr: params.ProjMgr,
-		logger:  params.Logger,
+		repo:       params.Repo,
+		projMgr:    params.ProjMgr,
+		eventStore: params.EventStore,
+		dispatcher: params.Dispatcher,
+		logger:     params.Logger,
 	}
 }
 
@@ -80,12 +73,15 @@ func (s *resourceTypeService) Create(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource type: %w", err)
 	}
-	if err := s.repo.Save(ctx, entity); err != nil {
-		return nil, err
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return nil, fmt.Errorf("failed to track resource type: %w", err)
 	}
-	if err := s.projMgr.EnsureTable(ctx, cmd.Slug, cmd.Schema); err != nil {
-		s.logger.Error(ctx, "failed to create projection table", "slug", cmd.Slug, "error", err)
+	if err := uow.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit resource type: %w", err)
 	}
+
 	s.logger.Info(ctx, "resource type created", "id", entity.GetID())
 	return entity, nil
 }
@@ -118,18 +114,20 @@ func (s *resourceTypeService) Update(
 	if err != nil {
 		return nil, err
 	}
-	if err := entity.Restore(
-		entity.GetID(), cmd.Name, cmd.Slug, cmd.Description, cmd.Status,
-		cmd.Context, cmd.Schema, entity.CreatedAt(), entity.GetSequenceNo(),
+	if err := entity.Update(
+		cmd.Name, cmd.Slug, cmd.Description, cmd.Status, cmd.Context, cmd.Schema,
 	); err != nil {
 		return nil, fmt.Errorf("failed to update resource type: %w", err)
 	}
-	if err := s.repo.Update(ctx, entity); err != nil {
-		return nil, err
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return nil, fmt.Errorf("failed to track resource type: %w", err)
 	}
-	if err := s.projMgr.EnsureTable(ctx, cmd.Slug, cmd.Schema); err != nil {
-		s.logger.Error(ctx, "failed to update projection table", "slug", cmd.Slug, "error", err)
+	if err := uow.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit resource type update: %w", err)
 	}
+
 	s.logger.Info(ctx, "resource type updated", "id", entity.GetID())
 	return entity, nil
 }
@@ -137,9 +135,22 @@ func (s *resourceTypeService) Update(
 func (s *resourceTypeService) Delete(
 	ctx context.Context, cmd DeleteResourceTypeCommand,
 ) error {
-	if err := s.repo.Delete(ctx, cmd.ID); err != nil {
+	entity, err := s.repo.FindByID(ctx, cmd.ID)
+	if err != nil {
 		return err
 	}
+	if err := entity.MarkDeleted(); err != nil {
+		return fmt.Errorf("failed to mark resource type deleted: %w", err)
+	}
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return fmt.Errorf("failed to track resource type: %w", err)
+	}
+	if err := uow.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit resource type deletion: %w", err)
+	}
+
 	s.logger.Info(ctx, "resource type deleted", "id", cmd.ID)
 	return nil
 }

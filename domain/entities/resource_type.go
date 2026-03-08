@@ -76,6 +76,25 @@ func (e *ResourceType) Schema() json.RawMessage  { return e.schema }
 func (e *ResourceType) Status() string           { return e.status }
 func (e *ResourceType) CreatedAt() time.Time     { return e.createdAt }
 
+func (e *ResourceType) Update(
+	name, slug, description, status string, ctx, schema json.RawMessage,
+) error {
+	e.name = name
+	e.slug = slug
+	e.description = description
+	e.context = ctx
+	e.schema = schema
+	e.status = status
+	event := ResourceTypeUpdated{}.With(name, slug, description, status, ctx, schema)
+	return e.BaseEntity.RecordEvent(event, event.EventType())
+}
+
+func (e *ResourceType) MarkDeleted() error {
+	e.status = "archived"
+	event := ResourceTypeDeleted{}.With()
+	return e.BaseEntity.RecordEvent(event, event.EventType())
+}
+
 func (e *ResourceType) Restore(
 	id, name, slug, description, status string,
 	ctx, schema json.RawMessage,

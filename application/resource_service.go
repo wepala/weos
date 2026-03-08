@@ -1,29 +1,15 @@
-// Copyright (C) 2026 Wepala, LLC
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 package application
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
 
+	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"go.uber.org/fx"
 )
@@ -38,21 +24,27 @@ type ResourceService interface {
 }
 
 type resourceService struct {
-	repo     repositories.ResourceRepository
-	typeRepo repositories.ResourceTypeRepository
-	logger   entities.Logger
+	repo       repositories.ResourceRepository
+	typeRepo   repositories.ResourceTypeRepository
+	eventStore domain.EventStore
+	dispatcher *domain.EventDispatcher
+	logger     entities.Logger
 }
 
 func ProvideResourceService(params struct {
 	fx.In
-	Repo     repositories.ResourceRepository
-	TypeRepo repositories.ResourceTypeRepository
-	Logger   entities.Logger
+	Repo       repositories.ResourceRepository
+	TypeRepo   repositories.ResourceTypeRepository
+	EventStore domain.EventStore
+	Dispatcher *domain.EventDispatcher
+	Logger     entities.Logger
 }) ResourceService {
 	return &resourceService{
-		repo:     params.Repo,
-		typeRepo: params.TypeRepo,
-		logger:   params.Logger,
+		repo:       params.Repo,
+		typeRepo:   params.TypeRepo,
+		eventStore: params.EventStore,
+		dispatcher: params.Dispatcher,
+		logger:     params.Logger,
 	}
 }
 
@@ -72,9 +64,15 @@ func (s *resourceService) Create(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
-	if err := s.repo.Save(ctx, entity); err != nil {
-		return nil, err
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return nil, fmt.Errorf("failed to track resource: %w", err)
 	}
+	if err := uow.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit resource: %w", err)
+	}
+
 	s.logger.Info(ctx, "resource created", "id", entity.GetID(), "type", cmd.TypeSlug)
 	return entity, nil
 }
@@ -113,15 +111,18 @@ func (s *resourceService) Update(
 		return nil, fmt.Errorf("failed to inject JSON-LD fields: %w", err)
 	}
 
-	if err := entity.Restore(
-		entity.GetID(), entity.TypeSlug(), "active",
-		enriched, entity.CreatedAt(), entity.GetSequenceNo(),
-	); err != nil {
+	if err := entity.Update(enriched); err != nil {
 		return nil, fmt.Errorf("failed to update resource: %w", err)
 	}
-	if err := s.repo.Update(ctx, entity); err != nil {
-		return nil, err
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return nil, fmt.Errorf("failed to track resource: %w", err)
 	}
+	if err := uow.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit resource update: %w", err)
+	}
+
 	s.logger.Info(ctx, "resource updated", "id", entity.GetID())
 	return entity, nil
 }
@@ -129,9 +130,22 @@ func (s *resourceService) Update(
 func (s *resourceService) Delete(
 	ctx context.Context, cmd DeleteResourceCommand,
 ) error {
-	if err := s.repo.Delete(ctx, cmd.ID); err != nil {
+	entity, err := s.repo.FindByID(ctx, cmd.ID)
+	if err != nil {
 		return err
 	}
+	if err := entity.MarkDeleted(); err != nil {
+		return fmt.Errorf("failed to mark resource deleted: %w", err)
+	}
+
+	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
+	if err := uow.Track(entity); err != nil {
+		return fmt.Errorf("failed to track resource: %w", err)
+	}
+	if err := uow.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit resource deletion: %w", err)
+	}
+
 	s.logger.Info(ctx, "resource deleted", "id", cmd.ID)
 	return nil
 }
@@ -141,8 +155,13 @@ func validateAgainstSchema(schema, data json.RawMessage) error {
 		return nil
 	}
 
+	var schemaDoc any
+	if err := json.Unmarshal(schema, &schemaDoc); err != nil {
+		return fmt.Errorf("invalid schema JSON: %w", err)
+	}
+
 	c := jsonschema.NewCompiler()
-	if err := c.AddResource("schema.json", strings.NewReader(string(schema))); err != nil {
+	if err := c.AddResource("schema.json", schemaDoc); err != nil {
 		return fmt.Errorf("invalid schema: %w", err)
 	}
 	sch, err := c.Compile("schema.json")

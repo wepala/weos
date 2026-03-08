@@ -17,43 +17,42 @@
 
 <template>
   <div>
-    <h2>Edit Website</h2>
-    <a-spin v-if="loading" />
-    <WebsiteForm
-      v-else-if="website"
-      :initial-data="website"
-      :is-edit="true"
+    <h2>Create {{ resourceType?.name || typeSlug }}</h2>
+    <a-spin v-if="!resourceType" />
+    <ResourceForm
+      v-else-if="resourceType?.schema"
+      :schema="resourceType.schema"
+      :type-slug="typeSlug"
       :submitting="submitting"
       @submit="handleSubmit"
     />
+    <a-empty v-else description="No schema defined for this resource type" />
   </div>
 </template>
 
 <script setup lang="ts">
-const { getWebsite, updateWebsite } = useWebsiteApi()
 const route = useRoute()
 const router = useRouter()
+const typeSlug = route.params.typeSlug as string
 
-const id = route.params.id as string
-const website = ref<any>(null)
-const loading = ref(true)
+const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
+const { create } = useResourceApi(typeSlug)
+
 const submitting = ref(false)
 
-onMounted(async () => {
-  try {
-    website.value = await getWebsite(id)
-  } finally {
-    loading.value = false
-  }
-})
+const resourceType = computed(() => getBySlug(typeSlug))
 
-async function handleSubmit(data: any) {
+async function handleSubmit(data: Record<string, any>) {
   submitting.value = true
   try {
-    await updateWebsite(id, data)
-    router.push('/websites')
+    await create(data)
+    router.push(`/resources/${typeSlug}`)
   } finally {
     submitting.value = false
   }
 }
+
+onMounted(async () => {
+  if (!loaded.value) await fetchResourceTypes()
+})
 </script>

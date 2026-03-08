@@ -12,9 +12,11 @@ import (
 )
 
 type CreateResourceTypeInput struct {
-	Name    string          `json:"name" jsonschema:"resource type display name"`
-	Slug    string          `json:"slug" jsonschema:"URL-friendly identifier"`
-	Context json.RawMessage `json:"context,omitempty" jsonschema:"JSON-LD context"`
+	Name        string          `json:"name" jsonschema:"resource type display name"`
+	Slug        string          `json:"slug" jsonschema:"URL-friendly identifier"`
+	Description string          `json:"description,omitempty" jsonschema:"resource type description"`
+	Context     json.RawMessage `json:"context,omitempty" jsonschema:"JSON-LD context"`
+	Schema      json.RawMessage `json:"schema,omitempty" jsonschema:"JSON Schema for validation"`
 }
 
 type UpdateResourceTypeInput struct {
@@ -78,7 +80,8 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 		ctx context.Context, _ *mcp.CallToolRequest, input CreateResourceTypeInput,
 	) (*mcp.CallToolResult, ResourceTypeOutput, error) {
 		entity, err := svc.Create(ctx, application.CreateResourceTypeCommand{
-			Name: input.Name, Slug: input.Slug, Context: input.Context,
+			Name: input.Name, Slug: input.Slug, Description: input.Description,
+			Context: input.Context, Schema: input.Schema,
 		})
 		if err != nil {
 			return nil, ResourceTypeOutput{}, err
