@@ -30,11 +30,6 @@ import (
 
 // Dependencies holds all the dependencies needed by CLI commands.
 type Dependencies struct {
-	WebsiteService      application.WebsiteService
-	PageService         application.PageService
-	SectionService      application.SectionService
-	ThemeService        application.ThemeService
-	TemplateService     application.TemplateService
 	PersonService       application.PersonService
 	OrganizationService application.OrganizationService
 	ResourceTypeService application.ResourceTypeService
@@ -69,11 +64,6 @@ func StartContainerWithDSN(dsn string) (*Dependencies, error) {
 }
 
 func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
-	var websiteService application.WebsiteService
-	var pageService application.PageService
-	var sectionService application.SectionService
-	var themeService application.ThemeService
-	var templateService application.TemplateService
 	var personService application.PersonService
 	var organizationService application.OrganizationService
 	var resourceTypeService application.ResourceTypeService
@@ -82,21 +72,11 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 	app := fx.New(
 		application.Module(appCfg),
 		fx.Invoke(func(
-			ws application.WebsiteService,
-			ps application.PageService,
-			ss application.SectionService,
-			ts application.ThemeService,
-			tps application.TemplateService,
 			prs application.PersonService,
 			os application.OrganizationService,
 			rts application.ResourceTypeService,
 			rs application.ResourceService,
 		) {
-			websiteService = ws
-			pageService = ps
-			sectionService = ss
-			themeService = ts
-			templateService = tps
 			personService = prs
 			organizationService = os
 			resourceTypeService = rts
@@ -122,11 +102,6 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 	}
 
 	return &Dependencies{
-		WebsiteService:      websiteService,
-		PageService:         pageService,
-		SectionService:      sectionService,
-		ThemeService:        themeService,
-		TemplateService:     templateService,
 		PersonService:       personService,
 		OrganizationService: organizationService,
 		ResourceTypeService: resourceTypeService,

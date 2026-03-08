@@ -14,15 +14,15 @@ import (
 	"go.uber.org/fx"
 )
 
+// DeletedOutput is the standard MCP output for delete operations.
+type DeletedOutput struct {
+	Success bool `json:"success"`
+}
+
 // ServiceName identifies an MCP tool group.
 type ServiceName string
 
 const (
-	ServiceWebsite      ServiceName = "website"
-	ServicePage         ServiceName = "page"
-	ServiceSection      ServiceName = "section"
-	ServiceTheme        ServiceName = "theme"
-	ServiceTemplate     ServiceName = "template"
 	ServicePerson       ServiceName = "person"
 	ServiceOrganization ServiceName = "organization"
 	ServiceResourceType ServiceName = "resource-type"
@@ -31,11 +31,6 @@ const (
 
 // AllServices is the ordered list of every available service.
 var AllServices = []ServiceName{
-	ServiceWebsite,
-	ServicePage,
-	ServiceSection,
-	ServiceTheme,
-	ServiceTemplate,
 	ServicePerson,
 	ServiceOrganization,
 	ServiceResourceType,
@@ -93,11 +88,6 @@ func resolveEnabled(services []string) map[ServiceName]bool {
 func Run(enabledServices []string) error {
 	cfg := loadConfig()
 
-	var websiteService application.WebsiteService
-	var pageService application.PageService
-	var sectionService application.SectionService
-	var themeService application.ThemeService
-	var templateService application.TemplateService
 	var personService application.PersonService
 	var organizationService application.OrganizationService
 	var resourceTypeService application.ResourceTypeService
@@ -106,11 +96,6 @@ func Run(enabledServices []string) error {
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg),
-		fx.Populate(&websiteService),
-		fx.Populate(&pageService),
-		fx.Populate(&sectionService),
-		fx.Populate(&themeService),
-		fx.Populate(&templateService),
 		fx.Populate(&personService),
 		fx.Populate(&organizationService),
 		fx.Populate(&resourceTypeService),
@@ -132,21 +117,6 @@ func Run(enabledServices []string) error {
 
 	enabled := resolveEnabled(enabledServices)
 
-	if enabled[ServiceWebsite] {
-		registerWebsiteTools(server, websiteService)
-	}
-	if enabled[ServicePage] {
-		registerPageTools(server, pageService)
-	}
-	if enabled[ServiceSection] {
-		registerSectionTools(server, sectionService)
-	}
-	if enabled[ServiceTheme] {
-		registerThemeTools(server, themeService)
-	}
-	if enabled[ServiceTemplate] {
-		registerTemplateTools(server, templateService)
-	}
 	if enabled[ServicePerson] {
 		registerPersonTools(server, personService)
 	}

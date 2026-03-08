@@ -71,12 +71,7 @@ func ProvideGormDB(params struct {
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 
-	models := []interface{}{
-		&weosmodels.Website{},
-		&weosmodels.Page{},
-		&weosmodels.Section{},
-		&weosmodels.Theme{},
-		&weosmodels.Template{},
+	models := []any{
 		&weosmodels.Person{},
 		&weosmodels.Organization{},
 		&weosmodels.ResourceType{},

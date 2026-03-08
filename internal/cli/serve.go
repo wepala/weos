@@ -49,11 +49,6 @@ func init() {
 func runServe(cmd *cobra.Command, args []string) error {
 	appCfg := loadServeConfig()
 
-	var websiteService application.WebsiteService
-	var pageService application.PageService
-	var sectionService application.SectionService
-	var themeService application.ThemeService
-	var templateService application.TemplateService
 	var personService application.PersonService
 	var organizationService application.OrganizationService
 	var resourceTypeService application.ResourceTypeService
@@ -62,11 +57,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(appCfg),
-		fx.Populate(&websiteService),
-		fx.Populate(&pageService),
-		fx.Populate(&sectionService),
-		fx.Populate(&themeService),
-		fx.Populate(&templateService),
 		fx.Populate(&personService),
 		fx.Populate(&organizationService),
 		fx.Populate(&resourceTypeService),
@@ -88,45 +78,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Root:       "dist",
 	}))
 
-	websiteHandler := handlers.NewWebsiteHandler(websiteService)
-	pageHandler := handlers.NewPageHandler(pageService)
-	sectionHandler := handlers.NewSectionHandler(sectionService)
-
 	api := e.Group("/api")
 	api.GET("/health", handlers.HealthHandler)
-
-	api.POST("/websites", websiteHandler.Create)
-	api.GET("/websites", websiteHandler.List)
-	api.GET("/websites/:id", websiteHandler.Get)
-	api.PUT("/websites/:id", websiteHandler.Update)
-	api.DELETE("/websites/:id", websiteHandler.Delete)
-
-	api.POST("/pages", pageHandler.Create)
-	api.GET("/pages", pageHandler.List)
-	api.GET("/pages/:id", pageHandler.Get)
-	api.PUT("/pages/:id", pageHandler.Update)
-	api.DELETE("/pages/:id", pageHandler.Delete)
-
-	api.POST("/sections", sectionHandler.Create)
-	api.GET("/sections", sectionHandler.List)
-	api.GET("/sections/:id", sectionHandler.Get)
-	api.PUT("/sections/:id", sectionHandler.Update)
-	api.DELETE("/sections/:id", sectionHandler.Delete)
-
-	themeHandler := handlers.NewThemeHandler(themeService)
-	api.POST("/themes", themeHandler.Create)
-	api.GET("/themes", themeHandler.List)
-	api.GET("/themes/:id", themeHandler.Get)
-	api.PUT("/themes/:id", themeHandler.Update)
-	api.DELETE("/themes/:id", themeHandler.Delete)
-	api.POST("/themes/upload", themeHandler.Upload)
-
-	templateHandler := handlers.NewTemplateHandler(templateService)
-	api.POST("/templates", templateHandler.Create)
-	api.GET("/templates", templateHandler.List)
-	api.GET("/templates/:id", templateHandler.Get)
-	api.PUT("/templates/:id", templateHandler.Update)
-	api.DELETE("/templates/:id", templateHandler.Delete)
 
 	personHandler := handlers.NewPersonHandler(personService)
 	api.POST("/persons", personHandler.Create)

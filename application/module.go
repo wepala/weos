@@ -18,18 +18,12 @@ package application
 import (
 	"context"
 
-	"weos/application/agents"
-	"weos/domain/entities"
 	"weos/domain/repositories"
-	infraAgents "weos/infrastructure/agents"
 	"weos/infrastructure/database/gorm"
 	"weos/infrastructure/events"
 	"weos/infrastructure/logging"
 	"weos/internal/config"
 
-	adkagent "google.golang.org/adk/agent"
-
-	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/gorilla/sessions"
 	"go.uber.org/fx"
 )
@@ -59,29 +53,10 @@ func Module(cfg config.Config) fx.Option {
 		}),
 
 		// Repository providers
-		fx.Provide(gorm.ProvideWebsiteRepository),
-		fx.Provide(gorm.ProvidePageRepository),
-		fx.Provide(gorm.ProvideSectionRepository),
-		fx.Provide(gorm.ProvideThemeRepository),
-		fx.Provide(gorm.ProvideTemplateRepository),
 		fx.Provide(gorm.ProvidePersonRepository),
 		fx.Provide(gorm.ProvideOrganizationRepository),
 
-		// ADK config (optional — nil when no API key is set)
-		fx.Provide(infraAgents.ProvideADKConfig),
-
-		// Template extraction agent (optional — nil when ADK is not configured)
-		fx.Provide(fx.Annotate(
-			agents.ProvideTemplateExtractionAgent,
-			fx.ResultTags(`name:"templateExtractionAgent"`),
-		)),
-
 		// Service providers
-		fx.Provide(ProvideWebsiteService),
-		fx.Provide(ProvidePageService),
-		fx.Provide(ProvideSectionService),
-		fx.Provide(ProvideThemeService),
-		fx.Provide(ProvideTemplateService),
 		fx.Provide(ProvidePersonService),
 		fx.Provide(ProvideOrganizationService),
 		fx.Provide(gorm.ProvideResourceTypeRepository),
@@ -90,27 +65,8 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
 
-		// Subscribe event handlers
-		fx.Invoke(subscribeTemplateAnalysisHandler),
-
 		// Ensure projection tables for existing resource types at startup
 		fx.Invoke(ensureProjectionTables),
-	)
-}
-
-func subscribeTemplateAnalysisHandler(params struct {
-	fx.In
-	EventDispatcher *domain.EventDispatcher
-	Agent           adkagent.Agent `name:"templateExtractionAgent" optional:"true"`
-	TemplateRepo    repositories.TemplateRepository
-	Logger          entities.Logger
-	Config          config.Config
-}) error {
-	handler := NewTemplateAnalysisHandler(
-		params.Agent, params.TemplateRepo, params.Logger, "themes",
-	)
-	return domain.Subscribe[any](
-		params.EventDispatcher, "Template.Created", handler,
 	)
 }
 
