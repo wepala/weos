@@ -29,6 +29,7 @@ type Organization struct {
 	URL         string     `gorm:"type:text"`
 	LogoURL     string     `gorm:"type:text"`
 	Status      string     `gorm:"not null;default:active"`
+	SequenceNo  int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time `gorm:"index"`
@@ -42,7 +43,7 @@ func (m *Organization) ToOrganization() (*entities.Organization, error) {
 	e := &entities.Organization{}
 	err := e.Restore(
 		m.ID, m.Name, m.Slug, m.Description,
-		m.URL, m.LogoURL, m.Status, m.CreatedAt,
+		m.URL, m.LogoURL, m.Status, m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -59,6 +60,7 @@ func FromOrganization(e *entities.Organization) *Organization {
 		URL:         e.URL(),
 		LogoURL:     e.LogoURL(),
 		Status:      e.Status(),
+		SequenceNo:  e.GetSequenceNo(),
 		CreatedAt:   e.CreatedAt(),
 	}
 }

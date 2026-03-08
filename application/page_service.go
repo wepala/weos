@@ -99,7 +99,7 @@ func (s *pageService) Update(
 	}
 	if err := entity.Restore(
 		entity.GetID(), cmd.Name, cmd.Slug, cmd.Description,
-		cmd.Template, cmd.Status, cmd.Position, entity.CreatedAt(),
+		cmd.Template, cmd.Status, cmd.Position, entity.CreatedAt(), entity.GetSequenceNo(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to update page: %w", err)
 	}

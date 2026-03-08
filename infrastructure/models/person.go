@@ -28,6 +28,7 @@ type Person struct {
 	Email      string     `gorm:"not null;uniqueIndex"`
 	AvatarURL  string     `gorm:"type:text"`
 	Status     string     `gorm:"not null;default:active"`
+	SequenceNo int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time `gorm:"index"`
@@ -41,7 +42,7 @@ func (m *Person) ToPerson() (*entities.Person, error) {
 	e := &entities.Person{}
 	err := e.Restore(
 		m.ID, m.GivenName, m.FamilyName, m.Email,
-		m.AvatarURL, m.Status, m.CreatedAt,
+		m.AvatarURL, m.Status, m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -57,6 +58,7 @@ func FromPerson(e *entities.Person) *Person {
 		Email:      e.Email(),
 		AvatarURL:  e.AvatarURL(),
 		Status:     e.Status(),
+		SequenceNo: e.GetSequenceNo(),
 		CreatedAt:  e.CreatedAt(),
 	}
 }

@@ -96,7 +96,7 @@ func (s *templateService) Update(
 	}
 	if err := entity.Restore(
 		entity.GetID(), cmd.Name, cmd.Slug, cmd.Description,
-		cmd.FilePath, cmd.Status, entity.CreatedAt(),
+		cmd.FilePath, cmd.Status, entity.CreatedAt(), entity.GetSequenceNo(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to update template: %w", err)
 	}

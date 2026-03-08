@@ -102,7 +102,7 @@ func (e *Theme) LinkToAuthor(
 
 func (e *Theme) Restore(
 	id, name, slug, description, version, thumbnailURL, status string,
-	createdAt time.Time,
+	createdAt time.Time, sequenceNo int,
 ) error {
 	if id == "" {
 		return fmt.Errorf("id cannot be empty")
@@ -110,7 +110,7 @@ func (e *Theme) Restore(
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
-	e.BaseEntity = ddd.NewBaseEntity(id)
+	e.BaseEntity = ddd.RestoreBaseEntity(id, sequenceNo)
 	e.name = name
 	e.slug = slug
 	e.description = description

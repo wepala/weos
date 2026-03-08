@@ -85,7 +85,7 @@ func (s *personService) Update(
 	}
 	if err := entity.Restore(
 		entity.GetID(), cmd.GivenName, cmd.FamilyName, cmd.Email,
-		cmd.AvatarURL, cmd.Status, entity.CreatedAt(),
+		cmd.AvatarURL, cmd.Status, entity.CreatedAt(), entity.GetSequenceNo(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to update person: %w", err)
 	}

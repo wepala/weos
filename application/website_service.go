@@ -89,7 +89,7 @@ func (s *websiteService) Update(
 	}
 	if err := entity.Restore(
 		entity.GetID(), cmd.Name, entity.Slug(), cmd.URL, cmd.Description,
-		cmd.Language, cmd.Status, entity.CreatedAt(),
+		cmd.Language, cmd.Status, entity.CreatedAt(), entity.GetSequenceNo(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to update website: %w", err)
 	}

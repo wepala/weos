@@ -111,7 +111,7 @@ func (s *themeService) Update(
 	}
 	if err := entity.Restore(
 		entity.GetID(), cmd.Name, cmd.Slug, cmd.Description,
-		cmd.Version, cmd.ThumbnailURL, cmd.Status, entity.CreatedAt(),
+		cmd.Version, cmd.ThumbnailURL, cmd.Status, entity.CreatedAt(), entity.GetSequenceNo(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to update theme: %w", err)
 	}

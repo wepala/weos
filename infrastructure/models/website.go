@@ -29,6 +29,7 @@ type Website struct {
 	Description string     `gorm:"type:text"`
 	Language    string     `gorm:"not null;default:en"`
 	Status      string     `gorm:"not null;default:draft"`
+	SequenceNo  int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time `gorm:"index"`
@@ -42,7 +43,7 @@ func (m *Website) ToWebsite() (*entities.Website, error) {
 	e := &entities.Website{}
 	err := e.Restore(
 		m.ID, m.Name, m.Slug, m.URL, m.Description,
-		m.Language, m.Status, m.CreatedAt,
+		m.Language, m.Status, m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -59,6 +60,7 @@ func FromWebsite(e *entities.Website) *Website {
 		Description: e.Description(),
 		Language:    e.Language(),
 		Status:      e.Status(),
+		SequenceNo:  e.GetSequenceNo(),
 		CreatedAt:   e.CreatedAt(),
 	}
 }

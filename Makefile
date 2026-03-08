@@ -1,4 +1,4 @@
-.PHONY: help test build run clean lint fmt vet coverage
+.PHONY: help test build run clean lint fmt vet coverage build-mcp
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -22,13 +22,16 @@ coverage: test ## Generate coverage report
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
-build: build-api build-cli ## Build all applications
+build: build-api build-cli build-mcp ## Build all applications
 
 build-api: ## Build the API server
 	go build -o bin/weos-api ./cmd/api
 
 build-cli: ## Build the CLI
 	go build -o bin/weos-cli ./cmd/cli
+
+build-mcp: ## Build the MCP server
+	go build -o bin/weos-mcp ./cmd/mcp
 
 run: ## Run the API server
 	go run ./cmd/api

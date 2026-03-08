@@ -97,7 +97,7 @@ func (s *sectionService) Update(
 	}
 	if err := entity.Restore(
 		entity.GetID(), cmd.Name, cmd.Slot, cmd.EntityType,
-		cmd.Content, cmd.Position, entity.CreatedAt(),
+		cmd.Content, cmd.Position, entity.CreatedAt(), entity.GetSequenceNo(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to update section: %w", err)
 	}

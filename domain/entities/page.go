@@ -90,7 +90,7 @@ func (e *Page) LinkToWebsite(
 
 func (e *Page) Restore(
 	id, name, slug, description, template, status string,
-	position int, createdAt time.Time,
+	position int, createdAt time.Time, sequenceNo int,
 ) error {
 	if id == "" {
 		return fmt.Errorf("id cannot be empty")
@@ -98,7 +98,7 @@ func (e *Page) Restore(
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
-	e.BaseEntity = ddd.NewBaseEntity(id)
+	e.BaseEntity = ddd.RestoreBaseEntity(id, sequenceNo)
 	e.name = name
 	e.slug = slug
 	e.description = description

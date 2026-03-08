@@ -85,7 +85,7 @@ func (s *organizationService) Update(
 	}
 	if err := entity.Restore(
 		entity.GetID(), cmd.Name, cmd.Slug, cmd.Description,
-		cmd.URL, cmd.LogoURL, cmd.Status, entity.CreatedAt(),
+		cmd.URL, cmd.LogoURL, cmd.Status, entity.CreatedAt(), entity.GetSequenceNo(),
 	); err != nil {
 		return nil, fmt.Errorf("failed to update organization: %w", err)
 	}

@@ -31,6 +31,7 @@ type Page struct {
 	Template    string     `gorm:"type:text"`
 	Position    int        `gorm:"not null;default:0"`
 	Status      string     `gorm:"not null;default:draft"`
+	SequenceNo  int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time `gorm:"index"`
@@ -44,7 +45,7 @@ func (m *Page) ToPage() (*entities.Page, error) {
 	e := &entities.Page{}
 	err := e.Restore(
 		m.ID, m.Name, m.Slug, m.Description,
-		m.Template, m.Status, m.Position, m.CreatedAt,
+		m.Template, m.Status, m.Position, m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -63,6 +64,7 @@ func FromPage(e *entities.Page) *Page {
 		Template:    e.Template(),
 		Position:    e.Position(),
 		Status:      e.Status(),
+		SequenceNo:  e.GetSequenceNo(),
 		CreatedAt:   e.CreatedAt(),
 	}
 }

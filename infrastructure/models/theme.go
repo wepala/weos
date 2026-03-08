@@ -29,6 +29,7 @@ type Theme struct {
 	Version      string     `gorm:"type:text"`
 	ThumbnailURL string     `gorm:"type:text"`
 	Status       string     `gorm:"not null;default:draft"`
+	SequenceNo   int
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    *time.Time `gorm:"index"`
@@ -42,7 +43,7 @@ func (m *Theme) ToTheme() (*entities.Theme, error) {
 	e := &entities.Theme{}
 	err := e.Restore(
 		m.ID, m.Name, m.Slug, m.Description,
-		m.Version, m.ThumbnailURL, m.Status, m.CreatedAt,
+		m.Version, m.ThumbnailURL, m.Status, m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -59,6 +60,7 @@ func FromTheme(e *entities.Theme) *Theme {
 		Version:      e.Version(),
 		ThumbnailURL: e.ThumbnailURL(),
 		Status:       e.Status(),
+		SequenceNo:   e.GetSequenceNo(),
 		CreatedAt:    e.CreatedAt(),
 	}
 }

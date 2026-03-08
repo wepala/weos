@@ -29,6 +29,7 @@ type Section struct {
 	EntityType string     `gorm:"type:text"`
 	Content    string     `gorm:"type:text"`
 	Position   int        `gorm:"not null;default:0"`
+	SequenceNo int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time `gorm:"index"`
@@ -42,7 +43,7 @@ func (m *Section) ToSection() (*entities.Section, error) {
 	e := &entities.Section{}
 	err := e.Restore(
 		m.ID, m.Name, m.Slot, m.EntityType,
-		m.Content, m.Position, m.CreatedAt,
+		m.Content, m.Position, m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -59,6 +60,7 @@ func FromSection(e *entities.Section, pageID string) *Section {
 		EntityType: e.EntityType(),
 		Content:    e.Content(),
 		Position:   e.Position(),
+		SequenceNo: e.GetSequenceNo(),
 		CreatedAt:  e.CreatedAt(),
 	}
 }

@@ -90,7 +90,7 @@ func (e *Person) LinkToOrganization(
 
 func (e *Person) Restore(
 	id, givenName, familyName, email, avatarURL, status string,
-	createdAt time.Time,
+	createdAt time.Time, sequenceNo int,
 ) error {
 	if id == "" {
 		return fmt.Errorf("id cannot be empty")
@@ -98,7 +98,7 @@ func (e *Person) Restore(
 	if givenName == "" {
 		return fmt.Errorf("givenName cannot be empty")
 	}
-	e.BaseEntity = ddd.NewBaseEntity(id)
+	e.BaseEntity = ddd.RestoreBaseEntity(id, sequenceNo)
 	e.givenName = givenName
 	e.familyName = familyName
 	e.email = email

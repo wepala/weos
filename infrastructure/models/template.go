@@ -29,6 +29,7 @@ type Template struct {
 	Description string     `gorm:"type:text"`
 	FilePath    string     `gorm:"type:text"`
 	Status      string     `gorm:"not null;default:draft"`
+	SequenceNo  int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time `gorm:"index"`
@@ -42,7 +43,7 @@ func (m *Template) ToTemplate() (*entities.Template, error) {
 	e := &entities.Template{}
 	err := e.Restore(
 		m.ID, m.Name, m.Slug, m.Description,
-		m.FilePath, m.Status, m.CreatedAt,
+		m.FilePath, m.Status, m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -59,6 +60,7 @@ func FromTemplate(e *entities.Template, themeID string) *Template {
 		Description: e.Description(),
 		FilePath:    e.FilePath(),
 		Status:      e.Status(),
+		SequenceNo:  e.GetSequenceNo(),
 		CreatedAt:   e.CreatedAt(),
 	}
 }

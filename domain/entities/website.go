@@ -76,7 +76,7 @@ func (e *Website) Status() string      { return e.status }
 func (e *Website) CreatedAt() time.Time { return e.createdAt }
 
 func (e *Website) Restore(
-	id, name, slug, url, description, language, status string, createdAt time.Time,
+	id, name, slug, url, description, language, status string, createdAt time.Time, sequenceNo int,
 ) error {
 	if id == "" {
 		return fmt.Errorf("id cannot be empty")
@@ -84,7 +84,7 @@ func (e *Website) Restore(
 	if name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
-	e.BaseEntity = ddd.NewBaseEntity(id)
+	e.BaseEntity = ddd.RestoreBaseEntity(id, sequenceNo)
 	e.name = name
 	e.slug = slug
 	e.url = url
