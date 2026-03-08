@@ -31,16 +31,23 @@
       >
         {{ collapsed ? 'W' : 'WeOS' }}
       </div>
-      <a-menu v-model:selectedKeys="selectedKeys" theme="dark" mode="inline">
+      <a-menu v-model:selectedKeys="selectedKeys" v-model:openKeys="openKeys" theme="dark" mode="inline">
         <a-menu-item key="dashboard">
           <NuxtLink to="/">Dashboard</NuxtLink>
         </a-menu-item>
-        <a-menu-item
-          v-for="rt in visibleResourceTypes"
-          :key="`rt-${rt.slug}`"
-        >
-          <NuxtLink :to="`/resources/${rt.slug}`">{{ rt.name }}</NuxtLink>
-        </a-menu-item>
+        <template v-for="item in menuStructure" :key="item.key">
+          <a-sub-menu v-if="item.children?.length" :key="item.key">
+            <template #title>
+              <NuxtLink :to="`/resources/${item.slug}`">{{ item.name }}</NuxtLink>
+            </template>
+            <a-menu-item v-for="child in item.children" :key="child.key">
+              <NuxtLink :to="`/resources/${child.slug}`">{{ child.name }}</NuxtLink>
+            </a-menu-item>
+          </a-sub-menu>
+          <a-menu-item v-else :key="item.key">
+            <NuxtLink :to="`/resources/${item.slug}`">{{ item.name }}</NuxtLink>
+          </a-menu-item>
+        </template>
         <a-menu-item key="persons">
           <NuxtLink to="/persons">Persons</NuxtLink>
         </a-menu-item>
@@ -69,14 +76,55 @@
 </template>
 
 <script setup lang="ts">
+interface MenuItem {
+  key: string
+  slug: string
+  name: string
+  children?: MenuItem[]
+}
+
 const collapsed = ref(false)
+const openKeys = ref<string[]>([])
 const route = useRoute()
 const { resourceTypes, fetchResourceTypes } = useResourceTypeStore()
-const { loadSettings, isVisible } = useSidebarSettings()
+const { loadSettings, isVisible, getParent, getChildren } = useSidebarSettings()
 
 const visibleResourceTypes = computed(() =>
   resourceTypes.value.filter((rt) => isVisible(rt.slug))
 )
+
+const menuStructure = computed<MenuItem[]>(() => {
+  const visible = visibleResourceTypes.value
+  const visibleSlugs = new Set(visible.map((rt) => rt.slug))
+  const childSlugs = new Set<string>()
+
+  for (const rt of visible) {
+    const parent = getParent(rt.slug)
+    if (parent && visibleSlugs.has(parent)) {
+      childSlugs.add(rt.slug)
+    }
+  }
+
+  const items: MenuItem[] = []
+  for (const rt of visible) {
+    if (childSlugs.has(rt.slug)) continue
+
+    const children = getChildren(rt.slug)
+      .filter((s) => visibleSlugs.has(s))
+      .map((s) => {
+        const child = visible.find((r) => r.slug === s)!
+        return { key: `rt-${s}`, slug: s, name: child.name }
+      })
+
+    items.push({
+      key: `rt-${rt.slug}`,
+      slug: rt.slug,
+      name: rt.name,
+      children: children.length > 0 ? children : undefined,
+    })
+  }
+  return items
+})
 
 const selectedKeys = computed(() => {
   const path = route.path
@@ -89,6 +137,20 @@ const selectedKeys = computed(() => {
   }
   return ['dashboard']
 })
+
+watch(selectedKeys, (keys) => {
+  if (!keys.length) return
+  const key = keys[0]
+  if (!key.startsWith('rt-')) return
+  const slug = key.slice(3)
+  const parent = getParent(slug)
+  if (parent && isVisible(parent)) {
+    const parentKey = `rt-${parent}`
+    if (!openKeys.value.includes(parentKey)) {
+      openKeys.value = [...openKeys.value, parentKey]
+    }
+  }
+}, { immediate: true })
 
 onMounted(() => {
   loadSettings()

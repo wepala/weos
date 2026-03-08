@@ -20,7 +20,10 @@
     <a-page-header title="Settings" />
     <a-card title="Sidebar Menu">
       <template #extra>
-        <a-button @click="showAll">Show All</a-button>
+        <a-space>
+          <a-button @click="resetGroups">Reset Grouping</a-button>
+          <a-button @click="showAll">Show All</a-button>
+        </a-space>
       </template>
       <p style="margin-bottom: 16px">
         Choose which resource types appear in the sidebar navigation.
@@ -31,6 +34,21 @@
           <a-list-item>
             <a-list-item-meta :title="item.name" :description="item.description" />
             <template #actions>
+              <a-select
+                :value="getParent(item.slug) || undefined"
+                placeholder="Top level"
+                allow-clear
+                style="width: 150px; margin-right: 8px"
+                @change="(val: string) => setParent(item.slug, val || null)"
+              >
+                <a-select-option
+                  v-for="parent in availableParents(item.slug)"
+                  :key="parent.slug"
+                  :value="parent.slug"
+                >
+                  {{ parent.name }}
+                </a-select-option>
+              </a-select>
               <a-switch
                 :checked="isVisible(item.slug)"
                 @change="(checked: boolean) => setVisibility(item.slug, checked)"
@@ -45,7 +63,18 @@
 
 <script setup lang="ts">
 const { resourceTypes, loaded, fetchResourceTypes } = useResourceTypeStore()
-const { loadSettings, isVisible, setVisibility, showAll } = useSidebarSettings()
+const {
+  loadSettings, isVisible, setVisibility, showAll,
+  getParent, setParent, resetGroups,
+} = useSidebarSettings()
+
+function availableParents(slug: string) {
+  return resourceTypes.value.filter((rt) => {
+    if (rt.slug === slug) return false
+    if (getParent(rt.slug)) return false
+    return true
+  })
+}
 
 onMounted(() => {
   loadSettings()

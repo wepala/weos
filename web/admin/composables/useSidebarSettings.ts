@@ -14,9 +14,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const STORAGE_KEY = 'weos-sidebar-hidden-types'
+const GROUPS_STORAGE_KEY = 'weos-sidebar-menu-groups'
 
 export function useSidebarSettings() {
   const hiddenSlugs = useState<string[]>('sidebarHiddenTypes', () => [])
+  const menuGroups = useState<Record<string, string>>('sidebarMenuGroups', () => ({}))
 
   function loadSettings() {
     try {
@@ -27,10 +29,22 @@ export function useSidebarSettings() {
     } catch {
       hiddenSlugs.value = []
     }
+    try {
+      const raw = localStorage.getItem(GROUPS_STORAGE_KEY)
+      if (raw) {
+        menuGroups.value = JSON.parse(raw)
+      }
+    } catch {
+      menuGroups.value = {}
+    }
   }
 
   function persist() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(hiddenSlugs.value))
+  }
+
+  function persistGroups() {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(menuGroups.value))
   }
 
   function isVisible(slug: string): boolean {
@@ -53,5 +67,46 @@ export function useSidebarSettings() {
     persist()
   }
 
-  return { hiddenSlugs, loadSettings, isVisible, setVisibility, showAll }
+  function getParent(slug: string): string | undefined {
+    return menuGroups.value[slug] || undefined
+  }
+
+  function getChildren(parentSlug: string): string[] {
+    return Object.entries(menuGroups.value)
+      .filter(([, parent]) => parent === parentSlug)
+      .map(([child]) => child)
+  }
+
+  function isParent(slug: string): boolean {
+    return Object.values(menuGroups.value).includes(slug)
+  }
+
+  function setParent(childSlug: string, parentSlug: string | null) {
+    if (parentSlug) {
+      menuGroups.value = { ...menuGroups.value, [childSlug]: parentSlug }
+    } else {
+      const { [childSlug]: _, ...rest } = menuGroups.value
+      menuGroups.value = rest
+    }
+    persistGroups()
+  }
+
+  function resetGroups() {
+    menuGroups.value = {}
+    persistGroups()
+  }
+
+  return {
+    hiddenSlugs,
+    menuGroups,
+    loadSettings,
+    isVisible,
+    setVisibility,
+    showAll,
+    getParent,
+    getChildren,
+    isParent,
+    setParent,
+    resetGroups,
+  }
 }
