@@ -17,6 +17,7 @@ package entities
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -26,68 +27,58 @@ import (
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 )
 
-// Template represents an HTML template within a theme.
-// Ontology source: schema:WebPageElement (template component)
-type Template struct {
+// ResourceType defines a type of resource with its JSON-LD context and optional JSON Schema.
+// Ontology source: rdfs:Class
+type ResourceType struct {
 	*ddd.BaseEntity
 	name        string
 	slug        string
 	description string
-	filePath    string
+	context     json.RawMessage
+	schema      json.RawMessage
 	status      string
 	createdAt   time.Time
 }
 
-func (e *Template) With(name, slug, themeSlug string) (*Template, error) {
+func (e *ResourceType) With(
+	name, slug, description string, ctx, schema json.RawMessage,
+) (*ResourceType, error) {
 	if name == "" {
 		return nil, fmt.Errorf("name cannot be empty")
 	}
 	if slug == "" {
 		return nil, fmt.Errorf("slug cannot be empty")
 	}
-	if themeSlug == "" {
-		return nil, fmt.Errorf("themeSlug cannot be empty")
-	}
 
-	entityID := identity.NewTemplate(themeSlug, slug)
+	entityID := identity.NewResourceType(slug)
 	e.BaseEntity = ddd.NewBaseEntity(entityID)
 	e.name = name
 	e.slug = slug
-	e.status = "draft"
+	e.description = description
+	e.context = ctx
+	e.schema = schema
+	e.status = "active"
 	e.createdAt = time.Now()
 
-	event := new(TemplateCreated).With(name, slug)
+	event := new(ResourceTypeCreated).With(name, slug, description, ctx, schema)
 	if err := e.BaseEntity.RecordEvent(event, event.EventType()); err != nil {
-		return nil, fmt.Errorf("failed to record TemplateCreated event: %w", err)
+		return nil, fmt.Errorf("failed to record ResourceTypeCreated event: %w", err)
 	}
 
 	return e, nil
 }
 
-func (e *Template) Name() string         { return e.name }
-func (e *Template) Slug() string         { return e.slug }
-func (e *Template) Description() string  { return e.description }
-func (e *Template) FilePath() string     { return e.filePath }
-func (e *Template) Status() string       { return e.status }
-func (e *Template) CreatedAt() time.Time { return e.createdAt }
+func (e *ResourceType) Name() string             { return e.name }
+func (e *ResourceType) Slug() string             { return e.slug }
+func (e *ResourceType) Description() string      { return e.description }
+func (e *ResourceType) Context() json.RawMessage { return e.context }
+func (e *ResourceType) Schema() json.RawMessage  { return e.schema }
+func (e *ResourceType) Status() string           { return e.status }
+func (e *ResourceType) CreatedAt() time.Time     { return e.createdAt }
 
-func (e *Template) LinkToTheme(
-	ctx context.Context, themeID string, logger Logger,
-) error {
-	if themeID == "" {
-		return fmt.Errorf("themeID cannot be empty")
-	}
-	event := TemplateThemeLinked{}.With(e.GetID(), themeID)
-	if err := e.BaseEntity.RecordEvent(event, event.EventType()); err != nil {
-		return fmt.Errorf("failed to record TemplateThemeLinked event: %w", err)
-	}
-	logger.Info(ctx, "template linked to theme",
-		"templateID", e.GetID(), "themeID", themeID)
-	return nil
-}
-
-func (e *Template) Restore(
-	id, name, slug, description, filePath, status string,
+func (e *ResourceType) Restore(
+	id, name, slug, description, status string,
+	ctx, schema json.RawMessage,
 	createdAt time.Time, sequenceNo int,
 ) error {
 	if id == "" {
@@ -100,13 +91,14 @@ func (e *Template) Restore(
 	e.name = name
 	e.slug = slug
 	e.description = description
-	e.filePath = filePath
+	e.context = ctx
+	e.schema = schema
 	e.status = status
 	e.createdAt = createdAt
 	return nil
 }
 
-func (e *Template) ApplyEvent(
+func (e *ResourceType) ApplyEvent(
 	ctx context.Context, envelope domain.EventEnvelope[any],
 ) error {
 	if err := e.BaseEntity.ApplyEvent(ctx, envelope); err != nil {
@@ -114,24 +106,25 @@ func (e *Template) ApplyEvent(
 	}
 
 	switch payload := envelope.Payload.(type) {
-	case TemplateCreated:
-		e.name = payload.Name
-		e.slug = payload.Slug
-		e.status = "draft"
-		e.createdAt = payload.Timestamp
-		return nil
-	case TemplateUpdated:
+	case ResourceTypeCreated:
 		e.name = payload.Name
 		e.slug = payload.Slug
 		e.description = payload.Description
-		e.filePath = payload.FilePath
+		e.context = payload.Context
+		e.schema = payload.Schema
+		e.status = "active"
+		e.createdAt = payload.Timestamp
+		return nil
+	case ResourceTypeUpdated:
+		e.name = payload.Name
+		e.slug = payload.Slug
+		e.description = payload.Description
+		e.context = payload.Context
+		e.schema = payload.Schema
 		e.status = payload.Status
 		return nil
-	case TemplateDeleted:
+	case ResourceTypeDeleted:
 		e.status = "archived"
-		return nil
-	case TemplateThemeLinked:
-		_ = payload
 		return nil
 	default:
 		return fmt.Errorf("unknown event type: %T", envelope.Payload)

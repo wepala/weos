@@ -16,6 +16,8 @@
 package application
 
 import (
+	"context"
+
 	"weos/application/agents"
 	"weos/domain/entities"
 	"weos/domain/repositories"
@@ -82,9 +84,17 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(ProvideTemplateService),
 		fx.Provide(ProvidePersonService),
 		fx.Provide(ProvideOrganizationService),
+		fx.Provide(gorm.ProvideResourceTypeRepository),
+		fx.Provide(gorm.ProvideProjectionManager),
+		fx.Provide(gorm.ProvideResourceRepository),
+		fx.Provide(ProvideResourceTypeService),
+		fx.Provide(ProvideResourceService),
 
 		// Subscribe event handlers
 		fx.Invoke(subscribeTemplateAnalysisHandler),
+
+		// Ensure projection tables for existing resource types at startup
+		fx.Invoke(ensureProjectionTables),
 	)
 }
 
@@ -102,4 +112,11 @@ func subscribeTemplateAnalysisHandler(params struct {
 	return domain.Subscribe[any](
 		params.EventDispatcher, "Template.Created", handler,
 	)
+}
+
+func ensureProjectionTables(params struct {
+	fx.In
+	ProjMgr repositories.ProjectionManager
+}) error {
+	return params.ProjMgr.EnsureExistingTables(context.Background())
 }

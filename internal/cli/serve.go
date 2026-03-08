@@ -56,6 +56,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var templateService application.TemplateService
 	var personService application.PersonService
 	var organizationService application.OrganizationService
+	var resourceTypeService application.ResourceTypeService
+	var resourceService application.ResourceService
 
 	app := fx.New(
 		fx.NopLogger,
@@ -67,6 +69,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&templateService),
 		fx.Populate(&personService),
 		fx.Populate(&organizationService),
+		fx.Populate(&resourceTypeService),
+		fx.Populate(&resourceService),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -137,6 +141,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 	api.GET("/organizations/:id", orgHandler.Get)
 	api.PUT("/organizations/:id", orgHandler.Update)
 	api.DELETE("/organizations/:id", orgHandler.Delete)
+
+	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService)
+	api.POST("/resource-types", rtHandler.Create)
+	api.GET("/resource-types", rtHandler.List)
+	api.GET("/resource-types/:id", rtHandler.Get)
+	api.PUT("/resource-types/:id", rtHandler.Update)
+	api.DELETE("/resource-types/:id", rtHandler.Delete)
+
+	presetHandler := handlers.NewResourceTypePresetHandler(resourceTypeService)
+	api.GET("/resource-types/presets", presetHandler.List)
+	api.POST("/resource-types/presets/:name", presetHandler.Install)
+
+	// Dynamic resource routes — MUST be registered after ALL static routes
+	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)
+	api.POST("/:typeSlug", resourceHandler.Create)
+	api.GET("/:typeSlug", resourceHandler.List)
+	api.GET("/:typeSlug/:id", resourceHandler.Get)
+	api.PUT("/:typeSlug/:id", resourceHandler.Update)
+	api.DELETE("/:typeSlug/:id", resourceHandler.Delete)
 
 	addr := fmt.Sprintf("%s:%d", appCfg.Server.Host, appCfg.Server.Port)
 

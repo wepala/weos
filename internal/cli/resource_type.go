@@ -25,15 +25,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var organizationCmd = &cobra.Command{
-	Use:     "organization",
-	Short:   "Manage organizations",
-	Aliases: []string{"org"},
+var resourceTypeCmd = &cobra.Command{
+	Use:     "resource-type",
+	Short:   "Manage resource types",
+	Aliases: []string{"rt"},
 }
 
-var organizationCreateCmd = &cobra.Command{
+var resourceTypeCreateCmd = &cobra.Command{
 	Use:   "create",
-	Short: "Create a new organization",
+	Short: "Create a new resource type",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := StartContainer(GetConfig())
 		if err != nil {
@@ -43,21 +43,26 @@ var organizationCreateCmd = &cobra.Command{
 
 		name, _ := cmd.Flags().GetString("name")
 		slug, _ := cmd.Flags().GetString("slug")
-		entity, err := deps.OrganizationService.Create(
+		ctxStr, _ := cmd.Flags().GetString("context")
+		var ctx json.RawMessage
+		if ctxStr != "" {
+			ctx = json.RawMessage(ctxStr)
+		}
+		entity, err := deps.ResourceTypeService.Create(
 			cmd.Context(),
-			application.CreateOrganizationCommand{Name: name, Slug: slug},
+			application.CreateResourceTypeCommand{Name: name, Slug: slug, Context: ctx},
 		)
 		if err != nil {
-			return fmt.Errorf("failed to create organization: %w", err)
+			return fmt.Errorf("failed to create resource type: %w", err)
 		}
-		fmt.Fprintf(os.Stdout, "Created organization: %s\n", entity.GetID())
+		fmt.Fprintf(os.Stdout, "Created resource type: %s\n", entity.GetID())
 		return nil
 	},
 }
 
-var organizationGetCmd = &cobra.Command{
+var resourceTypeGetCmd = &cobra.Command{
 	Use:   "get [id]",
-	Short: "Get an organization by ID",
+	Short: "Get a resource type by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := StartContainer(GetConfig())
@@ -66,17 +71,17 @@ var organizationGetCmd = &cobra.Command{
 		}
 		defer deps.Shutdown()
 
-		entity, err := deps.OrganizationService.GetByID(cmd.Context(), args[0])
+		entity, err := deps.ResourceTypeService.GetByID(cmd.Context(), args[0])
 		if err != nil {
-			return fmt.Errorf("organization not found: %w", err)
+			return fmt.Errorf("resource type not found: %w", err)
 		}
-		data, _ := json.MarshalIndent(map[string]interface{}{
+		data, _ := json.MarshalIndent(map[string]any{
 			"id":          entity.GetID(),
 			"name":        entity.Name(),
 			"slug":        entity.Slug(),
 			"description": entity.Description(),
-			"url":         entity.URL(),
-			"logo_url":    entity.LogoURL(),
+			"context":     jsonOrNil(entity.Context()),
+			"schema":      jsonOrNil(entity.Schema()),
 			"status":      entity.Status(),
 		}, "", "  ")
 		fmt.Fprintln(os.Stdout, string(data))
@@ -84,9 +89,9 @@ var organizationGetCmd = &cobra.Command{
 	},
 }
 
-var organizationListCmd = &cobra.Command{
+var resourceTypeListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List all organizations",
+	Short: "List all resource types",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := StartContainer(GetConfig())
 		if err != nil {
@@ -96,9 +101,9 @@ var organizationListCmd = &cobra.Command{
 
 		limit, _ := cmd.Flags().GetInt("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
-		result, err := deps.OrganizationService.List(cmd.Context(), cursor, limit)
+		result, err := deps.ResourceTypeService.List(cmd.Context(), cursor, limit)
 		if err != nil {
-			return fmt.Errorf("failed to list organizations: %w", err)
+			return fmt.Errorf("failed to list resource types: %w", err)
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Fprintln(os.Stdout, string(data))
@@ -106,9 +111,9 @@ var organizationListCmd = &cobra.Command{
 	},
 }
 
-var organizationDeleteCmd = &cobra.Command{
+var resourceTypeDeleteCmd = &cobra.Command{
 	Use:   "delete [id]",
-	Short: "Delete an organization",
+	Short: "Delete a resource type",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		deps, err := StartContainer(GetConfig())
@@ -117,30 +122,42 @@ var organizationDeleteCmd = &cobra.Command{
 		}
 		defer deps.Shutdown()
 
-		err = deps.OrganizationService.Delete(
+		err = deps.ResourceTypeService.Delete(
 			cmd.Context(),
-			application.DeleteOrganizationCommand{ID: args[0]},
+			application.DeleteResourceTypeCommand{ID: args[0]},
 		)
 		if err != nil {
-			return fmt.Errorf("failed to delete organization: %w", err)
+			return fmt.Errorf("failed to delete resource type: %w", err)
 		}
-		fmt.Fprintln(os.Stdout, "Organization deleted successfully")
+		fmt.Fprintln(os.Stdout, "Resource type deleted successfully")
 		return nil
 	},
 }
 
+func jsonOrNil(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	return v
+}
+
 func init() {
-	organizationCreateCmd.Flags().String("name", "", "Name of the organization")
-	_ = organizationCreateCmd.MarkFlagRequired("name")
-	organizationCreateCmd.Flags().String("slug", "", "URL-safe slug")
-	_ = organizationCreateCmd.MarkFlagRequired("slug")
+	resourceTypeCreateCmd.Flags().String("name", "", "Name of the resource type")
+	_ = resourceTypeCreateCmd.MarkFlagRequired("name")
+	resourceTypeCreateCmd.Flags().String("slug", "", "URL-safe slug")
+	_ = resourceTypeCreateCmd.MarkFlagRequired("slug")
+	resourceTypeCreateCmd.Flags().String("context", "", "JSON-LD context (JSON string)")
 
-	organizationListCmd.Flags().Int("limit", 20, "Number of items per page")
-	organizationListCmd.Flags().String("cursor", "", "Pagination cursor")
+	resourceTypeListCmd.Flags().Int("limit", 20, "Number of items per page")
+	resourceTypeListCmd.Flags().String("cursor", "", "Pagination cursor")
 
-	organizationCmd.AddCommand(
-		organizationCreateCmd, organizationGetCmd,
-		organizationListCmd, organizationDeleteCmd,
+	resourceTypeCmd.AddCommand(
+		resourceTypeCreateCmd, resourceTypeGetCmd,
+		resourceTypeListCmd, resourceTypeDeleteCmd,
 	)
-	rootCmd.AddCommand(organizationCmd)
+	rootCmd.AddCommand(resourceTypeCmd)
 }

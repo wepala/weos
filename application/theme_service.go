@@ -223,7 +223,7 @@ func (s *themeService) Upload(
 const maxReadmeBytes = 8 * 1024
 
 var (
-	copyrightRe    = regexp.MustCompile(`(?i)copyright\s+(?:©|\(c\))?\s*\d{4}(?:[–-]\d{4})?\s+(.+)`)
+	copyrightRe     = regexp.MustCompile(`(?i)copyright\s+(?:©|\(c\))?\s*\d{4}(?:[–-]\d{4})?\s+(.+)`)
 	versionSuffixRe = regexp.MustCompile(`[-_](?:v?\d+(?:\.\d+)*|master|main|develop|dev|latest|stable)$`)
 	skipDirRe       = regexp.MustCompile(`(?i)^(?:\.|node_modules|vendor|bower_components)`)
 )

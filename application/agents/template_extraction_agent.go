@@ -198,9 +198,9 @@ func ProvideTemplateExtractionAgent(params struct {
 
 // TemplateAnalysis holds the parsed result from the template extraction agent.
 type TemplateAnalysis struct {
-	PageType    string            `json:"page_type"`
-	Description string            `json:"description"`
-	Sections    []SectionAnalysis `json:"sections"`
+	PageType    string             `json:"page_type"`
+	Description string             `json:"description"`
+	Sections    []SectionAnalysis  `json:"sections"`
 	Navigation  NavigationAnalysis `json:"navigation"`
 }
 

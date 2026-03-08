@@ -62,12 +62,12 @@ func (e *Organization) With(name, slug string) (*Organization, error) {
 	return e, nil
 }
 
-func (e *Organization) Name() string        { return e.name }
-func (e *Organization) Slug() string        { return e.slug }
-func (e *Organization) Description() string { return e.description }
-func (e *Organization) URL() string         { return e.url }
-func (e *Organization) LogoURL() string     { return e.logoURL }
-func (e *Organization) Status() string      { return e.status }
+func (e *Organization) Name() string         { return e.name }
+func (e *Organization) Slug() string         { return e.slug }
+func (e *Organization) Description() string  { return e.description }
+func (e *Organization) URL() string          { return e.url }
+func (e *Organization) LogoURL() string      { return e.logoURL }
+func (e *Organization) Status() string       { return e.status }
 func (e *Organization) CreatedAt() time.Time { return e.createdAt }
 
 func (e *Organization) Restore(

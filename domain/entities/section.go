@@ -66,11 +66,11 @@ func (e *Section) With(name, slot, websiteSlug, pageSlug string) (*Section, erro
 	return e, nil
 }
 
-func (e *Section) Name() string        { return e.name }
-func (e *Section) Slot() string        { return e.slot }
-func (e *Section) EntityType() string  { return e.entityType }
-func (e *Section) Content() string     { return e.content }
-func (e *Section) Position() int       { return e.position }
+func (e *Section) Name() string         { return e.name }
+func (e *Section) Slot() string         { return e.slot }
+func (e *Section) EntityType() string   { return e.entityType }
+func (e *Section) Content() string      { return e.content }
+func (e *Section) Position() int        { return e.position }
 func (e *Section) CreatedAt() time.Time { return e.createdAt }
 
 func (e *Section) LinkToPage(

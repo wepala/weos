@@ -42,6 +42,8 @@ const (
 	TypeTemplate     = "template"
 	TypePerson       = "person"
 	TypeOrganization = "organization"
+	TypeResourceType = "resource-type"
+	TypeResource     = "resource"
 )
 
 // NewWebsite generates a website URN from a slug.
@@ -86,6 +88,18 @@ func NewOrganization(slug string) string {
 	return "urn:org:" + slug
 }
 
+// NewResourceType generates a resource type URN from a slug.
+// Format: "urn:type:<slug>"
+func NewResourceType(slug string) string {
+	return "urn:type:" + slug
+}
+
+// NewResource generates a resource URN scoped to a type slug.
+// Format: "urn:<typeSlug>:<ksuid>"
+func NewResource(typeSlug string) string {
+	return "urn:" + typeSlug + ":" + ksuid.New().String()
+}
+
 // ExtractThemeSlug returns the theme slug from a theme or template URN.
 // Theme URN (urn:theme:<slug>) → parts[2]
 // Template URN (urn:theme:<ts>:template:<ksuid>:<tps>) → parts[2]
@@ -122,6 +136,8 @@ func ExtractEntityType(id string) string {
 			return TypePerson
 		case "org":
 			return TypeOrganization
+		case "type":
+			return TypeResourceType
 		}
 	case 5:
 		if parts[2] == "page" {
@@ -179,6 +195,25 @@ func ExtractWebsiteSlug(id string) string {
 	}
 	parts := strings.Split(id, ":")
 	if len(parts) >= 2 {
+		return parts[1]
+	}
+	return ""
+}
+
+// ExtractResourceTypeSlug returns the type slug from a resource URN.
+// Resource URN format: "urn:<typeSlug>:<ksuid>" → returns typeSlug.
+// Only matches 3-part URNs that don't use reserved prefixes.
+func ExtractResourceTypeSlug(id string) string {
+	if !strings.HasPrefix(id, "urn:") {
+		return ""
+	}
+	parts := strings.Split(id, ":")
+	if len(parts) == 3 && parts[0] == "urn" {
+		// Exclude known 3-part prefixes (person, org, theme, type)
+		switch parts[1] {
+		case "person", "org", "theme", "type":
+			return ""
+		}
 		return parts[1]
 	}
 	return ""

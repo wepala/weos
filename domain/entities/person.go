@@ -65,12 +65,12 @@ func (e *Person) With(givenName, familyName, email string) (*Person, error) {
 	return e, nil
 }
 
-func (e *Person) GivenName() string   { return e.givenName }
-func (e *Person) FamilyName() string  { return e.familyName }
-func (e *Person) Name() string        { return e.givenName + " " + e.familyName }
-func (e *Person) Email() string       { return e.email }
-func (e *Person) AvatarURL() string   { return e.avatarURL }
-func (e *Person) Status() string      { return e.status }
+func (e *Person) GivenName() string    { return e.givenName }
+func (e *Person) FamilyName() string   { return e.familyName }
+func (e *Person) Name() string         { return e.givenName + " " + e.familyName }
+func (e *Person) Email() string        { return e.email }
+func (e *Person) AvatarURL() string    { return e.avatarURL }
+func (e *Person) Status() string       { return e.status }
 func (e *Person) CreatedAt() time.Time { return e.createdAt }
 
 func (e *Person) LinkToOrganization(

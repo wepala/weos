@@ -139,9 +139,9 @@ func TestSlugify(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		name  string
 		input string
-		want string
+		want  string
 	}{
 		{"simple words", "My Website", "my-website"},
 		{"words with numbers", "Hello World 123", "hello-world-123"},
@@ -268,6 +268,36 @@ func TestExtractWebsiteSlug(t *testing.T) {
 			got := ExtractWebsiteSlug(tt.id)
 			if got != tt.want {
 				t.Fatalf("ExtractWebsiteSlug(%q) = %q, want %q", tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractResourceTypeSlug(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{"resource URN", "urn:product:abc123", "product"},
+		{"resource URN with hyphen", "urn:blog-post:xyz789", "blog-post"},
+		{"person URN excluded", "urn:person:abc123", ""},
+		{"org URN excluded", "urn:org:acme-corp", ""},
+		{"theme URN excluded", "urn:theme:my-theme", ""},
+		{"type URN excluded", "urn:type:product", ""},
+		{"website URN (2-part)", "urn:ak33m", ""},
+		{"page URN (5-part)", "urn:ak33m:page:abc:about", ""},
+		{"non-URN returns empty", "plain-id", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ExtractResourceTypeSlug(tt.id)
+			if got != tt.want {
+				t.Fatalf("ExtractResourceTypeSlug(%q) = %q, want %q", tt.id, got, tt.want)
 			}
 		})
 	}

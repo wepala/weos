@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"weos/application"
@@ -13,7 +14,83 @@ import (
 	"go.uber.org/fx"
 )
 
-func Run() error {
+// ServiceName identifies an MCP tool group.
+type ServiceName string
+
+const (
+	ServiceWebsite      ServiceName = "website"
+	ServicePage         ServiceName = "page"
+	ServiceSection      ServiceName = "section"
+	ServiceTheme        ServiceName = "theme"
+	ServiceTemplate     ServiceName = "template"
+	ServicePerson       ServiceName = "person"
+	ServiceOrganization ServiceName = "organization"
+	ServiceResourceType ServiceName = "resource-type"
+	ServiceResource     ServiceName = "resource"
+)
+
+// AllServices is the ordered list of every available service.
+var AllServices = []ServiceName{
+	ServiceWebsite,
+	ServicePage,
+	ServiceSection,
+	ServiceTheme,
+	ServiceTemplate,
+	ServicePerson,
+	ServiceOrganization,
+	ServiceResourceType,
+	ServiceResource,
+}
+
+// ValidServiceNames returns the service names as strings (useful for help text).
+func ValidServiceNames() []string {
+	names := make([]string, len(AllServices))
+	for i, s := range AllServices {
+		names[i] = string(s)
+	}
+	return names
+}
+
+// ValidateServiceNames returns an error if any name is not a known service.
+func ValidateServiceNames(names []string) error {
+	valid := make(map[string]bool, len(AllServices))
+	for _, s := range AllServices {
+		valid[string(s)] = true
+	}
+	var invalid []string
+	for _, n := range names {
+		if !valid[n] {
+			invalid = append(invalid, n)
+		}
+	}
+	if len(invalid) > 0 {
+		return fmt.Errorf(
+			"unknown service(s): %s (valid: %s)",
+			strings.Join(invalid, ", "),
+			strings.Join(ValidServiceNames(), ", "),
+		)
+	}
+	return nil
+}
+
+// resolveEnabled returns a set of enabled services. If the input is empty, all services are enabled.
+func resolveEnabled(services []string) map[ServiceName]bool {
+	enabled := make(map[ServiceName]bool, len(AllServices))
+	if len(services) == 0 {
+		for _, s := range AllServices {
+			enabled[s] = true
+		}
+		return enabled
+	}
+	for _, s := range services {
+		enabled[ServiceName(s)] = true
+	}
+	return enabled
+}
+
+// Run starts the MCP server, registering only the tool groups listed in enabledServices.
+// If enabledServices is empty, all tool groups are registered.
+func Run(enabledServices []string) error {
 	cfg := loadConfig()
 
 	var websiteService application.WebsiteService
@@ -23,6 +100,8 @@ func Run() error {
 	var templateService application.TemplateService
 	var personService application.PersonService
 	var organizationService application.OrganizationService
+	var resourceTypeService application.ResourceTypeService
+	var resourceService application.ResourceService
 
 	app := fx.New(
 		fx.NopLogger,
@@ -34,6 +113,8 @@ func Run() error {
 		fx.Populate(&templateService),
 		fx.Populate(&personService),
 		fx.Populate(&organizationService),
+		fx.Populate(&resourceTypeService),
+		fx.Populate(&resourceService),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -49,13 +130,36 @@ func Run() error {
 		Version: "0.1.0",
 	}, nil)
 
-	registerWebsiteTools(server, websiteService)
-	registerPageTools(server, pageService)
-	registerSectionTools(server, sectionService)
-	registerThemeTools(server, themeService)
-	registerTemplateTools(server, templateService)
-	registerPersonTools(server, personService)
-	registerOrganizationTools(server, organizationService)
+	enabled := resolveEnabled(enabledServices)
+
+	if enabled[ServiceWebsite] {
+		registerWebsiteTools(server, websiteService)
+	}
+	if enabled[ServicePage] {
+		registerPageTools(server, pageService)
+	}
+	if enabled[ServiceSection] {
+		registerSectionTools(server, sectionService)
+	}
+	if enabled[ServiceTheme] {
+		registerThemeTools(server, themeService)
+	}
+	if enabled[ServiceTemplate] {
+		registerTemplateTools(server, templateService)
+	}
+	if enabled[ServicePerson] {
+		registerPersonTools(server, personService)
+	}
+	if enabled[ServiceOrganization] {
+		registerOrganizationTools(server, organizationService)
+	}
+	if enabled[ServiceResourceType] {
+		registerResourceTypeTools(server, resourceTypeService)
+		registerResourceTypePresetTools(server, resourceTypeService)
+	}
+	if enabled[ServiceResource] {
+		registerResourceTools(server, resourceService)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

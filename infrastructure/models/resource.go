@@ -16,34 +16,33 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"weos/domain/entities"
 )
 
-type Section struct {
+type Resource struct {
 	ID         string `gorm:"primaryKey"`
-	PageID     string `gorm:"index;not null"`
-	Name       string `gorm:"not null"`
-	Slot       string `gorm:"not null"`
-	EntityType string `gorm:"type:text"`
-	Content    string `gorm:"type:text"`
-	Position   int    `gorm:"not null;default:0"`
+	TypeSlug   string `gorm:"not null;index"`
+	Data       string `gorm:"type:text"`
+	Status     string `gorm:"not null;default:active"`
 	SequenceNo int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time `gorm:"index"`
 }
 
-func (m Section) TableName() string {
-	return "sections"
+func (m Resource) TableName() string {
+	return "resources"
 }
 
-func (m *Section) ToSection() (*entities.Section, error) {
-	e := &entities.Section{}
+func (m *Resource) ToResource() (*entities.Resource, error) {
+	e := &entities.Resource{}
 	err := e.Restore(
-		m.ID, m.Name, m.Slot, m.EntityType,
-		m.Content, m.Position, m.CreatedAt, m.SequenceNo,
+		m.ID, m.TypeSlug, m.Status,
+		json.RawMessage(m.Data),
+		m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -51,15 +50,12 @@ func (m *Section) ToSection() (*entities.Section, error) {
 	return e, nil
 }
 
-func FromSection(e *entities.Section, pageID string) *Section {
-	return &Section{
+func FromResource(e *entities.Resource) *Resource {
+	return &Resource{
 		ID:         e.GetID(),
-		PageID:     pageID,
-		Name:       e.Name(),
-		Slot:       e.Slot(),
-		EntityType: e.EntityType(),
-		Content:    e.Content(),
-		Position:   e.Position(),
+		TypeSlug:   e.TypeSlug(),
+		Data:       string(e.Data()),
+		Status:     e.Status(),
 		SequenceNo: e.GetSequenceNo(),
 		CreatedAt:  e.CreatedAt(),
 	}

@@ -28,22 +28,22 @@ type ThemeManifest struct {
 
 // TemplateManifest describes a single template within the theme manifest.
 type TemplateManifest struct {
-	Name        string             `json:"name"`
-	Slug        string             `json:"slug"`
-	File        string             `json:"file"`
-	PageType    string             `json:"page_type,omitempty"`
-	Description string             `json:"description,omitempty"`
-	Sections    []TemplateSection  `json:"sections,omitempty"`
-	Navigation  []TemplateNavItem  `json:"navigation,omitempty"`
+	Name        string            `json:"name"`
+	Slug        string            `json:"slug"`
+	File        string            `json:"file"`
+	PageType    string            `json:"page_type,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Sections    []TemplateSection `json:"sections,omitempty"`
+	Navigation  []TemplateNavItem `json:"navigation,omitempty"`
 }
 
 // TemplateSection describes a structural section within a template.
 type TemplateSection struct {
-	Name         string               `json:"name"`
-	Slot         string               `json:"slot"`
-	HTMLSelector string               `json:"html_selector,omitempty"`
-	SemanticType string               `json:"semantic_type,omitempty"`
-	Position     int                  `json:"position"`
+	Name         string                `json:"name"`
+	Slot         string                `json:"slot"`
+	HTMLSelector string                `json:"html_selector,omitempty"`
+	SemanticType string                `json:"semantic_type,omitempty"`
+	Position     int                   `json:"position"`
 	ContentSlots []TemplateContentSlot `json:"content_slots,omitempty"`
 }
 

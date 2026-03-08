@@ -22,13 +22,13 @@ import (
 )
 
 type Website struct {
-	ID          string     `gorm:"primaryKey"`
-	Name        string     `gorm:"not null"`
-	Slug        string     `gorm:"not null;uniqueIndex"`
-	URL         string     `gorm:"not null"`
-	Description string     `gorm:"type:text"`
-	Language    string     `gorm:"not null;default:en"`
-	Status      string     `gorm:"not null;default:draft"`
+	ID          string `gorm:"primaryKey"`
+	Name        string `gorm:"not null"`
+	Slug        string `gorm:"not null;uniqueIndex"`
+	URL         string `gorm:"not null"`
+	Description string `gorm:"type:text"`
+	Language    string `gorm:"not null;default:en"`
+	Status      string `gorm:"not null;default:draft"`
 	SequenceNo  int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

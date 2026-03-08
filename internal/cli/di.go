@@ -37,6 +37,8 @@ type Dependencies struct {
 	TemplateService     application.TemplateService
 	PersonService       application.PersonService
 	OrganizationService application.OrganizationService
+	ResourceTypeService application.ResourceTypeService
+	ResourceService     application.ResourceService
 	App                 *fx.App
 }
 
@@ -74,6 +76,8 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 	var templateService application.TemplateService
 	var personService application.PersonService
 	var organizationService application.OrganizationService
+	var resourceTypeService application.ResourceTypeService
+	var resourceService application.ResourceService
 
 	app := fx.New(
 		application.Module(appCfg),
@@ -85,6 +89,8 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 			tps application.TemplateService,
 			prs application.PersonService,
 			os application.OrganizationService,
+			rts application.ResourceTypeService,
+			rs application.ResourceService,
 		) {
 			websiteService = ws
 			pageService = ps
@@ -93,6 +99,8 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 			templateService = tps
 			personService = prs
 			organizationService = os
+			resourceTypeService = rts
+			resourceService = rs
 		}),
 	)
 
@@ -121,6 +129,8 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 		TemplateService:     templateService,
 		PersonService:       personService,
 		OrganizationService: organizationService,
+		ResourceTypeService: resourceTypeService,
+		ResourceService:     resourceService,
 		App:                 app,
 	}, nil
 }

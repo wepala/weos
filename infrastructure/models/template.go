@@ -22,13 +22,13 @@ import (
 )
 
 type Template struct {
-	ID          string     `gorm:"primaryKey"`
-	ThemeID     string     `gorm:"index;not null"`
-	Name        string     `gorm:"not null"`
-	Slug        string     `gorm:"not null"`
-	Description string     `gorm:"type:text"`
-	FilePath    string     `gorm:"type:text"`
-	Status      string     `gorm:"not null;default:draft"`
+	ID          string `gorm:"primaryKey"`
+	ThemeID     string `gorm:"index;not null"`
+	Name        string `gorm:"not null"`
+	Slug        string `gorm:"not null"`
+	Description string `gorm:"type:text"`
+	FilePath    string `gorm:"type:text"`
+	Status      string `gorm:"not null;default:draft"`
 	SequenceNo  int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

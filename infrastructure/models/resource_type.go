@@ -16,36 +16,36 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"weos/domain/entities"
-	"weos/pkg/identity"
 )
 
-type Page struct {
+type ResourceType struct {
 	ID          string `gorm:"primaryKey"`
-	WebsiteID   string `gorm:"index;not null"`
 	Name        string `gorm:"not null"`
-	Slug        string `gorm:"not null"`
+	Slug        string `gorm:"not null;uniqueIndex"`
 	Description string `gorm:"type:text"`
-	Template    string `gorm:"type:text"`
-	Position    int    `gorm:"not null;default:0"`
-	Status      string `gorm:"not null;default:draft"`
+	Context     string `gorm:"type:text"`
+	Schema      string `gorm:"type:text"`
+	Status      string `gorm:"not null;default:active"`
 	SequenceNo  int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time `gorm:"index"`
 }
 
-func (m Page) TableName() string {
-	return "pages"
+func (m ResourceType) TableName() string {
+	return "resource_types"
 }
 
-func (m *Page) ToPage() (*entities.Page, error) {
-	e := &entities.Page{}
+func (m *ResourceType) ToResourceType() (*entities.ResourceType, error) {
+	e := &entities.ResourceType{}
 	err := e.Restore(
-		m.ID, m.Name, m.Slug, m.Description,
-		m.Template, m.Status, m.Position, m.CreatedAt, m.SequenceNo,
+		m.ID, m.Name, m.Slug, m.Description, m.Status,
+		toRawMessage(m.Context), toRawMessage(m.Schema),
+		m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
 		return nil, err
@@ -53,18 +53,23 @@ func (m *Page) ToPage() (*entities.Page, error) {
 	return e, nil
 }
 
-func FromPage(e *entities.Page) *Page {
-	websiteSlug := identity.ExtractWebsiteSlug(e.GetID())
-	return &Page{
+func FromResourceType(e *entities.ResourceType) *ResourceType {
+	return &ResourceType{
 		ID:          e.GetID(),
-		WebsiteID:   "urn:" + websiteSlug,
 		Name:        e.Name(),
 		Slug:        e.Slug(),
 		Description: e.Description(),
-		Template:    e.Template(),
-		Position:    e.Position(),
+		Context:     string(e.Context()),
+		Schema:      string(e.Schema()),
 		Status:      e.Status(),
 		SequenceNo:  e.GetSequenceNo(),
 		CreatedAt:   e.CreatedAt(),
 	}
+}
+
+func toRawMessage(s string) json.RawMessage {
+	if s == "" {
+		return nil
+	}
+	return json.RawMessage(s)
 }

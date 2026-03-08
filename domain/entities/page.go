@@ -65,12 +65,12 @@ func (e *Page) With(name, slug, websiteSlug string) (*Page, error) {
 	return e, nil
 }
 
-func (e *Page) Name() string        { return e.name }
-func (e *Page) Slug() string        { return e.slug }
-func (e *Page) Description() string { return e.description }
-func (e *Page) Template() string    { return e.template }
-func (e *Page) Position() int       { return e.position }
-func (e *Page) Status() string      { return e.status }
+func (e *Page) Name() string         { return e.name }
+func (e *Page) Slug() string         { return e.slug }
+func (e *Page) Description() string  { return e.description }
+func (e *Page) Template() string     { return e.template }
+func (e *Page) Position() int        { return e.position }
+func (e *Page) Status() string       { return e.status }
 func (e *Page) CreatedAt() time.Time { return e.createdAt }
 
 func (e *Page) LinkToWebsite(
