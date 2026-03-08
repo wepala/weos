@@ -13,18 +13,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package main
+package cli
 
 import (
-	"weos/internal/cli"
-	"os"
+	mcpserver "weos/internal/mcp"
 
-	"github.com/joho/godotenv"
+	"github.com/spf13/cobra"
 )
 
-func main() {
-	_ = godotenv.Load()
-	if err := cli.Execute(); err != nil {
-		os.Exit(1)
-	}
+var mcpCmd = &cobra.Command{
+	Use:   "mcp",
+	Short: "Start the MCP server",
+	Long:  `Start the WeOS MCP (Model Context Protocol) server for LLM-driven edits.`,
+	RunE:  runMCP,
+}
+
+func init() {
+	rootCmd.AddCommand(mcpCmd)
+}
+
+func runMCP(cmd *cobra.Command, args []string) error {
+	return mcpserver.Run()
 }

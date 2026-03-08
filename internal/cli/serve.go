@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package main
+package cli
 
 import (
 	"context"
@@ -30,15 +30,24 @@ import (
 	"weos/internal/config"
 	"weos/web"
 
-	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
+	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 )
 
-func main() {
-	_ = godotenv.Load()
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start the API server",
+	Long:  `Start the WeOS HTTP API server with static file serving.`,
+	RunE:  runServe,
+}
 
-	cfg := loadConfig()
+func init() {
+	rootCmd.AddCommand(serveCmd)
+}
+
+func runServe(cmd *cobra.Command, args []string) error {
+	appCfg := loadServeConfig()
 
 	var websiteService application.WebsiteService
 	var pageService application.PageService
@@ -48,10 +57,9 @@ func main() {
 	var personService application.PersonService
 	var organizationService application.OrganizationService
 
-	// Start DI container
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(cfg),
+		application.Module(appCfg),
 		fx.Populate(&websiteService),
 		fx.Populate(&pageService),
 		fx.Populate(&sectionService),
@@ -65,15 +73,12 @@ func main() {
 	defer startCancel()
 
 	if err := app.Start(startCtx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start application: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to start application: %w", err)
 	}
 
-	// Create Echo server
 	e := echo.New()
 	e.HideBanner = true
 
-	// Serve embedded static assets with SPA fallback
 	e.Use(apimw.Static(apimw.StaticConfig{
 		Filesystem: web.StaticFS,
 		Root:       "dist",
@@ -83,7 +88,6 @@ func main() {
 	pageHandler := handlers.NewPageHandler(pageService)
 	sectionHandler := handlers.NewSectionHandler(sectionService)
 
-	// Register API routes under /api prefix
 	api := e.Group("/api")
 	api.GET("/health", handlers.HealthHandler)
 
@@ -134,9 +138,8 @@ func main() {
 	api.PUT("/organizations/:id", orgHandler.Update)
 	api.DELETE("/organizations/:id", orgHandler.Delete)
 
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	addr := fmt.Sprintf("%s:%d", appCfg.Server.Host, appCfg.Server.Port)
 
-	// Start server in a goroutine
 	go func() {
 		fmt.Printf("Starting server on %s\n", addr)
 		if err := e.Start(addr); err != nil {
@@ -147,14 +150,12 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
 	fmt.Println("\nShutting down server...")
 
-	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -162,7 +163,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Server forced to shutdown: %v\n", err)
 	}
 
-	// Stop DI container
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer stopCancel()
 
@@ -171,18 +171,15 @@ func main() {
 	}
 
 	fmt.Println("Server stopped")
+	return nil
 }
 
-func loadConfig() config.Config {
-	cfg := config.Default()
-	cfg.LoadFromEnvironment()
-
-	// Allow PORT env var as a common convention
+func loadServeConfig() config.Config {
+	appCfg := cfg.Config
 	if portStr := os.Getenv("PORT"); portStr != "" {
 		if port, err := strconv.Atoi(portStr); err == nil && port > 0 {
-			cfg.Server.Port = port
+			appCfg.Server.Port = port
 		}
 	}
-
-	return cfg
+	return appCfg
 }

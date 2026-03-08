@@ -22,9 +22,9 @@ import (
 var (
 	// rootCmd represents the base command when called without any subcommands
 	rootCmd = &cobra.Command{
-		Use:     "weos-cli",
-		Short:   "WeOS CLI",
-		Long:    `WeOS CLI is a command-line tool for managing your application.`,
+		Use:     "weos",
+		Short:   "WeOS - AI-powered website system",
+		Long:    `WeOS is an open source website system where your AI is the webmaster.`,
 		Version: "0.1.0",
 	}
 )
