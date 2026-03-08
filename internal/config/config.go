@@ -39,6 +39,19 @@ type Config struct {
 
 	// SessionSecret is the secret key for session cookies.
 	SessionSecret string
+
+	// LLM holds configuration for LLM integrations.
+	LLM LLMConfig
+}
+
+// LLMConfig holds configuration for LLM providers.
+type LLMConfig struct {
+	// GeminiAPIKey is the API key for Google Gemini.
+	GeminiAPIKey string
+
+	// GeminiModel is the Gemini model ID to use.
+	// Default: "gemini-2.0-flash"
+	GeminiModel string
 }
 
 // ServerConfig holds configuration for the HTTP server.
@@ -84,6 +97,9 @@ func Default() Config {
 			Host: "0.0.0.0",
 		},
 		SessionSecret: "change-me-in-production",
+		LLM: LLMConfig{
+			GeminiModel: "gemini-2.0-flash",
+		},
 	}
 }
 
@@ -110,5 +126,13 @@ func (c *Config) LoadFromEnvironment() {
 
 	if secret := os.Getenv("SESSION_SECRET"); secret != "" {
 		c.SessionSecret = secret
+	}
+
+	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+		c.LLM.GeminiAPIKey = apiKey
+	}
+
+	if model := os.Getenv("GEMINI_MODEL"); model != "" {
+		c.LLM.GeminiModel = model
 	}
 }

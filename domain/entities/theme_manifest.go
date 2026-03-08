@@ -28,7 +28,36 @@ type ThemeManifest struct {
 
 // TemplateManifest describes a single template within the theme manifest.
 type TemplateManifest struct {
-	Name string `json:"name"`
-	Slug string `json:"slug"`
-	File string `json:"file"`
+	Name        string             `json:"name"`
+	Slug        string             `json:"slug"`
+	File        string             `json:"file"`
+	PageType    string             `json:"page_type,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Sections    []TemplateSection  `json:"sections,omitempty"`
+	Navigation  []TemplateNavItem  `json:"navigation,omitempty"`
+}
+
+// TemplateSection describes a structural section within a template.
+type TemplateSection struct {
+	Name         string               `json:"name"`
+	Slot         string               `json:"slot"`
+	HTMLSelector string               `json:"html_selector,omitempty"`
+	SemanticType string               `json:"semantic_type,omitempty"`
+	Position     int                  `json:"position"`
+	ContentSlots []TemplateContentSlot `json:"content_slots,omitempty"`
+}
+
+// TemplateContentSlot describes an editable content area within a section.
+type TemplateContentSlot struct {
+	Name         string `json:"name"`
+	Slot         string `json:"slot"`
+	ContentType  string `json:"content_type"`
+	HTMLSelector string `json:"html_selector,omitempty"`
+	Required     bool   `json:"required"`
+}
+
+// TemplateNavItem represents a navigation link extracted from a template.
+type TemplateNavItem struct {
+	Label string `json:"label"`
+	Href  string `json:"href"`
 }

@@ -16,11 +16,18 @@
 package application
 
 import (
+	"weos/application/agents"
+	"weos/domain/entities"
+	"weos/domain/repositories"
+	infraAgents "weos/infrastructure/agents"
 	"weos/infrastructure/database/gorm"
 	"weos/infrastructure/events"
 	"weos/infrastructure/logging"
 	"weos/internal/config"
 
+	adkagent "google.golang.org/adk/agent"
+
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/gorilla/sessions"
 	"go.uber.org/fx"
 )
@@ -58,6 +65,15 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(gorm.ProvidePersonRepository),
 		fx.Provide(gorm.ProvideOrganizationRepository),
 
+		// ADK config (optional — nil when no API key is set)
+		fx.Provide(infraAgents.ProvideADKConfig),
+
+		// Template extraction agent (optional — nil when ADK is not configured)
+		fx.Provide(fx.Annotate(
+			agents.ProvideTemplateExtractionAgent,
+			fx.ResultTags(`name:"templateExtractionAgent"`),
+		)),
+
 		// Service providers
 		fx.Provide(ProvideWebsiteService),
 		fx.Provide(ProvidePageService),
@@ -66,5 +82,24 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(ProvideTemplateService),
 		fx.Provide(ProvidePersonService),
 		fx.Provide(ProvideOrganizationService),
+
+		// Subscribe event handlers
+		fx.Invoke(subscribeTemplateAnalysisHandler),
+	)
+}
+
+func subscribeTemplateAnalysisHandler(params struct {
+	fx.In
+	EventDispatcher *domain.EventDispatcher
+	Agent           adkagent.Agent `name:"templateExtractionAgent" optional:"true"`
+	TemplateRepo    repositories.TemplateRepository
+	Logger          entities.Logger
+	Config          config.Config
+}) error {
+	handler := NewTemplateAnalysisHandler(
+		params.Agent, params.TemplateRepo, params.Logger, "themes",
+	)
+	return domain.Subscribe[any](
+		params.EventDispatcher, "Template.Created", handler,
 	)
 }
