@@ -9,8 +9,11 @@ import (
 	"weos/infrastructure/logging"
 	"weos/internal/config"
 
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
 	"github.com/gorilla/sessions"
 	"go.uber.org/fx"
+	gormdb "gorm.io/gorm"
 )
 
 // Module provides all application dependencies.
@@ -46,6 +49,18 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(gorm.ProvideResourceTypeRepository),
 		fx.Provide(gorm.ProvideProjectionManager),
 		fx.Provide(gorm.ProvideResourceRepository),
+
+		// Auth repositories (from pericarp)
+		fx.Provide(func(db *gormdb.DB) authrepos.AgentRepository { return authgorm.NewAgentRepository(db) }),
+		fx.Provide(func(db *gormdb.DB) authrepos.CredentialRepository { return authgorm.NewCredentialRepository(db) }),
+		fx.Provide(func(db *gormdb.DB) authrepos.AuthSessionRepository {
+			return authgorm.NewAuthSessionRepository(db)
+		}),
+
+		// Auth infrastructure
+		fx.Provide(ProvideOAuthProviderRegistry),
+		fx.Provide(ProvideAuthenticationService),
+		fx.Provide(ProvideSessionManager),
 
 		// Service providers
 		fx.Provide(ProvidePersonService),

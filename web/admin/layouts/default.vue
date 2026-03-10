@@ -61,12 +61,24 @@
       </a-menu>
     </a-layout-sider>
     <a-layout>
-      <a-layout-header style="background: #fff; padding: 0 24px">
+      <a-layout-header
+        style="
+          background: #fff;
+          padding: 0 24px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        "
+      >
         <a-breadcrumb style="line-height: 64px">
           <a-breadcrumb-item>
             <NuxtLink to="/">Home</NuxtLink>
           </a-breadcrumb-item>
         </a-breadcrumb>
+        <div v-if="user" style="display: flex; align-items: center; gap: 12px">
+          <span>{{ user.name || user.email }}</span>
+          <a-button size="small" @click="logout">Logout</a-button>
+        </div>
       </a-layout-header>
       <a-layout-content style="margin: 24px 16px; padding: 24px; background: #fff">
         <slot />
@@ -83,6 +95,7 @@ interface MenuItem {
   children?: MenuItem[]
 }
 
+const { user, logout } = useAuth()
 const collapsed = ref(false)
 const openKeys = ref<string[]>([])
 const route = useRoute()

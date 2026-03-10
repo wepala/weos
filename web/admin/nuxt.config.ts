@@ -14,6 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 export default defineNuxtConfig({
+  ssr: false,
   modules: ['@ant-design-vue/nuxt'],
   components: [
     { path: '~/components', pathPrefix: false },

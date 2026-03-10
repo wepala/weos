@@ -18,6 +18,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -27,9 +28,14 @@ import (
 	"weos/api/handlers"
 	apimw "weos/api/middleware"
 	"weos/application"
+	"weos/domain/entities"
 	"weos/internal/config"
 	"weos/web"
 
+	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+	authhttp "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/http"
+	"github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/session"
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
@@ -53,6 +59,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var organizationService application.OrganizationService
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
+	var authService authapp.AuthenticationService
+	var sessionManager session.SessionManager
+	var credentialRepo authrepos.CredentialRepository
+	var logger entities.Logger
 
 	app := fx.New(
 		fx.NopLogger,
@@ -61,6 +71,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&organizationService),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
+		fx.Populate(&authService),
+		fx.Populate(&sessionManager),
+		fx.Populate(&credentialRepo),
+		fx.Populate(&logger),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -81,38 +95,61 @@ func runServe(cmd *cobra.Command, args []string) error {
 	api := e.Group("/api")
 	api.GET("/health", handlers.HealthHandler)
 
+	// Auth routes (pericarp built-in handlers wrapped for Echo)
+	authHandlers := authhttp.NewAuthHandlers(authhttp.HandlerConfig{
+		AuthService:    authService,
+		SessionManager: sessionManager,
+		Credentials:    credentialRepo,
+		RedirectURI: authhttp.RedirectURIConfig{
+			CallbackPath: "/api/auth/callback",
+		},
+		DefaultProvider: "google",
+		FrontendURL:     appCfg.OAuth.FrontendURL,
+		Logger:          logger,
+	})
+	api.GET("/auth/login", echo.WrapHandler(http.HandlerFunc(authHandlers.Login)))
+	api.GET("/auth/callback", echo.WrapHandler(http.HandlerFunc(authHandlers.Callback)))
+	api.GET("/auth/me", echo.WrapHandler(http.HandlerFunc(authHandlers.Me)))
+	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
+
+	// Protected API group — apply auth middleware when OAuth is configured
+	protected := api.Group("")
+	if appCfg.OAuthEnabled() {
+		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
+	}
+
 	personHandler := handlers.NewPersonHandler(personService)
-	api.POST("/persons", personHandler.Create)
-	api.GET("/persons", personHandler.List)
-	api.GET("/persons/:id", personHandler.Get)
-	api.PUT("/persons/:id", personHandler.Update)
-	api.DELETE("/persons/:id", personHandler.Delete)
+	protected.POST("/persons", personHandler.Create)
+	protected.GET("/persons", personHandler.List)
+	protected.GET("/persons/:id", personHandler.Get)
+	protected.PUT("/persons/:id", personHandler.Update)
+	protected.DELETE("/persons/:id", personHandler.Delete)
 
 	orgHandler := handlers.NewOrganizationHandler(organizationService)
-	api.POST("/organizations", orgHandler.Create)
-	api.GET("/organizations", orgHandler.List)
-	api.GET("/organizations/:id", orgHandler.Get)
-	api.PUT("/organizations/:id", orgHandler.Update)
-	api.DELETE("/organizations/:id", orgHandler.Delete)
+	protected.POST("/organizations", orgHandler.Create)
+	protected.GET("/organizations", orgHandler.List)
+	protected.GET("/organizations/:id", orgHandler.Get)
+	protected.PUT("/organizations/:id", orgHandler.Update)
+	protected.DELETE("/organizations/:id", orgHandler.Delete)
 
 	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService)
-	api.POST("/resource-types", rtHandler.Create)
-	api.GET("/resource-types", rtHandler.List)
-	api.GET("/resource-types/:id", rtHandler.Get)
-	api.PUT("/resource-types/:id", rtHandler.Update)
-	api.DELETE("/resource-types/:id", rtHandler.Delete)
+	protected.POST("/resource-types", rtHandler.Create)
+	protected.GET("/resource-types", rtHandler.List)
+	protected.GET("/resource-types/:id", rtHandler.Get)
+	protected.PUT("/resource-types/:id", rtHandler.Update)
+	protected.DELETE("/resource-types/:id", rtHandler.Delete)
 
 	presetHandler := handlers.NewResourceTypePresetHandler(resourceTypeService)
-	api.GET("/resource-types/presets", presetHandler.List)
-	api.POST("/resource-types/presets/:name", presetHandler.Install)
+	protected.GET("/resource-types/presets", presetHandler.List)
+	protected.POST("/resource-types/presets/:name", presetHandler.Install)
 
 	// Dynamic resource routes — MUST be registered after ALL static routes
 	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)
-	api.POST("/:typeSlug", resourceHandler.Create)
-	api.GET("/:typeSlug", resourceHandler.List)
-	api.GET("/:typeSlug/:id", resourceHandler.Get)
-	api.PUT("/:typeSlug/:id", resourceHandler.Update)
-	api.DELETE("/:typeSlug/:id", resourceHandler.Delete)
+	protected.POST("/:typeSlug", resourceHandler.Create)
+	protected.GET("/:typeSlug", resourceHandler.List)
+	protected.GET("/:typeSlug/:id", resourceHandler.Get)
+	protected.PUT("/:typeSlug/:id", resourceHandler.Update)
+	protected.DELETE("/:typeSlug/:id", resourceHandler.Delete)
 
 	addr := fmt.Sprintf("%s:%d", appCfg.Server.Host, appCfg.Server.Port)
 

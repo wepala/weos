@@ -20,6 +20,13 @@ import (
 	"strconv"
 )
 
+// OAuthConfig holds configuration for OAuth authentication.
+type OAuthConfig struct {
+	GoogleClientID     string
+	GoogleClientSecret string
+	FrontendURL        string
+}
+
 // Config holds the standard configuration used by all applications.
 // Each application is responsible for providing a Config instance,
 // which may be populated from environment variables, command flags, or other sources.
@@ -42,6 +49,14 @@ type Config struct {
 
 	// LLM holds configuration for LLM integrations.
 	LLM LLMConfig
+
+	// OAuth holds configuration for OAuth authentication.
+	OAuth OAuthConfig
+}
+
+// OAuthEnabled returns true when Google OAuth credentials are configured.
+func (c *Config) OAuthEnabled() bool {
+	return c.OAuth.GoogleClientID != "" && c.OAuth.GoogleClientSecret != ""
 }
 
 // LLMConfig holds configuration for LLM providers.
@@ -134,5 +149,17 @@ func (c *Config) LoadFromEnvironment() {
 
 	if model := os.Getenv("GEMINI_MODEL"); model != "" {
 		c.LLM.GeminiModel = model
+	}
+
+	if clientID := os.Getenv("GOOGLE_CLIENT_ID"); clientID != "" {
+		c.OAuth.GoogleClientID = clientID
+	}
+
+	if clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET"); clientSecret != "" {
+		c.OAuth.GoogleClientSecret = clientSecret
+	}
+
+	if frontendURL := os.Getenv("FRONTEND_URL"); frontendURL != "" {
+		c.OAuth.FrontendURL = frontendURL
 	}
 }

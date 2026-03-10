@@ -3,7 +3,7 @@ module weos
 go 1.24.4
 
 require (
-	github.com/akeemphilbert/pericarp v0.0.0-20260307021018-8223a494e1bc
+	github.com/akeemphilbert/pericarp v0.0.0-20260310010137-bac5295a489a
 	github.com/gorilla/sessions v1.4.0
 	github.com/jinzhu/inflection v1.0.0
 	github.com/joho/godotenv v1.5.1
@@ -93,3 +93,5 @@ require (
 	rsc.io/omap v1.2.0 // indirect
 	rsc.io/ordered v1.1.1 // indirect
 )
+
+replace github.com/akeemphilbert/pericarp => /Users/akeem/GolandProjects/vine-os/core/pericarp
