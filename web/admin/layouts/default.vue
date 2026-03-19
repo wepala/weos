@@ -37,9 +37,10 @@
         </a-menu-item>
         <template v-for="item in menuStructure" :key="item.key">
           <a-sub-menu v-if="item.children?.length" :key="item.key">
-            <template #title>
-              <NuxtLink :to="`/resources/${item.slug}`">{{ item.name }}</NuxtLink>
-            </template>
+            <template #title>{{ item.name }}</template>
+            <a-menu-item :key="`${item.key}-index`">
+              <NuxtLink :to="`/resources/${item.slug}`">All {{ item.name }}</NuxtLink>
+            </a-menu-item>
             <a-menu-item v-for="child in item.children" :key="child.key">
               <NuxtLink :to="`/resources/${child.slug}`">{{ child.name }}</NuxtLink>
             </a-menu-item>
@@ -146,7 +147,11 @@ const selectedKeys = computed(() => {
   if (path.startsWith('/settings')) return ['settings']
   if (path.startsWith('/resources/')) {
     const slug = route.params.typeSlug as string
-    if (slug) return [`rt-${slug}`]
+    if (slug) {
+      const item = menuStructure.value.find((m) => m.slug === slug && m.children?.length)
+      if (item) return [`rt-${slug}-index`]
+      return [`rt-${slug}`]
+    }
   }
   return ['dashboard']
 })
