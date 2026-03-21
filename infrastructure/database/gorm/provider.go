@@ -75,6 +75,7 @@ func ProvideGormDB(params struct {
 	models := []any{
 		&weosmodels.Person{},
 		&weosmodels.Organization{},
+		&weosmodels.PersonOrganization{},
 		&weosmodels.ResourceType{},
 		&weosmodels.Resource{},
 	}

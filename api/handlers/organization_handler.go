@@ -27,11 +27,15 @@ import (
 )
 
 type OrganizationHandler struct {
-	service application.OrganizationService
+	service       application.OrganizationService
+	personService application.PersonService
 }
 
-func NewOrganizationHandler(service application.OrganizationService) *OrganizationHandler {
-	return &OrganizationHandler{service: service}
+func NewOrganizationHandler(
+	service application.OrganizationService,
+	personService application.PersonService,
+) *OrganizationHandler {
+	return &OrganizationHandler{service: service, personService: personService}
 }
 
 type CreateOrganizationRequest struct {
@@ -139,6 +143,36 @@ func (h *OrganizationHandler) Delete(c echo.Context) error {
 			map[string]string{"error": err.Error()})
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *OrganizationHandler) Members(c echo.Context) error {
+	orgID := c.Param("id")
+	if _, err := h.service.GetByID(c.Request().Context(), orgID); err != nil {
+		return c.JSON(http.StatusNotFound,
+			map[string]string{"error": "organization not found"})
+	}
+
+	cursor := c.QueryParam("cursor")
+	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	if limit <= 0 {
+		limit = 20
+	}
+	result, err := h.personService.ListByOrganization(
+		c.Request().Context(), orgID, cursor, limit,
+	)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": err.Error()})
+	}
+	items := make([]PersonResponse, 0, len(result.Data))
+	for _, e := range result.Data {
+		items = append(items, toPersonResponse(e))
+	}
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"data":     items,
+		"cursor":   result.Cursor,
+		"has_more": result.HasMore,
+	})
 }
 
 func toOrganizationResponse(e *entities.Organization) OrganizationResponse {

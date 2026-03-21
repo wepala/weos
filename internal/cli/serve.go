@@ -125,12 +125,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.PUT("/persons/:id", personHandler.Update)
 	protected.DELETE("/persons/:id", personHandler.Delete)
 
-	orgHandler := handlers.NewOrganizationHandler(organizationService)
+	orgHandler := handlers.NewOrganizationHandler(organizationService, personService)
 	protected.POST("/organizations", orgHandler.Create)
 	protected.GET("/organizations", orgHandler.List)
 	protected.GET("/organizations/:id", orgHandler.Get)
 	protected.PUT("/organizations/:id", orgHandler.Update)
 	protected.DELETE("/organizations/:id", orgHandler.Delete)
+	protected.GET("/organizations/:id/members", orgHandler.Members)
 
 	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService)
 	protected.POST("/resource-types", rtHandler.Create)

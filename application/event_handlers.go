@@ -28,6 +28,11 @@ func subscribeEventHandlers(params struct {
 	); err != nil {
 		return fmt.Errorf("person handlers: %w", err)
 	}
+	if err := subscribePersonOrganizationHandlers(
+		params.Dispatcher, params.PersonRepo, params.Logger,
+	); err != nil {
+		return fmt.Errorf("person-organization handlers: %w", err)
+	}
 	if err := subscribeOrganizationHandlers(
 		params.Dispatcher, params.OrgRepo, params.Logger,
 	); err != nil {
@@ -94,6 +99,23 @@ func subscribePersonHandlers(
 		func(ctx context.Context, env domain.EventEnvelope[entities.PersonDeleted]) error {
 			logger.Info(ctx, "projecting Person.Deleted", "id", env.AggregateID)
 			return repo.Delete(ctx, env.AggregateID)
+		},
+	)
+}
+
+// --- Person-Organization link handler ---
+
+func subscribePersonOrganizationHandlers(
+	d *domain.EventDispatcher,
+	repo repositories.PersonRepository,
+	logger entities.Logger,
+) error {
+	return domain.Subscribe(d, "Person.OrganizationLinked",
+		func(ctx context.Context, env domain.EventEnvelope[entities.PersonOrganizationLinked]) error {
+			p := env.Payload
+			logger.Info(ctx, "projecting Person.OrganizationLinked",
+				"personID", p.Subject, "orgID", p.Object)
+			return repo.SaveOrganizationLink(ctx, p.Subject, p.Object)
 		},
 	)
 }

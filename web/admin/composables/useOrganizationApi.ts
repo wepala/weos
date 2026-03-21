@@ -44,6 +44,17 @@ interface UpdateOrganizationPayload {
   status: string
 }
 
+interface Person {
+  id: string
+  given_name: string
+  family_name: string
+  name: string
+  email: string
+  avatar_url?: string
+  status: string
+  created_at: string
+}
+
 export function useOrganizationApi() {
   function listOrganizations(cursor = '', limit = 20) {
     const params = new URLSearchParams()
@@ -76,11 +87,21 @@ export function useOrganizationApi() {
     return $fetch(`/api/organizations/${id}`, { method: 'DELETE' })
   }
 
+  function listMembers(orgId: string, cursor = '', limit = 20) {
+    const params = new URLSearchParams()
+    if (cursor) params.set('cursor', cursor)
+    params.set('limit', String(limit))
+    return $fetch<PaginatedResponse<Person>>(
+      `/api/organizations/${orgId}/members?${params}`,
+    )
+  }
+
   return {
     listOrganizations,
     getOrganization,
     createOrganization,
     updateOrganization,
     deleteOrganization,
+    listMembers,
   }
 }

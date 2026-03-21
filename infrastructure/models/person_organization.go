@@ -13,21 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package repositories
+package models
 
-import (
-	"context"
+import "time"
 
-	"weos/domain/entities"
-)
+type PersonOrganization struct {
+	PersonID       string    `gorm:"primaryKey;not null"`
+	OrganizationID string    `gorm:"primaryKey;not null"`
+	CreatedAt      time.Time `gorm:"autoCreateTime"`
+}
 
-type PersonRepository interface {
-	Save(ctx context.Context, entity *entities.Person) error
-	FindByID(ctx context.Context, id string) (*entities.Person, error)
-	FindAll(ctx context.Context, cursor string, limit int) (PaginatedResponse[*entities.Person], error)
-	FindByOrganization(ctx context.Context, orgID string, cursor string, limit int) (
-		PaginatedResponse[*entities.Person], error)
-	Update(ctx context.Context, entity *entities.Person) error
-	Delete(ctx context.Context, id string) error
-	SaveOrganizationLink(ctx context.Context, personID string, orgID string) error
+func (PersonOrganization) TableName() string {
+	return "person_organizations"
 }

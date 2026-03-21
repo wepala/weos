@@ -28,21 +28,41 @@
       </template>
     </a-page-header>
     <a-spin v-if="loading" />
-    <a-descriptions v-else-if="resource" bordered :column="1">
-      <a-descriptions-item label="ID">{{ resource.id }}</a-descriptions-item>
-      <a-descriptions-item
-        v-for="field in fields"
-        :key="field.key"
-        :label="field.label"
-      >
-        <template v-if="field.inputType === 'checkbox'">
-          {{ resource[field.key] ? 'Yes' : 'No' }}
-        </template>
-        <template v-else>
-          {{ resource[field.key] || '-' }}
-        </template>
-      </a-descriptions-item>
-    </a-descriptions>
+    <template v-else-if="resource">
+      <a-descriptions bordered :column="1">
+        <a-descriptions-item label="ID">{{ resource.id }}</a-descriptions-item>
+        <a-descriptions-item
+          v-for="field in fields"
+          :key="field.key"
+          :label="field.label"
+        >
+          <template v-if="field.inputType === 'checkbox'">
+            {{ resource[field.key] ? 'Yes' : 'No' }}
+          </template>
+          <template v-else>
+            {{ resource[field.key] || '-' }}
+          </template>
+        </a-descriptions-item>
+      </a-descriptions>
+
+      <template v-for="child in childSections" :key="child.slug">
+        <a-divider />
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
+          <h3 style="margin: 0">{{ child.name }}</h3>
+          <NuxtLink :to="`/resources/${child.slug}`">
+            <a-button size="small">View All</a-button>
+          </NuxtLink>
+        </div>
+        <ResourceTable
+          :items="child.items"
+          :columns="child.columns"
+          :loading="child.loading"
+          :has-more="child.hasMore"
+          :type-slug="child.slug"
+          @load-more="child.loadMore()"
+        />
+      </template>
+    </template>
   </div>
 </template>
 
@@ -54,7 +74,8 @@ const id = route.params.id as string
 
 const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
 const { get } = useResourceApi(typeSlug)
-const { schemaToFields } = useSchemaUtils()
+const { schemaToFields, schemaToColumns } = useSchemaUtils()
+const { getChildren } = useSidebarSettings()
 
 const resource = ref<any>(null)
 const loading = ref(true)
@@ -67,12 +88,70 @@ const fields = computed(() => {
   return []
 })
 
+interface ChildSection {
+  slug: string
+  name: string
+  columns: { title: string; dataIndex: string; key: string }[]
+  items: any[]
+  loading: boolean
+  hasMore: boolean
+  cursor: string
+  loadMore: () => void
+}
+
+const childSections = ref<ChildSection[]>([])
+
+function initChildSections() {
+  const childSlugs = getChildren(typeSlug)
+  if (!childSlugs.length) return
+
+  const sections: ChildSection[] = []
+  for (const slug of childSlugs) {
+    const childType = getBySlug(slug)
+    const columns = childType?.schema ? schemaToColumns(childType.schema) : []
+    const section: ChildSection = reactive({
+      slug,
+      name: childType?.name || slug,
+      columns,
+      items: [],
+      loading: false,
+      hasMore: false,
+      cursor: '',
+      loadMore: () => fetchChildResources(section),
+    })
+    sections.push(section)
+  }
+  childSections.value = sections
+
+  for (const section of sections) {
+    fetchChildResources(section)
+  }
+}
+
+async function fetchChildResources(section: ChildSection) {
+  section.loading = true
+  try {
+    const api = useResourceApi(section.slug)
+    const res = await api.list(section.cursor)
+    section.items = [...section.items, ...res.data]
+    section.cursor = res.cursor
+    section.hasMore = res.has_more
+  } catch {
+    // Loading state is cleared in finally; empty section signals failure
+  } finally {
+    section.loading = false
+  }
+}
+
 onMounted(async () => {
   if (!loaded.value) await fetchResourceTypes()
   try {
     resource.value = await get(id)
   } finally {
     loading.value = false
+  }
+  if (resource.value) {
+    initChildSections()
   }
 })
 </script>

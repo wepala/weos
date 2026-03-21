@@ -17,6 +17,8 @@ type PersonService interface {
 	GetByID(ctx context.Context, id string) (*entities.Person, error)
 	List(ctx context.Context, cursor string, limit int) (
 		repositories.PaginatedResponse[*entities.Person], error)
+	ListByOrganization(ctx context.Context, orgID string, cursor string, limit int) (
+		repositories.PaginatedResponse[*entities.Person], error)
 	Update(ctx context.Context, cmd UpdatePersonCommand) (*entities.Person, error)
 	Delete(ctx context.Context, cmd DeletePersonCommand) error
 }
@@ -73,6 +75,12 @@ func (s *personService) List(
 	ctx context.Context, cursor string, limit int,
 ) (repositories.PaginatedResponse[*entities.Person], error) {
 	return s.repo.FindAll(ctx, cursor, limit)
+}
+
+func (s *personService) ListByOrganization(
+	ctx context.Context, orgID string, cursor string, limit int,
+) (repositories.PaginatedResponse[*entities.Person], error) {
+	return s.repo.FindByOrganization(ctx, orgID, cursor, limit)
 }
 
 func (s *personService) Update(

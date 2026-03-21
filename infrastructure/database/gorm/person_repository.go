@@ -120,6 +120,47 @@ func buildPersonPage(
 	}, nil
 }
 
+func (r *PersonRepository) FindByOrganization(
+	ctx context.Context, orgID string, cursor string, limit int,
+) (repositories.PaginatedResponse[*entities.Person], error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := r.db.WithContext(ctx).
+		Joins("JOIN person_organizations po ON po.person_id = persons.id").
+		Where("po.organization_id = ? AND persons.deleted_at IS NULL", orgID)
+	if cursor != "" {
+		query = query.Where("persons.id > ?", cursor)
+	}
+
+	var dbModels []models.Person
+	if err := query.Order("persons.id ASC").Limit(limit + 1).Find(&dbModels).Error; err != nil {
+		return repositories.PaginatedResponse[*entities.Person]{},
+			fmt.Errorf("failed to list persons by organization: %w", err)
+	}
+
+	return buildPersonPage(dbModels, limit)
+}
+
+func (r *PersonRepository) SaveOrganizationLink(
+	ctx context.Context, personID string, orgID string,
+) error {
+	if personID == "" || orgID == "" {
+		return fmt.Errorf("personID and orgID must not be empty")
+	}
+	link := models.PersonOrganization{
+		PersonID:       personID,
+		OrganizationID: orgID,
+	}
+	if err := r.db.WithContext(ctx).
+		Where("person_id = ? AND organization_id = ?", personID, orgID).
+		FirstOrCreate(&link).Error; err != nil {
+		return fmt.Errorf("failed to save organization link: %w", err)
+	}
+	return nil
+}
+
 func (r *PersonRepository) Update(
 	ctx context.Context, entity *entities.Person,
 ) error {
