@@ -34,12 +34,14 @@ func ProvideAuthenticationService(params struct {
 	Agents      authrepos.AgentRepository
 	Credentials authrepos.CredentialRepository
 	Sessions    authrepos.AuthSessionRepository
+	Accounts    authrepos.AccountRepository
 }) authapp.AuthenticationService {
 	return authapp.NewDefaultAuthenticationService(
 		params.Registry,
 		params.Agents,
 		params.Credentials,
 		params.Sessions,
+		params.Accounts,
 	)
 }
 

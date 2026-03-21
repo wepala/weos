@@ -3,7 +3,7 @@ module weos
 go 1.24.4
 
 require (
-	github.com/akeemphilbert/pericarp v0.0.0-20260310010137-bac5295a489a
+	github.com/akeemphilbert/pericarp v0.0.0-20260319132727-5df88b154214
 	github.com/gorilla/sessions v1.4.0
 	github.com/jinzhu/inflection v1.0.0
 	github.com/joho/godotenv v1.5.1
@@ -41,6 +41,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect

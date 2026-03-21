@@ -56,6 +56,7 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(func(db *gormdb.DB) authrepos.AuthSessionRepository {
 			return authgorm.NewAuthSessionRepository(db)
 		}),
+		fx.Provide(func(db *gormdb.DB) authrepos.AccountRepository { return authgorm.NewAccountRepository(db) }),
 
 		// Auth infrastructure
 		fx.Provide(ProvideOAuthProviderRegistry),
