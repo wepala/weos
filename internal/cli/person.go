@@ -139,7 +139,6 @@ func init() {
 	personCreateCmd.Flags().String("family-name", "", "Family name")
 	_ = personCreateCmd.MarkFlagRequired("family-name")
 	personCreateCmd.Flags().String("email", "", "Email address")
-	_ = personCreateCmd.MarkFlagRequired("email")
 
 	personListCmd.Flags().Int("limit", 20, "Number of items per page")
 	personListCmd.Flags().String("cursor", "", "Pagination cursor")

@@ -25,7 +25,7 @@ type Person struct {
 	ID         string `gorm:"primaryKey"`
 	GivenName  string `gorm:"not null"`
 	FamilyName string `gorm:"not null"`
-	Email      string `gorm:"not null;uniqueIndex"`
+	Email      string `gorm:"uniqueIndex"`
 	AvatarURL  string `gorm:"type:text"`
 	Status     string `gorm:"not null;default:active"`
 	SequenceNo int

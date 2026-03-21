@@ -45,10 +45,6 @@ func (e *Person) With(givenName, familyName, email string) (*Person, error) {
 	if familyName == "" {
 		return nil, fmt.Errorf("familyName cannot be empty")
 	}
-	if email == "" {
-		return nil, fmt.Errorf("email cannot be empty")
-	}
-
 	entityID := identity.NewPerson()
 	e.BaseEntity = ddd.NewBaseEntity(entityID)
 	e.givenName = givenName

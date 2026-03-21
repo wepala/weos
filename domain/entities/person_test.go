@@ -85,12 +85,20 @@ func TestPerson_With(t *testing.T) {
 			errSubstr:       "familyName cannot be empty",
 		},
 		{
-			name:            "invalid - empty email",
+			name:            "valid - no email",
 			inputGivenName:  "John",
 			inputFamilyName: "Doe",
 			inputEmail:      "",
-			wantErr:         true,
-			errSubstr:       "email cannot be empty",
+			wantErr:         false,
+			validate: func(t *testing.T, e *Person) {
+				t.Helper()
+				if e.Email() != "" {
+					t.Fatalf("got email %q, want empty", e.Email())
+				}
+				if e.Status() != "active" {
+					t.Fatalf("got status %q, want %q", e.Status(), "active")
+				}
+			},
 		},
 	}
 
