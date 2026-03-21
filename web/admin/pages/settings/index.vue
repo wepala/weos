@@ -21,6 +21,8 @@
     <a-card title="Sidebar Menu">
       <template #extra>
         <a-space>
+          <a-button :loading="loadingGlobal" @click="handleLoadGlobal">Load Global</a-button>
+          <a-button type="primary" :loading="savingGlobal" @click="handleSaveGlobal">Save Globally</a-button>
           <a-button @click="resetGroups">Reset Grouping</a-button>
           <a-button @click="showAll">Show All</a-button>
         </a-space>
@@ -32,7 +34,11 @@
       <a-list :data-source="resourceTypes" :loading="!loaded">
         <template #renderItem="{ item }">
           <a-list-item>
-            <a-list-item-meta :title="item.name" :description="item.description" />
+            <a-list-item-meta
+              :title="item.name"
+              :description="item.description"
+              :style="{ paddingLeft: `${getDepth(item.slug) * 24}px` }"
+            />
             <template #actions>
               <a-select
                 :value="getParent(item.slug) || undefined"
@@ -62,18 +68,53 @@
 </template>
 
 <script setup lang="ts">
+import { message } from 'ant-design-vue'
+
 const { resourceTypes, loaded, fetchResourceTypes } = useResourceTypeStore()
 const {
   loadSettings, isVisible, setVisibility, showAll,
-  getParent, setParent, resetGroups,
+  getParent, getAncestors, getDescendants, setParent, resetGroups,
+  loadGlobalSettings, saveGlobalSettings,
 } = useSidebarSettings()
 
+const savingGlobal = ref(false)
+const loadingGlobal = ref(false)
+
 function availableParents(slug: string) {
+  const descendants = new Set(getDescendants(slug))
   return resourceTypes.value.filter((rt) => {
     if (rt.slug === slug) return false
-    if (getParent(rt.slug)) return false
+    if (descendants.has(rt.slug)) return false
     return true
   })
+}
+
+function getDepth(slug: string): number {
+  return getAncestors(slug).length
+}
+
+async function handleSaveGlobal() {
+  savingGlobal.value = true
+  try {
+    await saveGlobalSettings()
+    message.success('Settings saved globally')
+  } catch {
+    message.error('Failed to save global settings')
+  } finally {
+    savingGlobal.value = false
+  }
+}
+
+async function handleLoadGlobal() {
+  loadingGlobal.value = true
+  try {
+    await loadGlobalSettings()
+    message.success('Global settings loaded')
+  } catch {
+    message.error('Failed to load global settings')
+  } finally {
+    loadingGlobal.value = false
+  }
 }
 
 onMounted(() => {

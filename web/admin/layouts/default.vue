@@ -35,20 +35,7 @@
         <a-menu-item key="dashboard">
           <NuxtLink to="/">Dashboard</NuxtLink>
         </a-menu-item>
-        <template v-for="item in menuStructure" :key="item.key">
-          <a-sub-menu v-if="item.children?.length" :key="item.key">
-            <template #title>{{ item.name }}</template>
-            <a-menu-item :key="`${item.key}-index`">
-              <NuxtLink :to="`/resources/${item.slug}`">All {{ item.name }}</NuxtLink>
-            </a-menu-item>
-            <a-menu-item v-for="child in item.children" :key="child.key">
-              <NuxtLink :to="`/resources/${child.slug}`">{{ child.name }}</NuxtLink>
-            </a-menu-item>
-          </a-sub-menu>
-          <a-menu-item v-else :key="item.key">
-            <NuxtLink :to="`/resources/${item.slug}`">{{ item.name }}</NuxtLink>
-          </a-menu-item>
-        </template>
+        <SidebarMenuItem v-for="item in menuStructure" :key="item.key" :item="item" />
         <a-menu-item key="persons">
           <NuxtLink to="/persons">Persons</NuxtLink>
         </a-menu-item>
@@ -101,7 +88,7 @@ const collapsed = ref(false)
 const openKeys = ref<string[]>([])
 const route = useRoute()
 const { resourceTypes, fetchResourceTypes } = useResourceTypeStore()
-const { loadSettings, isVisible, getParent, getChildren } = useSidebarSettings()
+const { loadSettings, isVisible, getParent, getChildren, getAncestors } = useSidebarSettings()
 
 const visibleResourceTypes = computed(() =>
   resourceTypes.value.filter((rt) => isVisible(rt.slug))
@@ -110,35 +97,43 @@ const visibleResourceTypes = computed(() =>
 const menuStructure = computed<MenuItem[]>(() => {
   const visible = visibleResourceTypes.value
   const visibleSlugs = new Set(visible.map((rt) => rt.slug))
-  const childSlugs = new Set<string>()
 
-  for (const rt of visible) {
-    const parent = getParent(rt.slug)
-    if (parent && visibleSlugs.has(parent)) {
-      childSlugs.add(rt.slug)
+  function buildTree(parentSlug: string | null, visited = new Set<string>()): MenuItem[] {
+    const items: MenuItem[] = []
+    for (const rt of visible) {
+      if (visited.has(rt.slug)) continue
+      const rtParent = getParent(rt.slug)
+      const belongsHere = parentSlug
+        ? rtParent === parentSlug
+        : !rtParent || !visibleSlugs.has(rtParent)
+      if (!belongsHere) continue
+
+      const nextVisited = new Set(visited)
+      nextVisited.add(rt.slug)
+      const children = buildTree(rt.slug, nextVisited)
+      items.push({
+        key: `rt-${rt.slug}`,
+        slug: rt.slug,
+        name: rt.name,
+        children: children.length > 0 ? children : undefined,
+      })
+    }
+    return items
+  }
+
+  return buildTree(null)
+})
+
+function findInTree(items: MenuItem[], slug: string): MenuItem | undefined {
+  for (const item of items) {
+    if (item.slug === slug) return item
+    if (item.children) {
+      const found = findInTree(item.children, slug)
+      if (found) return found
     }
   }
-
-  const items: MenuItem[] = []
-  for (const rt of visible) {
-    if (childSlugs.has(rt.slug)) continue
-
-    const children = getChildren(rt.slug)
-      .filter((s) => visibleSlugs.has(s))
-      .map((s) => {
-        const child = visible.find((r) => r.slug === s)!
-        return { key: `rt-${s}`, slug: s, name: child.name }
-      })
-
-    items.push({
-      key: `rt-${rt.slug}`,
-      slug: rt.slug,
-      name: rt.name,
-      children: children.length > 0 ? children : undefined,
-    })
-  }
-  return items
-})
+  return undefined
+}
 
 const selectedKeys = computed(() => {
   const path = route.path
@@ -148,8 +143,8 @@ const selectedKeys = computed(() => {
   if (path.startsWith('/resources/')) {
     const slug = route.params.typeSlug as string
     if (slug) {
-      const item = menuStructure.value.find((m) => m.slug === slug && m.children?.length)
-      if (item) return [`rt-${slug}-index`]
+      const item = findInTree(menuStructure.value, slug)
+      if (item?.children?.length) return [`rt-${slug}-index`]
       return [`rt-${slug}`]
     }
   }
@@ -160,13 +155,17 @@ watch(selectedKeys, (keys) => {
   if (!keys.length) return
   const key = keys[0]
   if (!key.startsWith('rt-')) return
-  const slug = key.slice(3)
-  const parent = getParent(slug)
-  if (parent && isVisible(parent)) {
-    const parentKey = `rt-${parent}`
-    if (!openKeys.value.includes(parentKey)) {
-      openKeys.value = [...openKeys.value, parentKey]
+  const slug = key.slice(3).replace(/-index$/, '')
+  const ancestors = getAncestors(slug)
+  const newOpenKeys = [...openKeys.value]
+  for (const ancestor of ancestors) {
+    const ancestorKey = `rt-${ancestor}`
+    if (!newOpenKeys.includes(ancestorKey)) {
+      newOpenKeys.push(ancestorKey)
     }
+  }
+  if (newOpenKeys.length !== openKeys.value.length) {
+    openKeys.value = newOpenKeys
   }
 }, { immediate: true })
 

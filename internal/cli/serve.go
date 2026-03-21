@@ -29,6 +29,7 @@ import (
 	apimw "weos/api/middleware"
 	"weos/application"
 	"weos/domain/entities"
+	gormdb "weos/infrastructure/database/gorm"
 	"weos/internal/config"
 	"weos/web"
 
@@ -63,6 +64,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
 	var logger entities.Logger
+	var sidebarSettingsRepo *gormdb.SidebarSettingsRepository
 
 	app := fx.New(
 		fx.NopLogger,
@@ -75,6 +77,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
 		fx.Populate(&logger),
+		fx.Populate(&sidebarSettingsRepo),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -143,6 +146,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	presetHandler := handlers.NewResourceTypePresetHandler(resourceTypeService)
 	protected.GET("/resource-types/presets", presetHandler.List)
 	protected.POST("/resource-types/presets/:name", presetHandler.Install)
+
+	sidebarSettingsHandler := handlers.NewSidebarSettingsHandler(sidebarSettingsRepo, logger)
+	protected.GET("/settings/sidebar", sidebarSettingsHandler.Get)
+	protected.PUT("/settings/sidebar", sidebarSettingsHandler.Save)
 
 	// Dynamic resource routes — MUST be registered after ALL static routes
 	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)

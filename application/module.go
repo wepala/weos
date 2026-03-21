@@ -49,6 +49,7 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(gorm.ProvideResourceTypeRepository),
 		fx.Provide(gorm.ProvideProjectionManager),
 		fx.Provide(gorm.ProvideResourceRepository),
+		fx.Provide(gorm.ProvideSidebarSettingsRepository),
 
 		// Auth repositories (from pericarp)
 		fx.Provide(func(db *gormdb.DB) authrepos.AgentRepository { return authgorm.NewAgentRepository(db) }),

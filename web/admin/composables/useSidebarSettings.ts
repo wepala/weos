@@ -21,10 +21,12 @@ export function useSidebarSettings() {
   const menuGroups = useState<Record<string, string>>('sidebarMenuGroups', () => ({}))
 
   function loadSettings() {
+    let hasLocal = false
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
         hiddenSlugs.value = JSON.parse(raw)
+        hasLocal = true
       }
     } catch {
       hiddenSlugs.value = []
@@ -33,18 +35,32 @@ export function useSidebarSettings() {
       const raw = localStorage.getItem(GROUPS_STORAGE_KEY)
       if (raw) {
         menuGroups.value = JSON.parse(raw)
+        hasLocal = true
       }
     } catch {
       menuGroups.value = {}
     }
+    if (!hasLocal) {
+      loadGlobalSettings().catch(() => {
+        // Server unavailable or no global settings on initial load — keep defaults
+      })
+    }
   }
 
   function persist() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(hiddenSlugs.value))
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(hiddenSlugs.value))
+    } catch (e) {
+      console.warn('Failed to persist sidebar hidden types to localStorage:', e)
+    }
   }
 
   function persistGroups() {
-    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(menuGroups.value))
+    try {
+      localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(menuGroups.value))
+    } catch (e) {
+      console.warn('Failed to persist sidebar menu groups to localStorage:', e)
+    }
   }
 
   function isVisible(slug: string): boolean {
@@ -81,8 +97,38 @@ export function useSidebarSettings() {
     return Object.values(menuGroups.value).includes(slug)
   }
 
+  function getDescendants(slug: string): string[] {
+    const descendants: string[] = []
+    const visited = new Set<string>()
+    const stack = getChildren(slug)
+    while (stack.length > 0) {
+      const current = stack.pop()!
+      if (visited.has(current)) continue
+      visited.add(current)
+      descendants.push(current)
+      stack.push(...getChildren(current))
+    }
+    return descendants
+  }
+
+  function getAncestors(slug: string): string[] {
+    const ancestors: string[] = []
+    const visited = new Set<string>()
+    let current = getParent(slug)
+    while (current && !visited.has(current)) {
+      visited.add(current)
+      ancestors.push(current)
+      current = getParent(current)
+    }
+    return ancestors
+  }
+
   function setParent(childSlug: string, parentSlug: string | null) {
     if (parentSlug) {
+      // Prevent cycles: reject if parentSlug is a descendant of childSlug
+      if (parentSlug === childSlug || getDescendants(childSlug).includes(parentSlug)) {
+        return
+      }
       menuGroups.value = { ...menuGroups.value, [childSlug]: parentSlug }
     } else {
       const { [childSlug]: _, ...rest } = menuGroups.value
@@ -96,6 +142,23 @@ export function useSidebarSettings() {
     persistGroups()
   }
 
+  async function loadGlobalSettings() {
+    const { getGlobalSettings } = useSidebarSettingsApi()
+    const data = await getGlobalSettings()
+    hiddenSlugs.value = data.hidden_slugs || []
+    menuGroups.value = data.menu_groups || {}
+    persist()
+    persistGroups()
+  }
+
+  async function saveGlobalSettings() {
+    const { saveGlobalSettings: save } = useSidebarSettingsApi()
+    await save({
+      hidden_slugs: hiddenSlugs.value,
+      menu_groups: menuGroups.value,
+    })
+  }
+
   return {
     hiddenSlugs,
     menuGroups,
@@ -106,7 +169,11 @@ export function useSidebarSettings() {
     getParent,
     getChildren,
     isParent,
+    getDescendants,
+    getAncestors,
     setParent,
     resetGroups,
+    loadGlobalSettings,
+    saveGlobalSettings,
   }
 }
