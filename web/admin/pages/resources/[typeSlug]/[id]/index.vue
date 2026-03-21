@@ -96,7 +96,26 @@ interface ChildSection {
   loading: boolean
   hasMore: boolean
   cursor: string
+  parentField: string | null
   loadMore: () => void
+}
+
+function findParentField(childSchema: any, parentSlug: string): string | null {
+  const properties = childSchema?.properties
+  if (!properties) return null
+
+  const match = Object.entries(properties)
+    .find(([_, prop]) => (prop as any)['x-resource-type'] === parentSlug)
+  if (match) return match[0]
+
+  const camelSlug = parentSlug.replace(/-([a-z])/g, (_: string, c: string) => c.toUpperCase())
+  const camelKey = `${camelSlug}Id`
+  if (camelKey in properties) return camelKey
+
+  const snakeKey = `${parentSlug.replace(/-/g, '_')}_id`
+  if (snakeKey in properties) return snakeKey
+
+  return null
 }
 
 const childSections = ref<ChildSection[]>([])
@@ -109,6 +128,13 @@ function initChildSections() {
   for (const slug of childSlugs) {
     const childType = getBySlug(slug)
     const columns = childType?.schema ? schemaToColumns(childType.schema) : []
+    const parentField = childType?.schema ? findParentField(childType.schema, typeSlug) : null
+    if (!parentField) {
+      console.warn(
+        `Child type "${slug}" has no parent field referencing "${typeSlug}". ` +
+        `Child resources will not be filtered by parent.`,
+      )
+    }
     const section: ChildSection = reactive({
       slug,
       name: childType?.name || slug,
@@ -117,6 +143,7 @@ function initChildSections() {
       loading: false,
       hasMore: false,
       cursor: '',
+      parentField,
       loadMore: () => fetchChildResources(section),
     })
     sections.push(section)
@@ -132,12 +159,29 @@ async function fetchChildResources(section: ChildSection) {
   section.loading = true
   try {
     const api = useResourceApi(section.slug)
-    const res = await api.list(section.cursor)
-    section.items = [...section.items, ...res.data]
-    section.cursor = res.cursor
-    section.hasMore = res.has_more
-  } catch {
-    // Loading state is cleared in finally; empty section signals failure
+    const parentField = section.parentField
+    let cursor = section.cursor
+    let hasMore = true
+    const accumulated: any[] = []
+
+    // When filtering client-side, keep fetching pages until we find matching
+    // items or exhaust the server's data. Without this loop a page of
+    // non-matching items would show an empty list with a misleading "Load More".
+    do {
+      const res = await api.list(cursor)
+      const items = parentField
+        ? res.data.filter((item: any) => String(item[parentField] ?? '') === String(id))
+        : res.data
+      accumulated.push(...items)
+      cursor = res.cursor
+      hasMore = res.has_more
+    } while (parentField && accumulated.length === 0 && hasMore)
+
+    section.items = [...section.items, ...accumulated]
+    section.cursor = cursor
+    section.hasMore = hasMore
+  } catch (err) {
+    console.error(`Failed to fetch child resources for "${section.slug}":`, err)
   } finally {
     section.loading = false
   }
