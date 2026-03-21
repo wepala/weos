@@ -56,7 +56,8 @@ func (h *ResourceTypePresetHandler) List(c echo.Context) error {
 
 func (h *ResourceTypePresetHandler) Install(c echo.Context) error {
 	name := c.Param("name")
-	result, err := h.service.InstallPreset(c.Request().Context(), name)
+	update := c.QueryParam("update") == "true"
+	result, err := h.service.InstallPreset(c.Request().Context(), name, update)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}

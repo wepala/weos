@@ -36,9 +36,10 @@ type PresetDefinition struct {
 	Types       []PresetResourceType
 }
 
-// InstallPresetResult reports which types were created vs skipped during installation.
+// InstallPresetResult reports which types were created, updated, or skipped during installation.
 type InstallPresetResult struct {
 	Created []string `json:"created"`
+	Updated []string `json:"updated,omitempty"`
 	Skipped []string `json:"skipped"`
 }
 

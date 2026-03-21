@@ -33,7 +33,7 @@ type ResourceTypeService interface {
 	Update(ctx context.Context, cmd UpdateResourceTypeCommand) (*entities.ResourceType, error)
 	Delete(ctx context.Context, cmd DeleteResourceTypeCommand) error
 	ListPresets() []PresetDefinition
-	InstallPreset(ctx context.Context, presetName string) (*InstallPresetResult, error)
+	InstallPreset(ctx context.Context, presetName string, update bool) (*InstallPresetResult, error)
 }
 
 type resourceTypeService struct {
@@ -160,7 +160,7 @@ func (s *resourceTypeService) ListPresets() []PresetDefinition {
 }
 
 func (s *resourceTypeService) InstallPreset(
-	ctx context.Context, presetName string,
+	ctx context.Context, presetName string, update bool,
 ) (*InstallPresetResult, error) {
 	preset, ok := GetPresetDefinition(presetName)
 	if !ok {
@@ -168,11 +168,27 @@ func (s *resourceTypeService) InstallPreset(
 	}
 	result := &InstallPresetResult{}
 	for _, pt := range preset.Types {
-		if _, err := s.GetBySlug(ctx, pt.Slug); err == nil {
-			result.Skipped = append(result.Skipped, pt.Slug)
+		existing, err := s.GetBySlug(ctx, pt.Slug)
+		if err == nil {
+			if !update {
+				result.Skipped = append(result.Skipped, pt.Slug)
+				continue
+			}
+			_, err := s.Update(ctx, UpdateResourceTypeCommand{
+				ID:          existing.GetID(),
+				Name:        pt.Name,
+				Slug:        pt.Slug,
+				Description: pt.Description,
+				Context:     pt.Context,
+				Schema:      pt.Schema,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to update resource type %q: %w", pt.Slug, err)
+			}
+			result.Updated = append(result.Updated, pt.Slug)
 			continue
 		}
-		_, err := s.Create(ctx, CreateResourceTypeCommand{
+		_, err = s.Create(ctx, CreateResourceTypeCommand{
 			Name:        pt.Name,
 			Slug:        pt.Slug,
 			Description: pt.Description,

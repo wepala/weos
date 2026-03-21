@@ -58,17 +58,21 @@ var presetInstallCmd = &cobra.Command{
 		}
 		defer deps.Shutdown()
 
-		result, err := deps.ResourceTypeService.InstallPreset(cmd.Context(), args[0])
+		update, _ := cmd.Flags().GetBool("update")
+		result, err := deps.ResourceTypeService.InstallPreset(cmd.Context(), args[0], update)
 		if err != nil {
 			return fmt.Errorf("failed to install preset: %w", err)
 		}
 		if len(result.Created) > 0 {
 			fmt.Fprintf(os.Stdout, "Created: %s\n", strings.Join(result.Created, ", "))
 		}
+		if len(result.Updated) > 0 {
+			fmt.Fprintf(os.Stdout, "Updated: %s\n", strings.Join(result.Updated, ", "))
+		}
 		if len(result.Skipped) > 0 {
 			fmt.Fprintf(os.Stdout, "Skipped (already exist): %s\n", strings.Join(result.Skipped, ", "))
 		}
-		if len(result.Created) == 0 && len(result.Skipped) == 0 {
+		if len(result.Created) == 0 && len(result.Updated) == 0 && len(result.Skipped) == 0 {
 			fmt.Fprintln(os.Stdout, "Preset has no types to install")
 		}
 		return nil
@@ -76,6 +80,7 @@ var presetInstallCmd = &cobra.Command{
 }
 
 func init() {
+	presetInstallCmd.Flags().Bool("update", false, "Update existing resource types with preset definitions instead of skipping them")
 	presetCmd.AddCommand(presetListCmd, presetInstallCmd)
 	resourceTypeCmd.AddCommand(presetCmd)
 }

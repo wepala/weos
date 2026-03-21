@@ -21,11 +21,13 @@ type PresetSummary struct {
 }
 
 type PresetInstallInput struct {
-	Name string `json:"name" jsonschema:"preset name to install (website, ecommerce, events, knowledge)"`
+	Name   string `json:"name" jsonschema:"preset name to install (website, ecommerce, events, knowledge)"`
+	Update bool   `json:"update,omitempty" jsonschema:"update existing resource types with preset definitions instead of skipping"`
 }
 
 type PresetInstallOutput struct {
 	Created []string `json:"created"`
+	Updated []string `json:"updated,omitempty"`
 	Skipped []string `json:"skipped"`
 }
 
@@ -54,16 +56,17 @@ func registerResourceTypePresetTools(server *mcp.Server, svc application.Resourc
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_preset_install",
-		Description: "Install a resource type preset. Idempotent: skips types whose slug already exists.",
+		Description: "Install a resource type preset. By default skips types that already exist; set update=true to sync them with the preset definition.",
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input PresetInstallInput,
 	) (*mcp.CallToolResult, PresetInstallOutput, error) {
-		result, err := svc.InstallPreset(ctx, input.Name)
+		result, err := svc.InstallPreset(ctx, input.Name, input.Update)
 		if err != nil {
 			return nil, PresetInstallOutput{}, err
 		}
 		return nil, PresetInstallOutput{
 			Created: result.Created,
+			Updated: result.Updated,
 			Skipped: result.Skipped,
 		}, nil
 	})
