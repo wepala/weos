@@ -36,14 +36,16 @@ type ResourceTypeHandler struct {
 	service     application.ResourceTypeService
 	checker     *authcasbin.CasbinAuthorizationChecker
 	accountRepo authrepos.AccountRepository
+	logger      entities.Logger
 }
 
 func NewResourceTypeHandler(
 	service application.ResourceTypeService,
 	checker *authcasbin.CasbinAuthorizationChecker,
 	accountRepo authrepos.AccountRepository,
+	logger entities.Logger,
 ) *ResourceTypeHandler {
-	return &ResourceTypeHandler{service: service, checker: checker, accountRepo: accountRepo}
+	return &ResourceTypeHandler{service: service, checker: checker, accountRepo: accountRepo, logger: logger}
 }
 
 type CreateResourceTypeRequest struct {
@@ -116,7 +118,10 @@ func (h *ResourceTypeHandler) List(c echo.Context) error {
 
 	// Filter resource types by read permission when Casbin is configured.
 	identity := auth.AgentFromCtx(c.Request().Context())
-	role := apimw.GetUserRole(c.Request().Context(), h.accountRepo)
+	role, roleErr := apimw.GetUserRole(c.Request().Context(), h.accountRepo)
+	if roleErr != nil {
+		h.logger.Warn(c.Request().Context(), "failed to get user role for filtering, showing all types", "error", roleErr)
+	}
 	skipFilter := role == authentities.RoleAdmin || role == authentities.RoleOwner || role == ""
 
 	for _, e := range result.Data {

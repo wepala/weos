@@ -17,6 +17,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -25,33 +26,41 @@ import (
 
 // GetUserRole returns the authenticated user's role in their active account.
 // If no active account is set (legacy sessions), falls back to the first account
-// the user belongs to.
-func GetUserRole(ctx context.Context, accountRepo authrepos.AccountRepository) string {
+// the user belongs to. Returns ("", nil) when no identity is present or the user
+// has no accounts. Returns a non-nil error only on database/infrastructure failures.
+func GetUserRole(ctx context.Context, accountRepo authrepos.AccountRepository) (string, error) {
 	identity := auth.AgentFromCtx(ctx)
 	if identity == nil {
-		return ""
+		return "", nil
 	}
 
 	accountID := identity.ActiveAccountID
 	if accountID == "" {
 		// Fallback: find the first account this agent belongs to.
 		accounts, err := accountRepo.FindByMember(ctx, identity.AgentID)
-		if err != nil || len(accounts) == 0 {
-			return ""
+		if err != nil {
+			return "", fmt.Errorf("failed to find member accounts: %w", err)
+		}
+		if len(accounts) == 0 {
+			return "", nil
 		}
 		accountID = accounts[0].GetID()
 	}
 
 	role, err := accountRepo.FindMemberRole(ctx, accountID, identity.AgentID)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to find member role: %w", err)
 	}
-	return role
+	return role, nil
 }
 
 // IsAdmin checks whether the authenticated user has an admin or owner role
-// in their active account.
-func IsAdmin(ctx context.Context, accountRepo authrepos.AccountRepository) bool {
-	role := GetUserRole(ctx, accountRepo)
-	return role == authentities.RoleOwner || role == authentities.RoleAdmin
+// in their active account. Returns (false, error) on infrastructure failures
+// so callers can distinguish "not admin" from "cannot determine".
+func IsAdmin(ctx context.Context, accountRepo authrepos.AccountRepository) (bool, error) {
+	role, err := GetUserRole(ctx, accountRepo)
+	if err != nil {
+		return false, err
+	}
+	return role == authentities.RoleOwner || role == authentities.RoleAdmin, nil
 }

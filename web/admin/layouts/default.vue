@@ -118,7 +118,7 @@
       >
         <template #message>
           Viewing as <strong>{{ user?.name || user?.email }}</strong>
-          <a-button size="small" type="link" danger style="margin-left: 8px" @click="stopImpersonation">
+          <a-button size="small" type="link" danger style="margin-left: 8px" @click="handleStopImpersonation">
             Stop Impersonating
           </a-button>
         </template>
@@ -132,6 +132,7 @@
 
 <script setup lang="ts">
 import { MenuOutlined } from '@ant-design/icons-vue'
+import { message } from 'ant-design-vue'
 
 interface MenuItem {
   key: string
@@ -141,9 +142,17 @@ interface MenuItem {
 }
 
 const { user, logout, isImpersonating, stopImpersonation } = useAuth()
+
+async function handleStopImpersonation() {
+  try {
+    await stopImpersonation()
+  } catch (err: any) {
+    message.error(err?.data?.error || 'Failed to stop impersonation')
+  }
+}
 const isAdminOrOwner = computed(() => {
   const role = user.value?.role
-  return role === 'admin' || role === 'owner' || !role
+  return role === 'admin' || role === 'owner'
 })
 const collapsed = ref(false)
 const openKeys = ref<string[]>([])
@@ -163,8 +172,12 @@ const { loadSettings, isVisible, getParent, getChildren, getAncestors } = useSid
 // (e.g., impersonation start/stop).
 watch(() => user.value?.role, async (newRole, oldRole) => {
   if (newRole !== oldRole && oldRole !== undefined) {
-    await fetchResourceTypes()
-    await loadSettings()
+    try {
+      await fetchResourceTypes()
+      await loadSettings()
+    } catch (err) {
+      console.error('[default] failed to refresh after role change:', err)
+    }
   }
 })
 

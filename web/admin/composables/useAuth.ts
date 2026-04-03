@@ -17,7 +17,8 @@ export function useAuth() {
     try {
       const data = await $fetch<AuthUser>('/api/auth/me')
       user.value = data
-    } catch {
+    } catch (err) {
+      console.error('[useAuth] fetchUser failed:', err)
       user.value = null
     } finally {
       loading.value = false
@@ -25,16 +26,26 @@ export function useAuth() {
   }
 
   async function startImpersonation(agentId: string) {
-    await $fetch('/api/admin/impersonate', {
-      method: 'POST',
-      body: { agent_id: agentId },
-    })
-    await fetchUser()
+    try {
+      await $fetch('/api/admin/impersonate', {
+        method: 'POST',
+        body: { agent_id: agentId },
+      })
+      await fetchUser()
+    } catch (err) {
+      console.error('[useAuth] startImpersonation failed:', err)
+      throw err
+    }
   }
 
   async function stopImpersonation() {
-    await $fetch('/api/admin/stop-impersonation', { method: 'POST' })
-    await fetchUser()
+    try {
+      await $fetch('/api/admin/stop-impersonation', { method: 'POST' })
+      await fetchUser()
+    } catch (err) {
+      console.error('[useAuth] stopImpersonation failed:', err)
+      throw err
+    }
   }
 
   async function logout() {

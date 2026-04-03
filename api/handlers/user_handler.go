@@ -60,9 +60,20 @@ type UserResponse struct {
 
 func (h *UserHandler) List(c echo.Context) error {
 	ctx := c.Request().Context()
+
+	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
+	if err != nil {
+		h.logger.Error(ctx, "failed to check admin status", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+	}
+	if !isAdmin {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+	}
+
 	agents, err := h.agentRepo.FindAll(ctx, "", 100)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		h.logger.Error(ctx, "failed to list users", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list users"})
 	}
 
 	accountID := h.defaultAccountID(ctx)
@@ -75,10 +86,19 @@ func (h *UserHandler) List(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"data": users})
 }
 
-// Get returns a single user by ID.
+// Get returns a single user by ID. Admin-only.
 func (h *UserHandler) Get(c echo.Context) error {
 	id := c.Param("id")
 	ctx := c.Request().Context()
+
+	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
+	if err != nil {
+		h.logger.Error(ctx, "failed to check admin status", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+	}
+	if !isAdmin {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+	}
 
 	agent, err := h.agentRepo.FindByID(ctx, id)
 	if err != nil || agent == nil {
@@ -99,7 +119,12 @@ func (h *UserHandler) Update(c echo.Context) error {
 	id := c.Param("id")
 	ctx := c.Request().Context()
 
-	if !apimw.IsAdmin(ctx, h.accountRepo) {
+	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
+	if err != nil {
+		h.logger.Error(ctx, "failed to check admin status", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+	}
+	if !isAdmin {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
 	}
 
@@ -115,17 +140,20 @@ func (h *UserHandler) Update(c echo.Context) error {
 
 	if req.Name != "" && req.Name != agent.Name() {
 		if err := agent.UpdateName(req.Name); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			h.logger.Error(ctx, "failed to update user name", "error", err, "user_id", id)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update user"})
 		}
 		if err := h.agentRepo.Save(ctx, agent); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			h.logger.Error(ctx, "failed to save user", "error", err, "user_id", id)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update user"})
 		}
 	}
 
 	accountID := h.defaultAccountID(ctx)
 	if req.Role != "" && accountID != "" {
 		if err := h.accountRepo.SaveMember(ctx, accountID, id, req.Role); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			h.logger.Error(ctx, "failed to save user role", "error", err, "user_id", id)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update user role"})
 		}
 	}
 
@@ -144,7 +172,10 @@ func (h *UserHandler) buildUserResponse(
 	ctx context.Context, agent *authentities.Agent, accountID string,
 ) UserResponse {
 	email := ""
-	creds, _ := h.credentialRepo.FindByAgent(ctx, agent.GetID())
+	creds, credErr := h.credentialRepo.FindByAgent(ctx, agent.GetID())
+	if credErr != nil {
+		h.logger.Warn(ctx, "failed to load credentials for user", "agent_id", agent.GetID(), "error", credErr)
+	}
 	if len(creds) > 0 {
 		email = creds[0].Email()
 	}
@@ -154,7 +185,11 @@ func (h *UserHandler) buildUserResponse(
 
 	role := ""
 	if accountID != "" {
-		role, _ = h.accountRepo.FindMemberRole(ctx, accountID, agent.GetID())
+		var roleErr error
+		role, roleErr = h.accountRepo.FindMemberRole(ctx, accountID, agent.GetID())
+		if roleErr != nil {
+			h.logger.Warn(ctx, "failed to load role for user", "agent_id", agent.GetID(), "error", roleErr)
+		}
 	}
 
 	return UserResponse{

@@ -18,16 +18,19 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
+	"weos/domain/entities"
 	"weos/infrastructure/models"
 
 	"gorm.io/gorm"
 )
 
-// AccessMap maps role → (resourceTypeSlug → []action).
-// Actions are ODRL short names: "read", "modify", "delete".
-type AccessMap map[string]map[string][]string
-
+// RoleResourceAccessRepository manages the singleton RBAC access configuration.
+// This is a system-wide configuration setting, not a domain entity. It intentionally
+// bypasses event sourcing / UnitOfWork because: (1) it is a single config row (ID=1),
+// (2) changes are administrative and infrequent, and (3) Casbin policy sync provides
+// the audit trail for authorization changes.
 type RoleResourceAccessRepository struct {
 	db *gorm.DB
 }
@@ -53,14 +56,14 @@ func (r *RoleResourceAccessRepository) Save(ctx context.Context, settings *model
 	return r.db.WithContext(ctx).Save(settings).Error
 }
 
-func (r *RoleResourceAccessRepository) GetAccessMap(ctx context.Context) (AccessMap, error) {
+func (r *RoleResourceAccessRepository) GetAccessMap(ctx context.Context) (entities.AccessMap, error) {
 	settings, err := r.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var m AccessMap
+	var m entities.AccessMap
 	if err := json.Unmarshal([]byte(settings.Access), &m); err != nil {
-		return AccessMap{}, nil
+		return nil, fmt.Errorf("failed to unmarshal access map: %w", err)
 	}
 	return m, nil
 }

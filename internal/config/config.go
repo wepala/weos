@@ -52,6 +52,12 @@ type Config struct {
 
 	// OAuth holds configuration for OAuth authentication.
 	OAuth OAuthConfig
+
+	// BigQuery event store configuration.
+	// When BigQueryProjectID is set, events are dual-written to both the primary store and BigQuery.
+	BigQueryProjectID string
+	BigQueryDatasetID string
+	BigQueryTableID   string
 }
 
 // OAuthEnabled returns true when Google OAuth credentials are configured.
@@ -161,5 +167,15 @@ func (c *Config) LoadFromEnvironment() {
 
 	if frontendURL := os.Getenv("FRONTEND_URL"); frontendURL != "" {
 		c.OAuth.FrontendURL = frontendURL
+	}
+
+	if bqProject := os.Getenv("BIGQUERY_PROJECT_ID"); bqProject != "" {
+		c.BigQueryProjectID = bqProject
+	}
+	if bqDataset := os.Getenv("BIGQUERY_DATASET_ID"); bqDataset != "" {
+		c.BigQueryDatasetID = bqDataset
+	}
+	if bqTable := os.Getenv("BIGQUERY_TABLE_ID"); bqTable != "" {
+		c.BigQueryTableID = bqTable
 	}
 }

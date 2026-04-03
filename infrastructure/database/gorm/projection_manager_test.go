@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"weos/pkg/utils"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -64,9 +66,9 @@ func TestCamelToSnake(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			t.Parallel()
-			got := camelToSnake(tt.input)
+			got := utils.CamelToSnake(tt.input)
 			if got != tt.want {
-				t.Fatalf("camelToSnake(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Fatalf("utils.CamelToSnake(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -171,7 +173,7 @@ func TestEnsureTable_CreatesTable(t *testing.T) {
 		}
 	}`)
 
-	err := pm.EnsureTable(context.Background(), "product", schema)
+	err := pm.EnsureTable(context.Background(), "product", schema, nil)
 	if err != nil {
 		t.Fatalf("EnsureTable failed: %v", err)
 	}
@@ -198,12 +200,12 @@ func TestEnsureTable_Idempotent(t *testing.T) {
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"name": {"type": "string"}}}`)
 
-	err := pm.EnsureTable(context.Background(), "blog-post", schema)
+	err := pm.EnsureTable(context.Background(), "blog-post", schema, nil)
 	if err != nil {
 		t.Fatalf("first EnsureTable failed: %v", err)
 	}
 
-	err = pm.EnsureTable(context.Background(), "blog-post", schema)
+	err = pm.EnsureTable(context.Background(), "blog-post", schema, nil)
 	if err != nil {
 		t.Fatalf("second EnsureTable failed: %v", err)
 	}
@@ -215,7 +217,7 @@ func TestEnsureTable_AddsNewColumns(t *testing.T) {
 	pm := &projectionManager{db: db, logger: &testLogger{}}
 
 	schema1 := json.RawMessage(`{"type": "object", "properties": {"name": {"type": "string"}}}`)
-	err := pm.EnsureTable(context.Background(), "event", schema1)
+	err := pm.EnsureTable(context.Background(), "event", schema1, nil)
 	if err != nil {
 		t.Fatalf("first EnsureTable failed: %v", err)
 	}
@@ -227,7 +229,7 @@ func TestEnsureTable_AddsNewColumns(t *testing.T) {
 			"startDate": {"type": "string"}
 		}
 	}`)
-	err = pm.EnsureTable(context.Background(), "event", schema2)
+	err = pm.EnsureTable(context.Background(), "event", schema2, nil)
 	if err != nil {
 		t.Fatalf("second EnsureTable failed: %v", err)
 	}
@@ -245,14 +247,14 @@ func TestEnsureTable_NoSchema(t *testing.T) {
 	db := newTestDB(t)
 	pm := &projectionManager{db: db, logger: &testLogger{}}
 
-	err := pm.EnsureTable(context.Background(), "note", nil)
+	err := pm.EnsureTable(context.Background(), "note", nil, nil)
 	if err != nil {
 		t.Fatalf("EnsureTable with nil schema failed: %v", err)
 	}
 
 	// Should still have standard columns
-	err = db.Exec(`INSERT INTO notes (id, type_slug, data, status)
-		VALUES ('n-1', 'note', '{}', 'active')`).Error
+	err = db.Exec(`INSERT INTO notes (id, type_slug, status)
+		VALUES ('n-1', 'note', 'active')`).Error
 	if err != nil {
 		t.Fatalf("insert into notes failed: %v", err)
 	}
@@ -267,7 +269,7 @@ func TestHasProjectionTable(t *testing.T) {
 		t.Fatal("expected false before EnsureTable")
 	}
 
-	err := pm.EnsureTable(context.Background(), "product", nil)
+	err := pm.EnsureTable(context.Background(), "product", nil, nil)
 	if err != nil {
 		t.Fatalf("EnsureTable failed: %v", err)
 	}
@@ -288,7 +290,7 @@ func TestTableName(t *testing.T) {
 	}
 
 	// After EnsureTable, returns cached name
-	err := pm.EnsureTable(context.Background(), "blog-post", nil)
+	err := pm.EnsureTable(context.Background(), "blog-post", nil, nil)
 	if err != nil {
 		t.Fatalf("EnsureTable failed: %v", err)
 	}
@@ -312,7 +314,7 @@ func TestExtractFlatColumns(t *testing.T) {
 	}`)
 
 	row := map[string]any{}
-	ExtractFlatColumns(data, row)
+	ExtractFlatColumns(data, nil, row)
 
 	if row["name"] != "Widget" {
 		t.Errorf("expected name=Widget, got %v", row["name"])

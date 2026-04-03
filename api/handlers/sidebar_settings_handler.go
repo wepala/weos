@@ -59,7 +59,12 @@ func (h *SidebarSettingsHandler) Get(c echo.Context) error {
 
 	role := c.QueryParam("role")
 	if role == "" {
-		role = apimw.GetUserRole(ctx, h.accountRepo)
+		var roleErr error
+		role, roleErr = apimw.GetUserRole(ctx, h.accountRepo)
+		if roleErr != nil {
+			h.logger.Warn(ctx, "failed to get user role for sidebar, using default", "error", roleErr)
+			role = "default"
+		}
 	}
 
 	settings, err := h.repo.GetByRole(ctx, role)
@@ -73,7 +78,12 @@ func (h *SidebarSettingsHandler) Get(c echo.Context) error {
 
 // Save updates sidebar settings. Admin-only.
 func (h *SidebarSettingsHandler) Save(c echo.Context) error {
-	if !apimw.IsAdmin(c.Request().Context(), h.accountRepo) {
+	isAdmin, err := apimw.IsAdmin(c.Request().Context(), h.accountRepo)
+	if err != nil {
+		h.logger.Error(c.Request().Context(), "failed to check admin status", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+	}
+	if !isAdmin {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
 	}
 

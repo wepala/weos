@@ -115,7 +115,8 @@ async function fetchRoles() {
   try {
     const res = await $fetch<{ roles: string[] }>('/api/settings/roles')
     availableRoles.value = res.roles || []
-  } catch {
+  } catch (err) {
+    console.warn('[users] fetchRoles failed, using defaults:', err)
     availableRoles.value = ['admin', 'instructor']
   }
 }
@@ -125,6 +126,9 @@ async function fetchUsers() {
   try {
     const res = await $fetch<any>('/api/users')
     users.value = res.data || []
+  } catch (err: any) {
+    message.error('Failed to load users')
+    console.error('[users] fetchUsers failed:', err)
   } finally {
     loading.value = false
   }

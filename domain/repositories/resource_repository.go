@@ -32,8 +32,18 @@ type ResourceRepository interface {
 	FindByID(ctx context.Context, id string) (*entities.Resource, error)
 	FindAllByType(ctx context.Context, typeSlug string, cursor string, limit int, sort SortOptions) (
 		PaginatedResponse[*entities.Resource], error)
+	FindAllByTypeAndField(ctx context.Context, typeSlug, fieldName, fieldValue string) (
+		[]*entities.Resource, error)
 	FindAllByTypeWithFilters(ctx context.Context, typeSlug string, filters []FilterCondition,
 		cursor string, limit int, sort SortOptions) (PaginatedResponse[*entities.Resource], error)
 	Update(ctx context.Context, entity *entities.Resource) error
 	Delete(ctx context.Context, id string) error
+
+	// FindAllByTypeFlat returns flat rows from the projection table directly (no JSON-LD).
+	// Used for list views where denormalized columns (including _display) are needed.
+	FindAllByTypeFlat(ctx context.Context, typeSlug, cursor string, limit int, sort SortOptions) (
+		PaginatedResponse[map[string]any], error)
+	// FindAllByTypeFlatWithFilters returns filtered flat rows from the projection table.
+	FindAllByTypeFlatWithFilters(ctx context.Context, typeSlug string, filters []FilterCondition,
+		cursor string, limit int, sort SortOptions) (PaginatedResponse[map[string]any], error)
 }

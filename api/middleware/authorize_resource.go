@@ -19,8 +19,9 @@ import (
 	"net/http"
 	"strings"
 
+	"weos/domain/entities"
+
 	"github.com/akeemphilbert/pericarp/pkg/auth"
-	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	authcasbin "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/casbin"
 	"github.com/labstack/echo/v4"
@@ -28,19 +29,27 @@ import (
 
 // methodToAction maps HTTP methods to ODRL action IRIs.
 var methodToAction = map[string]string{
-	"GET":    authentities.ActionRead,
-	"POST":   authentities.ActionModify,
-	"PUT":    authentities.ActionModify,
-	"PATCH":  authentities.ActionModify,
-	"DELETE": authentities.ActionDelete,
+	"GET":    "http://www.w3.org/ns/odrl/2/read",
+	"POST":   "http://www.w3.org/ns/odrl/2/modify",
+	"PUT":    "http://www.w3.org/ns/odrl/2/modify",
+	"PATCH":  "http://www.w3.org/ns/odrl/2/modify",
+	"DELETE": "http://www.w3.org/ns/odrl/2/delete",
 }
 
-// AuthorizeResource returns Echo middleware that checks Casbin policies
-// for dynamic resource routes (/:typeSlug and /:typeSlug/:id).
-// Non-resource routes (those with a known static prefix) are passed through.
+// AuthorizeResource returns Echo middleware that checks Casbin policies for
+// dynamic resource routes (/:typeSlug and /:typeSlug/:id). Requests without a
+// :typeSlug parameter are passed through (they are static routes).
+//
+// Fail-closed: nil identity returns 401, missing role returns 403, and any
+// Casbin error returns 500. The only exception is unconfigured roles (zero
+// policies) which are allowed through with a logged warning.
+//
+// Middleware order is security-critical: RequireAuth must run first to establish
+// identity, then Impersonation to swap identity if active, then this middleware.
 func AuthorizeResource(
 	checker *authcasbin.CasbinAuthorizationChecker,
 	accountRepo authrepos.AccountRepository,
+	logger entities.Logger,
 ) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -49,14 +58,20 @@ func AuthorizeResource(
 				return next(c)
 			}
 
-			identity := auth.AgentFromCtx(c.Request().Context())
+			ctx := c.Request().Context()
+
+			identity := auth.AgentFromCtx(ctx)
 			if identity == nil {
-				return next(c)
+				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 			}
 
-			role := GetUserRole(c.Request().Context(), accountRepo)
+			role, err := GetUserRole(ctx, accountRepo)
+			if err != nil {
+				logger.Error(ctx, "authorization: failed to resolve role", "error", err)
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+			}
 			if role == "" {
-				return next(c)
+				return c.JSON(http.StatusForbidden, map[string]string{"error": "no role assigned"})
 			}
 
 			// Ensure the user's role is assigned as a Casbin grouping policy
@@ -69,29 +84,39 @@ func AuthorizeResource(
 
 			action, ok := methodToAction[strings.ToUpper(c.Request().Method)]
 			if !ok {
-				return next(c)
+				return c.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			}
 
 			var allowed bool
-			var err error
 			if identity.ActiveAccountID != "" {
 				allowed, err = checker.IsAuthorizedInAccount(
-					c.Request().Context(),
-					identity.AgentID, identity.ActiveAccountID,
+					ctx, identity.AgentID, identity.ActiveAccountID,
 					action, typeSlug,
 				)
 			} else {
 				allowed, err = checker.IsAuthorized(
-					c.Request().Context(),
-					identity.AgentID, action, typeSlug,
+					ctx, identity.AgentID, action, typeSlug,
 				)
 			}
 
-			if err != nil || !allowed {
-				// Default allow for unconfigured roles: if no policies exist for this role
-				// at all (role has no configured access), allow through.
-				perms, _ := checker.GetPermissions(c.Request().Context(), role)
+			if err != nil {
+				logger.Error(ctx, "authorization: casbin check failed",
+					"error", err, "role", role, "action", action, "resource", typeSlug)
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+			}
+
+			if !allowed {
+				// Allow through only if the role has zero configured policies
+				// (unconfigured role — admin has not yet set up access).
+				perms, permErr := checker.GetPermissions(ctx, role)
+				if permErr != nil {
+					logger.Error(ctx, "authorization: failed to check permissions",
+						"error", permErr, "role", role)
+					return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+				}
 				if len(perms) == 0 {
+					logger.Warn(ctx, "authorization: allowing unconfigured role through",
+						"role", role, "action", action, "resource", typeSlug)
 					return next(c)
 				}
 				return c.JSON(http.StatusForbidden, map[string]string{

@@ -79,7 +79,8 @@ func (h *ResourceHandler) Create(c echo.Context) error {
 
 func (h *ResourceHandler) Get(c echo.Context) error {
 	typeSlug := c.Param("typeSlug")
-	if _, err := h.resourceTypeService.GetBySlug(c.Request().Context(), typeSlug); err != nil {
+	rt, err := h.resourceTypeService.GetBySlug(c.Request().Context(), typeSlug)
+	if err != nil {
 		return c.JSON(http.StatusNotFound,
 			map[string]string{"error": "resource type not found"})
 	}
@@ -89,7 +90,7 @@ func (h *ResourceHandler) Get(c echo.Context) error {
 		return c.JSON(http.StatusNotFound,
 			map[string]string{"error": "resource not found"})
 	}
-	return respondWithResourceData(c, http.StatusOK, entity)
+	return respondWithResourceData(c, http.StatusOK, entity, rt.Context())
 }
 
 func (h *ResourceHandler) List(c echo.Context) error {
@@ -100,7 +101,7 @@ func (h *ResourceHandler) List(c echo.Context) error {
 	}
 
 	cursor := c.QueryParam("cursor")
-	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	limit, _ := strconv.Atoi(c.QueryParam("limit")) //nolint:errcheck // defaults to 0, handled below
 	if limit <= 0 {
 		limit = 20
 	}
@@ -108,8 +109,22 @@ func (h *ResourceHandler) List(c echo.Context) error {
 		SortBy:    c.QueryParam("sort_by"),
 		SortOrder: c.QueryParam("sort_order"),
 	}
-
 	filters := parseFilters(c)
+
+	// Support legacy filter_field/filter_value as eq shorthand
+	if ff := c.QueryParam("filter_field"); ff != "" {
+		if fv := c.QueryParam("filter_value"); fv != "" {
+			filters = append(filters, repositories.FilterCondition{
+				Field: ff, Operator: "eq", Value: fv,
+			})
+		}
+	}
+
+	// Use flat projection queries for standard list requests.
+	// Fall back to entity-based queries for JSON-LD requests.
+	if !wantsJSONLD(c) {
+		return h.listFlat(c, typeSlug, filters, cursor, limit, sort)
+	}
 
 	var result repositories.PaginatedResponse[*entities.Resource]
 	var err error
@@ -117,23 +132,16 @@ func (h *ResourceHandler) List(c echo.Context) error {
 		result, err = h.resourceService.ListWithFilters(
 			c.Request().Context(), typeSlug, filters, cursor, limit, sort)
 	} else {
-		result, err = h.resourceService.List(
-			c.Request().Context(), typeSlug, cursor, limit, sort)
+		result, err = h.resourceService.List(c.Request().Context(), typeSlug, cursor, limit, sort)
 	}
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
 	}
 
-	wantsLD := wantsJSONLD(c)
 	items := make([]json.RawMessage, 0, len(result.Data))
 	for _, e := range result.Data {
-		if wantsLD {
-			items = append(items, e.Data())
-		} else {
-			simplified, _ := entities.SimplifyJSONLD(e.Data())
-			items = append(items, simplified)
-		}
+		items = append(items, e.Data())
 	}
 	return c.JSON(http.StatusOK, map[string]any{
 		"data":     items,
@@ -142,45 +150,91 @@ func (h *ResourceHandler) List(c echo.Context) error {
 	})
 }
 
-// parseFilters extracts filter conditions from query parameters.
-// Supports _filter[field][op]=value notation and filter_field/filter_value shorthand.
+// listFlat returns flat projection rows directly for list views.
+func (h *ResourceHandler) listFlat(
+	c echo.Context, typeSlug string, filters []repositories.FilterCondition,
+	cursor string, limit int, sort repositories.SortOptions,
+) error {
+	var result repositories.PaginatedResponse[map[string]any]
+	var err error
+	if len(filters) > 0 {
+		result, err = h.resourceService.ListFlatWithFilters(
+			c.Request().Context(), typeSlug, filters, cursor, limit, sort)
+	} else {
+		result, err = h.resourceService.ListFlat(
+			c.Request().Context(), typeSlug, cursor, limit, sort)
+	}
+	if err != nil {
+		// Fall back to entity-based list if no projection table exists.
+		return h.listEntities(c, typeSlug, filters, cursor, limit, sort)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"data":     result.Data,
+		"cursor":   result.Cursor,
+		"has_more": result.HasMore,
+	})
+}
+
+// listEntities returns entity-based results with simplified JSON-LD.
+func (h *ResourceHandler) listEntities(
+	c echo.Context, typeSlug string, filters []repositories.FilterCondition,
+	cursor string, limit int, sort repositories.SortOptions,
+) error {
+	var result repositories.PaginatedResponse[*entities.Resource]
+	var err error
+	if len(filters) > 0 {
+		result, err = h.resourceService.ListWithFilters(
+			c.Request().Context(), typeSlug, filters, cursor, limit, sort)
+	} else {
+		result, err = h.resourceService.List(c.Request().Context(), typeSlug, cursor, limit, sort)
+	}
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": err.Error()})
+	}
+
+	var ldCtx json.RawMessage
+	if rt, lookupErr := h.resourceTypeService.GetBySlug(c.Request().Context(), typeSlug); lookupErr == nil && rt != nil {
+		ldCtx = rt.Context()
+	}
+	items := make([]json.RawMessage, 0, len(result.Data))
+	for _, e := range result.Data {
+		simplified, simplifyErr := entities.SimplifyJSONLD(e.Data(), ldCtx)
+		if simplifyErr != nil {
+			items = append(items, e.Data())
+			continue
+		}
+		items = append(items, simplified)
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"data":     items,
+		"cursor":   result.Cursor,
+		"has_more": result.HasMore,
+	})
+}
+
+// parseFilters extracts _filter[field][operator]=value query params.
 func parseFilters(c echo.Context) []repositories.FilterCondition {
 	var filters []repositories.FilterCondition
-
-	// Parse _filter[field][op]=value notation.
 	for key, values := range c.QueryParams() {
 		if !strings.HasPrefix(key, "_filter[") || !strings.HasSuffix(key, "]") {
 			continue
 		}
-		// Strip "_filter[" prefix and trailing "]"
-		inner := key[8 : len(key)-1]
-		// Split on "][" to get field and operator
+		// Parse _filter[field][op]
+		inner := key[8 : len(key)-1] // strip "_filter[" and trailing "]"
 		parts := strings.SplitN(inner, "][", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		field := parts[0]
-		op := parts[1]
-		for _, val := range values {
-			filters = append(filters, repositories.FilterCondition{
-				Field:    field,
-				Operator: op,
-				Value:    val,
-			})
+		field, op := parts[0], parts[1]
+		if field == "" || op == "" || len(values) == 0 {
+			continue
 		}
+		filters = append(filters, repositories.FilterCondition{
+			Field: field, Operator: op, Value: values[0],
+		})
 	}
-
-	// Legacy shorthand: filter_field + filter_value → eq filter.
-	if filterField := c.QueryParam("filter_field"); filterField != "" {
-		if filterValue := c.QueryParam("filter_value"); filterValue != "" {
-			filters = append(filters, repositories.FilterCondition{
-				Field:    filterField,
-				Operator: "eq",
-				Value:    filterValue,
-			})
-		}
-	}
-
 	return filters
 }
 
@@ -228,11 +282,13 @@ func wantsJSONLD(c echo.Context) bool {
 	return strings.Contains(accept, "application/ld+json")
 }
 
-func respondWithResourceData(c echo.Context, status int, entity *entities.Resource) error {
+func respondWithResourceData(
+	c echo.Context, status int, entity *entities.Resource, ldCtx json.RawMessage,
+) error {
 	if wantsJSONLD(c) {
 		return c.JSONBlob(status, entity.Data())
 	}
-	simplified, err := entities.SimplifyJSONLD(entity.Data())
+	simplified, err := entities.SimplifyJSONLD(entity.Data(), ldCtx)
 	if err != nil {
 		return c.JSONBlob(status, entity.Data())
 	}

@@ -21,7 +21,7 @@ import (
 
 	apimw "weos/api/middleware"
 	"weos/domain/entities"
-	gormdb "weos/infrastructure/database/gorm"
+	"weos/domain/repositories"
 	"weos/infrastructure/models"
 
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -29,17 +29,23 @@ import (
 )
 
 type RoleSettingsHandler struct {
-	repo        *gormdb.RoleSettingsRepository
+	repo        repositories.RoleSettingsRepository
 	accountRepo authrepos.AccountRepository
 	logger      entities.Logger
 }
 
-func NewRoleSettingsHandler(
-	repo *gormdb.RoleSettingsRepository,
-	accountRepo authrepos.AccountRepository,
-	logger entities.Logger,
-) *RoleSettingsHandler {
-	return &RoleSettingsHandler{repo: repo, accountRepo: accountRepo, logger: logger}
+type RoleSettingsHandlerConfig struct {
+	Repo        repositories.RoleSettingsRepository
+	AccountRepo authrepos.AccountRepository
+	Logger      entities.Logger
+}
+
+func NewRoleSettingsHandler(cfg RoleSettingsHandlerConfig) *RoleSettingsHandler {
+	return &RoleSettingsHandler{
+		repo:        cfg.Repo,
+		accountRepo: cfg.AccountRepo,
+		logger:      cfg.Logger,
+	}
 }
 
 type roleSettingsResponse struct {
@@ -52,6 +58,16 @@ type roleSettingsRequest struct {
 
 func (h *RoleSettingsHandler) Get(c echo.Context) error {
 	ctx := c.Request().Context()
+
+	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
+	if err != nil {
+		h.logger.Error(ctx, "failed to check admin status", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+	}
+	if !isAdmin {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+	}
+
 	roles, err := h.repo.GetRoleNames(ctx)
 	if err != nil {
 		h.logger.Error(ctx, "failed to load role settings", "error", err)
@@ -64,7 +80,12 @@ func (h *RoleSettingsHandler) Get(c echo.Context) error {
 func (h *RoleSettingsHandler) Save(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	if !apimw.IsAdmin(ctx, h.accountRepo) {
+	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
+	if err != nil {
+		h.logger.Error(ctx, "failed to check admin status", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+	}
+	if !isAdmin {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
 	}
 

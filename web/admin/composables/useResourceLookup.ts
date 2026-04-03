@@ -35,7 +35,8 @@ export function useResourceLookup() {
       }
       cache.set(typeSlug, map)
       version.value++
-    } catch {
+    } catch (err) {
+      console.warn(`[useResourceLookup] failed to fully load type "${typeSlug}":`, err)
       if (map.size > 0) {
         cache.set(typeSlug, map)
         version.value++

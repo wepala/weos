@@ -20,7 +20,9 @@ func subscribeEventHandlers(params struct {
 	OrgRepo      repositories.OrganizationRepository
 	RTRepo       repositories.ResourceTypeRepository
 	ResourceRepo repositories.ResourceRepository
+	TripleRepo   repositories.TripleRepository
 	ProjMgr      repositories.ProjectionManager
+	TripleSvc    TripleService
 	Logger       entities.Logger
 }) error {
 	if err := subscribePersonHandlers(
@@ -47,6 +49,13 @@ func subscribeEventHandlers(params struct {
 		params.Dispatcher, params.ResourceRepo, params.Logger,
 	); err != nil {
 		return fmt.Errorf("resource handlers: %w", err)
+	}
+	// Triple handlers must run AFTER resource handlers so projections exist before triples sync.
+	if err := subscribeTripleHandlers(
+		params.Dispatcher, params.TripleRepo, params.TripleSvc,
+		params.ResourceRepo, params.RTRepo, params.ProjMgr, params.Logger,
+	); err != nil {
+		return fmt.Errorf("triple handlers: %w", err)
 	}
 	return nil
 }
@@ -193,7 +202,7 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Save(ctx, entity); err != nil {
 				return err
 			}
-			if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema); err != nil {
+			if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
 				logger.Error(ctx, "failed to create projection table",
 					"slug", p.Slug, "error", err)
 			}
@@ -220,7 +229,7 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Update(ctx, existing); err != nil {
 				return err
 			}
-			if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema); err != nil {
+			if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
 				logger.Error(ctx, "failed to update projection table",
 					"slug", p.Slug, "error", err)
 			}

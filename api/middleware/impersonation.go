@@ -16,6 +16,8 @@
 package middleware
 
 import (
+	"weos/domain/entities"
+
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/gorilla/sessions"
@@ -27,17 +29,17 @@ const (
 	KeyImpersonatedAgentID   = "impersonated_agent_id"
 	KeyRealAgentID           = "real_agent_id"
 	KeyRealAccountID         = "real_account_id"
-	KeyStartedAt             = "started_at"
 )
 
 // Impersonation returns Echo middleware that checks for an active impersonation
 // session and, if present, replaces the auth.Identity in the request context
 // with the impersonated user's identity (including their account).
-func Impersonation(store sessions.Store, accountRepo authrepos.AccountRepository) echo.MiddlewareFunc {
+func Impersonation(store sessions.Store, accountRepo authrepos.AccountRepository, logger entities.Logger) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			sess, err := store.Get(c.Request(), ImpersonationSessionName)
 			if err != nil {
+				logger.Warn(c.Request().Context(), "impersonation session read error, passing through", "error", err)
 				return next(c)
 			}
 
@@ -74,7 +76,6 @@ func Impersonation(store sessions.Store, accountRepo authrepos.AccountRepository
 			c.SetRequest(c.Request().WithContext(ctx))
 
 			c.Response().Header().Set("X-Impersonating", impersonatedAgentID)
-			c.Response().Header().Set("X-Real-Agent", realAgentID)
 
 			return next(c)
 		}

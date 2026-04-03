@@ -26,7 +26,8 @@ import (
 type ProjectionManager interface {
 	// EnsureTable creates or updates a projection table for a resource type.
 	// Idempotent: creates table if missing, adds new columns if schema changed.
-	EnsureTable(ctx context.Context, slug string, schema json.RawMessage) error
+	// Also caches the JSON-LD context for use by ExtractFlatColumns.
+	EnsureTable(ctx context.Context, slug string, schema, ldContext json.RawMessage) error
 
 	// HasProjectionTable reports whether a projection table exists for the slug.
 	HasProjectionTable(slug string) bool
@@ -34,7 +35,30 @@ type ProjectionManager interface {
 	// TableName returns the SQL table name for a given resource type slug.
 	TableName(slug string) string
 
+	// Context returns the cached JSON-LD context for a resource type slug.
+	Context(slug string) json.RawMessage
+
 	// EnsureExistingTables creates projection tables for all existing resource types.
 	// Called at startup.
 	EnsureExistingTables(ctx context.Context) error
+
+	// UpdateColumn updates a single column value in a projection table row.
+	// Used by triple-to-projection sync to populate FK columns from triple events.
+	UpdateColumn(ctx context.Context, typeSlug, resourceID, column string, value any) error
+
+	// UpdateColumnByFK updates a target column for all rows where a FK column matches a value.
+	// Used to propagate display value changes when a referenced entity is updated.
+	UpdateColumnByFK(ctx context.Context, typeSlug, fkColumn, fkValue, targetColumn string, targetValue any) error
+
+	// ReverseReferences returns the list of resource types that reference a given target type.
+	// Each entry describes a FK column and its corresponding display column.
+	ReverseReferences(targetTypeSlug string) []ReverseReference
+}
+
+// ReverseReference describes a resource type that references another via a FK column.
+type ReverseReference struct {
+	TypeSlug        string // the resource type that holds the FK
+	FKColumn        string // e.g. "course_id"
+	DisplayColumn   string // e.g. "course_id_display"
+	DisplayProperty string // e.g. "name" — which property on the target to denormalize
 }

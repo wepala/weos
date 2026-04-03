@@ -7,6 +7,7 @@ import (
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
+	"weos/pkg/identity"
 
 	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
@@ -19,9 +20,16 @@ type ResourceService interface {
 	GetByID(ctx context.Context, id string) (*entities.Resource, error)
 	List(ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions) (
 		repositories.PaginatedResponse[*entities.Resource], error)
+	ListFlat(ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions) (
+		repositories.PaginatedResponse[map[string]any], error)
+	ListByField(ctx context.Context, typeSlug, fieldName, fieldValue string) (
+		repositories.PaginatedResponse[*entities.Resource], error)
 	ListWithFilters(ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
 		cursor string, limit int, sort repositories.SortOptions) (
 		repositories.PaginatedResponse[*entities.Resource], error)
+	ListFlatWithFilters(ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
+		cursor string, limit int, sort repositories.SortOptions) (
+		repositories.PaginatedResponse[map[string]any], error)
 	Update(ctx context.Context, cmd UpdateResourceCommand) (*entities.Resource, error)
 	Delete(ctx context.Context, cmd DeleteResourceCommand) error
 }
@@ -32,6 +40,14 @@ type resourceService struct {
 	eventStore domain.EventStore
 	dispatcher *domain.EventDispatcher
 	logger     entities.Logger
+	behaviors  ResourceBehaviorRegistry
+}
+
+func (s *resourceService) behaviorFor(slug string) entities.ResourceBehavior {
+	if b, ok := s.behaviors[slug]; ok {
+		return b
+	}
+	return entities.DefaultBehavior{}
 }
 
 func ProvideResourceService(params struct {
@@ -41,6 +57,7 @@ func ProvideResourceService(params struct {
 	EventStore domain.EventStore
 	Dispatcher *domain.EventDispatcher
 	Logger     entities.Logger
+	Behaviors  ResourceBehaviorRegistry
 }) ResourceService {
 	return &resourceService{
 		repo:       params.Repo,
@@ -48,6 +65,7 @@ func ProvideResourceService(params struct {
 		eventStore: params.EventStore,
 		dispatcher: params.Dispatcher,
 		logger:     params.Logger,
+		behaviors:  params.Behaviors,
 	}
 }
 
@@ -59,13 +77,31 @@ func (s *resourceService) Create(
 		return nil, fmt.Errorf("resource type %q not found: %w", cmd.TypeSlug, err)
 	}
 
-	if err := validateAgainstSchema(rt.Schema(), cmd.Data); err != nil {
+	behavior := s.behaviorFor(cmd.TypeSlug)
+
+	data, err := behavior.BeforeCreate(ctx, cmd.Data, rt)
+	if err != nil {
+		return nil, fmt.Errorf("behavior BeforeCreate rejected: %w", err)
+	}
+
+	if err := validateAgainstSchema(rt.Schema(), data); err != nil {
 		return nil, fmt.Errorf("schema validation failed: %w", err)
 	}
 
-	entity, err := new(entities.Resource).With(cmd.TypeSlug, cmd.Data, rt.Context(), rt.Name())
+	entityID := identity.NewResource(cmd.TypeSlug)
+	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
+	graphData, err := BuildResourceGraph(data, refProps, entityID, rt.Name(), rt.Context())
+	if err != nil {
+		return nil, fmt.Errorf("failed to build resource graph: %w", err)
+	}
+
+	entity, err := new(entities.Resource).With(entityID, cmd.TypeSlug, graphData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	if err := behavior.BeforeCreateCommit(ctx, entity); err != nil {
+		return nil, fmt.Errorf("behavior BeforeCreateCommit rejected: %w", err)
 	}
 
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
@@ -74,6 +110,10 @@ func (s *resourceService) Create(
 	}
 	if err := uow.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit resource: %w", err)
+	}
+
+	if err := behavior.AfterCreate(ctx, entity); err != nil {
+		s.logger.Error(ctx, "behavior AfterCreate failed", "id", entity.GetID(), "error", err)
 	}
 
 	s.logger.Info(ctx, "resource created", "id", entity.GetID(), "type", cmd.TypeSlug)
@@ -90,6 +130,32 @@ func (s *resourceService) List(
 	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	return s.repo.FindAllByType(ctx, typeSlug, cursor, limit, sort)
+}
+
+func (s *resourceService) ListByField(
+	ctx context.Context, typeSlug, fieldName, fieldValue string,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	items, err := s.repo.FindAllByTypeAndField(ctx, typeSlug, fieldName, fieldValue)
+	if err != nil {
+		return repositories.PaginatedResponse[*entities.Resource]{}, err
+	}
+	return repositories.PaginatedResponse[*entities.Resource]{
+		Data:    items,
+		HasMore: false,
+	}, nil
+}
+
+func (s *resourceService) ListFlat(
+	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
+) (repositories.PaginatedResponse[map[string]any], error) {
+	return s.repo.FindAllByTypeFlat(ctx, typeSlug, cursor, limit, sort)
+}
+
+func (s *resourceService) ListFlatWithFilters(
+	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
+	cursor string, limit int, sort repositories.SortOptions,
+) (repositories.PaginatedResponse[map[string]any], error) {
+	return s.repo.FindAllByTypeFlatWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
 }
 
 func (s *resourceService) ListWithFilters(
@@ -112,17 +178,29 @@ func (s *resourceService) Update(
 		return nil, fmt.Errorf("resource type %q not found: %w", entity.TypeSlug(), err)
 	}
 
-	if err := validateAgainstSchema(rt.Schema(), cmd.Data); err != nil {
+	behavior := s.behaviorFor(entity.TypeSlug())
+
+	data, err := behavior.BeforeUpdate(ctx, entity, cmd.Data, rt)
+	if err != nil {
+		return nil, fmt.Errorf("behavior BeforeUpdate rejected: %w", err)
+	}
+
+	if err := validateAgainstSchema(rt.Schema(), data); err != nil {
 		return nil, fmt.Errorf("schema validation failed: %w", err)
 	}
 
-	enriched, err := entities.InjectJSONLDForUpdate(cmd.Data, entity.GetID(), rt.Name(), rt.Context())
+	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
+	graphData, err := BuildResourceGraph(data, refProps, entity.GetID(), rt.Name(), rt.Context())
 	if err != nil {
-		return nil, fmt.Errorf("failed to inject JSON-LD fields: %w", err)
+		return nil, fmt.Errorf("failed to build resource graph: %w", err)
 	}
 
-	if err := entity.Update(enriched); err != nil {
+	if err := entity.Update(graphData); err != nil {
 		return nil, fmt.Errorf("failed to update resource: %w", err)
+	}
+
+	if err := behavior.BeforeUpdateCommit(ctx, entity); err != nil {
+		return nil, fmt.Errorf("behavior BeforeUpdateCommit rejected: %w", err)
 	}
 
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
@@ -133,10 +211,15 @@ func (s *resourceService) Update(
 		return nil, fmt.Errorf("failed to commit resource update: %w", err)
 	}
 
+	if err := behavior.AfterUpdate(ctx, entity); err != nil {
+		s.logger.Error(ctx, "behavior AfterUpdate failed", "id", entity.GetID(), "error", err)
+	}
+
 	s.logger.Info(ctx, "resource updated", "id", entity.GetID())
 	return entity, nil
 }
 
+//nolint:dupl // entity-specific delete with domain-specific error messages
 func (s *resourceService) Delete(
 	ctx context.Context, cmd DeleteResourceCommand,
 ) error {
@@ -144,6 +227,13 @@ func (s *resourceService) Delete(
 	if err != nil {
 		return err
 	}
+
+	behavior := s.behaviorFor(entity.TypeSlug())
+
+	if err := behavior.BeforeDelete(ctx, entity); err != nil {
+		return fmt.Errorf("behavior BeforeDelete rejected: %w", err)
+	}
+
 	if err := entity.MarkDeleted(); err != nil {
 		return fmt.Errorf("failed to mark resource deleted: %w", err)
 	}
@@ -154,6 +244,10 @@ func (s *resourceService) Delete(
 	}
 	if err := uow.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit resource deletion: %w", err)
+	}
+
+	if err := behavior.AfterDelete(ctx, entity); err != nil {
+		s.logger.Error(ctx, "behavior AfterDelete failed", "id", entity.GetID(), "error", err)
 	}
 
 	s.logger.Info(ctx, "resource deleted", "id", cmd.ID)

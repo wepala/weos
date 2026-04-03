@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"weos/pkg/identity"
+	"weos/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/ddd"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
@@ -38,26 +38,26 @@ type Resource struct {
 }
 
 func (e *Resource) With(
-	typeSlug string, data, ldContext json.RawMessage, typeName string,
+	id, typeSlug string, graphData json.RawMessage,
 ) (*Resource, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id cannot be empty")
+	}
 	if typeSlug == "" {
 		return nil, fmt.Errorf("type slug cannot be empty")
 	}
-	if len(data) == 0 {
+	if len(graphData) == 0 {
 		return nil, fmt.Errorf("data cannot be empty")
 	}
+	if !json.Valid(graphData) {
+		return nil, fmt.Errorf("data must be valid JSON")
+	}
 
-	entityID := identity.NewResource(typeSlug)
-	e.BaseEntity = ddd.NewBaseEntity(entityID)
+	e.BaseEntity = ddd.NewBaseEntity(id)
 	e.typeSlug = typeSlug
 	e.status = "active"
 	e.createdAt = time.Now()
-
-	enriched, err := injectJSONLD(data, entityID, typeName, ldContext)
-	if err != nil {
-		return nil, fmt.Errorf("failed to inject JSON-LD fields: %w", err)
-	}
-	e.data = enriched
+	e.data = graphData
 
 	event := new(ResourceCreated).With(typeSlug, e.data)
 	if err := e.BaseEntity.RecordEvent(event, event.EventType()); err != nil {
@@ -152,20 +152,67 @@ func InjectJSONLDForUpdate(
 }
 
 // SimplifyJSONLD converts JSON-LD data to plain JSON by mapping @id→id, @type→type,
-// and removing @context.
-func SimplifyJSONLD(data json.RawMessage) (json.RawMessage, error) {
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
+// and removing @context. Supports both @graph format and legacy flat format.
+// For @graph: merges entity node and edge values into a single flat object.
+func SimplifyJSONLD(data, ldContext json.RawMessage) (json.RawMessage, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
 		return data, err
 	}
-	if v, ok := m["@id"]; ok {
-		m["id"] = v
-		delete(m, "@id")
+
+	// Handle @graph format.
+	if graphArr, ok := doc["@graph"].([]any); ok && len(graphArr) > 0 {
+		result := make(map[string]any)
+
+		// Extract intrinsic properties from entity node.
+		if entityNode, ok := graphArr[0].(map[string]any); ok {
+			for k, v := range entityNode {
+				switch k {
+				case "@id":
+					result["id"] = v
+				case "@type":
+					result["type"] = v
+				case "@context":
+					// skip
+				default:
+					result[k] = v
+				}
+			}
+		}
+
+		// Merge edge values from edges node.
+		if len(graphArr) > 1 {
+			if edgesNode, ok := graphArr[1].(map[string]any); ok {
+				// Parse @context for reverse IRI→property lookup.
+				reverseMap := jsonld.BuildReverseMap(ldContext)
+				for key, val := range edgesNode {
+					if key == "@id" {
+						continue
+					}
+					// Unwrap {"@id": "..."} values.
+					if ref, ok := val.(map[string]any); ok {
+						if id, ok := ref["@id"].(string); ok {
+							if propName, ok := reverseMap[key]; ok {
+								result[propName] = id
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return json.Marshal(result)
 	}
-	if v, ok := m["@type"]; ok {
-		m["type"] = v
-		delete(m, "@type")
+
+	// Legacy flat format.
+	if v, ok := doc["@id"]; ok {
+		doc["id"] = v
+		delete(doc, "@id")
 	}
-	delete(m, "@context")
-	return json.Marshal(m)
+	if v, ok := doc["@type"]; ok {
+		doc["type"] = v
+		delete(doc, "@type")
+	}
+	delete(doc, "@context")
+	return json.Marshal(doc)
 }

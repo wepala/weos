@@ -102,10 +102,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// Sync role-access policies from the config table into Casbin.
-	if accessMap, err := roleAccessRepo.GetAccessMap(context.Background()); err == nil {
-		handlers.SyncAccessMapToCasbin(authzChecker, accessMap, nil)
+	accessMap, accessMapErr := roleAccessRepo.GetAccessMap(context.Background())
+	if accessMapErr != nil {
+		logger.Warn(context.Background(), "failed to load role access map at startup, RBAC policies may be incomplete", "error", accessMapErr)
+	} else {
+		if syncErr := application.SyncAccessMapToCasbin(authzChecker, accessMap, nil); syncErr != nil {
+			logger.Warn(context.Background(), "casbin policy sync errors at startup", "error", syncErr)
+		}
 	}
-	handlers.SeedAdminPolicies(authzChecker)
+	if seedErr := application.SeedAdminPolicies(authzChecker); seedErr != nil {
+		logger.Warn(context.Background(), "failed to seed admin policies at startup", "error", seedErr)
+	}
 
 	e := echo.New()
 	e.HideBanner = true
@@ -147,8 +154,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected := api.Group("")
 	if appCfg.OAuthEnabled() {
 		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
-		protected.Use(apimw.Impersonation(sessionStore, accountRepo))
-		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo))
+		protected.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 	}
 
 	personHandler := handlers.NewPersonHandler(personService)
@@ -166,7 +173,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.DELETE("/organizations/:id", orgHandler.Delete)
 	protected.GET("/organizations/:id/members", orgHandler.Members)
 
-	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService, authzChecker, accountRepo)
+	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService, authzChecker, accountRepo, logger)
 	protected.POST("/resource-types", rtHandler.Create)
 	protected.GET("/resource-types", rtHandler.List)
 	protected.GET("/resource-types/:id", rtHandler.Get)
@@ -181,7 +188,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.GET("/settings/sidebar", sidebarSettingsHandler.Get)
 	protected.PUT("/settings/sidebar", sidebarSettingsHandler.Save)
 
-	roleSettingsHandler := handlers.NewRoleSettingsHandler(roleSettingsRepo, accountRepo, logger)
+	roleSettingsHandler := handlers.NewRoleSettingsHandler(handlers.RoleSettingsHandlerConfig{
+		Repo:        roleSettingsRepo,
+		AccountRepo: accountRepo,
+		Logger:      logger,
+	})
 	protected.GET("/settings/roles", roleSettingsHandler.Get)
 	protected.PUT("/settings/roles", roleSettingsHandler.Save)
 

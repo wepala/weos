@@ -81,6 +81,7 @@ func ProvideGormDB(params struct {
 		&weosmodels.SidebarSettings{},
 		&weosmodels.RoleSettings{},
 		&weosmodels.RoleResourceAccess{},
+		&weosmodels.Triple{},
 	}
 	if err := db.AutoMigrate(models...); err != nil {
 		return GormDBResult{}, fmt.Errorf("failed to run auto migrate: %w", err)

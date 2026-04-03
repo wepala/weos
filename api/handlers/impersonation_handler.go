@@ -18,7 +18,6 @@ package handlers
 import (
 	"context"
 	"net/http"
-	"time"
 
 	apimw "weos/api/middleware"
 	"weos/domain/entities"
@@ -81,12 +80,20 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 	// The impersonation middleware may have already swapped the identity.
 	// Read the real admin ID from the impersonation cookie if one exists.
 	adminAgentID := identity.AgentID
-	sess, _ := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
+	sess, sessErr := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
+	if sessErr != nil {
+		h.logger.Warn(ctx, "failed to read impersonation session", "error", sessErr)
+	}
 	if realID, ok := sess.Values[apimw.KeyRealAgentID].(string); ok && realID != "" {
 		adminAgentID = realID
 	}
 
-	if !apimw.IsAdmin(ctx, h.accountRepo) {
+	isAdmin, adminErr := apimw.IsAdmin(ctx, h.accountRepo)
+	if adminErr != nil {
+		h.logger.Error(ctx, "failed to check admin status", "error", adminErr)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+	}
+	if !isAdmin {
 		// Re-check with the real admin identity if impersonation is active.
 		if adminAgentID != identity.AgentID {
 			origIdentity := &auth.Identity{
@@ -95,7 +102,12 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 				ActiveAccountID: identity.ActiveAccountID,
 			}
 			adminCtx := auth.ContextWithAgent(ctx, origIdentity)
-			if !apimw.IsAdmin(adminCtx, h.accountRepo) {
+			isAdmin, adminErr = apimw.IsAdmin(adminCtx, h.accountRepo)
+			if adminErr != nil {
+				h.logger.Error(ctx, "failed to re-check admin status", "error", adminErr)
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+			}
+			if !isAdmin {
 				return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
 			}
 		} else {
@@ -119,12 +131,12 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 		MaxAge:   impersonationMaxAge,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	}
 	sess.Values[apimw.KeyImpersonatedAgentID] = req.AgentID
 	sess.Values[apimw.KeyRealAgentID] = adminAgentID
 	sess.Values[apimw.KeyRealAccountID] = identity.ActiveAccountID
-	sess.Values[apimw.KeyStartedAt] = time.Now().Unix()
 
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create impersonation session"})
@@ -160,6 +172,7 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 		MaxAge:   -1,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	}
 	for key := range sess.Values {
@@ -208,12 +221,18 @@ func (h *ImpersonationHandler) Status(c echo.Context) error {
 func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
-		sess, _ := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
+		sess, sessErr := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
+		if sessErr != nil {
+			h.logger.Warn(ctx, "failed to read impersonation session in Me", "error", sessErr)
+		}
 		impersonatedAgentID, ok := sess.Values[apimw.KeyImpersonatedAgentID].(string)
 		if !ok || impersonatedAgentID == "" {
 			// No impersonation — delegate to pericarp's Me, then look up role.
 			// Try to get agentID from the auth session cookie for role lookup.
-			authSess, _ := h.store.Get(c.Request(), "weos-session")
+			authSess, authSessErr := h.store.Get(c.Request(), "weos-session")
+			if authSessErr != nil {
+				h.logger.Warn(ctx, "failed to read auth session in Me", "error", authSessErr)
+			}
 			agentID, _ := authSess.Values["agent_id"].(string)
 			accountID, _ := authSess.Values["account_id"].(string)
 			if agentID == "" {
@@ -262,12 +281,19 @@ func (h *ImpersonationHandler) resolveAgentInfo(ctx context.Context, agentID str
 		return "", ""
 	}
 	agent, err := h.agentRepo.FindByID(ctx, agentID)
-	if err != nil || agent == nil {
+	if err != nil {
+		h.logger.Warn(ctx, "failed to find agent for impersonation info", "agent_id", agentID, "error", err)
+		return "", ""
+	}
+	if agent == nil {
 		return "", ""
 	}
 	name := agent.Name()
 	email := ""
-	creds, _ := h.credRepo.FindByAgent(ctx, agentID)
+	creds, credErr := h.credRepo.FindByAgent(ctx, agentID)
+	if credErr != nil {
+		h.logger.Warn(ctx, "failed to load credentials for agent", "agent_id", agentID, "error", credErr)
+	}
 	if len(creds) > 0 {
 		email = creds[0].Email()
 		if name == "" {

@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 
+	"weos/domain/entities"
 	"weos/domain/repositories"
 	"weos/infrastructure/database/gorm"
 	"weos/infrastructure/events"
@@ -11,6 +12,7 @@ import (
 
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/gorilla/sessions"
 	"go.uber.org/fx"
 	gormdb "gorm.io/gorm"
@@ -35,8 +37,23 @@ func Module(cfg config.Config) fx.Option {
 		// Database providers
 		fx.Provide(gorm.ProvideGormDB),
 
-		// Event store provider
+		// Event store provider (with optional BigQuery dual-write)
 		fx.Provide(gorm.ProvideEventStore),
+		fx.Decorate(func(lc fx.Lifecycle, primary domain.EventStore, cfg config.Config, logger entities.Logger) domain.EventStore {
+			if cfg.BigQueryProjectID == "" {
+				return primary
+			}
+			bqStore, err := events.ProvideBigQueryEventStore(cfg)
+			if err != nil || bqStore == nil {
+				logger.Error(context.Background(), "failed to create BigQuery event store, using primary only",
+					"error", err)
+				return primary
+			}
+			lc.Append(fx.Hook{OnStop: func(_ context.Context) error { return bqStore.Close() }})
+			logger.Info(context.Background(), "BigQuery dual-write enabled",
+				"project", cfg.BigQueryProjectID, "dataset", cfg.BigQueryDatasetID)
+			return events.NewDualWriteEventStore(primary, bqStore)
+		}),
 
 		// Session store provider (for pericarp auth integration)
 		fx.Provide(func(cfg config.Config) sessions.Store {
@@ -52,6 +69,7 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(gorm.ProvideSidebarSettingsRepository),
 		fx.Provide(gorm.ProvideRoleSettingsRepository),
 		fx.Provide(gorm.ProvideRoleResourceAccessRepository),
+		fx.Provide(gorm.ProvideTripleRepository),
 
 		// Auth repositories (from pericarp)
 		fx.Provide(func(db *gormdb.DB) authrepos.AgentRepository { return authgorm.NewAgentRepository(db) }),
@@ -67,11 +85,15 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(ProvideAuthenticationService),
 		fx.Provide(ProvideSessionManager),
 
+		// Resource behavior registry (must come before ProvideResourceService)
+		fx.Provide(ProvideResourceBehaviorRegistry),
+
 		// Service providers
 		fx.Provide(ProvidePersonService),
 		fx.Provide(ProvideOrganizationService),
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
+		fx.Provide(ProvideTripleService),
 
 		// Subscribe event handlers (projections)
 		fx.Invoke(subscribeEventHandlers),

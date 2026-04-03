@@ -18,6 +18,7 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"weos/infrastructure/models"
 
@@ -26,6 +27,10 @@ import (
 
 var defaultRoles = []string{"admin", "instructor"}
 
+// RoleSettingsRepository manages the singleton role names configuration.
+// This is a system-wide configuration setting, not a domain entity. It intentionally
+// bypasses event sourcing / UnitOfWork because it is a single config row (ID=1) with
+// infrequent administrative changes.
 type RoleSettingsRepository struct {
 	db *gorm.DB
 }
@@ -43,6 +48,9 @@ func (r *RoleSettingsRepository) Get(ctx context.Context) (*models.RoleSettings,
 	if settings.Roles == "" {
 		raw, _ := json.Marshal(defaultRoles)
 		settings.Roles = string(raw)
+		// Best-effort: persist defaults for next request. Failure is non-critical
+		// because defaults are applied in-memory and the row will be created on
+		// next write. Callers should log when settings operations fail.
 		_ = r.db.WithContext(ctx).Save(&settings).Error
 	}
 	return &settings, nil
@@ -60,7 +68,7 @@ func (r *RoleSettingsRepository) GetRoleNames(ctx context.Context) ([]string, er
 	}
 	var roles []string
 	if err := json.Unmarshal([]byte(settings.Roles), &roles); err != nil {
-		return defaultRoles, nil
+		return nil, fmt.Errorf("failed to unmarshal role names: %w", err)
 	}
 	return roles, nil
 }

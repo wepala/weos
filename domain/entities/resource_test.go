@@ -18,7 +18,6 @@ package entities
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,25 +30,23 @@ func TestResource_With(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		id        string
 		typeSlug  string
 		data      json.RawMessage
-		ldCtx     json.RawMessage
-		typeName  string
 		wantErr   bool
 		errSubstr string
 		validate  func(*testing.T, *Resource)
 	}{
 		{
-			name:     "happy path - valid resource with JSON-LD injection",
+			name:     "happy path - valid resource with graph data",
+			id:       "urn:products:abc123",
 			typeSlug: "products",
-			data:     json.RawMessage(`{"name":"Widget"}`),
-			ldCtx:    json.RawMessage(`"https://schema.org"`),
-			typeName: "Product",
+			data:     json.RawMessage(`{"@graph":[{"@id":"urn:products:abc123","@type":"Product","name":"Widget"}]}`),
 			wantErr:  false,
 			validate: func(t *testing.T, e *Resource) {
 				t.Helper()
-				if !strings.HasPrefix(e.GetID(), "urn:products:") {
-					t.Fatalf("got id %q, want prefix %q", e.GetID(), "urn:products:")
+				if e.GetID() != "urn:products:abc123" {
+					t.Fatalf("got id %q, want %q", e.GetID(), "urn:products:abc123")
 				}
 				if e.TypeSlug() != "products" {
 					t.Fatalf("got typeSlug %q", e.TypeSlug())
@@ -57,45 +54,19 @@ func TestResource_With(t *testing.T) {
 				if e.Status() != "active" {
 					t.Fatalf("got status %q", e.Status())
 				}
-
-				var m map[string]any
-				if err := json.Unmarshal(e.Data(), &m); err != nil {
-					t.Fatalf("failed to unmarshal data: %v", err)
-				}
-				if m["@id"] != e.GetID() {
-					t.Fatalf("@id = %v, want %s", m["@id"], e.GetID())
-				}
-				if m["@type"] != "Product" {
-					t.Fatalf("@type = %v, want Product", m["@type"])
-				}
-				if m["@context"] != "https://schema.org" {
-					t.Fatalf("@context = %v, want https://schema.org", m["@context"])
-				}
-				if m["name"] != "Widget" {
-					t.Fatalf("name = %v, want Widget", m["name"])
-				}
 			},
 		},
 		{
-			name:     "valid without context",
-			typeSlug: "events",
-			data:     json.RawMessage(`{"title":"Meetup"}`),
-			ldCtx:    nil,
-			typeName: "Event",
-			wantErr:  false,
-			validate: func(t *testing.T, e *Resource) {
-				t.Helper()
-				var m map[string]any
-				if err := json.Unmarshal(e.Data(), &m); err != nil {
-					t.Fatalf("failed to unmarshal data: %v", err)
-				}
-				if _, ok := m["@context"]; ok {
-					t.Fatal("expected no @context when ldCtx is nil")
-				}
-			},
+			name:      "invalid - empty id",
+			id:        "",
+			typeSlug:  "products",
+			data:      json.RawMessage(`{"name":"Widget"}`),
+			wantErr:   true,
+			errSubstr: "id cannot be empty",
 		},
 		{
 			name:      "invalid - empty type slug",
+			id:        "urn:products:abc",
 			typeSlug:  "",
 			data:      json.RawMessage(`{"name":"Widget"}`),
 			wantErr:   true,
@@ -103,17 +74,19 @@ func TestResource_With(t *testing.T) {
 		},
 		{
 			name:      "invalid - empty data",
+			id:        "urn:products:abc",
 			typeSlug:  "products",
 			data:      nil,
 			wantErr:   true,
 			errSubstr: "data cannot be empty",
 		},
 		{
-			name:      "invalid - non-object data",
+			name:      "invalid - non-valid JSON",
+			id:        "urn:products:abc",
 			typeSlug:  "products",
-			data:      json.RawMessage(`"just a string"`),
+			data:      json.RawMessage(`not json`),
 			wantErr:   true,
-			errSubstr: "data must be a JSON object",
+			errSubstr: "data must be valid JSON",
 		},
 	}
 
@@ -121,7 +94,7 @@ func TestResource_With(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			entity, err := new(Resource).With(tt.typeSlug, tt.data, tt.ldCtx, tt.typeName)
+			entity, err := new(Resource).With(tt.id, tt.typeSlug, tt.data)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -297,7 +270,7 @@ func TestSimplifyJSONLD(t *testing.T) {
 	t.Parallel()
 
 	input := json.RawMessage(`{"@id":"urn:products:abc","@type":"Product","@context":"https://schema.org","name":"Widget"}`)
-	result, err := SimplifyJSONLD(input)
+	result, err := SimplifyJSONLD(input, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

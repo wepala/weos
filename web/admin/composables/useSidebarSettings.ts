@@ -23,7 +23,8 @@ export function useSidebarSettings() {
       const data = await getGlobalSettings()
       hiddenSlugs.value = data.hidden_slugs || []
       menuGroups.value = data.menu_groups || {}
-    } catch {
+    } catch (err) {
+      console.error('[useSidebarSettings] loadSettings failed:', err)
       hiddenSlugs.value = []
       menuGroups.value = {}
     }
