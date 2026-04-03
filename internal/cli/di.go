@@ -30,8 +30,6 @@ import (
 
 // Dependencies holds all the dependencies needed by CLI commands.
 type Dependencies struct {
-	PersonService       application.PersonService
-	OrganizationService application.OrganizationService
 	ResourceTypeService application.ResourceTypeService
 	ResourceService     application.ResourceService
 	App                 *fx.App
@@ -64,21 +62,15 @@ func StartContainerWithDSN(dsn string) (*Dependencies, error) {
 }
 
 func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
-	var personService application.PersonService
-	var organizationService application.OrganizationService
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 
 	app := fx.New(
 		application.Module(appCfg),
 		fx.Invoke(func(
-			prs application.PersonService,
-			os application.OrganizationService,
 			rts application.ResourceTypeService,
 			rs application.ResourceService,
 		) {
-			personService = prs
-			organizationService = os
 			resourceTypeService = rts
 			resourceService = rs
 		}),
@@ -102,8 +94,6 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 	}
 
 	return &Dependencies{
-		PersonService:       personService,
-		OrganizationService: organizationService,
 		ResourceTypeService: resourceTypeService,
 		ResourceService:     resourceService,
 		App:                 app,

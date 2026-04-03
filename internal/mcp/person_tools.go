@@ -2,10 +2,12 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"weos/application"
 	"weos/domain/entities"
+	"weos/domain/repositories"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -55,27 +57,29 @@ type ListPersonsOutput struct {
 	HasMore bool           `json:"has_more"`
 }
 
-func toPersonOutput(e *entities.Person) PersonOutput {
+func toPersonOutput(r *entities.Resource) PersonOutput {
+	fields, _ := application.ExtractResourceFields(r)
 	return PersonOutput{
-		ID:         e.GetID(),
-		GivenName:  e.GivenName(),
-		FamilyName: e.FamilyName(),
-		Name:       e.Name(),
-		Email:      e.Email(),
-		AvatarURL:  e.AvatarURL(),
-		Status:     e.Status(),
-		CreatedAt:  e.CreatedAt(),
+		ID:         r.GetID(),
+		GivenName:  application.StringField(fields, "givenName"),
+		FamilyName: application.StringField(fields, "familyName"),
+		Name:       application.StringField(fields, "name"),
+		Email:      application.StringField(fields, "email"),
+		AvatarURL:  application.StringField(fields, "avatarURL"),
+		Status:     r.Status(),
+		CreatedAt:  r.CreatedAt(),
 	}
 }
 
-func registerPersonTools(server *mcp.Server, svc application.PersonService) {
+func registerPersonTools(server *mcp.Server, svc application.ResourceService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "person_create",
 		Description: "Create a new person.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CreatePersonInput) (*mcp.CallToolResult, PersonOutput, error) {
-		entity, err := svc.Create(ctx, application.CreatePersonCommand{
-			GivenName: input.GivenName, FamilyName: input.FamilyName, Email: input.Email,
+		data, _ := json.Marshal(map[string]any{
+			"givenName": input.GivenName, "familyName": input.FamilyName, "email": input.Email,
 		})
+		entity, err := svc.Create(ctx, application.CreateResourceCommand{TypeSlug: "person", Data: data})
 		if err != nil {
 			return nil, PersonOutput{}, err
 		}
@@ -101,7 +105,7 @@ func registerPersonTools(server *mcp.Server, svc application.PersonService) {
 		if limit <= 0 {
 			limit = 20
 		}
-		result, err := svc.List(ctx, input.Cursor, limit)
+		result, err := svc.List(ctx, "person", input.Cursor, limit, repositories.SortOptions{})
 		if err != nil {
 			return nil, ListPersonsOutput{}, err
 		}
@@ -120,10 +124,11 @@ func registerPersonTools(server *mcp.Server, svc application.PersonService) {
 		Name:        "person_update",
 		Description: "Update an existing person.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input UpdatePersonInput) (*mcp.CallToolResult, PersonOutput, error) {
-		entity, err := svc.Update(ctx, application.UpdatePersonCommand{
-			ID: input.ID, GivenName: input.GivenName, FamilyName: input.FamilyName,
-			Email: input.Email, AvatarURL: input.AvatarURL, Status: input.Status,
+		data, _ := json.Marshal(map[string]any{
+			"givenName": input.GivenName, "familyName": input.FamilyName,
+			"email": input.Email, "avatarURL": input.AvatarURL,
 		})
+		entity, err := svc.Update(ctx, application.UpdateResourceCommand{ID: input.ID, Data: data})
 		if err != nil {
 			return nil, PersonOutput{}, err
 		}
@@ -134,7 +139,7 @@ func registerPersonTools(server *mcp.Server, svc application.PersonService) {
 		Name:        "person_delete",
 		Description: "Delete a person by ID.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeletePersonInput) (*mcp.CallToolResult, DeletedOutput, error) {
-		if err := svc.Delete(ctx, application.DeletePersonCommand{ID: input.ID}); err != nil {
+		if err := svc.Delete(ctx, application.DeleteResourceCommand{ID: input.ID}); err != nil {
 			return nil, DeletedOutput{}, err
 		}
 		return nil, DeletedOutput{Success: true}, nil

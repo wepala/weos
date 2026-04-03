@@ -2,10 +2,12 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"weos/application"
 	"weos/domain/entities"
+	"weos/domain/repositories"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -55,27 +57,29 @@ type ListOrganizationsOutput struct {
 	HasMore bool                 `json:"has_more"`
 }
 
-func toOrganizationOutput(e *entities.Organization) OrganizationOutput {
+func toOrganizationOutput(r *entities.Resource) OrganizationOutput {
+	fields, _ := application.ExtractResourceFields(r)
 	return OrganizationOutput{
-		ID:          e.GetID(),
-		Name:        e.Name(),
-		Slug:        e.Slug(),
-		Description: e.Description(),
-		URL:         e.URL(),
-		LogoURL:     e.LogoURL(),
-		Status:      e.Status(),
-		CreatedAt:   e.CreatedAt(),
+		ID:          r.GetID(),
+		Name:        application.StringField(fields, "name"),
+		Slug:        application.StringField(fields, "slug"),
+		Description: application.StringField(fields, "description"),
+		URL:         application.StringField(fields, "url"),
+		LogoURL:     application.StringField(fields, "logoURL"),
+		Status:      r.Status(),
+		CreatedAt:   r.CreatedAt(),
 	}
 }
 
-func registerOrganizationTools(server *mcp.Server, svc application.OrganizationService) {
+func registerOrganizationTools(server *mcp.Server, svc application.ResourceService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "organization_create",
 		Description: "Create a new organization.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CreateOrganizationInput) (*mcp.CallToolResult, OrganizationOutput, error) {
-		entity, err := svc.Create(ctx, application.CreateOrganizationCommand{
-			Name: input.Name, Slug: input.Slug,
+		data, _ := json.Marshal(map[string]any{
+			"name": input.Name, "slug": input.Slug,
 		})
+		entity, err := svc.Create(ctx, application.CreateResourceCommand{TypeSlug: "organization", Data: data})
 		if err != nil {
 			return nil, OrganizationOutput{}, err
 		}
@@ -101,7 +105,7 @@ func registerOrganizationTools(server *mcp.Server, svc application.OrganizationS
 		if limit <= 0 {
 			limit = 20
 		}
-		result, err := svc.List(ctx, input.Cursor, limit)
+		result, err := svc.List(ctx, "organization", input.Cursor, limit, repositories.SortOptions{})
 		if err != nil {
 			return nil, ListOrganizationsOutput{}, err
 		}
@@ -120,11 +124,11 @@ func registerOrganizationTools(server *mcp.Server, svc application.OrganizationS
 		Name:        "organization_update",
 		Description: "Update an existing organization.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input UpdateOrganizationInput) (*mcp.CallToolResult, OrganizationOutput, error) {
-		entity, err := svc.Update(ctx, application.UpdateOrganizationCommand{
-			ID: input.ID, Name: input.Name, Slug: input.Slug,
-			Description: input.Description, URL: input.URL,
-			LogoURL: input.LogoURL, Status: input.Status,
+		data, _ := json.Marshal(map[string]any{
+			"name": input.Name, "slug": input.Slug,
+			"description": input.Description, "url": input.URL, "logoURL": input.LogoURL,
 		})
+		entity, err := svc.Update(ctx, application.UpdateResourceCommand{ID: input.ID, Data: data})
 		if err != nil {
 			return nil, OrganizationOutput{}, err
 		}
@@ -135,7 +139,7 @@ func registerOrganizationTools(server *mcp.Server, svc application.OrganizationS
 		Name:        "organization_delete",
 		Description: "Delete an organization by ID.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeleteOrganizationInput) (*mcp.CallToolResult, DeletedOutput, error) {
-		if err := svc.Delete(ctx, application.DeleteOrganizationCommand{ID: input.ID}); err != nil {
+		if err := svc.Delete(ctx, application.DeleteResourceCommand{ID: input.ID}); err != nil {
 			return nil, DeletedOutput{}, err
 		}
 		return nil, DeletedOutput{Success: true}, nil

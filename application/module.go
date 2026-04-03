@@ -61,8 +61,6 @@ func Module(cfg config.Config) fx.Option {
 		}),
 
 		// Repository providers
-		fx.Provide(gorm.ProvidePersonRepository),
-		fx.Provide(gorm.ProvideOrganizationRepository),
 		fx.Provide(gorm.ProvideResourceTypeRepository),
 		fx.Provide(gorm.ProvideProjectionManager),
 		fx.Provide(gorm.ProvideResourceRepository),
@@ -89,8 +87,6 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(ProvideResourceBehaviorRegistry),
 
 		// Service providers
-		fx.Provide(ProvidePersonService),
-		fx.Provide(ProvideOrganizationService),
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
 		fx.Provide(ProvideTripleService),
@@ -98,7 +94,8 @@ func Module(cfg config.Config) fx.Option {
 		// Subscribe event handlers (projections)
 		fx.Invoke(subscribeEventHandlers),
 
-		// Ensure projection tables for existing resource types at startup
+		// Ensure built-in resource types and projection tables at startup
+		fx.Invoke(ensureBuiltInResourceTypes),
 		fx.Invoke(ensureProjectionTables),
 	)
 }

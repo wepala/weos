@@ -16,8 +16,6 @@ import (
 func subscribeEventHandlers(params struct {
 	fx.In
 	Dispatcher   *domain.EventDispatcher
-	PersonRepo   repositories.PersonRepository
-	OrgRepo      repositories.OrganizationRepository
 	RTRepo       repositories.ResourceTypeRepository
 	ResourceRepo repositories.ResourceRepository
 	TripleRepo   repositories.TripleRepository
@@ -25,21 +23,6 @@ func subscribeEventHandlers(params struct {
 	TripleSvc    TripleService
 	Logger       entities.Logger
 }) error {
-	if err := subscribePersonHandlers(
-		params.Dispatcher, params.PersonRepo, params.Logger,
-	); err != nil {
-		return fmt.Errorf("person handlers: %w", err)
-	}
-	if err := subscribePersonOrganizationHandlers(
-		params.Dispatcher, params.PersonRepo, params.Logger,
-	); err != nil {
-		return fmt.Errorf("person-organization handlers: %w", err)
-	}
-	if err := subscribeOrganizationHandlers(
-		params.Dispatcher, params.OrgRepo, params.Logger,
-	); err != nil {
-		return fmt.Errorf("organization handlers: %w", err)
-	}
 	if err := subscribeResourceTypeHandlers(
 		params.Dispatcher, params.RTRepo, params.ProjMgr, params.Logger,
 	); err != nil {
@@ -58,127 +41,6 @@ func subscribeEventHandlers(params struct {
 		return fmt.Errorf("triple handlers: %w", err)
 	}
 	return nil
-}
-
-// --- Person projection handlers ---
-
-func subscribePersonHandlers(
-	d *domain.EventDispatcher,
-	repo repositories.PersonRepository,
-	logger entities.Logger,
-) error {
-	if err := domain.Subscribe(d, "Person.Created",
-		func(ctx context.Context, env domain.EventEnvelope[entities.PersonCreated]) error {
-			p := env.Payload
-			entity := &entities.Person{}
-			if err := entity.Restore(
-				env.AggregateID, p.GivenName, p.FamilyName, p.Email,
-				"", "active", p.Timestamp, env.SequenceNo,
-			); err != nil {
-				return err
-			}
-			logger.Info(ctx, "projecting Person.Created", "id", env.AggregateID)
-			return repo.Save(ctx, entity)
-		},
-	); err != nil {
-		return err
-	}
-
-	if err := domain.Subscribe(d, "Person.Updated",
-		func(ctx context.Context, env domain.EventEnvelope[entities.PersonUpdated]) error {
-			existing, err := repo.FindByID(ctx, env.AggregateID)
-			if err != nil {
-				return fmt.Errorf("projection read failed: %w", err)
-			}
-			p := env.Payload
-			if err := existing.Restore(
-				env.AggregateID, p.GivenName, p.FamilyName, p.Email,
-				p.AvatarURL, p.Status, existing.CreatedAt(), env.SequenceNo,
-			); err != nil {
-				return err
-			}
-			logger.Info(ctx, "projecting Person.Updated", "id", env.AggregateID)
-			return repo.Update(ctx, existing)
-		},
-	); err != nil {
-		return err
-	}
-
-	return domain.Subscribe(d, "Person.Deleted",
-		func(ctx context.Context, env domain.EventEnvelope[entities.PersonDeleted]) error {
-			logger.Info(ctx, "projecting Person.Deleted", "id", env.AggregateID)
-			return repo.Delete(ctx, env.AggregateID)
-		},
-	)
-}
-
-// --- Person-Organization link handler ---
-
-func subscribePersonOrganizationHandlers(
-	d *domain.EventDispatcher,
-	repo repositories.PersonRepository,
-	logger entities.Logger,
-) error {
-	return domain.Subscribe(d, "Person.OrganizationLinked",
-		func(ctx context.Context, env domain.EventEnvelope[entities.PersonOrganizationLinked]) error {
-			p := env.Payload
-			logger.Info(ctx, "projecting Person.OrganizationLinked",
-				"personID", p.Subject, "orgID", p.Object)
-			return repo.SaveOrganizationLink(ctx, p.Subject, p.Object)
-		},
-	)
-}
-
-// --- Organization projection handlers ---
-
-func subscribeOrganizationHandlers(
-	d *domain.EventDispatcher,
-	repo repositories.OrganizationRepository,
-	logger entities.Logger,
-) error {
-	if err := domain.Subscribe(d, "Organization.Created",
-		func(ctx context.Context, env domain.EventEnvelope[entities.OrganizationCreated]) error {
-			p := env.Payload
-			entity := &entities.Organization{}
-			if err := entity.Restore(
-				env.AggregateID, p.Name, p.Slug, "", "", "", "active",
-				p.Timestamp, env.SequenceNo,
-			); err != nil {
-				return err
-			}
-			logger.Info(ctx, "projecting Organization.Created", "id", env.AggregateID)
-			return repo.Save(ctx, entity)
-		},
-	); err != nil {
-		return err
-	}
-
-	if err := domain.Subscribe(d, "Organization.Updated",
-		func(ctx context.Context, env domain.EventEnvelope[entities.OrganizationUpdated]) error {
-			existing, err := repo.FindByID(ctx, env.AggregateID)
-			if err != nil {
-				return fmt.Errorf("projection read failed: %w", err)
-			}
-			p := env.Payload
-			if err := existing.Restore(
-				env.AggregateID, p.Name, p.Slug, p.Description,
-				p.URL, p.LogoURL, p.Status, existing.CreatedAt(), env.SequenceNo,
-			); err != nil {
-				return err
-			}
-			logger.Info(ctx, "projecting Organization.Updated", "id", env.AggregateID)
-			return repo.Update(ctx, existing)
-		},
-	); err != nil {
-		return err
-	}
-
-	return domain.Subscribe(d, "Organization.Deleted",
-		func(ctx context.Context, env domain.EventEnvelope[entities.OrganizationDeleted]) error {
-			logger.Info(ctx, "projecting Organization.Deleted", "id", env.AggregateID)
-			return repo.Delete(ctx, env.AggregateID)
-		},
-	)
 }
 
 // --- ResourceType projection handlers ---

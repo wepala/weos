@@ -1,37 +1,24 @@
-// Copyright (C) 2026 Wepala, LLC
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
 
 	"weos/application"
 	"weos/domain/entities"
+	"weos/domain/repositories"
 
 	"github.com/labstack/echo/v4"
 )
 
 type PersonHandler struct {
-	service application.PersonService
+	resourceService application.ResourceService
 }
 
-func NewPersonHandler(service application.PersonService) *PersonHandler {
-	return &PersonHandler{service: service}
+func NewPersonHandler(resourceService application.ResourceService) *PersonHandler {
+	return &PersonHandler{resourceService: resourceService}
 }
 
 type CreatePersonRequest struct {
@@ -65,13 +52,14 @@ func (h *PersonHandler) Create(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest,
 			map[string]string{"error": "invalid request body"})
 	}
-	entity, err := h.service.Create(
+	data, _ := json.Marshal(map[string]any{
+		"givenName":  req.GivenName,
+		"familyName": req.FamilyName,
+		"email":      req.Email,
+	})
+	entity, err := h.resourceService.Create(
 		c.Request().Context(),
-		application.CreatePersonCommand{
-			GivenName:  req.GivenName,
-			FamilyName: req.FamilyName,
-			Email:      req.Email,
-		},
+		application.CreateResourceCommand{TypeSlug: "person", Data: data},
 	)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
@@ -81,7 +69,7 @@ func (h *PersonHandler) Create(c echo.Context) error {
 }
 
 func (h *PersonHandler) Get(c echo.Context) error {
-	entity, err := h.service.GetByID(c.Request().Context(), c.Param("id"))
+	entity, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
 	if err != nil {
 		return c.JSON(http.StatusNotFound,
 			map[string]string{"error": "person not found"})
@@ -95,7 +83,9 @@ func (h *PersonHandler) List(c echo.Context) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	result, err := h.service.List(c.Request().Context(), cursor, limit)
+	result, err := h.resourceService.List(
+		c.Request().Context(), "person", cursor, limit, repositories.SortOptions{},
+	)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
@@ -117,16 +107,15 @@ func (h *PersonHandler) Update(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest,
 			map[string]string{"error": "invalid request body"})
 	}
-	entity, err := h.service.Update(
+	data, _ := json.Marshal(map[string]any{
+		"givenName":  req.GivenName,
+		"familyName": req.FamilyName,
+		"email":      req.Email,
+		"avatarURL":  req.AvatarURL,
+	})
+	entity, err := h.resourceService.Update(
 		c.Request().Context(),
-		application.UpdatePersonCommand{
-			ID:         c.Param("id"),
-			GivenName:  req.GivenName,
-			FamilyName: req.FamilyName,
-			Email:      req.Email,
-			AvatarURL:  req.AvatarURL,
-			Status:     req.Status,
-		},
+		application.UpdateResourceCommand{ID: c.Param("id"), Data: data},
 	)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
@@ -136,23 +125,24 @@ func (h *PersonHandler) Update(c echo.Context) error {
 }
 
 func (h *PersonHandler) Delete(c echo.Context) error {
-	cmd := application.DeletePersonCommand{ID: c.Param("id")}
-	if err := h.service.Delete(c.Request().Context(), cmd); err != nil {
+	cmd := application.DeleteResourceCommand{ID: c.Param("id")}
+	if err := h.resourceService.Delete(c.Request().Context(), cmd); err != nil {
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
 
-func toPersonResponse(e *entities.Person) PersonResponse {
+func toPersonResponse(r *entities.Resource) PersonResponse {
+	fields, _ := application.ExtractResourceFields(r)
 	return PersonResponse{
-		ID:         e.GetID(),
-		GivenName:  e.GivenName(),
-		FamilyName: e.FamilyName(),
-		Name:       e.Name(),
-		Email:      e.Email(),
-		AvatarURL:  e.AvatarURL(),
-		Status:     e.Status(),
-		CreatedAt:  e.CreatedAt().Format(time.RFC3339),
+		ID:         r.GetID(),
+		GivenName:  application.StringField(fields, "givenName"),
+		FamilyName: application.StringField(fields, "familyName"),
+		Name:       application.StringField(fields, "name"),
+		Email:      application.StringField(fields, "email"),
+		AvatarURL:  application.StringField(fields, "avatarURL"),
+		Status:     r.Status(),
+		CreatedAt:  r.CreatedAt().Format(time.RFC3339),
 	}
 }

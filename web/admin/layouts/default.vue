@@ -32,12 +32,6 @@
         </a-menu-item>
         <SidebarMenuItem v-for="item in menuStructure" :key="item.key" :item="item" />
         <template v-if="isAdminOrOwner">
-          <a-menu-item key="persons">
-            <NuxtLink to="/persons">Persons</NuxtLink>
-          </a-menu-item>
-          <a-menu-item key="organizations">
-            <NuxtLink to="/organizations">Organizations</NuxtLink>
-          </a-menu-item>
           <a-menu-item key="users">
             <NuxtLink to="/users">Users</NuxtLink>
           </a-menu-item>
@@ -72,12 +66,6 @@
         </a-menu-item>
         <SidebarMenuItem v-for="item in menuStructure" :key="item.key" :item="item" />
         <template v-if="isAdminOrOwner">
-          <a-menu-item key="persons">
-            <NuxtLink to="/persons">Persons</NuxtLink>
-          </a-menu-item>
-          <a-menu-item key="organizations">
-            <NuxtLink to="/organizations">Organizations</NuxtLink>
-          </a-menu-item>
           <a-menu-item key="users">
             <NuxtLink to="/users">Users</NuxtLink>
           </a-menu-item>
@@ -228,8 +216,6 @@ function findInTree(items: MenuItem[], slug: string): MenuItem | undefined {
 
 const selectedKeys = computed(() => {
   const path = route.path
-  if (path.startsWith('/persons')) return ['persons']
-  if (path.startsWith('/organizations')) return ['organizations']
   if (path.startsWith('/users')) return ['users']
   if (path.startsWith('/settings')) return ['settings']
   if (path.startsWith('/resources/')) {

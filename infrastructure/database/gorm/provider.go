@@ -73,9 +73,6 @@ func ProvideGormDB(params struct {
 	sqlDB.SetMaxOpenConns(100)
 
 	models := []any{
-		&weosmodels.Person{},
-		&weosmodels.Organization{},
-		&weosmodels.PersonOrganization{},
 		&weosmodels.ResourceType{},
 		&weosmodels.Resource{},
 		&weosmodels.SidebarSettings{},

@@ -58,8 +58,6 @@ func init() {
 func runServe(cmd *cobra.Command, args []string) error {
 	appCfg := loadServeConfig()
 
-	var personService application.PersonService
-	var organizationService application.OrganizationService
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 	var authService authapp.AuthenticationService
@@ -77,8 +75,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(appCfg),
-		fx.Populate(&personService),
-		fx.Populate(&organizationService),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&authService),
@@ -158,14 +154,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 	}
 
-	personHandler := handlers.NewPersonHandler(personService)
+	personHandler := handlers.NewPersonHandler(resourceService)
 	protected.POST("/persons", personHandler.Create)
 	protected.GET("/persons", personHandler.List)
 	protected.GET("/persons/:id", personHandler.Get)
 	protected.PUT("/persons/:id", personHandler.Update)
 	protected.DELETE("/persons/:id", personHandler.Delete)
 
-	orgHandler := handlers.NewOrganizationHandler(organizationService, personService)
+	orgHandler := handlers.NewOrganizationHandler(resourceService)
 	protected.POST("/organizations", orgHandler.Create)
 	protected.GET("/organizations", orgHandler.List)
 	protected.GET("/organizations/:id", orgHandler.Get)

@@ -1,41 +1,24 @@
-// Copyright (C) 2026 Wepala, LLC
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
 
 	"weos/application"
 	"weos/domain/entities"
+	"weos/domain/repositories"
 
 	"github.com/labstack/echo/v4"
 )
 
 type OrganizationHandler struct {
-	service       application.OrganizationService
-	personService application.PersonService
+	resourceService application.ResourceService
 }
 
-func NewOrganizationHandler(
-	service application.OrganizationService,
-	personService application.PersonService,
-) *OrganizationHandler {
-	return &OrganizationHandler{service: service, personService: personService}
+func NewOrganizationHandler(resourceService application.ResourceService) *OrganizationHandler {
+	return &OrganizationHandler{resourceService: resourceService}
 }
 
 type CreateOrganizationRequest struct {
@@ -69,9 +52,13 @@ func (h *OrganizationHandler) Create(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest,
 			map[string]string{"error": "invalid request body"})
 	}
-	entity, err := h.service.Create(
+	data, _ := json.Marshal(map[string]any{
+		"name": req.Name,
+		"slug": req.Slug,
+	})
+	entity, err := h.resourceService.Create(
 		c.Request().Context(),
-		application.CreateOrganizationCommand{Name: req.Name, Slug: req.Slug},
+		application.CreateResourceCommand{TypeSlug: "organization", Data: data},
 	)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
@@ -81,7 +68,7 @@ func (h *OrganizationHandler) Create(c echo.Context) error {
 }
 
 func (h *OrganizationHandler) Get(c echo.Context) error {
-	entity, err := h.service.GetByID(c.Request().Context(), c.Param("id"))
+	entity, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
 	if err != nil {
 		return c.JSON(http.StatusNotFound,
 			map[string]string{"error": "organization not found"})
@@ -95,7 +82,9 @@ func (h *OrganizationHandler) List(c echo.Context) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	result, err := h.service.List(c.Request().Context(), cursor, limit)
+	result, err := h.resourceService.List(
+		c.Request().Context(), "organization", cursor, limit, repositories.SortOptions{},
+	)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
@@ -117,17 +106,16 @@ func (h *OrganizationHandler) Update(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest,
 			map[string]string{"error": "invalid request body"})
 	}
-	entity, err := h.service.Update(
+	data, _ := json.Marshal(map[string]any{
+		"name":        req.Name,
+		"slug":        req.Slug,
+		"description": req.Description,
+		"url":         req.URL,
+		"logoURL":     req.LogoURL,
+	})
+	entity, err := h.resourceService.Update(
 		c.Request().Context(),
-		application.UpdateOrganizationCommand{
-			ID:          c.Param("id"),
-			Name:        req.Name,
-			Slug:        req.Slug,
-			Description: req.Description,
-			URL:         req.URL,
-			LogoURL:     req.LogoURL,
-			Status:      req.Status,
-		},
+		application.UpdateResourceCommand{ID: c.Param("id"), Data: data},
 	)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
@@ -137,8 +125,8 @@ func (h *OrganizationHandler) Update(c echo.Context) error {
 }
 
 func (h *OrganizationHandler) Delete(c echo.Context) error {
-	cmd := application.DeleteOrganizationCommand{ID: c.Param("id")}
-	if err := h.service.Delete(c.Request().Context(), cmd); err != nil {
+	cmd := application.DeleteResourceCommand{ID: c.Param("id")}
+	if err := h.resourceService.Delete(c.Request().Context(), cmd); err != nil {
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
 	}
@@ -147,7 +135,7 @@ func (h *OrganizationHandler) Delete(c echo.Context) error {
 
 func (h *OrganizationHandler) Members(c echo.Context) error {
 	orgID := c.Param("id")
-	if _, err := h.service.GetByID(c.Request().Context(), orgID); err != nil {
+	if _, err := h.resourceService.GetByID(c.Request().Context(), orgID); err != nil {
 		return c.JSON(http.StatusNotFound,
 			map[string]string{"error": "organization not found"})
 	}
@@ -157,8 +145,11 @@ func (h *OrganizationHandler) Members(c echo.Context) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	result, err := h.personService.ListByOrganization(
-		c.Request().Context(), orgID, cursor, limit,
+	filters := []repositories.FilterCondition{
+		{Field: "organization_id", Operator: "eq", Value: orgID},
+	}
+	result, err := h.resourceService.ListWithFilters(
+		c.Request().Context(), "person", filters, cursor, limit, repositories.SortOptions{},
 	)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
@@ -175,15 +166,16 @@ func (h *OrganizationHandler) Members(c echo.Context) error {
 	})
 }
 
-func toOrganizationResponse(e *entities.Organization) OrganizationResponse {
+func toOrganizationResponse(r *entities.Resource) OrganizationResponse {
+	fields, _ := application.ExtractResourceFields(r)
 	return OrganizationResponse{
-		ID:          e.GetID(),
-		Name:        e.Name(),
-		Slug:        e.Slug(),
-		Description: e.Description(),
-		URL:         e.URL(),
-		LogoURL:     e.LogoURL(),
-		Status:      e.Status(),
-		CreatedAt:   e.CreatedAt().Format(time.RFC3339),
+		ID:          r.GetID(),
+		Name:        application.StringField(fields, "name"),
+		Slug:        application.StringField(fields, "slug"),
+		Description: application.StringField(fields, "description"),
+		URL:         application.StringField(fields, "url"),
+		LogoURL:     application.StringField(fields, "logoURL"),
+		Status:      r.Status(),
+		CreatedAt:   r.CreatedAt().Format(time.RFC3339),
 	}
 }

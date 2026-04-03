@@ -88,16 +88,12 @@ func resolveEnabled(services []string) map[ServiceName]bool {
 func Run(enabledServices []string) error {
 	cfg := loadConfig()
 
-	var personService application.PersonService
-	var organizationService application.OrganizationService
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg),
-		fx.Populate(&personService),
-		fx.Populate(&organizationService),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 	)
@@ -118,10 +114,10 @@ func Run(enabledServices []string) error {
 	enabled := resolveEnabled(enabledServices)
 
 	if enabled[ServicePerson] {
-		registerPersonTools(server, personService)
+		registerPersonTools(server, resourceService)
 	}
 	if enabled[ServiceOrganization] {
-		registerOrganizationTools(server, organizationService)
+		registerOrganizationTools(server, resourceService)
 	}
 	if enabled[ServiceResourceType] {
 		registerResourceTypeTools(server, resourceTypeService)

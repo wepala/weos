@@ -1,18 +1,3 @@
-// Copyright (C) 2026 Wepala, LLC
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 package cli
 
 import (
@@ -43,9 +28,13 @@ var organizationCreateCmd = &cobra.Command{
 
 		name, _ := cmd.Flags().GetString("name")
 		slug, _ := cmd.Flags().GetString("slug")
-		entity, err := deps.OrganizationService.Create(
+		data, _ := json.Marshal(map[string]any{
+			"name": name,
+			"slug": slug,
+		})
+		entity, err := deps.ResourceService.Create(
 			cmd.Context(),
-			application.CreateOrganizationCommand{Name: name, Slug: slug},
+			application.CreateResourceCommand{TypeSlug: "organization", Data: data},
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create organization: %w", err)
@@ -66,17 +55,18 @@ var organizationGetCmd = &cobra.Command{
 		}
 		defer deps.Shutdown()
 
-		entity, err := deps.OrganizationService.GetByID(cmd.Context(), args[0])
+		entity, err := deps.ResourceService.GetByID(cmd.Context(), args[0])
 		if err != nil {
 			return fmt.Errorf("organization not found: %w", err)
 		}
+		fields, _ := application.ExtractResourceFields(entity)
 		data, _ := json.MarshalIndent(map[string]interface{}{
 			"id":          entity.GetID(),
-			"name":        entity.Name(),
-			"slug":        entity.Slug(),
-			"description": entity.Description(),
-			"url":         entity.URL(),
-			"logo_url":    entity.LogoURL(),
+			"name":        application.StringField(fields, "name"),
+			"slug":        application.StringField(fields, "slug"),
+			"description": application.StringField(fields, "description"),
+			"url":         application.StringField(fields, "url"),
+			"logo_url":    application.StringField(fields, "logoURL"),
 			"status":      entity.Status(),
 		}, "", "  ")
 		fmt.Fprintln(os.Stdout, string(data))
@@ -96,7 +86,9 @@ var organizationListCmd = &cobra.Command{
 
 		limit, _ := cmd.Flags().GetInt("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
-		result, err := deps.OrganizationService.List(cmd.Context(), cursor, limit)
+		result, err := deps.ResourceService.ListFlat(
+			cmd.Context(), "organization", cursor, limit, application.SortOptions{},
+		)
 		if err != nil {
 			return fmt.Errorf("failed to list organizations: %w", err)
 		}
@@ -117,9 +109,9 @@ var organizationDeleteCmd = &cobra.Command{
 		}
 		defer deps.Shutdown()
 
-		err = deps.OrganizationService.Delete(
+		err = deps.ResourceService.Delete(
 			cmd.Context(),
-			application.DeleteOrganizationCommand{ID: args[0]},
+			application.DeleteResourceCommand{ID: args[0]},
 		)
 		if err != nil {
 			return fmt.Errorf("failed to delete organization: %w", err)
