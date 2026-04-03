@@ -35,20 +35,6 @@
           </NuxtLink>
         </a-card>
       </a-col>
-      <a-col :xs="24" :sm="12" :md="8">
-        <a-card title="Persons" :bordered="false">
-          <NuxtLink to="/persons">
-            <a-button type="link" style="padding: 0">Manage Persons</a-button>
-          </NuxtLink>
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :sm="12" :md="8">
-        <a-card title="Organizations" :bordered="false">
-          <NuxtLink to="/organizations">
-            <a-button type="link" style="padding: 0">Manage Organizations</a-button>
-          </NuxtLink>
-        </a-card>
-      </a-col>
     </a-row>
   </div>
 </template>

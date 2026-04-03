@@ -27,23 +27,33 @@ type SortOptions struct {
 	SortOrder string // "asc" or "desc", default "asc"
 }
 
+// VisibilityScope limits query results to resources the caller can access.
+// When nil, no filtering is applied (system/CLI/MCP context).
+type VisibilityScope struct {
+	AgentID   string
+	AccountID string
+	IsAdmin   bool
+}
+
 type ResourceRepository interface {
 	Save(ctx context.Context, entity *entities.Resource) error
 	FindByID(ctx context.Context, id string) (*entities.Resource, error)
-	FindAllByType(ctx context.Context, typeSlug string, cursor string, limit int, sort SortOptions) (
-		PaginatedResponse[*entities.Resource], error)
+	FindAllByType(ctx context.Context, typeSlug string, cursor string, limit int,
+		sort SortOptions, scope *VisibilityScope) (PaginatedResponse[*entities.Resource], error)
 	FindAllByTypeAndField(ctx context.Context, typeSlug, fieldName, fieldValue string) (
 		[]*entities.Resource, error)
 	FindAllByTypeWithFilters(ctx context.Context, typeSlug string, filters []FilterCondition,
-		cursor string, limit int, sort SortOptions) (PaginatedResponse[*entities.Resource], error)
+		cursor string, limit int, sort SortOptions, scope *VisibilityScope) (
+		PaginatedResponse[*entities.Resource], error)
 	Update(ctx context.Context, entity *entities.Resource) error
 	Delete(ctx context.Context, id string) error
 
 	// FindAllByTypeFlat returns flat rows from the projection table directly (no JSON-LD).
 	// Used for list views where denormalized columns (including _display) are needed.
-	FindAllByTypeFlat(ctx context.Context, typeSlug, cursor string, limit int, sort SortOptions) (
-		PaginatedResponse[map[string]any], error)
+	FindAllByTypeFlat(ctx context.Context, typeSlug, cursor string, limit int,
+		sort SortOptions, scope *VisibilityScope) (PaginatedResponse[map[string]any], error)
 	// FindAllByTypeFlatWithFilters returns filtered flat rows from the projection table.
 	FindAllByTypeFlatWithFilters(ctx context.Context, typeSlug string, filters []FilterCondition,
-		cursor string, limit int, sort SortOptions) (PaginatedResponse[map[string]any], error)
+		cursor string, limit int, sort SortOptions, scope *VisibilityScope) (
+		PaginatedResponse[map[string]any], error)
 }

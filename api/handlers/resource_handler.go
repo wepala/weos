@@ -17,6 +17,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -71,6 +72,9 @@ func (h *ResourceHandler) Create(c echo.Context) error {
 		application.CreateResourceCommand{TypeSlug: typeSlug, Data: json.RawMessage(body)},
 	)
 	if err != nil {
+		if errors.Is(err, entities.ErrAccessDenied) {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+		}
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
 	}
@@ -87,6 +91,9 @@ func (h *ResourceHandler) Get(c echo.Context) error {
 
 	entity, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
 	if err != nil {
+		if errors.Is(err, entities.ErrAccessDenied) {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+		}
 		return c.JSON(http.StatusNotFound,
 			map[string]string{"error": "resource not found"})
 	}
@@ -256,6 +263,9 @@ func (h *ResourceHandler) Update(c echo.Context) error {
 		application.UpdateResourceCommand{ID: c.Param("id"), Data: json.RawMessage(body)},
 	)
 	if err != nil {
+		if errors.Is(err, entities.ErrAccessDenied) {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+		}
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
 	}
@@ -271,6 +281,9 @@ func (h *ResourceHandler) Delete(c echo.Context) error {
 
 	cmd := application.DeleteResourceCommand{ID: c.Param("id")}
 	if err := h.resourceService.Delete(c.Request().Context(), cmd); err != nil {
+		if errors.Is(err, entities.ErrAccessDenied) {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+		}
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
 	}

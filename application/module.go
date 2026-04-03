@@ -68,6 +68,7 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(gorm.ProvideRoleSettingsRepository),
 		fx.Provide(gorm.ProvideRoleResourceAccessRepository),
 		fx.Provide(gorm.ProvideTripleRepository),
+		fx.Provide(gorm.ProvideResourcePermissionRepository),
 
 		// Auth repositories (from pericarp)
 		fx.Provide(func(db *gormdb.DB) authrepos.AgentRepository { return authgorm.NewAgentRepository(db) }),
@@ -90,6 +91,7 @@ func Module(cfg config.Config) fx.Option {
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
 		fx.Provide(ProvideTripleService),
+		fx.Provide(ProvideResourcePermissionService),
 
 		// Subscribe event handlers (projections)
 		fx.Invoke(subscribeEventHandlers),

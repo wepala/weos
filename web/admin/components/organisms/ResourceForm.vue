@@ -82,9 +82,7 @@
         <a-button type="primary" html-type="submit" :loading="submitting">
           {{ isEdit ? 'Update' : 'Create' }}
         </a-button>
-        <NuxtLink :to="`/resources/${typeSlug}`">
-          <a-button>Cancel</a-button>
-        </NuxtLink>
+        <a-button @click="router.back()">Cancel</a-button>
       </a-space>
     </a-form-item>
   </a-form>
@@ -92,6 +90,8 @@
 
 <script setup lang="ts">
 import type { FieldDescriptor } from '~/composables/useSchemaUtils'
+
+const router = useRouter()
 
 const props = defineProps<{
   schema: any

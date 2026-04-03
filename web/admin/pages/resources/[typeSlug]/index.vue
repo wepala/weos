@@ -23,6 +23,24 @@
         <a-button type="primary">Create {{ resourceType?.name || typeSlug }}</a-button>
       </NuxtLink>
     </div>
+    <div v-if="referenceFilters.length" style="margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap">
+      <div v-for="rf in referenceFilters" :key="rf.field" style="min-width: 200px">
+        <a-select
+          v-model:value="activeFilters[rf.field]"
+          :placeholder="`Filter by ${rf.label}`"
+          allow-clear
+          show-search
+          :filter-option="filterOption"
+          style="width: 100%"
+          :aria-label="`Filter by ${rf.label}`"
+          @change="applyFilters"
+        >
+          <a-select-option v-for="opt in rf.options" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </a-select-option>
+        </a-select>
+      </div>
+    </div>
     <ResourceTable
       :items="items"
       :columns="columns"
@@ -56,10 +74,71 @@ const columns = computed(() => {
   return [{ title: 'Name', dataIndex: 'name', key: 'name' }]
 })
 
+// --- Reference field filters ---
+interface RefFilter {
+  field: string
+  label: string
+  resourceType: string
+  options: { value: string; label: string }[]
+}
+
+const referenceFilters = ref<RefFilter[]>([])
+const activeFilters = reactive<Record<string, string | undefined>>({})
+
+function filterOption(input: string, option: any) {
+  return (option?.children?.[0]?.children || option?.label || '')
+    .toString()
+    .toLowerCase()
+    .includes(input.toLowerCase())
+}
+
+async function initReferenceFilters() {
+  const schema = resourceType.value?.schema
+  if (!schema?.properties) return
+
+  const filters: RefFilter[] = []
+  for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+    if (!prop['x-resource-type']) continue
+    const refSlug = prop['x-resource-type']
+    const refApi = useResourceApi(refSlug)
+    try {
+      const res = await refApi.list('', 100)
+      const label = key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, c => c.toUpperCase())
+      filters.push({
+        field: key,
+        label,
+        resourceType: refSlug,
+        options: res.data.map((item: any) => ({
+          value: item.id,
+          label: item.name || item.id,
+        })),
+      })
+    } catch {
+      // Skip filters for types that can't be loaded
+    }
+  }
+  referenceFilters.value = filters
+}
+
+async function applyFilters() {
+  // Reset pagination and reload with filters
+  items.value = []
+  cursor.value = ''
+  hasMore.value = false
+  await load()
+}
+
 async function load() {
   loading.value = true
   try {
-    const res = await list(cursor.value)
+    const filters: Record<string, Record<string, string>> = {}
+    for (const [field, value] of Object.entries(activeFilters)) {
+      if (value) {
+        filters[field] = { eq: value }
+      }
+    }
+    const hasFilters = Object.keys(filters).length > 0
+    const res = await list(cursor.value, 20, '', '', hasFilters ? filters : undefined)
     items.value = [...items.value, ...res.data]
     hasMore.value = res.has_more
     cursor.value = res.cursor
@@ -79,6 +158,7 @@ async function handleDelete(id: string) {
 
 onMounted(async () => {
   if (!loaded.value) await fetchResourceTypes()
+  await initReferenceFilters()
   await load()
 })
 </script>

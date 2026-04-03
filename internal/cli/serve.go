@@ -60,6 +60,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
+	var resourcePermService application.ResourcePermissionService
 	var authService authapp.AuthenticationService
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
@@ -77,6 +78,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		application.Module(appCfg),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
+		fx.Populate(&resourcePermService),
 		fx.Populate(&authService),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
@@ -143,7 +145,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	api.GET("/auth/login", echo.WrapHandler(http.HandlerFunc(authHandlers.Login)))
 	api.GET("/auth/callback", echo.WrapHandler(http.HandlerFunc(authHandlers.Callback)))
-	api.GET("/auth/me", impersonationHandler.Me(authHandlers))
+	if appCfg.OAuthEnabled() {
+		api.GET("/auth/me", impersonationHandler.Me(authHandlers))
+	} else {
+		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
+	}
 	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
 
 	// Protected API group — apply auth middleware when OAuth is configured
@@ -152,6 +158,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
 		protected.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
+	} else {
+		protected.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
 
 	personHandler := handlers.NewPersonHandler(resourceService)
@@ -214,6 +222,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
 	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
 	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
+
+	// Permission routes — registered before dynamic catch-all
+	permHandler := handlers.NewResourcePermissionHandler(resourcePermService)
+	protected.POST("/:typeSlug/:id/permissions", permHandler.Grant)
+	protected.GET("/:typeSlug/:id/permissions", permHandler.List)
+	protected.DELETE("/:typeSlug/:id/permissions/:agentId", permHandler.Revoke)
 
 	// Dynamic resource routes — MUST be registered after ALL static routes
 	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)

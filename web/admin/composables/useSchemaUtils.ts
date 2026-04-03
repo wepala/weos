@@ -44,7 +44,7 @@ export function useSchemaUtils() {
       .replace(/\b\w/g, (c) => c.toUpperCase())
   }
 
-  function schemaToColumns(schema: any, max = 4): ColumnDescriptor[] {
+  function schemaToColumns(schema: any, max = 6): ColumnDescriptor[] {
     if (!schema?.properties) return []
 
     const props = schema.properties

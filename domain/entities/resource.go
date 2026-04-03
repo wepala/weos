@@ -34,11 +34,13 @@ type Resource struct {
 	typeSlug  string
 	data      json.RawMessage
 	status    string
+	createdBy string
+	accountID string
 	createdAt time.Time
 }
 
 func (e *Resource) With(
-	id, typeSlug string, graphData json.RawMessage,
+	id, typeSlug string, graphData json.RawMessage, createdBy, accountID string,
 ) (*Resource, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id cannot be empty")
@@ -56,10 +58,12 @@ func (e *Resource) With(
 	e.BaseEntity = ddd.NewBaseEntity(id)
 	e.typeSlug = typeSlug
 	e.status = "active"
+	e.createdBy = createdBy
+	e.accountID = accountID
 	e.createdAt = time.Now()
 	e.data = graphData
 
-	event := new(ResourceCreated).With(typeSlug, e.data)
+	event := new(ResourceCreated).With(typeSlug, e.data, createdBy, accountID)
 	if err := e.BaseEntity.RecordEvent(event, event.EventType()); err != nil {
 		return nil, fmt.Errorf("failed to record ResourceCreated event: %w", err)
 	}
@@ -82,11 +86,14 @@ func (e *Resource) MarkDeleted() error {
 func (e *Resource) TypeSlug() string      { return e.typeSlug }
 func (e *Resource) Data() json.RawMessage { return e.data }
 func (e *Resource) Status() string        { return e.status }
+func (e *Resource) CreatedBy() string     { return e.createdBy }
+func (e *Resource) AccountID() string     { return e.accountID }
 func (e *Resource) CreatedAt() time.Time  { return e.createdAt }
 
 func (e *Resource) Restore(
 	id, typeSlug, status string,
 	data json.RawMessage,
+	createdBy, accountID string,
 	createdAt time.Time, sequenceNo int,
 ) error {
 	if id == "" {
@@ -96,6 +103,8 @@ func (e *Resource) Restore(
 	e.typeSlug = typeSlug
 	e.data = data
 	e.status = status
+	e.createdBy = createdBy
+	e.accountID = accountID
 	e.createdAt = createdAt
 	return nil
 }
@@ -112,6 +121,8 @@ func (e *Resource) ApplyEvent(
 		e.typeSlug = payload.TypeSlug
 		e.data = payload.Data
 		e.status = "active"
+		e.createdBy = payload.CreatedBy
+		e.accountID = payload.AccountID
 		e.createdAt = payload.Timestamp
 		return nil
 	case ResourceUpdated:

@@ -59,7 +59,7 @@ async function handleSubmit(data: Record<string, any>) {
   submitting.value = true
   try {
     await update(id, data)
-    router.push(`/resources/${typeSlug}`)
+    router.back()
   } finally {
     submitting.value = false
   }

@@ -27,6 +27,8 @@ type Resource struct {
 	TypeSlug   string `gorm:"not null;index"`
 	Data       string `gorm:"type:text"`
 	Status     string `gorm:"not null;default:active"`
+	CreatedBy  string `gorm:"index"`
+	AccountID  string `gorm:"index"`
 	SequenceNo int
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
@@ -42,6 +44,7 @@ func (m *Resource) ToResource() (*entities.Resource, error) {
 	err := e.Restore(
 		m.ID, m.TypeSlug, m.Status,
 		json.RawMessage(m.Data),
+		m.CreatedBy, m.AccountID,
 		m.CreatedAt, m.SequenceNo,
 	)
 	if err != nil {
@@ -56,6 +59,8 @@ func FromResource(e *entities.Resource) *Resource {
 		TypeSlug:   e.TypeSlug(),
 		Data:       string(e.Data()),
 		Status:     e.Status(),
+		CreatedBy:  e.CreatedBy(),
+		AccountID:  e.AccountID(),
 		SequenceNo: e.GetSequenceNo(),
 		CreatedAt:  e.CreatedAt(),
 	}

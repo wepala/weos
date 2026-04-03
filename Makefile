@@ -47,3 +47,33 @@ deps: ## Download dependencies
 
 mocks: ## Generate mocks
 	moqup ./...
+
+dev-seed: build ## Seed database with test users, presets, and sample data
+	./bin/weos seed
+
+dev-serve: build ## Run server in dev mode (no OAuth required)
+	GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= ./bin/weos serve
+
+dev-setup: dev-seed dev-serve ## Full dev setup: seed then start server
+
+dev-test-api: build dev-seed ## Run Newman API regression tests (requires: npm install -g newman)
+	GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= ./bin/weos serve & \
+	SERVER_PID=$$!; \
+	sleep 2; \
+	newman run tests/newman/tasks-api.postman_collection.json \
+		-e tests/newman/dev-environment.json \
+		--color on; \
+	EXIT_CODE=$$?; \
+	kill $$SERVER_PID 2>/dev/null; \
+	exit $$EXIT_CODE
+
+dev-build-frontend: ## Build Nuxt frontend into web/dist/
+	cd web/admin && npx nuxt generate
+	rm -rf web/dist && cp -r web/admin/.output/public web/dist
+
+dev-test-ui: build dev-build-frontend dev-seed ## Run Playwright UI tests (headless)
+	cd tests/browser && npx playwright test
+
+dev-clean: ## Remove dev database, seed manifest, and build artifacts
+	rm -f weos.db .dev-seed.json
+	rm -rf bin/

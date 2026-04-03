@@ -23,13 +23,17 @@ import (
 type ResourceCreated struct {
 	TypeSlug  string
 	Data      json.RawMessage
+	CreatedBy string
+	AccountID string
 	Timestamp time.Time
 }
 
-func (e *ResourceCreated) With(typeSlug string, data json.RawMessage) ResourceCreated {
+func (e *ResourceCreated) With(typeSlug string, data json.RawMessage, createdBy, accountID string) ResourceCreated {
 	return ResourceCreated{
 		TypeSlug:  typeSlug,
 		Data:      data,
+		CreatedBy: createdBy,
+		AccountID: accountID,
 		Timestamp: time.Now(),
 	}
 }

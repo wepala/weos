@@ -9,6 +9,8 @@ import (
 	"weos/domain/repositories"
 	"weos/pkg/identity"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -35,12 +37,14 @@ type ResourceService interface {
 }
 
 type resourceService struct {
-	repo       repositories.ResourceRepository
-	typeRepo   repositories.ResourceTypeRepository
-	eventStore domain.EventStore
-	dispatcher *domain.EventDispatcher
-	logger     entities.Logger
-	behaviors  ResourceBehaviorRegistry
+	repo        repositories.ResourceRepository
+	typeRepo    repositories.ResourceTypeRepository
+	permRepo    repositories.ResourcePermissionRepository
+	accountRepo authrepos.AccountRepository
+	eventStore  domain.EventStore
+	dispatcher  *domain.EventDispatcher
+	logger      entities.Logger
+	behaviors   ResourceBehaviorRegistry
 }
 
 func (s *resourceService) behaviorFor(slug string) entities.ResourceBehavior {
@@ -52,20 +56,24 @@ func (s *resourceService) behaviorFor(slug string) entities.ResourceBehavior {
 
 func ProvideResourceService(params struct {
 	fx.In
-	Repo       repositories.ResourceRepository
-	TypeRepo   repositories.ResourceTypeRepository
-	EventStore domain.EventStore
-	Dispatcher *domain.EventDispatcher
-	Logger     entities.Logger
-	Behaviors  ResourceBehaviorRegistry
+	Repo        repositories.ResourceRepository
+	TypeRepo    repositories.ResourceTypeRepository
+	PermRepo    repositories.ResourcePermissionRepository
+	AccountRepo authrepos.AccountRepository
+	EventStore  domain.EventStore
+	Dispatcher  *domain.EventDispatcher
+	Logger      entities.Logger
+	Behaviors   ResourceBehaviorRegistry
 }) ResourceService {
 	return &resourceService{
-		repo:       params.Repo,
-		typeRepo:   params.TypeRepo,
-		eventStore: params.EventStore,
-		dispatcher: params.Dispatcher,
-		logger:     params.Logger,
-		behaviors:  params.Behaviors,
+		repo:        params.Repo,
+		typeRepo:    params.TypeRepo,
+		permRepo:    params.PermRepo,
+		accountRepo: params.AccountRepo,
+		eventStore:  params.EventStore,
+		dispatcher:  params.Dispatcher,
+		logger:      params.Logger,
+		behaviors:   params.Behaviors,
 	}
 }
 
@@ -88,6 +96,12 @@ func (s *resourceService) Create(
 		return nil, fmt.Errorf("schema validation failed: %w", err)
 	}
 
+	var createdBy, accountID string
+	if ident := auth.AgentFromCtx(ctx); ident != nil {
+		createdBy = ident.AgentID
+		accountID = ident.ActiveAccountID
+	}
+
 	entityID := identity.NewResource(cmd.TypeSlug)
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
 	graphData, err := BuildResourceGraph(data, refProps, entityID, rt.Name(), rt.Context())
@@ -95,7 +109,7 @@ func (s *resourceService) Create(
 		return nil, fmt.Errorf("failed to build resource graph: %w", err)
 	}
 
-	entity, err := new(entities.Resource).With(entityID, cmd.TypeSlug, graphData)
+	entity, err := new(entities.Resource).With(entityID, cmd.TypeSlug, graphData, createdBy, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
@@ -120,16 +134,64 @@ func (s *resourceService) Create(
 	return entity, nil
 }
 
+func (s *resourceService) buildVisibilityScope(ctx context.Context) *repositories.VisibilityScope {
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		return nil
+	}
+	return &repositories.VisibilityScope{
+		AgentID:   identity.AgentID,
+		AccountID: identity.ActiveAccountID,
+		IsAdmin:   false, // per-user scoping: lists always filter by creator + permissions
+	}
+}
+
+func (s *resourceService) checkInstanceAccess(
+	ctx context.Context, entity *entities.Resource, action string,
+) error {
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		return nil // system context (CLI/MCP) — allow
+	}
+	// Admin/owner bypass: only if the caller is admin/owner in the RESOURCE's account
+	if entity.AccountID() != "" {
+		role, _ := s.accountRepo.FindMemberRole(ctx, entity.AccountID(), identity.AgentID)
+		if role == "admin" || role == "owner" {
+			return nil
+		}
+	}
+	// Creator access
+	if entity.CreatedBy() == identity.AgentID {
+		return nil
+	}
+	// Explicit permission grant
+	if has, _ := s.permRepo.HasPermission(ctx, entity.GetID(), identity.AgentID, action); has {
+		return nil
+	}
+	// Backward compatibility: pre-migration resources with no owner
+	if entity.CreatedBy() == "" {
+		return nil
+	}
+	return entities.ErrAccessDenied
+}
+
 func (s *resourceService) GetByID(
 	ctx context.Context, id string,
 ) (*entities.Resource, error) {
-	return s.repo.FindByID(ctx, id)
+	entity, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkInstanceAccess(ctx, entity, "read"); err != nil {
+		return nil, err
+	}
+	return entity, nil
 }
 
 func (s *resourceService) List(
 	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
-	return s.repo.FindAllByType(ctx, typeSlug, cursor, limit, sort)
+	return s.repo.FindAllByType(ctx, typeSlug, cursor, limit, sort, s.buildVisibilityScope(ctx))
 }
 
 func (s *resourceService) ListByField(
@@ -148,21 +210,23 @@ func (s *resourceService) ListByField(
 func (s *resourceService) ListFlat(
 	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[map[string]any], error) {
-	return s.repo.FindAllByTypeFlat(ctx, typeSlug, cursor, limit, sort)
+	return s.repo.FindAllByTypeFlat(ctx, typeSlug, cursor, limit, sort, s.buildVisibilityScope(ctx))
 }
 
 func (s *resourceService) ListFlatWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
 	cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[map[string]any], error) {
-	return s.repo.FindAllByTypeFlatWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
+	scope := s.buildVisibilityScope(ctx)
+	return s.repo.FindAllByTypeFlatWithFilters(ctx, typeSlug, filters, cursor, limit, sort, scope)
 }
 
 func (s *resourceService) ListWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
 	cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
-	return s.repo.FindAllByTypeWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
+	scope := s.buildVisibilityScope(ctx)
+	return s.repo.FindAllByTypeWithFilters(ctx, typeSlug, filters, cursor, limit, sort, scope)
 }
 
 func (s *resourceService) Update(
@@ -170,6 +234,10 @@ func (s *resourceService) Update(
 ) (*entities.Resource, error) {
 	entity, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := s.checkInstanceAccess(ctx, entity, "modify"); err != nil {
 		return nil, err
 	}
 
@@ -225,6 +293,10 @@ func (s *resourceService) Delete(
 ) error {
 	entity, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
+		return err
+	}
+
+	if err := s.checkInstanceAccess(ctx, entity, "delete"); err != nil {
 		return err
 	}
 

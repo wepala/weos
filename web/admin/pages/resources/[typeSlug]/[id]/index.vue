@@ -56,7 +56,14 @@
             <a-button size="small">View All</a-button>
           </NuxtLink>
         </div>
+        <TaskChecklist
+          v-if="child.slug === 'task'"
+          :project-id="id"
+          :items="child.items"
+          :loading="child.loading"
+        />
         <ResourceTable
+          v-else
           :items="child.items"
           :columns="child.columns"
           :loading="child.loading"
@@ -75,7 +82,7 @@ const router = useRouter()
 const typeSlug = route.params.typeSlug as string
 const id = route.params.id as string
 
-const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
+const { resourceTypes, getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
 const { get } = useResourceApi(typeSlug)
 const { schemaToFields, schemaToColumns } = useSchemaUtils()
 const { getChildren } = useSidebarSettings()
@@ -105,8 +112,26 @@ interface ChildSection {
 
 const childSections = ref<ChildSection[]>([])
 
+function discoverChildSlugs(): string[] {
+  // First try sidebar settings
+  const configured = getChildren(typeSlug)
+  if (configured.length) return configured
+  // Fallback: scan all resource types for x-resource-type references to this type
+  const discovered: string[] = []
+  for (const rt of resourceTypes.value) {
+    if (rt.slug === typeSlug || !rt.schema?.properties) continue
+    for (const prop of Object.values(rt.schema.properties) as any[]) {
+      if (prop['x-resource-type'] === typeSlug) {
+        discovered.push(rt.slug)
+        break
+      }
+    }
+  }
+  return discovered
+}
+
 function initChildSections() {
-  const childSlugs = getChildren(typeSlug)
+  const childSlugs = discoverChildSlugs()
   if (!childSlugs.length) return
 
   const sections: ChildSection[] = []

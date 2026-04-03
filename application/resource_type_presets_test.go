@@ -22,7 +22,7 @@ import (
 
 func TestPresets_AllFourExist(t *testing.T) {
 	t.Parallel()
-	expected := []string{"ecommerce", "events", "knowledge", "website"}
+	expected := []string{"ecommerce", "events", "knowledge", "tasks", "website"}
 	defs := ListPresetDefinitions()
 	if len(defs) != len(expected) {
 		t.Fatalf("expected %d presets, got %d", len(expected), len(defs))

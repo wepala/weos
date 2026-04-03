@@ -123,7 +123,8 @@ func subscribeResourceHandlers(
 			entity := &entities.Resource{}
 			if err := entity.Restore(
 				env.AggregateID, p.TypeSlug, "active",
-				json.RawMessage(p.Data), p.Timestamp, env.SequenceNo,
+				json.RawMessage(p.Data), p.CreatedBy, p.AccountID,
+				p.Timestamp, env.SequenceNo,
 			); err != nil {
 				return err
 			}
@@ -142,7 +143,8 @@ func subscribeResourceHandlers(
 			}
 			if err := existing.Restore(
 				env.AggregateID, existing.TypeSlug(), existing.Status(),
-				json.RawMessage(env.Payload.Data), existing.CreatedAt(), env.SequenceNo,
+				json.RawMessage(env.Payload.Data), existing.CreatedBy(), existing.AccountID(),
+				existing.CreatedAt(), env.SequenceNo,
 			); err != nil {
 				return err
 			}

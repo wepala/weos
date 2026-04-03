@@ -94,7 +94,7 @@ func TestResource_With(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			entity, err := new(Resource).With(tt.id, tt.typeSlug, tt.data)
+			entity, err := new(Resource).With(tt.id, tt.typeSlug, tt.data, "agent-1", "account-1")
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -123,6 +123,7 @@ func TestResource_Restore(t *testing.T) {
 	e := &Resource{}
 	data := json.RawMessage(`{"@id":"urn:products:abc","@type":"Product","name":"Widget"}`)
 	err := e.Restore("urn:products:abc", "products", "active", data,
+		"agent-1", "account-1",
 		time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC), 3)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -141,7 +142,7 @@ func TestResource_Restore(t *testing.T) {
 func TestResource_RestoreErrors(t *testing.T) {
 	t.Parallel()
 
-	if err := new(Resource).Restore("", "p", "active", nil, time.Now(), 0); err == nil {
+	if err := new(Resource).Restore("", "p", "active", nil, "", "", time.Now(), 0); err == nil {
 		t.Fatal("expected error for empty id")
 	}
 }

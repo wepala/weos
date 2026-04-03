@@ -63,6 +63,7 @@ var presets = map[string]PresetDefinition{
 	"ecommerce": ecommercePreset(),
 	"events":    eventsPreset(),
 	"knowledge": knowledgePreset(),
+	"tasks":     tasksPreset(),
 }
 
 // ListPresetDefinitions returns all available preset definitions sorted by name.
@@ -235,6 +236,36 @@ func eventsPreset() PresetDefinition {
 				`{"@vocab":"https://schema.org/","@type":"EventVenue"}`,
 				`{"type":"object","properties":{"name":{"type":"string"},"address":{"type":"string"},`+
 					`"maximumAttendeeCapacity":{"type":"integer"}},"required":["name"]}`,
+			),
+		},
+	}
+}
+
+func tasksPreset() PresetDefinition {
+	return PresetDefinition{
+		Name:        "tasks",
+		Description: "Task management types: projects and tasks with status, priority, and due dates",
+		Types: []PresetResourceType{
+			newPresetType("Project", "project",
+				"A project that groups related tasks",
+				`{"@vocab":"https://schema.org/","@type":"Project"}`,
+				`{"type":"object","properties":{`+
+					`"name":{"type":"string"},`+
+					`"description":{"type":"string"},`+
+					`"status":{"type":"string"}`+
+					`},"required":["name"]}`,
+			),
+			newPresetType("Task", "task",
+				"An actionable item with status, priority, and optional due date",
+				`{"@vocab":"https://schema.org/","@type":"Action","project":"https://schema.org/isPartOf"}`,
+				`{"type":"object","properties":{`+
+					`"name":{"type":"string"},`+
+					`"description":{"type":"string"},`+
+					`"status":{"type":"string"},`+
+					`"priority":{"type":"string"},`+
+					`"dueDate":{"type":"string","format":"date"},`+
+					`"project":{"type":"string","x-resource-type":"project","x-display-property":"name"}`+
+					`},"required":["name"]}`,
 			),
 		},
 	}

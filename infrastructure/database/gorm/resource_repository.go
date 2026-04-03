@@ -124,6 +124,8 @@ func (r *ResourceRepository) saveToProjection(
 		"id":          entity.GetID(),
 		"type_slug":   entity.TypeSlug(),
 		"status":      entity.Status(),
+		"created_by":  entity.CreatedBy(),
+		"account_id":  entity.AccountID(),
 		"sequence_no": entity.GetSequenceNo(),
 		"created_at":  entity.CreatedAt(),
 	}
@@ -157,11 +159,13 @@ func (r *ResourceRepository) findByIDFromProjection(
 		TypeSlug   string
 		Data       string
 		Status     string
+		CreatedBy  string
+		AccountID  string
 		SequenceNo int
 		CreatedAt  time.Time
 	}
 	err := r.db.WithContext(ctx).Table(tableName).
-		Select("id, type_slug, data, status, sequence_no, created_at").
+		Select("id, type_slug, data, status, created_by, account_id, sequence_no, created_at").
 		Where("id = ? ", id).
 		Take(&result).Error
 	if err != nil {
@@ -171,6 +175,7 @@ func (r *ResourceRepository) findByIDFromProjection(
 	if err := e.Restore(
 		result.ID, result.TypeSlug, result.Status,
 		json.RawMessage(result.Data),
+		result.CreatedBy, result.AccountID,
 		result.CreatedAt, result.SequenceNo,
 	); err != nil {
 		return nil, err
@@ -178,15 +183,32 @@ func (r *ResourceRepository) findByIDFromProjection(
 	return e, nil
 }
 
+// applyVisibilityScope adds ownership filtering to a query when a non-nil scope
+// is provided and the caller is not an admin.
+func applyVisibilityScope(query *gorm.DB, scope *repositories.VisibilityScope, tablePrefix string) *gorm.DB {
+	if scope == nil || scope.IsAdmin {
+		return query
+	}
+	col := "created_by"
+	if tablePrefix != "" {
+		col = tablePrefix + "." + col
+	}
+	return query.Where(
+		col+" = ? OR id IN (SELECT resource_id FROM resource_permissions WHERE agent_id = ? AND actions LIKE ?)",
+		scope.AgentID, scope.AgentID, `%"read"%`,
+	)
+}
+
 func (r *ResourceRepository) FindAllByType(
-	ctx context.Context, typeSlug string, cursor string, limit int, sort repositories.SortOptions,
+	ctx context.Context, typeSlug string, cursor string, limit int,
+	sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	if limit <= 0 {
 		limit = 20
 	}
 
 	if r.projMgr.HasProjectionTable(typeSlug) {
-		return r.findAllFromProjection(ctx, typeSlug, cursor, limit, sort)
+		return r.findAllFromProjection(ctx, typeSlug, cursor, limit, sort, scope)
 	}
 
 	sortBy, sortOrder := normalizeSortOptions(sort)
@@ -197,6 +219,7 @@ func (r *ResourceRepository) FindAllByType(
 
 	query := r.db.WithContext(ctx).
 		Where("type_slug = ? ", typeSlug)
+	query = applyVisibilityScope(query, scope, "")
 	if cursor != "" {
 		cd, err := decodeCursor(cursor)
 		if err == nil {
@@ -228,7 +251,8 @@ func (r *ResourceRepository) FindAllByType(
 
 //nolint:dupl // raw SQL row processing differs in sort/filter logic
 func (r *ResourceRepository) findAllFromProjection(
-	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
+	ctx context.Context, typeSlug, cursor string, limit int,
+	sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	tableName := r.projMgr.TableName(typeSlug)
 	sortBy, sortOrder := normalizeSortOptions(sort)
@@ -254,6 +278,7 @@ func (r *ResourceRepository) findAllFromProjection(
 		Select(selectCols).
 		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
 		Where("1=1")
+	query = applyVisibilityScope(query, scope, tbl)
 	if cursor != "" {
 		cd, err := decodeCursor(cursor)
 		if err == nil {
@@ -287,6 +312,7 @@ func (r *ResourceRepository) findAllFromProjection(
 			fmt.Sprint(row["type_slug"]),
 			fmt.Sprint(row["status"]),
 			json.RawMessage(fmt.Sprint(row["data"])),
+			toString(row["created_by"]), toString(row["account_id"]),
 			parseTime(row["created_at"]),
 			toInt(row["sequence_no"]),
 		); err != nil {
@@ -364,6 +390,16 @@ func buildResourcePageWithCursor(
 	}, nil
 }
 
+func toString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprint(v)
+}
+
 func parseTime(v any) time.Time {
 	switch t := v.(type) {
 	case time.Time:
@@ -418,11 +454,13 @@ func (r *ResourceRepository) findAllByFieldFromProjection(
 		TypeSlug   string
 		Data       string
 		Status     string
+		CreatedBy  string
+		AccountID  string
 		SequenceNo int
 		CreatedAt  time.Time
 	}
 	err := r.db.WithContext(ctx).Table(tableName).
-		Select(fmt.Sprintf("%s.id, %s.type_slug, resources.data, %s.status, %s.sequence_no, %s.created_at",
+		Select(fmt.Sprintf("%s.id, %s.type_slug, resources.data, %s.status, resources.created_by, resources.account_id, %s.sequence_no, %s.created_at",
 			tbl, tbl, tbl, tbl, tbl)).
 		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
 		Where(tbl+"."+colName+" = ? ", fieldValue).
@@ -437,6 +475,7 @@ func (r *ResourceRepository) findAllByFieldFromProjection(
 		if err := e.Restore(
 			row.ID, row.TypeSlug, row.Status,
 			json.RawMessage(row.Data),
+			row.CreatedBy, row.AccountID,
 			row.CreatedAt, row.SequenceNo,
 		); err != nil {
 			return nil, err
@@ -475,18 +514,18 @@ var operatorMap = map[string]string{
 
 func (r *ResourceRepository) FindAllByTypeWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
-	cursor string, limit int, sort repositories.SortOptions,
+	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	if r.projMgr.HasProjectionTable(typeSlug) {
-		return r.findAllFromProjectionWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
+		return r.findAllFromProjectionWithFilters(ctx, typeSlug, filters, cursor, limit, sort, scope)
 	}
-	return r.findAllFromGenericWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
+	return r.findAllFromGenericWithFilters(ctx, typeSlug, filters, cursor, limit, sort, scope)
 }
 
 //nolint:dupl // raw SQL row processing differs in sort/filter logic
 func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
-	cursor string, limit int, sort repositories.SortOptions,
+	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	tableName := r.projMgr.TableName(typeSlug)
 	sortBy, sortOrder := normalizeSortOptions(sort)
@@ -509,6 +548,7 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	query := r.db.WithContext(ctx).Table(tableName).Select(selectCols).
 		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
 		Where("1=1")
+	query = applyVisibilityScope(query, scope, tbl)
 
 	for _, f := range filters {
 		sqlOp, ok := operatorMap[f.Operator]
@@ -555,6 +595,7 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 		if err := e.Restore(
 			id, fmt.Sprint(row["type_slug"]), fmt.Sprint(row["status"]),
 			json.RawMessage(fmt.Sprint(row["data"])),
+			toString(row["created_by"]), toString(row["account_id"]),
 			parseTime(row["created_at"]), toInt(row["sequence_no"]),
 		); err != nil {
 			return repositories.PaginatedResponse[*entities.Resource]{}, err
@@ -576,22 +617,23 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 }
 
 func (r *ResourceRepository) FindAllByTypeFlat(
-	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
+	ctx context.Context, typeSlug, cursor string, limit int,
+	sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	if !r.projMgr.HasProjectionTable(typeSlug) {
 		return repositories.PaginatedResponse[map[string]any]{}, fmt.Errorf("no projection table for %q", typeSlug)
 	}
-	return r.findAllFlatFromProjection(ctx, typeSlug, nil, cursor, limit, sort)
+	return r.findAllFlatFromProjection(ctx, typeSlug, nil, cursor, limit, sort, scope)
 }
 
 func (r *ResourceRepository) FindAllByTypeFlatWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
-	cursor string, limit int, sort repositories.SortOptions,
+	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	if !r.projMgr.HasProjectionTable(typeSlug) {
 		return repositories.PaginatedResponse[map[string]any]{}, fmt.Errorf("no projection table for %q", typeSlug)
 	}
-	return r.findAllFlatFromProjection(ctx, typeSlug, filters, cursor, limit, sort)
+	return r.findAllFlatFromProjection(ctx, typeSlug, filters, cursor, limit, sort, scope)
 }
 
 // findAllFlatFromProjection queries the projection table directly and returns flat rows
@@ -599,7 +641,7 @@ func (r *ResourceRepository) FindAllByTypeFlatWithFilters(
 // Column names are converted from snake_case to camelCase for JSON API responses.
 func (r *ResourceRepository) findAllFlatFromProjection(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
-	cursor string, limit int, sort repositories.SortOptions,
+	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	tableName := r.projMgr.TableName(typeSlug)
 	sortBy, sortOrder := normalizeSortOptions(sort)
@@ -612,6 +654,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 	}
 
 	query := r.db.WithContext(ctx).Table(tableName).Where("1=1")
+	query = applyVisibilityScope(query, scope, "")
 
 	for _, f := range filters {
 		sqlOp, ok := operatorMap[f.Operator]
@@ -676,7 +719,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 
 func (r *ResourceRepository) findAllFromGenericWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
-	cursor string, limit int, sort repositories.SortOptions,
+	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	sortBy, sortOrder := normalizeSortOptions(sort)
 	colName := sortBy
@@ -686,6 +729,7 @@ func (r *ResourceRepository) findAllFromGenericWithFilters(
 
 	query := r.db.WithContext(ctx).Model(&models.Resource{}).
 		Where("type_slug = ?", typeSlug)
+	query = applyVisibilityScope(query, scope, "")
 
 	for _, f := range filters {
 		sqlOp, ok := operatorMap[f.Operator]

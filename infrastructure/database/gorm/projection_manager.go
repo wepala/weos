@@ -44,6 +44,8 @@ var standardColumnNames = map[string]bool{
 	"type_slug":   true,
 	"data":        true,
 	"status":      true,
+	"created_by":  true,
+	"account_id":  true,
 	"sequence_no": true,
 	"created_at":  true,
 	"updated_at":  true,
@@ -262,6 +264,8 @@ func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableNa
 	colDefs = append(colDefs, "id TEXT PRIMARY KEY")
 	colDefs = append(colDefs, "type_slug TEXT NOT NULL")
 	colDefs = append(colDefs, "status TEXT NOT NULL DEFAULT 'active'")
+	colDefs = append(colDefs, "created_by TEXT")
+	colDefs = append(colDefs, "account_id TEXT")
 	colDefs = append(colDefs, "sequence_no INTEGER")
 
 	if dialect == "postgres" {
