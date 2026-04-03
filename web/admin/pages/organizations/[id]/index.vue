@@ -17,7 +17,7 @@
 
 <template>
   <div>
-    <a-page-header title="Organization Details" @back="() => $router.push('/organizations')">
+    <a-page-header title="Organization Details" @back="() => $router.back()">
       <template #extra>
         <NuxtLink :to="`/organizations/${route.params.id}/edit`">
           <a-button type="primary">Edit</a-button>

@@ -19,6 +19,7 @@ import "time"
 
 type SidebarSettings struct {
 	ID          uint   `gorm:"primaryKey;autoIncrement"`
+	Role        string `gorm:"type:varchar(100);uniqueIndex;default:default"`
 	HiddenSlugs string `gorm:"type:text"`
 	MenuGroups  string `gorm:"type:text"`
 	CreatedAt   time.Time

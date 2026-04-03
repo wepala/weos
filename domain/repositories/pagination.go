@@ -15,6 +15,13 @@
 
 package repositories
 
+// FilterCondition represents a single filter clause for resource queries.
+type FilterCondition struct {
+	Field    string // camelCase field name (e.g. "courseInstanceId")
+	Operator string // one of: eq, ne, gt, gte, lt, lte
+	Value    string // the filter value
+}
+
 // PaginatedResponse represents a paginated response with cursor-based pagination.
 type PaginatedResponse[T any] struct {
 	// Data contains the paginated items.

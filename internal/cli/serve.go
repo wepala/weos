@@ -35,8 +35,10 @@ import (
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+	authcasbin "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/casbin"
 	authhttp "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/http"
 	"github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/session"
+	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
@@ -63,8 +65,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var authService authapp.AuthenticationService
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
+	var agentRepo authrepos.AgentRepository
+	var accountRepo authrepos.AccountRepository
+	var sessionStore sessions.Store
 	var logger entities.Logger
 	var sidebarSettingsRepo *gormdb.SidebarSettingsRepository
+	var roleSettingsRepo *gormdb.RoleSettingsRepository
+	var roleAccessRepo *gormdb.RoleResourceAccessRepository
+	var authzChecker *authcasbin.CasbinAuthorizationChecker
 
 	app := fx.New(
 		fx.NopLogger,
@@ -76,8 +84,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&authService),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
+		fx.Populate(&agentRepo),
+		fx.Populate(&accountRepo),
+		fx.Populate(&sessionStore),
 		fx.Populate(&logger),
 		fx.Populate(&sidebarSettingsRepo),
+		fx.Populate(&roleSettingsRepo),
+		fx.Populate(&roleAccessRepo),
+		fx.Populate(&authzChecker),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -86,6 +100,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err := app.Start(startCtx); err != nil {
 		return fmt.Errorf("failed to start application: %w", err)
 	}
+
+	// Sync role-access policies from the config table into Casbin.
+	if accessMap, err := roleAccessRepo.GetAccessMap(context.Background()); err == nil {
+		handlers.SyncAccessMapToCasbin(authzChecker, accessMap, nil)
+	}
+	handlers.SeedAdminPolicies(authzChecker)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -110,15 +130,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 		FrontendURL:     appCfg.OAuth.FrontendURL,
 		Logger:          logger,
 	})
+	impersonationHandler := handlers.NewImpersonationHandler(handlers.ImpersonationHandlerConfig{
+		Store:       sessionStore,
+		AccountRepo: accountRepo,
+		AgentRepo:   agentRepo,
+		CredRepo:    credentialRepo,
+		Logger:      logger,
+	})
+
 	api.GET("/auth/login", echo.WrapHandler(http.HandlerFunc(authHandlers.Login)))
 	api.GET("/auth/callback", echo.WrapHandler(http.HandlerFunc(authHandlers.Callback)))
-	api.GET("/auth/me", echo.WrapHandler(http.HandlerFunc(authHandlers.Me)))
+	api.GET("/auth/me", impersonationHandler.Me(authHandlers))
 	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
 
 	// Protected API group — apply auth middleware when OAuth is configured
 	protected := api.Group("")
 	if appCfg.OAuthEnabled() {
 		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
+		protected.Use(apimw.Impersonation(sessionStore, accountRepo))
+		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo))
 	}
 
 	personHandler := handlers.NewPersonHandler(personService)
@@ -136,7 +166,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.DELETE("/organizations/:id", orgHandler.Delete)
 	protected.GET("/organizations/:id/members", orgHandler.Members)
 
-	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService)
+	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService, authzChecker, accountRepo)
 	protected.POST("/resource-types", rtHandler.Create)
 	protected.GET("/resource-types", rtHandler.List)
 	protected.GET("/resource-types/:id", rtHandler.Get)
@@ -147,9 +177,36 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.GET("/resource-types/presets", presetHandler.List)
 	protected.POST("/resource-types/presets/:name", presetHandler.Install)
 
-	sidebarSettingsHandler := handlers.NewSidebarSettingsHandler(sidebarSettingsRepo, logger)
+	sidebarSettingsHandler := handlers.NewSidebarSettingsHandler(sidebarSettingsRepo, accountRepo, logger)
 	protected.GET("/settings/sidebar", sidebarSettingsHandler.Get)
 	protected.PUT("/settings/sidebar", sidebarSettingsHandler.Save)
+
+	roleSettingsHandler := handlers.NewRoleSettingsHandler(roleSettingsRepo, accountRepo, logger)
+	protected.GET("/settings/roles", roleSettingsHandler.Get)
+	protected.PUT("/settings/roles", roleSettingsHandler.Save)
+
+	roleAccessHandler := handlers.NewRoleAccessHandler(handlers.RoleAccessHandlerConfig{
+		Repo:        roleAccessRepo,
+		Checker:     authzChecker,
+		AccountRepo: accountRepo,
+		Logger:      logger,
+	})
+	protected.GET("/settings/role-access", roleAccessHandler.Get)
+	protected.PUT("/settings/role-access", roleAccessHandler.Save)
+
+	userHandler := handlers.NewUserHandler(handlers.UserHandlerConfig{
+		AgentRepo:      agentRepo,
+		CredentialRepo: credentialRepo,
+		AccountRepo:    accountRepo,
+		Logger:         logger,
+	})
+	protected.GET("/users", userHandler.List)
+	protected.GET("/users/:id", userHandler.Get)
+	protected.PUT("/users/:id", userHandler.Update)
+
+	protected.POST("/admin/impersonate", impersonationHandler.Start)
+	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
+	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
 
 	// Dynamic resource routes — MUST be registered after ALL static routes
 	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)

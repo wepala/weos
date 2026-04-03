@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"weos/application"
+	"weos/domain/repositories"
 
 	"github.com/spf13/cobra"
 )
@@ -92,7 +93,8 @@ var resourceListCmd = &cobra.Command{
 		typeSlug, _ := cmd.Flags().GetString("type")
 		limit, _ := cmd.Flags().GetInt("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
-		result, err := deps.ResourceService.List(cmd.Context(), typeSlug, cursor, limit)
+		result, err := deps.ResourceService.List(cmd.Context(), typeSlug, cursor, limit,
+			repositories.SortOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to list resources: %w", err)
 		}

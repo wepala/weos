@@ -25,6 +25,7 @@ import (
 
 	"weos/application"
 	"weos/domain/entities"
+	"weos/domain/repositories"
 
 	"github.com/labstack/echo/v4"
 )
@@ -103,7 +104,22 @@ func (h *ResourceHandler) List(c echo.Context) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	result, err := h.resourceService.List(c.Request().Context(), typeSlug, cursor, limit)
+	sort := repositories.SortOptions{
+		SortBy:    c.QueryParam("sort_by"),
+		SortOrder: c.QueryParam("sort_order"),
+	}
+
+	filters := parseFilters(c)
+
+	var result repositories.PaginatedResponse[*entities.Resource]
+	var err error
+	if len(filters) > 0 {
+		result, err = h.resourceService.ListWithFilters(
+			c.Request().Context(), typeSlug, filters, cursor, limit, sort)
+	} else {
+		result, err = h.resourceService.List(
+			c.Request().Context(), typeSlug, cursor, limit, sort)
+	}
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
@@ -124,6 +140,48 @@ func (h *ResourceHandler) List(c echo.Context) error {
 		"cursor":   result.Cursor,
 		"has_more": result.HasMore,
 	})
+}
+
+// parseFilters extracts filter conditions from query parameters.
+// Supports _filter[field][op]=value notation and filter_field/filter_value shorthand.
+func parseFilters(c echo.Context) []repositories.FilterCondition {
+	var filters []repositories.FilterCondition
+
+	// Parse _filter[field][op]=value notation.
+	for key, values := range c.QueryParams() {
+		if !strings.HasPrefix(key, "_filter[") || !strings.HasSuffix(key, "]") {
+			continue
+		}
+		// Strip "_filter[" prefix and trailing "]"
+		inner := key[8 : len(key)-1]
+		// Split on "][" to get field and operator
+		parts := strings.SplitN(inner, "][", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		field := parts[0]
+		op := parts[1]
+		for _, val := range values {
+			filters = append(filters, repositories.FilterCondition{
+				Field:    field,
+				Operator: op,
+				Value:    val,
+			})
+		}
+	}
+
+	// Legacy shorthand: filter_field + filter_value → eq filter.
+	if filterField := c.QueryParam("filter_field"); filterField != "" {
+		if filterValue := c.QueryParam("filter_value"); filterValue != "" {
+			filters = append(filters, repositories.FilterCondition{
+				Field:    filterField,
+				Operator: "eq",
+				Value:    filterValue,
+			})
+		}
+	}
+
+	return filters
 }
 
 func (h *ResourceHandler) Update(c echo.Context) error {

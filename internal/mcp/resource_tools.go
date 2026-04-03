@@ -8,6 +8,7 @@ import (
 
 	"weos/application"
 	"weos/domain/entities"
+	"weos/domain/repositories"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -31,9 +32,11 @@ type GetResourceInput struct {
 }
 
 type ListResourcesInput struct {
-	TypeSlug string `json:"type_slug" jsonschema:"resource type slug"`
-	Cursor   string `json:"cursor,omitempty" jsonschema:"pagination cursor from previous call"`
-	Limit    int    `json:"limit,omitempty" jsonschema:"max items (1-100) defaults to 20"`
+	TypeSlug  string `json:"type_slug" jsonschema:"resource type slug"`
+	Cursor    string `json:"cursor,omitempty" jsonschema:"pagination cursor from previous call"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"max items (1-100) defaults to 20"`
+	SortBy    string `json:"sort_by,omitempty" jsonschema:"column to sort by (e.g. submittedAt, createdAt)"`
+	SortOrder string `json:"sort_order,omitempty" jsonschema:"sort order: asc or desc"`
 }
 
 type ResourceOutput struct {
@@ -105,7 +108,8 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 		if limit <= 0 {
 			limit = 20
 		}
-		result, err := svc.List(ctx, input.TypeSlug, input.Cursor, limit)
+		sort := repositories.SortOptions{SortBy: input.SortBy, SortOrder: input.SortOrder}
+		result, err := svc.List(ctx, input.TypeSlug, input.Cursor, limit, sort)
 		if err != nil {
 			return nil, ListResourcesOutput{}, err
 		}

@@ -21,9 +21,10 @@
     :data-source="items"
     :loading="loading"
     :pagination="false"
+    :scroll="{ x: 'max-content' }"
     row-key="id"
   >
-    <template #bodyCell="{ column, record }">
+    <template #bodyCell="{ column, record, text }">
       <template v-if="column.key === 'actions'">
         <a-space>
           <NuxtLink :to="`/resources/${typeSlug}/${record.id}`">
@@ -40,6 +41,12 @@
           </a-popconfirm>
         </a-space>
       </template>
+      <template v-else-if="column.resourceType && text">
+        {{ resolve(column.resourceType, text) }}
+      </template>
+      <template v-else-if="column.format && text">
+        {{ formatDate(column.format, text) }}
+      </template>
     </template>
   </a-table>
   <div v-if="hasMore" style="text-align: center; margin-top: 16px">
@@ -50,7 +57,7 @@
 <script setup lang="ts">
 const props = defineProps<{
   items: any[]
-  columns: { title: string; dataIndex: string; key: string }[]
+  columns: Record<string, any>[]
   loading: boolean
   hasMore: boolean
   typeSlug: string
@@ -61,8 +68,30 @@ defineEmits<{
   'load-more': []
 }>()
 
+const { preloadType, resolve } = useResourceLookup()
+
+function formatDate(format: string, value: string): string {
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return value
+  if (format === 'time') return d.toLocaleTimeString()
+  if (format === 'date') return d.toLocaleDateString()
+  return d.toLocaleString()
+}
+
 const allColumns = computed(() => [
   ...props.columns,
   { title: 'Actions', key: 'actions', width: 250 },
 ])
+
+watch(
+  () => props.columns,
+  (cols) => {
+    const types = new Set<string>()
+    for (const col of cols) {
+      if (col.resourceType) types.add(col.resourceType)
+    }
+    for (const t of types) preloadType(t)
+  },
+  { immediate: true },
+)
 </script>

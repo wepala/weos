@@ -20,10 +20,25 @@ interface PaginatedResponse<T> {
 }
 
 export function useResourceApi(typeSlug: string) {
-  function list(cursor = '', limit = 20) {
+  function list(
+    cursor = '',
+    limit = 20,
+    sortBy = '',
+    sortOrder = '',
+    filters?: Record<string, Record<string, string>>,
+  ) {
     const params = new URLSearchParams()
     if (cursor) params.set('cursor', cursor)
     params.set('limit', String(limit))
+    if (sortBy) params.set('sort_by', sortBy)
+    if (sortOrder) params.set('sort_order', sortOrder)
+    if (filters) {
+      for (const [field, ops] of Object.entries(filters)) {
+        for (const [op, value] of Object.entries(ops)) {
+          params.append(`_filter[${field}][${op}]`, value)
+        }
+      }
+    }
     return $fetch<PaginatedResponse<any>>(
       `/api/${typeSlug}?${params}`,
     )

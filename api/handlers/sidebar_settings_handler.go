@@ -19,20 +19,27 @@ import (
 	"encoding/json"
 	"net/http"
 
+	apimw "weos/api/middleware"
 	"weos/domain/entities"
 	gormdb "weos/infrastructure/database/gorm"
 	"weos/infrastructure/models"
 
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/labstack/echo/v4"
 )
 
 type SidebarSettingsHandler struct {
-	repo   *gormdb.SidebarSettingsRepository
-	logger entities.Logger
+	repo        *gormdb.SidebarSettingsRepository
+	accountRepo authrepos.AccountRepository
+	logger      entities.Logger
 }
 
-func NewSidebarSettingsHandler(repo *gormdb.SidebarSettingsRepository, logger entities.Logger) *SidebarSettingsHandler {
-	return &SidebarSettingsHandler{repo: repo, logger: logger}
+func NewSidebarSettingsHandler(
+	repo *gormdb.SidebarSettingsRepository,
+	accountRepo authrepos.AccountRepository,
+	logger entities.Logger,
+) *SidebarSettingsHandler {
+	return &SidebarSettingsHandler{repo: repo, accountRepo: accountRepo, logger: logger}
 }
 
 type sidebarSettingsResponse struct {
@@ -45,36 +52,31 @@ type sidebarSettingsRequest struct {
 	MenuGroups  map[string]string `json:"menu_groups"`
 }
 
+// Get returns sidebar settings. If ?role= is provided (admin-only), returns
+// that role's settings. Otherwise returns settings for the current user's role.
 func (h *SidebarSettingsHandler) Get(c echo.Context) error {
 	ctx := c.Request().Context()
-	settings, err := h.repo.Get(ctx)
+
+	role := c.QueryParam("role")
+	if role == "" {
+		role = apimw.GetUserRole(ctx, h.accountRepo)
+	}
+
+	settings, err := h.repo.GetByRole(ctx, role)
 	if err != nil {
-		h.logger.Error(ctx, "failed to load sidebar settings", "error", err)
+		h.logger.Error(ctx, "failed to load sidebar settings", "error", err, "role", role)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load settings"})
 	}
 
-	resp := sidebarSettingsResponse{
-		HiddenSlugs: []string{},
-		MenuGroups:  map[string]string{},
-	}
-
-	if settings.HiddenSlugs != "" {
-		if err := json.Unmarshal([]byte(settings.HiddenSlugs), &resp.HiddenSlugs); err != nil {
-			h.logger.Warn(ctx, "corrupt hidden_slugs JSON in sidebar settings", "error", err)
-			resp.HiddenSlugs = []string{}
-		}
-	}
-	if settings.MenuGroups != "" {
-		if err := json.Unmarshal([]byte(settings.MenuGroups), &resp.MenuGroups); err != nil {
-			h.logger.Warn(ctx, "corrupt menu_groups JSON in sidebar settings", "error", err)
-			resp.MenuGroups = map[string]string{}
-		}
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return c.JSON(http.StatusOK, h.toResponse(settings))
 }
 
+// Save updates sidebar settings. Admin-only.
 func (h *SidebarSettingsHandler) Save(c echo.Context) error {
+	if !apimw.IsAdmin(c.Request().Context(), h.accountRepo) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+	}
+
 	var req sidebarSettingsRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -97,13 +99,18 @@ func (h *SidebarSettingsHandler) Save(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode settings"})
 	}
 
+	role := c.QueryParam("role")
+	if role == "" {
+		role = "default"
+	}
+
 	settings := &models.SidebarSettings{
 		HiddenSlugs: string(hiddenJSON),
 		MenuGroups:  string(groupsJSON),
 	}
 
-	if err := h.repo.Save(c.Request().Context(), settings); err != nil {
-		h.logger.Error(c.Request().Context(), "failed to save sidebar settings", "error", err)
+	if err := h.repo.SaveByRole(c.Request().Context(), role, settings); err != nil {
+		h.logger.Error(c.Request().Context(), "failed to save sidebar settings", "error", err, "role", role)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save settings"})
 	}
 
@@ -111,4 +118,22 @@ func (h *SidebarSettingsHandler) Save(c echo.Context) error {
 		HiddenSlugs: req.HiddenSlugs,
 		MenuGroups:  req.MenuGroups,
 	})
+}
+
+func (h *SidebarSettingsHandler) toResponse(settings *models.SidebarSettings) sidebarSettingsResponse {
+	resp := sidebarSettingsResponse{
+		HiddenSlugs: []string{},
+		MenuGroups:  map[string]string{},
+	}
+	if settings.HiddenSlugs != "" {
+		if err := json.Unmarshal([]byte(settings.HiddenSlugs), &resp.HiddenSlugs); err != nil {
+			resp.HiddenSlugs = []string{}
+		}
+	}
+	if settings.MenuGroups != "" {
+		if err := json.Unmarshal([]byte(settings.MenuGroups), &resp.MenuGroups); err != nil {
+			resp.MenuGroups = map[string]string{}
+		}
+	}
+	return resp
 }

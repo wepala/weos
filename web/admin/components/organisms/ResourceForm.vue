@@ -42,6 +42,13 @@
         v-model:value="form[field.key]"
         style="width: 100%"
       />
+      <a-time-picker
+        v-else-if="field.inputType === 'time'"
+        v-model:value="form[field.key]"
+        format="HH:mm"
+        value-format="HH:mm"
+        style="width: 100%"
+      />
       <a-select
         v-else-if="field.inputType === 'select'"
         v-model:value="form[field.key]"
@@ -54,6 +61,11 @@
           {{ opt }}
         </a-select-option>
       </a-select>
+      <ResourceSelect
+        v-else-if="field.inputType === 'resource-select'"
+        v-model:value="form[field.key]"
+        :type-slug="field.resourceType!"
+      />
       <a-textarea
         v-else-if="field.inputType === 'textarea'"
         v-model:value="form[field.key]"
@@ -93,13 +105,13 @@ const emit = defineEmits<{
   submit: [data: Record<string, any>]
 }>()
 
-const { schemaToFields, buildFormModel } = useSchemaUtils()
+const { schemaToFields, buildFormModel, serializeFormModel } = useSchemaUtils()
 
 const fields = computed<FieldDescriptor[]>(() => schemaToFields(props.schema))
 
 const form = reactive(buildFormModel(props.schema, props.initialData))
 
 function handleSubmit() {
-  emit('submit', { ...form })
+  emit('submit', serializeFormModel(props.schema, form))
 }
 </script>

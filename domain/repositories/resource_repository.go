@@ -21,11 +21,19 @@ import (
 	"weos/domain/entities"
 )
 
+// SortOptions configures sorting for list queries.
+type SortOptions struct {
+	SortBy    string // column name in camelCase (e.g. "submittedAt"), default "id"
+	SortOrder string // "asc" or "desc", default "asc"
+}
+
 type ResourceRepository interface {
 	Save(ctx context.Context, entity *entities.Resource) error
 	FindByID(ctx context.Context, id string) (*entities.Resource, error)
-	FindAllByType(ctx context.Context, typeSlug string, cursor string, limit int) (
+	FindAllByType(ctx context.Context, typeSlug string, cursor string, limit int, sort SortOptions) (
 		PaginatedResponse[*entities.Resource], error)
+	FindAllByTypeWithFilters(ctx context.Context, typeSlug string, filters []FilterCondition,
+		cursor string, limit int, sort SortOptions) (PaginatedResponse[*entities.Resource], error)
 	Update(ctx context.Context, entity *entities.Resource) error
 	Delete(ctx context.Context, id string) error
 }

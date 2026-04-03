@@ -13,74 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-const STORAGE_KEY = 'weos-sidebar-hidden-types'
-const GROUPS_STORAGE_KEY = 'weos-sidebar-menu-groups'
-
 export function useSidebarSettings() {
   const hiddenSlugs = useState<string[]>('sidebarHiddenTypes', () => [])
   const menuGroups = useState<Record<string, string>>('sidebarMenuGroups', () => ({}))
 
-  function loadSettings() {
-    let hasLocal = false
+  async function loadSettings() {
+    const { getGlobalSettings } = useSidebarSettingsApi()
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        hiddenSlugs.value = JSON.parse(raw)
-        hasLocal = true
-      }
+      const data = await getGlobalSettings()
+      hiddenSlugs.value = data.hidden_slugs || []
+      menuGroups.value = data.menu_groups || {}
     } catch {
       hiddenSlugs.value = []
-    }
-    try {
-      const raw = localStorage.getItem(GROUPS_STORAGE_KEY)
-      if (raw) {
-        menuGroups.value = JSON.parse(raw)
-        hasLocal = true
-      }
-    } catch {
       menuGroups.value = {}
-    }
-    if (!hasLocal) {
-      loadGlobalSettings().catch(() => {
-        // Server unavailable or no global settings on initial load — keep defaults
-      })
-    }
-  }
-
-  function persist() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(hiddenSlugs.value))
-    } catch (e) {
-      console.warn('Failed to persist sidebar hidden types to localStorage:', e)
-    }
-  }
-
-  function persistGroups() {
-    try {
-      localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(menuGroups.value))
-    } catch (e) {
-      console.warn('Failed to persist sidebar menu groups to localStorage:', e)
     }
   }
 
   function isVisible(slug: string): boolean {
     return !hiddenSlugs.value.includes(slug)
-  }
-
-  function setVisibility(slug: string, visible: boolean) {
-    if (visible) {
-      hiddenSlugs.value = hiddenSlugs.value.filter((s) => s !== slug)
-    } else {
-      if (!hiddenSlugs.value.includes(slug)) {
-        hiddenSlugs.value = [...hiddenSlugs.value, slug]
-      }
-    }
-    persist()
-  }
-
-  function showAll() {
-    hiddenSlugs.value = []
-    persist()
   }
 
   function getParent(slug: string): string | undefined {
@@ -91,10 +41,6 @@ export function useSidebarSettings() {
     return Object.entries(menuGroups.value)
       .filter(([, parent]) => parent === parentSlug)
       .map(([child]) => child)
-  }
-
-  function isParent(slug: string): boolean {
-    return Object.values(menuGroups.value).includes(slug)
   }
 
   function getDescendants(slug: string): string[] {
@@ -123,57 +69,14 @@ export function useSidebarSettings() {
     return ancestors
   }
 
-  function setParent(childSlug: string, parentSlug: string | null) {
-    if (parentSlug) {
-      // Prevent cycles: reject if parentSlug is a descendant of childSlug
-      if (parentSlug === childSlug || getDescendants(childSlug).includes(parentSlug)) {
-        return
-      }
-      menuGroups.value = { ...menuGroups.value, [childSlug]: parentSlug }
-    } else {
-      const { [childSlug]: _, ...rest } = menuGroups.value
-      menuGroups.value = rest
-    }
-    persistGroups()
-  }
-
-  function resetGroups() {
-    menuGroups.value = {}
-    persistGroups()
-  }
-
-  async function loadGlobalSettings() {
-    const { getGlobalSettings } = useSidebarSettingsApi()
-    const data = await getGlobalSettings()
-    hiddenSlugs.value = data.hidden_slugs || []
-    menuGroups.value = data.menu_groups || {}
-    persist()
-    persistGroups()
-  }
-
-  async function saveGlobalSettings() {
-    const { saveGlobalSettings: save } = useSidebarSettingsApi()
-    await save({
-      hidden_slugs: hiddenSlugs.value,
-      menu_groups: menuGroups.value,
-    })
-  }
-
   return {
     hiddenSlugs,
     menuGroups,
     loadSettings,
     isVisible,
-    setVisibility,
-    showAll,
     getParent,
     getChildren,
-    isParent,
     getDescendants,
     getAncestors,
-    setParent,
-    resetGroups,
-    loadGlobalSettings,
-    saveGlobalSettings,
   }
 }

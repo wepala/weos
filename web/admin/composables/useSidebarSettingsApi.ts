@@ -21,12 +21,14 @@ interface SidebarSettingsPayload {
 export function useSidebarSettingsApi() {
   const { request } = useApi()
 
-  async function getGlobalSettings(): Promise<SidebarSettingsPayload> {
-    return request<SidebarSettingsPayload>('/api/settings/sidebar')
+  async function getGlobalSettings(role?: string): Promise<SidebarSettingsPayload> {
+    const params = role ? `?role=${encodeURIComponent(role)}` : ''
+    return request<SidebarSettingsPayload>(`/api/settings/sidebar${params}`)
   }
 
-  async function saveGlobalSettings(payload: SidebarSettingsPayload): Promise<SidebarSettingsPayload> {
-    return request<SidebarSettingsPayload>('/api/settings/sidebar', {
+  async function saveGlobalSettings(payload: SidebarSettingsPayload, role?: string): Promise<SidebarSettingsPayload> {
+    const params = role ? `?role=${encodeURIComponent(role)}` : ''
+    return request<SidebarSettingsPayload>(`/api/settings/sidebar${params}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     })

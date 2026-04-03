@@ -17,6 +17,7 @@ package gorm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -30,6 +31,47 @@ import (
 	"gorm.io/gorm"
 )
 
+// genericSortableColumns are allowed for sorting in the generic resources table.
+var genericSortableColumns = map[string]bool{
+	"id":         true,
+	"created_at": true,
+	"status":     true,
+}
+
+type cursorData struct {
+	Value string `json:"v"`
+	ID    string `json:"id"`
+}
+
+func encodeCursor(sortValue, id string) string {
+	data, _ := json.Marshal(cursorData{Value: sortValue, ID: id})
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeCursor(cursor string) (cursorData, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return cursorData{}, err
+	}
+	var cd cursorData
+	if err := json.Unmarshal(raw, &cd); err != nil {
+		return cursorData{}, err
+	}
+	return cd, nil
+}
+
+func normalizeSortOptions(sort repositories.SortOptions) (string, string) {
+	sortBy := sort.SortBy
+	if sortBy == "" {
+		sortBy = "id"
+	}
+	sortOrder := sort.SortOrder
+	if sortOrder != "desc" {
+		sortOrder = "asc"
+	}
+	return sortBy, sortOrder
+}
+
 type ResourceRepository struct {
 	db      *gorm.DB
 	projMgr repositories.ProjectionManager
@@ -42,8 +84,8 @@ type ResourceRepositoryResult struct {
 
 func ProvideResourceRepository(params struct {
 	fx.In
-	DB              *gorm.DB
-	ProjectionMgr   repositories.ProjectionManager
+	DB            *gorm.DB
+	ProjectionMgr repositories.ProjectionManager
 }) (ResourceRepositoryResult, error) {
 	return ResourceRepositoryResult{
 		Repository: &ResourceRepository{
@@ -132,51 +174,91 @@ func (r *ResourceRepository) findByIDFromProjection(
 }
 
 func (r *ResourceRepository) FindAllByType(
-	ctx context.Context, typeSlug string, cursor string, limit int,
+	ctx context.Context, typeSlug string, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	if limit <= 0 {
 		limit = 20
 	}
 
 	if r.projMgr.HasProjectionTable(typeSlug) {
-		return r.findAllFromProjection(ctx, typeSlug, cursor, limit)
+		return r.findAllFromProjection(ctx, typeSlug, cursor, limit, sort)
+	}
+
+	sortBy, sortOrder := normalizeSortOptions(sort)
+	colName := camelToSnake(sortBy)
+	if !genericSortableColumns[colName] {
+		colName = "id"
 	}
 
 	query := r.db.WithContext(ctx).
 		Where("type_slug = ? AND deleted_at IS NULL", typeSlug)
 	if cursor != "" {
-		query = query.Where("id > ?", cursor)
+		cd, err := decodeCursor(cursor)
+		if err == nil {
+			query = applyCursorCondition(query, colName, sortOrder, cd)
+		}
+	}
+
+	orderClause := fmt.Sprintf("%s %s, id %s", colName, sortOrder, sortOrder)
+	if colName == "id" {
+		orderClause = fmt.Sprintf("id %s", sortOrder)
 	}
 
 	var dbModels []models.Resource
-	if err := query.Order("id ASC").Limit(limit + 1).Find(&dbModels).Error; err != nil {
+	if err := query.Order(orderClause).Limit(limit + 1).Find(&dbModels).Error; err != nil {
 		return repositories.PaginatedResponse[*entities.Resource]{},
 			fmt.Errorf("failed to list resources: %w", err)
 	}
 
-	return buildResourcePage(dbModels, limit)
+	return buildResourcePageWithCursor(
+		dbModels, limit, colName, sortOrder, func(m models.Resource) string {
+			if colName == "id" {
+				return m.ID
+			}
+			if colName == "created_at" {
+				return m.CreatedAt.Format(time.RFC3339Nano)
+			}
+			return m.Status
+		})
 }
 
 func (r *ResourceRepository) findAllFromProjection(
-	ctx context.Context, typeSlug, cursor string, limit int,
+	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	tableName := r.projMgr.TableName(typeSlug)
-	query := r.db.WithContext(ctx).Table(tableName).
-		Select("id, type_slug, data, status, sequence_no, created_at").
-		Where("deleted_at IS NULL")
-	if cursor != "" {
-		query = query.Where("id > ?", cursor)
+	sortBy, sortOrder := normalizeSortOptions(sort)
+	colName := camelToSnake(sortBy)
+
+	// Validate that the column exists; fall back to id.
+	if colName != "id" && !standardColumnNames[colName] {
+		if !r.db.Migrator().HasColumn(tableName, colName) {
+			colName = "id"
+		}
 	}
 
-	var rows []struct {
-		ID         string
-		TypeSlug   string
-		Data       string
-		Status     string
-		SequenceNo int
-		CreatedAt  time.Time
+	selectCols := "id, type_slug, data, status, sequence_no, created_at"
+	// Include the sort column if it's not already in the standard select.
+	if !standardColumnNames[colName] && colName != "id" {
+		selectCols += ", " + colName
 	}
-	if err := query.Order("id ASC").Limit(limit + 1).Find(&rows).Error; err != nil {
+
+	query := r.db.WithContext(ctx).Table(tableName).
+		Select(selectCols).
+		Where("deleted_at IS NULL")
+	if cursor != "" {
+		cd, err := decodeCursor(cursor)
+		if err == nil {
+			query = applyCursorCondition(query, colName, sortOrder, cd)
+		}
+	}
+
+	orderClause := fmt.Sprintf("%s %s, id %s", colName, sortOrder, sortOrder)
+	if colName == "id" {
+		orderClause = fmt.Sprintf("id %s", sortOrder)
+	}
+
+	var rows []map[string]any
+	if err := query.Order(orderClause).Limit(limit + 1).Find(&rows).Error; err != nil {
 		return repositories.PaginatedResponse[*entities.Resource]{},
 			fmt.Errorf("failed to list resources from %s: %w", tableName, err)
 	}
@@ -189,16 +271,26 @@ func (r *ResourceRepository) findAllFromProjection(
 	result := make([]*entities.Resource, 0, len(rows))
 	var nextCursor string
 	for _, row := range rows {
+		id := fmt.Sprint(row["id"])
 		e := &entities.Resource{}
 		if err := e.Restore(
-			row.ID, row.TypeSlug, row.Status,
-			json.RawMessage(row.Data),
-			row.CreatedAt, row.SequenceNo,
+			id,
+			fmt.Sprint(row["type_slug"]),
+			fmt.Sprint(row["status"]),
+			json.RawMessage(fmt.Sprint(row["data"])),
+			parseTime(row["created_at"]),
+			toInt(row["sequence_no"]),
 		); err != nil {
 			return repositories.PaginatedResponse[*entities.Resource]{}, err
 		}
 		result = append(result, e)
-		nextCursor = row.ID
+
+		// Build cursor from the sort column value.
+		sortVal := row[colName]
+		if sortVal == nil {
+			sortVal = row["id"]
+		}
+		nextCursor = encodeCursor(fmt.Sprint(sortVal), id)
 	}
 	if !hasMore {
 		nextCursor = ""
@@ -212,8 +304,30 @@ func (r *ResourceRepository) findAllFromProjection(
 	}, nil
 }
 
-func buildResourcePage(
-	dbModels []models.Resource, limit int,
+func applyCursorCondition(
+	query *gorm.DB, colName, sortOrder string, cd cursorData,
+) *gorm.DB {
+	if colName == "id" {
+		if sortOrder == "desc" {
+			return query.Where("id < ?", cd.ID)
+		}
+		return query.Where("id > ?", cd.ID)
+	}
+	if sortOrder == "desc" {
+		return query.Where(
+			fmt.Sprintf("(%s < ?) OR (%s = ? AND id < ?)", colName, colName),
+			cd.Value, cd.Value, cd.ID,
+		)
+	}
+	return query.Where(
+		fmt.Sprintf("(%s > ?) OR (%s = ? AND id > ?)", colName, colName),
+		cd.Value, cd.Value, cd.ID,
+	)
+}
+
+func buildResourcePageWithCursor(
+	dbModels []models.Resource, limit int, colName, sortOrder string,
+	sortValFn func(models.Resource) string,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	hasMore := len(dbModels) > limit
 	if hasMore {
@@ -228,9 +342,218 @@ func buildResourcePage(
 			return repositories.PaginatedResponse[*entities.Resource]{}, err
 		}
 		result = append(result, e)
-		nextCursor = m.ID
+		nextCursor = encodeCursor(sortValFn(m), m.ID)
 	}
 
+	if !hasMore {
+		nextCursor = ""
+	}
+
+	return repositories.PaginatedResponse[*entities.Resource]{
+		Data:    result,
+		Cursor:  nextCursor,
+		Limit:   limit,
+		HasMore: hasMore,
+	}, nil
+}
+
+func parseTime(v any) time.Time {
+	switch t := v.(type) {
+	case time.Time:
+		return t
+	case string:
+		parsed, _ := time.Parse(time.RFC3339Nano, t)
+		return parsed
+	default:
+		return time.Time{}
+	}
+}
+
+func toInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+// filterOperators maps API operator names to SQL operators.
+var filterOperators = map[string]string{
+	"eq":  "=",
+	"ne":  "!=",
+	"gt":  ">",
+	"gte": ">=",
+	"lt":  "<",
+	"lte": "<=",
+}
+
+func (r *ResourceRepository) FindAllByTypeWithFilters(
+	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
+	cursor string, limit int, sort repositories.SortOptions,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	if r.projMgr.HasProjectionTable(typeSlug) {
+		return r.findAllFromProjectionWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
+	}
+	return r.findAllFromGenericWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
+}
+
+func (r *ResourceRepository) findAllFromGenericWithFilters(
+	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
+	cursor string, limit int, sort repositories.SortOptions,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	sortBy, sortOrder := normalizeSortOptions(sort)
+	colName := camelToSnake(sortBy)
+	if !genericSortableColumns[colName] {
+		colName = "id"
+	}
+
+	query := r.db.WithContext(ctx).
+		Where("type_slug = ? AND deleted_at IS NULL", typeSlug)
+
+	// Apply filters using json_extract for the generic table.
+	for _, f := range filters {
+		sqlOp, ok := filterOperators[f.Operator]
+		if !ok {
+			continue
+		}
+		query = query.Where(
+			fmt.Sprintf("json_extract(data, '$.%s') %s ?", f.Field, sqlOp),
+			f.Value,
+		)
+	}
+
+	if cursor != "" {
+		cd, err := decodeCursor(cursor)
+		if err == nil {
+			query = applyCursorCondition(query, colName, sortOrder, cd)
+		}
+	}
+
+	orderClause := fmt.Sprintf("%s %s, id %s", colName, sortOrder, sortOrder)
+	if colName == "id" {
+		orderClause = fmt.Sprintf("id %s", sortOrder)
+	}
+
+	var dbModels []models.Resource
+	if err := query.Order(orderClause).Limit(limit + 1).Find(&dbModels).Error; err != nil {
+		return repositories.PaginatedResponse[*entities.Resource]{},
+			fmt.Errorf("failed to list resources with filters: %w", err)
+	}
+
+	return buildResourcePageWithCursor(
+		dbModels, limit, colName, sortOrder, func(m models.Resource) string {
+			if colName == "id" {
+				return m.ID
+			}
+			if colName == "created_at" {
+				return m.CreatedAt.Format(time.RFC3339Nano)
+			}
+			return m.Status
+		})
+}
+
+func (r *ResourceRepository) findAllFromProjectionWithFilters(
+	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
+	cursor string, limit int, sort repositories.SortOptions,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	tableName := r.projMgr.TableName(typeSlug)
+	sortBy, sortOrder := normalizeSortOptions(sort)
+	colName := camelToSnake(sortBy)
+
+	if colName != "id" && !standardColumnNames[colName] {
+		if !r.db.Migrator().HasColumn(tableName, colName) {
+			colName = "id"
+		}
+	}
+
+	selectCols := "id, type_slug, data, status, sequence_no, created_at"
+	if !standardColumnNames[colName] && colName != "id" {
+		selectCols += ", " + colName
+	}
+
+	query := r.db.WithContext(ctx).Table(tableName).
+		Select(selectCols).
+		Where("deleted_at IS NULL")
+
+	// Apply filters on projection columns.
+	for _, f := range filters {
+		sqlOp, ok := filterOperators[f.Operator]
+		if !ok {
+			continue
+		}
+		filterCol := camelToSnake(f.Field)
+		// Silently skip non-existent columns.
+		if !standardColumnNames[filterCol] && filterCol != "id" {
+			if !r.db.Migrator().HasColumn(tableName, filterCol) {
+				continue
+			}
+		}
+		query = query.Where(fmt.Sprintf("%s %s ?", filterCol, sqlOp), f.Value)
+
+		// Include filter column in SELECT if needed for reading.
+		if !standardColumnNames[filterCol] && filterCol != "id" && filterCol != colName {
+			selectCols += ", " + filterCol
+		}
+	}
+
+	// Re-apply select in case filter columns were added.
+	query = query.Select(selectCols)
+
+	if cursor != "" {
+		cd, err := decodeCursor(cursor)
+		if err == nil {
+			query = applyCursorCondition(query, colName, sortOrder, cd)
+		}
+	}
+
+	orderClause := fmt.Sprintf("%s %s, id %s", colName, sortOrder, sortOrder)
+	if colName == "id" {
+		orderClause = fmt.Sprintf("id %s", sortOrder)
+	}
+
+	var rows []map[string]any
+	if err := query.Order(orderClause).Limit(limit + 1).Find(&rows).Error; err != nil {
+		return repositories.PaginatedResponse[*entities.Resource]{},
+			fmt.Errorf("failed to list resources from %s with filters: %w", tableName, err)
+	}
+
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+
+	result := make([]*entities.Resource, 0, len(rows))
+	var nextCursor string
+	for _, row := range rows {
+		id := fmt.Sprint(row["id"])
+		e := &entities.Resource{}
+		if err := e.Restore(
+			id,
+			fmt.Sprint(row["type_slug"]),
+			fmt.Sprint(row["status"]),
+			json.RawMessage(fmt.Sprint(row["data"])),
+			parseTime(row["created_at"]),
+			toInt(row["sequence_no"]),
+		); err != nil {
+			return repositories.PaginatedResponse[*entities.Resource]{}, err
+		}
+		result = append(result, e)
+
+		sortVal := row[colName]
+		if sortVal == nil {
+			sortVal = row["id"]
+		}
+		nextCursor = encodeCursor(fmt.Sprint(sortVal), id)
+	}
 	if !hasMore {
 		nextCursor = ""
 	}

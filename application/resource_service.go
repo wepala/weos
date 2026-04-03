@@ -17,7 +17,10 @@ import (
 type ResourceService interface {
 	Create(ctx context.Context, cmd CreateResourceCommand) (*entities.Resource, error)
 	GetByID(ctx context.Context, id string) (*entities.Resource, error)
-	List(ctx context.Context, typeSlug, cursor string, limit int) (
+	List(ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions) (
+		repositories.PaginatedResponse[*entities.Resource], error)
+	ListWithFilters(ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
+		cursor string, limit int, sort repositories.SortOptions) (
 		repositories.PaginatedResponse[*entities.Resource], error)
 	Update(ctx context.Context, cmd UpdateResourceCommand) (*entities.Resource, error)
 	Delete(ctx context.Context, cmd DeleteResourceCommand) error
@@ -84,9 +87,16 @@ func (s *resourceService) GetByID(
 }
 
 func (s *resourceService) List(
-	ctx context.Context, typeSlug, cursor string, limit int,
+	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
-	return s.repo.FindAllByType(ctx, typeSlug, cursor, limit)
+	return s.repo.FindAllByType(ctx, typeSlug, cursor, limit, sort)
+}
+
+func (s *resourceService) ListWithFilters(
+	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
+	cursor string, limit int, sort repositories.SortOptions,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	return s.repo.FindAllByTypeWithFilters(ctx, typeSlug, filters, cursor, limit, sort)
 }
 
 func (s *resourceService) Update(

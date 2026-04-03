@@ -21,18 +21,29 @@ import (
 	"strconv"
 	"time"
 
+	apimw "weos/api/middleware"
 	"weos/application"
 	"weos/domain/entities"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
+	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+	authcasbin "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/casbin"
 	"github.com/labstack/echo/v4"
 )
 
 type ResourceTypeHandler struct {
-	service application.ResourceTypeService
+	service     application.ResourceTypeService
+	checker     *authcasbin.CasbinAuthorizationChecker
+	accountRepo authrepos.AccountRepository
 }
 
-func NewResourceTypeHandler(service application.ResourceTypeService) *ResourceTypeHandler {
-	return &ResourceTypeHandler{service: service}
+func NewResourceTypeHandler(
+	service application.ResourceTypeService,
+	checker *authcasbin.CasbinAuthorizationChecker,
+	accountRepo authrepos.AccountRepository,
+) *ResourceTypeHandler {
+	return &ResourceTypeHandler{service: service, checker: checker, accountRepo: accountRepo}
 }
 
 type CreateResourceTypeRequest struct {
@@ -100,10 +111,39 @@ func (h *ResourceTypeHandler) List(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": err.Error()})
 	}
+
 	items := make([]ResourceTypeResponse, 0, len(result.Data))
+
+	// Filter resource types by read permission when Casbin is configured.
+	identity := auth.AgentFromCtx(c.Request().Context())
+	role := apimw.GetUserRole(c.Request().Context(), h.accountRepo)
+	skipFilter := role == authentities.RoleAdmin || role == authentities.RoleOwner || role == ""
+
 	for _, e := range result.Data {
+		if !skipFilter && identity != nil {
+			perms, _ := h.checker.GetPermissions(c.Request().Context(), role)
+			if len(perms) > 0 {
+				var allowed bool
+				if identity.ActiveAccountID != "" {
+					allowed, _ = h.checker.IsAuthorizedInAccount(
+						c.Request().Context(),
+						identity.AgentID, identity.ActiveAccountID,
+						authentities.ActionRead, e.Slug(),
+					)
+				} else {
+					allowed, _ = h.checker.IsAuthorized(
+						c.Request().Context(),
+						identity.AgentID, authentities.ActionRead, e.Slug(),
+					)
+				}
+				if !allowed {
+					continue
+				}
+			}
+		}
 		items = append(items, toResourceTypeResponse(e))
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"data":     items,
 		"cursor":   result.Cursor,

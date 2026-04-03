@@ -19,7 +19,7 @@
   <div>
     <a-page-header
       :title="`${resourceType?.name || typeSlug} Details`"
-      @back="router.push(`/resources/${typeSlug}`)"
+      @back="router.back()"
     >
       <template #extra>
         <NuxtLink :to="`/resources/${typeSlug}/${id}/edit`">
@@ -38,6 +38,9 @@
         >
           <template v-if="field.inputType === 'checkbox'">
             {{ resource[field.key] ? 'Yes' : 'No' }}
+          </template>
+          <template v-else-if="field.inputType === 'resource-select' && field.resourceType && resource[field.key]">
+            {{ resolve(field.resourceType, resource[field.key]) }}
           </template>
           <template v-else>
             {{ resource[field.key] || '-' }}
@@ -76,6 +79,7 @@ const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
 const { get } = useResourceApi(typeSlug)
 const { schemaToFields, schemaToColumns } = useSchemaUtils()
 const { getChildren } = useSidebarSettings()
+const { preloadType, resolve } = useResourceLookup()
 
 const resource = ref<any>(null)
 const loading = ref(true)
@@ -91,31 +95,12 @@ const fields = computed(() => {
 interface ChildSection {
   slug: string
   name: string
-  columns: { title: string; dataIndex: string; key: string }[]
+  columns: Record<string, any>[]
   items: any[]
   loading: boolean
   hasMore: boolean
   cursor: string
-  parentField: string | null
   loadMore: () => void
-}
-
-function findParentField(childSchema: any, parentSlug: string): string | null {
-  const properties = childSchema?.properties
-  if (!properties) return null
-
-  const match = Object.entries(properties)
-    .find(([_, prop]) => (prop as any)['x-resource-type'] === parentSlug)
-  if (match) return match[0]
-
-  const camelSlug = parentSlug.replace(/-([a-z])/g, (_: string, c: string) => c.toUpperCase())
-  const camelKey = `${camelSlug}Id`
-  if (camelKey in properties) return camelKey
-
-  const snakeKey = `${parentSlug.replace(/-/g, '_')}_id`
-  if (snakeKey in properties) return snakeKey
-
-  return null
 }
 
 const childSections = ref<ChildSection[]>([])
@@ -128,13 +113,6 @@ function initChildSections() {
   for (const slug of childSlugs) {
     const childType = getBySlug(slug)
     const columns = childType?.schema ? schemaToColumns(childType.schema) : []
-    const parentField = childType?.schema ? findParentField(childType.schema, typeSlug) : null
-    if (!parentField) {
-      console.warn(
-        `Child type "${slug}" has no parent field referencing "${typeSlug}". ` +
-        `Child resources will not be filtered by parent.`,
-      )
-    }
     const section: ChildSection = reactive({
       slug,
       name: childType?.name || slug,
@@ -143,7 +121,6 @@ function initChildSections() {
       loading: false,
       hasMore: false,
       cursor: '',
-      parentField,
       loadMore: () => fetchChildResources(section),
     })
     sections.push(section)
@@ -155,33 +132,32 @@ function initChildSections() {
   }
 }
 
+function findReferenceField(childSlug: string): string | undefined {
+  const childType = getBySlug(childSlug)
+  if (!childType?.schema?.properties) return undefined
+  // Check for x-resource-type annotation first
+  for (const [key, prop] of Object.entries(childType.schema.properties) as [string, any][]) {
+    if (prop['x-resource-type'] === typeSlug) return key
+  }
+  // Fallback: look for a field named {camelCaseSlug}Id
+  const camelSlug = typeSlug.replace(/-([a-z])/g, (_: string, c: string) => c.toUpperCase())
+  const fallbackKey = camelSlug + 'Id'
+  if (fallbackKey in childType.schema.properties) return fallbackKey
+  return undefined
+}
+
 async function fetchChildResources(section: ChildSection) {
   section.loading = true
   try {
     const api = useResourceApi(section.slug)
-    const parentField = section.parentField
-    let cursor = section.cursor
-    let hasMore = true
-    const accumulated: any[] = []
-
-    // When filtering client-side, keep fetching pages until we find matching
-    // items or exhaust the server's data. Without this loop a page of
-    // non-matching items would show an empty list with a misleading "Load More".
-    do {
-      const res = await api.list(cursor)
-      const items = parentField
-        ? res.data.filter((item: any) => String(item[parentField] ?? '') === String(id))
-        : res.data
-      accumulated.push(...items)
-      cursor = res.cursor
-      hasMore = res.has_more
-    } while (parentField && accumulated.length === 0 && hasMore)
-
-    section.items = [...section.items, ...accumulated]
-    section.cursor = cursor
-    section.hasMore = hasMore
-  } catch (err) {
-    console.error(`Failed to fetch child resources for "${section.slug}":`, err)
+    const refField = findReferenceField(section.slug)
+    const filters = refField ? { [refField]: { eq: id } } : undefined
+    const res = await api.list(section.cursor, 100, '', '', filters)
+    section.items = [...section.items, ...res.data]
+    section.cursor = res.cursor
+    section.hasMore = res.has_more
+  } catch {
+    // Loading state is cleared in finally; empty section signals failure
   } finally {
     section.loading = false
   }
@@ -195,6 +171,9 @@ onMounted(async () => {
     loading.value = false
   }
   if (resource.value) {
+    for (const field of fields.value) {
+      if (field.resourceType) preloadType(field.resourceType)
+    }
     initChildSections()
   }
 })
