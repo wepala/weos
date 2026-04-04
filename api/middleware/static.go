@@ -63,7 +63,7 @@ func Static(cfg StaticConfig) echo.MiddlewareFunc {
 			// Try to open the requested file to check if it exists
 			f, err := root.Open(filePath)
 			if err == nil {
-				f.Close()
+				_ = f.Close()
 				setCacheHeaders(c, filePath)
 				fileServer.ServeHTTP(c.Response(), c.Request())
 				return nil

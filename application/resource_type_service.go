@@ -188,13 +188,7 @@ func (s *resourceTypeService) InstallPreset(
 			result.Updated = append(result.Updated, pt.Slug)
 			continue
 		}
-		_, err = s.Create(ctx, CreateResourceTypeCommand{
-			Name:        pt.Name,
-			Slug:        pt.Slug,
-			Description: pt.Description,
-			Context:     pt.Context,
-			Schema:      pt.Schema,
-		})
+		_, err = s.Create(ctx, CreateResourceTypeCommand(pt))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create resource type %q: %w", pt.Slug, err)
 		}

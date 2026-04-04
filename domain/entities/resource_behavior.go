@@ -75,3 +75,98 @@ func (DefaultBehavior) BeforeDelete(_ context.Context, _ *Resource) error {
 func (DefaultBehavior) AfterDelete(_ context.Context, _ *Resource) error {
 	return nil
 }
+
+// CompositeBehavior chains multiple ResourceBehavior instances (child first,
+// then parents up the rdfs:subClassOf hierarchy). Data-returning hooks pipeline
+// outputs; gate hooks short-circuit on first error; after hooks fire all.
+type CompositeBehavior struct {
+	chain []ResourceBehavior
+}
+
+// NewCompositeBehavior creates a composite from an ordered chain of behaviors.
+func NewCompositeBehavior(chain []ResourceBehavior) *CompositeBehavior {
+	return &CompositeBehavior{chain: chain}
+}
+
+func (c *CompositeBehavior) BeforeCreate(
+	ctx context.Context, data json.RawMessage, rt *ResourceType,
+) (json.RawMessage, error) {
+	for _, b := range c.chain {
+		var err error
+		data, err = b.BeforeCreate(ctx, data, rt)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return data, nil
+}
+
+func (c *CompositeBehavior) BeforeCreateCommit(ctx context.Context, resource *Resource) error {
+	for _, b := range c.chain {
+		if err := b.BeforeCreateCommit(ctx, resource); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *CompositeBehavior) AfterCreate(ctx context.Context, resource *Resource) error {
+	var first error
+	for _, b := range c.chain {
+		if err := b.AfterCreate(ctx, resource); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+func (c *CompositeBehavior) BeforeUpdate(
+	ctx context.Context, existing *Resource, data json.RawMessage, rt *ResourceType,
+) (json.RawMessage, error) {
+	for _, b := range c.chain {
+		var err error
+		data, err = b.BeforeUpdate(ctx, existing, data, rt)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return data, nil
+}
+
+func (c *CompositeBehavior) BeforeUpdateCommit(ctx context.Context, resource *Resource) error {
+	for _, b := range c.chain {
+		if err := b.BeforeUpdateCommit(ctx, resource); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *CompositeBehavior) AfterUpdate(ctx context.Context, resource *Resource) error {
+	var first error
+	for _, b := range c.chain {
+		if err := b.AfterUpdate(ctx, resource); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+func (c *CompositeBehavior) BeforeDelete(ctx context.Context, resource *Resource) error {
+	for _, b := range c.chain {
+		if err := b.BeforeDelete(ctx, resource); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *CompositeBehavior) AfterDelete(ctx context.Context, resource *Resource) error {
+	var first error
+	for _, b := range c.chain {
+		if err := b.AfterDelete(ctx, resource); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}

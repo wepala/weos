@@ -258,7 +258,7 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 }
 
 func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableName string, columns []columnDef) error {
-	dialect := pm.db.Dialector.Name()
+	dialect := pm.db.Name()
 
 	var colDefs []string
 	colDefs = append(colDefs, "id TEXT PRIMARY KEY")

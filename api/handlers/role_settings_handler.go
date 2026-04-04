@@ -118,5 +118,5 @@ func (h *RoleSettingsHandler) Save(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save roles"})
 	}
 
-	return c.JSON(http.StatusOK, roleSettingsResponse{Roles: req.Roles})
+	return c.JSON(http.StatusOK, roleSettingsResponse(req))
 }

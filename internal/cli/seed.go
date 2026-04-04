@@ -68,7 +68,7 @@ func runSeed(cmd *cobra.Command, _ []string) error {
 	}
 
 	// --- Seed users ---
-	fmt.Fprintln(os.Stdout, "Seeding users...")
+	_, _ = fmt.Fprintln(os.Stdout, "Seeding users...")
 	var adminAgentID, adminAccountID string
 	for i, def := range seedUsers {
 		agent, _, account, err := authService.FindOrCreateAgent(ctx, userInfoFromDef(def))
@@ -94,7 +94,7 @@ func runSeed(cmd *cobra.Command, _ []string) error {
 			AccountID: accountID,
 			Email:     def.Email,
 		}
-		fmt.Fprintf(os.Stdout, "  %s: %s (agent=%s, account=%s)\n",
+		_, _ = fmt.Fprintf(os.Stdout, "  %s: %s (agent=%s, account=%s)\n",
 			key, def.Email, agent.GetID(), accountID)
 	}
 
@@ -104,17 +104,17 @@ func runSeed(cmd *cobra.Command, _ []string) error {
 	}
 
 	// --- Install presets ---
-	fmt.Fprintln(os.Stdout, "Installing tasks preset...")
+	_, _ = fmt.Fprintln(os.Stdout, "Installing tasks preset...")
 	result, err := resourceTypeService.InstallPreset(ctx, "tasks", true)
 	if err != nil {
 		return fmt.Errorf("failed to install tasks preset: %w", err)
 	}
 	manifest.Presets = []string{"tasks"}
-	fmt.Fprintf(os.Stdout, "  created=%v updated=%v skipped=%v\n",
+	_, _ = fmt.Fprintf(os.Stdout, "  created=%v updated=%v skipped=%v\n",
 		result.Created, result.Updated, result.Skipped)
 
 	// --- Seed sample data ---
-	fmt.Fprintln(os.Stdout, "Creating sample data...")
+	_, _ = fmt.Fprintln(os.Stdout, "Creating sample data...")
 	adminCtx := auth.ContextWithAgent(ctx, &auth.Identity{
 		AgentID:         adminAgentID,
 		AccountIDs:      []string{adminAccountID},
@@ -127,14 +127,14 @@ func runSeed(cmd *cobra.Command, _ []string) error {
 	}
 	manifest.Resources["projects"] = projectIDs
 	manifest.Resources["tasks"] = taskIDs
-	fmt.Fprintf(os.Stdout, "  %d projects, %d tasks\n", len(projectIDs), len(taskIDs))
+	_, _ = fmt.Fprintf(os.Stdout, "  %d projects, %d tasks\n", len(projectIDs), len(taskIDs))
 
 	// --- Write manifest ---
 	if err := writeSeedManifest(manifest); err != nil {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
-	fmt.Fprintf(os.Stdout, "Seed manifest written to %s\n", seedManifestPath)
-	fmt.Fprintln(os.Stdout, "Done.")
+	_, _ = fmt.Fprintf(os.Stdout, "Seed manifest written to %s\n", seedManifestPath)
+	_, _ = fmt.Fprintln(os.Stdout, "Done.")
 	return nil
 }
 

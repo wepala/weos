@@ -130,6 +130,5 @@ func (h *RoleAccessHandler) Save(c echo.Context) error {
 		h.logger.Warn(ctx, "casbin policy sync partially failed", "error", syncErr)
 	}
 
-	return c.JSON(http.StatusOK, roleAccessResponse{Roles: req.Roles})
+	return c.JSON(http.StatusOK, roleAccessResponse(req))
 }
-

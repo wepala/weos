@@ -56,13 +56,7 @@ func ensureBuiltInResourceTypes(params struct {
 		if _, err := params.TypeSvc.GetBySlug(ctx, bt.Slug); err == nil {
 			continue // already exists
 		}
-		cmd := CreateResourceTypeCommand{
-			Name:        bt.Name,
-			Slug:        bt.Slug,
-			Description: bt.Description,
-			Context:     bt.Context,
-			Schema:      bt.Schema,
-		}
+		cmd := CreateResourceTypeCommand(bt)
 		if _, err := params.TypeSvc.Create(ctx, cmd); err != nil {
 			params.Logger.Error(ctx, "failed to create built-in resource type",
 				"slug", bt.Slug, "error", err)

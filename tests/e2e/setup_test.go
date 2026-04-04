@@ -17,7 +17,6 @@ import (
 	"weos/domain/entities"
 	"weos/internal/config"
 
-	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	authcasbin "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/casbin"
@@ -208,11 +207,6 @@ func readJSON(t *testing.T, resp *http.Response) map[string]any {
 	return result
 }
 
-func readJSONArray(t *testing.T, resp *http.Response) map[string]any {
-	t.Helper()
-	return readJSON(t, resp)
-}
-
 // seedProjectForUser creates a project via the API as the given dev agent and returns its ID.
 func (env *testEnv) seedProjectForUser(t *testing.T, name, email string) string {
 	t.Helper()
@@ -245,13 +239,4 @@ func (env *testEnv) seedTaskForUser(t *testing.T, name, projectID, email string)
 		t.Fatalf("create task: missing id in response: %v", result)
 	}
 	return id
-}
-
-// adminCtx returns a context with admin identity injected (for service-level calls).
-func (env *testEnv) adminCtx() context.Context {
-	return auth.ContextWithAgent(context.Background(), &auth.Identity{
-		AgentID:         env.adminAgentID,
-		AccountIDs:      []string{env.adminAccountID},
-		ActiveAccountID: env.adminAccountID,
-	})
 }

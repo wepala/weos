@@ -70,6 +70,22 @@ func BuildReverseMap(ldContext json.RawMessage) map[string]string {
 	return result
 }
 
+// SubClassOf extracts the rdfs:subClassOf value from a JSON-LD context.
+// Returns the parent type slug or empty string if not declared.
+func SubClassOf(ldContext json.RawMessage) string {
+	if len(ldContext) == 0 {
+		return ""
+	}
+	var ctx map[string]any
+	if json.Unmarshal(ldContext, &ctx) != nil {
+		return ""
+	}
+	if v, ok := ctx["rdfs:subClassOf"].(string); ok {
+		return v
+	}
+	return ""
+}
+
 // ResolvePredicateIRI resolves the predicate IRI for a property name.
 // Priority: explicit context mapping > @vocab + property name.
 func ResolvePredicateIRI(propName, vocab string, contextMap map[string]string) string {

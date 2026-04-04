@@ -40,7 +40,7 @@ var resourceCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		typeSlug, _ := cmd.Flags().GetString("type")
 		dataStr, _ := cmd.Flags().GetString("data")
@@ -54,7 +54,7 @@ var resourceCreateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create resource: %w", err)
 		}
-		fmt.Fprintf(os.Stdout, "Created resource: %s\n", entity.GetID())
+		_, _ = fmt.Fprintf(os.Stdout, "Created resource: %s\n", entity.GetID())
 		return nil
 	},
 }
@@ -68,14 +68,14 @@ var resourceGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		entity, err := deps.ResourceService.GetByID(cmd.Context(), args[0])
 		if err != nil {
 			return fmt.Errorf("resource not found: %w", err)
 		}
 		data, _ := json.MarshalIndent(json.RawMessage(entity.Data()), "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return nil
 	},
 }
@@ -88,7 +88,7 @@ var resourceListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		typeSlug, _ := cmd.Flags().GetString("type")
 		limit, _ := cmd.Flags().GetInt("limit")
@@ -99,7 +99,7 @@ var resourceListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list resources: %w", err)
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return nil
 	},
 }
@@ -113,7 +113,7 @@ var resourceDeleteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		err = deps.ResourceService.Delete(
 			cmd.Context(),
@@ -122,7 +122,7 @@ var resourceDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to delete resource: %w", err)
 		}
-		fmt.Fprintln(os.Stdout, "Resource deleted successfully")
+		_, _ = fmt.Fprintln(os.Stdout, "Resource deleted successfully")
 		return nil
 	},
 }

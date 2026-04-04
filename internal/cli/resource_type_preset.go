@@ -40,8 +40,8 @@ var presetListCmd = &cobra.Command{
 			for i, t := range d.Types {
 				slugs[i] = t.Slug
 			}
-			fmt.Fprintf(os.Stdout, "%-12s %s\n", d.Name, d.Description)
-			fmt.Fprintf(os.Stdout, "             Types: %s\n\n", strings.Join(slugs, ", "))
+			_, _ = fmt.Fprintf(os.Stdout, "%-12s %s\n", d.Name, d.Description)
+			_, _ = fmt.Fprintf(os.Stdout, "             Types: %s\n\n", strings.Join(slugs, ", "))
 		}
 		return nil
 	},
@@ -56,7 +56,7 @@ var presetInstallCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		update, _ := cmd.Flags().GetBool("update")
 		result, err := deps.ResourceTypeService.InstallPreset(cmd.Context(), args[0], update)
@@ -64,16 +64,16 @@ var presetInstallCmd = &cobra.Command{
 			return fmt.Errorf("failed to install preset: %w", err)
 		}
 		if len(result.Created) > 0 {
-			fmt.Fprintf(os.Stdout, "Created: %s\n", strings.Join(result.Created, ", "))
+			_, _ = fmt.Fprintf(os.Stdout, "Created: %s\n", strings.Join(result.Created, ", "))
 		}
 		if len(result.Updated) > 0 {
-			fmt.Fprintf(os.Stdout, "Updated: %s\n", strings.Join(result.Updated, ", "))
+			_, _ = fmt.Fprintf(os.Stdout, "Updated: %s\n", strings.Join(result.Updated, ", "))
 		}
 		if len(result.Skipped) > 0 {
-			fmt.Fprintf(os.Stdout, "Skipped (already exist): %s\n", strings.Join(result.Skipped, ", "))
+			_, _ = fmt.Fprintf(os.Stdout, "Skipped (already exist): %s\n", strings.Join(result.Skipped, ", "))
 		}
 		if len(result.Created) == 0 && len(result.Updated) == 0 && len(result.Skipped) == 0 {
-			fmt.Fprintln(os.Stdout, "Preset has no types to install")
+			_, _ = fmt.Fprintln(os.Stdout, "Preset has no types to install")
 		}
 		return nil
 	},

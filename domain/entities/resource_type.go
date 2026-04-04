@@ -61,7 +61,7 @@ func (e *ResourceType) With(
 	e.createdAt = time.Now()
 
 	event := new(ResourceTypeCreated).With(name, slug, description, ctx, schema)
-	if err := e.BaseEntity.RecordEvent(event, event.EventType()); err != nil {
+	if err := e.RecordEvent(event, event.EventType()); err != nil {
 		return nil, fmt.Errorf("failed to record ResourceTypeCreated event: %w", err)
 	}
 
@@ -86,13 +86,13 @@ func (e *ResourceType) Update(
 	e.schema = schema
 	e.status = status
 	event := ResourceTypeUpdated{}.With(name, slug, description, status, ctx, schema)
-	return e.BaseEntity.RecordEvent(event, event.EventType())
+	return e.RecordEvent(event, event.EventType())
 }
 
 func (e *ResourceType) MarkDeleted() error {
 	e.status = "archived"
 	event := ResourceTypeDeleted{}.With()
-	return e.BaseEntity.RecordEvent(event, event.EventType())
+	return e.RecordEvent(event, event.EventType())
 }
 
 func (e *ResourceType) Restore(

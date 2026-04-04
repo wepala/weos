@@ -93,13 +93,13 @@ func runSyncBigQuery(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	sqlDB, _ := db.DB()
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	bqClient, err := bigquery.NewClient(ctx, appCfg.BigQueryProjectID)
 	if err != nil {
 		return fmt.Errorf("failed to create BigQuery client: %w", err)
 	}
-	defer bqClient.Close()
+	defer func() { _ = bqClient.Close() }()
 
 	fmt.Fprintf(os.Stderr, "Fetching existing event IDs from BigQuery...\n")
 	existingIDs, err := bqevents.GetExistingEventIDs(ctx, bqClient, appCfg.BigQueryProjectID, datasetID, tableID, before)
@@ -114,7 +114,7 @@ func runSyncBigQuery(cmd *cobra.Command, _ []string) error {
 	}
 
 	if dryRun {
-		fmt.Fprintf(os.Stdout, "Dry run: %d events in database before %s, %d already in BigQuery, up to %d to sync\n",
+		_, _ = fmt.Fprintf(os.Stdout, "Dry run: %d events in database before %s, %d already in BigQuery, up to %d to sync\n",
 			totalCount, before.Format(time.RFC3339), len(existingIDs), totalCount-int64(len(existingIDs)))
 		return nil
 	}
@@ -178,11 +178,11 @@ func syncLoop(
 		}
 
 		cursor = models[len(models)-1].ID
-		fmt.Fprintf(w, "  Progress: %d synced, %d skipped (of %d total)\n",
+		_, _ = fmt.Fprintf(w, "  Progress: %d synced, %d skipped (of %d total)\n",
 			synced, skipped, sc.totalCount)
 	}
 
-	fmt.Fprintf(w, "Sync complete: %d events inserted, %d skipped (already existed)\n", synced, skipped)
+	_, _ = fmt.Fprintf(w, "Sync complete: %d events inserted, %d skipped (already existed)\n", synced, skipped)
 	return nil
 }
 

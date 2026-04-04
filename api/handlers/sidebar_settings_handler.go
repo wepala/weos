@@ -124,10 +124,7 @@ func (h *SidebarSettingsHandler) Save(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save settings"})
 	}
 
-	return c.JSON(http.StatusOK, sidebarSettingsResponse{
-		HiddenSlugs: req.HiddenSlugs,
-		MenuGroups:  req.MenuGroups,
-	})
+	return c.JSON(http.StatusOK, sidebarSettingsResponse(req))
 }
 
 func (h *SidebarSettingsHandler) toResponse(settings *models.SidebarSettings) sidebarSettingsResponse {

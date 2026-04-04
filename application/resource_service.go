@@ -8,6 +8,7 @@ import (
 	"weos/domain/entities"
 	"weos/domain/repositories"
 	"weos/pkg/identity"
+	"weos/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -47,11 +48,41 @@ type resourceService struct {
 	behaviors   ResourceBehaviorRegistry
 }
 
-func (s *resourceService) behaviorFor(slug string) entities.ResourceBehavior {
-	if b, ok := s.behaviors[slug]; ok {
-		return b
+func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.ResourceType) entities.ResourceBehavior {
+	if rt == nil {
+		return entities.DefaultBehavior{}
 	}
-	return entities.DefaultBehavior{}
+
+	var chain []entities.ResourceBehavior
+	visited := map[string]bool{rt.Slug(): true}
+	current := rt
+
+	for current != nil {
+		if b, ok := s.behaviors[current.Slug()]; ok {
+			chain = append(chain, b)
+		}
+		parentSlug := jsonld.SubClassOf(current.Context())
+		if parentSlug == "" || visited[parentSlug] {
+			break
+		}
+		visited[parentSlug] = true
+		parentRT, err := s.typeRepo.FindBySlug(ctx, parentSlug)
+		if err != nil {
+			s.logger.Warn(ctx, "parent type not found for behavior inheritance",
+				"child", current.Slug(), "parent", parentSlug)
+			break
+		}
+		current = parentRT
+	}
+
+	switch len(chain) {
+	case 0:
+		return entities.DefaultBehavior{}
+	case 1:
+		return chain[0]
+	default:
+		return entities.NewCompositeBehavior(chain)
+	}
 }
 
 func ProvideResourceService(params struct {
@@ -85,7 +116,7 @@ func (s *resourceService) Create(
 		return nil, fmt.Errorf("resource type %q not found: %w", cmd.TypeSlug, err)
 	}
 
-	behavior := s.behaviorFor(cmd.TypeSlug)
+	behavior := s.behaviorFor(ctx, rt)
 
 	data, err := behavior.BeforeCreate(ctx, cmd.Data, rt)
 	if err != nil {
@@ -246,7 +277,7 @@ func (s *resourceService) Update(
 		return nil, fmt.Errorf("resource type %q not found: %w", entity.TypeSlug(), err)
 	}
 
-	behavior := s.behaviorFor(entity.TypeSlug())
+	behavior := s.behaviorFor(ctx, rt)
 
 	data, err := behavior.BeforeUpdate(ctx, entity, cmd.Data, rt)
 	if err != nil {
@@ -287,7 +318,6 @@ func (s *resourceService) Update(
 	return entity, nil
 }
 
-//nolint:dupl // entity-specific delete with domain-specific error messages
 func (s *resourceService) Delete(
 	ctx context.Context, cmd DeleteResourceCommand,
 ) error {
@@ -300,7 +330,12 @@ func (s *resourceService) Delete(
 		return err
 	}
 
-	behavior := s.behaviorFor(entity.TypeSlug())
+	rt, rtErr := s.typeRepo.FindBySlug(ctx, entity.TypeSlug())
+	if rtErr != nil {
+		s.logger.Warn(ctx, "resource type not found for delete behavior",
+			"type", entity.TypeSlug(), "error", rtErr)
+	}
+	behavior := s.behaviorFor(ctx, rt)
 
 	if err := behavior.BeforeDelete(ctx, entity); err != nil {
 		return fmt.Errorf("behavior BeforeDelete rejected: %w", err)

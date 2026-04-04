@@ -150,39 +150,6 @@ func (r *ResourceRepository) FindByID(
 	return model.ToResource()
 }
 
-func (r *ResourceRepository) findByIDFromProjection(
-	ctx context.Context, id, typeSlug string,
-) (*entities.Resource, error) {
-	tableName := r.projMgr.TableName(typeSlug)
-	var result struct {
-		ID         string
-		TypeSlug   string
-		Data       string
-		Status     string
-		CreatedBy  string
-		AccountID  string
-		SequenceNo int
-		CreatedAt  time.Time
-	}
-	err := r.db.WithContext(ctx).Table(tableName).
-		Select("id, type_slug, data, status, created_by, account_id, sequence_no, created_at").
-		Where("id = ? ", id).
-		Take(&result).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to find resource in %s: %w", tableName, err)
-	}
-	e := &entities.Resource{}
-	if err := e.Restore(
-		result.ID, result.TypeSlug, result.Status,
-		json.RawMessage(result.Data),
-		result.CreatedBy, result.AccountID,
-		result.CreatedAt, result.SequenceNo,
-	); err != nil {
-		return nil, err
-	}
-	return e, nil
-}
-
 // applyVisibilityScope adds ownership filtering to a query when a non-nil scope
 // is provided and the caller is not an admin.
 func applyVisibilityScope(query *gorm.DB, scope *repositories.VisibilityScope, tablePrefix string) *gorm.DB {

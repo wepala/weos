@@ -24,7 +24,7 @@ var organizationCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		name, _ := cmd.Flags().GetString("name")
 		slug, _ := cmd.Flags().GetString("slug")
@@ -39,7 +39,7 @@ var organizationCreateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create organization: %w", err)
 		}
-		fmt.Fprintf(os.Stdout, "Created organization: %s\n", entity.GetID())
+		_, _ = fmt.Fprintf(os.Stdout, "Created organization: %s\n", entity.GetID())
 		return nil
 	},
 }
@@ -53,7 +53,7 @@ var organizationGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		entity, err := deps.ResourceService.GetByID(cmd.Context(), args[0])
 		if err != nil {
@@ -69,7 +69,7 @@ var organizationGetCmd = &cobra.Command{
 			"logo_url":    application.StringField(fields, "logoURL"),
 			"status":      entity.Status(),
 		}, "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return nil
 	},
 }
@@ -82,7 +82,7 @@ var organizationListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		limit, _ := cmd.Flags().GetInt("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
@@ -93,7 +93,7 @@ var organizationListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list organizations: %w", err)
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return nil
 	},
 }
@@ -107,7 +107,7 @@ var organizationDeleteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		err = deps.ResourceService.Delete(
 			cmd.Context(),
@@ -116,7 +116,7 @@ var organizationDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to delete organization: %w", err)
 		}
-		fmt.Fprintln(os.Stdout, "Organization deleted successfully")
+		_, _ = fmt.Fprintln(os.Stdout, "Organization deleted successfully")
 		return nil
 	},
 }

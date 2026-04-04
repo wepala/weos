@@ -39,7 +39,7 @@ var resourceTypeCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		name, _ := cmd.Flags().GetString("name")
 		slug, _ := cmd.Flags().GetString("slug")
@@ -64,7 +64,7 @@ var resourceTypeCreateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create resource type: %w", err)
 		}
-		fmt.Fprintf(os.Stdout, "Created resource type: %s\n", entity.GetID())
+		_, _ = fmt.Fprintf(os.Stdout, "Created resource type: %s\n", entity.GetID())
 		return nil
 	},
 }
@@ -78,7 +78,7 @@ var resourceTypeGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		entity, err := deps.ResourceTypeService.GetByID(cmd.Context(), args[0])
 		if err != nil {
@@ -93,7 +93,7 @@ var resourceTypeGetCmd = &cobra.Command{
 			"schema":      jsonOrNil(entity.Schema()),
 			"status":      entity.Status(),
 		}, "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return nil
 	},
 }
@@ -106,7 +106,7 @@ var resourceTypeListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		limit, _ := cmd.Flags().GetInt("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
@@ -115,7 +115,7 @@ var resourceTypeListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list resource types: %w", err)
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return nil
 	},
 }
@@ -129,7 +129,7 @@ var resourceTypeDeleteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		err = deps.ResourceTypeService.Delete(
 			cmd.Context(),
@@ -138,7 +138,7 @@ var resourceTypeDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to delete resource type: %w", err)
 		}
-		fmt.Fprintln(os.Stdout, "Resource type deleted successfully")
+		_, _ = fmt.Fprintln(os.Stdout, "Resource type deleted successfully")
 		return nil
 	},
 }

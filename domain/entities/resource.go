@@ -64,7 +64,7 @@ func (e *Resource) With(
 	e.data = graphData
 
 	event := new(ResourceCreated).With(typeSlug, e.data, createdBy, accountID)
-	if err := e.BaseEntity.RecordEvent(event, event.EventType()); err != nil {
+	if err := e.RecordEvent(event, event.EventType()); err != nil {
 		return nil, fmt.Errorf("failed to record ResourceCreated event: %w", err)
 	}
 
@@ -74,13 +74,13 @@ func (e *Resource) With(
 func (e *Resource) Update(data json.RawMessage) error {
 	e.data = data
 	event := ResourceUpdated{}.With(data)
-	return e.BaseEntity.RecordEvent(event, event.EventType())
+	return e.RecordEvent(event, event.EventType())
 }
 
 func (e *Resource) MarkDeleted() error {
 	e.status = "archived"
 	event := ResourceDeleted{}.With()
-	return e.BaseEntity.RecordEvent(event, event.EventType())
+	return e.RecordEvent(event, event.EventType())
 }
 
 func (e *Resource) TypeSlug() string      { return e.typeSlug }

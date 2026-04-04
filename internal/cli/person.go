@@ -23,7 +23,7 @@ var personCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		givenName, _ := cmd.Flags().GetString("given-name")
 		familyName, _ := cmd.Flags().GetString("family-name")
@@ -40,7 +40,7 @@ var personCreateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create person: %w", err)
 		}
-		fmt.Fprintf(os.Stdout, "Created person: %s\n", entity.GetID())
+		_, _ = fmt.Fprintf(os.Stdout, "Created person: %s\n", entity.GetID())
 		return nil
 	},
 }
@@ -54,7 +54,7 @@ var personGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		entity, err := deps.ResourceService.GetByID(cmd.Context(), args[0])
 		if err != nil {
@@ -70,7 +70,7 @@ var personGetCmd = &cobra.Command{
 			"avatar_url":  application.StringField(fields, "avatarURL"),
 			"status":      entity.Status(),
 		}, "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return nil
 	},
 }
@@ -83,7 +83,7 @@ var personListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		limit, _ := cmd.Flags().GetInt("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
@@ -94,7 +94,7 @@ var personListCmd = &cobra.Command{
 			return fmt.Errorf("failed to list persons: %w", err)
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(os.Stdout, string(data))
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
 		return nil
 	},
 }
@@ -108,7 +108,7 @@ var personDeleteCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer deps.Shutdown()
+		defer func() { _ = deps.Shutdown() }()
 
 		err = deps.ResourceService.Delete(
 			cmd.Context(),
@@ -117,7 +117,7 @@ var personDeleteCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to delete person: %w", err)
 		}
-		fmt.Fprintln(os.Stdout, "Person deleted successfully")
+		_, _ = fmt.Fprintln(os.Stdout, "Person deleted successfully")
 		return nil
 	},
 }
