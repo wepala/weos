@@ -20,6 +20,8 @@ import (
 	"os"
 	"strings"
 
+	"weos/application/presets"
+
 	"github.com/spf13/cobra"
 )
 
@@ -32,13 +34,8 @@ var presetListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available resource type presets",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		deps, err := StartContainer(GetConfig())
-		if err != nil {
-			return err
-		}
-		defer func() { _ = deps.Shutdown() }()
-
-		for _, d := range deps.ResourceTypeService.ListPresets() {
+		// List presets without starting the full Fx container — no DB needed.
+		for _, d := range presets.NewDefaultRegistry().List() {
 			slugs := make([]string, len(d.Types))
 			for i, t := range d.Types {
 				slugs[i] = t.Slug
