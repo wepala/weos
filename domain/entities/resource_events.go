@@ -70,4 +70,20 @@ func (e ResourceDeleted) EventType() string {
 	return "Resource.Deleted"
 }
 
+type ResourcePublished struct {
+	TypeSlug  string
+	Timestamp time.Time
+}
+
+func (e ResourcePublished) With(typeSlug string) ResourcePublished {
+	return ResourcePublished{
+		TypeSlug:  typeSlug,
+		Timestamp: time.Now(),
+	}
+}
+
+func (e ResourcePublished) EventType() string {
+	return "Resource.Published"
+}
+
 const ResourceEventPattern = "Resource.%"

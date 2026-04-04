@@ -167,6 +167,11 @@ func (s *resourceService) Create(
 		}
 	}
 
+	published := entities.ResourcePublished{}.With(cmd.TypeSlug)
+	if err := entity.RecordEvent(published, published.EventType()); err != nil {
+		return nil, fmt.Errorf("failed to record resource published event: %w", err)
+	}
+
 	if err := behavior.BeforeCreateCommit(ctx, entity); err != nil {
 		return nil, fmt.Errorf("behavior BeforeCreateCommit rejected: %w", err)
 	}
@@ -331,6 +336,11 @@ func (s *resourceService) Update(
 		return nil, err
 	}
 
+	published := entities.ResourcePublished{}.With(entity.TypeSlug())
+	if err := entity.RecordEvent(published, published.EventType()); err != nil {
+		return nil, fmt.Errorf("failed to record resource published event: %w", err)
+	}
+
 	if err := behavior.BeforeUpdateCommit(ctx, entity); err != nil {
 		return nil, fmt.Errorf("behavior BeforeUpdateCommit rejected: %w", err)
 	}
@@ -376,6 +386,23 @@ func (s *resourceService) Delete(
 
 	if err := entity.MarkDeleted(); err != nil {
 		return fmt.Errorf("failed to mark resource deleted: %w", err)
+	}
+
+	// Record TripleDeleted events for all existing triples on this resource.
+	existing, err := s.tripleRepo.FindBySubject(ctx, entity.GetID())
+	if err != nil {
+		return fmt.Errorf("failed to load triples for deletion cleanup: %w", err)
+	}
+	for _, t := range existing {
+		ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object)
+		if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
+			return fmt.Errorf("failed to record triple deleted event: %w", err)
+		}
+	}
+
+	published := entities.ResourcePublished{}.With(entity.TypeSlug())
+	if err := entity.RecordEvent(published, published.EventType()); err != nil {
+		return fmt.Errorf("failed to record resource published event: %w", err)
 	}
 
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)

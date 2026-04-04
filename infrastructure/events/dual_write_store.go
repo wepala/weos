@@ -58,6 +58,12 @@ func (s *DualWriteEventStore) GetEventByID(
 	return s.primary.GetEventByID(ctx, eventID)
 }
 
+func (s *DualWriteEventStore) GetEventsByTransactionID(
+	ctx context.Context, transactionID string,
+) ([]domain.EventEnvelope[any], error) {
+	return s.primary.GetEventsByTransactionID(ctx, transactionID)
+}
+
 func (s *DualWriteEventStore) GetCurrentVersion(
 	ctx context.Context, aggregateID string,
 ) (int, error) {

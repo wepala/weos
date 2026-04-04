@@ -90,7 +90,6 @@ func Module(cfg config.Config) fx.Option {
 		// Service providers
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
-		fx.Provide(ProvideTripleService),
 		fx.Provide(ProvideResourcePermissionService),
 
 		// Subscribe event handlers (projections)

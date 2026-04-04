@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	cloud.google.com/go/bigquery v1.74.0
-	github.com/akeemphilbert/pericarp v0.0.0-20260319132727-5df88b154214
+	github.com/akeemphilbert/pericarp v0.0.0-00010101000000-000000000000
 	github.com/casbin/gorm-adapter/v3 v3.41.0
 	github.com/gorilla/sessions v1.4.0
 	github.com/jinzhu/inflection v1.0.0

@@ -3,27 +3,20 @@ package application
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
-	"weos/pkg/utils"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
-	"gorm.io/gorm"
 )
 
-// subscribeTripleHandlers registers event handlers for triple projection, resource graph sync,
-// and display value propagation.
+// subscribeTripleHandlers registers event handlers that project triple events
+// to the triples read-model table.
 func subscribeTripleHandlers(
 	d *domain.EventDispatcher,
 	tripleRepo repositories.TripleRepository,
-	tripleService TripleService,
-	resourceRepo repositories.ResourceRepository,
-	rtRepo repositories.ResourceTypeRepository,
-	projMgr repositories.ProjectionManager,
 	logger entities.Logger,
 ) error {
 	// Project Triple.Created events to the triples read-model table.
@@ -50,182 +43,6 @@ func subscribeTripleHandlers(
 		return fmt.Errorf("triple deleted handler: %w", err)
 	}
 
-	// Clean up triples on resource deletion.
-	if err := domain.Subscribe(d, "Resource.Deleted",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceDeleted]) error {
-			logger.Info(ctx, "cleaning up triples for deleted resource", "id", env.AggregateID)
-			existing, err := tripleRepo.FindBySubject(ctx, env.AggregateID)
-			if err != nil {
-				return fmt.Errorf("failed to find triples for cleanup: %w", err)
-			}
-			for _, t := range existing {
-				if err := tripleService.Unlink(ctx, t.Subject, t.Predicate, t.Object); err != nil {
-					logger.Error(ctx, "failed to unlink triple on delete",
-						"subject", t.Subject, "predicate", t.Predicate, "object", t.Object, "error", err)
-				}
-			}
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("resource triple cleanup handler: %w", err)
-	}
-
-	// Sync triple changes to projection table FK and display columns.
-	if err := domain.Subscribe(d, "Triple.Created",
-		func(ctx context.Context, env domain.EventEnvelope[entities.TripleCreated]) error {
-			return syncTripleToProjection(ctx, env.Payload.Subject, env.Payload.Predicate,
-				env.Payload.Object, rtRepo, resourceRepo, projMgr, logger)
-		},
-	); err != nil {
-		return fmt.Errorf("triple projection sync created handler: %w", err)
-	}
-
-	if err := domain.Subscribe(d, "Triple.Deleted",
-		func(ctx context.Context, env domain.EventEnvelope[entities.TripleDeleted]) error {
-			return syncTripleToProjection(ctx, env.Payload.Subject, env.Payload.Predicate,
-				"", rtRepo, resourceRepo, projMgr, logger)
-		},
-	); err != nil {
-		return fmt.Errorf("triple projection sync deleted handler: %w", err)
-	}
-
-	if err := subscribeGraphSyncHandlers(d, resourceRepo, logger); err != nil {
-		return err
-	}
-
-	// Propagate display value changes when a referenced entity is updated.
-	if err := domain.Subscribe(d, "Resource.Updated",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceUpdated]) error {
-			return propagateDisplayValues(ctx, env.AggregateID, env.Payload.Data,
-				projMgr, logger)
-		},
-	); err != nil {
-		return fmt.Errorf("display value propagation handler: %w", err)
-	}
-
-	return nil
-}
-
-// subscribeGraphSyncHandlers registers handlers that sync triple changes to the
-// resource's @graph data. Errors are logged but not returned to avoid blocking
-// the event pipeline — graph sync is best-effort.
-func subscribeGraphSyncHandlers(
-	d *domain.EventDispatcher,
-	resourceRepo repositories.ResourceRepository,
-	logger entities.Logger,
-) error {
-	if err := domain.Subscribe(d, "Triple.Created",
-		func(ctx context.Context, env domain.EventEnvelope[entities.TripleCreated]) error {
-			p := env.Payload
-			resource, err := resourceRepo.FindByID(ctx, p.Subject)
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return nil
-				}
-				logger.Error(ctx, "failed to find subject resource for graph sync",
-					"subject", p.Subject, "error", err)
-				return nil
-			}
-			updated, err := AddEdgeToGraph(resource.Data(), p.Predicate, p.Object, p.Subject)
-			if err != nil {
-				logger.Error(ctx, "failed to add edge to graph",
-					"subject", p.Subject, "predicate", p.Predicate, "error", err)
-				return nil
-			}
-			if err := resourceRepo.UpdateData(ctx, p.Subject, updated, env.SequenceNo); err != nil {
-				logger.Error(ctx, "failed to persist graph edge",
-					"subject", p.Subject, "error", err)
-			}
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("triple graph sync created handler: %w", err)
-	}
-
-	if err := domain.Subscribe(d, "Triple.Deleted",
-		func(ctx context.Context, env domain.EventEnvelope[entities.TripleDeleted]) error {
-			p := env.Payload
-			resource, err := resourceRepo.FindByID(ctx, p.Subject)
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return nil
-				}
-				logger.Error(ctx, "failed to find subject resource for graph edge removal",
-					"subject", p.Subject, "error", err)
-				return nil
-			}
-			updated, err := RemoveEdgeFromGraph(resource.Data(), p.Predicate, p.Object)
-			if err != nil {
-				logger.Error(ctx, "failed to remove edge from graph",
-					"subject", p.Subject, "predicate", p.Predicate, "error", err)
-				return nil
-			}
-			if err := resourceRepo.UpdateData(ctx, p.Subject, updated, env.SequenceNo); err != nil {
-				logger.Error(ctx, "failed to persist graph edge removal",
-					"subject", p.Subject, "error", err)
-			}
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("triple graph sync deleted handler: %w", err)
-	}
-
-	return nil
-}
-
-// syncTripleToProjection updates a projection table FK column and its display column
-// when a triple is created or deleted.
-func syncTripleToProjection(
-	ctx context.Context,
-	subject, predicate string,
-	objectID string,
-	rtRepo repositories.ResourceTypeRepository,
-	resourceRepo repositories.ResourceRepository,
-	projMgr repositories.ProjectionManager,
-	logger entities.Logger,
-) error {
-	typeSlug := extractTypeSlugFromResourceID(subject)
-	if typeSlug == "" || !projMgr.HasProjectionTable(typeSlug) {
-		return nil
-	}
-
-	rt, err := rtRepo.FindBySlug(ctx, typeSlug)
-	if err != nil {
-		logger.Error(ctx, "failed to find resource type for projection sync",
-			"typeSlug", typeSlug, "error", err)
-		return nil
-	}
-
-	// Find which reference property maps to this predicate.
-	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
-	for _, rp := range refProps {
-		if rp.PredicateIRI != predicate {
-			continue
-		}
-		colName := utils.CamelToSnake(rp.PropertyName)
-
-		// Update the FK column.
-		var fkValue any
-		if objectID != "" {
-			fkValue = objectID
-		}
-		if err := projMgr.UpdateColumn(ctx, typeSlug, subject, colName, fkValue); err != nil {
-			logger.Error(ctx, "failed to sync triple to projection",
-				"subject", subject, "column", colName, "error", err)
-		}
-
-		// Resolve and update the display column.
-		displayCol := colName + "_display"
-		var displayValue any
-		if objectID != "" {
-			displayValue = resolveDisplayValue(ctx, objectID, rp.DisplayProperty, resourceRepo)
-		}
-		if err := projMgr.UpdateColumn(ctx, typeSlug, subject, displayCol, displayValue); err != nil {
-			logger.Error(ctx, "failed to sync display column to projection",
-				"subject", subject, "column", displayCol, "error", err)
-		}
-		return nil
-	}
 	return nil
 }
 
@@ -270,29 +87,6 @@ func propagateDisplayValues(
 		}
 	}
 	return nil
-}
-
-// resolveDisplayValue looks up a resource by ID and extracts a property from its entity node.
-func resolveDisplayValue(
-	ctx context.Context,
-	resourceID, displayProperty string,
-	resourceRepo repositories.ResourceRepository,
-) string {
-	resource, err := resourceRepo.FindByID(ctx, resourceID)
-	if err != nil {
-		return ""
-	}
-
-	entityNode := ExtractEntityNode(resource.Data())
-	var node map[string]any
-	if json.Unmarshal(entityNode, &node) != nil {
-		return ""
-	}
-
-	if val, ok := node[displayProperty]; ok {
-		return fmt.Sprint(val)
-	}
-	return ""
 }
 
 // extractTypeSlugFromResourceID extracts the type slug from a resource URN.

@@ -23,23 +23,21 @@ func SubscribeResourceTypeHandlers(
 // SubscribeResourceHandlers exports the subscription for tests.
 func SubscribeResourceHandlers(
 	d *domain.EventDispatcher,
+	eventStore domain.EventStore,
 	repo repositories.ResourceRepository,
+	projMgr repositories.ProjectionManager,
 	logger entities.Logger,
 ) error {
-	return subscribeResourceHandlers(d, repo, logger)
+	return subscribeResourceHandlers(d, eventStore, repo, projMgr, logger)
 }
 
 // SubscribeTripleHandlers exports the subscription for tests.
 func SubscribeTripleHandlers(
 	d *domain.EventDispatcher,
 	tripleRepo repositories.TripleRepository,
-	tripleSvc TripleService,
-	resourceRepo repositories.ResourceRepository,
-	rtRepo repositories.ResourceTypeRepository,
-	projMgr repositories.ProjectionManager,
 	logger entities.Logger,
 ) error {
-	return subscribeTripleHandlers(d, tripleRepo, tripleSvc, resourceRepo, rtRepo, projMgr, logger)
+	return subscribeTripleHandlers(d, tripleRepo, logger)
 }
 
 // NewResourceServiceForTest creates a ResourceService without fx wiring.
@@ -47,6 +45,7 @@ func SubscribeTripleHandlers(
 func NewResourceServiceForTest(
 	repo repositories.ResourceRepository,
 	typeRepo repositories.ResourceTypeRepository,
+	tripleRepo repositories.TripleRepository,
 	eventStore domain.EventStore,
 	dispatcher *domain.EventDispatcher,
 	logger entities.Logger,
@@ -58,6 +57,7 @@ func NewResourceServiceForTest(
 	return &resourceService{
 		repo:       repo,
 		typeRepo:   typeRepo,
+		tripleRepo: tripleRepo,
 		eventStore: eventStore,
 		dispatcher: dispatcher,
 		logger:     logger,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
@@ -17,11 +18,11 @@ import (
 func subscribeEventHandlers(params struct {
 	fx.In
 	Dispatcher   *domain.EventDispatcher
+	EventStore   domain.EventStore
 	RTRepo       repositories.ResourceTypeRepository
 	ResourceRepo repositories.ResourceRepository
 	TripleRepo   repositories.TripleRepository
 	ProjMgr      repositories.ProjectionManager
-	TripleSvc    TripleService
 	Logger       entities.Logger
 }) error {
 	if err := subscribeResourceTypeHandlers(
@@ -30,14 +31,12 @@ func subscribeEventHandlers(params struct {
 		return fmt.Errorf("resource type handlers: %w", err)
 	}
 	if err := subscribeResourceHandlers(
-		params.Dispatcher, params.ResourceRepo, params.Logger,
+		params.Dispatcher, params.EventStore, params.ResourceRepo, params.ProjMgr, params.Logger,
 	); err != nil {
 		return fmt.Errorf("resource handlers: %w", err)
 	}
-	// Triple handlers must run AFTER resource handlers so projections exist before triples sync.
 	if err := subscribeTripleHandlers(
-		params.Dispatcher, params.TripleRepo, params.TripleSvc,
-		params.ResourceRepo, params.RTRepo, params.ProjMgr, params.Logger,
+		params.Dispatcher, params.TripleRepo, params.Logger,
 	); err != nil {
 		return fmt.Errorf("triple handlers: %w", err)
 	}
@@ -119,42 +118,17 @@ func subscribeResourceTypeHandlers(
 
 func subscribeResourceHandlers(
 	d *domain.EventDispatcher,
+	eventStore domain.EventStore,
 	repo repositories.ResourceRepository,
+	projMgr repositories.ProjectionManager,
 	logger entities.Logger,
 ) error {
-	if err := domain.Subscribe(d, "Resource.Created",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceCreated]) error {
-			p := env.Payload
-			entity := &entities.Resource{}
-			if err := entity.Restore(
-				env.AggregateID, p.TypeSlug, "active",
-				json.RawMessage(p.Data), p.CreatedBy, p.AccountID,
-				p.Timestamp, env.SequenceNo,
-			); err != nil {
-				return err
-			}
-			logger.Info(ctx, "projecting Resource.Created", "id", env.AggregateID)
-			return repo.Save(ctx, entity)
-		},
-	); err != nil {
-		return err
-	}
-
-	if err := domain.Subscribe(d, "Resource.Updated",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceUpdated]) error {
-			existing, err := repo.FindByID(ctx, env.AggregateID)
-			if err != nil {
-				return fmt.Errorf("projection read failed: %w", err)
-			}
-			if err := existing.Restore(
-				env.AggregateID, existing.TypeSlug(), existing.Status(),
-				json.RawMessage(env.Payload.Data), existing.CreatedBy(), existing.AccountID(),
-				existing.CreatedAt(), env.SequenceNo,
-			); err != nil {
-				return err
-			}
-			logger.Info(ctx, "projecting Resource.Updated", "id", env.AggregateID)
-			return repo.Update(ctx, existing)
+	// Resource.Published handles the final projection write for resource creation, updates,
+	// and deletes. It replays the transaction events to build the full resource state
+	// including graph edges, then writes a single projection row.
+	if err := domain.Subscribe(d, "Resource.Published",
+		func(ctx context.Context, env domain.EventEnvelope[entities.ResourcePublished]) error {
+			return handleResourcePublished(ctx, env, eventStore, repo, projMgr, logger)
 		},
 	); err != nil {
 		return err
@@ -166,4 +140,169 @@ func subscribeResourceHandlers(
 			return repo.Delete(ctx, env.AggregateID)
 		},
 	)
+}
+
+// txResourceState holds the resource state built from transaction events.
+type txResourceState struct {
+	Data      json.RawMessage
+	TypeSlug  string
+	CreatedBy string
+	AccountID string
+	CreatedAt time.Time
+	MaxSeq    int
+	IsCreate  bool
+	IsDelete  bool
+}
+
+// buildStateFromTransaction walks transaction events and builds the resource state.
+func buildStateFromTransaction(
+	ctx context.Context,
+	txEvents []domain.EventEnvelope[any],
+	aggregateID string,
+	baseSeq int,
+	logger entities.Logger,
+) txResourceState {
+	state := txResourceState{MaxSeq: baseSeq}
+	for _, e := range txEvents {
+		if e.AggregateID != aggregateID {
+			continue
+		}
+		if e.SequenceNo > state.MaxSeq {
+			state.MaxSeq = e.SequenceNo
+		}
+		// Payloads from the event store are deserialized as map[string]any.
+		// Map keys use Go field names (PascalCase) for untagged fields,
+		// or json tag names (lowercase) for tagged fields like BasicTripleEvent.
+		m, ok := e.Payload.(map[string]any)
+		if !ok {
+			logger.Error(ctx, "unexpected event payload type",
+				"eventType", e.EventType, "payloadType", fmt.Sprintf("%T", e.Payload))
+			continue
+		}
+		switch e.EventType {
+		case "Resource.Created":
+			state.IsCreate = true
+			state.TypeSlug, _ = m["TypeSlug"].(string)
+			state.Data = marshalField(m["Data"])
+			state.CreatedBy, _ = m["CreatedBy"].(string)
+			state.AccountID, _ = m["AccountID"].(string)
+			if ts, ok := m["Timestamp"].(string); ok {
+				state.CreatedAt, _ = time.Parse(time.RFC3339Nano, ts)
+			}
+		case "Resource.Updated":
+			state.Data = marshalField(m["Data"])
+		case "Resource.Deleted":
+			state.IsDelete = true
+		case "Triple.Created":
+			predicate, _ := m["predicate"].(string)
+			object, _ := m["object"].(string)
+			if predicate != "" && state.Data != nil {
+				updated, err := AddEdgeToGraph(state.Data, predicate, object, aggregateID)
+				if err != nil {
+					logger.Error(ctx, "failed to add edge to graph",
+						"subject", aggregateID, "predicate", predicate, "error", err)
+					continue
+				}
+				state.Data = updated
+			}
+		case "Triple.Deleted":
+			predicate, _ := m["predicate"].(string)
+			object, _ := m["object"].(string)
+			if predicate != "" && state.Data != nil {
+				updated, err := RemoveEdgeFromGraph(state.Data, predicate, object)
+				if err != nil {
+					logger.Error(ctx, "failed to remove edge from graph",
+						"subject", aggregateID, "predicate", predicate, "error", err)
+					continue
+				}
+				state.Data = updated
+			}
+		}
+	}
+	return state
+}
+
+func handleResourcePublished(
+	ctx context.Context,
+	env domain.EventEnvelope[entities.ResourcePublished],
+	eventStore domain.EventStore,
+	repo repositories.ResourceRepository,
+	projMgr repositories.ProjectionManager,
+	logger entities.Logger,
+) error {
+	txID := env.TransactionID
+	if txID == "" {
+		logger.Error(ctx, "Resource.Published event has empty TransactionID",
+			"aggregateID", env.AggregateID, "sequenceNo", env.SequenceNo)
+		return fmt.Errorf("Resource.Published event has empty TransactionID for aggregate %s", env.AggregateID)
+	}
+
+	txEvents, err := eventStore.GetEventsByTransactionID(ctx, txID)
+	if err != nil {
+		return fmt.Errorf("failed to load transaction events: %w", err)
+	}
+
+	state := buildStateFromTransaction(ctx, txEvents, env.AggregateID, env.SequenceNo, logger)
+
+	// Delete flow: the Resource.Deleted handler already removes the projection row.
+	if state.IsDelete {
+		logger.Info(ctx, "projecting Resource.Published (delete)",
+			"id", env.AggregateID, "transactionID", txID, "sequenceNo", state.MaxSeq)
+		return nil
+	}
+
+	if state.Data == nil {
+		return fmt.Errorf("no resource data found in transaction %s for aggregate %s", txID, env.AggregateID)
+	}
+
+	entity := &entities.Resource{}
+	if state.IsCreate {
+		if err := entity.Restore(
+			env.AggregateID, state.TypeSlug, "active",
+			state.Data, state.CreatedBy, state.AccountID,
+			state.CreatedAt, state.MaxSeq,
+		); err != nil {
+			return err
+		}
+		logger.Info(ctx, "projecting Resource.Published (create)",
+			"id", env.AggregateID, "transactionID", txID, "sequenceNo", state.MaxSeq)
+		if err := repo.Save(ctx, entity); err != nil {
+			return err
+		}
+		return propagateDisplayValues(ctx, env.AggregateID, state.Data, projMgr, logger)
+	}
+
+	// Update: read existing resource for fields not in the transaction events.
+	existing, err := repo.FindByID(ctx, env.AggregateID)
+	if err != nil {
+		return fmt.Errorf("projection read failed: %w", err)
+	}
+	if err := existing.Restore(
+		env.AggregateID, existing.TypeSlug(), existing.Status(),
+		state.Data, existing.CreatedBy(), existing.AccountID(),
+		existing.CreatedAt(), state.MaxSeq,
+	); err != nil {
+		return err
+	}
+	logger.Info(ctx, "projecting Resource.Published (update)",
+		"id", env.AggregateID, "transactionID", txID, "sequenceNo", state.MaxSeq)
+	if err := repo.Update(ctx, existing); err != nil {
+		return err
+	}
+	return propagateDisplayValues(ctx, env.AggregateID, state.Data, projMgr, logger)
+}
+
+// marshalField re-marshals a deserialized JSON value back to json.RawMessage.
+// Event store payloads are deserialized as map[string]any; fields that were
+// originally json.RawMessage (e.g., ResourceCreated.Data) need re-serialization.
+// Returns nil if the value is nil or marshaling fails.
+func marshalField(v any) json.RawMessage {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
 }

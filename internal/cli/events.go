@@ -192,13 +192,14 @@ func modelToEnvelope(m infrastructure.GormEventModel) domain.EventEnvelope[any] 
 		metadata = make(map[string]any)
 	}
 	return domain.EventEnvelope[any]{
-		ID:          m.ID,
-		AggregateID: m.AggregateID,
-		EventType:   m.EventType,
-		Payload:     map[string]any(m.Payload),
-		Created:     m.CreatedAt,
-		SequenceNo:  m.SequenceNo,
-		Metadata:    metadata,
+		ID:            m.ID,
+		AggregateID:   m.AggregateID,
+		EventType:     m.EventType,
+		Payload:       map[string]any(m.Payload),
+		Created:       m.CreatedAt,
+		SequenceNo:    m.SequenceNo,
+		TransactionID: m.TransactionID,
+		Metadata:      metadata,
 	}
 }
 
