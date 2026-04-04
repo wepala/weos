@@ -59,3 +59,104 @@ func TestSubClassOf(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValueObject(t *testing.T) {
+	tests := []struct {
+		name    string
+		context json.RawMessage
+		want    bool
+	}{
+		{
+			name:    "true when weos:valueObject is true",
+			context: json.RawMessage(`{"@vocab":"https://w3id.org/valueflows#","weos:valueObject":true}`),
+			want:    true,
+		},
+		{
+			name:    "true when weos:valueObject is string true",
+			context: json.RawMessage(`{"weos:valueObject":"true"}`),
+			want:    true,
+		},
+		{
+			name:    "false when weos:valueObject is false",
+			context: json.RawMessage(`{"weos:valueObject":false}`),
+			want:    false,
+		},
+		{
+			name:    "false when weos:valueObject is absent",
+			context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+			want:    false,
+		},
+		{
+			name:    "false for nil context",
+			context: nil,
+			want:    false,
+		},
+		{
+			name:    "false for empty context",
+			context: json.RawMessage(``),
+			want:    false,
+		},
+		{
+			name:    "false for invalid JSON",
+			context: json.RawMessage(`{not valid`),
+			want:    false,
+		},
+		{
+			name:    "false when value is a number",
+			context: json.RawMessage(`{"weos:valueObject":1}`),
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := jsonld.IsValueObject(tt.context)
+			if got != tt.want {
+				t.Errorf("IsValueObject() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsAbstract(t *testing.T) {
+	tests := []struct {
+		name    string
+		context json.RawMessage
+		want    bool
+	}{
+		{
+			name:    "true when weos:abstract is true",
+			context: json.RawMessage(`{"@vocab":"https://w3id.org/valueflows#","weos:abstract":true}`),
+			want:    true,
+		},
+		{
+			name:    "true when weos:abstract is string true",
+			context: json.RawMessage(`{"weos:abstract":"true"}`),
+			want:    true,
+		},
+		{
+			name:    "false when weos:abstract is false",
+			context: json.RawMessage(`{"weos:abstract":false}`),
+			want:    false,
+		},
+		{
+			name:    "false when weos:abstract is absent",
+			context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+			want:    false,
+		},
+		{
+			name:    "false for nil context",
+			context: nil,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := jsonld.IsAbstract(tt.context)
+			if got != tt.want {
+				t.Errorf("IsAbstract() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -747,6 +747,37 @@ func (r *ResourceRepository) findAllFromGenericWithFilters(
 	}, nil
 }
 
+func (r *ResourceRepository) UpdateData(
+	ctx context.Context, id string, data json.RawMessage, sequenceNo int,
+) error {
+	updates := map[string]any{"data": string(data)}
+	if sequenceNo > 0 {
+		updates["sequence_no"] = sequenceNo
+	}
+	if err := r.db.WithContext(ctx).Model(&models.Resource{}).
+		Where("id = ?", id).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update resource data: %w", err)
+	}
+
+	typeSlug := identity.ExtractResourceTypeSlug(id)
+	if typeSlug != "" && r.projMgr.HasProjectionTable(typeSlug) {
+		tableName := r.projMgr.TableName(typeSlug)
+		row := map[string]any{}
+		if sequenceNo > 0 {
+			row["sequence_no"] = sequenceNo
+		}
+		ldCtx := r.projMgr.Context(typeSlug)
+		ExtractFlatColumns(data, ldCtx, row)
+		if len(row) > 0 {
+			if err := r.db.WithContext(ctx).Table(tableName).
+				Where("id = ?", id).Updates(row).Error; err != nil {
+				return fmt.Errorf("failed to update projection data in %s: %w", tableName, err)
+			}
+		}
+	}
+	return nil
+}
+
 func (r *ResourceRepository) Update(
 	ctx context.Context, entity *entities.Resource,
 ) error {

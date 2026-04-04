@@ -137,6 +137,169 @@ func extractTriplesFromEdgesNode(
 	return triples
 }
 
+// ExtractAndStripReferences extracts reference property values from data as triples
+// and removes the reference keys from the data. Returns the stripped data and
+// the extracted triples (with subject left empty — caller sets it).
+func ExtractAndStripReferences(
+	data json.RawMessage,
+	refProps []ReferencePropertyDef,
+) (json.RawMessage, []repositories.Triple, error) {
+	if len(refProps) == 0 {
+		return data, nil, nil
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, nil, fmt.Errorf("data must be a JSON object: %w", err)
+	}
+
+	var refs []repositories.Triple
+	for _, rp := range refProps {
+		switch v := m[rp.PropertyName].(type) {
+		case string:
+			if v != "" {
+				refs = append(refs, repositories.Triple{Predicate: rp.PredicateIRI, Object: v})
+			}
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok && s != "" {
+					refs = append(refs, repositories.Triple{Predicate: rp.PredicateIRI, Object: s})
+				}
+			}
+		default:
+			continue
+		}
+		delete(m, rp.PropertyName)
+	}
+
+	stripped, err := json.Marshal(m)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal stripped data: %w", err)
+	}
+	return stripped, refs, nil
+}
+
+// AddEdgeToGraph adds a relationship edge to a JSON-LD @graph document.
+// If an edge with the same predicate already exists, it is replaced.
+// If no edges node exists, one is created. If no @graph exists, the data is
+// wrapped as an entity node with a new edges node.
+func AddEdgeToGraph(
+	data json.RawMessage, predicate, objectID, subjectID string,
+) (json.RawMessage, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("invalid JSON data: %w", err)
+	}
+
+	graphArr, hasGraph := doc["@graph"].([]any)
+	if !hasGraph || len(graphArr) == 0 {
+		// No @graph — wrap existing data as entity node + new edges node.
+		entityNode := make(map[string]any)
+		for k, v := range doc {
+			entityNode[k] = v
+		}
+		edgesNode := map[string]any{
+			"@id":     subjectID,
+			predicate: map[string]any{"@id": objectID},
+		}
+		doc = map[string]any{"@graph": []any{entityNode, edgesNode}}
+		if ctx, ok := entityNode["@context"]; ok {
+			doc["@context"] = ctx
+			delete(entityNode, "@context")
+		}
+		return json.Marshal(doc)
+	}
+
+	if len(graphArr) < 2 {
+		// Only entity node — add edges node.
+		edgesNode := map[string]any{
+			"@id":     subjectID,
+			predicate: map[string]any{"@id": objectID},
+		}
+		graphArr = append(graphArr, edgesNode)
+	} else {
+		// Edges node exists — add the edge (accumulate into array for multi-valued predicates).
+		edgesNode, ok := graphArr[1].(map[string]any)
+		if !ok {
+			edgesNode = map[string]any{"@id": subjectID}
+		}
+		newRef := map[string]any{"@id": objectID}
+		if existing, exists := edgesNode[predicate]; exists {
+			if arr, ok := existing.([]any); ok {
+				edgesNode[predicate] = append(arr, newRef)
+			} else {
+				edgesNode[predicate] = []any{existing, newRef}
+			}
+		} else {
+			edgesNode[predicate] = newRef
+		}
+		graphArr[1] = edgesNode
+	}
+
+	doc["@graph"] = graphArr
+	return json.Marshal(doc)
+}
+
+// RemoveEdgeFromGraph removes a specific relationship edge from a JSON-LD @graph document.
+// For multi-valued predicates (arrays), only the matching objectID is removed.
+// If the edges node becomes empty (only @id remains), it is removed from the @graph array.
+func RemoveEdgeFromGraph(
+	data json.RawMessage, predicate, objectID string,
+) (json.RawMessage, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("invalid JSON data: %w", err)
+	}
+
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok || len(graphArr) < 2 {
+		return data, nil // no edges node — nothing to remove
+	}
+
+	edgesNode, ok := graphArr[1].(map[string]any)
+	if !ok {
+		return data, nil
+	}
+
+	existing, exists := edgesNode[predicate]
+	if !exists {
+		return data, nil
+	}
+
+	// Handle array-valued predicates: remove only the matching objectID.
+	if arr, ok := existing.([]any); ok {
+		filtered := make([]any, 0, len(arr))
+		for _, item := range arr {
+			if ref, ok := item.(map[string]any); ok {
+				if id, ok := ref["@id"].(string); ok && id == objectID {
+					continue // remove this one
+				}
+			}
+			filtered = append(filtered, item)
+		}
+		switch len(filtered) {
+		case 0:
+			delete(edgesNode, predicate)
+		case 1:
+			edgesNode[predicate] = filtered[0] // unwrap single-element array
+		default:
+			edgesNode[predicate] = filtered
+		}
+	} else {
+		delete(edgesNode, predicate)
+	}
+
+	// If only @id remains, remove the edges node entirely.
+	if len(edgesNode) <= 1 {
+		graphArr = graphArr[:1]
+	} else {
+		graphArr[1] = edgesNode
+	}
+
+	doc["@graph"] = graphArr
+	return json.Marshal(doc)
+}
+
 // JSON-LD context parsing and IRI expansion utilities are in pkg/jsonld.
 
 // buildStorableContext produces a minimal valid JSON-LD @context for storage.

@@ -23,6 +23,8 @@ export interface FieldDescriptor {
   format?: string
   options?: string[]
   resourceType?: string
+  order?: number
+  group?: string
 }
 
 export interface ColumnDescriptor {
@@ -31,6 +33,7 @@ export interface ColumnDescriptor {
   key: string
   resourceType?: string
   format?: string
+  order?: number
   sorter?: (a: any, b: any) => number
   filters?: { text: string; value: string }[]
   onFilter?: (value: string, record: any) => boolean
@@ -44,6 +47,15 @@ export function useSchemaUtils() {
       .replace(/\b\w/g, (c) => c.toUpperCase())
   }
 
+  function sortByOrder<T extends { order?: number }>(items: T[]): T[] {
+    return [...items].sort((a, b) => {
+      if (a.order != null && b.order != null) return a.order - b.order
+      if (a.order != null) return -1
+      if (b.order != null) return 1
+      return 0
+    })
+  }
+
   function schemaToColumns(schema: any, max = 6): ColumnDescriptor[] {
     if (!schema?.properties) return []
 
@@ -52,7 +64,7 @@ export function useSchemaUtils() {
       (k) => !k.startsWith('@') && k !== 'id' && k !== 'type',
     )
 
-    return keys.slice(0, max).map((key) => {
+    const cols = keys.map((key) => {
       const prop = props[key]
       const col: ColumnDescriptor = {
         title: prop['x-resource-type'] ? humanizeKey(key.replace(/Id$/, '')) : humanizeKey(key),
@@ -66,6 +78,10 @@ export function useSchemaUtils() {
 
       if (prop.format) {
         col.format = prop.format
+      }
+
+      if (prop['x-order'] != null) {
+        col.order = prop['x-order']
       }
 
       if (prop.type === 'number' || prop.type === 'integer') {
@@ -82,6 +98,8 @@ export function useSchemaUtils() {
 
       return col
     })
+
+    return sortByOrder(cols).slice(0, max)
   }
 
   function schemaToFields(schema: any): FieldDescriptor[] {
@@ -91,7 +109,7 @@ export function useSchemaUtils() {
     const required = schema.required || []
     const textareaKeys = ['description', 'body', 'content', 'notes', 'bio', 'summary']
 
-    return Object.keys(props)
+    const fields = Object.keys(props)
       .filter((k) => !k.startsWith('@') && k !== 'id' && k !== 'type')
       .map((key) => {
         const prop = props[key]
@@ -125,8 +143,12 @@ export function useSchemaUtils() {
           format: prop.format,
           options: prop.enum,
           resourceType: prop['x-resource-type'],
+          order: prop['x-order'] as number | undefined,
+          group: prop['x-group'] as string | undefined,
         }
       })
+
+    return sortByOrder(fields)
   }
 
   function buildFormModel(schema: any, initialData?: Record<string, any>): Record<string, any> {

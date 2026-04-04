@@ -17,6 +17,7 @@ package repositories
 
 import (
 	"context"
+	"encoding/json"
 
 	"weos/domain/entities"
 )
@@ -46,6 +47,11 @@ type ResourceRepository interface {
 		cursor string, limit int, sort SortOptions, scope *VisibilityScope) (
 		PaginatedResponse[*entities.Resource], error)
 	Update(ctx context.Context, entity *entities.Resource) error
+	// UpdateData updates the JSON-LD data for a resource, and conditionally updates
+	// its sequence number (skipped when sequenceNo is 0). This is a projection-level
+	// operation used by triple handlers to update the materialized @graph and keep the
+	// aggregate version in sync — it does NOT emit any events.
+	UpdateData(ctx context.Context, id string, data json.RawMessage, sequenceNo int) error
 	Delete(ctx context.Context, id string) error
 
 	// FindAllByTypeFlat returns flat rows from the projection table directly (no JSON-LD).

@@ -7,6 +7,7 @@ import (
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
+	"weos/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
@@ -64,9 +65,11 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Save(ctx, entity); err != nil {
 				return err
 			}
-			if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
-				logger.Error(ctx, "failed to create projection table",
-					"slug", p.Slug, "error", err)
+			if !jsonld.IsAbstract(p.Context) {
+				if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
+					logger.Error(ctx, "failed to create projection table",
+						"slug", p.Slug, "error", err)
+				}
 			}
 			logger.Info(ctx, "projecting ResourceType.Created", "id", env.AggregateID)
 			return nil
@@ -91,9 +94,11 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Update(ctx, existing); err != nil {
 				return err
 			}
-			if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
-				logger.Error(ctx, "failed to update projection table",
-					"slug", p.Slug, "error", err)
+			if !jsonld.IsAbstract(p.Context) {
+				if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
+					logger.Error(ctx, "failed to update projection table",
+						"slug", p.Slug, "error", err)
+				}
 			}
 			logger.Info(ctx, "projecting ResourceType.Updated", "id", env.AggregateID)
 			return nil

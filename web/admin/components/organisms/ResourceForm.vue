@@ -21,13 +21,16 @@
     layout="vertical"
     @finish="handleSubmit"
   >
-    <a-form-item
-      v-for="field in fields"
-      :key="field.key"
-      :label="field.label"
-      :name="field.key"
-      :rules="field.required ? [{ required: true, message: `${field.label} is required` }] : []"
-    >
+    <template v-for="(groupFields, groupName) in groupedFields" :key="groupName ?? '__ungrouped'">
+      <a-divider v-if="groupName" orientation="left">{{ groupName }}</a-divider>
+
+      <a-form-item
+        v-for="field in groupFields"
+        :key="field.key"
+        :label="field.label"
+        :name="field.key"
+        :rules="field.required ? [{ required: true, message: `${field.label} is required` }] : []"
+      >
       <a-input-number
         v-if="field.inputType === 'number'"
         v-model:value="form[field.key]"
@@ -75,7 +78,8 @@
         v-else
         v-model:value="form[field.key]"
       />
-    </a-form-item>
+      </a-form-item>
+    </template>
 
     <a-form-item>
       <a-space>
@@ -108,6 +112,22 @@ const emit = defineEmits<{
 const { schemaToFields, buildFormModel, serializeFormModel } = useSchemaUtils()
 
 const fields = computed<FieldDescriptor[]>(() => schemaToFields(props.schema))
+
+const groupedFields = computed(() => {
+  const groups = new Map<string | undefined, FieldDescriptor[]>()
+  for (const field of fields.value) {
+    const key = field.group
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(field)
+  }
+  // Ungrouped fields first, then named groups in encounter order
+  const result = new Map<string | undefined, FieldDescriptor[]>()
+  if (groups.has(undefined)) result.set(undefined, groups.get(undefined)!)
+  for (const [key, val] of groups) {
+    if (key !== undefined) result.set(key, val)
+  }
+  return result
+})
 
 const form = reactive(buildFormModel(props.schema, props.initialData))
 

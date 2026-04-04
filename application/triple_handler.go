@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,9 +12,11 @@ import (
 	"weos/pkg/utils"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
+	"gorm.io/gorm"
 )
 
-// subscribeTripleHandlers registers event handlers for triple projection and auto-extraction.
+// subscribeTripleHandlers registers event handlers for triple projection, resource graph sync,
+// and display value propagation.
 func subscribeTripleHandlers(
 	d *domain.EventDispatcher,
 	tripleRepo repositories.TripleRepository,
@@ -45,32 +48,6 @@ func subscribeTripleHandlers(
 		},
 	); err != nil {
 		return fmt.Errorf("triple deleted handler: %w", err)
-	}
-
-	// Auto-extract triples from resource data on creation.
-	if err := domain.Subscribe(d, "Resource.Created",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceCreated]) error {
-			return autoExtractTriples(ctx, env.AggregateID, env.Payload.TypeSlug,
-				env.Payload.Data, tripleService, rtRepo, logger)
-		},
-	); err != nil {
-		return fmt.Errorf("resource triple extraction handler: %w", err)
-	}
-
-	// Reconcile triples on resource update.
-	if err := domain.Subscribe(d, "Resource.Updated",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceUpdated]) error {
-			resource, err := resourceRepo.FindByID(ctx, env.AggregateID)
-			if err != nil {
-				logger.Error(ctx, "failed to find resource for triple reconciliation",
-					"id", env.AggregateID, "error", err)
-				return nil
-			}
-			return reconcileTriples(ctx, env.AggregateID, resource.TypeSlug(),
-				env.Payload.Data, tripleRepo, tripleService, rtRepo, logger)
-		},
-	); err != nil {
-		return fmt.Errorf("resource triple reconciliation handler: %w", err)
 	}
 
 	// Clean up triples on resource deletion.
@@ -112,6 +89,10 @@ func subscribeTripleHandlers(
 		return fmt.Errorf("triple projection sync deleted handler: %w", err)
 	}
 
+	if err := subscribeGraphSyncHandlers(d, resourceRepo, logger); err != nil {
+		return err
+	}
+
 	// Propagate display value changes when a referenced entity is updated.
 	if err := domain.Subscribe(d, "Resource.Updated",
 		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceUpdated]) error {
@@ -120,6 +101,73 @@ func subscribeTripleHandlers(
 		},
 	); err != nil {
 		return fmt.Errorf("display value propagation handler: %w", err)
+	}
+
+	return nil
+}
+
+// subscribeGraphSyncHandlers registers handlers that sync triple changes to the
+// resource's @graph data. Errors are logged but not returned to avoid blocking
+// the event pipeline — graph sync is best-effort.
+func subscribeGraphSyncHandlers(
+	d *domain.EventDispatcher,
+	resourceRepo repositories.ResourceRepository,
+	logger entities.Logger,
+) error {
+	if err := domain.Subscribe(d, "Triple.Created",
+		func(ctx context.Context, env domain.EventEnvelope[entities.TripleCreated]) error {
+			p := env.Payload
+			resource, err := resourceRepo.FindByID(ctx, p.Subject)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil
+				}
+				logger.Error(ctx, "failed to find subject resource for graph sync",
+					"subject", p.Subject, "error", err)
+				return nil
+			}
+			updated, err := AddEdgeToGraph(resource.Data(), p.Predicate, p.Object, p.Subject)
+			if err != nil {
+				logger.Error(ctx, "failed to add edge to graph",
+					"subject", p.Subject, "predicate", p.Predicate, "error", err)
+				return nil
+			}
+			if err := resourceRepo.UpdateData(ctx, p.Subject, updated, env.SequenceNo); err != nil {
+				logger.Error(ctx, "failed to persist graph edge",
+					"subject", p.Subject, "error", err)
+			}
+			return nil
+		},
+	); err != nil {
+		return fmt.Errorf("triple graph sync created handler: %w", err)
+	}
+
+	if err := domain.Subscribe(d, "Triple.Deleted",
+		func(ctx context.Context, env domain.EventEnvelope[entities.TripleDeleted]) error {
+			p := env.Payload
+			resource, err := resourceRepo.FindByID(ctx, p.Subject)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return nil
+				}
+				logger.Error(ctx, "failed to find subject resource for graph edge removal",
+					"subject", p.Subject, "error", err)
+				return nil
+			}
+			updated, err := RemoveEdgeFromGraph(resource.Data(), p.Predicate, p.Object)
+			if err != nil {
+				logger.Error(ctx, "failed to remove edge from graph",
+					"subject", p.Subject, "predicate", p.Predicate, "error", err)
+				return nil
+			}
+			if err := resourceRepo.UpdateData(ctx, p.Subject, updated, env.SequenceNo); err != nil {
+				logger.Error(ctx, "failed to persist graph edge removal",
+					"subject", p.Subject, "error", err)
+			}
+			return nil
+		},
+	); err != nil {
+		return fmt.Errorf("triple graph sync deleted handler: %w", err)
 	}
 
 	return nil
@@ -259,106 +307,4 @@ func extractTypeSlugFromResourceID(id string) string {
 		return parts[1]
 	}
 	return ""
-}
-
-// autoExtractTriples extracts triples from resource data based on x-resource-type schema properties.
-func autoExtractTriples(
-	ctx context.Context,
-	resourceID, typeSlug string,
-	data json.RawMessage,
-	tripleService TripleService,
-	rtRepo repositories.ResourceTypeRepository,
-	logger entities.Logger,
-) error {
-	rt, err := rtRepo.FindBySlug(ctx, typeSlug)
-	if err != nil {
-		return nil // resource type not found — nothing to extract
-	}
-
-	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
-	if len(refProps) == 0 {
-		return nil
-	}
-
-	triples := ExtractTriplesFromData(refProps, data, resourceID)
-	for _, t := range triples {
-		if err := tripleService.Link(ctx, t.Subject, t.Predicate, t.Object); err != nil {
-			logger.Error(ctx, "failed to auto-link triple",
-				"subject", t.Subject, "predicate", t.Predicate, "object", t.Object, "error", err)
-		}
-	}
-	return nil
-}
-
-// reconcileTriples diffs the current triples against the updated data and adds/removes as needed.
-func reconcileTriples(
-	ctx context.Context,
-	resourceID, typeSlug string,
-	data json.RawMessage,
-	tripleRepo repositories.TripleRepository,
-	tripleService TripleService,
-	rtRepo repositories.ResourceTypeRepository,
-	logger entities.Logger,
-) error {
-	rt, err := rtRepo.FindBySlug(ctx, typeSlug)
-	if err != nil {
-		return nil
-	}
-
-	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
-	if len(refProps) == 0 {
-		return nil
-	}
-
-	// Build set of expected predicates from schema.
-	schemaPredicates := make(map[string]bool)
-	for _, rp := range refProps {
-		schemaPredicates[rp.PredicateIRI] = true
-	}
-
-	// Extract new triples from updated data.
-	newTriples := ExtractTriplesFromData(refProps, data, resourceID)
-	newSet := make(map[string]bool)
-	for _, t := range newTriples {
-		newSet[t.Subject+"|"+t.Predicate+"|"+t.Object] = true
-	}
-
-	// Find existing triples for this subject.
-	existing, err := tripleRepo.FindBySubject(ctx, resourceID)
-	if err != nil {
-		logger.Error(ctx, "failed to find existing triples for reconciliation",
-			"id", resourceID, "error", err)
-		return nil
-	}
-
-	// Remove stale triples (existing triples whose predicate is schema-derived but not in new set).
-	for _, t := range existing {
-		if !schemaPredicates[t.Predicate] {
-			continue // not a schema-derived triple — leave it alone
-		}
-		key := t.Subject + "|" + t.Predicate + "|" + t.Object
-		if !newSet[key] {
-			if err := tripleService.Unlink(ctx, t.Subject, t.Predicate, t.Object); err != nil {
-				logger.Error(ctx, "failed to unlink stale triple",
-					"subject", t.Subject, "predicate", t.Predicate, "object", t.Object, "error", err)
-			}
-		}
-	}
-
-	// Add new triples.
-	existingSet := make(map[string]bool)
-	for _, t := range existing {
-		existingSet[t.Subject+"|"+t.Predicate+"|"+t.Object] = true
-	}
-	for _, t := range newTriples {
-		key := t.Subject + "|" + t.Predicate + "|" + t.Object
-		if !existingSet[key] {
-			if err := tripleService.Link(ctx, t.Subject, t.Predicate, t.Object); err != nil {
-				logger.Error(ctx, "failed to link new triple",
-					"subject", t.Subject, "predicate", t.Predicate, "object", t.Object, "error", err)
-			}
-		}
-	}
-
-	return nil
 }

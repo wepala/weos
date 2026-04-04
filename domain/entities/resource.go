@@ -131,6 +131,10 @@ func (e *Resource) ApplyEvent(
 	case ResourceDeleted:
 		e.status = "archived"
 		return nil
+	case TripleCreated, TripleDeleted:
+		// Triple events are recorded on the resource entity for UoW atomicity.
+		// The graph update is a projection concern handled by Triple.Created/Deleted handlers.
+		return nil
 	default:
 		return fmt.Errorf("unknown event type: %T", envelope.Payload)
 	}

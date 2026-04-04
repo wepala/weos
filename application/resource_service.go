@@ -40,6 +40,7 @@ type ResourceService interface {
 type resourceService struct {
 	repo        repositories.ResourceRepository
 	typeRepo    repositories.ResourceTypeRepository
+	tripleRepo  repositories.TripleRepository
 	permRepo    repositories.ResourcePermissionRepository
 	accountRepo authrepos.AccountRepository
 	eventStore  domain.EventStore
@@ -89,6 +90,7 @@ func ProvideResourceService(params struct {
 	fx.In
 	Repo        repositories.ResourceRepository
 	TypeRepo    repositories.ResourceTypeRepository
+	TripleRepo  repositories.TripleRepository
 	PermRepo    repositories.ResourcePermissionRepository
 	AccountRepo authrepos.AccountRepository
 	EventStore  domain.EventStore
@@ -99,6 +101,7 @@ func ProvideResourceService(params struct {
 	return &resourceService{
 		repo:        params.Repo,
 		typeRepo:    params.TypeRepo,
+		tripleRepo:  params.TripleRepo,
 		permRepo:    params.PermRepo,
 		accountRepo: params.AccountRepo,
 		eventStore:  params.EventStore,
@@ -114,6 +117,9 @@ func (s *resourceService) Create(
 	rt, err := s.typeRepo.FindBySlug(ctx, cmd.TypeSlug)
 	if err != nil {
 		return nil, fmt.Errorf("resource type %q not found: %w", cmd.TypeSlug, err)
+	}
+	if jsonld.IsAbstract(rt.Context()) {
+		return nil, fmt.Errorf("cannot create resource of abstract type %q: use a concrete subtype instead", cmd.TypeSlug)
 	}
 
 	behavior := s.behaviorFor(ctx, rt)
@@ -135,7 +141,15 @@ func (s *resourceService) Create(
 
 	entityID := identity.NewResource(cmd.TypeSlug)
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
-	graphData, err := BuildResourceGraph(data, refProps, entityID, rt.Name(), rt.Context())
+
+	// Strip reference properties from the data — resources are atomic.
+	// References are recorded as Triple events on the entity for atomic UoW commit.
+	strippedData, refs, err := ExtractAndStripReferences(data, refProps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip references: %w", err)
+	}
+
+	graphData, err := BuildResourceGraph(strippedData, nil, entityID, rt.Name(), rt.Context())
 	if err != nil {
 		return nil, fmt.Errorf("failed to build resource graph: %w", err)
 	}
@@ -143,6 +157,14 @@ func (s *resourceService) Create(
 	entity, err := new(entities.Resource).With(entityID, cmd.TypeSlug, graphData, createdBy, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	// Record triple events on the entity so they commit in the same UoW.
+	for _, ref := range refs {
+		tripleEvent := entities.TripleCreated{}.With(entityID, ref.Predicate, ref.Object)
+		if err := entity.RecordEvent(tripleEvent, tripleEvent.EventType()); err != nil {
+			return nil, fmt.Errorf("failed to record triple event: %w", err)
+		}
 	}
 
 	if err := behavior.BeforeCreateCommit(ctx, entity); err != nil {
@@ -289,13 +311,24 @@ func (s *resourceService) Update(
 	}
 
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
-	graphData, err := BuildResourceGraph(data, refProps, entity.GetID(), rt.Name(), rt.Context())
+
+	// Strip reference properties — resources are atomic.
+	strippedData, newRefs, err := ExtractAndStripReferences(data, refProps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to strip references: %w", err)
+	}
+
+	graphData, err := BuildResourceGraph(strippedData, nil, entity.GetID(), rt.Name(), rt.Context())
 	if err != nil {
 		return nil, fmt.Errorf("failed to build resource graph: %w", err)
 	}
 
 	if err := entity.Update(graphData); err != nil {
 		return nil, fmt.Errorf("failed to update resource: %w", err)
+	}
+
+	if err := s.reconcileTriples(ctx, entity, refProps, newRefs); err != nil {
+		return nil, err
 	}
 
 	if err := behavior.BeforeUpdateCommit(ctx, entity); err != nil {
@@ -358,6 +391,54 @@ func (s *resourceService) Delete(
 	}
 
 	s.logger.Info(ctx, "resource deleted", "id", cmd.ID)
+	return nil
+}
+
+// reconcileTriples diffs existing triples against new references and records
+// TripleCreated/TripleDeleted events on the entity for atomic UoW commit.
+func (s *resourceService) reconcileTriples(
+	ctx context.Context,
+	entity *entities.Resource,
+	refProps []ReferencePropertyDef,
+	newRefs []repositories.Triple,
+) error {
+	existing, err := s.tripleRepo.FindBySubject(ctx, entity.GetID())
+	if err != nil {
+		return fmt.Errorf("failed to load existing triples for reconciliation: %w", err)
+	}
+	schemaPredicates := make(map[string]bool, len(refProps))
+	for _, rp := range refProps {
+		schemaPredicates[rp.PredicateIRI] = true
+	}
+
+	newSet := make(map[string]bool, len(newRefs))
+	for _, ref := range newRefs {
+		newSet[ref.Predicate+"|"+ref.Object] = true
+	}
+	existingSet := make(map[string]bool, len(existing))
+	for _, t := range existing {
+		existingSet[t.Predicate+"|"+t.Object] = true
+	}
+
+	for _, t := range existing {
+		if !schemaPredicates[t.Predicate] {
+			continue
+		}
+		if !newSet[t.Predicate+"|"+t.Object] {
+			ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object)
+			if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
+				return fmt.Errorf("failed to record triple deleted event: %w", err)
+			}
+		}
+	}
+	for _, ref := range newRefs {
+		if !existingSet[ref.Predicate+"|"+ref.Object] {
+			ev := entities.TripleCreated{}.With(entity.GetID(), ref.Predicate, ref.Object)
+			if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
+				return fmt.Errorf("failed to record triple created event: %w", err)
+			}
+		}
+	}
 	return nil
 }
 

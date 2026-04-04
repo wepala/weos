@@ -86,6 +86,55 @@ func SubClassOf(ldContext json.RawMessage) string {
 	return ""
 }
 
+// IsValueObject checks whether a JSON-LD context declares "weos:valueObject": true.
+// Value object types are referenced by other types' properties but don't appear in navigation.
+func IsValueObject(ldContext json.RawMessage) bool {
+	if len(ldContext) == 0 {
+		return false
+	}
+	var ctx map[string]any
+	if json.Unmarshal(ldContext, &ctx) != nil {
+		return false
+	}
+	v, ok := ctx["weos:valueObject"]
+	if !ok {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case string:
+		return val == "true"
+	default:
+		return false
+	}
+}
+
+// IsAbstract checks whether a JSON-LD context declares "weos:abstract": true.
+// Abstract types define shared behaviors for child types (via rdfs:subClassOf)
+// but have no projection table and cannot have instances created directly.
+func IsAbstract(ldContext json.RawMessage) bool {
+	if len(ldContext) == 0 {
+		return false
+	}
+	var ctx map[string]any
+	if json.Unmarshal(ldContext, &ctx) != nil {
+		return false
+	}
+	v, ok := ctx["weos:abstract"]
+	if !ok {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case string:
+		return val == "true"
+	default:
+		return false
+	}
+}
+
 // ResolvePredicateIRI resolves the predicate IRI for a property name.
 // Priority: explicit context mapping > @vocab + property name.
 func ResolvePredicateIRI(propName, vocab string, contextMap map[string]string) string {

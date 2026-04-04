@@ -7,6 +7,7 @@ import (
 
 	"weos/application"
 	"weos/domain/entities"
+	"weos/pkg/jsonld"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -38,8 +39,9 @@ type GetResourceTypeInput struct {
 }
 
 type ListResourceTypesInput struct {
-	Cursor string `json:"cursor,omitempty" jsonschema:"pagination cursor from previous call"`
-	Limit  int    `json:"limit,omitempty" jsonschema:"max items (1-100) defaults to 20"`
+	Cursor     string `json:"cursor,omitempty" jsonschema:"pagination cursor from previous call"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"max items (1-100) defaults to 20"`
+	IncludeAll bool   `json:"includeAll,omitempty" jsonschema:"include value object and abstract types (hidden from navigation by default)"`
 }
 
 type ResourceTypeOutput struct {
@@ -122,6 +124,9 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 			HasMore: result.HasMore,
 		}
 		for _, e := range result.Data {
+			if !input.IncludeAll && (jsonld.IsValueObject(e.Context()) || jsonld.IsAbstract(e.Context())) {
+				continue
+			}
 			out.Data = append(out.Data, toResourceTypeOutput(e))
 		}
 		return nil, out, nil

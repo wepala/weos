@@ -24,6 +24,7 @@ import (
 	apimw "weos/api/middleware"
 	"weos/application"
 	"weos/domain/entities"
+	"weos/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -114,6 +115,7 @@ func (h *ResourceTypeHandler) List(c echo.Context) error {
 			map[string]string{"error": err.Error()})
 	}
 
+	includeAll := c.QueryParam("includeAll") == "true"
 	items := make([]ResourceTypeResponse, 0, len(result.Data))
 
 	// Filter resource types by read permission when Casbin is configured.
@@ -125,6 +127,9 @@ func (h *ResourceTypeHandler) List(c echo.Context) error {
 	skipFilter := role == authentities.RoleAdmin || role == authentities.RoleOwner || role == ""
 
 	for _, e := range result.Data {
+		if !includeAll && (jsonld.IsValueObject(e.Context()) || jsonld.IsAbstract(e.Context())) {
+			continue
+		}
 		if !skipFilter && identity != nil {
 			perms, _ := h.checker.GetPermissions(c.Request().Context(), role)
 			if len(perms) > 0 {

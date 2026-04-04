@@ -249,6 +249,9 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 		if rt.Context != "" {
 			ldContext = json.RawMessage(rt.Context)
 		}
+		if jsonld.IsAbstract(ldContext) {
+			continue
+		}
 		if err := pm.EnsureTable(ctx, rt.Slug, schema, ldContext); err != nil {
 			pm.logger.Error(ctx, "failed to ensure projection table for existing type",
 				"slug", rt.Slug, "error", err)
