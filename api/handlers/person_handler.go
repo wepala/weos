@@ -1,0 +1,148 @@
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"time"
+
+	"weos/application"
+	"weos/domain/entities"
+	"weos/domain/repositories"
+
+	"github.com/labstack/echo/v4"
+)
+
+type PersonHandler struct {
+	resourceService application.ResourceService
+}
+
+func NewPersonHandler(resourceService application.ResourceService) *PersonHandler {
+	return &PersonHandler{resourceService: resourceService}
+}
+
+type CreatePersonRequest struct {
+	GivenName  string `json:"given_name"`
+	FamilyName string `json:"family_name"`
+	Email      string `json:"email"`
+}
+
+type UpdatePersonRequest struct {
+	GivenName  string `json:"given_name"`
+	FamilyName string `json:"family_name"`
+	Email      string `json:"email"`
+	AvatarURL  string `json:"avatar_url"`
+	Status     string `json:"status"`
+}
+
+type PersonResponse struct {
+	ID         string `json:"id"`
+	GivenName  string `json:"given_name"`
+	FamilyName string `json:"family_name"`
+	Name       string `json:"name"`
+	Email      string `json:"email"`
+	AvatarURL  string `json:"avatar_url,omitempty"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"created_at"`
+}
+
+func (h *PersonHandler) Create(c echo.Context) error {
+	var req CreatePersonRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "invalid request body"})
+	}
+	data, _ := json.Marshal(map[string]any{
+		"givenName":  req.GivenName,
+		"familyName": req.FamilyName,
+		"email":      req.Email,
+	})
+	entity, err := h.resourceService.Create(
+		c.Request().Context(),
+		application.CreateResourceCommand{TypeSlug: "person", Data: data},
+	)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusCreated, toPersonResponse(entity))
+}
+
+func (h *PersonHandler) Get(c echo.Context) error {
+	entity, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusNotFound,
+			map[string]string{"error": "person not found"})
+	}
+	return c.JSON(http.StatusOK, toPersonResponse(entity))
+}
+
+func (h *PersonHandler) List(c echo.Context) error {
+	cursor := c.QueryParam("cursor")
+	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	if limit <= 0 {
+		limit = 20
+	}
+	result, err := h.resourceService.List(
+		c.Request().Context(), "person", cursor, limit, repositories.SortOptions{},
+	)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": err.Error()})
+	}
+	items := make([]PersonResponse, 0, len(result.Data))
+	for _, e := range result.Data {
+		items = append(items, toPersonResponse(e))
+	}
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"data":     items,
+		"cursor":   result.Cursor,
+		"has_more": result.HasMore,
+	})
+}
+
+func (h *PersonHandler) Update(c echo.Context) error {
+	var req UpdatePersonRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "invalid request body"})
+	}
+	data, _ := json.Marshal(map[string]any{
+		"givenName":  req.GivenName,
+		"familyName": req.FamilyName,
+		"email":      req.Email,
+		"avatarURL":  req.AvatarURL,
+	})
+	entity, err := h.resourceService.Update(
+		c.Request().Context(),
+		application.UpdateResourceCommand{ID: c.Param("id"), Data: data},
+	)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, toPersonResponse(entity))
+}
+
+func (h *PersonHandler) Delete(c echo.Context) error {
+	cmd := application.DeleteResourceCommand{ID: c.Param("id")}
+	if err := h.resourceService.Delete(c.Request().Context(), cmd); err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": err.Error()})
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func toPersonResponse(r *entities.Resource) PersonResponse {
+	fields, _ := application.ExtractResourceFields(r)
+	return PersonResponse{
+		ID:         r.GetID(),
+		GivenName:  application.StringField(fields, "givenName"),
+		FamilyName: application.StringField(fields, "familyName"),
+		Name:       application.StringField(fields, "name"),
+		Email:      application.StringField(fields, "email"),
+		AvatarURL:  application.StringField(fields, "avatarURL"),
+		Status:     r.Status(),
+		CreatedAt:  r.CreatedAt().Format(time.RFC3339),
+	}
+}

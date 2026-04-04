@@ -8,21 +8,75 @@
 # Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool, specifically when used with LiteIDE
+# Output of the go coverage tool
 *.out
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
-*test.db
-*projection.db
-*e2e.db
-*tasks.db
-*test.db
-/.idea
-.DS_Store
-server
-.vscode
+# Dependency directories
+vendor/
 
-__debug_bin
+# Go workspace file
+go.work
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Environment variables
 .env
-/controllers/rest/test.db
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Build artifacts
+build/
+bin/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Dev seed manifest
+.dev-seed.json
+
+# Configuration files with secrets
+config/local.yaml
+config/secrets.yaml
+
+# Node modules at all levels
+node_modules/
+
+# Newman
+newman/
+
+# Playwright
+test-results/
+playwright-report/
+
+# Local Claude context (site-specific, not shared)
+.claude/local-context.md
+.claude/settings.local.json
+.idea
+.run
+.nuxt/
+themes
+web/admin/.output
+web/admin/node_modules/
+web/frontend/.output
+web/frontend/node_modules/
+web/dist
+weos

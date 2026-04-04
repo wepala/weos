@@ -1,0 +1,17 @@
+.git
+bin/
+*.db
+*.sqlite
+*.sqlite3
+.env*
+node_modules/
+web/admin/node_modules/
+web/admin/.nuxt/
+web/admin/.output/
+coverage.out
+coverage.html
+.idea/
+.vscode/
+.claude/
+terraform/
+tests/

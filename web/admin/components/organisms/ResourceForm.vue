@@ -1,0 +1,137 @@
+<!--
+  Copyright (C) 2026 Wepala, LLC
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+
+<template>
+  <a-form
+    :model="form"
+    layout="vertical"
+    @finish="handleSubmit"
+  >
+    <template v-for="(groupFields, groupName) in groupedFields" :key="groupName ?? '__ungrouped'">
+      <a-divider v-if="groupName" orientation="left">{{ groupName }}</a-divider>
+
+      <a-form-item
+        v-for="field in groupFields"
+        :key="field.key"
+        :label="field.label"
+        :name="field.key"
+        :rules="field.required ? [{ required: true, message: `${field.label} is required` }] : []"
+      >
+      <a-input-number
+        v-if="field.inputType === 'number'"
+        v-model:value="form[field.key]"
+        style="width: 100%"
+      />
+      <a-checkbox
+        v-else-if="field.inputType === 'checkbox'"
+        v-model:checked="form[field.key]"
+      />
+      <a-date-picker
+        v-else-if="field.inputType === 'date'"
+        v-model:value="form[field.key]"
+        style="width: 100%"
+      />
+      <a-time-picker
+        v-else-if="field.inputType === 'time'"
+        v-model:value="form[field.key]"
+        format="HH:mm"
+        value-format="HH:mm"
+        style="width: 100%"
+      />
+      <a-select
+        v-else-if="field.inputType === 'select'"
+        v-model:value="form[field.key]"
+      >
+        <a-select-option
+          v-for="opt in field.options"
+          :key="opt"
+          :value="opt"
+        >
+          {{ opt }}
+        </a-select-option>
+      </a-select>
+      <ResourceSelect
+        v-else-if="field.inputType === 'resource-select'"
+        v-model:value="form[field.key]"
+        :type-slug="field.resourceType!"
+      />
+      <a-textarea
+        v-else-if="field.inputType === 'textarea'"
+        v-model:value="form[field.key]"
+        :rows="3"
+      />
+      <a-input
+        v-else
+        v-model:value="form[field.key]"
+      />
+      </a-form-item>
+    </template>
+
+    <a-form-item>
+      <a-space>
+        <a-button type="primary" html-type="submit" :loading="submitting">
+          {{ isEdit ? 'Update' : 'Create' }}
+        </a-button>
+        <a-button @click="router.back()">Cancel</a-button>
+      </a-space>
+    </a-form-item>
+  </a-form>
+</template>
+
+<script setup lang="ts">
+import type { FieldDescriptor } from '~/composables/useSchemaUtils'
+
+const router = useRouter()
+
+const props = defineProps<{
+  schema: any
+  typeSlug: string
+  initialData?: Record<string, any>
+  isEdit?: boolean
+  submitting?: boolean
+}>()
+
+const emit = defineEmits<{
+  submit: [data: Record<string, any>]
+}>()
+
+const { schemaToFields, buildFormModel, serializeFormModel } = useSchemaUtils()
+
+const fields = computed<FieldDescriptor[]>(() => schemaToFields(props.schema))
+
+const groupedFields = computed(() => {
+  const groups = new Map<string | undefined, FieldDescriptor[]>()
+  for (const field of fields.value) {
+    const key = field.group
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(field)
+  }
+  // Ungrouped fields first, then named groups in encounter order
+  const result = new Map<string | undefined, FieldDescriptor[]>()
+  if (groups.has(undefined)) result.set(undefined, groups.get(undefined)!)
+  for (const [key, val] of groups) {
+    if (key !== undefined) result.set(key, val)
+  }
+  return result
+})
+
+const form = reactive(buildFormModel(props.schema, props.initialData))
+
+function handleSubmit() {
+  emit('submit', serializeFormModel(props.schema, form))
+}
+</script>

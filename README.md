@@ -1,45 +1,105 @@
-## 🤯 Build API Driven Apps Fast
-![WeOS Logo In Black and White](./docs/assets/images/weos-white.png)
-## ✨ WeOS
-WeOS is an open-source platform that allows developers to design and build APIs quickly and easily. How easy? Just bring your yaml file and see for yourself!
-<p align="center">
-    <img src="./docs/assets/images/weos-microservice-layout-dark.png#gh-dark-mode-only" width="603" alt="Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database" title="Basic WeOS microservice layout" />  
-    <img src="./docs/assets/images/weos-microservice-layout.png#gh-light-mode-only" width="603" alt="Diagram that shows WeOS microservice using an OpenAPI spec and connected to a database" title="Basic WeOS microservice layout" />
-</p>
+# WeOS
 
-Build your app using microservices that combine an [OpenAPI Specification](https://spec.openapis.org/oas/latest.html) and an executable (no docker required)
+A Go microservices template following Clean Architecture principles with event sourcing support.
 
-![GitHub branch checks state](https://img.shields.io/github/checks-status/wepala/weos/dev) ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/wepala/weos)
+## Features
 
-## 🚀 Get Started
-1. Setup OpenAPI spec (you can use one from [our examples](https://wepala.github.io/weos/examples))
-2. [Download the WeOS CLI](https://github.com/wepala/weos/releases) for your platform
-3. Run the API `weos -spec=api.yaml -port=8680`
+- **Clean Architecture** with domain-driven design
+- **Event Sourcing** via [pericarp](https://github.com/akeemphilbert/pericarp) library
+- **Dependency Injection** with Uber Fx
+- **Dual Entry Points** - API server (Echo) + CLI (Cobra)
+- **Auto-detecting Database** - SQLite for development, PostgreSQL for production
+- **Frontend Embedding** - Single-binary deployment with SPA support
+- **Structured Logging** - Zap with interface abstraction
+- **KSUID Identity** - Time-sortable, URL-safe entity IDs
+- **Auth Ready** - Pericarp auth integration with OAuth/session support
 
-## 🎉 Features
-* **Cross Platform** - Binaries available for Windows, Linux and MacOS
-* **Wide Database Support** - SQLite, MySQL, MariaDB, Postgres, SQLServer (Coming Soon)
-* **Secure** - Middleware for CORs, Authentication, Authorization
-* **Fast** - Built on Go for blazing fast performance
-* **Highly Customizable** - Configure API using Open API, Setup middleware and controllers
+## Project Structure
 
-## 🖐 Contributing
+```
+weos/
+├── application/         # DI module and service providers
+├── cmd/
+│   ├── api/            # API server entry point
+│   └── cli/            # CLI entry point
+├── domain/             # Domain entities and business logic
+│   ├── entities/       # Domain entities (embed ddd.BaseEntity)
+│   ├── repositories/   # Repository interfaces
+│   └── services/       # Domain services
+├── infrastructure/     # External concerns
+│   ├── database/       # GORM database provider
+│   ├── events/         # Event dispatcher provider
+│   ├── external/       # External service clients
+│   ├── logging/        # Zap logging implementation
+│   └── models/         # GORM models
+├── api/                # API layer
+│   ├── handlers/       # HTTP handlers
+│   ├── middleware/      # HTTP middleware (SPA, auth)
+│   └── validators/     # Request validators
+├── pkg/                # Public packages
+│   ├── errors/         # Error definitions
+│   ├── identity/       # KSUID-based entity ID generation
+│   ├── utils/          # Utility functions
+│   └── validators/     # Validation utilities
+├── internal/           # Private application code
+│   ├── auth/           # Authentication logic
+│   ├── cli/            # Cobra CLI setup and DI
+│   ├── config/         # Configuration management
+│   ├── logging/        # Logging utilities
+│   └── observability/  # OpenTelemetry setup
+├── web/                # Embedded frontend assets
+├── tests/              # Test files
+│   ├── unit/           # Unit tests
+│   ├── integration/    # Integration tests
+│   ├── e2e/            # E2E tests (Godog/Gherkin)
+│   └── newman/         # API canary tests
+├── config/             # Configuration files
+├── migrations/         # Database migrations
+├── scripts/            # Utility scripts
+└── docs/               # Documentation
+```
 
-Please read our [Contributing Guide](./CONTRIBUTING.md) before submitting a Pull Request to the project.
+## Getting Started
 
-## 🙏 Community support
+1. Clone and rename the module:
+```bash
+# Update go.mod module name
+# Find and replace "weos" with your module name across all Go files
+```
 
-For general help using WeOS, please refer to [the official WeOS documentation](https://wepala.github.io/weos). For additional help, you can use one of these channels to ask a question:
+2. Install dependencies:
+```bash
+make deps
+```
 
-- [GitHub](https://github.com/wepala/weos) (Bug reports, Contributions)
-- [Dev.to](https://dev.to/wepala) (Our Blog)
+3. Run the API server:
+```bash
+make run
+```
 
-## ✨ Documentation
+4. Build all binaries:
+```bash
+make build
+```
 
-- [Developer docs](https://wepala.github.io/weos/)
-- [User guide](https://wepala.github.io/weos/getting-started/)
-- [Example Specifications](https://wepala.github.io/weos/examples/)
+## Key Patterns
 
-## License
+### Dependency Injection (Uber Fx)
 
-See the [LICENSE](./LICENSE) file for licensing information.
+All dependencies are wired in `application/module.go`. Add providers and invoke hooks there.
+
+### Event Sourcing (Pericarp)
+
+Domain entities embed `*ddd.BaseEntity` and record events via `RecordEvent()`. Services use `SimpleUnitOfWork` for atomic event persistence and dispatch.
+
+### Configuration
+
+Three-layer precedence: Defaults -> Environment Variables -> CLI Flags.
+
+### Database
+
+Auto-detects SQLite vs PostgreSQL from DSN format. Use SQLite locally, PostgreSQL in production.
+
+## Development
+
+See `CONTRIBUTING.md` for contribution guidelines.
