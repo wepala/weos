@@ -1,5 +1,5 @@
 // Package auth provides resource types for authentication and authorization,
-// wrapping the pericarp auth entities (Agent, Account, Role) as WeOS resource types.
+// wrapping the pericarp auth concepts (User, Role, Account) as WeOS resource types.
 package auth
 
 import "weos/application"
