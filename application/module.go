@@ -22,7 +22,7 @@ import (
 // It accepts a Config parameter that must be provided by the calling application.
 func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 	if registry == nil {
-		registry = NewPresetRegistry()
+		panic("application.Module: PresetRegistry must not be nil — use presets.NewDefaultRegistry()")
 	}
 	return fx.Module("application",
 		// Provide the config and preset registry to all providers
