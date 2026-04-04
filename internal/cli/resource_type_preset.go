@@ -20,7 +20,7 @@ import (
 	"os"
 	"strings"
 
-	"weos/application"
+	"weos/application/presets"
 
 	"github.com/spf13/cobra"
 )
@@ -34,7 +34,7 @@ var presetListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available resource type presets",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		defs := application.ListPresetDefinitions()
+		defs := presets.NewDefaultRegistry().List()
 		for _, d := range defs {
 			slugs := make([]string, len(d.Types))
 			for i, t := range d.Types {

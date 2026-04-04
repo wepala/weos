@@ -21,7 +21,7 @@ type PresetSummary struct {
 }
 
 type PresetInstallInput struct {
-	Name   string `json:"name" jsonschema:"preset name to install (website, ecommerce, events, knowledge)"`
+	Name   string `json:"name" jsonschema:"preset name to install (core, auth, website, events, tasks, knowledge)"`
 	Update bool   `json:"update,omitempty" jsonschema:"update existing resource types with preset definitions instead of skipping"`
 }
 

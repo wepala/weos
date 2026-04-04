@@ -13,17 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package application
+package application_test
 
 import (
 	"encoding/json"
 	"testing"
+
+	"weos/application"
+	"weos/application/presets"
 )
+
+func testRegistry() *application.PresetRegistry {
+	return presets.NewDefaultRegistry()
+}
 
 func TestPresets_AllPresetsExist(t *testing.T) {
 	t.Parallel()
-	expected := []string{"ecommerce", "events", "knowledge", "tasks", "website"}
-	defs := ListPresetDefinitions()
+	expected := []string{"auth", "core", "events", "knowledge", "tasks", "website"}
+	defs := testRegistry().List()
 	if len(defs) != len(expected) {
 		t.Fatalf("expected %d presets, got %d", len(expected), len(defs))
 	}
@@ -37,21 +44,10 @@ func TestPresets_AllPresetsExist(t *testing.T) {
 	}
 }
 
-func TestPresets_NoReservedSlugCollisions(t *testing.T) {
-	t.Parallel()
-	for _, d := range ListPresetDefinitions() {
-		for _, pt := range d.Types {
-			if reservedSlugs[pt.Slug] {
-				t.Fatalf("preset %q type slug %q collides with reserved slug", d.Name, pt.Slug)
-			}
-		}
-	}
-}
-
 func TestPresets_NoDuplicateSlugsAcrossPresets(t *testing.T) {
 	t.Parallel()
 	seen := make(map[string]string)
-	for _, d := range ListPresetDefinitions() {
+	for _, d := range testRegistry().List() {
 		for _, pt := range d.Types {
 			if prev, ok := seen[pt.Slug]; ok {
 				t.Fatalf("duplicate slug %q in presets %q and %q", pt.Slug, prev, d.Name)
@@ -63,7 +59,7 @@ func TestPresets_NoDuplicateSlugsAcrossPresets(t *testing.T) {
 
 func TestPresets_AllContextsAreValidJSON(t *testing.T) {
 	t.Parallel()
-	for _, d := range ListPresetDefinitions() {
+	for _, d := range testRegistry().List() {
 		for _, pt := range d.Types {
 			if len(pt.Context) == 0 {
 				continue
@@ -78,7 +74,7 @@ func TestPresets_AllContextsAreValidJSON(t *testing.T) {
 
 func TestPresets_AllSchemasAreValidJSON(t *testing.T) {
 	t.Parallel()
-	for _, d := range ListPresetDefinitions() {
+	for _, d := range testRegistry().List() {
 		for _, pt := range d.Types {
 			if len(pt.Schema) == 0 {
 				continue
@@ -91,9 +87,9 @@ func TestPresets_AllSchemasAreValidJSON(t *testing.T) {
 	}
 }
 
-func TestGetPresetDefinition_Found(t *testing.T) {
+func TestPresets_GetFound(t *testing.T) {
 	t.Parallel()
-	d, ok := GetPresetDefinition("website")
+	d, ok := testRegistry().Get("website")
 	if !ok {
 		t.Fatal("expected to find 'website' preset")
 	}
@@ -102,9 +98,9 @@ func TestGetPresetDefinition_Found(t *testing.T) {
 	}
 }
 
-func TestGetPresetDefinition_NotFound(t *testing.T) {
+func TestPresets_GetNotFound(t *testing.T) {
 	t.Parallel()
-	_, ok := GetPresetDefinition("nonexistent")
+	_, ok := testRegistry().Get("nonexistent")
 	if ok {
 		t.Fatal("expected not to find 'nonexistent' preset")
 	}
@@ -112,7 +108,7 @@ func TestGetPresetDefinition_NotFound(t *testing.T) {
 
 func TestPresets_AllTypesHaveRequiredFields(t *testing.T) {
 	t.Parallel()
-	for _, d := range ListPresetDefinitions() {
+	for _, d := range testRegistry().List() {
 		for _, pt := range d.Types {
 			if pt.Name == "" {
 				t.Fatalf("preset %q has a type with empty name", d.Name)
@@ -122,6 +118,67 @@ func TestPresets_AllTypesHaveRequiredFields(t *testing.T) {
 			}
 			if pt.Description == "" {
 				t.Fatalf("preset %q type %q has empty description", d.Name, pt.Slug)
+			}
+		}
+	}
+}
+
+func TestPresets_CoreHasBehaviors(t *testing.T) {
+	t.Parallel()
+	d, ok := testRegistry().Get("core")
+	if !ok {
+		t.Fatal("expected to find 'core' preset")
+	}
+	if d.Behaviors == nil {
+		t.Fatal("core preset should have behaviors")
+	}
+	if _, ok := d.Behaviors["person"]; !ok {
+		t.Fatal("core preset should have 'person' behavior")
+	}
+	if _, ok := d.Behaviors["organization"]; !ok {
+		t.Fatal("core preset should have 'organization' behavior")
+	}
+}
+
+func TestPresets_BehaviorsRegistry(t *testing.T) {
+	t.Parallel()
+	behaviors := testRegistry().Behaviors()
+	if _, ok := behaviors["person"]; !ok {
+		t.Fatal("merged behaviors should include 'person'")
+	}
+	if _, ok := behaviors["organization"]; !ok {
+		t.Fatal("merged behaviors should include 'organization'")
+	}
+}
+
+func TestPresets_AutoInstallFlag(t *testing.T) {
+	t.Parallel()
+	for _, d := range testRegistry().List() {
+		switch d.Name {
+		case "core", "auth":
+			if !d.AutoInstall {
+				t.Fatalf("preset %q should be marked as AutoInstall", d.Name)
+			}
+		default:
+			if d.AutoInstall {
+				t.Fatalf("preset %q should NOT be marked as AutoInstall", d.Name)
+			}
+		}
+	}
+}
+
+func TestPresets_NoReservedSlugCollisions(t *testing.T) {
+	t.Parallel()
+	// These are API route prefixes that cannot be used as resource type slugs.
+	reserved := map[string]bool{
+		"persons": true, "organizations": true, "health": true,
+		"resource-types": true, "websites": true, "pages": true,
+		"sections": true, "themes": true, "templates": true,
+	}
+	for _, d := range testRegistry().List() {
+		for _, pt := range d.Types {
+			if reserved[pt.Slug] {
+				t.Fatalf("preset %q type slug %q collides with reserved API route", d.Name, pt.Slug)
 			}
 		}
 	}

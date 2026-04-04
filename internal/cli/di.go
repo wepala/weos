@@ -23,6 +23,7 @@ import (
 	"syscall"
 
 	"weos/application"
+	"weos/application/presets"
 	"weos/internal/config"
 
 	"go.uber.org/fx"
@@ -66,7 +67,7 @@ func startContainerWithConfig(appCfg config.Config) (*Dependencies, error) {
 	var resourceService application.ResourceService
 
 	app := fx.New(
-		application.Module(appCfg),
+		application.Module(appCfg, presets.NewDefaultRegistry()),
 		fx.Invoke(func(
 			rts application.ResourceTypeService,
 			rs application.ResourceService,

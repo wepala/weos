@@ -28,6 +28,7 @@ import (
 	"weos/api/handlers"
 	apimw "weos/api/middleware"
 	"weos/application"
+	"weos/application/presets"
 	"weos/domain/entities"
 	gormdb "weos/infrastructure/database/gorm"
 	"weos/internal/config"
@@ -75,7 +76,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(appCfg),
+		application.Module(appCfg, presets.NewDefaultRegistry()),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&resourcePermService),
