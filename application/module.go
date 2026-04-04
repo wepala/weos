@@ -20,11 +20,17 @@ import (
 
 // Module provides all application dependencies.
 // It accepts a Config parameter that must be provided by the calling application.
-func Module(cfg config.Config) fx.Option {
+func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
+	if registry == nil {
+		panic("application.Module: PresetRegistry must not be nil — use presets.NewDefaultRegistry()")
+	}
 	return fx.Module("application",
-		// Provide the config to all providers that need it
+		// Provide the config and preset registry to all providers
 		fx.Provide(func() config.Config {
 			return cfg
+		}),
+		fx.Provide(func() *PresetRegistry {
+			return registry
 		}),
 
 		// Logging providers

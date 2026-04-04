@@ -14,6 +14,7 @@ import (
 	"weos/api/handlers"
 	apimw "weos/api/middleware"
 	"weos/application"
+	"weos/application/presets"
 	"weos/domain/entities"
 	"weos/internal/config"
 
@@ -60,7 +61,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(cfg),
+		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&resourcePermService),

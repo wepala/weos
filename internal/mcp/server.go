@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"weos/application"
+	"weos/application/presets"
 	"weos/internal/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -93,7 +94,7 @@ func Run(enabledServices []string) error {
 
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(cfg),
+		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 	)

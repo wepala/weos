@@ -1,61 +1,30 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package application
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"strings"
-
 	"weos/domain/entities"
-
-	"go.uber.org/fx"
 )
 
 // ResourceBehaviorRegistry maps resource type slugs to their custom behaviors.
 // Types without a registered behavior use DefaultBehavior (no-op).
 type ResourceBehaviorRegistry map[string]entities.ResourceBehavior
 
-// ProvideResourceBehaviorRegistry builds the behavior registry at startup.
-// Add dependencies to the params struct as concrete behaviors need them.
-func ProvideResourceBehaviorRegistry(params struct {
-	fx.In
-}) ResourceBehaviorRegistry {
-	registry := make(ResourceBehaviorRegistry)
-	registry["person"] = &PersonBehavior{}
-	registry["organization"] = &OrganizationBehavior{}
-	return registry
-}
-
-// PersonBehavior provides custom logic for the "person" resource type.
-// It computes a full "name" field from givenName and familyName.
-type PersonBehavior struct {
-	entities.DefaultBehavior
-}
-
-func (b *PersonBehavior) BeforeCreate(
-	ctx context.Context, data json.RawMessage, rt *entities.ResourceType,
-) (json.RawMessage, error) {
-	return injectPersonName(data)
-}
-
-func (b *PersonBehavior) BeforeUpdate(
-	ctx context.Context, _ *entities.Resource, data json.RawMessage, rt *entities.ResourceType,
-) (json.RawMessage, error) {
-	return injectPersonName(data)
-}
-
-func injectPersonName(data json.RawMessage) (json.RawMessage, error) {
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("invalid person data: %w", err)
-	}
-	gn, _ := m["givenName"].(string)
-	fn, _ := m["familyName"].(string)
-	m["name"] = strings.TrimSpace(gn + " " + fn)
-	return json.Marshal(m)
-}
-
-// OrganizationBehavior provides custom logic for the "organization" resource type.
-type OrganizationBehavior struct {
-	entities.DefaultBehavior
+// ProvideResourceBehaviorRegistry builds the behavior registry from all
+// registered presets. Each preset can declare behaviors for its resource types.
+func ProvideResourceBehaviorRegistry(registry *PresetRegistry) ResourceBehaviorRegistry {
+	return registry.Behaviors()
 }

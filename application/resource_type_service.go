@@ -24,6 +24,16 @@ var reservedSlugs = map[string]bool{
 	"templates":      true,
 }
 
+// ReservedResourceTypeSlugs returns the set of slugs that cannot be used as
+// resource type identifiers because they conflict with API route prefixes.
+func ReservedResourceTypeSlugs() map[string]bool {
+	cp := make(map[string]bool, len(reservedSlugs))
+	for k, v := range reservedSlugs {
+		cp[k] = v
+	}
+	return cp
+}
+
 type ResourceTypeService interface {
 	Create(ctx context.Context, cmd CreateResourceTypeCommand) (*entities.ResourceType, error)
 	GetByID(ctx context.Context, id string) (*entities.ResourceType, error)
@@ -41,6 +51,7 @@ type resourceTypeService struct {
 	projMgr    repositories.ProjectionManager
 	eventStore domain.EventStore
 	dispatcher *domain.EventDispatcher
+	registry   *PresetRegistry
 	logger     entities.Logger
 }
 
@@ -50,6 +61,7 @@ func ProvideResourceTypeService(params struct {
 	ProjMgr    repositories.ProjectionManager
 	EventStore domain.EventStore
 	Dispatcher *domain.EventDispatcher
+	Registry   *PresetRegistry
 	Logger     entities.Logger
 }) ResourceTypeService {
 	return &resourceTypeService{
@@ -57,6 +69,7 @@ func ProvideResourceTypeService(params struct {
 		projMgr:    params.ProjMgr,
 		eventStore: params.EventStore,
 		dispatcher: params.Dispatcher,
+		registry:   params.Registry,
 		logger:     params.Logger,
 	}
 }
@@ -156,13 +169,13 @@ func (s *resourceTypeService) Delete(
 }
 
 func (s *resourceTypeService) ListPresets() []PresetDefinition {
-	return ListPresetDefinitions()
+	return s.registry.List()
 }
 
 func (s *resourceTypeService) InstallPreset(
 	ctx context.Context, presetName string, update bool,
 ) (*InstallPresetResult, error) {
-	preset, ok := GetPresetDefinition(presetName)
+	preset, ok := s.registry.Get(presetName)
 	if !ok {
 		return nil, fmt.Errorf("unknown preset %q", presetName)
 	}

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"weos/application"
+	"weos/application/presets"
 	"weos/domain/entities"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
@@ -41,7 +42,7 @@ func runSeed(cmd *cobra.Command, _ []string) error {
 
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(appCfg),
+		application.Module(appCfg, presets.NewDefaultRegistry()),
 		fx.Populate(&authService),
 		fx.Populate(&accountRepo),
 		fx.Populate(&resourceTypeService),
