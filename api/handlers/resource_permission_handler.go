@@ -50,7 +50,10 @@ func (h *ResourcePermissionHandler) Grant(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "agent_id and actions are required"})
 	}
 
-	actionsJSON, _ := json.Marshal(req.Actions)
+	actionsJSON, err := json.Marshal(req.Actions)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode actions"})
+	}
 	cmd := application.GrantPermissionCommand{
 		ResourceID: resourceID,
 		AgentID:    req.AgentID,

@@ -126,29 +126,32 @@ func (h *ResourceTypeHandler) List(c echo.Context) error {
 	}
 	skipFilter := role == authentities.RoleAdmin || role == authentities.RoleOwner || role == ""
 
+	var filterByPerms bool
+	if !skipFilter && identity != nil {
+		perms, _ := h.checker.GetPermissions(c.Request().Context(), role)
+		filterByPerms = len(perms) > 0
+	}
+
 	for _, e := range result.Data {
 		if !includeAll && (jsonld.IsValueObject(e.Context()) || jsonld.IsAbstract(e.Context())) {
 			continue
 		}
-		if !skipFilter && identity != nil {
-			perms, _ := h.checker.GetPermissions(c.Request().Context(), role)
-			if len(perms) > 0 {
-				var allowed bool
-				if identity.ActiveAccountID != "" {
-					allowed, _ = h.checker.IsAuthorizedInAccount(
-						c.Request().Context(),
-						identity.AgentID, identity.ActiveAccountID,
-						authentities.ActionRead, e.Slug(),
-					)
-				} else {
-					allowed, _ = h.checker.IsAuthorized(
-						c.Request().Context(),
-						identity.AgentID, authentities.ActionRead, e.Slug(),
-					)
-				}
-				if !allowed {
-					continue
-				}
+		if filterByPerms {
+			var allowed bool
+			if identity.ActiveAccountID != "" {
+				allowed, _ = h.checker.IsAuthorizedInAccount(
+					c.Request().Context(),
+					identity.AgentID, identity.ActiveAccountID,
+					authentities.ActionRead, e.Slug(),
+				)
+			} else {
+				allowed, _ = h.checker.IsAuthorized(
+					c.Request().Context(),
+					identity.AgentID, authentities.ActionRead, e.Slug(),
+				)
+			}
+			if !allowed {
+				continue
 			}
 		}
 		items = append(items, toResourceTypeResponse(e))

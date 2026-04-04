@@ -20,7 +20,7 @@ import (
 	"testing"
 )
 
-func TestPresets_AllFourExist(t *testing.T) {
+func TestPresets_AllPresetsExist(t *testing.T) {
 	t.Parallel()
 	expected := []string{"ecommerce", "events", "knowledge", "tasks", "website"}
 	defs := ListPresetDefinitions()

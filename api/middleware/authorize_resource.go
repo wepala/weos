@@ -106,16 +106,18 @@ func AuthorizeResource(
 			}
 
 			if !allowed {
-				// Allow through only if the role has zero configured policies
+				// Allow read-only access when the role has zero configured policies
 				// (unconfigured role — admin has not yet set up access).
+				// Write operations are always denied to prevent unauthorized mutations.
 				perms, permErr := checker.GetPermissions(ctx, role)
 				if permErr != nil {
 					logger.Error(ctx, "authorization: failed to check permissions",
 						"error", permErr, "role", role)
 					return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
 				}
-				if len(perms) == 0 {
-					logger.Warn(ctx, "authorization: allowing unconfigured role through",
+				isRead := action == "http://www.w3.org/ns/odrl/2/read"
+				if len(perms) == 0 && isRead {
+					logger.Warn(ctx, "authorization: allowing unconfigured role read access",
 						"role", role, "action", action, "resource", typeSlug)
 					return next(c)
 				}

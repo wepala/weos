@@ -16,6 +16,7 @@
 package middleware
 
 import (
+	"errors"
 	"io/fs"
 	"net/http"
 	"path"
@@ -60,7 +61,7 @@ func Static(cfg StaticConfig) echo.MiddlewareFunc {
 				filePath = "index.html"
 			}
 
-			// Try to open the requested file to check if it exists
+			// Try to open the requested file to check if it exists.
 			f, err := root.Open(filePath)
 			if err == nil {
 				_ = f.Close()
@@ -69,7 +70,11 @@ func Static(cfg StaticConfig) echo.MiddlewareFunc {
 				return nil
 			}
 
-			// SPA fallback: serve index.html for paths that don't match a file
+			// SPA fallback: serve index.html only for missing files.
+			// Return 500 for real IO errors (permissions, corrupt embed, etc.).
+			if !errors.Is(err, fs.ErrNotExist) {
+				return c.String(http.StatusInternalServerError, "internal server error")
+			}
 			setCacheHeaders(c, "index.html")
 			c.Request().URL.Path = "/"
 			fileServer.ServeHTTP(c.Response(), c.Request())
