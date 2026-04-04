@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	cloud.google.com/go/bigquery v1.74.0
-	github.com/akeemphilbert/pericarp v0.0.0-00010101000000-000000000000
+	github.com/akeemphilbert/pericarp v0.0.0-20260404155656-110ff0f74cd7
 	github.com/casbin/gorm-adapter/v3 v3.41.0
 	github.com/gorilla/sessions v1.4.0
 	github.com/jinzhu/inflection v1.0.0
@@ -137,5 +137,3 @@ require (
 	rsc.io/omap v1.2.0 // indirect
 	rsc.io/ordered v1.1.1 // indirect
 )
-
-replace github.com/akeemphilbert/pericarp => /Users/akeem/GolandProjects/vine-os/core/pericarp
