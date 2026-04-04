@@ -169,12 +169,7 @@ func TestPresets_AutoInstallFlag(t *testing.T) {
 
 func TestPresets_NoReservedSlugCollisions(t *testing.T) {
 	t.Parallel()
-	// These are API route prefixes that cannot be used as resource type slugs.
-	reserved := map[string]bool{
-		"persons": true, "organizations": true, "health": true,
-		"resource-types": true, "websites": true, "pages": true,
-		"sections": true, "themes": true, "templates": true,
-	}
+	reserved := application.ReservedResourceTypeSlugs()
 	for _, d := range testRegistry().List() {
 		for _, pt := range d.Types {
 			if reserved[pt.Slug] {

@@ -24,7 +24,7 @@ import (
 )
 
 // ensureBuiltInResourceTypes creates resource types from all presets marked as
-// BuiltIn at startup, if they don't already exist.
+// AutoInstall at startup, if they don't already exist.
 func ensureBuiltInResourceTypes(params struct {
 	fx.In
 	Registry *PresetRegistry
