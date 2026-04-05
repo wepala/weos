@@ -21,10 +21,11 @@ Thank you for your interest in contributing to WeOS.
 ## Code Standards
 
 - Follow Go conventions and idioms
-- Keep functions under 100 lines / 50 statements (enforced by linter)
-- Maximum line length: 120 characters
-- Maximum cyclomatic complexity: 15
+- Aim for functions under 100 lines / 50 statements
+- Aim for maximum line length of 120 characters
+- Aim for cyclomatic complexity under 15
 - Use `goimports` for import formatting (`make fmt`)
+- Enabled linters: `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`, `misspell`
 
 ## Testing
 

@@ -11,7 +11,7 @@ In this tutorial you'll build WeOS from source, start the server, and verify eve
 
 ## Prerequisites
 
-- **Go 1.24+** installed ([go.dev/dl](https://go.dev/dl/))
+- **Go 1.25+** installed ([go.dev/dl](https://go.dev/dl/))
 - **Git** installed
 - A terminal
 
@@ -122,7 +122,7 @@ This installs presets (including tasks), creates sample users, and populates pro
 
 | Flag | Purpose | Default |
 |------|---------|---------|
-| `--database-dsn` | Database connection string | `weos.db` (SQLite) |
+| `--database-dsn` | Database connection string | (uses config default: `weos.db`) |
 | `--verbose` | Enable debug logging | `false` |
 
 You can also set these via environment variables. See [Environment Variables]({% link _reference/environment-variables.md %}) for the full list.

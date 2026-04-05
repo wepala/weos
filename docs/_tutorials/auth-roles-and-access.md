@@ -161,23 +161,20 @@ curl -X DELETE http://localhost:8080/api/resources/PROJECT_ID/permissions/USER_A
 
 ## Step 6: Test Access Control
 
-In development mode (no OAuth), use the `X-Dev-Agent` header to impersonate different users:
+In development mode (no OAuth), use the `X-Dev-Agent` header to simulate different users:
 
 ```bash
 # As admin — should succeed
 curl -H "X-Dev-Agent: admin@weos.dev" \
   http://localhost:8080/api/project
 
-# As a viewer — should succeed (read-only)
+# As a different user
 curl -H "X-Dev-Agent: viewer@example.com" \
   http://localhost:8080/api/project
-
-# As a viewer — should fail (403 Forbidden for write operations)
-curl -X POST -H "X-Dev-Agent: viewer@example.com" \
-  -H "Content-Type: application/json" \
-  http://localhost:8080/api/project \
-  -d '{"name": "Unauthorized Project"}'
 ```
+
+{: .note }
+> **RBAC enforcement requires OAuth.** In development mode (no OAuth), the authorization middleware is not applied — all users can read and write. To test role-based access control, enable OAuth by setting `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. With OAuth enabled, the authorization middleware enforces Casbin policies, and a viewer role attempting a write operation will receive a 403 Forbidden response.
 
 ## How the Middleware Works
 

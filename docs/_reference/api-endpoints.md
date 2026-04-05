@@ -32,7 +32,7 @@ In development mode (no OAuth), `/api/auth/me` returns a dev user based on the `
 
 | Method | Path | Description | Request Body |
 |--------|------|-------------|-------------|
-| POST | `/api/resource-types` | Create a resource type | `{name, slug, context?, description?}` |
+| POST | `/api/resource-types` | Create a resource type | `{name, slug, context?}` |
 | GET | `/api/resource-types` | List resource types | Query: `cursor`, `limit` (default 20), `includeAll` |
 | GET | `/api/resource-types/:id` | Get a resource type | |
 | PUT | `/api/resource-types/:id` | Update a resource type | `{name?, slug?, description?, context?, schema?, status?}` |
