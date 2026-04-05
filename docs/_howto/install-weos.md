@@ -9,7 +9,7 @@ nav_order: 1
 
 ## From Source
 
-Requires Go 1.24+.
+Requires Go 1.25+.
 
 ```bash
 git clone https://github.com/wepala/weos.git
