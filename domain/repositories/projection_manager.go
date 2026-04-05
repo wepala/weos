@@ -57,8 +57,11 @@ type ProjectionManager interface {
 	// RegisterSubtype registers a concrete child type as a subtype of an abstract parent.
 	// This merges the child's schema columns into the parent's projection table and
 	// records the child-to-parent mapping so that TableName resolution routes the child
-	// to the parent's table. The parent table must already exist via EnsureTable.
-	RegisterSubtype(ctx context.Context, childSlug, parentSlug string, childSchema json.RawMessage) error
+	// to the parent's table. The child's JSON-LD context is cached so that Context()
+	// returns the child's own context (not the parent's). The parent table must already
+	// exist via EnsureTable.
+	RegisterSubtype(ctx context.Context, childSlug, parentSlug string,
+		childSchema, childLdContext json.RawMessage) error
 
 	// IsSubtype reports whether a slug is registered as a subtype of an abstract parent.
 	IsSubtype(slug string) bool

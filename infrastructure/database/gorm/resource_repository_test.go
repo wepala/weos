@@ -24,12 +24,12 @@ func TestFindAllFlatFromProjection_TypeSlugFiltering(t *testing.T) {
 	// Register two subtypes.
 	loanSchema := json.RawMessage(
 		`{"type":"object","properties":{"name":{"type":"string"},"interestRate":{"type":"number"}}}`)
-	if err := pm.RegisterSubtype(ctx, "loan", "instrument", loanSchema); err != nil {
+	if err := pm.RegisterSubtype(ctx, "loan", "instrument", loanSchema, nil); err != nil {
 		t.Fatalf("RegisterSubtype loan: %v", err)
 	}
 	depositSchema := json.RawMessage(
 		`{"type":"object","properties":{"name":{"type":"string"},"minBalance":{"type":"number"}}}`)
-	if err := pm.RegisterSubtype(ctx, "deposit", "instrument", depositSchema); err != nil {
+	if err := pm.RegisterSubtype(ctx, "deposit", "instrument", depositSchema, nil); err != nil {
 		t.Fatalf("RegisterSubtype deposit: %v", err)
 	}
 

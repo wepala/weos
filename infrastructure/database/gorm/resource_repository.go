@@ -234,8 +234,10 @@ func (r *ResourceRepository) findAllFromProjection(
 
 	// Join with the resources table to get the JSON-LD data (not stored in projection).
 	tbl := tableName
-	selectCols := fmt.Sprintf("%s.id, %s.type_slug, resources.data, %s.status, %s.sequence_no, %s.created_at",
-		tbl, tbl, tbl, tbl, tbl)
+	selectCols := fmt.Sprintf(
+		"%s.id, %s.type_slug, resources.data, %s.status, %s.sequence_no, %s.created_at, "+
+			"%s.created_by, %s.account_id",
+		tbl, tbl, tbl, tbl, tbl, tbl, tbl)
 	if !standardColumnNames[colName] && colName != "id" {
 		selectCols += fmt.Sprintf(", %s.%s", tbl, colName)
 	}
@@ -506,8 +508,10 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	}
 
 	tbl := tableName
-	selectCols := fmt.Sprintf("%s.id, %s.type_slug, resources.data, %s.status, %s.sequence_no, %s.created_at",
-		tbl, tbl, tbl, tbl, tbl)
+	selectCols := fmt.Sprintf(
+		"%s.id, %s.type_slug, resources.data, %s.status, %s.sequence_no, %s.created_at, "+
+			"%s.created_by, %s.account_id",
+		tbl, tbl, tbl, tbl, tbl, tbl, tbl)
 	if !standardColumnNames[colName] && colName != "id" {
 		selectCols += fmt.Sprintf(", %s.%s", tbl, colName)
 	}

@@ -360,7 +360,7 @@ func TestRegisterSubtype_MergesColumnsIntoParent(t *testing.T) {
 		"name":{"type":"string"},
 		"interestRate":{"type":"number"}
 	}}`)
-	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", childSchema); err != nil {
+	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", childSchema, nil); err != nil {
 		t.Fatalf("RegisterSubtype failed: %v", err)
 	}
 
@@ -387,7 +387,7 @@ func TestIsSubtype(t *testing.T) {
 	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
 		t.Fatalf("EnsureTable failed: %v", err)
 	}
-	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil); err != nil {
+	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil, nil); err != nil {
 		t.Fatalf("RegisterSubtype failed: %v", err)
 	}
 
@@ -411,7 +411,7 @@ func TestParentSlug(t *testing.T) {
 	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
 		t.Fatalf("EnsureTable failed: %v", err)
 	}
-	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil); err != nil {
+	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil, nil); err != nil {
 		t.Fatalf("RegisterSubtype failed: %v", err)
 	}
 
@@ -432,7 +432,7 @@ func TestSubtype_TableNameResolvesToParent(t *testing.T) {
 	if err := pm.EnsureTable(ctx, "financial-instrument", nil, nil); err != nil {
 		t.Fatalf("EnsureTable failed: %v", err)
 	}
-	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", nil); err != nil {
+	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", nil, nil); err != nil {
 		t.Fatalf("RegisterSubtype failed: %v", err)
 	}
 
@@ -455,7 +455,7 @@ func TestSubtype_HasProjectionTable(t *testing.T) {
 	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
 		t.Fatalf("EnsureTable failed: %v", err)
 	}
-	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil); err != nil {
+	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil, nil); err != nil {
 		t.Fatalf("RegisterSubtype failed: %v", err)
 	}
 
@@ -483,10 +483,10 @@ func TestSubtype_MultipleChildrenShareParentTable(t *testing.T) {
 	depositSchema := json.RawMessage(`{"type":"object","properties":{
 		"name":{"type":"string"},"balance":{"type":"number"}}}`)
 
-	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", loanSchema); err != nil {
+	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", loanSchema, nil); err != nil {
 		t.Fatalf("RegisterSubtype(loan) failed: %v", err)
 	}
-	if err := pm.RegisterSubtype(ctx, "deposit-account", "financial-instrument", depositSchema); err != nil {
+	if err := pm.RegisterSubtype(ctx, "deposit-account", "financial-instrument", depositSchema, nil); err != nil {
 		t.Fatalf("RegisterSubtype(deposit-account) failed: %v", err)
 	}
 
@@ -671,7 +671,7 @@ func TestRegisterSubtype_FailsWithoutParentTable(t *testing.T) {
 	ctx := context.Background()
 
 	childSchema := json.RawMessage(`{"type":"object","properties":{"rate":{"type":"number"}}}`)
-	err := pm.RegisterSubtype(ctx, "loan", "nonexistent-parent", childSchema)
+	err := pm.RegisterSubtype(ctx, "loan", "nonexistent-parent", childSchema, nil)
 	if err == nil {
 		t.Fatal("expected error when parent table doesn't exist")
 	}

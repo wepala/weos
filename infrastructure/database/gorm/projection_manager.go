@@ -72,6 +72,7 @@ type projectionManager struct {
 	reverseRe     sync.Map   // targetTypeSlug → []repositories.ReverseReference
 	reverseReMu   sync.Mutex // guards reverseRe writes
 	childToParent sync.Map   // childSlug → parentSlug (subtypes sharing parent's projection table)
+	childContexts sync.Map   // childSlug → json.RawMessage (child's own JSON-LD context)
 }
 
 type ProjectionManagerResult struct {
@@ -137,21 +138,22 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	if rt.Context != "" {
 		ldContext = json.RawMessage(rt.Context)
 	}
-	// Check if this type is a subtype of an abstract parent.
-	parentSlug := jsonld.SubClassOf(ldContext)
-	if parentSlug != "" {
-		if pm.lazyRegisterSubtype(slug, parentSlug, schema) {
-			return true
-		}
-	}
+	// Abstract types always get their own projection table, even if they also
+	// declare rdfs:subClassOf. Check this before subtype registration.
 	if jsonld.IsAbstract(ldContext) {
-		// Abstract types get their own projection table.
 		if err := pm.EnsureTable(context.Background(), slug, schema, ldContext); err != nil {
 			pm.logger.Warn(context.Background(), "failed to lazily create abstract projection table",
 				"slug", slug, "error", err)
 			return false
 		}
 		return true
+	}
+	// Check if this type is a subtype of an abstract parent.
+	parentSlug := jsonld.SubClassOf(ldContext)
+	if parentSlug != "" {
+		if pm.lazyRegisterSubtype(slug, parentSlug, schema, ldContext) {
+			return true
+		}
 	}
 	if err := pm.EnsureTable(context.Background(), slug, schema, ldContext); err != nil {
 		pm.logger.Warn(context.Background(), "failed to lazily create projection table",
@@ -164,7 +166,9 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 // lazyRegisterSubtype checks if the parent is abstract and registers the child as a subtype.
 // A sentinel is stored in childToParent before recursing into HasProjectionTable to
 // prevent infinite recursion when circular rdfs:subClassOf relationships exist.
-func (pm *projectionManager) lazyRegisterSubtype(childSlug, parentSlug string, childSchema json.RawMessage) bool {
+func (pm *projectionManager) lazyRegisterSubtype(
+	childSlug, parentSlug string, childSchema, childLdContext json.RawMessage,
+) bool {
 	var parent models.ResourceType
 	if err := pm.db.Where("slug = ?", parentSlug).First(&parent).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -186,7 +190,7 @@ func (pm *projectionManager) lazyRegisterSubtype(childSlug, parentSlug string, c
 		pm.childToParent.Delete(childSlug)
 		return false
 	}
-	if err := pm.RegisterSubtype(context.Background(), childSlug, parentSlug, childSchema); err != nil {
+	if err := pm.RegisterSubtype(context.Background(), childSlug, parentSlug, childSchema, childLdContext); err != nil {
 		pm.childToParent.Delete(childSlug)
 		pm.logger.Warn(context.Background(), "failed to lazily register subtype",
 			"child", childSlug, "parent", parentSlug, "error", err)
@@ -206,6 +210,12 @@ func (pm *projectionManager) TableName(slug string) string {
 }
 
 func (pm *projectionManager) Context(slug string) json.RawMessage {
+	// Return the child's own context if it's a registered subtype.
+	if v, ok := pm.childContexts.Load(slug); ok {
+		if ctx, ok := v.(json.RawMessage); ok {
+			return ctx
+		}
+	}
 	resolved := pm.resolveSlug(slug)
 	if v, ok := pm.tables.Load(resolved); ok {
 		if info, ok := v.(tableInfo); ok {
@@ -242,9 +252,13 @@ func (pm *projectionManager) UpdateColumnByFK(
 		return nil
 	}
 	tableName := pm.TableName(typeSlug)
-	return pm.db.WithContext(ctx).Table(tableName).
-		Where(fkColumn+" = ?", fkValue).
-		Update(targetColumn, targetValue).Error
+	query := pm.db.WithContext(ctx).Table(tableName).
+		Where(fkColumn+" = ?", fkValue)
+	// Add type_slug discriminator for shared tables to avoid updating other subtypes' rows.
+	if pm.IsSubtype(typeSlug) {
+		query = query.Where("type_slug = ?", typeSlug)
+	}
+	return query.Update(targetColumn, targetValue).Error
 }
 
 func (pm *projectionManager) ReverseReferences(targetTypeSlug string) []repositories.ReverseReference {
@@ -257,7 +271,8 @@ func (pm *projectionManager) ReverseReferences(targetTypeSlug string) []reposito
 }
 
 func (pm *projectionManager) RegisterSubtype(
-	ctx context.Context, childSlug, parentSlug string, childSchema json.RawMessage,
+	ctx context.Context, childSlug, parentSlug string,
+	childSchema, childLdContext json.RawMessage,
 ) error {
 	if _, ok := pm.tables.Load(parentSlug); !ok {
 		return fmt.Errorf("parent type %q has no projection table; call EnsureTable first", parentSlug)
@@ -268,6 +283,9 @@ func (pm *projectionManager) RegisterSubtype(
 		return fmt.Errorf("failed to add subtype columns to %q: %w", parentTableName, err)
 	}
 	pm.childToParent.Store(childSlug, parentSlug)
+	if len(childLdContext) > 0 {
+		pm.childContexts.Store(childSlug, childLdContext)
+	}
 	pm.registerReverseReferences(childSlug, childSchema)
 	return nil
 }
@@ -407,7 +425,7 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 		if rt.Schema != "" {
 			schema = json.RawMessage(rt.Schema)
 		}
-		if err := pm.RegisterSubtype(ctx, rt.Slug, parentSlug, schema); err != nil {
+		if err := pm.RegisterSubtype(ctx, rt.Slug, parentSlug, schema, ldContext); err != nil {
 			pm.logger.Error(ctx, "failed to register subtype projection",
 				"child", rt.Slug, "parent", parentSlug, "error", err)
 		}
@@ -441,7 +459,15 @@ func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableNa
 	ddl := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n  %s\n)",
 		tableName, strings.Join(colDefs, ",\n  "))
 
-	return pm.db.WithContext(ctx).Exec(ddl).Error
+	if err := pm.db.WithContext(ctx).Exec(ddl).Error; err != nil {
+		return err
+	}
+
+	// Index on type_slug for efficient subtype queries on shared tables.
+	idxDDL := fmt.Sprintf(
+		"CREATE INDEX IF NOT EXISTS idx_%s_type_slug ON %s (type_slug)",
+		tableName, tableName)
+	return pm.db.WithContext(ctx).Exec(idxDDL).Error
 }
 
 func (pm *projectionManager) addMissingColumns(ctx context.Context, tableName string, columns []columnDef) error {

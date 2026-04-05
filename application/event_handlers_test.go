@@ -54,7 +54,7 @@ func (s *stubProjMgr) ReverseReferences(slug string) []repositories.ReverseRefer
 }
 
 func (s *stubProjMgr) RegisterSubtype(
-	_ context.Context, childSlug, parentSlug string, _ json.RawMessage,
+	_ context.Context, childSlug, parentSlug string, _, _ json.RawMessage,
 ) error {
 	s.subtypeCalls = append(s.subtypeCalls, subtypeCall{childSlug, parentSlug})
 	return s.registerSubErr
@@ -115,8 +115,9 @@ func TestEnsureProjection_ConcreteWithAbstractParent(t *testing.T) {
 	if pm.subtypeCalls[0].childSlug != "loan" || pm.subtypeCalls[0].parentSlug != "instrument" {
 		t.Fatalf("unexpected call: %v", pm.subtypeCalls[0])
 	}
-	if len(pm.ensuredSlugs) != 0 {
-		t.Fatalf("expected no EnsureTable calls, got %v", pm.ensuredSlugs)
+	// EnsureTable is called for the parent first to handle out-of-order event replay.
+	if len(pm.ensuredSlugs) != 1 || pm.ensuredSlugs[0] != "instrument" {
+		t.Fatalf("expected EnsureTable for parent 'instrument', got %v", pm.ensuredSlugs)
 	}
 }
 

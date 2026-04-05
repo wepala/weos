@@ -138,8 +138,13 @@ func ensureProjection(
 	if parentSlug != "" {
 		parent, err := rtRepo.FindBySlug(ctx, parentSlug)
 		if err == nil && jsonld.IsAbstract(parent.Context()) {
-			// Register as subtype — columns merge into parent's projection table.
-			return projMgr.RegisterSubtype(ctx, slug, parentSlug, schema)
+			// Ensure the abstract parent's projection table exists before registering
+			// this type as a subtype. This makes projection setup resilient when
+			// events are replayed or processed out of order.
+			if err := projMgr.EnsureTable(ctx, parentSlug, parent.Schema(), parent.Context()); err != nil {
+				return err
+			}
+			return projMgr.RegisterSubtype(ctx, slug, parentSlug, schema, ldContext)
 		}
 		// If parent not found, fall through to standalone table.
 		// If infrastructure error, propagate to avoid wrong topology.
