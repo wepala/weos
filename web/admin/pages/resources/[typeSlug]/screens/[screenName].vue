@@ -64,7 +64,12 @@ const screenTitle = computed(() => {
 
 onMounted(async () => {
   if (!loaded.value) await fetchResourceTypes()
-  await fetchManifest()
+  const manifestOk = await fetchManifest()
+  if (!manifestOk) {
+    error.value = 'Unable to load screen manifest'
+    loading.value = false
+    return
+  }
   try {
     const fileName = screenName.endsWith('.mjs') ? screenName : `${screenName}.mjs`
     const result = await loadScreen(typeSlug, fileName)

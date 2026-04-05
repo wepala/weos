@@ -44,8 +44,8 @@ export function usePresetScreens() {
   const manifestLoaded = useState<boolean>('presetScreenManifestLoaded', () => false)
   const loadedScreens = useState<Record<string, LoadedScreen>>('presetLoadedScreens', () => ({}))
 
-  async function fetchManifest() {
-    if (manifestLoaded.value) return
+  async function fetchManifest(): Promise<boolean> {
+    if (manifestLoaded.value) return true
     try {
       const res = await $fetch<{ data: PresetListEntry[] }>('/api/resource-types/presets')
       const mapping: Record<string, SlugMapping> = {}
@@ -58,8 +58,10 @@ export function usePresetScreens() {
       }
       manifest.value = mapping
       manifestLoaded.value = true
+      return true
     } catch (err) {
       console.error('[usePresetScreens] fetchManifest failed:', err)
+      return false
     }
   }
 
