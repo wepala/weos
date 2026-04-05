@@ -127,6 +127,9 @@ func (pm *projectionManager) EnsureTable(
 	return nil
 }
 
+// HasProjectionTable reports whether a projection table exists. Cached entries are not
+// invalidated on type deletion; this is acceptable because type deletion is rare and
+// projection tables are retained even after the type is soft-deleted (for data access).
 func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	if _, ok := pm.tables.Load(slug); ok {
 		return true
