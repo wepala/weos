@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/signal"
 	"reflect"
 	"strings"
@@ -153,7 +154,9 @@ func Run(enabledServices []string) error {
 	defer func() {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 		defer stopCancel()
-		_ = app.Stop(stopCtx)
+		if stopErr := app.Stop(stopCtx); stopErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to stop application: %v\n", stopErr)
+		}
 	}()
 
 	server, err := NewMCPServer(resourceTypeService, resourceService, enabledServices)
