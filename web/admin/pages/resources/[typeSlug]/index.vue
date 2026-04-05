@@ -24,9 +24,9 @@
           <a-button>Views</a-button>
           <template #overlay>
             <a-menu>
-              <a-menu-item v-for="s in screens" :key="s.meta.name">
-                <NuxtLink :to="`/resources/${typeSlug}/screens/${s.meta.name}`">
-                  {{ s.meta.label }}
+              <a-menu-item v-for="s in screens" :key="s.file">
+                <NuxtLink :to="`/resources/${typeSlug}/screens/${s.file.replace('.mjs', '')}`">
+                  {{ s.label }}
                 </NuxtLink>
               </a-menu-item>
             </a-menu>
@@ -74,13 +74,13 @@ const typeSlug = route.params.typeSlug as string
 const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
 const { list, remove } = useResourceApi(typeSlug)
 const { schemaToColumns } = useSchemaUtils()
-const { fetchManifest, loadAllScreens } = usePresetScreens()
+const { fetchManifest, getAvailableScreens } = usePresetScreens()
 
 const items = ref<any[]>([])
 const loading = ref(false)
 const hasMore = ref(false)
 const cursor = ref('')
-const screens = ref<{ component: any; meta: { name: string; label: string; icon?: string } }[]>([])
+const screens = ref<{ file: string; label: string }[]>([])
 
 const resourceType = computed(() => getBySlug(typeSlug))
 
@@ -177,6 +177,9 @@ onMounted(async () => {
   await initReferenceFilters()
   await load()
   await fetchManifest()
-  screens.value = await loadAllScreens(typeSlug)
+  screens.value = getAvailableScreens(typeSlug).map(s => ({
+    file: s.file,
+    label: s.file.replace('.mjs', ''),
+  }))
 })
 </script>

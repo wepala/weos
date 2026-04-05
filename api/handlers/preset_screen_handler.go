@@ -60,6 +60,9 @@ func (h *PresetScreenHandler) Serve(c echo.Context) error {
 	if !strings.HasSuffix(filePath, ".mjs") {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "only .mjs files are served"})
 	}
+	if !fs.ValidPath(filePath) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid path"})
+	}
 
 	f, err := preset.Screens.Open(filePath)
 	if err != nil {
@@ -69,10 +72,10 @@ func (h *PresetScreenHandler) Serve(c echo.Context) error {
 		c.Logger().Errorf("preset screen handler: open %s/%s: %v", name, filePath, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	c.Response().Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	c.Response().Header().Set("Cache-Control", "public, max-age=3600")
+	c.Response().Header().Set("Cache-Control", "private, max-age=3600")
 	c.Response().WriteHeader(http.StatusOK)
 	if _, copyErr := io.Copy(c.Response(), f); copyErr != nil {
 		c.Logger().Errorf("preset screen handler: io.Copy %s/%s: %v", name, filePath, copyErr)

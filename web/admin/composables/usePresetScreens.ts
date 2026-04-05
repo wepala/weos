@@ -22,6 +22,7 @@ export interface ScreenMeta {
 }
 
 export interface LoadedScreen {
+  fileName: string
   component: Component
   meta: ScreenMeta
 }
@@ -80,6 +81,7 @@ export function usePresetScreens() {
     const entry = manifest.value[typeSlug]
     if (!entry) return null
 
+    let blobUrl: string | null = null
     try {
       const url = `/api/resource-types/presets/${entry.preset}/screens/${typeSlug}/${fileName}`
       const response = await fetch(url)
@@ -90,18 +92,21 @@ export function usePresetScreens() {
 
       const text = await response.text()
       const blob = new Blob([text], { type: 'text/javascript' })
-      const blobUrl = URL.createObjectURL(blob)
+      blobUrl = URL.createObjectURL(blob)
 
       const mod = await import(/* @vite-ignore */ blobUrl)
       // Defer revocation to avoid racing with lazy module evaluation.
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 5000)
+      setTimeout(() => URL.revokeObjectURL(blobUrl!), 5000)
+      const baseName = fileName.replace('.mjs', '')
       const screen: LoadedScreen = {
+        fileName,
         component: mod.default,
-        meta: mod.meta || { name: fileName.replace('.mjs', ''), label: fileName.replace('.mjs', '') },
+        meta: mod.meta || { name: baseName, label: baseName },
       }
       loadedScreens.value[cacheKey] = screen
       return screen
     } catch (err) {
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
       console.error(`[usePresetScreens] loadScreen failed for ${typeSlug}/${fileName}:`, err)
       return null
     }

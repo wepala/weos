@@ -51,7 +51,7 @@ const screenName = route.params.screenName as string
 const { fetchManifest, loadScreen } = usePresetScreens()
 const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
 
-const screen = ref<{ component: any; meta: { name: string; label: string; icon?: string } } | null>(null)
+const screen = ref<{ fileName: string; component: any; meta: { name: string; label: string; icon?: string } } | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 

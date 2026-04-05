@@ -164,7 +164,8 @@ func (d PresetDefinition) clone() PresetDefinition {
 
 // ScreenManifest walks the Screens FS and returns a map of typeSlug to screen
 // filenames. Returns nil if Screens is nil or contains no .mjs files.
-// The expected directory structure is <typeSlug>/<ScreenName>.mjs.
+// Only files at exactly one level of nesting (<typeSlug>/<ScreenName>.mjs) are
+// included; deeper paths are ignored.
 func (d PresetDefinition) ScreenManifest() map[string][]string {
 	if d.Screens == nil {
 		return nil
@@ -181,12 +182,17 @@ func (d PresetDefinition) ScreenManifest() map[string][]string {
 		if dir == "." {
 			return nil // files must be under a type-slug directory
 		}
-		slug := dir
-		manifest[slug] = append(manifest[slug], path.Base(p))
+		if strings.Contains(dir, "/") {
+			return nil // ignore nested paths; only <typeSlug>/<ScreenName>.mjs is supported
+		}
+		manifest[dir] = append(manifest[dir], path.Base(p))
 		return nil
 	})
 	if len(manifest) == 0 {
 		return nil
+	}
+	for slug := range manifest {
+		sort.Strings(manifest[slug])
 	}
 	return manifest
 }

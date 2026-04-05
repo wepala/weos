@@ -204,10 +204,10 @@ func TestScreenManifest_MultipleTypeSlugs(t *testing.T) {
 	t.Parallel()
 	// FS is expected to be rooted at the type-slug level (preset uses fs.Sub).
 	testFS := fstest.MapFS{
-		"task/Checklist.mjs":    {Data: []byte("export default {}")},
-		"task/KanbanBoard.mjs":  {Data: []byte("export default {}")},
-		"project/Timeline.mjs":  {Data: []byte("export default {}")},
-		"project/readme.txt":    {Data: []byte("not a screen")},
+		"task/Checklist.mjs":   {Data: []byte("export default {}")},
+		"task/KanbanBoard.mjs": {Data: []byte("export default {}")},
+		"project/Timeline.mjs": {Data: []byte("export default {}")},
+		"project/readme.txt":   {Data: []byte("not a screen")},
 	}
 	def := application.PresetDefinition{Name: "test", Screens: testFS}
 	manifest := def.ScreenManifest()
@@ -289,12 +289,29 @@ func TestPresets_PresetsWithoutScreensHaveNilManifest(t *testing.T) {
 	}
 }
 
+func TestScreenManifest_NestedPathsIgnored(t *testing.T) {
+	t.Parallel()
+	testFS := fstest.MapFS{
+		"task/List.mjs":       {Data: []byte("export default {}")},
+		"task/sub/Nested.mjs": {Data: []byte("export default {}")},
+		"task/a/b/c/Deep.mjs": {Data: []byte("export default {}")},
+	}
+	def := application.PresetDefinition{Name: "test", Screens: testFS}
+	manifest := def.ScreenManifest()
+	if len(manifest["task"]) != 1 {
+		t.Fatalf("expected 1 screen (nested ignored), got %d: %v", len(manifest["task"]), manifest["task"])
+	}
+	if manifest["task"][0] != "List.mjs" {
+		t.Fatalf("expected List.mjs, got %s", manifest["task"][0])
+	}
+}
+
 func TestScreenManifest_NonMjsFilesIgnored(t *testing.T) {
 	t.Parallel()
 	testFS := fstest.MapFS{
-		"task/List.mjs":      {Data: []byte("export default {}")},
-		"task/styles.css":    {Data: []byte(".foo{}")},
-		"task/README.md":     {Data: []byte("readme")},
+		"task/List.mjs":   {Data: []byte("export default {}")},
+		"task/styles.css": {Data: []byte(".foo{}")},
+		"task/README.md":  {Data: []byte("readme")},
 	}
 	def := application.PresetDefinition{Name: "test", Screens: testFS}
 	manifest := def.ScreenManifest()

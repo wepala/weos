@@ -70,8 +70,8 @@ func TestPresetScreenHandler_Serve_Success(t *testing.T) {
 		t.Fatalf("expected application/javascript content type, got %q", ct)
 	}
 	cc := rec.Header().Get("Cache-Control")
-	if cc != "public, max-age=3600" {
-		t.Fatalf("expected public cache control, got %q", cc)
+	if cc != "private, max-age=3600" {
+		t.Fatalf("expected private cache control, got %q", cc)
 	}
 	body := rec.Body.String()
 	expected := `export const meta={name:"Checklist",label:"Checklist"};export default {}`
