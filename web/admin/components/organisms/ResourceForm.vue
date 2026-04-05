@@ -21,11 +21,11 @@
     layout="vertical"
     @finish="handleSubmit"
   >
-    <template v-for="(groupFields, groupName) in groupedFields" :key="groupName ?? '__ungrouped'">
-      <a-divider v-if="groupName" orientation="left">{{ groupName }}</a-divider>
+    <template v-for="group in groupedFields" :key="group.name ?? '__ungrouped'">
+      <a-divider v-if="group.name" orientation="left">{{ group.name }}</a-divider>
 
       <a-form-item
-        v-for="field in groupFields"
+        v-for="field in group.fields"
         :key="field.key"
         :label="field.label"
         :name="field.key"
@@ -120,11 +120,12 @@ const groupedFields = computed(() => {
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(field)
   }
-  // Ungrouped fields first, then named groups in encounter order
-  const result = new Map<string | undefined, FieldDescriptor[]>()
-  if (groups.has(undefined)) result.set(undefined, groups.get(undefined)!)
+  // Ungrouped fields first, then named groups in encounter order.
+  // Return an array (not a Map) to avoid Vue 3.5 reactive Map v-for issues.
+  const result: { name: string | undefined; fields: FieldDescriptor[] }[] = []
+  if (groups.has(undefined)) result.push({ name: undefined, fields: groups.get(undefined)! })
   for (const [key, val] of groups) {
-    if (key !== undefined) result.set(key, val)
+    if (key !== undefined) result.push({ name: key, fields: val })
   }
   return result
 })
