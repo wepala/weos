@@ -50,8 +50,8 @@ func Static(cfg StaticConfig) echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			reqPath := c.Request().URL.Path
 
-			// Skip API and MCP routes - let them pass through to registered handlers
-			if strings.HasPrefix(reqPath, "/api") || strings.HasPrefix(reqPath, "/mcp") {
+			// Skip API routes - let them pass through to registered handlers
+			if strings.HasPrefix(reqPath, "/api") {
 				return next(c)
 			}
 

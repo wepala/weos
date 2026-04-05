@@ -256,8 +256,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if mcpErr != nil {
 			return fmt.Errorf("failed to create MCP handler: %w", mcpErr)
 		}
-		e.Any("/mcp", echo.WrapHandler(mcpHandler))
-		logger.Info(context.Background(), "MCP server enabled", "path", "/mcp")
+		protected.Any("/mcp", echo.WrapHandler(mcpHandler))
+		protected.Any("/mcp/*", echo.WrapHandler(mcpHandler))
+		logger.Info(context.Background(), "MCP server enabled", "path", "/api/mcp")
 	} else {
 		logger.Info(context.Background(), "MCP server disabled via configuration")
 	}
