@@ -123,7 +123,15 @@ func (r *PresetRegistry) List() []PresetDefinition {
 func (d PresetDefinition) clone() PresetDefinition {
 	if d.Types != nil {
 		types := make([]PresetResourceType, len(d.Types))
-		copy(types, d.Types)
+		for i, t := range d.Types {
+			types[i] = t
+			if t.Context != nil {
+				types[i].Context = append(json.RawMessage(nil), t.Context...)
+			}
+			if t.Schema != nil {
+				types[i].Schema = append(json.RawMessage(nil), t.Schema...)
+			}
+		}
 		d.Types = types
 	}
 	if d.Behaviors != nil {
@@ -132,6 +140,22 @@ func (d PresetDefinition) clone() PresetDefinition {
 			behaviors[k] = v
 		}
 		d.Behaviors = behaviors
+	}
+	if d.Sidebar != nil {
+		s := *d.Sidebar
+		if s.HiddenSlugs != nil {
+			hs := make([]string, len(s.HiddenSlugs))
+			copy(hs, s.HiddenSlugs)
+			s.HiddenSlugs = hs
+		}
+		if s.MenuGroups != nil {
+			mg := make(map[string]string, len(s.MenuGroups))
+			for k, v := range s.MenuGroups {
+				mg[k] = v
+			}
+			s.MenuGroups = mg
+		}
+		d.Sidebar = &s
 	}
 	return d
 }

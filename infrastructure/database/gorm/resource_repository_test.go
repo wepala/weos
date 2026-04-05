@@ -34,12 +34,18 @@ func TestFindAllFlatFromProjection_TypeSlugFiltering(t *testing.T) {
 	}
 
 	// Insert rows with different type_slug values.
-	db.Exec(`INSERT INTO instruments (id, type_slug, status, name, interest_rate)
-		VALUES ('loan-1', 'loan', 'active', 'Home Loan', 3.5)`)
-	db.Exec(`INSERT INTO instruments (id, type_slug, status, name, interest_rate)
-		VALUES ('loan-2', 'loan', 'active', 'Car Loan', 5.0)`)
-	db.Exec(`INSERT INTO instruments (id, type_slug, status, name, min_balance)
-		VALUES ('dep-1', 'deposit', 'active', 'Savings', 100)`)
+	if err := db.Exec(`INSERT INTO instruments (id, type_slug, status, name, interest_rate)
+		VALUES ('loan-1', 'loan', 'active', 'Home Loan', 3.5)`).Error; err != nil {
+		t.Fatalf("insert loan-1 fixture: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO instruments (id, type_slug, status, name, interest_rate)
+		VALUES ('loan-2', 'loan', 'active', 'Car Loan', 5.0)`).Error; err != nil {
+		t.Fatalf("insert loan-2 fixture: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO instruments (id, type_slug, status, name, min_balance)
+		VALUES ('dep-1', 'deposit', 'active', 'Savings', 100)`).Error; err != nil {
+		t.Fatalf("insert dep-1 fixture: %v", err)
+	}
 
 	repo := &ResourceRepository{db: db, projMgr: pm}
 

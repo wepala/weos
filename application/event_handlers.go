@@ -13,7 +13,6 @@ import (
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
-	"gorm.io/gorm"
 )
 
 // subscribeEventHandlers registers all projection event handlers with the dispatcher.
@@ -148,7 +147,7 @@ func ensureProjection(
 		}
 		// If parent not found, fall through to standalone table.
 		// If infrastructure error, propagate to avoid wrong topology.
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
 			return fmt.Errorf("failed to look up parent type %q: %w", parentSlug, err)
 		}
 	}

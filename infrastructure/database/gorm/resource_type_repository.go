@@ -17,6 +17,7 @@ package gorm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -75,6 +76,9 @@ func (r *ResourceTypeRepository) FindBySlug(
 	err := r.db.WithContext(ctx).
 		Where("slug = ? AND deleted_at IS NULL", slug).First(&model).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("resource type %q: %w", slug, repositories.ErrNotFound)
+		}
 		return nil, fmt.Errorf("failed to find resource type by slug: %w", err)
 	}
 	return model.ToResourceType()

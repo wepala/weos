@@ -117,8 +117,13 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	if _, ok := pm.tables.Load(slug); ok {
 		return true
 	}
-	if _, ok := pm.childToParent.Load(slug); ok {
-		return true
+	if v, ok := pm.childToParent.Load(slug); ok {
+		// Only return true if the parent's table is actually ready (not just a sentinel).
+		if parentSlug, ok := v.(string); ok && parentSlug != "" {
+			if _, parentReady := pm.tables.Load(parentSlug); parentReady {
+				return true
+			}
+		}
 	}
 	// Lazy registration: another process may have created the type after startup.
 	var rt models.ResourceType
@@ -381,16 +386,19 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 		if rt.Context != "" {
 			ldContext = json.RawMessage(rt.Context)
 		}
-		// If this type has an abstract parent, skip it for now (handled in pass 2).
-		parentSlug := jsonld.SubClassOf(ldContext)
-		if parentSlug != "" {
-			if parent, ok := typeBySlug[parentSlug]; ok {
-				var parentCtx json.RawMessage
-				if parent.Context != "" {
-					parentCtx = json.RawMessage(parent.Context)
-				}
-				if jsonld.IsAbstract(parentCtx) {
-					continue
+		// If this concrete type has an abstract parent, skip — handled in pass 2.
+		// Abstract types always get their own table even if they declare subClassOf.
+		if !jsonld.IsAbstract(ldContext) {
+			parentSlug := jsonld.SubClassOf(ldContext)
+			if parentSlug != "" {
+				if parent, ok := typeBySlug[parentSlug]; ok {
+					var parentCtx json.RawMessage
+					if parent.Context != "" {
+						parentCtx = json.RawMessage(parent.Context)
+					}
+					if jsonld.IsAbstract(parentCtx) {
+						continue
+					}
 				}
 			}
 		}
@@ -400,11 +408,14 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 		}
 	}
 
-	// Pass 2: Register subtypes of abstract parents (parent tables exist from pass 1).
+	// Pass 2: Register concrete subtypes of abstract parents (abstract children got their own tables).
 	for _, rt := range types {
 		var ldContext json.RawMessage
 		if rt.Context != "" {
 			ldContext = json.RawMessage(rt.Context)
+		}
+		if jsonld.IsAbstract(ldContext) {
+			continue
 		}
 		parentSlug := jsonld.SubClassOf(ldContext)
 		if parentSlug == "" {
@@ -464,9 +475,14 @@ func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableNa
 	}
 
 	// Index on type_slug for efficient subtype queries on shared tables.
+	// Truncate index name to stay under Postgres' 63-byte identifier limit.
+	idxName := fmt.Sprintf("idx_%s_type_slug", tableName)
+	if len(idxName) > 63 {
+		idxName = idxName[:63]
+	}
 	idxDDL := fmt.Sprintf(
-		"CREATE INDEX IF NOT EXISTS idx_%s_type_slug ON %s (type_slug)",
-		tableName, tableName)
+		"CREATE INDEX IF NOT EXISTS %s ON %s (type_slug)",
+		idxName, tableName)
 	return pm.db.WithContext(ctx).Exec(idxDDL).Error
 }
 

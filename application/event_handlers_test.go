@@ -8,8 +8,6 @@ import (
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
-
-	"gorm.io/gorm"
 )
 
 // stubProjMgr records which ProjectionManager methods were called.
@@ -162,8 +160,8 @@ func TestEnsureProjection_ConcreteNoParent(t *testing.T) {
 func TestEnsureProjection_ParentNotFound_FallsBackToStandalone(t *testing.T) {
 	t.Parallel()
 	pm := &stubProjMgr{}
-	// Simulate "not found" as the real repo does: wrapping gorm.ErrRecordNotFound.
-	notFoundRepo := &infraErrorRepo{err: gorm.ErrRecordNotFound}
+	// Simulate "not found" as the real repo does: wrapping repositories.ErrNotFound.
+	notFoundRepo := &infraErrorRepo{err: repositories.ErrNotFound}
 	ctx := context.Background()
 
 	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"missing-parent"}`)
@@ -193,7 +191,7 @@ func TestEnsureProjection_InfraError_PropagatesError(t *testing.T) {
 	}
 }
 
-// infraErrorRepo returns an infrastructure error that is NOT gorm.ErrRecordNotFound.
+// infraErrorRepo returns an infrastructure error that is NOT repositories.ErrNotFound.
 type infraErrorRepo struct {
 	stubTypeRepo
 	err error
@@ -206,9 +204,9 @@ func (r *infraErrorRepo) FindBySlug(_ context.Context, _ string) (*entities.Reso
 func TestEnsureProjection_GormNotFoundError_FallsBack(t *testing.T) {
 	t.Parallel()
 	pm := &stubProjMgr{}
-	// Wrap gorm.ErrRecordNotFound like the real repo does.
+	// Wrap repositories.ErrNotFound like the real repo does.
 	notFoundRepo := &infraErrorRepo{
-		err: gorm.ErrRecordNotFound,
+		err: repositories.ErrNotFound,
 	}
 	ctx := context.Background()
 
