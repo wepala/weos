@@ -235,20 +235,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
 	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
 
-	// Permission routes — registered before dynamic catch-all
-	permHandler := handlers.NewResourcePermissionHandler(resourcePermService)
-	protected.POST("/:typeSlug/:id/permissions", permHandler.Grant)
-	protected.GET("/:typeSlug/:id/permissions", permHandler.List)
-	protected.DELETE("/:typeSlug/:id/permissions/:agentId", permHandler.Revoke)
-
-	// Dynamic resource routes — MUST be registered after ALL static routes
-	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)
-	protected.POST("/:typeSlug", resourceHandler.Create)
-	protected.GET("/:typeSlug", resourceHandler.List)
-	protected.GET("/:typeSlug/:id", resourceHandler.Get)
-	protected.PUT("/:typeSlug/:id", resourceHandler.Update)
-	protected.DELETE("/:typeSlug/:id", resourceHandler.Delete)
-
+	// MCP routes — registered before dynamic catch-all
 	if serveViper.GetBool("enabled") {
 		mcpHandler, mcpErr := mcpserver.NewHTTPHandler(
 			resourceTypeService, resourceService, slog.Default(),
@@ -262,6 +249,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 	} else {
 		logger.Info(context.Background(), "MCP server disabled via configuration")
 	}
+
+	// Permission routes — registered before dynamic catch-all
+	permHandler := handlers.NewResourcePermissionHandler(resourcePermService)
+	protected.POST("/:typeSlug/:id/permissions", permHandler.Grant)
+	protected.GET("/:typeSlug/:id/permissions", permHandler.List)
+	protected.DELETE("/:typeSlug/:id/permissions/:agentId", permHandler.Revoke)
+
+	// Dynamic resource routes — MUST be registered after ALL static routes
+	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)
+	protected.POST("/:typeSlug", resourceHandler.Create)
+	protected.GET("/:typeSlug", resourceHandler.List)
+	protected.GET("/:typeSlug/:id", resourceHandler.Get)
+	protected.PUT("/:typeSlug/:id", resourceHandler.Update)
+	protected.DELETE("/:typeSlug/:id", resourceHandler.Delete)
 
 	addr := fmt.Sprintf("%s:%d", appCfg.Server.Host, appCfg.Server.Port)
 
