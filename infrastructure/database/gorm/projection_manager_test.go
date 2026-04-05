@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"weos/infrastructure/models"
 	"weos/pkg/utils"
@@ -343,187 +344,6 @@ func TestExtractFlatColumns(t *testing.T) {
 	}
 }
 
-func TestRegisterSubtype_MergesColumnsIntoParent(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	// Create abstract parent projection table with a "name" column.
-	parentSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
-	if err := pm.EnsureTable(ctx, "financial-instrument", parentSchema, nil); err != nil {
-		t.Fatalf("EnsureTable for parent failed: %v", err)
-	}
-
-	// Register "loan" as subtype with extra "interestRate" column.
-	childSchema := json.RawMessage(`{"type":"object","properties":{
-		"name":{"type":"string"},
-		"interestRate":{"type":"number"}
-	}}`)
-	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", childSchema, nil); err != nil {
-		t.Fatalf("RegisterSubtype failed: %v", err)
-	}
-
-	// Verify the child column was added to the parent table.
-	err := db.Exec(`INSERT INTO financial_instruments (id, type_slug, status, name, interest_rate)
-		VALUES ('loan-1', 'loan', 'active', 'Home Loan', 3.5)`).Error
-	if err != nil {
-		t.Fatalf("insert with child column failed: %v", err)
-	}
-
-	var result map[string]any
-	err = db.Table("financial_instruments").Where("id = ?", "loan-1").Take(&result).Error
-	if err != nil {
-		t.Fatalf("read back failed: %v", err)
-	}
-}
-
-func TestIsSubtype(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
-		t.Fatalf("EnsureTable failed: %v", err)
-	}
-	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil, nil); err != nil {
-		t.Fatalf("RegisterSubtype failed: %v", err)
-	}
-
-	if !pm.IsSubtype("invoice") {
-		t.Fatal("expected invoice to be a subtype")
-	}
-	if pm.IsSubtype("commitment") {
-		t.Fatal("expected commitment NOT to be a subtype")
-	}
-	if pm.IsSubtype("unknown") {
-		t.Fatal("expected unknown NOT to be a subtype")
-	}
-}
-
-func TestParentSlug(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
-		t.Fatalf("EnsureTable failed: %v", err)
-	}
-	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil, nil); err != nil {
-		t.Fatalf("RegisterSubtype failed: %v", err)
-	}
-
-	if got := pm.ParentSlug("invoice"); got != "commitment" {
-		t.Fatalf("ParentSlug(invoice) = %q, want %q", got, "commitment")
-	}
-	if got := pm.ParentSlug("commitment"); got != "" {
-		t.Fatalf("ParentSlug(commitment) = %q, want empty", got)
-	}
-}
-
-func TestSubtype_TableNameResolvesToParent(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	if err := pm.EnsureTable(ctx, "financial-instrument", nil, nil); err != nil {
-		t.Fatalf("EnsureTable failed: %v", err)
-	}
-	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", nil, nil); err != nil {
-		t.Fatalf("RegisterSubtype failed: %v", err)
-	}
-
-	// TableName for the subtype should resolve to the parent's table.
-	if got := pm.TableName("loan"); got != "financial_instruments" {
-		t.Fatalf("TableName(loan) = %q, want %q", got, "financial_instruments")
-	}
-	// Parent's own TableName should still work.
-	if got := pm.TableName("financial-instrument"); got != "financial_instruments" {
-		t.Fatalf("TableName(financial-instrument) = %q, want %q", got, "financial_instruments")
-	}
-}
-
-func TestSubtype_HasProjectionTable(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
-		t.Fatalf("EnsureTable failed: %v", err)
-	}
-	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil, nil); err != nil {
-		t.Fatalf("RegisterSubtype failed: %v", err)
-	}
-
-	if !pm.HasProjectionTable("invoice") {
-		t.Fatal("expected HasProjectionTable(invoice) = true")
-	}
-	if !pm.HasProjectionTable("commitment") {
-		t.Fatal("expected HasProjectionTable(commitment) = true")
-	}
-}
-
-func TestSubtype_MultipleChildrenShareParentTable(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	parentSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
-	if err := pm.EnsureTable(ctx, "financial-instrument", parentSchema, nil); err != nil {
-		t.Fatalf("EnsureTable failed: %v", err)
-	}
-
-	loanSchema := json.RawMessage(`{"type":"object","properties":{
-		"name":{"type":"string"},"interestRate":{"type":"number"}}}`)
-	depositSchema := json.RawMessage(`{"type":"object","properties":{
-		"name":{"type":"string"},"balance":{"type":"number"}}}`)
-
-	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", loanSchema, nil); err != nil {
-		t.Fatalf("RegisterSubtype(loan) failed: %v", err)
-	}
-	if err := pm.RegisterSubtype(ctx, "deposit-account", "financial-instrument", depositSchema, nil); err != nil {
-		t.Fatalf("RegisterSubtype(deposit-account) failed: %v", err)
-	}
-
-	// Insert rows for both subtypes in the same table.
-	err := db.Exec(`INSERT INTO financial_instruments (id, type_slug, status, name, interest_rate)
-		VALUES ('loan-1', 'loan', 'active', 'Home Loan', 3.5)`).Error
-	if err != nil {
-		t.Fatalf("insert loan failed: %v", err)
-	}
-	err = db.Exec(`INSERT INTO financial_instruments (id, type_slug, status, name, balance)
-		VALUES ('dep-1', 'deposit-account', 'active', 'Savings', 1000.0)`).Error
-	if err != nil {
-		t.Fatalf("insert deposit failed: %v", err)
-	}
-
-	// Both should be in the same table with different type_slug values.
-	var count int64
-	db.Table("financial_instruments").Count(&count)
-	if count != 2 {
-		t.Fatalf("expected 2 rows in financial_instruments, got %d", count)
-	}
-
-	// Filter by type_slug = 'loan' should return 1.
-	var loanCount int64
-	db.Table("financial_instruments").Where("type_slug = ?", "loan").Count(&loanCount)
-	if loanCount != 1 {
-		t.Fatalf("expected 1 loan row, got %d", loanCount)
-	}
-
-	// Filter by type_slug = 'deposit-account' should return 1.
-	var depCount int64
-	db.Table("financial_instruments").Where("type_slug = ?", "deposit-account").Count(&depCount)
-	if depCount != 1 {
-		t.Fatalf("expected 1 deposit-account row, got %d", depCount)
-	}
-}
-
 func newTestDBWithTypes(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := newTestDB(t)
@@ -533,146 +353,184 @@ func newTestDBWithTypes(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestEnsureExistingTables_TwoPassOrdering(t *testing.T) {
-	t.Parallel()
-	db := newTestDBWithTypes(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	abstractCtx := `{"@vocab":"https://schema.org/","weos:abstract":true}`
-	childCtx := `{"@vocab":"https://schema.org/","rdfs:subClassOf":"instrument"}`
-
-	// Insert types: child BEFORE parent to test ordering resilience.
-	db.Create(&models.ResourceType{
-		ID: "child-1", Name: "Loan", Slug: "loan", Status: "active",
-		Context: childCtx,
-		Schema:  `{"type":"object","properties":{"interestRate":{"type":"number"}}}`,
-	})
-	db.Create(&models.ResourceType{
-		ID: "parent-1", Name: "Instrument", Slug: "instrument", Status: "active",
-		Context: abstractCtx,
-		Schema:  `{"type":"object","properties":{"name":{"type":"string"}}}`,
-	})
-
-	if err := pm.EnsureExistingTables(ctx); err != nil {
-		t.Fatalf("EnsureExistingTables failed: %v", err)
-	}
-
-	// Abstract parent should have its own table.
-	if !pm.HasProjectionTable("instrument") {
-		t.Fatal("expected instrument to have a projection table")
-	}
-
-	// Child should be registered as a subtype.
-	if !pm.IsSubtype("loan") {
-		t.Fatal("expected loan to be registered as subtype")
-	}
-	if pm.ParentSlug("loan") != "instrument" {
-		t.Fatalf("expected loan's parent to be 'instrument', got %q", pm.ParentSlug("loan"))
-	}
-
-	// Verify child columns were merged into parent table.
-	err := db.Exec(`INSERT INTO instruments (id, type_slug, status, interest_rate)
-		VALUES ('l1', 'loan', 'active', 5.5)`).Error
-	if err != nil {
-		t.Fatalf("insert with child column failed: %v", err)
-	}
-}
-
-func TestEnsureExistingTables_OrphanedSubClassOf(t *testing.T) {
-	t.Parallel()
-	db := newTestDBWithTypes(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	// Child references a parent that doesn't exist in the DB.
-	orphanCtx := `{"@vocab":"https://schema.org/","rdfs:subClassOf":"nonexistent"}`
-	db.Create(&models.ResourceType{
-		ID: "orphan-1", Name: "Orphan", Slug: "orphan", Status: "active",
-		Context: orphanCtx,
-		Schema:  `{"type":"object","properties":{"name":{"type":"string"}}}`,
-	})
-
-	// Should not error — orphan gets its own standalone table.
-	if err := pm.EnsureExistingTables(ctx); err != nil {
-		t.Fatalf("EnsureExistingTables failed: %v", err)
-	}
-
-	if !pm.HasProjectionTable("orphan") {
-		t.Fatal("orphan should have its own projection table")
-	}
-	if pm.IsSubtype("orphan") {
-		t.Fatal("orphan should NOT be registered as a subtype")
-	}
-}
-
-func TestEnsureExistingTables_AbstractGetsOwnTable(t *testing.T) {
-	t.Parallel()
-	db := newTestDBWithTypes(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-	ctx := context.Background()
-
-	abstractCtx := `{"@vocab":"https://schema.org/","weos:abstract":true}`
-	db.Create(&models.ResourceType{
-		ID: "abs-1", Name: "Shape", Slug: "shape", Status: "active",
-		Context: abstractCtx,
-		Schema:  `{"type":"object","properties":{"color":{"type":"string"}}}`,
-	})
-
-	if err := pm.EnsureExistingTables(ctx); err != nil {
-		t.Fatalf("EnsureExistingTables failed: %v", err)
-	}
-
-	if !pm.HasProjectionTable("shape") {
-		t.Fatal("abstract type 'shape' should have its own projection table")
-	}
-
-	// Verify table was actually created.
-	err := db.Exec(`INSERT INTO shapes (id, type_slug, status, color)
-		VALUES ('s1', 'shape', 'active', 'red')`).Error
-	if err != nil {
-		t.Fatalf("insert into shapes failed: %v", err)
-	}
-}
-
-func TestCircularSubClassOf_NoPanic(t *testing.T) {
-	t.Parallel()
-	db := newTestDBWithTypes(t)
-	pm := &projectionManager{db: db, logger: &testLogger{}}
-
-	// Create circular reference: A -> B -> A, both abstract.
-	db.Create(&models.ResourceType{
-		ID: "a-1", Name: "TypeA", Slug: "type-a", Status: "active",
-		Context: `{"@vocab":"https://schema.org/","weos:abstract":true,"rdfs:subClassOf":"type-b"}`,
-		Schema:  `{"type":"object","properties":{"fieldA":{"type":"string"}}}`,
-	})
-	db.Create(&models.ResourceType{
-		ID: "b-1", Name: "TypeB", Slug: "type-b", Status: "active",
-		Context: `{"@vocab":"https://schema.org/","weos:abstract":true,"rdfs:subClassOf":"type-a"}`,
-		Schema:  `{"type":"object","properties":{"fieldB":{"type":"string"}}}`,
-	})
-
-	// Should not stack overflow. HasProjectionTable should return false or true
-	// but must not panic.
-	_ = pm.HasProjectionTable("type-a")
-	_ = pm.HasProjectionTable("type-b")
-
-	// Also test via EnsureExistingTables which processes all types.
-	ctx := context.Background()
-	if err := pm.EnsureExistingTables(ctx); err != nil {
-		t.Fatalf("EnsureExistingTables with circular refs should not error: %v", err)
-	}
-}
-
-func TestRegisterSubtype_FailsWithoutParentTable(t *testing.T) {
+func TestAncestorSlugs_SingleLevel(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	pm := &projectionManager{db: db, logger: &testLogger{}}
 	ctx := context.Background()
 
-	childSchema := json.RawMessage(`{"type":"object","properties":{"rate":{"type":"number"}}}`)
-	err := pm.RegisterSubtype(ctx, "loan", "nonexistent-parent", childSchema, nil)
-	if err == nil {
-		t.Fatal("expected error when parent table doesn't exist")
+	parentCtx := json.RawMessage(`{"@vocab":"https://schema.org/","weos:abstract":true}`)
+	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"financial-instrument"}`)
+
+	if err := pm.EnsureTable(ctx, "financial-instrument", nil, parentCtx); err != nil {
+		t.Fatalf("EnsureTable parent: %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "loan", nil, childCtx); err != nil {
+		t.Fatalf("EnsureTable child: %v", err)
+	}
+
+	ancestors := pm.AncestorSlugs("loan")
+	if len(ancestors) != 1 || ancestors[0] != "financial-instrument" {
+		t.Fatalf("AncestorSlugs(loan) = %v, want [financial-instrument]", ancestors)
+	}
+}
+
+func TestAncestorSlugs_MultiLevel(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	ctxC := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	ctxB := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"type-c"}`)
+	ctxA := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"type-b"}`)
+
+	if err := pm.EnsureTable(ctx, "type-c", nil, ctxC); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "type-b", nil, ctxB); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "type-a", nil, ctxA); err != nil {
+		t.Fatal(err)
+	}
+
+	ancestors := pm.AncestorSlugs("type-a")
+	if len(ancestors) != 2 || ancestors[0] != "type-b" || ancestors[1] != "type-c" {
+		t.Fatalf("AncestorSlugs(type-a) = %v, want [type-b, type-c]", ancestors)
+	}
+}
+
+func TestAncestorSlugs_NoParent(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	if err := pm.EnsureTable(ctx, "product", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	ancestors := pm.AncestorSlugs("product")
+	if len(ancestors) != 0 {
+		t.Fatalf("AncestorSlugs(product) = %v, want nil", ancestors)
+	}
+}
+
+func TestAncestorSlugs_CircularBreaks(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	ctxA := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"type-b"}`)
+	ctxB := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"type-a"}`)
+
+	if err := pm.EnsureTable(ctx, "type-a", nil, ctxA); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "type-b", nil, ctxB); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not infinite loop — visited set breaks the cycle.
+	ancestors := pm.AncestorSlugs("type-a")
+	if len(ancestors) != 1 || ancestors[0] != "type-b" {
+		t.Fatalf("AncestorSlugs(type-a) = %v, want [type-b]", ancestors)
+	}
+}
+
+func TestEnsureTable_EachTypeGetsOwnTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	abstractCtx := json.RawMessage(`{"@vocab":"https://schema.org/","weos:abstract":true}`)
+	parentSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"instrument"}`)
+	childSchema := json.RawMessage(`{"type":"object","properties":{` +
+		`"name":{"type":"string"},"interestRate":{"type":"number"}}}`)
+
+	if err := pm.EnsureTable(ctx, "instrument", parentSchema, abstractCtx); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "loan", childSchema, childCtx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both types should have their OWN tables (not shared).
+	if pm.TableName("instrument") != "instruments" {
+		t.Fatalf("TableName(instrument) = %q", pm.TableName("instrument"))
+	}
+	if pm.TableName("loan") != "loans" {
+		t.Fatalf("TableName(loan) = %q, want loans", pm.TableName("loan"))
+	}
+
+	// Verify both tables exist and have their own columns.
+	if err := db.Exec(`INSERT INTO instruments (id, type_slug, status, name)
+		VALUES ('i1', 'instrument', 'active', 'Test')`).Error; err != nil {
+		t.Fatalf("insert into instruments: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO loans (id, type_slug, status, name, interest_rate)
+		VALUES ('l1', 'loan', 'active', 'Home Loan', 3.5)`).Error; err != nil {
+		t.Fatalf("insert into loans: %v", err)
+	}
+}
+
+func TestEnsureExistingTables_AllTypesGetTables(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithTypes(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	db.Create(&models.ResourceType{
+		ID: "1", Name: "Shape", Slug: "shape", Status: "active",
+		Context: `{"@vocab":"https://schema.org/","weos:abstract":true}`,
+		Schema:  `{"type":"object","properties":{"color":{"type":"string"}}}`,
+	})
+	db.Create(&models.ResourceType{
+		ID: "2", Name: "Circle", Slug: "circle", Status: "active",
+		Context: `{"@vocab":"https://schema.org/","rdfs:subClassOf":"shape"}`,
+		Schema:  `{"type":"object","properties":{"color":{"type":"string"},"radius":{"type":"number"}}}`,
+	})
+
+	if err := pm.EnsureExistingTables(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if !pm.HasProjectionTable("shape") {
+		t.Fatal("shape should have projection table")
+	}
+	if !pm.HasProjectionTable("circle") {
+		t.Fatal("circle should have its own projection table")
+	}
+
+	// Verify ancestor chain.
+	ancestors := pm.AncestorSlugs("circle")
+	if len(ancestors) != 1 || ancestors[0] != "shape" {
+		t.Fatalf("AncestorSlugs(circle) = %v, want [shape]", ancestors)
+	}
+}
+
+func TestEnsureExistingTables_SkipsDeletedTypes(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithTypes(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	now := time.Now()
+	db.Create(&models.ResourceType{
+		ID: "1", Name: "Deleted", Slug: "deleted-type", Status: "active",
+		Schema:    `{"type":"object","properties":{"name":{"type":"string"}}}`,
+		DeletedAt: &now,
+	})
+
+	if err := pm.EnsureExistingTables(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if pm.HasProjectionTable("deleted-type") {
+		t.Fatal("deleted type should not have a projection table")
 	}
 }

@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"strings"
 	"sync"
 
@@ -67,13 +66,12 @@ type tableInfo struct {
 }
 
 type projectionManager struct {
-	db            *gorm.DB
-	logger        entities.Logger
-	tables        sync.Map   // slug → tableInfo
-	reverseRe     sync.Map   // targetTypeSlug → []repositories.ReverseReference
-	reverseReMu   sync.Mutex // guards reverseRe writes
-	childToParent sync.Map   // childSlug → parentSlug (subtypes sharing parent's projection table)
-	childContexts sync.Map   // childSlug → json.RawMessage (child's own JSON-LD context)
+	db          *gorm.DB
+	logger      entities.Logger
+	tables      sync.Map   // slug → tableInfo
+	reverseRe   sync.Map   // targetTypeSlug → []repositories.ReverseReference
+	reverseReMu sync.Mutex // guards reverseRe writes
+	parentOf    sync.Map   // slug → parentSlug (from rdfs:subClassOf, for ancestor chain)
 }
 
 type ProjectionManagerResult struct {
@@ -110,6 +108,9 @@ func (pm *projectionManager) EnsureTable(
 	}
 
 	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext})
+	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
+		pm.parentOf.Store(slug, parentSlug)
+	}
 	pm.registerReverseReferences(slug, schema)
 	return nil
 }
@@ -118,18 +119,9 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	if _, ok := pm.tables.Load(slug); ok {
 		return true
 	}
-	if v, ok := pm.childToParent.Load(slug); ok {
-		// Only return true if the parent's table is actually ready (not just a sentinel).
-		if parentSlug, ok := v.(string); ok && parentSlug != "" {
-			if _, parentReady := pm.tables.Load(parentSlug); parentReady {
-				return true
-			}
-		}
-	}
-	// Lazy registration: another process may have created the type after startup.
+	// Lazy creation: another process may have created the type after startup.
 	var rt models.ResourceType
-	if err := pm.db.Where("slug = ?", slug).First(&rt).Error; err != nil {
-		// TODO: add context parameter to HasProjectionTable in a future refactor.
+	if err := pm.db.Where("slug = ? AND deleted_at IS NULL", slug).First(&rt).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			pm.logger.Warn(context.Background(), "failed to look up resource type for projection",
 				"slug", slug, "error", err)
@@ -144,23 +136,6 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	if rt.Context != "" {
 		ldContext = json.RawMessage(rt.Context)
 	}
-	// Abstract types always get their own projection table, even if they also
-	// declare rdfs:subClassOf. Check this before subtype registration.
-	if jsonld.IsAbstract(ldContext) {
-		if err := pm.EnsureTable(context.Background(), slug, schema, ldContext); err != nil {
-			pm.logger.Warn(context.Background(), "failed to lazily create abstract projection table",
-				"slug", slug, "error", err)
-			return false
-		}
-		return true
-	}
-	// Check if this type is a subtype of an abstract parent.
-	parentSlug := jsonld.SubClassOf(ldContext)
-	if parentSlug != "" {
-		if pm.lazyRegisterSubtype(slug, parentSlug, schema, ldContext) {
-			return true
-		}
-	}
 	if err := pm.EnsureTable(context.Background(), slug, schema, ldContext); err != nil {
 		pm.logger.Warn(context.Background(), "failed to lazily create projection table",
 			"slug", slug, "error", err)
@@ -169,62 +144,17 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	return true
 }
 
-// lazyRegisterSubtype checks if the parent is abstract and registers the child as a subtype.
-// A sentinel is stored in childToParent before recursing into HasProjectionTable to
-// prevent infinite recursion when circular rdfs:subClassOf relationships exist.
-func (pm *projectionManager) lazyRegisterSubtype(
-	childSlug, parentSlug string, childSchema, childLdContext json.RawMessage,
-) bool {
-	var parent models.ResourceType
-	if err := pm.db.Where("slug = ?", parentSlug).First(&parent).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			pm.logger.Warn(context.Background(), "failed to look up parent type for subtype registration",
-				"child", childSlug, "parent", parentSlug, "error", err)
-		}
-		return false
-	}
-	var parentCtx json.RawMessage
-	if parent.Context != "" {
-		parentCtx = json.RawMessage(parent.Context)
-	}
-	if !jsonld.IsAbstract(parentCtx) {
-		return false
-	}
-	// Store empty sentinel to break circular recursion. HasProjectionTable rejects
-	// empty parent slugs, so concurrent callers won't treat this as ready.
-	pm.childToParent.Store(childSlug, "")
-	if !pm.HasProjectionTable(parentSlug) {
-		pm.childToParent.Delete(childSlug)
-		return false
-	}
-	if err := pm.RegisterSubtype(context.Background(), childSlug, parentSlug, childSchema, childLdContext); err != nil {
-		pm.childToParent.Delete(childSlug)
-		pm.logger.Warn(context.Background(), "failed to lazily register subtype",
-			"child", childSlug, "parent", parentSlug, "error", err)
-		return false
-	}
-	return true
-}
-
 func (pm *projectionManager) TableName(slug string) string {
-	resolved := pm.resolveSlug(slug)
-	if v, ok := pm.tables.Load(resolved); ok {
+	if v, ok := pm.tables.Load(slug); ok {
 		if info, ok := v.(tableInfo); ok {
 			return info.name
 		}
 	}
-	return slugToTableName(resolved)
+	return slugToTableName(slug)
 }
 
 func (pm *projectionManager) Context(slug string) json.RawMessage {
-	// Return the child's own context if it's a registered subtype.
-	if v, ok := pm.childContexts.Load(slug); ok {
-		if ctx, ok := v.(json.RawMessage); ok {
-			return ctx
-		}
-	}
-	resolved := pm.resolveSlug(slug)
-	if v, ok := pm.tables.Load(resolved); ok {
+	if v, ok := pm.tables.Load(slug); ok {
 		if info, ok := v.(tableInfo); ok {
 			return info.context
 		}
@@ -232,25 +162,30 @@ func (pm *projectionManager) Context(slug string) json.RawMessage {
 	return nil
 }
 
-// resolveSlug returns the parent slug if slug is a fully registered subtype, otherwise slug itself.
-// Empty parent slugs (used as recursion sentinels) are treated as unresolved.
-func (pm *projectionManager) resolveSlug(slug string) string {
-	if v, ok := pm.childToParent.Load(slug); ok {
-		if parentSlug, ok := v.(string); ok && parentSlug != "" {
-			return parentSlug
-		}
-	}
-	return slug
-}
-
 func (pm *projectionManager) UpdateColumn(ctx context.Context, typeSlug, resourceID, column string, value any) error {
 	if !pm.HasProjectionTable(typeSlug) {
 		return nil
 	}
 	tableName := pm.TableName(typeSlug)
-	return pm.db.WithContext(ctx).Table(tableName).
-		Where("id = ?", resourceID).
-		Update(column, value).Error
+	if err := pm.db.WithContext(ctx).Table(tableName).
+		Where("id = ?", resourceID).Update(column, value).Error; err != nil {
+		return err
+	}
+	// Propagate to ancestor tables if the column exists there.
+	for _, ancestorSlug := range pm.AncestorSlugs(typeSlug) {
+		if !pm.HasProjectionTable(ancestorSlug) {
+			continue
+		}
+		aTable := pm.TableName(ancestorSlug)
+		if !pm.db.Migrator().HasColumn(aTable, column) {
+			continue
+		}
+		if err := pm.db.WithContext(ctx).Table(aTable).
+			Where("id = ?", resourceID).Update(column, value).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (pm *projectionManager) UpdateColumnByFK(
@@ -260,19 +195,14 @@ func (pm *projectionManager) UpdateColumnByFK(
 		return nil
 	}
 	tableName := pm.TableName(typeSlug)
-	query := pm.db.WithContext(ctx).Table(tableName).
-		Where(fkColumn+" = ?", fkValue)
-	// Add type_slug discriminator for shared tables to avoid updating other subtypes' rows.
-	if pm.IsSubtype(typeSlug) {
-		query = query.Where("type_slug = ?", typeSlug)
-	}
-	return query.Update(targetColumn, targetValue).Error
+	return pm.db.WithContext(ctx).Table(tableName).
+		Where(fkColumn+" = ?", fkValue).
+		Update(targetColumn, targetValue).Error
 }
 
 func (pm *projectionManager) ReverseReferences(targetTypeSlug string) []repositories.ReverseReference {
 	if v, ok := pm.reverseRe.Load(targetTypeSlug); ok {
 		if refs, ok := v.([]repositories.ReverseReference); ok {
-			// Return a copy to avoid data races with concurrent writes.
 			cp := make([]repositories.ReverseReference, len(refs))
 			copy(cp, refs)
 			return cp
@@ -281,42 +211,26 @@ func (pm *projectionManager) ReverseReferences(targetTypeSlug string) []reposito
 	return nil
 }
 
-func (pm *projectionManager) RegisterSubtype(
-	ctx context.Context, childSlug, parentSlug string,
-	childSchema, childLdContext json.RawMessage,
-) error {
-	if _, ok := pm.tables.Load(parentSlug); !ok {
-		return fmt.Errorf("parent type %q has no projection table; call EnsureTable first", parentSlug)
-	}
-	parentTableName := pm.TableName(parentSlug)
-	columns := schemaToColumns(childSchema)
-	if err := pm.addMissingColumns(ctx, parentTableName, columns); err != nil {
-		return fmt.Errorf("failed to add subtype columns to %q: %w", parentTableName, err)
-	}
-	pm.childToParent.Store(childSlug, parentSlug)
-	if len(childLdContext) > 0 {
-		pm.childContexts.Store(childSlug, childLdContext)
-	}
-	pm.registerReverseReferences(childSlug, childSchema)
-	return nil
-}
-
-func (pm *projectionManager) IsSubtype(slug string) bool {
-	if v, ok := pm.childToParent.Load(slug); ok {
-		if ps, ok := v.(string); ok && ps != "" {
-			return true
+// AncestorSlugs returns the ordered chain of ancestor type slugs by walking
+// rdfs:subClassOf relationships cached during EnsureTable.
+func (pm *projectionManager) AncestorSlugs(slug string) []string {
+	var chain []string
+	visited := map[string]bool{slug: true}
+	current := slug
+	for {
+		v, ok := pm.parentOf.Load(current)
+		if !ok {
+			break
 		}
-	}
-	return false
-}
-
-func (pm *projectionManager) ParentSlug(slug string) string {
-	if v, ok := pm.childToParent.Load(slug); ok {
-		if ps, ok := v.(string); ok {
-			return ps
+		parent, ok := v.(string)
+		if !ok || parent == "" || visited[parent] {
+			break
 		}
+		visited[parent] = true
+		chain = append(chain, parent)
+		current = parent
 	}
-	return ""
+	return chain
 }
 
 // registerReverseReferences parses a schema for x-resource-type properties and
@@ -379,79 +293,22 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 
 func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 	var types []models.ResourceType
-	if err := pm.db.WithContext(ctx).Find(&types).Error; err != nil {
+	if err := pm.db.WithContext(ctx).
+		Where("deleted_at IS NULL").Find(&types).Error; err != nil {
 		return fmt.Errorf("failed to load existing resource types: %w", err)
 	}
-
-	// Build a slug→context lookup for parent resolution.
-	typeBySlug := make(map[string]models.ResourceType, len(types))
 	for _, rt := range types {
-		typeBySlug[rt.Slug] = rt
-	}
-
-	// Pass 1: Create projection tables for abstract types and concrete types without abstract parents.
-	for _, rt := range types {
-		schema := json.RawMessage(nil)
+		var schema json.RawMessage
 		if rt.Schema != "" {
 			schema = json.RawMessage(rt.Schema)
 		}
 		var ldContext json.RawMessage
 		if rt.Context != "" {
 			ldContext = json.RawMessage(rt.Context)
-		}
-		// If this concrete type has an abstract parent, skip — handled in pass 2.
-		// Abstract types always get their own table even if they declare subClassOf.
-		if !jsonld.IsAbstract(ldContext) {
-			parentSlug := jsonld.SubClassOf(ldContext)
-			if parentSlug != "" {
-				if parent, ok := typeBySlug[parentSlug]; ok {
-					var parentCtx json.RawMessage
-					if parent.Context != "" {
-						parentCtx = json.RawMessage(parent.Context)
-					}
-					if jsonld.IsAbstract(parentCtx) {
-						continue
-					}
-				}
-			}
 		}
 		if err := pm.EnsureTable(ctx, rt.Slug, schema, ldContext); err != nil {
-			pm.logger.Error(ctx, "failed to ensure projection table for existing type",
+			pm.logger.Error(ctx, "failed to ensure projection table",
 				"slug", rt.Slug, "error", err)
-		}
-	}
-
-	// Pass 2: Register concrete subtypes of abstract parents (abstract children got their own tables).
-	for _, rt := range types {
-		var ldContext json.RawMessage
-		if rt.Context != "" {
-			ldContext = json.RawMessage(rt.Context)
-		}
-		if jsonld.IsAbstract(ldContext) {
-			continue
-		}
-		parentSlug := jsonld.SubClassOf(ldContext)
-		if parentSlug == "" {
-			continue
-		}
-		parent, ok := typeBySlug[parentSlug]
-		if !ok {
-			continue
-		}
-		var parentCtx json.RawMessage
-		if parent.Context != "" {
-			parentCtx = json.RawMessage(parent.Context)
-		}
-		if !jsonld.IsAbstract(parentCtx) {
-			continue
-		}
-		schema := json.RawMessage(nil)
-		if rt.Schema != "" {
-			schema = json.RawMessage(rt.Schema)
-		}
-		if err := pm.RegisterSubtype(ctx, rt.Slug, parentSlug, schema, ldContext); err != nil {
-			pm.logger.Error(ctx, "failed to register subtype projection",
-				"child", rt.Slug, "parent", parentSlug, "error", err)
 		}
 	}
 	return nil
@@ -483,22 +340,7 @@ func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableNa
 	ddl := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n  %s\n)",
 		tableName, strings.Join(colDefs, ",\n  "))
 
-	if err := pm.db.WithContext(ctx).Exec(ddl).Error; err != nil {
-		return err
-	}
-
-	// Index on type_slug for efficient subtype queries on shared tables.
-	// Use hash suffix to avoid Postgres' 63-byte identifier limit and collisions.
-	h := fnv.New32a()
-	h.Write([]byte(tableName))
-	idxName := fmt.Sprintf("idx_%s_ts_%08x", tableName, h.Sum32())
-	if len(idxName) > 63 {
-		idxName = fmt.Sprintf("idx_ts_%08x", h.Sum32())
-	}
-	idxDDL := fmt.Sprintf(
-		"CREATE INDEX IF NOT EXISTS %s ON %s (type_slug)",
-		idxName, tableName)
-	return pm.db.WithContext(ctx).Exec(idxDDL).Error
+	return pm.db.WithContext(ctx).Exec(ddl).Error
 }
 
 func (pm *projectionManager) addMissingColumns(ctx context.Context, tableName string, columns []columnDef) error {

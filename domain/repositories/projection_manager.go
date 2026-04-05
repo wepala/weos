@@ -54,20 +54,11 @@ type ProjectionManager interface {
 	// Each entry describes a FK column and its corresponding display column.
 	ReverseReferences(targetTypeSlug string) []ReverseReference
 
-	// RegisterSubtype registers a concrete child type as a subtype of an abstract parent.
-	// This merges the child's schema columns into the parent's projection table and
-	// records the child-to-parent mapping so that TableName resolution routes the child
-	// to the parent's table. The child's JSON-LD context is cached so that Context()
-	// returns the child's own context (not the parent's). The parent table must already
-	// exist via EnsureTable.
-	RegisterSubtype(ctx context.Context, childSlug, parentSlug string,
-		childSchema, childLdContext json.RawMessage) error
-
-	// IsSubtype reports whether a slug is registered as a subtype of an abstract parent.
-	IsSubtype(slug string) bool
-
-	// ParentSlug returns the abstract parent slug for a subtype, or empty string if not a subtype.
-	ParentSlug(slug string) string
+	// AncestorSlugs returns the ordered chain of ancestor type slugs for a type,
+	// derived from rdfs:subClassOf declarations cached during EnsureTable.
+	// For "loan" with subClassOf "financial-instrument", returns ["financial-instrument"].
+	// Returns nil for types with no parent. Circular references are safely broken.
+	AncestorSlugs(slug string) []string
 }
 
 // ReverseReference describes a resource type that references another via a FK column.

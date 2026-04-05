@@ -113,13 +113,10 @@ func subscribeResourceTypeHandlers(
 	)
 }
 
-// ensureProjection decides whether to create a projection table or register as a
-// subtype of an abstract parent. Abstract types get their own table. Concrete types
-// with rdfs:subClassOf pointing to an abstract parent register as subtypes (their
-// columns are merged into the parent's table). All other concrete types get their own
-// table. If the parent referenced by rdfs:subClassOf is not found, the type falls back
-// to getting its own standalone table. Infrastructure errors are propagated to avoid
-// creating the wrong table topology.
+// ensureProjection creates a projection table for the given type and, if the
+// type declares rdfs:subClassOf, also ensures the parent's table exists.
+// Every type (abstract or concrete) gets its own table. Ancestor tables are
+// populated at resource-event time via dual-projection in the repository.
 func ensureProjection(
 	ctx context.Context,
 	rtRepo repositories.ResourceTypeRepository,
@@ -127,31 +124,22 @@ func ensureProjection(
 	slug string,
 	schema, ldContext json.RawMessage,
 ) error {
-	// Abstract types always get their own projection table.
-	if jsonld.IsAbstract(ldContext) {
-		return projMgr.EnsureTable(ctx, slug, schema, ldContext)
+	if err := projMgr.EnsureTable(ctx, slug, schema, ldContext); err != nil {
+		return err
 	}
-	// Check if this type has a parent via rdfs:subClassOf.
+	// Also ensure ancestor tables exist for dual-projection.
 	parentSlug := jsonld.SubClassOf(ldContext)
-	if parentSlug != "" {
-		parent, err := rtRepo.FindBySlug(ctx, parentSlug)
-		if err == nil && jsonld.IsAbstract(parent.Context()) {
-			// Ensure the abstract parent's projection table exists before registering
-			// this type as a subtype. This makes projection setup resilient when
-			// events are replayed or processed out of order.
-			if err := projMgr.EnsureTable(ctx, parentSlug, parent.Schema(), parent.Context()); err != nil {
-				return err
-			}
-			return projMgr.RegisterSubtype(ctx, slug, parentSlug, schema, ldContext)
-		}
-		// If parent not found, fall through to standalone table.
-		// If infrastructure error, propagate to avoid wrong topology.
-		if err != nil && !errors.Is(err, repositories.ErrNotFound) {
-			return fmt.Errorf("failed to look up parent type %q: %w", parentSlug, err)
-		}
+	if parentSlug == "" {
+		return nil
 	}
-	// Concrete type with no abstract parent — gets its own table.
-	return projMgr.EnsureTable(ctx, slug, schema, ldContext)
+	parent, err := rtRepo.FindBySlug(ctx, parentSlug)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil // parent not yet created; will be ensured when parent type arrives
+		}
+		return fmt.Errorf("failed to look up parent type %q: %w", parentSlug, err)
+	}
+	return projMgr.EnsureTable(ctx, parentSlug, parent.Schema(), parent.Context())
 }
 
 // --- Resource projection handlers ---

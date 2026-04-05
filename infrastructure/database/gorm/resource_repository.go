@@ -110,17 +110,29 @@ func (r *ResourceRepository) Save(
 	}
 	// Also save to the projection table (denormalized read model) if one exists.
 	if r.projMgr.HasProjectionTable(entity.TypeSlug()) {
-		if err := r.saveToProjection(ctx, entity); err != nil {
+		if err := r.saveToProjection(ctx, entity, entity.TypeSlug()); err != nil {
+			return err
+		}
+	}
+	// Dual-projection: also save to ancestor tables.
+	for _, ancestorSlug := range r.projMgr.AncestorSlugs(entity.TypeSlug()) {
+		if !r.projMgr.HasProjectionTable(ancestorSlug) {
+			continue
+		}
+		if err := r.saveToProjection(ctx, entity, ancestorSlug); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// saveToProjection inserts a resource into the projection table identified by targetSlug.
+// The targetSlug may be the entity's own type or an ancestor type for dual-projection.
+// Columns extracted from data that don't exist in the target table are silently dropped.
 func (r *ResourceRepository) saveToProjection(
-	ctx context.Context, entity *entities.Resource,
+	ctx context.Context, entity *entities.Resource, targetSlug string,
 ) error {
-	tableName := r.projMgr.TableName(entity.TypeSlug())
+	tableName := r.projMgr.TableName(targetSlug)
 	row := map[string]any{
 		"id":          entity.GetID(),
 		"type_slug":   entity.TypeSlug(),
@@ -130,12 +142,47 @@ func (r *ResourceRepository) saveToProjection(
 		"sequence_no": entity.GetSequenceNo(),
 		"created_at":  entity.CreatedAt(),
 	}
-	ldCtx := r.projMgr.Context(entity.TypeSlug())
+	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
+	r.dropMissingColumns(tableName, row)
 	if err := r.db.WithContext(ctx).Table(tableName).Create(row).Error; err != nil {
 		return fmt.Errorf("failed to save resource to projection %s: %w", tableName, err)
 	}
 	return nil
+}
+
+// updateProjectionBySlug updates a resource's projection row in the table identified by targetSlug.
+func (r *ResourceRepository) updateProjectionBySlug(
+	ctx context.Context, entity *entities.Resource, targetSlug string,
+) error {
+	tableName := r.projMgr.TableName(targetSlug)
+	row := map[string]any{
+		"status":      entity.Status(),
+		"sequence_no": entity.GetSequenceNo(),
+		"updated_at":  time.Now(),
+	}
+	ldCtx := r.projMgr.Context(targetSlug)
+	ExtractFlatColumns(entity.Data(), ldCtx, row)
+	r.dropMissingColumns(tableName, row)
+	if err := r.db.WithContext(ctx).Table(tableName).
+		Where("id = ?", entity.GetID()).Updates(row).Error; err != nil {
+		return fmt.Errorf("failed to update resource in %s: %w", tableName, err)
+	}
+	return nil
+}
+
+// dropMissingColumns removes keys from row that don't exist as columns in the target table.
+// This prevents INSERT/UPDATE errors when dual-projecting to ancestor tables that don't
+// have child-specific columns.
+func (r *ResourceRepository) dropMissingColumns(tableName string, row map[string]any) {
+	for col := range row {
+		if standardColumnNames[col] {
+			continue
+		}
+		if !r.db.Migrator().HasColumn(tableName, col) {
+			delete(row, col)
+		}
+	}
 }
 
 func (r *ResourceRepository) FindByID(
@@ -248,8 +295,7 @@ func (r *ResourceRepository) findAllFromProjection(
 	qualifiedCol := tbl + "." + colName
 	query := r.db.WithContext(ctx).Table(tableName).
 		Select(selectCols).
-		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
-		Where(tbl+".type_slug = ?", typeSlug)
+		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl))
 	query = applyVisibilityScope(query, scope, tbl)
 	if cursor != "" {
 		cd, err := decodeCursor(cursor)
@@ -441,7 +487,6 @@ func (r *ResourceRepository) findAllByFieldFromProjection(
 		Select(fmt.Sprintf("%s.id, %s.type_slug, resources.data, %s.status, resources.created_by, resources.account_id, %s.sequence_no, %s.created_at",
 			tbl, tbl, tbl, tbl, tbl)).
 		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
-		Where(tbl+".type_slug = ?", typeSlug).
 		Where(tbl+"."+colName+" = ? ", fieldValue).
 		Find(&rows).Error
 	if err != nil {
@@ -527,8 +572,7 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 
 	qualifiedCol := tbl + "." + colName
 	query := r.db.WithContext(ctx).Table(tableName).Select(selectCols).
-		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
-		Where(tbl+".type_slug = ?", typeSlug)
+		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl))
 	query = applyVisibilityScope(query, scope, tbl)
 
 	for _, f := range filters {
@@ -634,7 +678,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 		}
 	}
 
-	query := r.db.WithContext(ctx).Table(tableName).Where("type_slug = ?", typeSlug)
+	query := r.db.WithContext(ctx).Table(tableName)
 	query = applyVisibilityScope(query, scope, "")
 
 	for _, f := range filters {
@@ -774,20 +818,44 @@ func (r *ResourceRepository) UpdateData(
 	}
 
 	typeSlug := identity.ExtractResourceTypeSlug(id)
-	if typeSlug != "" && r.projMgr.HasProjectionTable(typeSlug) {
-		tableName := r.projMgr.TableName(typeSlug)
-		row := map[string]any{}
-		if sequenceNo > 0 {
-			row["sequence_no"] = sequenceNo
+	if typeSlug == "" {
+		return nil
+	}
+	// Update own projection table.
+	if r.projMgr.HasProjectionTable(typeSlug) {
+		if err := r.updateDataInProjection(ctx, id, data, sequenceNo, typeSlug); err != nil {
+			return err
 		}
-		ldCtx := r.projMgr.Context(typeSlug)
-		ExtractFlatColumns(data, ldCtx, row)
-		if len(row) > 0 {
-			if err := r.db.WithContext(ctx).Table(tableName).
-				Where("id = ?", id).Updates(row).Error; err != nil {
-				return fmt.Errorf("failed to update projection data in %s: %w", tableName, err)
-			}
+	}
+	// Dual-projection: also update ancestor tables.
+	for _, ancestorSlug := range r.projMgr.AncestorSlugs(typeSlug) {
+		if !r.projMgr.HasProjectionTable(ancestorSlug) {
+			continue
 		}
+		if err := r.updateDataInProjection(ctx, id, data, sequenceNo, ancestorSlug); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ResourceRepository) updateDataInProjection(
+	ctx context.Context, id string, data json.RawMessage, sequenceNo int, targetSlug string,
+) error {
+	tableName := r.projMgr.TableName(targetSlug)
+	row := map[string]any{}
+	if sequenceNo > 0 {
+		row["sequence_no"] = sequenceNo
+	}
+	ldCtx := r.projMgr.Context(targetSlug)
+	ExtractFlatColumns(data, ldCtx, row)
+	r.dropMissingColumns(tableName, row)
+	if len(row) == 0 {
+		return nil
+	}
+	if err := r.db.WithContext(ctx).Table(tableName).
+		Where("id = ?", id).Updates(row).Error; err != nil {
+		return fmt.Errorf("failed to update projection data in %s: %w", tableName, err)
 	}
 	return nil
 }
@@ -802,28 +870,18 @@ func (r *ResourceRepository) Update(
 	}
 	// Also update the projection table if one exists.
 	if r.projMgr.HasProjectionTable(entity.TypeSlug()) {
-		if err := r.updateProjection(ctx, entity); err != nil {
+		if err := r.updateProjectionBySlug(ctx, entity, entity.TypeSlug()); err != nil {
 			return err
 		}
 	}
-	return nil
-}
-
-func (r *ResourceRepository) updateProjection(
-	ctx context.Context, entity *entities.Resource,
-) error {
-	tableName := r.projMgr.TableName(entity.TypeSlug())
-	row := map[string]any{
-		"status":      entity.Status(),
-		"sequence_no": entity.GetSequenceNo(),
-		"updated_at":  time.Now(),
-	}
-	ldCtx := r.projMgr.Context(entity.TypeSlug())
-	ExtractFlatColumns(entity.Data(), ldCtx, row)
-	err := r.db.WithContext(ctx).Table(tableName).
-		Where("id = ?", entity.GetID()).Updates(row).Error
-	if err != nil {
-		return fmt.Errorf("failed to update resource in %s: %w", tableName, err)
+	// Dual-projection: also update ancestor tables.
+	for _, ancestorSlug := range r.projMgr.AncestorSlugs(entity.TypeSlug()) {
+		if !r.projMgr.HasProjectionTable(ancestorSlug) {
+			continue
+		}
+		if err := r.updateProjectionBySlug(ctx, entity, ancestorSlug); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -834,20 +892,31 @@ func (r *ResourceRepository) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete resource: %w", err)
 	}
-	// Also delete from the projection table if one exists.
+	// Also delete from the projection table and ancestor tables.
 	typeSlug := identity.ExtractResourceTypeSlug(id)
-	if typeSlug != "" && r.projMgr.HasProjectionTable(typeSlug) {
-		if err := r.deleteFromProjection(ctx, id, typeSlug); err != nil {
+	if typeSlug == "" {
+		return nil
+	}
+	if r.projMgr.HasProjectionTable(typeSlug) {
+		if err := r.deleteFromProjectionTable(ctx, id, typeSlug); err != nil {
+			return err
+		}
+	}
+	for _, ancestorSlug := range r.projMgr.AncestorSlugs(typeSlug) {
+		if !r.projMgr.HasProjectionTable(ancestorSlug) {
+			continue
+		}
+		if err := r.deleteFromProjectionTable(ctx, id, ancestorSlug); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *ResourceRepository) deleteFromProjection(
-	ctx context.Context, id, typeSlug string,
+func (r *ResourceRepository) deleteFromProjectionTable(
+	ctx context.Context, id, targetSlug string,
 ) error {
-	tableName := r.projMgr.TableName(typeSlug)
+	tableName := r.projMgr.TableName(targetSlug)
 	err := r.db.WithContext(ctx).Table(tableName).
 		Where("id = ?", id).Delete(map[string]any{}).Error
 	if err != nil {
