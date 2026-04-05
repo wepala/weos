@@ -98,6 +98,11 @@ func NewMCPServer(
 	if isNilInterface(resourceService) {
 		return nil, fmt.Errorf("resourceService must not be nil")
 	}
+	if len(enabledServices) > 0 {
+		if err := ValidateServiceNames(enabledServices); err != nil {
+			return nil, err
+		}
+	}
 
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "weos",
