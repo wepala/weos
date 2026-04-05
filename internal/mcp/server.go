@@ -124,7 +124,7 @@ func NewMCPServer(
 }
 
 // Run starts the MCP server on stdio, registering only the tool groups listed in enabledServices.
-// If enabledServices is empty, all tool groups are registered.
+// If enabledServices is nil or empty, all tool groups are registered.
 func Run(enabledServices []string) error {
 	cfg := loadConfig()
 
