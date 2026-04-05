@@ -19,7 +19,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"path"
 	"sort"
+	"strings"
 	"sync"
 
 	"weos/domain/entities"
@@ -158,6 +160,35 @@ func (d PresetDefinition) clone() PresetDefinition {
 		d.Sidebar = &s
 	}
 	return d
+}
+
+// ScreenManifest walks the Screens FS and returns a map of typeSlug to screen
+// filenames. Returns nil if Screens is nil or contains no .mjs files.
+// The expected directory structure is <typeSlug>/<ScreenName>.mjs.
+func (d PresetDefinition) ScreenManifest() map[string][]string {
+	if d.Screens == nil {
+		return nil
+	}
+	manifest := make(map[string][]string)
+	_ = fs.WalkDir(d.Screens, ".", func(p string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil //nolint:nilerr // skip unreadable entries
+		}
+		if !strings.HasSuffix(p, ".mjs") {
+			return nil
+		}
+		dir := path.Dir(p)
+		if dir == "." {
+			return nil // files must be under a type-slug directory
+		}
+		slug := dir
+		manifest[slug] = append(manifest[slug], path.Base(p))
+		return nil
+	})
+	if len(manifest) == 0 {
+		return nil
+	}
+	return manifest
 }
 
 // Behaviors returns a merged ResourceBehaviorRegistry from all registered presets.

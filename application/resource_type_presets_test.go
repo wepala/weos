@@ -17,7 +17,9 @@ package application_test
 
 import (
 	"encoding/json"
+	"io/fs"
 	"testing"
+	"testing/fstest"
 
 	"weos/application"
 	"weos/application/presets"
@@ -176,5 +178,148 @@ func TestPresets_NoReservedSlugCollisions(t *testing.T) {
 				t.Fatalf("preset %q type slug %q collides with reserved API route", d.Name, pt.Slug)
 			}
 		}
+	}
+}
+
+func TestScreenManifest_NilScreens(t *testing.T) {
+	t.Parallel()
+	def := application.PresetDefinition{Name: "test"}
+	manifest := def.ScreenManifest()
+	if manifest != nil {
+		t.Fatalf("expected nil manifest for nil Screens, got %v", manifest)
+	}
+}
+
+func TestScreenManifest_EmptyFS(t *testing.T) {
+	t.Parallel()
+	emptyFS := fstest.MapFS{}
+	def := application.PresetDefinition{Name: "test", Screens: emptyFS}
+	manifest := def.ScreenManifest()
+	if manifest != nil {
+		t.Fatalf("expected nil manifest for empty FS, got %v", manifest)
+	}
+}
+
+func TestScreenManifest_MultipleTypeSlugs(t *testing.T) {
+	t.Parallel()
+	// FS is expected to be rooted at the type-slug level (preset uses fs.Sub).
+	testFS := fstest.MapFS{
+		"task/Checklist.mjs":    {Data: []byte("export default {}")},
+		"task/KanbanBoard.mjs":  {Data: []byte("export default {}")},
+		"project/Timeline.mjs":  {Data: []byte("export default {}")},
+		"project/readme.txt":    {Data: []byte("not a screen")},
+	}
+	def := application.PresetDefinition{Name: "test", Screens: testFS}
+	manifest := def.ScreenManifest()
+
+	if len(manifest) != 2 {
+		t.Fatalf("expected 2 type slugs, got %d: %v", len(manifest), manifest)
+	}
+	taskFiles := manifest["task"]
+	if len(taskFiles) != 2 {
+		t.Fatalf("expected 2 task screens, got %d", len(taskFiles))
+	}
+	projectFiles := manifest["project"]
+	if len(projectFiles) != 1 {
+		t.Fatalf("expected 1 project screen, got %d", len(projectFiles))
+	}
+	if projectFiles[0] != "Timeline.mjs" {
+		t.Fatalf("expected Timeline.mjs, got %s", projectFiles[0])
+	}
+}
+
+func TestScreenManifest_RootLevelFilesIgnored(t *testing.T) {
+	t.Parallel()
+	testFS := fstest.MapFS{
+		"orphan.mjs": {Data: []byte("export default {}")},
+	}
+	def := application.PresetDefinition{Name: "test", Screens: testFS}
+	manifest := def.ScreenManifest()
+	if manifest != nil {
+		t.Fatalf("expected nil manifest for root-level files only, got %v", manifest)
+	}
+}
+
+func TestPresets_TasksHasScreens(t *testing.T) {
+	t.Parallel()
+	d, ok := testRegistry().Get("tasks")
+	if !ok {
+		t.Fatal("expected to find 'tasks' preset")
+	}
+	if d.Screens == nil {
+		t.Fatal("tasks preset should have Screens FS")
+	}
+	manifest := d.ScreenManifest()
+	if manifest == nil {
+		t.Fatal("tasks preset should have non-nil screen manifest")
+	}
+	taskScreens, ok := manifest["task"]
+	if !ok {
+		t.Fatal("expected task screens in manifest")
+	}
+	found := false
+	for _, f := range taskScreens {
+		if f == "Checklist.mjs" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected Checklist.mjs in task screens, got %v", taskScreens)
+	}
+
+	// Verify the file is actually readable from the FS (rooted at screens/dist/).
+	f, err := d.Screens.Open("task/Checklist.mjs")
+	if err != nil {
+		t.Fatalf("failed to open Checklist.mjs from Screens FS: %v", err)
+	}
+	_ = f.Close()
+}
+
+func TestPresets_PresetsWithoutScreensHaveNilManifest(t *testing.T) {
+	t.Parallel()
+	for _, d := range testRegistry().List() {
+		if d.Name == "tasks" {
+			continue // tasks has screens
+		}
+		manifest := d.ScreenManifest()
+		if manifest != nil {
+			t.Fatalf("preset %q should have nil screen manifest, got %v", d.Name, manifest)
+		}
+	}
+}
+
+func TestScreenManifest_NonMjsFilesIgnored(t *testing.T) {
+	t.Parallel()
+	testFS := fstest.MapFS{
+		"task/List.mjs":      {Data: []byte("export default {}")},
+		"task/styles.css":    {Data: []byte(".foo{}")},
+		"task/README.md":     {Data: []byte("readme")},
+	}
+	def := application.PresetDefinition{Name: "test", Screens: testFS}
+	manifest := def.ScreenManifest()
+	if len(manifest["task"]) != 1 {
+		t.Fatalf("expected 1 .mjs file, got %d: %v", len(manifest["task"]), manifest["task"])
+	}
+}
+
+// Ensure the ScreenManifest method works with fs.Sub (simulating how presets
+// strip the screens/dist/ prefix before storing the FS).
+func TestScreenManifest_WithSubFS(t *testing.T) {
+	t.Parallel()
+	base := fstest.MapFS{
+		"screens/dist/widget/Dashboard.mjs": {Data: []byte("export default {}")},
+	}
+	sub, err := fs.Sub(base, "screens/dist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := application.PresetDefinition{Name: "test", Screens: sub}
+	manifest := def.ScreenManifest()
+	if manifest == nil {
+		t.Fatal("expected non-nil manifest")
+	}
+	if len(manifest["widget"]) != 1 {
+		t.Fatalf("expected 1 widget screen, got %v", manifest)
 	}
 }
