@@ -19,7 +19,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
+	"weos/infrastructure/models"
 	"weos/pkg/utils"
 
 	"gorm.io/driver/sqlite"
@@ -339,5 +341,196 @@ func TestExtractFlatColumns(t *testing.T) {
 	}
 	if _, ok := row["metadata"]; !ok {
 		t.Error("expected metadata column")
+	}
+}
+
+func newTestDBWithTypes(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&models.ResourceType{}); err != nil {
+		t.Fatalf("failed to migrate resource_types: %v", err)
+	}
+	return db
+}
+
+func TestAncestorSlugs_SingleLevel(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	parentCtx := json.RawMessage(`{"@vocab":"https://schema.org/","weos:abstract":true}`)
+	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"financial-instrument"}`)
+
+	if err := pm.EnsureTable(ctx, "financial-instrument", nil, parentCtx); err != nil {
+		t.Fatalf("EnsureTable parent: %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "loan", nil, childCtx); err != nil {
+		t.Fatalf("EnsureTable child: %v", err)
+	}
+
+	ancestors := pm.AncestorSlugs("loan")
+	if len(ancestors) != 1 || ancestors[0] != "financial-instrument" {
+		t.Fatalf("AncestorSlugs(loan) = %v, want [financial-instrument]", ancestors)
+	}
+}
+
+func TestAncestorSlugs_MultiLevel(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	ctxC := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	ctxB := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"type-c"}`)
+	ctxA := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"type-b"}`)
+
+	if err := pm.EnsureTable(ctx, "type-c", nil, ctxC); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "type-b", nil, ctxB); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "type-a", nil, ctxA); err != nil {
+		t.Fatal(err)
+	}
+
+	ancestors := pm.AncestorSlugs("type-a")
+	if len(ancestors) != 2 || ancestors[0] != "type-b" || ancestors[1] != "type-c" {
+		t.Fatalf("AncestorSlugs(type-a) = %v, want [type-b, type-c]", ancestors)
+	}
+}
+
+func TestAncestorSlugs_NoParent(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	if err := pm.EnsureTable(ctx, "product", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	ancestors := pm.AncestorSlugs("product")
+	if len(ancestors) != 0 {
+		t.Fatalf("AncestorSlugs(product) = %v, want nil", ancestors)
+	}
+}
+
+func TestAncestorSlugs_CircularBreaks(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	ctxA := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"type-b"}`)
+	ctxB := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"type-a"}`)
+
+	if err := pm.EnsureTable(ctx, "type-a", nil, ctxA); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "type-b", nil, ctxB); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not infinite loop — visited set breaks the cycle.
+	ancestors := pm.AncestorSlugs("type-a")
+	if len(ancestors) != 1 || ancestors[0] != "type-b" {
+		t.Fatalf("AncestorSlugs(type-a) = %v, want [type-b]", ancestors)
+	}
+}
+
+func TestEnsureTable_EachTypeGetsOwnTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	abstractCtx := json.RawMessage(`{"@vocab":"https://schema.org/","weos:abstract":true}`)
+	parentSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"instrument"}`)
+	childSchema := json.RawMessage(`{"type":"object","properties":{` +
+		`"name":{"type":"string"},"interestRate":{"type":"number"}}}`)
+
+	if err := pm.EnsureTable(ctx, "instrument", parentSchema, abstractCtx); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "loan", childSchema, childCtx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both types should have their OWN tables (not shared).
+	if pm.TableName("instrument") != "instruments" {
+		t.Fatalf("TableName(instrument) = %q", pm.TableName("instrument"))
+	}
+	if pm.TableName("loan") != "loans" {
+		t.Fatalf("TableName(loan) = %q, want loans", pm.TableName("loan"))
+	}
+
+	// Verify both tables exist and have their own columns.
+	if err := db.Exec(`INSERT INTO instruments (id, type_slug, status, name)
+		VALUES ('i1', 'instrument', 'active', 'Test')`).Error; err != nil {
+		t.Fatalf("insert into instruments: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO loans (id, type_slug, status, name, interest_rate)
+		VALUES ('l1', 'loan', 'active', 'Home Loan', 3.5)`).Error; err != nil {
+		t.Fatalf("insert into loans: %v", err)
+	}
+}
+
+func TestEnsureExistingTables_AllTypesGetTables(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithTypes(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	db.Create(&models.ResourceType{
+		ID: "1", Name: "Shape", Slug: "shape", Status: "active",
+		Context: `{"@vocab":"https://schema.org/","weos:abstract":true}`,
+		Schema:  `{"type":"object","properties":{"color":{"type":"string"}}}`,
+	})
+	db.Create(&models.ResourceType{
+		ID: "2", Name: "Circle", Slug: "circle", Status: "active",
+		Context: `{"@vocab":"https://schema.org/","rdfs:subClassOf":"shape"}`,
+		Schema:  `{"type":"object","properties":{"color":{"type":"string"},"radius":{"type":"number"}}}`,
+	})
+
+	if err := pm.EnsureExistingTables(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if !pm.HasProjectionTable("shape") {
+		t.Fatal("shape should have projection table")
+	}
+	if !pm.HasProjectionTable("circle") {
+		t.Fatal("circle should have its own projection table")
+	}
+
+	// Verify ancestor chain.
+	ancestors := pm.AncestorSlugs("circle")
+	if len(ancestors) != 1 || ancestors[0] != "shape" {
+		t.Fatalf("AncestorSlugs(circle) = %v, want [shape]", ancestors)
+	}
+}
+
+func TestEnsureExistingTables_SkipsDeletedTypes(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithTypes(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	now := time.Now()
+	db.Create(&models.ResourceType{
+		ID: "1", Name: "Deleted", Slug: "deleted-type", Status: "active",
+		Schema:    `{"type":"object","properties":{"name":{"type":"string"}}}`,
+		DeletedAt: &now,
+	})
+
+	if err := pm.EnsureExistingTables(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if pm.HasProjectionTable("deleted-type") {
+		t.Fatal("deleted type should not have a projection table")
 	}
 }

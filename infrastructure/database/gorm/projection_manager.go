@@ -18,6 +18,7 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -38,7 +39,8 @@ type columnDef struct {
 	SQLType string
 }
 
-// standardColumns are always present in every projection table.
+// standardColumnNames lists column names already part of the projection table DDL
+// and should be skipped when extracting columns from JSON Schema.
 var standardColumnNames = map[string]bool{
 	"id":          true,
 	"type_slug":   true,
@@ -61,13 +63,16 @@ var jsonLDKeys = map[string]bool{
 type tableInfo struct {
 	name    string
 	context json.RawMessage
+	columns map[string]bool // cached column names for fast lookup
 }
 
 type projectionManager struct {
-	db        *gorm.DB
-	logger    entities.Logger
-	tables    sync.Map // slug → tableInfo
-	reverseRe sync.Map // targetTypeSlug → []repositories.ReverseReference
+	db          *gorm.DB
+	logger      entities.Logger
+	tables      sync.Map   // slug → tableInfo
+	reverseRe   sync.Map   // targetTypeSlug → []repositories.ReverseReference
+	reverseReMu sync.Mutex // guards reverseRe writes
+	parentOf    sync.Map   // slug → parentSlug (from rdfs:subClassOf, for ancestor chain)
 }
 
 type ProjectionManagerResult struct {
@@ -103,18 +108,39 @@ func (pm *projectionManager) EnsureTable(
 		return fmt.Errorf("failed to add columns to %q: %w", tableName, err)
 	}
 
-	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext})
+	colSet := make(map[string]bool, len(columns)+len(standardColumnNames))
+	for col := range standardColumnNames {
+		if col != "data" { // data lives in resources table, not projection
+			colSet[col] = true
+		}
+	}
+	for _, col := range columns {
+		colSet[col.Name] = true
+	}
+	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
+	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
+		pm.parentOf.Store(slug, parentSlug)
+	} else {
+		pm.parentOf.Delete(slug)
+	}
 	pm.registerReverseReferences(slug, schema)
 	return nil
 }
 
+// HasProjectionTable reports whether a projection table exists. Cached entries are not
+// invalidated on type deletion; this is acceptable because type deletion is rare and
+// projection tables are retained even after the type is soft-deleted (for data access).
 func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	if _, ok := pm.tables.Load(slug); ok {
 		return true
 	}
-	// Lazy registration: another process may have created the type after startup.
+	// Lazy creation: another process may have created the type after startup.
 	var rt models.ResourceType
-	if err := pm.db.Where("slug = ?", slug).First(&rt).Error; err != nil {
+	if err := pm.db.Where("slug = ? AND deleted_at IS NULL", slug).First(&rt).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			pm.logger.Warn(context.Background(), "failed to look up resource type for projection",
+				"slug", slug, "error", err)
+		}
 		return false
 	}
 	var schema json.RawMessage
@@ -126,6 +152,8 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 		ldContext = json.RawMessage(rt.Context)
 	}
 	if err := pm.EnsureTable(context.Background(), slug, schema, ldContext); err != nil {
+		pm.logger.Warn(context.Background(), "failed to lazily create projection table",
+			"slug", slug, "error", err)
 		return false
 	}
 	return true
@@ -149,14 +177,41 @@ func (pm *projectionManager) Context(slug string) json.RawMessage {
 	return nil
 }
 
+func (pm *projectionManager) HasColumn(slug, column string) bool {
+	if v, ok := pm.tables.Load(slug); ok {
+		if info, ok := v.(tableInfo); ok {
+			return info.columns[column]
+		}
+	}
+	return false
+}
+
 func (pm *projectionManager) UpdateColumn(ctx context.Context, typeSlug, resourceID, column string, value any) error {
 	if !pm.HasProjectionTable(typeSlug) {
 		return nil
 	}
 	tableName := pm.TableName(typeSlug)
-	return pm.db.WithContext(ctx).Table(tableName).
-		Where("id = ?", resourceID).
-		Update(column, value).Error
+	if err := pm.db.WithContext(ctx).Table(tableName).
+		Where("id = ?", resourceID).Update(column, value).Error; err != nil {
+		return err
+	}
+	// Propagate to ancestor tables if the column exists there.
+	// If the ancestor row doesn't exist (e.g., ancestor table added after resource creation),
+	// the update is a no-op (0 rows affected), which is acceptable for display value propagation.
+	for _, ancestorSlug := range pm.AncestorSlugs(typeSlug) {
+		if !pm.HasProjectionTable(ancestorSlug) {
+			continue
+		}
+		if !pm.HasColumn(ancestorSlug, column) {
+			continue
+		}
+		aTable := pm.TableName(ancestorSlug)
+		if err := pm.db.WithContext(ctx).Table(aTable).
+			Where("id = ?", resourceID).Update(column, value).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (pm *projectionManager) UpdateColumnByFK(
@@ -174,10 +229,34 @@ func (pm *projectionManager) UpdateColumnByFK(
 func (pm *projectionManager) ReverseReferences(targetTypeSlug string) []repositories.ReverseReference {
 	if v, ok := pm.reverseRe.Load(targetTypeSlug); ok {
 		if refs, ok := v.([]repositories.ReverseReference); ok {
-			return refs
+			cp := make([]repositories.ReverseReference, len(refs))
+			copy(cp, refs)
+			return cp
 		}
 	}
 	return nil
+}
+
+// AncestorSlugs returns the ordered chain of ancestor type slugs by walking
+// rdfs:subClassOf relationships cached during EnsureTable.
+func (pm *projectionManager) AncestorSlugs(slug string) []string {
+	var chain []string
+	visited := map[string]bool{slug: true}
+	current := slug
+	for {
+		v, ok := pm.parentOf.Load(current)
+		if !ok {
+			break
+		}
+		parent, ok := v.(string)
+		if !ok || parent == "" || visited[parent] {
+			break
+		}
+		visited[parent] = true
+		chain = append(chain, parent)
+		current = parent
+	}
+	return chain
 }
 
 // registerReverseReferences parses a schema for x-resource-type properties and
@@ -213,35 +292,39 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 			DisplayProperty: displayProp,
 		}
 
-		// Append to existing slice or create new.
+		// Append using copy-on-write under lock to prevent TOCTOU races and
+		// avoid data races with concurrent readers of ReverseReferences().
+		pm.reverseReMu.Lock()
 		existing, _ := pm.reverseRe.Load(prop.XResourceType)
-		var refs []repositories.ReverseReference
+		var old []repositories.ReverseReference
 		if existing != nil {
-			refs = existing.([]repositories.ReverseReference)
+			old = existing.([]repositories.ReverseReference)
 		}
-		// Avoid duplicates on re-registration.
 		found := false
-		for _, r := range refs {
+		for _, r := range old {
 			if r.TypeSlug == ref.TypeSlug && r.FKColumn == ref.FKColumn {
 				found = true
 				break
 			}
 		}
 		if !found {
-			refs = append(refs, ref)
-			pm.reverseRe.Store(prop.XResourceType, refs)
+			updated := make([]repositories.ReverseReference, len(old)+1)
+			copy(updated, old)
+			updated[len(old)] = ref
+			pm.reverseRe.Store(prop.XResourceType, updated)
 		}
+		pm.reverseReMu.Unlock()
 	}
 }
 
 func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 	var types []models.ResourceType
-	if err := pm.db.WithContext(ctx).Find(&types).Error; err != nil {
+	if err := pm.db.WithContext(ctx).
+		Where("deleted_at IS NULL").Find(&types).Error; err != nil {
 		return fmt.Errorf("failed to load existing resource types: %w", err)
 	}
-
 	for _, rt := range types {
-		schema := json.RawMessage(nil)
+		var schema json.RawMessage
 		if rt.Schema != "" {
 			schema = json.RawMessage(rt.Schema)
 		}
@@ -249,11 +332,8 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 		if rt.Context != "" {
 			ldContext = json.RawMessage(rt.Context)
 		}
-		if jsonld.IsAbstract(ldContext) {
-			continue
-		}
 		if err := pm.EnsureTable(ctx, rt.Slug, schema, ldContext); err != nil {
-			pm.logger.Error(ctx, "failed to ensure projection table for existing type",
+			pm.logger.Error(ctx, "failed to ensure projection table",
 				"slug", rt.Slug, "error", err)
 		}
 	}

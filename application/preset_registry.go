@@ -90,28 +90,28 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 }
 
 // MustAdd registers a preset and panics if the definition is invalid.
-// Use for compile-time registration of known-good preset data.
+// Use for init-time registration of known-good preset data.
 func (r *PresetRegistry) MustAdd(def PresetDefinition) {
 	if err := r.Add(def); err != nil {
 		panic(fmt.Sprintf("preset registration failed: %v", err))
 	}
 }
 
-// Get returns a preset by name.
+// Get returns a preset by name. The returned value is a deep copy safe to mutate.
 func (r *PresetRegistry) Get(name string) (PresetDefinition, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	def, ok := r.presets[name]
-	return def, ok
+	return def.clone(), ok
 }
 
-// List returns all registered presets sorted by name.
+// List returns all registered presets sorted by name. Returned values are deep copies.
 func (r *PresetRegistry) List() []PresetDefinition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make([]PresetDefinition, 0, len(r.presets))
 	for _, def := range r.presets {
-		result = append(result, def)
+		result = append(result, def.clone())
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name < result[j].Name
@@ -119,8 +119,50 @@ func (r *PresetRegistry) List() []PresetDefinition {
 	return result
 }
 
+// clone returns a deep copy of the definition, so callers cannot mutate registry internals.
+func (d PresetDefinition) clone() PresetDefinition {
+	if d.Types != nil {
+		types := make([]PresetResourceType, len(d.Types))
+		for i, t := range d.Types {
+			types[i] = t
+			if t.Context != nil {
+				types[i].Context = append(json.RawMessage(nil), t.Context...)
+			}
+			if t.Schema != nil {
+				types[i].Schema = append(json.RawMessage(nil), t.Schema...)
+			}
+		}
+		d.Types = types
+	}
+	if d.Behaviors != nil {
+		behaviors := make(map[string]entities.ResourceBehavior, len(d.Behaviors))
+		for k, v := range d.Behaviors {
+			behaviors[k] = v
+		}
+		d.Behaviors = behaviors
+	}
+	if d.Sidebar != nil {
+		s := *d.Sidebar
+		if s.HiddenSlugs != nil {
+			hs := make([]string, len(s.HiddenSlugs))
+			copy(hs, s.HiddenSlugs)
+			s.HiddenSlugs = hs
+		}
+		if s.MenuGroups != nil {
+			mg := make(map[string]string, len(s.MenuGroups))
+			for k, v := range s.MenuGroups {
+				mg[k] = v
+			}
+			s.MenuGroups = mg
+		}
+		d.Sidebar = &s
+	}
+	return d
+}
+
 // Behaviors returns a merged ResourceBehaviorRegistry from all registered presets.
-// Presets are processed in alphabetical order for deterministic conflict resolution.
+// Presets are processed in alphabetical order; if multiple presets declare a behavior
+// for the same slug, the last preset alphabetically wins (silent overwrite).
 func (r *PresetRegistry) Behaviors() ResourceBehaviorRegistry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

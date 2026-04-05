@@ -53,6 +53,16 @@ type ProjectionManager interface {
 	// ReverseReferences returns the list of resource types that reference a given target type.
 	// Each entry describes a FK column and its corresponding display column.
 	ReverseReferences(targetTypeSlug string) []ReverseReference
+
+	// HasColumn reports whether a projection table has a specific column.
+	// Uses the column set cached during EnsureTable for fast lookup without DB queries.
+	HasColumn(slug, column string) bool
+
+	// AncestorSlugs returns the ordered chain of ancestor type slugs for a type,
+	// derived from rdfs:subClassOf declarations cached during EnsureTable.
+	// For "loan" with subClassOf "financial-instrument", returns ["financial-instrument"].
+	// Returns nil for types with no parent. Circular references are safely broken.
+	AncestorSlugs(slug string) []string
 }
 
 // ReverseReference describes a resource type that references another via a FK column.
