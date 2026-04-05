@@ -45,7 +45,7 @@ test.describe("Project Detail — Task Checklist", () => {
     await input.fill("New checklist task");
     await input.press("Enter");
 
-    await expect(page.getByText("New checklist task")).toBeVisible();
+    await expect(checklist.getByText("New checklist task").first()).toBeVisible();
     await expect(checklist.locator(".ant-list-item")).toHaveCount(
       countBefore + 1
     );

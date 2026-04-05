@@ -85,9 +85,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var roleAccessRepo *gormdb.RoleResourceAccessRepository
 	var authzChecker *authcasbin.CasbinAuthorizationChecker
 
+	registry := presets.NewDefaultRegistry()
+
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(appCfg, presets.NewDefaultRegistry()),
+		application.Module(appCfg, registry),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&resourcePermService),
@@ -199,6 +201,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	presetHandler := handlers.NewResourceTypePresetHandler(resourceTypeService)
 	protected.GET("/resource-types/presets", presetHandler.List)
 	protected.POST("/resource-types/presets/:name", presetHandler.Install)
+
+	screenHandler := handlers.NewPresetScreenHandler(registry)
+	protected.GET("/resource-types/presets/:name/screens/*", screenHandler.Serve)
 
 	sidebarSettingsHandler := handlers.NewSidebarSettingsHandler(sidebarSettingsRepo, accountRepo, logger)
 	protected.GET("/settings/sidebar", sidebarSettingsHandler.Get)

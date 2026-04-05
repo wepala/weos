@@ -19,7 +19,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"path"
 	"sort"
+	"strings"
 	"sync"
 
 	"weos/domain/entities"
@@ -158,6 +160,45 @@ func (d PresetDefinition) clone() PresetDefinition {
 		d.Sidebar = &s
 	}
 	return d
+}
+
+// ScreenManifest walks the Screens FS and returns a map of typeSlug to screen
+// filenames. Returns nil if Screens is nil or contains no .mjs files.
+// Only files at exactly one level of nesting (<typeSlug>/<ScreenName>.mjs) are
+// included; deeper paths are ignored.
+func (d PresetDefinition) ScreenManifest() map[string][]string {
+	if d.Screens == nil {
+		return nil
+	}
+	manifest := make(map[string][]string)
+	// WalkDir error is intentionally not propagated: the Screens FS is an
+	// embedded filesystem whose contents are guaranteed at compile time.
+	// If WalkDir fails (e.g., root unreadable), manifest stays empty and
+	// the method returns nil — the same result as "no screens".
+	_ = fs.WalkDir(d.Screens, ".", func(p string, entry fs.DirEntry, err error) error { //nolint:errcheck
+		if err != nil || entry.IsDir() {
+			return nil //nolint:nilerr // skip unreadable entries
+		}
+		if !strings.HasSuffix(p, ".mjs") {
+			return nil
+		}
+		dir := path.Dir(p)
+		if dir == "." {
+			return nil // files must be under a type-slug directory
+		}
+		if strings.Contains(dir, "/") {
+			return nil // ignore nested paths; only <typeSlug>/<ScreenName>.mjs is supported
+		}
+		manifest[dir] = append(manifest[dir], path.Base(p))
+		return nil
+	})
+	if len(manifest) == 0 {
+		return nil
+	}
+	for slug := range manifest {
+		sort.Strings(manifest[slug])
+	}
+	return manifest
 }
 
 // Behaviors returns a merged ResourceBehaviorRegistry from all registered presets.

@@ -32,9 +32,10 @@ func NewResourceTypePresetHandler(service application.ResourceTypeService) *Reso
 }
 
 type presetResponse struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Types       []string `json:"types"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	Types       []string            `json:"types"`
+	Screens     map[string][]string `json:"screens,omitempty"`
 }
 
 func (h *ResourceTypePresetHandler) List(c echo.Context) error {
@@ -49,6 +50,7 @@ func (h *ResourceTypePresetHandler) List(c echo.Context) error {
 			Name:        d.Name,
 			Description: d.Description,
 			Types:       slugs,
+			Screens:     d.ScreenManifest(),
 		})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"data": out})
