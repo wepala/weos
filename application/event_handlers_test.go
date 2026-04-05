@@ -49,6 +49,8 @@ func (s *stubProjMgr) AncestorSlugs(slug string) []string {
 	return s.ancestorMap[slug]
 }
 
+func (s *stubProjMgr) HasColumn(_, _ string) bool { return false }
+
 func makeRT(slug, ctxJSON string) *entities.ResourceType {
 	rt := &entities.ResourceType{}
 	_ = rt.Restore("id-"+slug, slug, slug, "desc", "active",

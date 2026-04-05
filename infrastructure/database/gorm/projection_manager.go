@@ -63,6 +63,7 @@ var jsonLDKeys = map[string]bool{
 type tableInfo struct {
 	name    string
 	context json.RawMessage
+	columns map[string]bool // cached column names for fast lookup
 }
 
 type projectionManager struct {
@@ -107,7 +108,16 @@ func (pm *projectionManager) EnsureTable(
 		return fmt.Errorf("failed to add columns to %q: %w", tableName, err)
 	}
 
-	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext})
+	colSet := make(map[string]bool, len(columns)+len(standardColumnNames))
+	for col := range standardColumnNames {
+		if col != "data" { // data lives in resources table, not projection
+			colSet[col] = true
+		}
+	}
+	for _, col := range columns {
+		colSet[col.Name] = true
+	}
+	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
 	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
 		pm.parentOf.Store(slug, parentSlug)
 	}
@@ -162,6 +172,15 @@ func (pm *projectionManager) Context(slug string) json.RawMessage {
 	return nil
 }
 
+func (pm *projectionManager) HasColumn(slug, column string) bool {
+	if v, ok := pm.tables.Load(slug); ok {
+		if info, ok := v.(tableInfo); ok {
+			return info.columns[column]
+		}
+	}
+	return false
+}
+
 func (pm *projectionManager) UpdateColumn(ctx context.Context, typeSlug, resourceID, column string, value any) error {
 	if !pm.HasProjectionTable(typeSlug) {
 		return nil
@@ -176,10 +195,10 @@ func (pm *projectionManager) UpdateColumn(ctx context.Context, typeSlug, resourc
 		if !pm.HasProjectionTable(ancestorSlug) {
 			continue
 		}
-		aTable := pm.TableName(ancestorSlug)
-		if !pm.db.Migrator().HasColumn(aTable, column) {
+		if !pm.HasColumn(ancestorSlug, column) {
 			continue
 		}
+		aTable := pm.TableName(ancestorSlug)
 		if err := pm.db.WithContext(ctx).Table(aTable).
 			Where("id = ?", resourceID).Update(column, value).Error; err != nil {
 			return err

@@ -144,7 +144,7 @@ func (r *ResourceRepository) saveToProjection(
 	}
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
-	r.dropMissingColumns(tableName, row)
+	r.dropMissingColumns(targetSlug, row)
 	if err := r.db.WithContext(ctx).Table(tableName).Create(row).Error; err != nil {
 		return fmt.Errorf("failed to save resource to projection %s: %w", tableName, err)
 	}
@@ -152,6 +152,7 @@ func (r *ResourceRepository) saveToProjection(
 }
 
 // updateProjectionBySlug updates a resource's projection row in the table identified by targetSlug.
+// If the row doesn't exist (e.g., ancestor table created after initial save), falls back to insert.
 func (r *ResourceRepository) updateProjectionBySlug(
 	ctx context.Context, entity *entities.Resource, targetSlug string,
 ) error {
@@ -163,23 +164,27 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	}
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
-	r.dropMissingColumns(tableName, row)
-	if err := r.db.WithContext(ctx).Table(tableName).
-		Where("id = ?", entity.GetID()).Updates(row).Error; err != nil {
-		return fmt.Errorf("failed to update resource in %s: %w", tableName, err)
+	r.dropMissingColumns(targetSlug, row)
+	result := r.db.WithContext(ctx).Table(tableName).
+		Where("id = ?", entity.GetID()).Updates(row)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update resource in %s: %w", tableName, result.Error)
+	}
+	// If no row was updated, fall back to insert (ancestor row may not exist yet).
+	if result.RowsAffected == 0 {
+		return r.saveToProjection(ctx, entity, targetSlug)
 	}
 	return nil
 }
 
 // dropMissingColumns removes keys from row that don't exist as columns in the target table.
-// This prevents INSERT/UPDATE errors when dual-projecting to ancestor tables that don't
-// have child-specific columns.
-func (r *ResourceRepository) dropMissingColumns(tableName string, row map[string]any) {
+// Uses the column set cached in ProjectionManager for fast lookup without DB queries.
+func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[string]any) {
 	for col := range row {
 		if standardColumnNames[col] {
 			continue
 		}
-		if !r.db.Migrator().HasColumn(tableName, col) {
+		if !r.projMgr.HasColumn(targetSlug, col) {
 			delete(row, col)
 		}
 	}
@@ -275,8 +280,11 @@ func (r *ResourceRepository) findAllFromProjection(
 	sortBy, sortOrder := normalizeSortOptions(sort)
 	colName := utils.CamelToSnake(sortBy)
 
-	// Validate that the column exists; fall back to id.
-	if colName != "id" && !standardColumnNames[colName] {
+	// Validate that the column exists in the projection table; fall back to id.
+	// "data" is in standardColumnNames but lives in the resources table, not projection.
+	if colName == "data" {
+		colName = "id"
+	} else if colName != "id" && !standardColumnNames[colName] {
 		if !r.db.Migrator().HasColumn(tableName, colName) {
 			colName = "id"
 		}
@@ -555,7 +563,9 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	sortBy, sortOrder := normalizeSortOptions(sort)
 	colName := utils.CamelToSnake(sortBy)
 
-	if colName != "id" && !standardColumnNames[colName] {
+	if colName == "data" {
+		colName = "id"
+	} else if colName != "id" && !standardColumnNames[colName] {
 		if !r.db.Migrator().HasColumn(tableName, colName) {
 			colName = "id"
 		}
@@ -672,7 +682,9 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 	sortBy, sortOrder := normalizeSortOptions(sort)
 	colName := utils.CamelToSnake(sortBy)
 
-	if colName != "id" && !standardColumnNames[colName] {
+	if colName == "data" {
+		colName = "id"
+	} else if colName != "id" && !standardColumnNames[colName] {
 		if !r.db.Migrator().HasColumn(tableName, colName) {
 			colName = "id"
 		}
@@ -849,7 +861,7 @@ func (r *ResourceRepository) updateDataInProjection(
 	}
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(data, ldCtx, row)
-	r.dropMissingColumns(tableName, row)
+	r.dropMissingColumns(targetSlug, row)
 	if len(row) == 0 {
 		return nil
 	}
