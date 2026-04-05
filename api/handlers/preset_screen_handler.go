@@ -63,6 +63,9 @@ func (h *PresetScreenHandler) Serve(c echo.Context) error {
 	if !fs.ValidPath(filePath) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid path"})
 	}
+	if strings.Count(filePath, "/") != 1 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid screen path"})
+	}
 
 	f, err := preset.Screens.Open(filePath)
 	if err != nil {

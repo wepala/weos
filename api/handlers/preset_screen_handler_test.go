@@ -176,6 +176,25 @@ func TestPresetScreenHandler_Serve_NonMjsRejected(t *testing.T) {
 	}
 }
 
+func TestPresetScreenHandler_Serve_NestedPathRejected(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/api/resource-types/presets/tasks/screens/task/sub/deep.mjs", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("name", "*")
+	c.SetParamValues("tasks", "/task/sub/deep.mjs")
+
+	h := handlers.NewPresetScreenHandler(screenRegistry())
+	err := h.Serve(c)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for nested path, got %d", rec.Code)
+	}
+}
+
 func TestPresetScreenHandler_Serve_EmptyPath(t *testing.T) {
 	t.Parallel()
 	e := echo.New()

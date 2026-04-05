@@ -84,13 +84,11 @@ export function usePresetScreens() {
     let blobUrl: string | null = null
     try {
       const url = `/api/resource-types/presets/${entry.preset}/screens/${typeSlug}/${fileName}`
-      const response = await fetch(url)
-      if (!response.ok) {
-        console.warn(`[usePresetScreens] loadScreen HTTP ${response.status} for ${url}`)
+      const text = await $fetch<string>(url, { responseType: 'text' }).catch((err: any) => {
+        console.warn(`[usePresetScreens] loadScreen failed for ${url}:`, err?.statusCode || err)
         return null
-      }
-
-      const text = await response.text()
+      })
+      if (!text) return null
       const blob = new Blob([text], { type: 'text/javascript' })
       blobUrl = URL.createObjectURL(blob)
 
