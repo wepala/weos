@@ -31,6 +31,7 @@ import (
 
 	"go.uber.org/fx"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // genericSortableColumns are allowed for sorting in the generic resources table.
@@ -151,36 +152,41 @@ func (r *ResourceRepository) saveToProjection(
 	return nil
 }
 
-// updateProjectionBySlug updates a resource's projection row in the table identified by targetSlug.
-// If the row doesn't exist (e.g., ancestor table created after initial save), falls back to insert.
+// updateProjectionBySlug upserts a resource's projection row in the table identified by targetSlug.
+// Uses INSERT with ON CONFLICT to atomically handle both existing and missing rows.
 func (r *ResourceRepository) updateProjectionBySlug(
 	ctx context.Context, entity *entities.Resource, targetSlug string,
 ) error {
 	tableName := r.projMgr.TableName(targetSlug)
 	row := map[string]any{
+		"id":          entity.GetID(),
+		"type_slug":   entity.TypeSlug(),
 		"status":      entity.Status(),
+		"created_by":  entity.CreatedBy(),
+		"account_id":  entity.AccountID(),
 		"sequence_no": entity.GetSequenceNo(),
+		"created_at":  entity.CreatedAt(),
 		"updated_at":  time.Now(),
 	}
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
-	result := r.db.WithContext(ctx).Table(tableName).
-		Where("id = ?", entity.GetID()).Updates(row)
-	if result.Error != nil {
-		return fmt.Errorf("failed to update resource in %s: %w", tableName, result.Error)
+
+	// Build column list for ON CONFLICT UPDATE (all except id).
+	updateCols := make([]string, 0, len(row))
+	for col := range row {
+		if col != "id" {
+			updateCols = append(updateCols, col)
+		}
 	}
-	// RowsAffected==0 can mean row missing OR no-op update (values unchanged).
-	// Check existence before inserting to avoid duplicate PK errors.
-	if result.RowsAffected == 0 {
-		var count int64
-		if err := r.db.WithContext(ctx).Table(tableName).
-			Where("id = ?", entity.GetID()).Count(&count).Error; err != nil {
-			return fmt.Errorf("failed to check existence in %s: %w", tableName, err)
-		}
-		if count == 0 {
-			return r.saveToProjection(ctx, entity, targetSlug)
-		}
+
+	err := r.db.WithContext(ctx).Table(tableName).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id"}},
+			DoUpdates: clause.AssignmentColumns(updateCols),
+		}).Create(row).Error
+	if err != nil {
+		return fmt.Errorf("failed to upsert resource in %s: %w", tableName, err)
 	}
 	return nil
 }

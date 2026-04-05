@@ -65,6 +65,9 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Save(ctx, entity); err != nil {
 				return err
 			}
+			// ensureProjection is idempotent (CREATE TABLE IF NOT EXISTS).
+			// If it fails and the event is retried, repo.Save will fail with a
+			// duplicate key, which the event dispatcher treats as already-processed.
 			if err := ensureProjection(ctx, repo, projMgr, p.Slug, p.Schema, p.Context); err != nil {
 				logger.Error(ctx, "failed to ensure projection for type",
 					"slug", p.Slug, "error", err)
