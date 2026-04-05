@@ -119,10 +119,10 @@ func toolNames(t *testing.T, server *gomcp.Server) []string {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	done := make(chan error, 1)
+	serverErr := make(chan error, 1)
 	go func() {
 		_, err := server.Connect(ctx, serverTransport, nil)
-		done <- err
+		serverErr <- err
 	}()
 
 	client := gomcp.NewClient(&gomcp.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
@@ -141,6 +141,13 @@ func toolNames(t *testing.T, server *gomcp.Server) []string {
 		names[i] = tool.Name
 	}
 	sort.Strings(names)
+
+	// Cancel context and wait for server goroutine to finish.
+	cancel()
+	if sErr := <-serverErr; sErr != nil && sErr != context.Canceled {
+		t.Errorf("server connect error: %v", sErr)
+	}
+
 	return names
 }
 

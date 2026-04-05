@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/signal"
+	"reflect"
 	"strings"
 	"syscall"
 
@@ -91,10 +92,10 @@ func NewMCPServer(
 	resourceService application.ResourceService,
 	enabledServices []string,
 ) (*mcp.Server, error) {
-	if resourceTypeService == nil {
+	if isNilInterface(resourceTypeService) {
 		return nil, fmt.Errorf("resourceTypeService must not be nil")
 	}
-	if resourceService == nil {
+	if isNilInterface(resourceService) {
 		return nil, fmt.Errorf("resourceService must not be nil")
 	}
 
@@ -161,6 +162,15 @@ func Run(enabledServices []string) error {
 	_ = app.Stop(stopCtx)
 
 	return err
+}
+
+// isNilInterface returns true if v is nil or a typed-nil (interface wrapping a nil pointer).
+func isNilInterface(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	return rv.Kind() == reflect.Ptr && rv.IsNil()
 }
 
 func loadConfig() config.Config {

@@ -58,7 +58,7 @@ var serveCmd = &cobra.Command{
 }
 
 func init() {
-	serveCmd.Flags().Bool("mcp", true, "enable MCP server over HTTP at /mcp")
+	serveCmd.Flags().Bool("mcp", true, "enable MCP server over HTTP at /api/mcp")
 	serveViper.SetEnvPrefix("MCP")
 	serveViper.AutomaticEnv()
 	if err := serveViper.BindPFlag("enabled", serveCmd.Flags().Lookup("mcp")); err != nil {
