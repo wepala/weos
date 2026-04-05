@@ -84,28 +84,13 @@ func resolveEnabled(services []string) map[ServiceName]bool {
 	return enabled
 }
 
-// Run starts the MCP server, registering only the tool groups listed in enabledServices.
+// NewMCPServer creates a configured MCP server with the specified tool groups registered.
 // If enabledServices is empty, all tool groups are registered.
-func Run(enabledServices []string) error {
-	cfg := loadConfig()
-
-	var resourceTypeService application.ResourceTypeService
-	var resourceService application.ResourceService
-
-	app := fx.New(
-		fx.NopLogger,
-		application.Module(cfg, presets.NewDefaultRegistry()),
-		fx.Populate(&resourceTypeService),
-		fx.Populate(&resourceService),
-	)
-
-	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
-	defer startCancel()
-
-	if err := app.Start(startCtx); err != nil {
-		return fmt.Errorf("failed to start application: %w", err)
-	}
-
+func NewMCPServer(
+	resourceTypeService application.ResourceTypeService,
+	resourceService application.ResourceService,
+	enabledServices []string,
+) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "weos",
 		Title:   "WeOS MCP Server",
@@ -127,6 +112,33 @@ func Run(enabledServices []string) error {
 	if enabled[ServiceResource] {
 		registerResourceTools(server, resourceService)
 	}
+
+	return server
+}
+
+// Run starts the MCP server on stdio, registering only the tool groups listed in enabledServices.
+// If enabledServices is empty, all tool groups are registered.
+func Run(enabledServices []string) error {
+	cfg := loadConfig()
+
+	var resourceTypeService application.ResourceTypeService
+	var resourceService application.ResourceService
+
+	app := fx.New(
+		fx.NopLogger,
+		application.Module(cfg, presets.NewDefaultRegistry()),
+		fx.Populate(&resourceTypeService),
+		fx.Populate(&resourceService),
+	)
+
+	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+	defer startCancel()
+
+	if err := app.Start(startCtx); err != nil {
+		return fmt.Errorf("failed to start application: %w", err)
+	}
+
+	server := NewMCPServer(resourceTypeService, resourceService, enabledServices)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

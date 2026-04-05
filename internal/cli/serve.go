@@ -32,6 +32,7 @@ import (
 	"weos/domain/entities"
 	gormdb "weos/infrastructure/database/gorm"
 	"weos/internal/config"
+	mcpserver "weos/internal/mcp"
 	"weos/web"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -42,8 +43,11 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.uber.org/fx"
 )
+
+var serveViper = viper.New()
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -53,6 +57,10 @@ var serveCmd = &cobra.Command{
 }
 
 func init() {
+	serveCmd.Flags().Bool("mcp", true, "enable MCP server over HTTP at /mcp")
+	serveViper.SetEnvPrefix("MCP")
+	serveViper.AutomaticEnv()
+	_ = serveViper.BindPFlag("enabled", serveCmd.Flags().Lookup("mcp"))
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -237,6 +245,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.GET("/:typeSlug/:id", resourceHandler.Get)
 	protected.PUT("/:typeSlug/:id", resourceHandler.Update)
 	protected.DELETE("/:typeSlug/:id", resourceHandler.Delete)
+
+	if serveViper.GetBool("enabled") {
+		mcpHandler := mcpserver.NewHTTPHandler(resourceTypeService, resourceService)
+		e.Any("/mcp", echo.WrapHandler(mcpHandler))
+		fmt.Println("MCP server enabled at /mcp")
+	}
 
 	addr := fmt.Sprintf("%s:%d", appCfg.Server.Host, appCfg.Server.Port)
 
