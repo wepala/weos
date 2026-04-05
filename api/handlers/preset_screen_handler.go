@@ -39,9 +39,10 @@ func NewPresetScreenHandler(registry *application.PresetRegistry) *PresetScreenH
 	return &PresetScreenHandler{registry: registry}
 }
 
-// Serve handles GET /api/resource-types/presets/:name/screens/*filepath.
+// Serve handles GET /api/resource-types/presets/:name/screens/*.
 // It looks up the preset, opens the requested file from its Screens FS,
-// and serves it with appropriate headers. Only .mjs files are served.
+// and serves it with appropriate headers. Only .mjs files at exactly one
+// directory level (<typeSlug>/<ScreenName>.mjs) are served.
 func (h *PresetScreenHandler) Serve(c echo.Context) error {
 	name := c.Param("name")
 	preset, ok := h.registry.Get(name)
