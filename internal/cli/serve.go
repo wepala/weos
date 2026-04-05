@@ -18,6 +18,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,6 +33,7 @@ import (
 	"weos/domain/entities"
 	gormdb "weos/infrastructure/database/gorm"
 	"weos/internal/config"
+	mcpserver "weos/internal/mcp"
 	"weos/web"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -42,8 +44,11 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.uber.org/fx"
 )
+
+var serveViper = viper.New()
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -53,6 +58,12 @@ var serveCmd = &cobra.Command{
 }
 
 func init() {
+	serveCmd.Flags().Bool("mcp", true, "enable MCP server over HTTP at /api/mcp")
+	serveViper.SetEnvPrefix("MCP")
+	serveViper.AutomaticEnv()
+	if err := serveViper.BindPFlag("enabled", serveCmd.Flags().Lookup("mcp")); err != nil {
+		panic(fmt.Sprintf("failed to bind MCP flag: %v", err))
+	}
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -223,6 +234,21 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
 	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
 	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
+
+	// MCP routes — registered before dynamic catch-all
+	if serveViper.GetBool("enabled") {
+		mcpHandler, mcpErr := mcpserver.NewHTTPHandler(
+			resourceTypeService, resourceService, slog.Default(),
+		)
+		if mcpErr != nil {
+			return fmt.Errorf("failed to create MCP handler: %w", mcpErr)
+		}
+		protected.Any("/mcp", echo.WrapHandler(mcpHandler))
+		protected.Any("/mcp/*", echo.WrapHandler(mcpHandler))
+		logger.Info(context.Background(), "MCP server enabled", "path", "/api/mcp")
+	} else {
+		logger.Info(context.Background(), "MCP server disabled via configuration")
+	}
 
 	// Permission routes — registered before dynamic catch-all
 	permHandler := handlers.NewResourcePermissionHandler(resourcePermService)
