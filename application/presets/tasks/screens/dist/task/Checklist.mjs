@@ -17,6 +17,7 @@ export default {
       loading: true,
       hasMore: false,
       cursor: '',
+      error: null,
     }
   },
   computed: {
@@ -37,22 +38,37 @@ export default {
         const res = await fetch(
           `/api/${this.typeSlug}?cursor=${this.cursor}&limit=50`
         )
+        if (!res.ok) {
+          this.error = `Failed to load tasks (HTTP ${res.status})`
+          return
+        }
         const json = await res.json()
         this.items = [...this.items, ...(json.data || [])]
         this.hasMore = json.has_more || false
         this.cursor = json.cursor || ''
+      } catch (err) {
+        console.error('[Checklist] load failed:', err)
+        this.error = 'Failed to load tasks'
       } finally {
         this.loading = false
       }
     },
     async toggleStatus(item) {
-      const newStatus = item.status === 'done' ? 'todo' : 'done'
-      await fetch(`/api/${this.typeSlug}/${item.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...item, status: newStatus }),
-      })
+      const oldStatus = item.status
+      const newStatus = oldStatus === 'done' ? 'todo' : 'done'
       item.status = newStatus
+      try {
+        const res = await fetch(`/api/${this.typeSlug}/${item.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...item, status: newStatus }),
+        })
+        if (!res.ok) {
+          item.status = oldStatus
+        }
+      } catch {
+        item.status = oldStatus
+      }
     },
     priorityColor(priority) {
       const colors = { high: '#ff4d4f', medium: '#faad14', low: '#52c41a' }
@@ -63,6 +79,9 @@ export default {
     <div style="max-width: 720px;">
       <div v-if="loading && !items.length" style="text-align: center; padding: 48px">
         Loading...
+      </div>
+      <div v-else-if="error" style="text-align: center; padding: 48px; color: #ff4d4f">
+        {{ error }}
       </div>
       <template v-else>
         <div v-if="todoItems.length" style="margin-bottom: 24px">

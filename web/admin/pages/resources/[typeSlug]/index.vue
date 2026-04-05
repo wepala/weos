@@ -176,10 +176,12 @@ onMounted(async () => {
   if (!loaded.value) await fetchResourceTypes()
   await initReferenceFilters()
   await load()
-  await fetchManifest()
-  screens.value = getAvailableScreens(typeSlug).map(s => ({
-    file: s.file,
-    label: s.file.replace('.mjs', ''),
-  }))
+  const manifestOk = await fetchManifest()
+  if (manifestOk) {
+    screens.value = getAvailableScreens(typeSlug).map(s => ({
+      file: s.file,
+      label: s.file.replace('.mjs', ''),
+    }))
+  }
 })
 </script>
