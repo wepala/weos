@@ -100,16 +100,9 @@ func TestDualProjection_UpdatePropagates(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Update the resource.
+	// Update the resource with new data.
 	updated := makeTestResource(t, "urn:loan:002", "loan",
 		`{"name":"Updated Car Loan","interestRate":4.5}`)
-	if err := updated.Restore(
-		"urn:loan:002", "loan", "active",
-		json.RawMessage(`{"name":"Updated Car Loan","interestRate":4.5}`),
-		"user-1", "acct-1", time.Now(), 2,
-	); err != nil {
-		t.Fatal(err)
-	}
 	if err := repo.Update(ctx, updated); err != nil {
 		t.Fatalf("Update: %v", err)
 	}

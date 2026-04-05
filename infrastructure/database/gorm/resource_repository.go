@@ -101,6 +101,10 @@ func ProvideResourceRepository(params struct {
 	}, nil
 }
 
+// Save persists a resource to the canonical table and all projection tables.
+// Projection writes are not transactional by design: projections are eventually-consistent
+// read models that can be rebuilt from the event store. A partial failure leaves the
+// canonical resources table correct; projections self-heal on the next event replay.
 func (r *ResourceRepository) Save(
 	ctx context.Context, entity *entities.Resource,
 ) error {
@@ -172,10 +176,11 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
 
-	// Build column list for ON CONFLICT UPDATE (all except id).
+	// Build column list for ON CONFLICT UPDATE, excluding immutable fields.
+	immutable := map[string]bool{"id": true, "created_at": true, "created_by": true, "account_id": true}
 	updateCols := make([]string, 0, len(row))
 	for col := range row {
-		if col != "id" {
+		if !immutable[col] {
 			updateCols = append(updateCols, col)
 		}
 	}

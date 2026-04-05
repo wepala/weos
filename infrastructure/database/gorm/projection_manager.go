@@ -120,6 +120,8 @@ func (pm *projectionManager) EnsureTable(
 	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
 	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
 		pm.parentOf.Store(slug, parentSlug)
+	} else {
+		pm.parentOf.Delete(slug)
 	}
 	pm.registerReverseReferences(slug, schema)
 	return nil
