@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"sync"
 
@@ -189,8 +190,9 @@ func (pm *projectionManager) lazyRegisterSubtype(
 	if !jsonld.IsAbstract(parentCtx) {
 		return false
 	}
-	// Store sentinel to break potential circular recursion.
-	pm.childToParent.Store(childSlug, parentSlug)
+	// Store empty sentinel to break circular recursion. HasProjectionTable rejects
+	// empty parent slugs, so concurrent callers won't treat this as ready.
+	pm.childToParent.Store(childSlug, "")
 	if !pm.HasProjectionTable(parentSlug) {
 		pm.childToParent.Delete(childSlug)
 		return false
@@ -475,10 +477,12 @@ func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableNa
 	}
 
 	// Index on type_slug for efficient subtype queries on shared tables.
-	// Truncate index name to stay under Postgres' 63-byte identifier limit.
-	idxName := fmt.Sprintf("idx_%s_type_slug", tableName)
+	// Use hash suffix to avoid Postgres' 63-byte identifier limit and collisions.
+	h := fnv.New32a()
+	h.Write([]byte(tableName))
+	idxName := fmt.Sprintf("idx_%s_ts_%08x", tableName, h.Sum32())
 	if len(idxName) > 63 {
-		idxName = idxName[:63]
+		idxName = fmt.Sprintf("idx_ts_%08x", h.Sum32())
 	}
 	idxDDL := fmt.Sprintf(
 		"CREATE INDEX IF NOT EXISTS %s ON %s (type_slug)",
