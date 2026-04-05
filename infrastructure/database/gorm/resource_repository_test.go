@@ -3,6 +3,7 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -81,7 +82,7 @@ func TestDualProjection_SavePopulatesBothTables(t *testing.T) {
 	// Verify ancestor row has parent-schema columns but NOT child-only columns.
 	var instrRow map[string]any
 	repo.db.Table("instruments").Where("id = ?", "urn:loan:001").Take(&instrRow)
-	if instrRow["name"] != "Home Loan" {
+	if fmt.Sprint(instrRow["name"]) != "Home Loan" {
 		t.Fatalf("ancestor name = %v, want 'Home Loan'", instrRow["name"])
 	}
 	// interest_rate column should NOT exist in ancestor table.
@@ -110,7 +111,7 @@ func TestDualProjection_UpdatePropagates(t *testing.T) {
 	// Verify ancestor table has updated name.
 	var instrRow map[string]any
 	repo.db.Table("instruments").Where("id = ?", "urn:loan:002").Take(&instrRow)
-	if instrRow["name"] != "Updated Car Loan" {
+	if fmt.Sprint(instrRow["name"]) != "Updated Car Loan" {
 		t.Fatalf("ancestor name = %v, want 'Updated Car Loan'", instrRow["name"])
 	}
 }
