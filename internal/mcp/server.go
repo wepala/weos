@@ -69,7 +69,7 @@ func ValidateServiceNames(names []string) error {
 	return nil
 }
 
-// resolveEnabled returns a set of enabled services. If the input is empty, all services are enabled.
+// resolveEnabled returns a set of enabled services. If the input is nil or empty, all services are enabled.
 func resolveEnabled(services []string) map[ServiceName]bool {
 	enabled := make(map[ServiceName]bool, len(AllServices))
 	if len(services) == 0 {
@@ -85,12 +85,19 @@ func resolveEnabled(services []string) map[ServiceName]bool {
 }
 
 // NewMCPServer creates a configured MCP server with the specified tool groups registered.
-// If enabledServices is empty, all tool groups are registered.
+// If enabledServices is nil or empty, all tool groups are registered.
 func NewMCPServer(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
 	enabledServices []string,
-) *mcp.Server {
+) (*mcp.Server, error) {
+	if resourceTypeService == nil {
+		return nil, fmt.Errorf("resourceTypeService must not be nil")
+	}
+	if resourceService == nil {
+		return nil, fmt.Errorf("resourceService must not be nil")
+	}
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "weos",
 		Title:   "WeOS MCP Server",
@@ -113,7 +120,7 @@ func NewMCPServer(
 		registerResourceTools(server, resourceService)
 	}
 
-	return server
+	return server, nil
 }
 
 // Run starts the MCP server on stdio, registering only the tool groups listed in enabledServices.
@@ -138,12 +145,15 @@ func Run(enabledServices []string) error {
 		return fmt.Errorf("failed to start application: %w", err)
 	}
 
-	server := NewMCPServer(resourceTypeService, resourceService, enabledServices)
+	server, err := NewMCPServer(resourceTypeService, resourceService, enabledServices)
+	if err != nil {
+		return fmt.Errorf("failed to create MCP server: %w", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	err := server.Run(ctx, &mcp.StdioTransport{})
+	err = server.Run(ctx, &mcp.StdioTransport{})
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer stopCancel()

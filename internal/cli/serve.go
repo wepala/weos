@@ -18,6 +18,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -60,7 +61,9 @@ func init() {
 	serveCmd.Flags().Bool("mcp", true, "enable MCP server over HTTP at /mcp")
 	serveViper.SetEnvPrefix("MCP")
 	serveViper.AutomaticEnv()
-	_ = serveViper.BindPFlag("enabled", serveCmd.Flags().Lookup("mcp"))
+	if err := serveViper.BindPFlag("enabled", serveCmd.Flags().Lookup("mcp")); err != nil {
+		panic(fmt.Sprintf("failed to bind MCP flag: %v", err))
+	}
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -247,9 +250,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.DELETE("/:typeSlug/:id", resourceHandler.Delete)
 
 	if serveViper.GetBool("enabled") {
-		mcpHandler := mcpserver.NewHTTPHandler(resourceTypeService, resourceService)
+		mcpHandler, mcpErr := mcpserver.NewHTTPHandler(
+			resourceTypeService, resourceService, slog.Default(),
+		)
+		if mcpErr != nil {
+			return fmt.Errorf("failed to create MCP handler: %w", mcpErr)
+		}
 		e.Any("/mcp", echo.WrapHandler(mcpHandler))
-		fmt.Println("MCP server enabled at /mcp")
+		logger.Info(context.Background(), "MCP server enabled", "path", "/mcp")
+	} else {
+		logger.Info(context.Background(), "MCP server disabled via configuration")
 	}
 
 	addr := fmt.Sprintf("%s:%d", appCfg.Server.Host, appCfg.Server.Port)

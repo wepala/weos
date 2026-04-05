@@ -16,7 +16,10 @@
 package mcp
 
 import (
+	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"weos/application"
 
@@ -28,9 +31,16 @@ import (
 func NewHTTPHandler(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
-) http.Handler {
-	server := NewMCPServer(resourceTypeService, resourceService, nil)
+	logger *slog.Logger,
+) (http.Handler, error) {
+	server, err := NewMCPServer(resourceTypeService, resourceService, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP server: %w", err)
+	}
 	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
 		return server
-	}, nil)
+	}, &gomcp.StreamableHTTPOptions{
+		Logger:         logger,
+		SessionTimeout: 30 * time.Minute,
+	}), nil
 }
