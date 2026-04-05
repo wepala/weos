@@ -54,9 +54,10 @@ type ProjectionManager interface {
 	// Each entry describes a FK column and its corresponding display column.
 	ReverseReferences(targetTypeSlug string) []ReverseReference
 
-	// RegisterSubtype registers a concrete child type as a subtype of an abstract
-	// parent. The child's resources will be stored in the parent's projection table
-	// and the child's schema columns are merged into the parent table.
+	// RegisterSubtype registers a concrete child type as a subtype of an abstract parent.
+	// This merges the child's schema columns into the parent's projection table and
+	// records the child-to-parent mapping so that TableName resolution routes the child
+	// to the parent's table. The parent table must already exist via EnsureTable.
 	RegisterSubtype(ctx context.Context, childSlug, parentSlug string, childSchema json.RawMessage) error
 
 	// IsSubtype reports whether a slug is registered as a subtype of an abstract parent.

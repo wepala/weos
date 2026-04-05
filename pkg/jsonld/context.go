@@ -111,8 +111,8 @@ func IsValueObject(ldContext json.RawMessage) bool {
 }
 
 // IsAbstract checks whether a JSON-LD context declares "weos:abstract": true.
-// Abstract types define shared behaviors for child types (via rdfs:subClassOf)
-// but have no projection table and cannot have instances created directly.
+// Abstract types define shared projection tables for child types (via rdfs:subClassOf).
+// Subtypes share the parent's projection table using type_slug as a discriminator.
 func IsAbstract(ldContext json.RawMessage) bool {
 	if len(ldContext) == 0 {
 		return false

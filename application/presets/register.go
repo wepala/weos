@@ -1,10 +1,12 @@
-// Package presets provides a convenience function to register all built-in presets.
+// Package presets provides functions to register all built-in presets and create a
+// fully populated registry.
 package presets
 
 import (
 	"weos/application"
 	"weos/application/presets/auth"
 	"weos/application/presets/core"
+	"weos/application/presets/ecommerce"
 	"weos/application/presets/events"
 	"weos/application/presets/knowledge"
 	"weos/application/presets/tasks"
@@ -15,6 +17,7 @@ import (
 func RegisterAll(registry *application.PresetRegistry) {
 	core.Register(registry)
 	auth.Register(registry)
+	ecommerce.Register(registry)
 	tasks.Register(registry)
 	website.Register(registry)
 	events.Register(registry)

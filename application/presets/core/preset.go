@@ -50,25 +50,25 @@ func Register(registry *application.PresetRegistry) {
 			),
 		},
 		Behaviors: map[string]entities.ResourceBehavior{
-			"person":       &PersonBehavior{},
-			"organization": &OrganizationBehavior{},
+			"person":       &personBehavior{},
+			"organization": &organizationBehavior{},
 		},
 		AutoInstall: true,
 	})
 }
 
-// PersonBehavior computes a full "name" field from givenName and familyName.
-type PersonBehavior struct {
+// personBehavior computes a full "name" field from givenName and familyName.
+type personBehavior struct {
 	entities.DefaultBehavior
 }
 
-func (b *PersonBehavior) BeforeCreate(
+func (b *personBehavior) BeforeCreate(
 	ctx context.Context, data json.RawMessage, rt *entities.ResourceType,
 ) (json.RawMessage, error) {
 	return injectPersonName(data)
 }
 
-func (b *PersonBehavior) BeforeUpdate(
+func (b *personBehavior) BeforeUpdate(
 	ctx context.Context, _ *entities.Resource, data json.RawMessage, rt *entities.ResourceType,
 ) (json.RawMessage, error) {
 	return injectPersonName(data)
@@ -85,7 +85,8 @@ func injectPersonName(data json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(m)
 }
 
-// OrganizationBehavior provides custom logic for the "organization" resource type.
-type OrganizationBehavior struct {
+// organizationBehavior is a no-op placeholder ensuring the organization type is
+// represented in the behavior registry. Custom logic can be added here later.
+type organizationBehavior struct {
 	entities.DefaultBehavior
 }

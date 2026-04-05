@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
+	"gorm.io/gorm"
 )
 
 // subscribeEventHandlers registers all projection event handlers with the dispatcher.
@@ -67,6 +69,7 @@ func subscribeResourceTypeHandlers(
 			if err := ensureProjection(ctx, repo, projMgr, logger, p.Slug, p.Schema, p.Context); err != nil {
 				logger.Error(ctx, "failed to ensure projection for type",
 					"slug", p.Slug, "error", err)
+				return err
 			}
 			logger.Info(ctx, "projecting ResourceType.Created", "id", env.AggregateID)
 			return nil
@@ -94,6 +97,7 @@ func subscribeResourceTypeHandlers(
 			if err := ensureProjection(ctx, repo, projMgr, logger, p.Slug, p.Schema, p.Context); err != nil {
 				logger.Error(ctx, "failed to ensure projection for type",
 					"slug", p.Slug, "error", err)
+				return err
 			}
 			logger.Info(ctx, "projecting ResourceType.Updated", "id", env.AggregateID)
 			return nil
@@ -113,7 +117,10 @@ func subscribeResourceTypeHandlers(
 // ensureProjection decides whether to create a projection table or register as a
 // subtype of an abstract parent. Abstract types get their own table. Concrete types
 // with rdfs:subClassOf pointing to an abstract parent register as subtypes (their
-// columns are merged into the parent's table). All other concrete types get their own table.
+// columns are merged into the parent's table). All other concrete types get their own
+// table. If the parent referenced by rdfs:subClassOf is not found, the type falls back
+// to getting its own standalone table. Infrastructure errors are propagated to avoid
+// creating the wrong table topology.
 func ensureProjection(
 	ctx context.Context,
 	rtRepo repositories.ResourceTypeRepository,
@@ -133,6 +140,11 @@ func ensureProjection(
 		if err == nil && jsonld.IsAbstract(parent.Context()) {
 			// Register as subtype — columns merge into parent's projection table.
 			return projMgr.RegisterSubtype(ctx, slug, parentSlug, schema)
+		}
+		// If parent not found, fall through to standalone table.
+		// If infrastructure error, propagate to avoid wrong topology.
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("failed to look up parent type %q: %w", parentSlug, err)
 		}
 	}
 	// Concrete type with no abstract parent — gets its own table.

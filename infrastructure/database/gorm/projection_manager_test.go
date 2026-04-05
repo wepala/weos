@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"weos/infrastructure/models"
 	"weos/pkg/utils"
 
 	"gorm.io/driver/sqlite"
@@ -520,5 +521,158 @@ func TestSubtype_MultipleChildrenShareParentTable(t *testing.T) {
 	db.Table("financial_instruments").Where("type_slug = ?", "deposit-account").Count(&depCount)
 	if depCount != 1 {
 		t.Fatalf("expected 1 deposit-account row, got %d", depCount)
+	}
+}
+
+func newTestDBWithTypes(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&models.ResourceType{}); err != nil {
+		t.Fatalf("failed to migrate resource_types: %v", err)
+	}
+	return db
+}
+
+func TestEnsureExistingTables_TwoPassOrdering(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithTypes(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	abstractCtx := `{"@vocab":"https://schema.org/","weos:abstract":true}`
+	childCtx := `{"@vocab":"https://schema.org/","rdfs:subClassOf":"instrument"}`
+
+	// Insert types: child BEFORE parent to test ordering resilience.
+	db.Create(&models.ResourceType{
+		ID: "child-1", Name: "Loan", Slug: "loan", Status: "active",
+		Context: childCtx,
+		Schema:  `{"type":"object","properties":{"interestRate":{"type":"number"}}}`,
+	})
+	db.Create(&models.ResourceType{
+		ID: "parent-1", Name: "Instrument", Slug: "instrument", Status: "active",
+		Context: abstractCtx,
+		Schema:  `{"type":"object","properties":{"name":{"type":"string"}}}`,
+	})
+
+	if err := pm.EnsureExistingTables(ctx); err != nil {
+		t.Fatalf("EnsureExistingTables failed: %v", err)
+	}
+
+	// Abstract parent should have its own table.
+	if !pm.HasProjectionTable("instrument") {
+		t.Fatal("expected instrument to have a projection table")
+	}
+
+	// Child should be registered as a subtype.
+	if !pm.IsSubtype("loan") {
+		t.Fatal("expected loan to be registered as subtype")
+	}
+	if pm.ParentSlug("loan") != "instrument" {
+		t.Fatalf("expected loan's parent to be 'instrument', got %q", pm.ParentSlug("loan"))
+	}
+
+	// Verify child columns were merged into parent table.
+	err := db.Exec(`INSERT INTO instruments (id, type_slug, status, interest_rate)
+		VALUES ('l1', 'loan', 'active', 5.5)`).Error
+	if err != nil {
+		t.Fatalf("insert with child column failed: %v", err)
+	}
+}
+
+func TestEnsureExistingTables_OrphanedSubClassOf(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithTypes(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	// Child references a parent that doesn't exist in the DB.
+	orphanCtx := `{"@vocab":"https://schema.org/","rdfs:subClassOf":"nonexistent"}`
+	db.Create(&models.ResourceType{
+		ID: "orphan-1", Name: "Orphan", Slug: "orphan", Status: "active",
+		Context: orphanCtx,
+		Schema:  `{"type":"object","properties":{"name":{"type":"string"}}}`,
+	})
+
+	// Should not error — orphan gets its own standalone table.
+	if err := pm.EnsureExistingTables(ctx); err != nil {
+		t.Fatalf("EnsureExistingTables failed: %v", err)
+	}
+
+	if !pm.HasProjectionTable("orphan") {
+		t.Fatal("orphan should have its own projection table")
+	}
+	if pm.IsSubtype("orphan") {
+		t.Fatal("orphan should NOT be registered as a subtype")
+	}
+}
+
+func TestEnsureExistingTables_AbstractGetsOwnTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithTypes(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	abstractCtx := `{"@vocab":"https://schema.org/","weos:abstract":true}`
+	db.Create(&models.ResourceType{
+		ID: "abs-1", Name: "Shape", Slug: "shape", Status: "active",
+		Context: abstractCtx,
+		Schema:  `{"type":"object","properties":{"color":{"type":"string"}}}`,
+	})
+
+	if err := pm.EnsureExistingTables(ctx); err != nil {
+		t.Fatalf("EnsureExistingTables failed: %v", err)
+	}
+
+	if !pm.HasProjectionTable("shape") {
+		t.Fatal("abstract type 'shape' should have its own projection table")
+	}
+
+	// Verify table was actually created.
+	err := db.Exec(`INSERT INTO shapes (id, type_slug, status, color)
+		VALUES ('s1', 'shape', 'active', 'red')`).Error
+	if err != nil {
+		t.Fatalf("insert into shapes failed: %v", err)
+	}
+}
+
+func TestCircularSubClassOf_NoPanic(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithTypes(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+
+	// Create circular reference: A -> B -> A, both abstract.
+	db.Create(&models.ResourceType{
+		ID: "a-1", Name: "TypeA", Slug: "type-a", Status: "active",
+		Context: `{"@vocab":"https://schema.org/","weos:abstract":true,"rdfs:subClassOf":"type-b"}`,
+		Schema:  `{"type":"object","properties":{"fieldA":{"type":"string"}}}`,
+	})
+	db.Create(&models.ResourceType{
+		ID: "b-1", Name: "TypeB", Slug: "type-b", Status: "active",
+		Context: `{"@vocab":"https://schema.org/","weos:abstract":true,"rdfs:subClassOf":"type-a"}`,
+		Schema:  `{"type":"object","properties":{"fieldB":{"type":"string"}}}`,
+	})
+
+	// Should not stack overflow. HasProjectionTable should return false or true
+	// but must not panic.
+	_ = pm.HasProjectionTable("type-a")
+	_ = pm.HasProjectionTable("type-b")
+
+	// Also test via EnsureExistingTables which processes all types.
+	ctx := context.Background()
+	if err := pm.EnsureExistingTables(ctx); err != nil {
+		t.Fatalf("EnsureExistingTables with circular refs should not error: %v", err)
+	}
+}
+
+func TestRegisterSubtype_FailsWithoutParentTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	childSchema := json.RawMessage(`{"type":"object","properties":{"rate":{"type":"number"}}}`)
+	err := pm.RegisterSubtype(ctx, "loan", "nonexistent-parent", childSchema)
+	if err == nil {
+		t.Fatal("expected error when parent table doesn't exist")
 	}
 }
