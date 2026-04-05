@@ -145,6 +145,11 @@ func Run(enabledServices []string) error {
 	if err := app.Start(startCtx); err != nil {
 		return fmt.Errorf("failed to start application: %w", err)
 	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+		defer stopCancel()
+		_ = app.Stop(stopCtx)
+	}()
 
 	server, err := NewMCPServer(resourceTypeService, resourceService, enabledServices)
 	if err != nil {
@@ -154,14 +159,7 @@ func Run(enabledServices []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	err = server.Run(ctx, &mcp.StdioTransport{})
-
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
-	defer stopCancel()
-
-	_ = app.Stop(stopCtx)
-
-	return err
+	return server.Run(ctx, &mcp.StdioTransport{})
 }
 
 // isNilInterface returns true if v is nil or a typed-nil (interface wrapping a nil pointer).
