@@ -244,7 +244,7 @@ func (r *ResourceRepository) findAllFromProjection(
 	query := r.db.WithContext(ctx).Table(tableName).
 		Select(selectCols).
 		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
-		Where("1=1")
+		Where(tbl+".type_slug = ?", typeSlug)
 	query = applyVisibilityScope(query, scope, tbl)
 	if cursor != "" {
 		cd, err := decodeCursor(cursor)
@@ -430,6 +430,7 @@ func (r *ResourceRepository) findAllByFieldFromProjection(
 		Select(fmt.Sprintf("%s.id, %s.type_slug, resources.data, %s.status, resources.created_by, resources.account_id, %s.sequence_no, %s.created_at",
 			tbl, tbl, tbl, tbl, tbl)).
 		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
+		Where(tbl+".type_slug = ?", typeSlug).
 		Where(tbl+"."+colName+" = ? ", fieldValue).
 		Find(&rows).Error
 	if err != nil {
@@ -514,7 +515,7 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 	qualifiedCol := tbl + "." + colName
 	query := r.db.WithContext(ctx).Table(tableName).Select(selectCols).
 		Joins(fmt.Sprintf("JOIN resources ON %s.id = resources.id", tbl)).
-		Where("1=1")
+		Where(tbl+".type_slug = ?", typeSlug)
 	query = applyVisibilityScope(query, scope, tbl)
 
 	for _, f := range filters {
@@ -620,7 +621,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 		}
 	}
 
-	query := r.db.WithContext(ctx).Table(tableName).Where("1=1")
+	query := r.db.WithContext(ctx).Table(tableName).Where("type_slug = ?", typeSlug)
 	query = applyVisibilityScope(query, scope, "")
 
 	for _, f := range filters {

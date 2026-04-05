@@ -64,11 +64,9 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Save(ctx, entity); err != nil {
 				return err
 			}
-			if !jsonld.IsAbstract(p.Context) {
-				if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
-					logger.Error(ctx, "failed to create projection table",
-						"slug", p.Slug, "error", err)
-				}
+			if err := ensureProjection(ctx, repo, projMgr, logger, p.Slug, p.Schema, p.Context); err != nil {
+				logger.Error(ctx, "failed to ensure projection for type",
+					"slug", p.Slug, "error", err)
 			}
 			logger.Info(ctx, "projecting ResourceType.Created", "id", env.AggregateID)
 			return nil
@@ -93,11 +91,9 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Update(ctx, existing); err != nil {
 				return err
 			}
-			if !jsonld.IsAbstract(p.Context) {
-				if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
-					logger.Error(ctx, "failed to update projection table",
-						"slug", p.Slug, "error", err)
-				}
+			if err := ensureProjection(ctx, repo, projMgr, logger, p.Slug, p.Schema, p.Context); err != nil {
+				logger.Error(ctx, "failed to ensure projection for type",
+					"slug", p.Slug, "error", err)
 			}
 			logger.Info(ctx, "projecting ResourceType.Updated", "id", env.AggregateID)
 			return nil
@@ -112,6 +108,35 @@ func subscribeResourceTypeHandlers(
 			return repo.Delete(ctx, env.AggregateID)
 		},
 	)
+}
+
+// ensureProjection decides whether to create a projection table or register as a
+// subtype of an abstract parent. Abstract types get their own table. Concrete types
+// with rdfs:subClassOf pointing to an abstract parent register as subtypes (their
+// columns are merged into the parent's table). All other concrete types get their own table.
+func ensureProjection(
+	ctx context.Context,
+	rtRepo repositories.ResourceTypeRepository,
+	projMgr repositories.ProjectionManager,
+	logger entities.Logger,
+	slug string,
+	schema, ldContext json.RawMessage,
+) error {
+	// Abstract types always get their own projection table.
+	if jsonld.IsAbstract(ldContext) {
+		return projMgr.EnsureTable(ctx, slug, schema, ldContext)
+	}
+	// Check if this type has a parent via rdfs:subClassOf.
+	parentSlug := jsonld.SubClassOf(ldContext)
+	if parentSlug != "" {
+		parent, err := rtRepo.FindBySlug(ctx, parentSlug)
+		if err == nil && jsonld.IsAbstract(parent.Context()) {
+			// Register as subtype — columns merge into parent's projection table.
+			return projMgr.RegisterSubtype(ctx, slug, parentSlug, schema)
+		}
+	}
+	// Concrete type with no abstract parent — gets its own table.
+	return projMgr.EnsureTable(ctx, slug, schema, ldContext)
 }
 
 // --- Resource projection handlers ---

@@ -53,6 +53,17 @@ type ProjectionManager interface {
 	// ReverseReferences returns the list of resource types that reference a given target type.
 	// Each entry describes a FK column and its corresponding display column.
 	ReverseReferences(targetTypeSlug string) []ReverseReference
+
+	// RegisterSubtype registers a concrete child type as a subtype of an abstract
+	// parent. The child's resources will be stored in the parent's projection table
+	// and the child's schema columns are merged into the parent table.
+	RegisterSubtype(ctx context.Context, childSlug, parentSlug string, childSchema json.RawMessage) error
+
+	// IsSubtype reports whether a slug is registered as a subtype of an abstract parent.
+	IsSubtype(slug string) bool
+
+	// ParentSlug returns the abstract parent slug for a subtype, or empty string if not a subtype.
+	ParentSlug(slug string) string
 }
 
 // ReverseReference describes a resource type that references another via a FK column.

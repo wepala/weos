@@ -64,10 +64,11 @@ type tableInfo struct {
 }
 
 type projectionManager struct {
-	db        *gorm.DB
-	logger    entities.Logger
-	tables    sync.Map // slug → tableInfo
-	reverseRe sync.Map // targetTypeSlug → []repositories.ReverseReference
+	db            *gorm.DB
+	logger        entities.Logger
+	tables        sync.Map // slug → tableInfo
+	reverseRe     sync.Map // targetTypeSlug → []repositories.ReverseReference
+	childToParent sync.Map // childSlug → parentSlug (for abstract type inheritance)
 }
 
 type ProjectionManagerResult struct {
@@ -112,6 +113,9 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	if _, ok := pm.tables.Load(slug); ok {
 		return true
 	}
+	if _, ok := pm.childToParent.Load(slug); ok {
+		return true
+	}
 	// Lazy registration: another process may have created the type after startup.
 	var rt models.ResourceType
 	if err := pm.db.Where("slug = ?", slug).First(&rt).Error; err != nil {
@@ -125,28 +129,77 @@ func (pm *projectionManager) HasProjectionTable(slug string) bool {
 	if rt.Context != "" {
 		ldContext = json.RawMessage(rt.Context)
 	}
+	// Check if this type is a subtype of an abstract parent.
+	parentSlug := jsonld.SubClassOf(ldContext)
+	if parentSlug != "" {
+		if pm.lazyRegisterSubtype(slug, parentSlug, schema) {
+			return true
+		}
+	}
+	if jsonld.IsAbstract(ldContext) {
+		// Abstract types get their own projection table.
+		if err := pm.EnsureTable(context.Background(), slug, schema, ldContext); err != nil {
+			return false
+		}
+		return true
+	}
 	if err := pm.EnsureTable(context.Background(), slug, schema, ldContext); err != nil {
 		return false
 	}
 	return true
 }
 
+// lazyRegisterSubtype checks if the parent is abstract and registers the child as a subtype.
+func (pm *projectionManager) lazyRegisterSubtype(childSlug, parentSlug string, childSchema json.RawMessage) bool {
+	var parent models.ResourceType
+	if err := pm.db.Where("slug = ?", parentSlug).First(&parent).Error; err != nil {
+		return false
+	}
+	var parentCtx json.RawMessage
+	if parent.Context != "" {
+		parentCtx = json.RawMessage(parent.Context)
+	}
+	if !jsonld.IsAbstract(parentCtx) {
+		return false
+	}
+	// Ensure parent table exists first.
+	if !pm.HasProjectionTable(parentSlug) {
+		return false
+	}
+	if err := pm.RegisterSubtype(context.Background(), childSlug, parentSlug, childSchema); err != nil {
+		return false
+	}
+	return true
+}
+
 func (pm *projectionManager) TableName(slug string) string {
-	if v, ok := pm.tables.Load(slug); ok {
+	resolved := pm.resolveSlug(slug)
+	if v, ok := pm.tables.Load(resolved); ok {
 		if info, ok := v.(tableInfo); ok {
 			return info.name
 		}
 	}
-	return slugToTableName(slug)
+	return slugToTableName(resolved)
 }
 
 func (pm *projectionManager) Context(slug string) json.RawMessage {
-	if v, ok := pm.tables.Load(slug); ok {
+	resolved := pm.resolveSlug(slug)
+	if v, ok := pm.tables.Load(resolved); ok {
 		if info, ok := v.(tableInfo); ok {
 			return info.context
 		}
 	}
 	return nil
+}
+
+// resolveSlug returns the parent slug if slug is a registered subtype, otherwise slug itself.
+func (pm *projectionManager) resolveSlug(slug string) string {
+	if v, ok := pm.childToParent.Load(slug); ok {
+		if parentSlug, ok := v.(string); ok {
+			return parentSlug
+		}
+	}
+	return slug
 }
 
 func (pm *projectionManager) UpdateColumn(ctx context.Context, typeSlug, resourceID, column string, value any) error {
@@ -178,6 +231,34 @@ func (pm *projectionManager) ReverseReferences(targetTypeSlug string) []reposito
 		}
 	}
 	return nil
+}
+
+func (pm *projectionManager) RegisterSubtype(
+	ctx context.Context, childSlug, parentSlug string, childSchema json.RawMessage,
+) error {
+	parentTableName := pm.TableName(parentSlug)
+	// Merge child schema columns into the parent projection table.
+	columns := schemaToColumns(childSchema)
+	if err := pm.addMissingColumns(ctx, parentTableName, columns); err != nil {
+		return fmt.Errorf("failed to add subtype columns to %q: %w", parentTableName, err)
+	}
+	pm.childToParent.Store(childSlug, parentSlug)
+	pm.registerReverseReferences(childSlug, childSchema)
+	return nil
+}
+
+func (pm *projectionManager) IsSubtype(slug string) bool {
+	_, ok := pm.childToParent.Load(slug)
+	return ok
+}
+
+func (pm *projectionManager) ParentSlug(slug string) string {
+	if v, ok := pm.childToParent.Load(slug); ok {
+		if ps, ok := v.(string); ok {
+			return ps
+		}
+	}
+	return ""
 }
 
 // registerReverseReferences parses a schema for x-resource-type properties and
@@ -240,6 +321,13 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 		return fmt.Errorf("failed to load existing resource types: %w", err)
 	}
 
+	// Build a slug→context lookup for parent resolution.
+	typeBySlug := make(map[string]models.ResourceType, len(types))
+	for _, rt := range types {
+		typeBySlug[rt.Slug] = rt
+	}
+
+	// Pass 1: Create projection tables for abstract types and concrete types without abstract parents.
 	for _, rt := range types {
 		schema := json.RawMessage(nil)
 		if rt.Schema != "" {
@@ -249,12 +337,53 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 		if rt.Context != "" {
 			ldContext = json.RawMessage(rt.Context)
 		}
-		if jsonld.IsAbstract(ldContext) {
-			continue
+		// If this type has an abstract parent, skip it for now (handled in pass 2).
+		parentSlug := jsonld.SubClassOf(ldContext)
+		if parentSlug != "" {
+			if parent, ok := typeBySlug[parentSlug]; ok {
+				var parentCtx json.RawMessage
+				if parent.Context != "" {
+					parentCtx = json.RawMessage(parent.Context)
+				}
+				if jsonld.IsAbstract(parentCtx) {
+					continue
+				}
+			}
 		}
 		if err := pm.EnsureTable(ctx, rt.Slug, schema, ldContext); err != nil {
 			pm.logger.Error(ctx, "failed to ensure projection table for existing type",
 				"slug", rt.Slug, "error", err)
+		}
+	}
+
+	// Pass 2: Register subtypes of abstract parents (parent tables exist from pass 1).
+	for _, rt := range types {
+		var ldContext json.RawMessage
+		if rt.Context != "" {
+			ldContext = json.RawMessage(rt.Context)
+		}
+		parentSlug := jsonld.SubClassOf(ldContext)
+		if parentSlug == "" {
+			continue
+		}
+		parent, ok := typeBySlug[parentSlug]
+		if !ok {
+			continue
+		}
+		var parentCtx json.RawMessage
+		if parent.Context != "" {
+			parentCtx = json.RawMessage(parent.Context)
+		}
+		if !jsonld.IsAbstract(parentCtx) {
+			continue
+		}
+		schema := json.RawMessage(nil)
+		if rt.Schema != "" {
+			schema = json.RawMessage(rt.Schema)
+		}
+		if err := pm.RegisterSubtype(ctx, rt.Slug, parentSlug, schema); err != nil {
+			pm.logger.Error(ctx, "failed to register subtype projection",
+				"child", rt.Slug, "parent", parentSlug, "error", err)
 		}
 	}
 	return nil

@@ -341,3 +341,184 @@ func TestExtractFlatColumns(t *testing.T) {
 		t.Error("expected metadata column")
 	}
 }
+
+func TestRegisterSubtype_MergesColumnsIntoParent(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	// Create abstract parent projection table with a "name" column.
+	parentSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "financial-instrument", parentSchema, nil); err != nil {
+		t.Fatalf("EnsureTable for parent failed: %v", err)
+	}
+
+	// Register "loan" as subtype with extra "interestRate" column.
+	childSchema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},
+		"interestRate":{"type":"number"}
+	}}`)
+	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", childSchema); err != nil {
+		t.Fatalf("RegisterSubtype failed: %v", err)
+	}
+
+	// Verify the child column was added to the parent table.
+	err := db.Exec(`INSERT INTO financial_instruments (id, type_slug, status, name, interest_rate)
+		VALUES ('loan-1', 'loan', 'active', 'Home Loan', 3.5)`).Error
+	if err != nil {
+		t.Fatalf("insert with child column failed: %v", err)
+	}
+
+	var result map[string]any
+	err = db.Table("financial_instruments").Where("id = ?", "loan-1").Take(&result).Error
+	if err != nil {
+		t.Fatalf("read back failed: %v", err)
+	}
+}
+
+func TestIsSubtype(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil); err != nil {
+		t.Fatalf("RegisterSubtype failed: %v", err)
+	}
+
+	if !pm.IsSubtype("invoice") {
+		t.Fatal("expected invoice to be a subtype")
+	}
+	if pm.IsSubtype("commitment") {
+		t.Fatal("expected commitment NOT to be a subtype")
+	}
+	if pm.IsSubtype("unknown") {
+		t.Fatal("expected unknown NOT to be a subtype")
+	}
+}
+
+func TestParentSlug(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil); err != nil {
+		t.Fatalf("RegisterSubtype failed: %v", err)
+	}
+
+	if got := pm.ParentSlug("invoice"); got != "commitment" {
+		t.Fatalf("ParentSlug(invoice) = %q, want %q", got, "commitment")
+	}
+	if got := pm.ParentSlug("commitment"); got != "" {
+		t.Fatalf("ParentSlug(commitment) = %q, want empty", got)
+	}
+}
+
+func TestSubtype_TableNameResolvesToParent(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	if err := pm.EnsureTable(ctx, "financial-instrument", nil, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", nil); err != nil {
+		t.Fatalf("RegisterSubtype failed: %v", err)
+	}
+
+	// TableName for the subtype should resolve to the parent's table.
+	if got := pm.TableName("loan"); got != "financial_instruments" {
+		t.Fatalf("TableName(loan) = %q, want %q", got, "financial_instruments")
+	}
+	// Parent's own TableName should still work.
+	if got := pm.TableName("financial-instrument"); got != "financial_instruments" {
+		t.Fatalf("TableName(financial-instrument) = %q, want %q", got, "financial_instruments")
+	}
+}
+
+func TestSubtype_HasProjectionTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	if err := pm.EnsureTable(ctx, "commitment", nil, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+	if err := pm.RegisterSubtype(ctx, "invoice", "commitment", nil); err != nil {
+		t.Fatalf("RegisterSubtype failed: %v", err)
+	}
+
+	if !pm.HasProjectionTable("invoice") {
+		t.Fatal("expected HasProjectionTable(invoice) = true")
+	}
+	if !pm.HasProjectionTable("commitment") {
+		t.Fatal("expected HasProjectionTable(commitment) = true")
+	}
+}
+
+func TestSubtype_MultipleChildrenShareParentTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	parentSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "financial-instrument", parentSchema, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+
+	loanSchema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},"interestRate":{"type":"number"}}}`)
+	depositSchema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},"balance":{"type":"number"}}}`)
+
+	if err := pm.RegisterSubtype(ctx, "loan", "financial-instrument", loanSchema); err != nil {
+		t.Fatalf("RegisterSubtype(loan) failed: %v", err)
+	}
+	if err := pm.RegisterSubtype(ctx, "deposit-account", "financial-instrument", depositSchema); err != nil {
+		t.Fatalf("RegisterSubtype(deposit-account) failed: %v", err)
+	}
+
+	// Insert rows for both subtypes in the same table.
+	err := db.Exec(`INSERT INTO financial_instruments (id, type_slug, status, name, interest_rate)
+		VALUES ('loan-1', 'loan', 'active', 'Home Loan', 3.5)`).Error
+	if err != nil {
+		t.Fatalf("insert loan failed: %v", err)
+	}
+	err = db.Exec(`INSERT INTO financial_instruments (id, type_slug, status, name, balance)
+		VALUES ('dep-1', 'deposit-account', 'active', 'Savings', 1000.0)`).Error
+	if err != nil {
+		t.Fatalf("insert deposit failed: %v", err)
+	}
+
+	// Both should be in the same table with different type_slug values.
+	var count int64
+	db.Table("financial_instruments").Count(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 rows in financial_instruments, got %d", count)
+	}
+
+	// Filter by type_slug = 'loan' should return 1.
+	var loanCount int64
+	db.Table("financial_instruments").Where("type_slug = ?", "loan").Count(&loanCount)
+	if loanCount != 1 {
+		t.Fatalf("expected 1 loan row, got %d", loanCount)
+	}
+
+	// Filter by type_slug = 'deposit-account' should return 1.
+	var depCount int64
+	db.Table("financial_instruments").Where("type_slug = ?", "deposit-account").Count(&depCount)
+	if depCount != 1 {
+		t.Fatalf("expected 1 deposit-account row, got %d", depCount)
+	}
+}
