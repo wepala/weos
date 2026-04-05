@@ -65,7 +65,7 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Save(ctx, entity); err != nil {
 				return err
 			}
-			if err := ensureProjection(ctx, repo, projMgr, logger, p.Slug, p.Schema, p.Context); err != nil {
+			if err := ensureProjection(ctx, repo, projMgr, p.Slug, p.Schema, p.Context); err != nil {
 				logger.Error(ctx, "failed to ensure projection for type",
 					"slug", p.Slug, "error", err)
 				return err
@@ -93,7 +93,7 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Update(ctx, existing); err != nil {
 				return err
 			}
-			if err := ensureProjection(ctx, repo, projMgr, logger, p.Slug, p.Schema, p.Context); err != nil {
+			if err := ensureProjection(ctx, repo, projMgr, p.Slug, p.Schema, p.Context); err != nil {
 				logger.Error(ctx, "failed to ensure projection for type",
 					"slug", p.Slug, "error", err)
 				return err
@@ -124,7 +124,6 @@ func ensureProjection(
 	ctx context.Context,
 	rtRepo repositories.ResourceTypeRepository,
 	projMgr repositories.ProjectionManager,
-	logger entities.Logger,
 	slug string,
 	schema, ldContext json.RawMessage,
 ) error {

@@ -232,10 +232,11 @@ func (pm *projectionManager) Context(slug string) json.RawMessage {
 	return nil
 }
 
-// resolveSlug returns the parent slug if slug is a registered subtype, otherwise slug itself.
+// resolveSlug returns the parent slug if slug is a fully registered subtype, otherwise slug itself.
+// Empty parent slugs (used as recursion sentinels) are treated as unresolved.
 func (pm *projectionManager) resolveSlug(slug string) string {
 	if v, ok := pm.childToParent.Load(slug); ok {
-		if parentSlug, ok := v.(string); ok {
+		if parentSlug, ok := v.(string); ok && parentSlug != "" {
 			return parentSlug
 		}
 	}
@@ -271,7 +272,10 @@ func (pm *projectionManager) UpdateColumnByFK(
 func (pm *projectionManager) ReverseReferences(targetTypeSlug string) []repositories.ReverseReference {
 	if v, ok := pm.reverseRe.Load(targetTypeSlug); ok {
 		if refs, ok := v.([]repositories.ReverseReference); ok {
-			return refs
+			// Return a copy to avoid data races with concurrent writes.
+			cp := make([]repositories.ReverseReference, len(refs))
+			copy(cp, refs)
+			return cp
 		}
 	}
 	return nil
@@ -344,23 +348,26 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 			DisplayProperty: displayProp,
 		}
 
-		// Append to existing slice or create new, under lock to prevent TOCTOU races.
+		// Append using copy-on-write under lock to prevent TOCTOU races and
+		// avoid data races with concurrent readers of ReverseReferences().
 		pm.reverseReMu.Lock()
 		existing, _ := pm.reverseRe.Load(prop.XResourceType)
-		var refs []repositories.ReverseReference
+		var old []repositories.ReverseReference
 		if existing != nil {
-			refs = existing.([]repositories.ReverseReference)
+			old = existing.([]repositories.ReverseReference)
 		}
 		found := false
-		for _, r := range refs {
+		for _, r := range old {
 			if r.TypeSlug == ref.TypeSlug && r.FKColumn == ref.FKColumn {
 				found = true
 				break
 			}
 		}
 		if !found {
-			refs = append(refs, ref)
-			pm.reverseRe.Store(prop.XResourceType, refs)
+			updated := make([]repositories.ReverseReference, len(old)+1)
+			copy(updated, old)
+			updated[len(old)] = ref
+			pm.reverseRe.Store(prop.XResourceType, updated)
 		}
 		pm.reverseReMu.Unlock()
 	}

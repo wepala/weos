@@ -81,7 +81,7 @@ func TestEnsureProjection_AbstractType(t *testing.T) {
 	ctx := context.Background()
 
 	abstractCtx := json.RawMessage(`{"@vocab":"https://schema.org/","weos:abstract":true}`)
-	err := ensureProjection(ctx, repo, pm, noopLogger{}, "instrument", nil, abstractCtx)
+	err := ensureProjection(ctx, repo, pm, "instrument", nil, abstractCtx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestEnsureProjection_ConcreteWithAbstractParent(t *testing.T) {
 	ctx := context.Background()
 
 	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"instrument"}`)
-	err := ensureProjection(ctx, repo, pm, noopLogger{}, "loan", nil, childCtx)
+	err := ensureProjection(ctx, repo, pm, "loan", nil, childCtx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestEnsureProjection_ConcreteWithNonAbstractParent(t *testing.T) {
 	ctx := context.Background()
 
 	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"vehicle"}`)
-	err := ensureProjection(ctx, repo, pm, noopLogger{}, "car", nil, childCtx)
+	err := ensureProjection(ctx, repo, pm, "car", nil, childCtx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestEnsureProjection_ConcreteNoParent(t *testing.T) {
 	ctx := context.Background()
 
 	simpleCtx := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
-	err := ensureProjection(ctx, repo, pm, noopLogger{}, "product", nil, simpleCtx)
+	err := ensureProjection(ctx, repo, pm, "product", nil, simpleCtx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestEnsureProjection_ParentNotFound_FallsBackToStandalone(t *testing.T) {
 	ctx := context.Background()
 
 	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"missing-parent"}`)
-	err := ensureProjection(ctx, notFoundRepo, pm, noopLogger{}, "orphan", nil, childCtx)
+	err := ensureProjection(ctx, notFoundRepo, pm, "orphan", nil, childCtx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestEnsureProjection_InfraError_PropagatesError(t *testing.T) {
 	ctx := context.Background()
 
 	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"parent"}`)
-	err := ensureProjection(ctx, infraRepo, pm, noopLogger{}, "child", nil, childCtx)
+	err := ensureProjection(ctx, infraRepo, pm, "child", nil, childCtx)
 	if err == nil {
 		t.Fatal("expected error to be propagated")
 	}
@@ -211,7 +211,7 @@ func TestEnsureProjection_GormNotFoundError_FallsBack(t *testing.T) {
 	ctx := context.Background()
 
 	childCtx := json.RawMessage(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"parent"}`)
-	err := ensureProjection(ctx, notFoundRepo, pm, noopLogger{}, "child", nil, childCtx)
+	err := ensureProjection(ctx, notFoundRepo, pm, "child", nil, childCtx)
 	if err != nil {
 		t.Fatalf("expected no error for not-found parent, got: %v", err)
 	}
