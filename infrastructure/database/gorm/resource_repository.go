@@ -20,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"weos/domain/entities"
@@ -157,11 +158,13 @@ func applyVisibilityScope(query *gorm.DB, scope *repositories.VisibilityScope, t
 		return query
 	}
 	col := "created_by"
+	idCol := "id"
 	if tablePrefix != "" {
 		col = tablePrefix + "." + col
+		idCol = tablePrefix + "." + idCol
 	}
 	return query.Where(
-		col+" = ? OR id IN (SELECT resource_id FROM resource_permissions WHERE agent_id = ? AND actions LIKE ?)",
+		col+" = ? OR "+idCol+" IN (SELECT resource_id FROM resource_permissions WHERE agent_id = ? AND actions LIKE ?)",
 		scope.AgentID, scope.AgentID, `%"read"%`,
 	)
 }
@@ -309,20 +312,26 @@ func (r *ResourceRepository) findAllFromProjection(
 }
 
 func applyCursorCondition(query *gorm.DB, colName, sortOrder string, cd cursorData) *gorm.DB {
-	if colName == "id" {
+	// colName may be table-qualified (e.g. "products.id") when used in JOIN queries.
+	// Derive idCol from colName to maintain consistent qualification.
+	idCol := "id"
+	if i := strings.LastIndex(colName, "."); i >= 0 {
+		idCol = colName[:i+1] + "id"
+	}
+	if colName == "id" || strings.HasSuffix(colName, ".id") {
 		if sortOrder == "desc" {
-			return query.Where("id < ?", cd.ID)
+			return query.Where(idCol+" < ?", cd.ID)
 		}
-		return query.Where("id > ?", cd.ID)
+		return query.Where(idCol+" > ?", cd.ID)
 	}
 	if sortOrder == "desc" {
 		return query.Where(
-			fmt.Sprintf("(%s < ?) OR (%s = ? AND id < ?)", colName, colName),
+			fmt.Sprintf("(%s < ?) OR (%s = ? AND %s < ?)", colName, colName, idCol),
 			cd.Value, cd.Value, cd.ID,
 		)
 	}
 	return query.Where(
-		fmt.Sprintf("(%s > ?) OR (%s = ? AND id > ?)", colName, colName),
+		fmt.Sprintf("(%s > ?) OR (%s = ? AND %s > ?)", colName, colName, idCol),
 		cd.Value, cd.Value, cd.ID,
 	)
 }

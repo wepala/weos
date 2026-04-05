@@ -302,8 +302,12 @@ func (pm *projectionManager) RegisterSubtype(
 }
 
 func (pm *projectionManager) IsSubtype(slug string) bool {
-	_, ok := pm.childToParent.Load(slug)
-	return ok
+	if v, ok := pm.childToParent.Load(slug); ok {
+		if ps, ok := v.(string); ok && ps != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (pm *projectionManager) ParentSlug(slug string) string {
