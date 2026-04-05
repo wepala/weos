@@ -191,6 +191,8 @@ func (pm *projectionManager) UpdateColumn(ctx context.Context, typeSlug, resourc
 		return err
 	}
 	// Propagate to ancestor tables if the column exists there.
+	// If the ancestor row doesn't exist (e.g., ancestor table added after resource creation),
+	// the update is a no-op (0 rows affected), which is acceptable for display value propagation.
 	for _, ancestorSlug := range pm.AncestorSlugs(typeSlug) {
 		if !pm.HasProjectionTable(ancestorSlug) {
 			continue

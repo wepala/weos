@@ -170,9 +170,17 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	if result.Error != nil {
 		return fmt.Errorf("failed to update resource in %s: %w", tableName, result.Error)
 	}
-	// If no row was updated, fall back to insert (ancestor row may not exist yet).
+	// RowsAffected==0 can mean row missing OR no-op update (values unchanged).
+	// Check existence before inserting to avoid duplicate PK errors.
 	if result.RowsAffected == 0 {
-		return r.saveToProjection(ctx, entity, targetSlug)
+		var count int64
+		if err := r.db.WithContext(ctx).Table(tableName).
+			Where("id = ?", entity.GetID()).Count(&count).Error; err != nil {
+			return fmt.Errorf("failed to check existence in %s: %w", tableName, err)
+		}
+		if count == 0 {
+			return r.saveToProjection(ctx, entity, targetSlug)
+		}
 	}
 	return nil
 }
@@ -865,10 +873,12 @@ func (r *ResourceRepository) updateDataInProjection(
 	if len(row) == 0 {
 		return nil
 	}
-	if err := r.db.WithContext(ctx).Table(tableName).
-		Where("id = ?", id).Updates(row).Error; err != nil {
-		return fmt.Errorf("failed to update projection data in %s: %w", tableName, err)
+	result := r.db.WithContext(ctx).Table(tableName).
+		Where("id = ?", id).Updates(row)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update projection data in %s: %w", tableName, result.Error)
 	}
+	// If ancestor row doesn't exist yet, skip (UpdateData is a partial update).
 	return nil
 }
 
