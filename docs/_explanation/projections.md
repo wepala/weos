@@ -23,7 +23,6 @@ The ProjectionManager reads the resource type's JSON Schema and creates a table 
    |--------|------|---------|
    | `id` | TEXT (PK) | Resource URN (e.g., `urn:task:abc123`) |
    | `type_slug` | TEXT | Resource type slug |
-   | `data` | TEXT | Full JSON-LD blob (always stored) |
    | `status` | TEXT | Resource status (active, archived) |
    | `created_by` | TEXT | Creator's agent ID |
    | `account_id` | TEXT | Owning account ID |
@@ -72,9 +71,8 @@ The ProjectionManager creates a `tasks` table with columns:
 
 ```
 id TEXT PRIMARY KEY
-type_slug TEXT
-data TEXT
-status TEXT
+type_slug TEXT NOT NULL
+status TEXT NOT NULL DEFAULT 'active'
 created_by TEXT
 account_id TEXT
 sequence_no INTEGER
@@ -87,11 +85,7 @@ project TEXT
 project_display TEXT
 ```
 
-## The `data` Column
-
-The `data` column always stores the complete JSON-LD blob for the resource. Typed columns exist for **query optimization** — they allow SQL WHERE clauses, sorting, and indexing on specific fields. The `data` column is the single source of truth; typed columns are a convenience.
-
-This means you can always fall back to querying the `data` column with JSON functions if a property doesn't have a dedicated column.
+Note that the full JSON-LD data is stored in the generic `resources` table (in its `data` column), not in the projection table. Projection tables contain only typed columns extracted from the schema, optimized for SQL queries.
 
 ## Event-Driven Updates
 

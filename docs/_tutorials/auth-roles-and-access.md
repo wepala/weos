@@ -166,16 +166,16 @@ In development mode (no OAuth), use the `X-Dev-Agent` header to impersonate diff
 ```bash
 # As admin — should succeed
 curl -H "X-Dev-Agent: admin@weos.dev" \
-  http://localhost:8080/api/resources/project
+  http://localhost:8080/api/project
 
 # As a viewer — should succeed (read-only)
 curl -H "X-Dev-Agent: viewer@example.com" \
-  http://localhost:8080/api/resources/project
+  http://localhost:8080/api/project
 
 # As a viewer — should fail (403 Forbidden for write operations)
 curl -X POST -H "X-Dev-Agent: viewer@example.com" \
   -H "Content-Type: application/json" \
-  http://localhost:8080/api/resources/project \
+  http://localhost:8080/api/project \
   -d '{"name": "Unauthorized Project"}'
 ```
 

@@ -42,19 +42,19 @@ import (
 )
 
 func Register(registry *application.PresetRegistry) {
-    registry.Register(application.Preset{
+    registry.MustAdd(application.PresetDefinition{
         Name:        "restaurant",
         Description: "Restaurant menus and menu items",
         AutoInstall: false,
-        Types: []application.PresetType{
+        Types: []application.PresetResourceType{
             menuType(),
             menuItemType(),
         },
     })
 }
 
-func menuType() application.PresetType {
-    return application.PresetType{
+func menuType() application.PresetResourceType {
+    return application.PresetResourceType{
         Name:        "Menu",
         Slug:        "menu",
         Description: "A restaurant menu grouping (e.g., Lunch, Dinner, Drinks)",
@@ -74,8 +74,8 @@ func menuType() application.PresetType {
     }
 }
 
-func menuItemType() application.PresetType {
-    return application.PresetType{
+func menuItemType() application.PresetResourceType {
+    return application.PresetResourceType{
         Name:        "Menu Item",
         Slug:        "menu-item",
         Description: "An individual dish or drink",
@@ -118,15 +118,15 @@ Open `application/presets/register.go` and add your preset to the `RegisterAll` 
 ```go
 import "github.com/wepala/weos/application/presets/restaurant"
 
-func RegisterAll(registry *application.PresetRegistry) {
-    core.Register(registry)
-    auth.Register(registry)
-    ecommerce.Register(registry)
-    tasks.Register(registry)
-    website.Register(registry)
-    events.Register(registry)
-    knowledge.Register(registry)
-    restaurant.Register(registry) // Add this line
+func RegisterAll(r *application.PresetRegistry) {
+    core.Register(r)
+    auth.Register(r)
+    ecommerce.Register(r)
+    tasks.Register(r)
+    website.Register(r)
+    events.Register(r)
+    knowledge.Register(r)
+    restaurant.Register(r) // Add this line
 }
 ```
 

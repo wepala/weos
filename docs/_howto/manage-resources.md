@@ -21,12 +21,10 @@ weos resource create --type blog-post \
 ### API
 
 ```bash
-curl -X POST http://localhost:8080/blog-post \
+curl -X POST http://localhost:8080/api/blog-post \
   -H "Content-Type: application/json" \
   -d '{"headline": "Hello World", "articleBody": "Welcome!", "author": "Jane"}'
 ```
-
-Note: the API route uses the type slug directly (`/blog-post`), not `/api/resources/`.
 
 ## List
 
@@ -42,14 +40,14 @@ weos resource list --type blog-post --cursor "next-page-token"
 
 ```bash
 # Basic list
-curl http://localhost:8080/blog-post
+curl http://localhost:8080/api/blog-post
 
 # With pagination and sorting
-curl "http://localhost:8080/blog-post?limit=10&sort_by=created_at&sort_order=desc"
+curl "http://localhost:8080/api/blog-post?limit=10&sort_by=created_at&sort_order=desc"
 
 # With filtering
-curl "http://localhost:8080/blog-post?_filter[status][eq]=active"
-curl "http://localhost:8080/blog-post?filter_field=author&filter_value=Jane"
+curl "http://localhost:8080/api/blog-post?_filter[status][eq]=active"
+curl "http://localhost:8080/api/blog-post?filter_field=author&filter_value=Jane"
 ```
 
 ## Get
@@ -63,10 +61,10 @@ weos resource get urn:blog-post:abc123
 ### API
 
 ```bash
-curl http://localhost:8080/blog-post/urn:blog-post:abc123
+curl http://localhost:8080/api/blog-post/urn:blog-post:abc123
 
 # JSON-LD format
-curl -H "Accept: application/ld+json" http://localhost:8080/blog-post/urn:blog-post:abc123
+curl -H "Accept: application/ld+json" http://localhost:8080/api/blog-post/urn:blog-post:abc123
 ```
 
 ## Update
@@ -74,7 +72,7 @@ curl -H "Accept: application/ld+json" http://localhost:8080/blog-post/urn:blog-p
 ### API
 
 ```bash
-curl -X PUT http://localhost:8080/blog-post/urn:blog-post:abc123 \
+curl -X PUT http://localhost:8080/api/blog-post/urn:blog-post:abc123 \
   -H "Content-Type: application/json" \
   -d '{"headline": "Updated Title", "articleBody": "New content"}'
 ```
@@ -90,7 +88,7 @@ weos resource delete urn:blog-post:abc123
 ### API
 
 ```bash
-curl -X DELETE http://localhost:8080/blog-post/urn:blog-post:abc123
+curl -X DELETE http://localhost:8080/api/blog-post/urn:blog-post:abc123
 ```
 
 Deletion is a soft delete — the resource is marked as "archived" via a `Resource.Deleted` event.

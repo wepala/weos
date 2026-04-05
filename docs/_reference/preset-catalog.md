@@ -19,8 +19,8 @@ weos resource-type preset install <name>
 
 | Type | Slug | @type | Properties |
 |------|------|-------|------------|
-| Person | `person` | schema:Person | `givenName`\*, `familyName`\*, `name` (computed), `email`, `avatarURL` |
-| Organization | `organization` | schema:Organization | `name`\*, `slug`\*, `description`, `url`, `logoURL` |
+| Person | `person` | foaf:Person / schema:Person | `givenName`\*, `familyName`\*, `name` (computed), `email`, `avatarURL` |
+| Organization | `organization` | org:Organization / schema:Organization | `name`\*, `slug`\*, `description`, `url`, `logoURL` |
 
 The Person type auto-computes `name` from `givenName` + `familyName`.
 
@@ -45,7 +45,7 @@ The Person type auto-computes `name` from `givenName` + `familyName`.
 | Type | Slug | @type | Properties |
 |------|------|-------|------------|
 | Product | `product` | schema:Product | `name`\*, `description`, `sku`, `brand`, `image` (format: uri) |
-| Offer | `offer` | schema:Offer + gr:Offering | `name`\*, `price`\* (number), `priceCurrency`, `availability` |
+| Offer | `offer` | schema:Offer | `name`\*, `price`\* (number), `priceCurrency`, `availability` |
 | Review | `review` | schema:Review | `name`\*, `reviewBody`, `reviewRating` (integer), `author` |
 | Service | `service` | schema:Service | `name`\*, `description`, `provider`, `serviceType` |
 
@@ -73,7 +73,7 @@ The Task type's `project` property references the Project type, creating a forei
 | Web Site | `web-site` | schema:WebSite | `name`\*, `url` (format: uri), `description`, `inLanguage` |
 | Web Page | `web-page` | schema:WebPage | `name`\*, `slug`, `description`, `template` |
 | Web Page Element | `web-page-element` | schema:WebPageElement | `name`\*, `cssSelector`, `content` |
-| Web Page Template | `web-page-template` | schema:WebPageElement | `name`\*, `templateBody`, `slots` (array of strings) |
+| Web Page Template | `web-page-template` | schema:WebPage (variant: template) | `name`\*, `templateBody`, `slots` (array of strings) |
 | Theme | `theme` | schema:CreativeWork | `name`\*, `version`, `thumbnailUrl` (format: uri) |
 | Article | `article` | schema:Article | `headline`\*, `articleBody`, `author`, `datePublished` (format: date-time) |
 | Blog Post | `blog-post` | schema:BlogPosting | `headline`\*, `articleBody`, `author`, `datePublished` (format: date-time) |

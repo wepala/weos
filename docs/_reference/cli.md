@@ -109,7 +109,12 @@ Install a preset by name. See [Preset Catalog]({% link _reference/preset-catalog
 
 ```bash
 weos resource-type preset install tasks
+weos resource-type preset install tasks --update  # update existing types
 ```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--update` | bool | `false` | Update existing resource types with preset definitions instead of skipping them |
 
 ### `resource-type preset list`
 

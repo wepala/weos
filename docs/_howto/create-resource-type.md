@@ -64,7 +64,7 @@ curl -X POST http://localhost:8080/api/resource-types \
 2. If a JSON Schema is provided, the ProjectionManager creates a dedicated SQL table:
    - Table name: slug with hyphens→underscores, pluralized (`menu` → `menus`)
    - Typed columns from schema properties (`name TEXT`, `description TEXT`)
-   - Standard columns: `id`, `type_slug`, `data`, `status`, `sequence_no`, `created_at`, `updated_at`
+   - Standard columns: `id`, `type_slug`, `status`, `created_by`, `account_id`, `sequence_no`, `created_at`, `updated_at`
 3. The type appears in the admin UI sidebar
 
 ## Verify

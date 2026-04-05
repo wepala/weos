@@ -70,15 +70,15 @@ In development mode (no OAuth), `/api/auth/me` returns a dev user based on the `
 
 ## Dynamic Resources
 
-Resources are accessed under their type slug:
+Resources are accessed under `/api` with their type slug:
 
 | Method | Path | Description | Request Body |
 |--------|------|-------------|-------------|
-| POST | `/:typeSlug` | Create a resource | JSON data matching the type's schema |
-| GET | `/:typeSlug` | List resources | Query: `cursor`, `limit`, `sort_by`, `sort_order`, `_filter[field][op]=value` |
-| GET | `/:typeSlug/:id` | Get a resource | |
-| PUT | `/:typeSlug/:id` | Update a resource | JSON data |
-| DELETE | `/:typeSlug/:id` | Delete a resource | |
+| POST | `/api/:typeSlug` | Create a resource | JSON data matching the type's schema |
+| GET | `/api/:typeSlug` | List resources | Query: `cursor`, `limit`, `sort_by`, `sort_order`, `_filter[field][op]=value` |
+| GET | `/api/:typeSlug/:id` | Get a resource | |
+| PUT | `/api/:typeSlug/:id` | Update a resource | JSON data |
+| DELETE | `/api/:typeSlug/:id` | Delete a resource | |
 
 **Query parameters for list:**
 
@@ -204,9 +204,9 @@ The `name` field is auto-computed from `given_name` + `family_name`.
 
 | Method | Path | Description | Request Body |
 |--------|------|-------------|-------------|
-| POST | `/:typeSlug/:id/permissions` | Grant permissions | `{agent_id, actions[]}` |
-| GET | `/:typeSlug/:id/permissions` | List permissions | |
-| DELETE | `/:typeSlug/:id/permissions/:agentId` | Revoke permissions | |
+| POST | `/api/:typeSlug/:id/permissions` | Grant permissions | `{agent_id, actions[]}` |
+| GET | `/api/:typeSlug/:id/permissions` | List permissions | |
+| DELETE | `/api/:typeSlug/:id/permissions/:agentId` | Revoke permissions | |
 
 ## Error Responses
 
