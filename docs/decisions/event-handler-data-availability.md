@@ -1,3 +1,10 @@
+---
+title: "ADR: Event Handler Data Availability"
+parent: Architecture Decision Records
+layout: default
+nav_order: 1
+---
+
 # ADR: Handling Data Availability in Event Handlers for Atomic Resources
 
 **Status:** Accepted — Option 5 (Resource.Published signal)  

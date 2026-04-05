@@ -80,3 +80,8 @@ web/frontend/.output
 web/frontend/node_modules/
 web/dist
 weos
+
+# Jekyll
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata

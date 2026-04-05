@@ -1,3 +1,10 @@
+---
+title: "ADR: Transaction ID and Projection Consolidation"
+parent: Architecture Decision Records
+layout: default
+nav_order: 2
+---
+
 # ADR: Transaction ID on Events and Consolidated Projection Writes
 
 **Status:** Accepted — Implemented (fully consolidated: TripleService removed, all mutations through UoW + Resource.Published)  
