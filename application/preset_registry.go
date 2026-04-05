@@ -171,7 +171,11 @@ func (d PresetDefinition) ScreenManifest() map[string][]string {
 		return nil
 	}
 	manifest := make(map[string][]string)
-	_ = fs.WalkDir(d.Screens, ".", func(p string, entry fs.DirEntry, err error) error {
+	// WalkDir error is intentionally not propagated: the Screens FS is an
+	// embedded filesystem whose contents are guaranteed at compile time.
+	// If WalkDir fails (e.g., root unreadable), manifest stays empty and
+	// the method returns nil — the same result as "no screens".
+	_ = fs.WalkDir(d.Screens, ".", func(p string, entry fs.DirEntry, err error) error { //nolint:errcheck
 		if err != nil || entry.IsDir() {
 			return nil //nolint:nilerr // skip unreadable entries
 		}
