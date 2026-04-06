@@ -423,6 +423,9 @@ func (s *resourceTypeService) requireAdmin(ctx context.Context) error {
 	if ident.ActiveAccountID == "" {
 		return fmt.Errorf("account context required: %w", ErrForbidden)
 	}
+	if s.accountRepo == nil {
+		return fmt.Errorf("authorization not configured: %w", ErrForbidden)
+	}
 	role, err := s.accountRepo.FindMemberRole(
 		ctx, ident.ActiveAccountID, ident.AgentID)
 	if err != nil {
