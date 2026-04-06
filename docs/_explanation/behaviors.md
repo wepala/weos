@@ -116,3 +116,4 @@ The registry is provided to `ResourceService` via dependency injection. At runti
 - [How to Create a Behavior]({% link _howto/create-behavior.md %}) — step-by-step guide
 - [Creating a Preset]({% link _tutorials/creating-a-preset.md %}) — how presets bundle types and behaviors
 - [Architecture]({% link _explanation/architecture.md %}) — where behaviors fit in the Clean Architecture layers
+- [The Type Object Pattern](https://web.archive.org/web/20190401094235/http://www.cs.ox.ac.uk/jeremy.gibbons/dpa/typeobject.pdf) (Gibbons et al., University of Oxford) — the foundational academic paper

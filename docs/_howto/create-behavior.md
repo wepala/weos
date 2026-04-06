@@ -110,10 +110,14 @@ The slug key (`"blog-post"`) must match the resource type's slug exactly.
 
 ## 4. Register the Preset
 
-Add your preset to the preset registry in `cmd/weos/main.go` or wherever presets are registered:
+Add your preset to the `RegisterAll` function in `application/presets/register.go`, which is where all built-in presets are registered. This function is called by `presets.NewDefaultRegistry()`, which is used by the CLI (`internal/cli/di.go`, `internal/cli/serve.go`) and the MCP server:
 
 ```go
-blog.Register(registry)
+func RegisterAll(registry *application.PresetRegistry) {
+    core.Register(registry)
+    // ...existing presets...
+    blog.Register(registry)  // add your preset here
+}
 ```
 
 ## 5. Test the Behavior
