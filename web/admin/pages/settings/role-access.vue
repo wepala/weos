@@ -155,7 +155,7 @@ function deselectAll() {
 async function fetchRoles() {
   try {
     const raw = await $fetch<unknown>('/api/settings/roles')
-    const res = unwrapEnvelope<any>(raw)
+    const res = unwrapEnvelope<{ roles: string[] }>(raw)
     roles.value = res.roles || []
   } catch {
     roles.value = []
@@ -165,7 +165,7 @@ async function fetchRoles() {
 async function fetchAccess() {
   try {
     const raw = await $fetch<unknown>('/api/settings/role-access')
-    const res = unwrapEnvelope<any>(raw)
+    const res = unwrapEnvelope<{ roles: AccessMap }>(raw)
     accessMap.value = res.roles || {}
   } catch {
     accessMap.value = {}
@@ -179,7 +179,7 @@ async function handleSave() {
       method: 'PUT',
       body: { roles: accessMap.value },
     })
-    const res = unwrapEnvelope<any>(raw)
+    const res = unwrapEnvelope<{ roles: AccessMap }>(raw)
     accessMap.value = res.roles || accessMap.value
     message.success('Role access saved')
   } catch {

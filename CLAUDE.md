@@ -234,10 +234,10 @@ All API responses (except `/health` and static files) use a standard envelope:
 
 **Success:** `respond(c, status, data)` → `{"data": <data>, "messages": [...]}`
 **Paginated:** `respondPaginated(c, status, data, cursor, hasMore)` → `{"data": [...], "cursor": "...", "has_more": bool}`
-**Error:** `respondError(c, status, msg)` → `{"error": "msg", "messages": [{"type":"error","text":"msg"}]}`
+**Error:** `respondError(c, status, msg)` → `{"error": "msg"}`
 **Raw JSON:** `respondRaw(c, status, rawBytes)` — for pre-serialized JSON (e.g., JSON-LD)
 
-The `messages` key is omitted when empty. Services can surface non-fatal messages via context helpers:
+The `messages` key is omitted when empty. `respondError` does not add the error itself to `messages`; that array only contains messages accumulated via context helpers. Services can surface non-fatal messages via context helpers:
 ```go
 entities.AddMessage(ctx, entities.Message{Type: "warning", Text: "schema missing"})
 ```

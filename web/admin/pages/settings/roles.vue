@@ -61,7 +61,7 @@ const saving = ref(false)
 async function fetchRoles() {
   try {
     const raw = await $fetch<unknown>('/api/settings/roles')
-    const res = unwrapEnvelope<any>(raw)
+    const res = unwrapEnvelope<{ roles: string[] }>(raw)
     roles.value = res.roles || []
   } catch {
     roles.value = ['admin', 'instructor']
@@ -90,7 +90,7 @@ async function handleSave() {
       method: 'PUT',
       body: { roles: roles.value },
     })
-    const res = unwrapEnvelope<any>(raw)
+    const res = unwrapEnvelope<{ roles: string[] }>(raw)
     roles.value = res.roles || roles.value
     message.success('Roles saved')
   } catch {
