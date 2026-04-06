@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { unwrapEnvelope } from './useApi'
+import { unwrapEnvelope, forwardMessages } from './useApi'
 
 interface Person {
   id: string
@@ -47,14 +47,15 @@ interface UpdatePersonPayload {
 }
 
 export function usePersonApi() {
-  function listPersons(cursor = '', limit = 20) {
+  async function listPersons(cursor = '', limit = 20) {
     const params = new URLSearchParams()
     if (cursor) params.set('cursor', cursor)
     params.set('limit', String(limit))
-    // Paginated responses already match the envelope shape
-    return $fetch<PaginatedResponse<Person>>(
+    const res = await $fetch<PaginatedResponse<Person>>(
       `/api/persons?${params}`,
     )
+    forwardMessages(res)
+    return res
   }
 
   async function getPerson(id: string) {

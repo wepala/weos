@@ -73,6 +73,7 @@
 
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
+import { unwrapEnvelope } from '~/composables/useApi'
 
 const { user, startImpersonation } = useAuth()
 const router = useRouter()
@@ -113,8 +114,8 @@ const columns = computed(() => {
 
 async function fetchRoles() {
   try {
-    const raw = await $fetch<any>('/api/settings/roles')
-    const res = raw?.data !== undefined ? raw.data : raw
+    const raw = await $fetch<unknown>('/api/settings/roles')
+    const res = unwrapEnvelope<any>(raw)
     availableRoles.value = res.roles || []
   } catch (err) {
     console.warn('[users] fetchRoles failed, using defaults:', err)

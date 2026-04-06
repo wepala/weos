@@ -208,13 +208,16 @@ func TestOwnership_OtherUserDenied(t *testing.T) {
 	// Admin creates a project
 	projectID := env.seedProjectForUser(t, "Admin Private", "admin@weos.dev")
 
-	// Member tries to access it — should be denied
+	// Member tries to access it — should be denied with ErrorEnvelope
 	resp := env.doRequest(t, "GET", "/api/project/"+projectID, "", "member@weos.dev")
 	if resp.StatusCode != http.StatusForbidden {
 		result := readJSON(t, resp)
 		t.Fatalf("member access admin project: expected 403, got %d: %v", resp.StatusCode, result)
 	}
-	resp.Body.Close()
+	result := readJSON(t, resp)
+	if result["error"] == nil || result["error"] == "" {
+		t.Fatalf("expected 'error' key in 403 response, got: %v", result)
+	}
 }
 
 func TestOwnership_ListOnlyShowsOwnResources(t *testing.T) {

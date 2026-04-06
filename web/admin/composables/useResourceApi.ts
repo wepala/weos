@@ -13,16 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { unwrapEnvelope } from './useApi'
+import { unwrapEnvelope, forwardMessages } from './useApi'
+import type { ApiMessage } from './useNotifications'
 
 interface PaginatedResponse<T> {
   data: T[]
   cursor: string
   has_more: boolean
+  messages?: ApiMessage[]
 }
 
 export function useResourceApi(typeSlug: string) {
-  function list(
+  async function list(
     cursor = '',
     limit = 20,
     sortBy = '',
@@ -41,10 +43,11 @@ export function useResourceApi(typeSlug: string) {
         }
       }
     }
-    // Paginated responses already match the envelope shape (data, cursor, has_more)
-    return $fetch<PaginatedResponse<any>>(
+    const res = await $fetch<PaginatedResponse<any>>(
       `/api/${typeSlug}?${params}`,
     )
+    forwardMessages(res)
+    return res
   }
 
   async function get(id: string) {

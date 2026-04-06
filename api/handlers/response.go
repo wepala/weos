@@ -58,9 +58,11 @@ func respondPaginated(
 }
 
 // respondError sends an error JSON response in the standard envelope.
+// The error text is in the top-level "error" field for backward compatibility.
+// The "messages" array contains only context-accumulated messages (e.g., warnings
+// from services), not the error itself, to avoid duplication on the frontend.
 func respondError(c echo.Context, status int, msg string) error {
 	msgs := entities.GetMessages(c.Request().Context())
-	msgs = append(msgs, entities.Message{Type: "error", Text: msg})
 	return c.JSON(status, ErrorEnvelope{Error: msg, Messages: msgs})
 }
 

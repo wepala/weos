@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { unwrapEnvelope } from './useApi'
+import { unwrapEnvelope, forwardMessages } from './useApi'
 
 interface Organization {
   id: string
@@ -58,13 +58,15 @@ interface Person {
 }
 
 export function useOrganizationApi() {
-  function listOrganizations(cursor = '', limit = 20) {
+  async function listOrganizations(cursor = '', limit = 20) {
     const params = new URLSearchParams()
     if (cursor) params.set('cursor', cursor)
     params.set('limit', String(limit))
-    return $fetch<PaginatedResponse<Organization>>(
+    const res = await $fetch<PaginatedResponse<Organization>>(
       `/api/organizations?${params}`,
     )
+    forwardMessages(res)
+    return res
   }
 
   async function getOrganization(id: string) {

@@ -52,6 +52,7 @@
 
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
+import { unwrapEnvelope } from '~/composables/useApi'
 
 const roles = ref<string[]>([])
 const newRoleName = ref('')
@@ -59,8 +60,8 @@ const saving = ref(false)
 
 async function fetchRoles() {
   try {
-    const raw = await $fetch<any>('/api/settings/roles')
-    const res = raw?.data !== undefined ? raw.data : raw
+    const raw = await $fetch<unknown>('/api/settings/roles')
+    const res = unwrapEnvelope<any>(raw)
     roles.value = res.roles || []
   } catch {
     roles.value = ['admin', 'instructor']
@@ -85,11 +86,11 @@ function removeRole(role: string) {
 async function handleSave() {
   saving.value = true
   try {
-    const raw = await $fetch<any>('/api/settings/roles', {
+    const raw = await $fetch<unknown>('/api/settings/roles', {
       method: 'PUT',
       body: { roles: roles.value },
     })
-    const res = raw?.data !== undefined ? raw.data : raw
+    const res = unwrapEnvelope<any>(raw)
     roles.value = res.roles || roles.value
     message.success('Roles saved')
   } catch {

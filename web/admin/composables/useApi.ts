@@ -16,27 +16,45 @@
 import type { ApiMessage } from './useNotifications'
 
 /**
- * Checks whether a raw response looks like the API envelope
- * (`{ data: ... }` with an optional `messages` array).
+ * Checks whether a raw response is a single-entity envelope.
+ * Distinguishes from paginated responses by excluding objects
+ * that also have `cursor` or `has_more` keys.
  */
-function isEnvelope(obj: unknown): obj is { data: unknown; messages?: ApiMessage[] } {
+function isSingleEnvelope(obj: unknown): obj is { data: unknown; messages?: ApiMessage[] } {
   return (
     typeof obj === 'object' &&
     obj !== null &&
-    'data' in obj
+    'data' in obj &&
+    !('cursor' in obj) &&
+    !('has_more' in obj)
   )
 }
 
 /**
- * Unwraps an API response envelope.
- * If the response has the `{ data, messages? }` shape the payload inside
- * `data` is returned and any `messages` are forwarded to the notification
- * system.  Non-envelope responses are returned as-is for backward compat.
+ * Process messages from any API response if present.
+ * Exported so paginated endpoints can forward messages without unwrapping.
+ */
+export function forwardMessages(obj: unknown): void {
+  if (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'messages' in obj &&
+    Array.isArray((obj as any).messages)
+  ) {
+    const { processApiMessages } = useNotifications()
+    processApiMessages((obj as any).messages)
+  }
+}
+
+/**
+ * Unwraps a single-entity API response envelope.
+ * If the response has the `{ data, messages? }` shape (excluding paginated),
+ * the payload inside `data` is returned and any `messages` are forwarded to
+ * the notification system. Non-envelope responses are returned as-is.
  */
 export function unwrapEnvelope<T>(raw: unknown): T {
-  if (isEnvelope(raw)) {
-    const { processApiMessages } = useNotifications()
-    processApiMessages(raw.messages)
+  forwardMessages(raw)
+  if (isSingleEnvelope(raw)) {
     return raw.data as T
   }
   return raw as T
@@ -47,14 +65,23 @@ export function useApi() {
     url: string,
     options?: RequestInit,
   ): Promise<T> {
-    const res = await $fetch<unknown>(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.headers as Record<string, string>),
-      },
-    } as any)
-    return unwrapEnvelope<T>(res)
+    try {
+      const res = await $fetch<unknown>(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options?.headers as Record<string, string>),
+        },
+      } as any)
+      return unwrapEnvelope<T>(res)
+    } catch (err: any) {
+      // $fetch throws FetchError on 4xx/5xx with .data containing the response body.
+      // Forward structured messages from error envelopes to the notification system.
+      if (err?.data) {
+        forwardMessages(err.data)
+      }
+      throw err
+    }
   }
 
   return { request }

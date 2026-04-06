@@ -262,6 +262,7 @@ func (h *ResourceHandler) Delete(c echo.Context) error {
 		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
+	// 204 No Content intentionally has no body; any accumulated messages are not sent.
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -278,6 +279,10 @@ func respondWithResourceData(
 	}
 	simplified, err := entities.SimplifyJSONLD(entity.Data(), ldCtx)
 	if err != nil {
+		entities.AddMessage(c.Request().Context(), entities.Message{
+			Type: "warning",
+			Text: "response returned in raw JSON-LD format due to simplification error",
+		})
 		return respondRaw(c, status, entity.Data())
 	}
 	return respondRaw(c, status, simplified)
