@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"weos/domain/entities"
@@ -185,12 +186,13 @@ func (s *resourceTypeService) InstallPreset(
 	result := &InstallPresetResult{}
 	for _, pt := range preset.Types {
 		existing, err := s.GetBySlug(ctx, pt.Slug)
-		if err == nil {
+		switch {
+		case err == nil:
 			if !update {
 				result.Skipped = append(result.Skipped, pt.Slug)
 				continue
 			}
-			_, err := s.Update(ctx, UpdateResourceTypeCommand{
+			_, uErr := s.Update(ctx, UpdateResourceTypeCommand{
 				ID:          existing.GetID(),
 				Name:        pt.Name,
 				Slug:        pt.Slug,
@@ -198,33 +200,34 @@ func (s *resourceTypeService) InstallPreset(
 				Context:     pt.Context,
 				Schema:      pt.Schema,
 			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to update resource type %q: %w", pt.Slug, err)
+			if uErr != nil {
+				return result, fmt.Errorf("failed to update resource type %q: %w", pt.Slug, uErr)
 			}
 			result.Updated = append(result.Updated, pt.Slug)
-			continue
-		}
-		_, err = s.Create(ctx, CreateResourceTypeCommand{
-			Name: pt.Name, Slug: pt.Slug, Description: pt.Description,
-			Context: pt.Context, Schema: pt.Schema,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create resource type %q: %w", pt.Slug, err)
-		}
-		result.Created = append(result.Created, pt.Slug)
-		if err := s.seedFixtures(ctx, pt, result); err != nil {
-			return nil, err
+		case errors.Is(err, repositories.ErrNotFound):
+			_, cErr := s.Create(ctx, CreateResourceTypeCommand{
+				Name: pt.Name, Slug: pt.Slug, Description: pt.Description,
+				Context: pt.Context, Schema: pt.Schema,
+			})
+			if cErr != nil {
+				return result, fmt.Errorf("failed to create resource type %q: %w", pt.Slug, cErr)
+			}
+			result.Created = append(result.Created, pt.Slug)
+			s.seedFixtures(ctx, pt, result)
+		default:
+			return result, fmt.Errorf("failed to look up resource type %q: %w", pt.Slug, err)
 		}
 	}
 	return result, nil
 }
 
 // seedFixtures creates resources from the preset type's fixture data.
+// Failures are logged but do not prevent the rest of the preset from installing.
 func (s *resourceTypeService) seedFixtures(
 	ctx context.Context, pt PresetResourceType, result *InstallPresetResult,
-) error {
+) {
 	if len(pt.Fixtures) == 0 {
-		return nil
+		return
 	}
 	count := 0
 	for i, fixture := range pt.Fixtures {
@@ -233,14 +236,17 @@ func (s *resourceTypeService) seedFixtures(
 			Data:     fixture,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to seed fixture %d for %q: %w", i, pt.Slug, err)
+			s.logger.Error(ctx, "failed to seed fixture",
+				"slug", pt.Slug, "index", i, "error", err)
+			continue
 		}
 		count++
 	}
-	if result.Seeded == nil {
-		result.Seeded = make(map[string]int)
+	if count > 0 {
+		if result.Seeded == nil {
+			result.Seeded = make(map[string]int)
+		}
+		result.Seeded[pt.Slug] = count
+		s.logger.Info(ctx, "seeded fixture data", "slug", pt.Slug, "count", count)
 	}
-	result.Seeded[pt.Slug] = count
-	s.logger.Info(ctx, "seeded fixture data", "slug", pt.Slug, "count", count)
-	return nil
 }

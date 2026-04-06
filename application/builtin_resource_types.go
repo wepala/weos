@@ -41,10 +41,16 @@ func ensureBuiltInResourceTypes(params struct {
 		if err != nil {
 			params.Logger.Error(ctx, "failed to install built-in preset",
 				"preset", preset.Name, "error", err)
+		}
+		if result == nil {
 			continue
 		}
 		for _, slug := range result.Created {
 			params.Logger.Info(ctx, "created built-in resource type", "slug", slug)
+		}
+		for slug, count := range result.Seeded {
+			params.Logger.Info(ctx, "seeded built-in fixture data",
+				"slug", slug, "count", count)
 		}
 	}
 	return nil

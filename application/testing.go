@@ -64,3 +64,24 @@ func NewResourceServiceForTest(
 		behaviors:  behaviors,
 	}
 }
+
+// NewResourceTypeServiceForTest creates a ResourceTypeService without fx wiring.
+func NewResourceTypeServiceForTest(
+	repo repositories.ResourceTypeRepository,
+	projMgr repositories.ProjectionManager,
+	eventStore domain.EventStore,
+	dispatcher *domain.EventDispatcher,
+	registry *PresetRegistry,
+	logger entities.Logger,
+	resourceSvc ResourceService,
+) ResourceTypeService {
+	return &resourceTypeService{
+		repo:        repo,
+		projMgr:     projMgr,
+		eventStore:  eventStore,
+		dispatcher:  dispatcher,
+		registry:    registry,
+		logger:      logger,
+		resourceSvc: resourceSvc,
+	}
+}
