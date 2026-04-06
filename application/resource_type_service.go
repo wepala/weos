@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -11,7 +10,6 @@ import (
 
 	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"go.uber.org/fx"
 )
 
@@ -239,23 +237,12 @@ func (s *resourceTypeService) seedFixtures(
 		s.logger.Error(ctx, "cannot seed fixtures without a schema", "slug", pt.Slug)
 		return
 	}
-	// Precompile schema once to avoid O(n) recompilation per fixture.
-	compiled, compileErr := compileSchema(pt.Schema)
-	if compileErr != nil {
-		s.logger.Error(ctx, "failed to compile schema for fixture validation",
-			"slug", pt.Slug, "error", compileErr)
-		return
-	}
 	if result.Seeded == nil {
 		result.Seeded = make(map[string]int)
 	}
 	count := 0
 	for i, fixture := range pt.Fixtures {
-		if err := validateWithCompiledSchema(compiled, fixture); err != nil {
-			s.logger.Error(ctx, "fixture failed schema validation",
-				"slug", pt.Slug, "index", i, "error", err)
-			continue
-		}
+		// Schema validation is handled by ResourceService.Create.
 		_, err := s.resourceSvc.Create(ctx, CreateResourceCommand{
 			TypeSlug: pt.Slug,
 			Data:     fixture,
@@ -271,26 +258,4 @@ func (s *resourceTypeService) seedFixtures(
 	if count > 0 {
 		s.logger.Info(ctx, "seeded fixture data", "slug", pt.Slug, "count", count)
 	}
-}
-
-// compileSchema compiles a JSON Schema once for reuse across multiple validations.
-func compileSchema(schema json.RawMessage) (*jsonschema.Schema, error) {
-	var schemaDoc any
-	if err := json.Unmarshal(schema, &schemaDoc); err != nil {
-		return nil, fmt.Errorf("invalid schema JSON: %w", err)
-	}
-	c := jsonschema.NewCompiler()
-	if err := c.AddResource("schema.json", schemaDoc); err != nil {
-		return nil, fmt.Errorf("invalid schema: %w", err)
-	}
-	return c.Compile("schema.json")
-}
-
-// validateWithCompiledSchema validates data against a precompiled JSON Schema.
-func validateWithCompiledSchema(sch *jsonschema.Schema, data json.RawMessage) error {
-	var v any
-	if err := json.Unmarshal(data, &v); err != nil {
-		return fmt.Errorf("invalid JSON data: %w", err)
-	}
-	return sch.Validate(v)
 }
