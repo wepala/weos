@@ -19,11 +19,12 @@
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
-  <div class="api-notifications">
+  <div class="api-notifications" aria-live="polite" role="status">
     <div
       v-for="n in notifications"
       :key="n.id"
       :class="['api-notification', `api-notification--${n.type}`]"
+      :role="n.type === 'error' ? 'alert' : undefined"
     >
       {{ n.text }}
       <button
