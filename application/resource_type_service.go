@@ -237,6 +237,9 @@ func (s *resourceTypeService) seedFixtures(
 		s.logger.Error(ctx, "cannot seed fixtures without a schema", "slug", pt.Slug)
 		return
 	}
+	if result.Seeded == nil {
+		result.Seeded = make(map[string]int)
+	}
 	count := 0
 	for i, fixture := range pt.Fixtures {
 		_, err := s.resourceSvc.Create(ctx, CreateResourceCommand{
@@ -250,11 +253,8 @@ func (s *resourceTypeService) seedFixtures(
 		}
 		count++
 	}
+	result.Seeded[pt.Slug] = count
 	if count > 0 {
-		if result.Seeded == nil {
-			result.Seeded = make(map[string]int)
-		}
-		result.Seeded[pt.Slug] = count
 		s.logger.Info(ctx, "seeded fixture data", "slug", pt.Slug, "count", count)
 	}
 }
