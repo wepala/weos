@@ -125,16 +125,17 @@ func (s *resourceService) resolveEnabledBehaviors(ctx context.Context, typeSlug 
 }
 
 // isBehaviorEnabled checks whether a behavior slug should be active.
-// When enabledSet is nil (no account override), falls back to preset defaults.
+// Account overrides only apply to manageable behaviors.
+// Non-manageable behaviors always use preset defaults.
 // When no metadata exists for the slug, the behavior fires (backward compat).
 func (s *resourceService) isBehaviorEnabled(slug string, enabledSet map[string]bool) bool {
-	if enabledSet != nil {
-		return enabledSet[slug]
-	}
-	// No account override — use preset default.
 	meta, ok := s.behaviorMeta[slug]
 	if !ok {
 		return true // no metadata — legacy behavior, always fire
+	}
+
+	if enabledSet != nil && meta.Manageable {
+		return enabledSet[slug]
 	}
 	return meta.Default
 }

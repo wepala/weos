@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"weos/application"
 
@@ -66,6 +67,9 @@ func registerResourceTypePresetTools(server *mcp.Server, svc application.Resourc
 					Manageable:  m.Manageable,
 				})
 			}
+			sort.Slice(behaviors, func(i, j int) bool {
+				return behaviors[i].Slug < behaviors[j].Slug
+			})
 			out.Presets = append(out.Presets, PresetSummary{
 				Name:        d.Name,
 				Description: d.Description,
@@ -145,7 +149,11 @@ func registerBehaviorTools(server *mcp.Server, svc application.ResourceTypeServi
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input BehaviorSetInput,
 	) (*mcp.CallToolResult, BehaviorSetOutput, error) {
-		if err := svc.SetBehaviors(ctx, input.TypeSlug, input.Slugs); err != nil {
+		slugs := input.Slugs
+		if slugs == nil {
+			slugs = []string{}
+		}
+		if err := svc.SetBehaviors(ctx, input.TypeSlug, slugs); err != nil {
 			return nil, BehaviorSetOutput{}, err
 		}
 		return nil, BehaviorSetOutput{Success: true}, nil

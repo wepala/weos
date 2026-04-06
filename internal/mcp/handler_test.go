@@ -172,7 +172,7 @@ func TestNewMCPServer_AllServices(t *testing.T) {
 
 	names := toolNames(t, server)
 
-	// All 4 service groups should be registered (22 tools total).
+	// All 4 service groups should be registered (24 tools total).
 	expectedPrefixes := []string{"person_", "organization_", "resource_type_", "resource_"}
 	for _, prefix := range expectedPrefixes {
 		found := false

@@ -25,6 +25,7 @@ import (
 	"weos/infrastructure/models"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type BehaviorSettingsRepository struct {
@@ -61,28 +62,21 @@ func (r *BehaviorSettingsRepository) GetByAccountAndType(
 func (r *BehaviorSettingsRepository) SaveByAccountAndType(
 	ctx context.Context, accountID, typeSlug string, enabledSlugs []string,
 ) error {
+	if enabledSlugs == nil {
+		enabledSlugs = []string{}
+	}
 	data, err := json.Marshal(enabledSlugs)
 	if err != nil {
 		return err
 	}
 
-	var existing models.BehaviorSettings
-	err = r.db.WithContext(ctx).
-		Where("account_id = ? AND type_slug = ?", accountID, typeSlug).
-		First(&existing).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
+	row := models.BehaviorSettings{
+		AccountID:        accountID,
+		TypeSlug:         typeSlug,
+		EnabledBehaviors: string(data),
 	}
-
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		row := models.BehaviorSettings{
-			AccountID:        accountID,
-			TypeSlug:         typeSlug,
-			EnabledBehaviors: string(data),
-		}
-		return r.db.WithContext(ctx).Create(&row).Error
-	}
-
-	existing.EnabledBehaviors = string(data)
-	return r.db.WithContext(ctx).Save(&existing).Error
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "account_id"}, {Name: "type_slug"}},
+		DoUpdates: clause.AssignmentColumns([]string{"enabled_behaviors", "updated_at"}),
+	}).Create(&row).Error
 }

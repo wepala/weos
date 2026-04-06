@@ -10,10 +10,18 @@ import (
 	"weos/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
+	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
 )
+
+// ErrValidation is returned for client-side validation failures (bad input).
+var ErrValidation = errors.New("validation error")
+
+// ErrForbidden is returned when the caller lacks required permissions.
+var ErrForbidden = errors.New("forbidden")
 
 var reservedSlugs = map[string]bool{
 	"persons":        true,
@@ -62,14 +70,13 @@ type ResourceTypeService interface {
 }
 
 type resourceTypeService struct {
-<<<<<<< HEAD
-	repo        repositories.ResourceTypeRepository
-	projMgr     repositories.ProjectionManager
-	eventStore  domain.EventStore
-	dispatcher  *domain.EventDispatcher
-	registry    *PresetRegistry
-	logger      entities.Logger
-	resourceSvc  ResourceService
+	repo             repositories.ResourceTypeRepository
+	projMgr          repositories.ProjectionManager
+	eventStore       domain.EventStore
+	dispatcher       *domain.EventDispatcher
+	registry         *PresetRegistry
+	logger           entities.Logger
+	resourceSvc      ResourceService
 	behaviors        ResourceBehaviorRegistry
 	behaviorMeta     BehaviorMetaRegistry
 	behaviorSettings repositories.BehaviorSettingsRepository
@@ -249,7 +256,6 @@ func (s *resourceTypeService) InstallPreset(
 	return result, nil
 }
 
-<<<<<<< HEAD
 // seedFixtures creates resources from the preset type's fixture data.
 // Fixtures require a schema on the resource type for validation.
 // Failures are logged but do not prevent the rest of the preset from installing.

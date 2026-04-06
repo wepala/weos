@@ -16,9 +16,11 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"weos/application"
+	"weos/domain/repositories"
 
 	"github.com/labstack/echo/v4"
 )
@@ -67,9 +69,13 @@ func (h *ResourceTypePresetHandler) Install(c echo.Context) error {
 }
 
 func (h *ResourceTypePresetHandler) ListBehaviors(c echo.Context) error {
-	typeSlug := c.Param("slug")
+	typeSlug := c.Param("typeSlug")
 	behaviors, err := h.service.ListBehaviors(c.Request().Context(), typeSlug)
 	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			return c.JSON(http.StatusNotFound,
+				map[string]string{"error": err.Error()})
+		}
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": "failed to list behaviors"})
 	}
@@ -77,7 +83,7 @@ func (h *ResourceTypePresetHandler) ListBehaviors(c echo.Context) error {
 }
 
 func (h *ResourceTypePresetHandler) SetBehaviors(c echo.Context) error {
-	typeSlug := c.Param("slug")
+	typeSlug := c.Param("typeSlug")
 	var body struct {
 		Slugs *[]string `json:"slugs"`
 	}
@@ -89,9 +95,22 @@ func (h *ResourceTypePresetHandler) SetBehaviors(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest,
 			map[string]string{"error": "slugs field is required"})
 	}
-	if err := h.service.SetBehaviors(c.Request().Context(), typeSlug, *body.Slugs); err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": err.Error()})
+	ctx := c.Request().Context()
+	if err := h.service.SetBehaviors(ctx, typeSlug, *body.Slugs); err != nil {
+		if errors.Is(err, application.ErrForbidden) {
+			return c.JSON(http.StatusForbidden,
+				map[string]string{"error": err.Error()})
+		}
+		if errors.Is(err, repositories.ErrNotFound) {
+			return c.JSON(http.StatusNotFound,
+				map[string]string{"error": err.Error()})
+		}
+		if errors.Is(err, application.ErrValidation) {
+			return c.JSON(http.StatusBadRequest,
+				map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": "failed to set behaviors"})
 	}
 	return c.JSON(http.StatusOK, map[string]bool{"success": true})
 }

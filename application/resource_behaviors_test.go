@@ -327,7 +327,7 @@ func TestBehaviorFor_AccountOverrideDisablesBehavior(t *testing.T) {
 		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
 		logger:           noopLogger{},
 		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
-		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: true}},
 		behaviorSettings: settings,
 	}
 
@@ -350,7 +350,7 @@ func TestBehaviorFor_NoAccountOverrideUsesPresetDefaults(t *testing.T) {
 		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
 		logger:           noopLogger{},
 		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
-		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: true}},
 		behaviorSettings: settings,
 	}
 
@@ -394,7 +394,7 @@ func TestBehaviorFor_SettingsErrorFallsBackToDefaults(t *testing.T) {
 		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
 		logger:           noopLogger{},
 		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
-		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: true}},
 		behaviorSettings: settings,
 	}
 
@@ -416,7 +416,7 @@ func TestBehaviorFor_NilSettingsRepo(t *testing.T) {
 		typeRepo:     &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
 		logger:       noopLogger{},
 		behaviors:    ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
-		behaviorMeta: BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true}},
+		behaviorMeta: BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: true}},
 		// behaviorSettings intentionally nil
 	}
 
@@ -455,8 +455,8 @@ func TestBehaviorFor_InheritanceWithAccountOverride(t *testing.T) {
 			"commitment": &trackBehavior{label: "commitment", calls: &calls},
 		},
 		behaviorMeta: BehaviorMetaRegistry{
-			"invoice":    entities.BehaviorMeta{Slug: "invoice", Default: true},
-			"commitment": entities.BehaviorMeta{Slug: "commitment", Default: true},
+			"invoice":    entities.BehaviorMeta{Slug: "invoice", Default: true, Manageable: true},
+			"commitment": entities.BehaviorMeta{Slug: "commitment", Default: true, Manageable: true},
 		},
 		behaviorSettings: settings,
 	}
@@ -468,5 +468,32 @@ func TestBehaviorFor_InheritanceWithAccountOverride(t *testing.T) {
 	// Only invoice should fire; commitment is excluded from override list
 	if len(calls) != 1 || calls[0] != "invoice.BeforeCreate" {
 		t.Errorf("expected [invoice.BeforeCreate], got %v", calls)
+	}
+}
+
+func TestBehaviorFor_NonManageableNotAffectedByOverride(t *testing.T) {
+	var calls []string
+	rt := makeTestRT("person", json.RawMessage(`{"@vocab":"https://schema.org/"}`))
+
+	settings := &stubBehaviorSettings{
+		data: map[string][]string{
+			"acct1|person": {},
+		},
+	}
+
+	svc := &resourceService{
+		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
+		logger:           noopLogger{},
+		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: false}},
+		behaviorSettings: settings,
+	}
+
+	ctx := withAccount(context.Background(), "agent1", "acct1")
+	behavior := svc.behaviorFor(ctx, rt)
+	_, _ = behavior.BeforeCreate(ctx, json.RawMessage(`{"name":"test"}`), rt)
+
+	if len(calls) != 1 || calls[0] != "person.BeforeCreate" {
+		t.Errorf("expected [person.BeforeCreate] (non-manageable, ignores override), got %v", calls)
 	}
 }
