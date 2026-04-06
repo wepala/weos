@@ -300,7 +300,10 @@ func (s *resourceTypeService) ListBehaviors(
 	// Verify the resource type exists.
 	rt, err := s.repo.FindBySlug(ctx, typeSlug)
 	if err != nil {
-		return nil, fmt.Errorf("resource type %q not found: %w", typeSlug, err)
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, fmt.Errorf("resource type %q not found: %w", typeSlug, err)
+		}
+		return nil, fmt.Errorf("failed to load resource type %q: %w", typeSlug, err)
 	}
 
 	// Load account-level overrides (nil means use preset defaults).
@@ -326,7 +329,7 @@ func (s *resourceTypeService) ListBehaviors(
 		slug := current.Slug()
 		if meta, ok := s.behaviorMeta[slug]; ok {
 			enabled := meta.Default
-			if overrides != nil {
+			if meta.Manageable && overrides != nil {
 				enabled = slugInList(slug, overrides)
 			}
 			infos = append(infos, BehaviorInfo{
@@ -349,7 +352,13 @@ func (s *resourceTypeService) ListBehaviors(
 		visited[parentSlug] = true
 		parentRT, lookupErr := s.repo.FindBySlug(ctx, parentSlug)
 		if lookupErr != nil {
-			break
+			if errors.Is(lookupErr, repositories.ErrNotFound) {
+				break
+			}
+			return nil, fmt.Errorf(
+				"failed to load parent resource type %q for %q: %w",
+				parentSlug, current.Slug(), lookupErr,
+			)
 		}
 		current = parentRT
 	}
