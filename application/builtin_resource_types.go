@@ -49,6 +49,9 @@ func ensureBuiltInResourceTypes(params struct {
 			params.Logger.Info(ctx, "created built-in resource type", "slug", slug)
 		}
 		for slug, count := range result.Seeded {
+			if count <= 0 {
+				continue
+			}
 			params.Logger.Info(ctx, "seeded built-in fixture data",
 				"slug", slug, "count", count)
 		}
