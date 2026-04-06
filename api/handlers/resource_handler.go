@@ -283,7 +283,7 @@ func respondWithResourceData(
 	if err != nil {
 		entities.AddMessage(c.Request().Context(), entities.Message{
 			Type: "warning",
-			Text: "response returned in raw JSON-LD format due to simplification error",
+			Text: "response contains unsimplified JSON-LD payload due to simplification error",
 		})
 		return respondRaw(c, status, entity.Data())
 	}

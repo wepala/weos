@@ -84,7 +84,7 @@ func (h *SidebarSettingsHandler) Save(c echo.Context) error {
 		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return respondForbidden(c)
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	var req sidebarSettingsRequest

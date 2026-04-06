@@ -65,7 +65,7 @@ func (h *RoleSettingsHandler) Get(c echo.Context) error {
 		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return respondForbidden(c)
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	roles, err := h.repo.GetRoleNames(ctx)
@@ -86,7 +86,7 @@ func (h *RoleSettingsHandler) Save(c echo.Context) error {
 		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return respondForbidden(c)
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	var req roleSettingsRequest

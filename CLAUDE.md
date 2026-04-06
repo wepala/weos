@@ -233,7 +233,7 @@ logger.Info(ctx, "user created", "userID", user.ID, "email", email)
 All API responses (except `/health` and static files) use a standard envelope:
 
 **Success:** `respond(c, status, data)` → `{"data": <data>, "messages": [...]}`
-**Paginated:** `respondPaginated(c, status, data, cursor, hasMore)` → `{"data": [...], "cursor": "...", "has_more": bool}`
+**Paginated:** `respondPaginated(c, status, data, cursor, hasMore)` → `{"data": [...], "cursor": "...", "has_more": bool, "messages": [...]}`
 **Error:** `respondError(c, status, msg)` → `{"error": "msg"}`
 **Raw JSON:** `respondRaw(c, status, rawBytes)` — for pre-serialized JSON (e.g., JSON-LD)
 
