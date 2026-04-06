@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { unwrapEnvelope, forwardMessages } from './useApi'
+import { forwardMessages } from './useApi'
+import type { ApiMessage } from './useNotifications'
 
 interface Person {
   id: string
@@ -30,6 +31,7 @@ interface PaginatedResponse<T> {
   data: T[]
   cursor: string
   has_more: boolean
+  messages?: ApiMessage[]
 }
 
 interface CreatePersonPayload {
@@ -47,41 +49,44 @@ interface UpdatePersonPayload {
 }
 
 export function usePersonApi() {
+  const { request } = useApi()
+
   async function listPersons(cursor = '', limit = 20) {
     const params = new URLSearchParams()
     if (cursor) params.set('cursor', cursor)
     params.set('limit', String(limit))
-    const res = await $fetch<PaginatedResponse<Person>>(
-      `/api/persons?${params}`,
-    )
-    forwardMessages(res)
-    return res
+    try {
+      const res = await $fetch<PaginatedResponse<Person>>(
+        `/api/persons?${params}`,
+      )
+      forwardMessages(res)
+      return res
+    } catch (err: any) {
+      if (err?.data) forwardMessages(err.data)
+      throw err
+    }
   }
 
-  async function getPerson(id: string) {
-    const res = await $fetch<unknown>(`/api/persons/${id}`)
-    return unwrapEnvelope<Person>(res)
+  function getPerson(id: string) {
+    return request<Person>(`/api/persons/${id}`)
   }
 
-  async function createPerson(payload: CreatePersonPayload) {
-    const res = await $fetch<unknown>('/api/persons', {
+  function createPerson(payload: CreatePersonPayload) {
+    return request<Person>('/api/persons', {
       method: 'POST',
-      body: payload,
+      body: JSON.stringify(payload),
     })
-    return unwrapEnvelope<Person>(res)
   }
 
-  async function updatePerson(id: string, payload: UpdatePersonPayload) {
-    const res = await $fetch<unknown>(`/api/persons/${id}`, {
+  function updatePerson(id: string, payload: UpdatePersonPayload) {
+    return request<Person>(`/api/persons/${id}`, {
       method: 'PUT',
-      body: payload,
+      body: JSON.stringify(payload),
     })
-    return unwrapEnvelope<Person>(res)
   }
 
-  async function deletePerson(id: string) {
-    const res = await $fetch<unknown>(`/api/persons/${id}`, { method: 'DELETE' })
-    return unwrapEnvelope<void>(res)
+  function deletePerson(id: string) {
+    return request<void>(`/api/persons/${id}`, { method: 'DELETE' })
   }
 
   return {

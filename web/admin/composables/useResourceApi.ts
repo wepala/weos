@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { unwrapEnvelope, forwardMessages } from './useApi'
+import { forwardMessages } from './useApi'
 import type { ApiMessage } from './useNotifications'
 
 interface PaginatedResponse<T> {
@@ -24,6 +24,8 @@ interface PaginatedResponse<T> {
 }
 
 export function useResourceApi(typeSlug: string) {
+  const { request } = useApi()
+
   async function list(
     cursor = '',
     limit = 20,
@@ -43,37 +45,40 @@ export function useResourceApi(typeSlug: string) {
         }
       }
     }
-    const res = await $fetch<PaginatedResponse<any>>(
-      `/api/${typeSlug}?${params}`,
-    )
-    forwardMessages(res)
-    return res
+    // Paginated responses keep their top-level shape; forwardMessages
+    // processes any messages without unwrapping.
+    try {
+      const res = await $fetch<PaginatedResponse<any>>(
+        `/api/${typeSlug}?${params}`,
+      )
+      forwardMessages(res)
+      return res
+    } catch (err: any) {
+      if (err?.data) forwardMessages(err.data)
+      throw err
+    }
   }
 
-  async function get(id: string) {
-    const res = await $fetch<unknown>(`/api/${typeSlug}/${id}`)
-    return unwrapEnvelope<any>(res)
+  function get(id: string) {
+    return request<any>(`/api/${typeSlug}/${id}`)
   }
 
-  async function create(data: Record<string, any>) {
-    const res = await $fetch<unknown>(`/api/${typeSlug}`, {
+  function create(data: Record<string, any>) {
+    return request<any>(`/api/${typeSlug}`, {
       method: 'POST',
-      body: data,
+      body: JSON.stringify(data),
     })
-    return unwrapEnvelope<any>(res)
   }
 
-  async function update(id: string, data: Record<string, any>) {
-    const res = await $fetch<unknown>(`/api/${typeSlug}/${id}`, {
+  function update(id: string, data: Record<string, any>) {
+    return request<any>(`/api/${typeSlug}/${id}`, {
       method: 'PUT',
-      body: data,
+      body: JSON.stringify(data),
     })
-    return unwrapEnvelope<any>(res)
   }
 
-  async function remove(id: string) {
-    const res = await $fetch<unknown>(`/api/${typeSlug}/${id}`, { method: 'DELETE' })
-    return unwrapEnvelope<void>(res)
+  function remove(id: string) {
+    return request<void>(`/api/${typeSlug}/${id}`, { method: 'DELETE' })
   }
 
   return { list, get, create, update, remove }

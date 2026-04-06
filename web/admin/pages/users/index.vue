@@ -73,7 +73,7 @@
 
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
-import { unwrapEnvelope } from '~/composables/useApi'
+import { unwrapEnvelope, forwardMessages } from '~/composables/useApi'
 
 const { user, startImpersonation } = useAuth()
 const router = useRouter()
@@ -129,6 +129,7 @@ async function fetchUsers() {
     const raw = await $fetch<unknown>('/api/users')
     users.value = unwrapEnvelope<any[]>(raw) || []
   } catch (err: any) {
+    if (err?.data) forwardMessages(err.data)
     message.error('Failed to load users')
     console.error('[users] fetchUsers failed:', err)
   } finally {

@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { unwrapEnvelope, forwardMessages } from './useApi'
+import { forwardMessages } from './useApi'
+import type { ApiMessage } from './useNotifications'
 
 interface Organization {
   id: string
@@ -30,6 +31,7 @@ interface PaginatedResponse<T> {
   data: T[]
   cursor: string
   has_more: boolean
+  messages?: ApiMessage[]
 }
 
 interface CreateOrganizationPayload {
@@ -58,50 +60,60 @@ interface Person {
 }
 
 export function useOrganizationApi() {
+  const { request } = useApi()
+
   async function listOrganizations(cursor = '', limit = 20) {
     const params = new URLSearchParams()
     if (cursor) params.set('cursor', cursor)
     params.set('limit', String(limit))
-    const res = await $fetch<PaginatedResponse<Organization>>(
-      `/api/organizations?${params}`,
-    )
-    forwardMessages(res)
-    return res
+    try {
+      const res = await $fetch<PaginatedResponse<Organization>>(
+        `/api/organizations?${params}`,
+      )
+      forwardMessages(res)
+      return res
+    } catch (err: any) {
+      if (err?.data) forwardMessages(err.data)
+      throw err
+    }
   }
 
-  async function getOrganization(id: string) {
-    const res = await $fetch<unknown>(`/api/organizations/${id}`)
-    return unwrapEnvelope<Organization>(res)
+  function getOrganization(id: string) {
+    return request<Organization>(`/api/organizations/${id}`)
   }
 
-  async function createOrganization(payload: CreateOrganizationPayload) {
-    const res = await $fetch<unknown>('/api/organizations', {
+  function createOrganization(payload: CreateOrganizationPayload) {
+    return request<Organization>('/api/organizations', {
       method: 'POST',
-      body: payload,
+      body: JSON.stringify(payload),
     })
-    return unwrapEnvelope<Organization>(res)
   }
 
-  async function updateOrganization(id: string, payload: UpdateOrganizationPayload) {
-    const res = await $fetch<unknown>(`/api/organizations/${id}`, {
+  function updateOrganization(id: string, payload: UpdateOrganizationPayload) {
+    return request<Organization>(`/api/organizations/${id}`, {
       method: 'PUT',
-      body: payload,
+      body: JSON.stringify(payload),
     })
-    return unwrapEnvelope<Organization>(res)
   }
 
-  async function deleteOrganization(id: string) {
-    const res = await $fetch<unknown>(`/api/organizations/${id}`, { method: 'DELETE' })
-    return unwrapEnvelope<void>(res)
+  function deleteOrganization(id: string) {
+    return request<void>(`/api/organizations/${id}`, { method: 'DELETE' })
   }
 
-  function listMembers(orgId: string, cursor = '', limit = 20) {
+  async function listMembers(orgId: string, cursor = '', limit = 20) {
     const params = new URLSearchParams()
     if (cursor) params.set('cursor', cursor)
     params.set('limit', String(limit))
-    return $fetch<PaginatedResponse<Person>>(
-      `/api/organizations/${orgId}/members?${params}`,
-    )
+    try {
+      const res = await $fetch<PaginatedResponse<Person>>(
+        `/api/organizations/${orgId}/members?${params}`,
+      )
+      forwardMessages(res)
+      return res
+    } catch (err: any) {
+      if (err?.data) forwardMessages(err.data)
+      throw err
+    }
   }
 
   return {
