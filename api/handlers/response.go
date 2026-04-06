@@ -11,22 +11,22 @@ import (
 
 // Envelope wraps a single-entity API response with an optional messages array.
 type Envelope struct {
-	Data     any               `json:"data"`
+	Data     any                `json:"data"`
 	Messages []entities.Message `json:"messages,omitempty"`
 }
 
 // PaginatedEnvelope wraps a paginated API response.
 type PaginatedEnvelope struct {
-	Data     any               `json:"data"`
-	Cursor   string            `json:"cursor"`
-	HasMore  bool              `json:"has_more"`
+	Data     any                `json:"data"`
+	Cursor   string             `json:"cursor"`
+	HasMore  bool               `json:"has_more"`
 	Messages []entities.Message `json:"messages,omitempty"`
 }
 
 // ErrorEnvelope wraps an error API response. The "error" key is kept for
 // backward compatibility; the messages array provides the structured form.
 type ErrorEnvelope struct {
-	Error    string            `json:"error"`
+	Error    string             `json:"error"`
 	Messages []entities.Message `json:"messages,omitempty"`
 }
 

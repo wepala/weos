@@ -6,7 +6,7 @@ import "context"
 // Services accumulate messages on the request context via AddMessage; handlers
 // extract them with GetMessages and include them in the response envelope.
 type Message struct {
-	Type  string `json:"type"`            // "error", "warning", "info", "success"
+	Type  string `json:"type"` // "error", "warning", "info", "success"
 	Text  string `json:"text"`
 	Field string `json:"field,omitempty"` // optional: ties message to a specific field
 	Code  string `json:"code,omitempty"`  // optional: machine-readable code for the UI
