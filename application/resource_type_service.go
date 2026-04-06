@@ -47,30 +47,33 @@ type ResourceTypeService interface {
 }
 
 type resourceTypeService struct {
-	repo       repositories.ResourceTypeRepository
-	projMgr    repositories.ProjectionManager
-	eventStore domain.EventStore
-	dispatcher *domain.EventDispatcher
-	registry   *PresetRegistry
-	logger     entities.Logger
+	repo        repositories.ResourceTypeRepository
+	projMgr     repositories.ProjectionManager
+	eventStore  domain.EventStore
+	dispatcher  *domain.EventDispatcher
+	registry    *PresetRegistry
+	logger      entities.Logger
+	resourceSvc ResourceService
 }
 
 func ProvideResourceTypeService(params struct {
 	fx.In
-	Repo       repositories.ResourceTypeRepository
-	ProjMgr    repositories.ProjectionManager
-	EventStore domain.EventStore
-	Dispatcher *domain.EventDispatcher
-	Registry   *PresetRegistry
-	Logger     entities.Logger
+	Repo        repositories.ResourceTypeRepository
+	ProjMgr     repositories.ProjectionManager
+	EventStore  domain.EventStore
+	Dispatcher  *domain.EventDispatcher
+	Registry    *PresetRegistry
+	Logger      entities.Logger
+	ResourceSvc ResourceService
 }) ResourceTypeService {
 	return &resourceTypeService{
-		repo:       params.Repo,
-		projMgr:    params.ProjMgr,
-		eventStore: params.EventStore,
-		dispatcher: params.Dispatcher,
-		registry:   params.Registry,
-		logger:     params.Logger,
+		repo:        params.Repo,
+		projMgr:     params.ProjMgr,
+		eventStore:  params.EventStore,
+		dispatcher:  params.Dispatcher,
+		registry:    params.Registry,
+		logger:      params.Logger,
+		resourceSvc: params.ResourceSvc,
 	}
 }
 
@@ -201,11 +204,43 @@ func (s *resourceTypeService) InstallPreset(
 			result.Updated = append(result.Updated, pt.Slug)
 			continue
 		}
-		_, err = s.Create(ctx, CreateResourceTypeCommand(pt))
+		_, err = s.Create(ctx, CreateResourceTypeCommand{
+			Name: pt.Name, Slug: pt.Slug, Description: pt.Description,
+			Context: pt.Context, Schema: pt.Schema,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create resource type %q: %w", pt.Slug, err)
 		}
 		result.Created = append(result.Created, pt.Slug)
+		if err := s.seedFixtures(ctx, pt, result); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
+}
+
+// seedFixtures creates resources from the preset type's fixture data.
+func (s *resourceTypeService) seedFixtures(
+	ctx context.Context, pt PresetResourceType, result *InstallPresetResult,
+) error {
+	if len(pt.Fixtures) == 0 {
+		return nil
+	}
+	count := 0
+	for i, fixture := range pt.Fixtures {
+		_, err := s.resourceSvc.Create(ctx, CreateResourceCommand{
+			TypeSlug: pt.Slug,
+			Data:     fixture,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to seed fixture %d for %q: %w", i, pt.Slug, err)
+		}
+		count++
+	}
+	if result.Seeded == nil {
+		result.Seeded = make(map[string]int)
+	}
+	result.Seeded[pt.Slug] = count
+	s.logger.Info(ctx, "seeded fixture data", "slug", pt.Slug, "count", count)
+	return nil
 }

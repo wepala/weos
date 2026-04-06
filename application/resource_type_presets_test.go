@@ -181,6 +181,38 @@ func TestPresets_NoReservedSlugCollisions(t *testing.T) {
 	}
 }
 
+func TestPresets_AllFixturesAreValidJSON(t *testing.T) {
+	t.Parallel()
+	for _, d := range testRegistry().List() {
+		for _, pt := range d.Types {
+			for i, fixture := range pt.Fixtures {
+				var v any
+				if err := json.Unmarshal(fixture, &v); err != nil {
+					t.Fatalf("preset %q type %q fixture[%d] is invalid JSON: %v",
+						d.Name, pt.Slug, i, err)
+				}
+				// Fixtures must be JSON objects, not arrays or scalars.
+				if _, ok := v.(map[string]any); !ok {
+					t.Fatalf("preset %q type %q fixture[%d] must be a JSON object, got %T",
+						d.Name, pt.Slug, i, v)
+				}
+			}
+		}
+	}
+}
+
+func TestPresets_FixturesOnlyOnTypesWithSchema(t *testing.T) {
+	t.Parallel()
+	for _, d := range testRegistry().List() {
+		for _, pt := range d.Types {
+			if len(pt.Fixtures) > 0 && len(pt.Schema) == 0 {
+				t.Fatalf("preset %q type %q has fixtures but no schema — "+
+					"fixtures require a schema for validation", d.Name, pt.Slug)
+			}
+		}
+	}
+}
+
 func TestScreenManifest_NilScreens(t *testing.T) {
 	t.Parallel()
 	def := application.PresetDefinition{Name: "test"}

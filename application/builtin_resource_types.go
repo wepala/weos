@@ -23,8 +23,9 @@ import (
 	"go.uber.org/fx"
 )
 
-// ensureBuiltInResourceTypes creates resource types from all presets marked as
-// AutoInstall at startup, if they don't already exist.
+// ensureBuiltInResourceTypes installs all presets marked as AutoInstall at
+// startup, creating resource types and seeding fixture data if they don't
+// already exist.
 func ensureBuiltInResourceTypes(params struct {
 	fx.In
 	Registry *PresetRegistry
@@ -36,17 +37,14 @@ func ensureBuiltInResourceTypes(params struct {
 		if !preset.AutoInstall {
 			continue
 		}
-		for _, bt := range preset.Types {
-			if _, err := params.TypeSvc.GetBySlug(ctx, bt.Slug); err == nil {
-				continue // already exists
-			}
-			cmd := CreateResourceTypeCommand(bt)
-			if _, err := params.TypeSvc.Create(ctx, cmd); err != nil {
-				params.Logger.Error(ctx, "failed to create built-in resource type",
-					"slug", bt.Slug, "error", err)
-			} else {
-				params.Logger.Info(ctx, "created built-in resource type", "slug", bt.Slug)
-			}
+		result, err := params.TypeSvc.InstallPreset(ctx, preset.Name, false)
+		if err != nil {
+			params.Logger.Error(ctx, "failed to install built-in preset",
+				"preset", preset.Name, "error", err)
+			continue
+		}
+		for _, slug := range result.Created {
+			params.Logger.Info(ctx, "created built-in resource type", "slug", slug)
 		}
 	}
 	return nil

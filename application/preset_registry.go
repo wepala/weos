@@ -34,6 +34,7 @@ type PresetResourceType struct {
 	Description string
 	Context     json.RawMessage
 	Schema      json.RawMessage
+	Fixtures    []json.RawMessage // optional seed data created on install
 }
 
 // PresetSidebarConfig holds default sidebar settings applied when a preset is installed.
@@ -56,9 +57,10 @@ type PresetDefinition struct {
 
 // InstallPresetResult reports which types were created, updated, or skipped.
 type InstallPresetResult struct {
-	Created []string `json:"created"`
-	Updated []string `json:"updated,omitempty"`
-	Skipped []string `json:"skipped"`
+	Created []string       `json:"created"`
+	Updated []string       `json:"updated,omitempty"`
+	Skipped []string       `json:"skipped"`
+	Seeded  map[string]int `json:"seeded,omitempty"` // slug -> count of fixtures created
 }
 
 // PresetRegistry holds all registered presets. Preset packages call Add() to register.
@@ -132,6 +134,13 @@ func (d PresetDefinition) clone() PresetDefinition {
 			}
 			if t.Schema != nil {
 				types[i].Schema = append(json.RawMessage(nil), t.Schema...)
+			}
+			if t.Fixtures != nil {
+				fixtures := make([]json.RawMessage, len(t.Fixtures))
+				for j, f := range t.Fixtures {
+					fixtures[j] = append(json.RawMessage(nil), f...)
+				}
+				types[i].Fixtures = fixtures
 			}
 		}
 		d.Types = types
