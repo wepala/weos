@@ -78,8 +78,7 @@ type ResourceTypeResponse struct {
 func (h *ResourceTypeHandler) Create(c echo.Context) error {
 	var req CreateResourceTypeRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 	entity, err := h.service.Create(
 		c.Request().Context(),
@@ -88,19 +87,17 @@ func (h *ResourceTypeHandler) Create(c echo.Context) error {
 		},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusCreated, toResourceTypeResponse(entity))
+	return respond(c, http.StatusCreated, toResourceTypeResponse(entity))
 }
 
 func (h *ResourceTypeHandler) Get(c echo.Context) error {
 	entity, err := h.service.GetByID(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "resource type not found"})
+		return respondError(c, http.StatusNotFound, "resource type not found")
 	}
-	return c.JSON(http.StatusOK, toResourceTypeResponse(entity))
+	return respond(c, http.StatusOK, toResourceTypeResponse(entity))
 }
 
 func (h *ResourceTypeHandler) List(c echo.Context) error {
@@ -111,8 +108,7 @@ func (h *ResourceTypeHandler) List(c echo.Context) error {
 	}
 	result, err := h.service.List(c.Request().Context(), cursor, limit)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 
 	includeAll := c.QueryParam("includeAll") == "true"
@@ -157,18 +153,13 @@ func (h *ResourceTypeHandler) List(c echo.Context) error {
 		items = append(items, toResourceTypeResponse(e))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"data":     items,
-		"cursor":   result.Cursor,
-		"has_more": result.HasMore,
-	})
+	return respondPaginated(c, http.StatusOK, items, result.Cursor, result.HasMore)
 }
 
 func (h *ResourceTypeHandler) Update(c echo.Context) error {
 	var req UpdateResourceTypeRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 	entity, err := h.service.Update(
 		c.Request().Context(),
@@ -183,17 +174,15 @@ func (h *ResourceTypeHandler) Update(c echo.Context) error {
 		},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, toResourceTypeResponse(entity))
+	return respond(c, http.StatusOK, toResourceTypeResponse(entity))
 }
 
 func (h *ResourceTypeHandler) Delete(c echo.Context) error {
 	cmd := application.DeleteResourceTypeCommand{ID: c.Param("id")}
 	if err := h.service.Delete(c.Request().Context(), cmd); err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
 }

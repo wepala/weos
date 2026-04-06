@@ -53,7 +53,7 @@ func (h *ResourceTypePresetHandler) List(c echo.Context) error {
 			Screens:     d.ScreenManifest(),
 		})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"data": out})
+	return respond(c, http.StatusOK, out)
 }
 
 func (h *ResourceTypePresetHandler) Install(c echo.Context) error {
@@ -61,7 +61,7 @@ func (h *ResourceTypePresetHandler) Install(c echo.Context) error {
 	update := c.QueryParam("update") == "true"
 	result, err := h.service.InstallPreset(c.Request().Context(), name, update)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusBadRequest, err.Error())
 	}
-	return c.JSON(http.StatusOK, result)
+	return respond(c, http.StatusOK, result)
 }

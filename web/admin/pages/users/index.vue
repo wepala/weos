@@ -113,7 +113,8 @@ const columns = computed(() => {
 
 async function fetchRoles() {
   try {
-    const res = await $fetch<{ roles: string[] }>('/api/settings/roles')
+    const raw = await $fetch<any>('/api/settings/roles')
+    const res = raw?.data !== undefined ? raw.data : raw
     availableRoles.value = res.roles || []
   } catch (err) {
     console.warn('[users] fetchRoles failed, using defaults:', err)
@@ -124,8 +125,9 @@ async function fetchRoles() {
 async function fetchUsers() {
   loading.value = true
   try {
-    const res = await $fetch<any>('/api/users')
-    users.value = res.data || []
+    const raw = await $fetch<any>('/api/users')
+    // Users list endpoint returns paginated envelope with data array
+    users.value = raw.data || []
   } catch (err: any) {
     message.error('Failed to load users')
     console.error('[users] fetchUsers failed:', err)

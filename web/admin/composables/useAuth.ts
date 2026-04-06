@@ -1,3 +1,5 @@
+import { unwrapEnvelope } from './useApi'
+
 interface AuthUser {
   id: string
   name: string
@@ -15,8 +17,8 @@ export function useAuth() {
 
   async function fetchUser() {
     try {
-      const data = await $fetch<AuthUser>('/api/auth/me')
-      user.value = data
+      const res = await $fetch<unknown>('/api/auth/me')
+      user.value = unwrapEnvelope<AuthUser>(res)
     } catch (err) {
       console.error('[useAuth] fetchUser failed:', err)
       user.value = null

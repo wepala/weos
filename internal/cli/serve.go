@@ -135,6 +135,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}))
 
 	api := e.Group("/api")
+	api.Use(apimw.Messages())
 	api.GET("/health", handlers.HealthHandler)
 
 	// Auth routes (pericarp built-in handlers wrapped for Echo)

@@ -49,8 +49,7 @@ type OrganizationResponse struct {
 func (h *OrganizationHandler) Create(c echo.Context) error {
 	var req CreateOrganizationRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 	data, _ := json.Marshal(map[string]any{
 		"name": req.Name,
@@ -61,19 +60,17 @@ func (h *OrganizationHandler) Create(c echo.Context) error {
 		application.CreateResourceCommand{TypeSlug: "organization", Data: data},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusCreated, toOrganizationResponse(entity))
+	return respond(c, http.StatusCreated, toOrganizationResponse(entity))
 }
 
 func (h *OrganizationHandler) Get(c echo.Context) error {
 	entity, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "organization not found"})
+		return respondError(c, http.StatusNotFound, "organization not found")
 	}
-	return c.JSON(http.StatusOK, toOrganizationResponse(entity))
+	return respond(c, http.StatusOK, toOrganizationResponse(entity))
 }
 
 func (h *OrganizationHandler) List(c echo.Context) error {
@@ -86,25 +83,19 @@ func (h *OrganizationHandler) List(c echo.Context) error {
 		c.Request().Context(), "organization", cursor, limit, repositories.SortOptions{},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	items := make([]OrganizationResponse, 0, len(result.Data))
 	for _, e := range result.Data {
 		items = append(items, toOrganizationResponse(e))
 	}
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"data":     items,
-		"cursor":   result.Cursor,
-		"has_more": result.HasMore,
-	})
+	return respondPaginated(c, http.StatusOK, items, result.Cursor, result.HasMore)
 }
 
 func (h *OrganizationHandler) Update(c echo.Context) error {
 	var req UpdateOrganizationRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 	data, _ := json.Marshal(map[string]any{
 		"name":        req.Name,
@@ -118,17 +109,15 @@ func (h *OrganizationHandler) Update(c echo.Context) error {
 		application.UpdateResourceCommand{ID: c.Param("id"), Data: data},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, toOrganizationResponse(entity))
+	return respond(c, http.StatusOK, toOrganizationResponse(entity))
 }
 
 func (h *OrganizationHandler) Delete(c echo.Context) error {
 	cmd := application.DeleteResourceCommand{ID: c.Param("id")}
 	if err := h.resourceService.Delete(c.Request().Context(), cmd); err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -136,8 +125,7 @@ func (h *OrganizationHandler) Delete(c echo.Context) error {
 func (h *OrganizationHandler) Members(c echo.Context) error {
 	orgID := c.Param("id")
 	if _, err := h.resourceService.GetByID(c.Request().Context(), orgID); err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "organization not found"})
+		return respondError(c, http.StatusNotFound, "organization not found")
 	}
 
 	cursor := c.QueryParam("cursor")
@@ -152,18 +140,13 @@ func (h *OrganizationHandler) Members(c echo.Context) error {
 		c.Request().Context(), "person", filters, cursor, limit, repositories.SortOptions{},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	items := make([]PersonResponse, 0, len(result.Data))
 	for _, e := range result.Data {
 		items = append(items, toPersonResponse(e))
 	}
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"data":     items,
-		"cursor":   result.Cursor,
-		"has_more": result.HasMore,
-	})
+	return respondPaginated(c, http.StatusOK, items, result.Cursor, result.HasMore)
 }
 
 func toOrganizationResponse(r *entities.Resource) OrganizationResponse {

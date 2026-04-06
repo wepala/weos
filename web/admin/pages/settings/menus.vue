@@ -202,7 +202,8 @@ async function handleSave() {
 
 async function fetchRoles() {
   try {
-    const res = await $fetch<{ roles: string[] }>('/api/settings/roles')
+    const raw = await $fetch<any>('/api/settings/roles')
+    const res = raw?.data !== undefined ? raw.data : raw
     roles.value = res.roles || []
   } catch {
     roles.value = []

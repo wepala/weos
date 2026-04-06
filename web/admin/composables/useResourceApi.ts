@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { unwrapEnvelope } from './useApi'
+
 interface PaginatedResponse<T> {
   data: T[]
   cursor: string
@@ -39,31 +41,36 @@ export function useResourceApi(typeSlug: string) {
         }
       }
     }
+    // Paginated responses already match the envelope shape (data, cursor, has_more)
     return $fetch<PaginatedResponse<any>>(
       `/api/${typeSlug}?${params}`,
     )
   }
 
-  function get(id: string) {
-    return $fetch<any>(`/api/${typeSlug}/${id}`)
+  async function get(id: string) {
+    const res = await $fetch<unknown>(`/api/${typeSlug}/${id}`)
+    return unwrapEnvelope<any>(res)
   }
 
-  function create(data: Record<string, any>) {
-    return $fetch<any>(`/api/${typeSlug}`, {
+  async function create(data: Record<string, any>) {
+    const res = await $fetch<unknown>(`/api/${typeSlug}`, {
       method: 'POST',
       body: data,
     })
+    return unwrapEnvelope<any>(res)
   }
 
-  function update(id: string, data: Record<string, any>) {
-    return $fetch<any>(`/api/${typeSlug}/${id}`, {
+  async function update(id: string, data: Record<string, any>) {
+    const res = await $fetch<unknown>(`/api/${typeSlug}/${id}`, {
       method: 'PUT',
       body: data,
     })
+    return unwrapEnvelope<any>(res)
   }
 
-  function remove(id: string) {
-    return $fetch(`/api/${typeSlug}/${id}`, { method: 'DELETE' })
+  async function remove(id: string) {
+    const res = await $fetch<unknown>(`/api/${typeSlug}/${id}`, { method: 'DELETE' })
+    return unwrapEnvelope<void>(res)
   }
 
   return { list, get, create, update, remove }

@@ -49,8 +49,7 @@ type PersonResponse struct {
 func (h *PersonHandler) Create(c echo.Context) error {
 	var req CreatePersonRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 	data, _ := json.Marshal(map[string]any{
 		"givenName":  req.GivenName,
@@ -62,19 +61,17 @@ func (h *PersonHandler) Create(c echo.Context) error {
 		application.CreateResourceCommand{TypeSlug: "person", Data: data},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusCreated, toPersonResponse(entity))
+	return respond(c, http.StatusCreated, toPersonResponse(entity))
 }
 
 func (h *PersonHandler) Get(c echo.Context) error {
 	entity, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "person not found"})
+		return respondError(c, http.StatusNotFound, "person not found")
 	}
-	return c.JSON(http.StatusOK, toPersonResponse(entity))
+	return respond(c, http.StatusOK, toPersonResponse(entity))
 }
 
 func (h *PersonHandler) List(c echo.Context) error {
@@ -87,25 +84,19 @@ func (h *PersonHandler) List(c echo.Context) error {
 		c.Request().Context(), "person", cursor, limit, repositories.SortOptions{},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	items := make([]PersonResponse, 0, len(result.Data))
 	for _, e := range result.Data {
 		items = append(items, toPersonResponse(e))
 	}
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"data":     items,
-		"cursor":   result.Cursor,
-		"has_more": result.HasMore,
-	})
+	return respondPaginated(c, http.StatusOK, items, result.Cursor, result.HasMore)
 }
 
 func (h *PersonHandler) Update(c echo.Context) error {
 	var req UpdatePersonRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 	data, _ := json.Marshal(map[string]any{
 		"givenName":  req.GivenName,
@@ -118,17 +109,15 @@ func (h *PersonHandler) Update(c echo.Context) error {
 		application.UpdateResourceCommand{ID: c.Param("id"), Data: data},
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, toPersonResponse(entity))
+	return respond(c, http.StatusOK, toPersonResponse(entity))
 }
 
 func (h *PersonHandler) Delete(c echo.Context) error {
 	cmd := application.DeleteResourceCommand{ID: c.Param("id")}
 	if err := h.resourceService.Delete(c.Request().Context(), cmd); err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
 }

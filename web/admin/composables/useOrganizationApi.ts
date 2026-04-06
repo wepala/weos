@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { unwrapEnvelope } from './useApi'
+
 interface Organization {
   id: string
   name: string
@@ -65,26 +67,30 @@ export function useOrganizationApi() {
     )
   }
 
-  function getOrganization(id: string) {
-    return $fetch<Organization>(`/api/organizations/${id}`)
+  async function getOrganization(id: string) {
+    const res = await $fetch<unknown>(`/api/organizations/${id}`)
+    return unwrapEnvelope<Organization>(res)
   }
 
-  function createOrganization(payload: CreateOrganizationPayload) {
-    return $fetch<Organization>('/api/organizations', {
+  async function createOrganization(payload: CreateOrganizationPayload) {
+    const res = await $fetch<unknown>('/api/organizations', {
       method: 'POST',
       body: payload,
     })
+    return unwrapEnvelope<Organization>(res)
   }
 
-  function updateOrganization(id: string, payload: UpdateOrganizationPayload) {
-    return $fetch<Organization>(`/api/organizations/${id}`, {
+  async function updateOrganization(id: string, payload: UpdateOrganizationPayload) {
+    const res = await $fetch<unknown>(`/api/organizations/${id}`, {
       method: 'PUT',
       body: payload,
     })
+    return unwrapEnvelope<Organization>(res)
   }
 
-  function deleteOrganization(id: string) {
-    return $fetch(`/api/organizations/${id}`, { method: 'DELETE' })
+  async function deleteOrganization(id: string) {
+    const res = await $fetch<unknown>(`/api/organizations/${id}`, { method: 'DELETE' })
+    return unwrapEnvelope<void>(res)
   }
 
   function listMembers(orgId: string, cursor = '', limit = 20) {

@@ -62,18 +62,18 @@ func (h *RoleSettingsHandler) Get(c echo.Context) error {
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+		return respondForbidden(c)
 	}
 
 	roles, err := h.repo.GetRoleNames(ctx)
 	if err != nil {
 		h.logger.Error(ctx, "failed to load role settings", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load roles"})
+		return respondError(c, http.StatusInternalServerError, "failed to load roles")
 	}
-	return c.JSON(http.StatusOK, roleSettingsResponse{Roles: roles})
+	return respond(c, http.StatusOK, roleSettingsResponse{Roles: roles})
 }
 
 // Save updates the role list. Admin-only.
@@ -83,15 +83,15 @@ func (h *RoleSettingsHandler) Save(c echo.Context) error {
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+		return respondForbidden(c)
 	}
 
 	var req roleSettingsRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	hasAdmin := false
@@ -107,7 +107,7 @@ func (h *RoleSettingsHandler) Save(c echo.Context) error {
 
 	rolesJSON, err := json.Marshal(req.Roles)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode roles"})
+		return respondError(c, http.StatusInternalServerError, "failed to encode roles")
 	}
 
 	settings := &models.RoleSettings{
@@ -115,8 +115,8 @@ func (h *RoleSettingsHandler) Save(c echo.Context) error {
 	}
 	if err := h.repo.Save(ctx, settings); err != nil {
 		h.logger.Error(ctx, "failed to save role settings", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save roles"})
+		return respondError(c, http.StatusInternalServerError, "failed to save roles")
 	}
 
-	return c.JSON(http.StatusOK, roleSettingsResponse(req))
+	return respond(c, http.StatusOK, roleSettingsResponse(req))
 }

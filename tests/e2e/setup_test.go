@@ -132,6 +132,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	e.HideBanner = true
 
 	api := e.Group("/api")
+	api.Use(apimw.Messages())
 	api.GET("/health", handlers.HealthHandler)
 
 	protected := api.Group("")
@@ -197,15 +198,28 @@ func (env *testEnv) doRequest(t *testing.T, method, path, body, devAgent string)
 func readJSON(t *testing.T, resp *http.Response) map[string]any {
 	t.Helper()
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("failed to read response: %v", err)
 	}
 	var result map[string]any
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nbody: %s", err, string(data))
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nbody: %s", err, string(raw))
 	}
 	return result
+}
+
+// readEnvelopeData reads the response JSON and unwraps the "data" field from the
+// standard envelope. Use this for single-entity responses where the entity is
+// wrapped in {"data": {...}}.
+func readEnvelopeData(t *testing.T, resp *http.Response) map[string]any {
+	t.Helper()
+	envelope := readJSON(t, resp)
+	data, ok := envelope["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected 'data' object in envelope, got: %v", envelope)
+	}
+	return data
 }
 
 // seedProjectForUser creates a project via the API as the given dev agent and returns its ID.
@@ -217,10 +231,10 @@ func (env *testEnv) seedProjectForUser(t *testing.T, name, email string) string 
 		result := readJSON(t, resp)
 		t.Fatalf("create project: expected 201, got %d: %v", resp.StatusCode, result)
 	}
-	result := readJSON(t, resp)
-	id, ok := result["id"].(string)
+	data := readEnvelopeData(t, resp)
+	id, ok := data["id"].(string)
 	if !ok || id == "" {
-		t.Fatalf("create project: missing id in response: %v", result)
+		t.Fatalf("create project: missing id in response: %v", data)
 	}
 	return id
 }
@@ -234,10 +248,10 @@ func (env *testEnv) seedTaskForUser(t *testing.T, name, projectID, email string)
 		result := readJSON(t, resp)
 		t.Fatalf("create task: expected 201, got %d: %v", resp.StatusCode, result)
 	}
-	result := readJSON(t, resp)
-	id, ok := result["id"].(string)
+	data := readEnvelopeData(t, resp)
+	id, ok := data["id"].(string)
 	if !ok || id == "" {
-		t.Fatalf("create task: missing id in response: %v", result)
+		t.Fatalf("create task: missing id in response: %v", data)
 	}
 	return id
 }

@@ -69,18 +69,18 @@ func (h *RoleAccessHandler) Get(c echo.Context) error {
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	accessMap, err := h.repo.GetAccessMap(ctx)
 	if err != nil {
 		h.logger.Error(ctx, "failed to load role access", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load role access"})
+		return respondError(c, http.StatusInternalServerError, "failed to load role access")
 	}
-	return c.JSON(http.StatusOK, roleAccessResponse{Roles: accessMap})
+	return respond(c, http.StatusOK, roleAccessResponse{Roles: accessMap})
 }
 
 // Save updates the role-resource access configuration and syncs policies to Casbin.
@@ -90,15 +90,15 @@ func (h *RoleAccessHandler) Save(c echo.Context) error {
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	var req roleAccessRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 	if req.Roles == nil {
 		req.Roles = entities.AccessMap{}
@@ -116,13 +116,13 @@ func (h *RoleAccessHandler) Save(c echo.Context) error {
 
 	accessJSON, err := json.Marshal(req.Roles)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode access"})
+		return respondError(c, http.StatusInternalServerError, "failed to encode access")
 	}
 
 	settings := &models.RoleResourceAccess{Access: string(accessJSON)}
 	if err := h.repo.Save(ctx, settings); err != nil {
 		h.logger.Error(ctx, "failed to save role access", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save role access"})
+		return respondError(c, http.StatusInternalServerError, "failed to save role access")
 	}
 
 	// Sync policies to Casbin enforcer, clearing stale role policies.
@@ -130,5 +130,5 @@ func (h *RoleAccessHandler) Save(c echo.Context) error {
 		h.logger.Warn(ctx, "casbin policy sync partially failed", "error", syncErr)
 	}
 
-	return c.JSON(http.StatusOK, roleAccessResponse(req))
+	return respond(c, http.StatusOK, roleAccessResponse(req))
 }

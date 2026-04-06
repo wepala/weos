@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { unwrapEnvelope } from './useApi'
+
 interface Person {
   id: string
   given_name: string
@@ -49,31 +51,36 @@ export function usePersonApi() {
     const params = new URLSearchParams()
     if (cursor) params.set('cursor', cursor)
     params.set('limit', String(limit))
+    // Paginated responses already match the envelope shape
     return $fetch<PaginatedResponse<Person>>(
       `/api/persons?${params}`,
     )
   }
 
-  function getPerson(id: string) {
-    return $fetch<Person>(`/api/persons/${id}`)
+  async function getPerson(id: string) {
+    const res = await $fetch<unknown>(`/api/persons/${id}`)
+    return unwrapEnvelope<Person>(res)
   }
 
-  function createPerson(payload: CreatePersonPayload) {
-    return $fetch<Person>('/api/persons', {
+  async function createPerson(payload: CreatePersonPayload) {
+    const res = await $fetch<unknown>('/api/persons', {
       method: 'POST',
       body: payload,
     })
+    return unwrapEnvelope<Person>(res)
   }
 
-  function updatePerson(id: string, payload: UpdatePersonPayload) {
-    return $fetch<Person>(`/api/persons/${id}`, {
+  async function updatePerson(id: string, payload: UpdatePersonPayload) {
+    const res = await $fetch<unknown>(`/api/persons/${id}`, {
       method: 'PUT',
       body: payload,
     })
+    return unwrapEnvelope<Person>(res)
   }
 
-  function deletePerson(id: string) {
-    return $fetch(`/api/persons/${id}`, { method: 'DELETE' })
+  async function deletePerson(id: string) {
+    const res = await $fetch<unknown>(`/api/persons/${id}`, { method: 'DELETE' })
+    return unwrapEnvelope<void>(res)
   }
 
   return {

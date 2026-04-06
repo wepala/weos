@@ -226,6 +226,22 @@ logger.Info(ctx, "user created", "userID", user.ID, "email", email)
 1. Create handler in `api/handlers/`
 2. Inject service via constructor
 3. Register routes under `/api` group in `internal/cli/serve.go`
+4. Use the response envelope helpers for all JSON responses (see below)
+
+### API Response Envelope
+
+All API responses (except `/health` and static files) use a standard envelope:
+
+**Success:** `respond(c, status, data)` → `{"data": <data>, "messages": [...]}`
+**Paginated:** `respondPaginated(c, status, data, cursor, hasMore)` → `{"data": [...], "cursor": "...", "has_more": bool}`
+**Error:** `respondError(c, status, msg)` → `{"error": "msg", "messages": [{"type":"error","text":"msg"}]}`
+**Raw JSON:** `respondRaw(c, status, rawBytes)` — for pre-serialized JSON (e.g., JSON-LD)
+
+The `messages` key is omitted when empty. Services can surface non-fatal messages via context helpers:
+```go
+entities.AddMessage(ctx, entities.Message{Type: "warning", Text: "schema missing"})
+```
+Messages are accumulated per-request by the `Messages()` middleware and automatically included in responses.
 
 ### Adding a New CLI Command
 1. Create command file in `internal/cli/`
