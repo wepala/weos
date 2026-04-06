@@ -197,6 +197,7 @@ func (s *resourceTypeService) InstallPreset(
 				Name:        pt.Name,
 				Slug:        pt.Slug,
 				Description: pt.Description,
+				Status:      existing.Status(),
 				Context:     pt.Context,
 				Schema:      pt.Schema,
 			})
@@ -222,11 +223,18 @@ func (s *resourceTypeService) InstallPreset(
 }
 
 // seedFixtures creates resources from the preset type's fixture data.
+// Fixtures require a schema on the resource type for validation.
 // Failures are logged but do not prevent the rest of the preset from installing.
+// Built-in fixtures seeded at startup (via ensureBuiltInResourceTypes) use a
+// background context and have no owner — they are intentionally global/public.
 func (s *resourceTypeService) seedFixtures(
 	ctx context.Context, pt PresetResourceType, result *InstallPresetResult,
 ) {
 	if len(pt.Fixtures) == 0 {
+		return
+	}
+	if len(pt.Schema) == 0 {
+		s.logger.Error(ctx, "cannot seed fixtures without a schema", "slug", pt.Slug)
 		return
 	}
 	count := 0

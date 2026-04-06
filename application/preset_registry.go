@@ -86,6 +86,9 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 		if pt.Name == "" || pt.Slug == "" {
 			return fmt.Errorf("type at index %d in preset %q: name and slug are required", i, def.Name)
 		}
+		if err := pt.validateFixtures(); err != nil {
+			return fmt.Errorf("preset %q: %w", def.Name, err)
+		}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -230,6 +233,26 @@ func (r *PresetRegistry) Behaviors() ResourceBehaviorRegistry {
 		}
 	}
 	return behaviors
+}
+
+// validateFixtures checks that fixture data is well-formed at registration time.
+func (pt PresetResourceType) validateFixtures() error {
+	if len(pt.Fixtures) == 0 {
+		return nil
+	}
+	if len(pt.Schema) == 0 {
+		return fmt.Errorf("type %q has fixtures but no schema", pt.Slug)
+	}
+	for i, f := range pt.Fixtures {
+		if !json.Valid(f) {
+			return fmt.Errorf("type %q fixture[%d] is not valid JSON", pt.Slug, i)
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(f, &obj); err != nil || obj == nil {
+			return fmt.Errorf("type %q fixture[%d] must be a JSON object", pt.Slug, i)
+		}
+	}
+	return nil
 }
 
 // NewPresetType is a helper to create a PresetResourceType from raw strings.
