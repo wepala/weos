@@ -261,7 +261,7 @@ func mealPlanType() application.PresetResourceType {
 		Name:        "Meal Plan",
 		Slug:        "meal-plan",
 		Description: "A weekly or custom-period meal plan",
-		Context: mpTypeContext("MealPlan", ""),
+		Context:     mpTypeContext("MealPlan", ""),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -341,7 +341,7 @@ func pantryType() application.PresetResourceType {
 		Name:        "Pantry",
 		Slug:        "pantry",
 		Description: "A named storage context for food items (e.g. Home, Beach House)",
-		Context: mpTypeContext("Pantry", ""),
+		Context:     mpTypeContext("Pantry", ""),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
