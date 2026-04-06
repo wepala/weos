@@ -113,7 +113,7 @@ func registerResourceTypePresetTools(server *mcp.Server, svc application.Resourc
 }
 
 type BehaviorListInput struct {
-	TypeSlug string `json:"typeSlug" jsonschema:"resource type slug to list behaviors for"`
+	TypeSlug string `json:"type_slug" jsonschema:"resource type slug to list behaviors for"`
 }
 
 type BehaviorListOutput struct {
@@ -121,7 +121,7 @@ type BehaviorListOutput struct {
 }
 
 type BehaviorSetInput struct {
-	TypeSlug string   `json:"typeSlug" jsonschema:"resource type slug"`
+	TypeSlug string   `json:"type_slug" jsonschema:"resource type slug"`
 	Slugs    []string `json:"slugs" jsonschema:"behavior slugs to enable"`
 }
 

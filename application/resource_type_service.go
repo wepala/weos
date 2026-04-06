@@ -395,7 +395,8 @@ func (s *resourceTypeService) SetBehaviors(
 		}
 		meta, ok := s.behaviorMeta[slug]
 		if !ok {
-			return fmt.Errorf("unknown behavior %q: %w", slug, ErrValidation)
+			return fmt.Errorf(
+				"behavior %q is not user-manageable: %w", slug, ErrValidation)
 		}
 		if !meta.Manageable {
 			return fmt.Errorf(
