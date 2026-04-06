@@ -18,3 +18,4 @@ How-to guides are **task-oriented** — they assume you already have WeOS runnin
 | [Add an HTML Template]({% link _howto/add-html-template.md %}) | Create templates with `data-weos-*` attributes |
 | [Manage Persons and Organizations]({% link _howto/manage-persons-organizations.md %}) | CRUD operations for people and organizations |
 | [Seed Development Data]({% link _howto/seed-data.md %}) | Populate your local database with test data |
+| [Create a Behavior]({% link _howto/create-behavior.md %}) | Add custom domain logic to a resource type |
