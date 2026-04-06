@@ -13,14 +13,15 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// newTestContext creates an Echo context with the Messages middleware active.
+// newTestContext creates an Echo context and injects the messages accumulator
+// directly into the request context for handler tests.
 func newTestContext(t *testing.T) (echo.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
-	// Inject message accumulator via middleware.
+	// Inject message accumulator directly into the request context.
 	ctx := entities.ContextWithMessages(c.Request().Context())
 	c.SetRequest(c.Request().WithContext(ctx))
 	return c, rec
