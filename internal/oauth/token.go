@@ -83,10 +83,10 @@ func handleAuthCodeGrant(
 	clientID := c.FormValue("client_id")
 	redirectURI := c.FormValue("redirect_uri")
 
-	if code == "" || codeVerifier == "" || clientID == "" {
+	if code == "" || codeVerifier == "" || clientID == "" || redirectURI == "" {
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
 			Error:       "invalid_request",
-			Description: "code, code_verifier, and client_id are required",
+			Description: "code, code_verifier, client_id, and redirect_uri are required",
 		})
 	}
 
@@ -116,7 +116,7 @@ func handleAuthCodeGrant(
 			Error: "invalid_grant",
 		})
 	}
-	if redirectURI != "" && redirectURI != authCode.RedirectURI {
+	if redirectURI != authCode.RedirectURI {
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
 			Error: "invalid_grant",
 		})

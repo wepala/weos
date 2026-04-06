@@ -173,14 +173,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
 
+	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth.
+	baseURL := appCfg.OAuth.BaseURL
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://%s:%d", appCfg.Server.Host, appCfg.Server.Port)
+	}
+
 	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth).
 	// Registered via e.Pre() so they run before the SPA static middleware,
 	// which would otherwise intercept /.well-known/* and /oauth/* paths.
 	if appCfg.OAuthEnabled() {
-		baseURL := appCfg.OAuth.BaseURL
-		if baseURL == "" {
-			baseURL = fmt.Sprintf("http://%s:%d", appCfg.Server.Host, appCfg.Server.Port)
-		}
 		clientRepo := weosoauth.NewClientRepository(db)
 		codeRepo := weosoauth.NewAuthCodeRepository(db)
 		refreshRepo := weosoauth.NewRefreshTokenRepository(db)
@@ -302,12 +304,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 		// MCP gets its own group with BearerOrSession auth when OAuth is enabled.
 		mcpGroup := api.Group("")
-		if appCfg.OAuthEnabled() && appCfg.OAuth.BaseURL != "" {
+		if appCfg.OAuthEnabled() {
 			sessionAuth := authhttp.RequireAuth(sessionManager, authService)
-			mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, appCfg.OAuth.BaseURL))
-			mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
-		} else if appCfg.OAuthEnabled() {
-			mcpGroup.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
+			mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL))
 			mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
 		} else {
 			mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))

@@ -21,6 +21,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"strings"
 	"time"
 
 	"weos/internal/config"
@@ -48,6 +49,8 @@ func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
 	if issuer == "" {
 		issuer = fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
 	}
+	// Normalize to match discovery handlers (which trim trailing slashes).
+	issuer = strings.TrimRight(issuer, "/")
 
 	return authjwt.NewRSAJWTService(
 		authjwt.WithSigningKey(key),
