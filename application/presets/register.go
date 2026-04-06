@@ -9,6 +9,7 @@ import (
 	"weos/application/presets/ecommerce"
 	"weos/application/presets/events"
 	"weos/application/presets/knowledge"
+	"weos/application/presets/mealplanning"
 	"weos/application/presets/tasks"
 	"weos/application/presets/website"
 )
@@ -24,6 +25,7 @@ func RegisterAll(registry *application.PresetRegistry) {
 	website.Register(registry)
 	events.Register(registry)
 	knowledge.Register(registry)
+	mealplanning.Register(registry)
 	for _, r := range customRegistrars {
 		r(registry)
 	}
