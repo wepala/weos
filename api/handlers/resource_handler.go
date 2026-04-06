@@ -57,14 +57,12 @@ type ResourceResponse struct {
 func (h *ResourceHandler) Create(c echo.Context) error {
 	typeSlug := c.Param("typeSlug")
 	if _, err := h.resourceTypeService.GetBySlug(c.Request().Context(), typeSlug); err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "resource type not found"})
+		return respondError(c, http.StatusNotFound, "resource type not found")
 	}
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": "failed to read request body"})
+		return respondError(c, http.StatusBadRequest, "failed to read request body")
 	}
 
 	entity, err := h.resourceService.Create(
@@ -73,10 +71,9 @@ func (h *ResourceHandler) Create(c echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, entities.ErrAccessDenied) {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+			return respondForbidden(c)
 		}
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return respondWithResource(c, http.StatusCreated, entity)
 }
@@ -85,17 +82,15 @@ func (h *ResourceHandler) Get(c echo.Context) error {
 	typeSlug := c.Param("typeSlug")
 	rt, err := h.resourceTypeService.GetBySlug(c.Request().Context(), typeSlug)
 	if err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "resource type not found"})
+		return respondError(c, http.StatusNotFound, "resource type not found")
 	}
 
 	entity, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
 	if err != nil {
 		if errors.Is(err, entities.ErrAccessDenied) {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+			return respondForbidden(c)
 		}
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "resource not found"})
+		return respondError(c, http.StatusNotFound, "resource not found")
 	}
 	return respondWithResourceData(c, http.StatusOK, entity, rt.Context())
 }
@@ -103,8 +98,7 @@ func (h *ResourceHandler) Get(c echo.Context) error {
 func (h *ResourceHandler) List(c echo.Context) error {
 	typeSlug := c.Param("typeSlug")
 	if _, err := h.resourceTypeService.GetBySlug(c.Request().Context(), typeSlug); err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "resource type not found"})
+		return respondError(c, http.StatusNotFound, "resource type not found")
 	}
 
 	cursor := c.QueryParam("cursor")
@@ -142,19 +136,14 @@ func (h *ResourceHandler) List(c echo.Context) error {
 		result, err = h.resourceService.List(c.Request().Context(), typeSlug, cursor, limit, sort)
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 
 	items := make([]json.RawMessage, 0, len(result.Data))
 	for _, e := range result.Data {
 		items = append(items, e.Data())
 	}
-	return c.JSON(http.StatusOK, map[string]any{
-		"data":     items,
-		"cursor":   result.Cursor,
-		"has_more": result.HasMore,
-	})
+	return respondPaginated(c, http.StatusOK, items, result.Cursor, result.HasMore)
 }
 
 // listFlat returns flat projection rows directly for list views.
@@ -176,11 +165,7 @@ func (h *ResourceHandler) listFlat(
 		return h.listEntities(c, typeSlug, filters, cursor, limit, sort)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"data":     result.Data,
-		"cursor":   result.Cursor,
-		"has_more": result.HasMore,
-	})
+	return respondPaginated(c, http.StatusOK, result.Data, result.Cursor, result.HasMore)
 }
 
 // listEntities returns entity-based results with simplified JSON-LD.
@@ -197,8 +182,7 @@ func (h *ResourceHandler) listEntities(
 		result, err = h.resourceService.List(c.Request().Context(), typeSlug, cursor, limit, sort)
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var ldCtx json.RawMessage
@@ -214,11 +198,7 @@ func (h *ResourceHandler) listEntities(
 		}
 		items = append(items, simplified)
 	}
-	return c.JSON(http.StatusOK, map[string]any{
-		"data":     items,
-		"cursor":   result.Cursor,
-		"has_more": result.HasMore,
-	})
+	return respondPaginated(c, http.StatusOK, items, result.Cursor, result.HasMore)
 }
 
 // parseFilters extracts _filter[field][operator]=value query params.
@@ -248,14 +228,12 @@ func parseFilters(c echo.Context) []repositories.FilterCondition {
 func (h *ResourceHandler) Update(c echo.Context) error {
 	typeSlug := c.Param("typeSlug")
 	if _, err := h.resourceTypeService.GetBySlug(c.Request().Context(), typeSlug); err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "resource type not found"})
+		return respondError(c, http.StatusNotFound, "resource type not found")
 	}
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest,
-			map[string]string{"error": "failed to read request body"})
+		return respondError(c, http.StatusBadRequest, "failed to read request body")
 	}
 
 	entity, err := h.resourceService.Update(
@@ -264,10 +242,9 @@ func (h *ResourceHandler) Update(c echo.Context) error {
 	)
 	if err != nil {
 		if errors.Is(err, entities.ErrAccessDenied) {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+			return respondForbidden(c)
 		}
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return respondWithResource(c, http.StatusOK, entity)
 }
@@ -275,18 +252,17 @@ func (h *ResourceHandler) Update(c echo.Context) error {
 func (h *ResourceHandler) Delete(c echo.Context) error {
 	typeSlug := c.Param("typeSlug")
 	if _, err := h.resourceTypeService.GetBySlug(c.Request().Context(), typeSlug); err != nil {
-		return c.JSON(http.StatusNotFound,
-			map[string]string{"error": "resource type not found"})
+		return respondError(c, http.StatusNotFound, "resource type not found")
 	}
 
 	cmd := application.DeleteResourceCommand{ID: c.Param("id")}
 	if err := h.resourceService.Delete(c.Request().Context(), cmd); err != nil {
 		if errors.Is(err, entities.ErrAccessDenied) {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+			return respondForbidden(c)
 		}
-		return c.JSON(http.StatusInternalServerError,
-			map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
+	// 204 No Content intentionally has no body; any accumulated messages are not sent.
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -299,17 +275,23 @@ func respondWithResourceData(
 	c echo.Context, status int, entity *entities.Resource, ldCtx json.RawMessage,
 ) error {
 	if wantsJSONLD(c) {
-		return c.JSONBlob(status, entity.Data())
+		// JSON-LD clients expect a valid JSON-LD document at the top level,
+		// so we bypass the envelope and return the raw data directly.
+		return c.Blob(status, "application/ld+json", entity.Data())
 	}
 	simplified, err := entities.SimplifyJSONLD(entity.Data(), ldCtx)
 	if err != nil {
-		return c.JSONBlob(status, entity.Data())
+		entities.AddMessage(c.Request().Context(), entities.Message{
+			Type: "warning",
+			Text: "response contains unsimplified JSON-LD payload due to simplification error",
+		})
+		return respondRaw(c, status, entity.Data())
 	}
-	return c.JSONBlob(status, simplified)
+	return respondRaw(c, status, simplified)
 }
 
 func respondWithResource(c echo.Context, status int, entity *entities.Resource) error {
-	return c.JSON(status, ResourceResponse{
+	return respond(c, status, ResourceResponse{
 		ID:        entity.GetID(),
 		TypeSlug:  entity.TypeSlug(),
 		Data:      entity.Data(),

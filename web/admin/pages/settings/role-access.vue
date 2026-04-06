@@ -79,6 +79,7 @@
 
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
+import { unwrapEnvelope } from '~/composables/useApi'
 
 type AccessMap = Record<string, Record<string, string[]>>
 
@@ -153,7 +154,8 @@ function deselectAll() {
 
 async function fetchRoles() {
   try {
-    const res = await $fetch<{ roles: string[] }>('/api/settings/roles')
+    const raw = await $fetch<unknown>('/api/settings/roles')
+    const res = unwrapEnvelope<{ roles: string[] }>(raw)
     roles.value = res.roles || []
   } catch {
     roles.value = []
@@ -162,7 +164,8 @@ async function fetchRoles() {
 
 async function fetchAccess() {
   try {
-    const res = await $fetch<{ roles: AccessMap }>('/api/settings/role-access')
+    const raw = await $fetch<unknown>('/api/settings/role-access')
+    const res = unwrapEnvelope<{ roles: AccessMap }>(raw)
     accessMap.value = res.roles || {}
   } catch {
     accessMap.value = {}
@@ -172,10 +175,11 @@ async function fetchAccess() {
 async function handleSave() {
   saving.value = true
   try {
-    const res = await $fetch<{ roles: AccessMap }>('/api/settings/role-access', {
+    const raw = await $fetch<unknown>('/api/settings/role-access', {
       method: 'PUT',
       body: { roles: accessMap.value },
     })
+    const res = unwrapEnvelope<{ roles: AccessMap }>(raw)
     accessMap.value = res.roles || accessMap.value
     message.success('Role access saved')
   } catch {

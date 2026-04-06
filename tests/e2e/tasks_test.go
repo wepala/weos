@@ -55,12 +55,12 @@ func TestCreateProject_Anonymous(t *testing.T) {
 		result := readJSON(t, resp)
 		t.Fatalf("expected 201, got %d: %v", resp.StatusCode, result)
 	}
-	result := readJSON(t, resp)
-	if result["id"] == nil || result["id"] == "" {
+	data := readEnvelopeData(t, resp)
+	if data["id"] == nil || data["id"] == "" {
 		t.Fatal("expected non-empty id")
 	}
-	if result["type_slug"] != "project" {
-		t.Fatalf("type_slug = %v, want project", result["type_slug"])
+	if data["type_slug"] != "project" {
+		t.Fatalf("type_slug = %v, want project", data["type_slug"])
 	}
 }
 
@@ -73,17 +73,17 @@ func TestCreateProject_Authenticated(t *testing.T) {
 		result := readJSON(t, resp)
 		t.Fatalf("expected 201, got %d: %v", resp.StatusCode, result)
 	}
-	result := readJSON(t, resp)
-	id := result["id"].(string)
+	data := readEnvelopeData(t, resp)
+	id := data["id"].(string)
 
 	// Verify admin can read it back
 	getResp := env.doRequest(t, "GET", "/api/project/"+id, "", "admin@weos.dev")
 	if getResp.StatusCode != http.StatusOK {
 		t.Fatalf("get project: expected 200, got %d", getResp.StatusCode)
 	}
-	getResult := readJSON(t, getResp)
-	if getResult["id"] != id {
-		t.Fatalf("got id %v, want %v", getResult["id"], id)
+	getData := readEnvelopeData(t, getResp)
+	if getData["id"] != id {
+		t.Fatalf("got id %v, want %v", getData["id"], id)
 	}
 }
 
@@ -106,8 +106,8 @@ func TestCreateTask_WithProjectReference(t *testing.T) {
 		result := readJSON(t, resp)
 		t.Fatalf("expected 201, got %d: %v", resp.StatusCode, result)
 	}
-	result := readJSON(t, resp)
-	taskID := result["id"].(string)
+	data := readEnvelopeData(t, resp)
+	taskID := data["id"].(string)
 
 	// Verify the task exists
 	getResp := env.doRequest(t, "GET", "/api/task/"+taskID, "", "admin@weos.dev")
@@ -208,13 +208,16 @@ func TestOwnership_OtherUserDenied(t *testing.T) {
 	// Admin creates a project
 	projectID := env.seedProjectForUser(t, "Admin Private", "admin@weos.dev")
 
-	// Member tries to access it — should be denied
+	// Member tries to access it — should be denied with ErrorEnvelope
 	resp := env.doRequest(t, "GET", "/api/project/"+projectID, "", "member@weos.dev")
 	if resp.StatusCode != http.StatusForbidden {
 		result := readJSON(t, resp)
 		t.Fatalf("member access admin project: expected 403, got %d: %v", resp.StatusCode, result)
 	}
-	resp.Body.Close()
+	result := readJSON(t, resp)
+	if result["error"] == nil || result["error"] == "" {
+		t.Fatalf("expected 'error' key in 403 response, got: %v", result)
+	}
 }
 
 func TestOwnership_ListOnlyShowsOwnResources(t *testing.T) {
@@ -296,8 +299,8 @@ func TestFullWorkflow_ProjectsAndTasks(t *testing.T) {
 		result := readJSON(t, createProjResp)
 		t.Fatalf("step 1 create project: expected 201, got %d: %v", createProjResp.StatusCode, result)
 	}
-	projResult := readJSON(t, createProjResp)
-	projectID := projResult["id"].(string)
+	projData := readEnvelopeData(t, createProjResp)
+	projectID := projData["id"].(string)
 
 	// 2. Create tasks linked to the project
 	task1Body := fmt.Sprintf(`{"name":"Task Alpha","status":"open","priority":"high","dueDate":"2026-06-01","project":%q}`, projectID)
@@ -306,8 +309,8 @@ func TestFullWorkflow_ProjectsAndTasks(t *testing.T) {
 		result := readJSON(t, createTask1Resp)
 		t.Fatalf("step 2a create task: expected 201, got %d: %v", createTask1Resp.StatusCode, result)
 	}
-	task1Result := readJSON(t, createTask1Resp)
-	task1ID := task1Result["id"].(string)
+	task1Data := readEnvelopeData(t, createTask1Resp)
+	task1ID := task1Data["id"].(string)
 
 	task2Body := fmt.Sprintf(`{"name":"Task Beta","status":"in-progress","priority":"low","project":%q}`, projectID)
 	createTask2Resp := env.doRequest(t, "POST", "/api/task", task2Body, "admin@weos.dev")

@@ -34,11 +34,11 @@ func DevMe(
 			}
 			creds, err := credRepo.FindByEmail(ctx, email)
 			if err != nil || len(creds) == 0 {
-				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "dev user not found"})
+				return respondError(c, http.StatusUnauthorized, "dev user not found")
 			}
 			agent, err := agentRepo.FindByID(ctx, creds[0].AgentID())
 			if err != nil {
-				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "agent not found"})
+				return respondError(c, http.StatusUnauthorized, "agent not found")
 			}
 			accountID := ""
 			accounts, _ := accountRepo.FindByMember(ctx, agent.GetID())
@@ -49,7 +49,7 @@ func DevMe(
 			if accountID != "" {
 				role, _ = accountRepo.FindMemberRole(ctx, accountID, agent.GetID())
 			}
-			return c.JSON(http.StatusOK, map[string]any{
+			return respond(c, http.StatusOK, map[string]any{
 				"id":    agent.GetID(),
 				"name":  agent.Name(),
 				"email": email,
@@ -60,7 +60,7 @@ func DevMe(
 		// Identity already in context (from SoftAuth)
 		agent, err := agentRepo.FindByID(ctx, identity.AgentID)
 		if err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "agent not found"})
+			return respondError(c, http.StatusUnauthorized, "agent not found")
 		}
 		role := ""
 		if identity.ActiveAccountID != "" {
@@ -71,7 +71,7 @@ func DevMe(
 		if len(creds) > 0 {
 			email = creds[0].Email()
 		}
-		return c.JSON(http.StatusOK, map[string]any{
+		return respond(c, http.StatusOK, map[string]any{
 			"id":    agent.GetID(),
 			"name":  agent.Name(),
 			"email": email,

@@ -81,6 +81,7 @@
 
 <script setup lang="ts">
 import { message } from 'ant-design-vue'
+import { unwrapEnvelope } from '~/composables/useApi'
 
 const { resourceTypes, loaded, fetchResourceTypes } = useResourceTypeStore()
 const { getGlobalSettings, saveGlobalSettings } = useSidebarSettingsApi()
@@ -202,7 +203,8 @@ async function handleSave() {
 
 async function fetchRoles() {
   try {
-    const res = await $fetch<{ roles: string[] }>('/api/settings/roles')
+    const raw = await $fetch<unknown>('/api/settings/roles')
+    const res = unwrapEnvelope<{ roles: string[] }>(raw)
     roles.value = res.roles || []
   } catch {
     roles.value = []

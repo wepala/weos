@@ -14,6 +14,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Component } from 'vue'
+import type { ApiMessage } from './useNotifications'
+import { forwardMessages } from './useApi'
 
 export interface ScreenMeta {
   name: string
@@ -47,7 +49,9 @@ export function usePresetScreens() {
   async function fetchManifest(): Promise<boolean> {
     if (manifestLoaded.value) return true
     try {
-      const res = await $fetch<{ data: PresetListEntry[] }>('/api/resource-types/presets')
+      const res = await $fetch<{ data: PresetListEntry[]; messages?: ApiMessage[] }>('/api/resource-types/presets')
+      const { processApiMessages } = useNotifications()
+      processApiMessages(res.messages)
       const mapping: Record<string, SlugMapping> = {}
       for (const preset of res.data) {
         if (!preset.screens) continue
@@ -59,7 +63,8 @@ export function usePresetScreens() {
       manifest.value = mapping
       manifestLoaded.value = true
       return true
-    } catch (err) {
+    } catch (err: any) {
+      forwardMessages(err?.data)
       console.error('[usePresetScreens] fetchManifest failed:', err)
       return false
     }
