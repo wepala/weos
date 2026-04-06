@@ -16,7 +16,7 @@ This guide walks through creating a custom behavior that attaches domain logic t
 
 ## 1. Create the Behavior Struct
 
-In your preset package (e.g. `application/presets/blog/`), create a struct that embeds `entities.DefaultBehavior` and overrides the hooks you need:
+In your preset package (e.g. `application/presets/blog/`), create a struct that embeds `entities.DefaultBehavior` and overrides the hooks you need. All imports use the module path from `go.mod` (currently `weos`):
 
 ```go
 package blog
@@ -80,6 +80,13 @@ func injectSlug(data json.RawMessage) (json.RawMessage, error) {
 In your preset's `Register` function, include the behavior in the `Behaviors` map keyed by the resource type slug:
 
 ```go
+package blog
+
+import (
+    "weos/application"
+    "weos/domain/entities"
+)
+
 func Register(registry *application.PresetRegistry) {
     registry.MustAdd(application.PresetDefinition{
         Name:        "blog",
@@ -113,6 +120,8 @@ The slug key (`"blog-post"`) must match the resource type's slug exactly.
 Add your preset to the `RegisterAll` function in `application/presets/register.go`, which is where all built-in presets are registered. This function is called by `presets.NewDefaultRegistry()`, which is used by the CLI (`internal/cli/di.go`, `internal/cli/serve.go`) and the MCP server:
 
 ```go
+import "weos/application/presets/blog"
+
 func RegisterAll(registry *application.PresetRegistry) {
     core.Register(registry)
     // ...existing presets...
