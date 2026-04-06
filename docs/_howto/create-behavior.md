@@ -14,6 +14,8 @@ This guide walks through creating a custom behavior that attaches domain logic t
 - A working WeOS development environment (`make build` succeeds)
 - A preset that defines the resource type you want to add behavior to (see [Creating a Preset]({% link _tutorials/creating-a-preset.md %}))
 
+> **Note:** This guide uses the module import path `weos/...`, which matches the current `go.mod` (`module weos`). If you are following older examples that show `github.com/wepala/weos/...`, use the import path that matches your checkout and `go.mod`.
+
 ## 1. Create the Behavior Struct
 
 In your preset package (e.g. `application/presets/blog/`), create a struct that embeds `entities.DefaultBehavior` and overrides the hooks you need. All imports use the module path from `go.mod` (currently `weos`):
