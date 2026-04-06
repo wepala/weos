@@ -275,7 +275,9 @@ func respondWithResourceData(
 	c echo.Context, status int, entity *entities.Resource, ldCtx json.RawMessage,
 ) error {
 	if wantsJSONLD(c) {
-		return respondRaw(c, status, entity.Data())
+		// JSON-LD clients expect a valid JSON-LD document at the top level,
+		// so we bypass the envelope and return the raw data directly.
+		return c.Blob(status, "application/ld+json", entity.Data())
 	}
 	simplified, err := entities.SimplifyJSONLD(entity.Data(), ldCtx)
 	if err != nil {

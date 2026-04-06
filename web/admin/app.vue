@@ -26,7 +26,12 @@
       :class="['api-notification', `api-notification--${n.type}`]"
     >
       {{ n.text }}
-      <button class="api-notification__close" @click="removeNotification(n.id)">x</button>
+      <button
+        type="button"
+        class="api-notification__close"
+        aria-label="Dismiss notification"
+        @click="removeNotification(n.id)"
+      >x</button>
     </div>
   </div>
 </template>
