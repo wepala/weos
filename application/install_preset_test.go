@@ -158,7 +158,9 @@ func makeInstallTestService(
 	d := domain.NewEventDispatcher()
 	pm := &stubProjMgr{}
 	// Wire up event handlers so created types are projected to the repo.
-	_ = SubscribeResourceTypeHandlers(d, repo, pm, noopLogger{})
+	if err := SubscribeResourceTypeHandlers(d, repo, pm, noopLogger{}); err != nil {
+		panic(fmt.Sprintf("SubscribeResourceTypeHandlers failed in test setup: %v", err))
+	}
 	return &resourceTypeService{
 		repo:        repo,
 		projMgr:     pm,
