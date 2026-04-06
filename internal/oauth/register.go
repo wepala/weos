@@ -82,6 +82,10 @@ func RegisterClient(clientRepo ClientRepository, enabled bool) echo.HandlerFunc 
 		if req.TokenEndpointAuthMethod == "" {
 			req.TokenEndpointAuthMethod = "none"
 		}
+		if req.TokenEndpointAuthMethod != "none" {
+			return c.JSON(http.StatusBadRequest,
+				map[string]string{"error": "only token_endpoint_auth_method \"none\" is supported"})
+		}
 
 		redirectJSON, err := json.Marshal(req.RedirectURIs)
 		if err != nil {

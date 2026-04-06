@@ -173,25 +173,47 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
 
-	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth)
-	if appCfg.OAuthEnabled() && appCfg.OAuth.BaseURL != "" {
+	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth).
+	// Registered via e.Pre() so they run before the SPA static middleware,
+	// which would otherwise intercept /.well-known/* and /oauth/* paths.
+	if appCfg.OAuthEnabled() {
 		baseURL := appCfg.OAuth.BaseURL
+		if baseURL == "" {
+			baseURL = fmt.Sprintf("http://%s:%d", appCfg.Server.Host, appCfg.Server.Port)
+		}
 		clientRepo := weosoauth.NewClientRepository(db)
 		codeRepo := weosoauth.NewAuthCodeRepository(db)
 		refreshRepo := weosoauth.NewRefreshTokenRepository(db)
 
-		e.GET("/.well-known/oauth-protected-resource",
-			weosoauth.ProtectedResourceMetadata(baseURL))
-		e.GET("/.well-known/oauth-authorization-server",
-			weosoauth.AuthorizationServerMetadata(baseURL, appCfg.OAuth.DynamicRegistration))
-		e.POST("/oauth/register",
-			weosoauth.RegisterClient(clientRepo, appCfg.OAuth.DynamicRegistration))
-		e.GET("/oauth/authorize",
-			weosoauth.Authorize(authService, sessionStore, clientRepo, codeRepo, logger, baseURL))
-		e.GET("/oauth/callback",
-			weosoauth.Callback(authService, sessionStore, codeRepo, accountRepo, logger, baseURL))
-		e.POST("/oauth/token",
-			weosoauth.Token(jwtService, codeRepo, refreshRepo, agentRepo, accountRepo, logger))
+		prHandler := weosoauth.ProtectedResourceMetadata(baseURL)
+		asHandler := weosoauth.AuthorizationServerMetadata(baseURL, appCfg.OAuth.DynamicRegistration)
+		regHandler := weosoauth.RegisterClient(clientRepo, appCfg.OAuth.DynamicRegistration)
+		authzHandler := weosoauth.Authorize(authService, sessionStore, clientRepo, codeRepo, logger, baseURL)
+		cbHandler := weosoauth.Callback(authService, sessionStore, codeRepo, accountRepo, logger, baseURL)
+		tokHandler := weosoauth.Token(jwtService, codeRepo, refreshRepo, agentRepo, accountRepo, logger)
+
+		e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
+			return func(c echo.Context) error {
+				p := c.Request().URL.Path
+				m := c.Request().Method
+				switch {
+				case m == http.MethodGet && p == "/.well-known/oauth-protected-resource":
+					return prHandler(c)
+				case m == http.MethodGet && p == "/.well-known/oauth-authorization-server":
+					return asHandler(c)
+				case m == http.MethodPost && p == "/oauth/register":
+					return regHandler(c)
+				case m == http.MethodGet && p == "/oauth/authorize":
+					return authzHandler(c)
+				case m == http.MethodGet && p == "/oauth/callback":
+					return cbHandler(c)
+				case m == http.MethodPost && p == "/oauth/token":
+					return tokHandler(c)
+				default:
+					return next(c)
+				}
+			}
+		})
 	}
 
 	// Protected API group — apply auth middleware when OAuth is configured
