@@ -283,8 +283,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if appCfg.OAuthEnabled() && appCfg.OAuth.BaseURL != "" {
 			sessionAuth := authhttp.RequireAuth(sessionManager, authService)
 			mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, appCfg.OAuth.BaseURL))
+			mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
 		} else if appCfg.OAuthEnabled() {
 			mcpGroup.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
+			mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
 		} else {
 			mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 		}

@@ -26,9 +26,9 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// accessTokenExpiresIn is the access token TTL in seconds, matching
-// defaultAccessTokenTTL in jwt_provider.go.
-const accessTokenExpiresIn = 3600
+// accessTokenExpiresIn is the access token TTL in seconds, derived from
+// the JWT provider's configured TTL.
+var accessTokenExpiresIn = int(defaultAccessTokenTTL.Seconds())
 
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
@@ -83,10 +83,10 @@ func handleAuthCodeGrant(
 	clientID := c.FormValue("client_id")
 	redirectURI := c.FormValue("redirect_uri")
 
-	if code == "" || codeVerifier == "" {
+	if code == "" || codeVerifier == "" || clientID == "" {
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
 			Error:       "invalid_request",
-			Description: "code and code_verifier are required",
+			Description: "code, code_verifier, and client_id are required",
 		})
 	}
 
@@ -109,7 +109,7 @@ func handleAuthCodeGrant(
 		})
 	}
 	// Verify client_id matches the code's client (OAuth 2.1 §4.1.3).
-	if clientID != "" && clientID != authCode.ClientID {
+	if clientID != authCode.ClientID {
 		logger.Warn(ctx, "oauth token: client_id mismatch",
 			"expected", authCode.ClientID, "got", clientID)
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
@@ -238,14 +238,6 @@ func handleRefreshGrant(
 		})
 	}
 
-	if err := refreshRepo.Revoke(ctx, stored.ID); err != nil {
-		logger.Error(ctx, "oauth refresh: revocation failed",
-			"token", stored.ID, "error", err)
-		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
-			Error: "server_error",
-		})
-	}
-
 	agent, err := agentRepo.FindByID(ctx, stored.AgentID)
 	if err != nil {
 		logger.Error(ctx, "oauth refresh: agent lookup failed",
@@ -289,6 +281,13 @@ func handleRefreshGrant(
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
 			Error: "server_error",
 		})
+	}
+
+	// Revoke old token after new one is persisted (safe ordering).
+	if err := refreshRepo.Revoke(ctx, stored.ID); err != nil {
+		logger.Error(ctx, "oauth refresh: old token revocation failed",
+			"token", stored.ID, "error", err)
+		// New token already issued — continue but log the failure.
 	}
 
 	logger.Info(ctx, "oauth access token refreshed",

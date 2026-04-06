@@ -95,7 +95,7 @@ func Authorize(
 			CodeChallengeMethod: "S256",
 			Scope:               scope,
 			State:               state,
-			Status:              "pending",
+			Status:              StatusPending,
 		}
 		if err := codeRepo.Create(c.Request().Context(), authCode); err != nil {
 			return c.JSON(http.StatusInternalServerError,

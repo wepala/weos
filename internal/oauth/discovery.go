@@ -17,6 +17,7 @@ package oauth
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -24,6 +25,7 @@ import (
 // ProtectedResourceMetadata returns a handler for RFC 9728 metadata.
 // GET /.well-known/oauth-protected-resource
 func ProtectedResourceMetadata(baseURL string) echo.HandlerFunc {
+	baseURL = strings.TrimRight(baseURL, "/")
 	return func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]any{
 			"resource":                 baseURL + "/api/mcp",
@@ -37,6 +39,7 @@ func ProtectedResourceMetadata(baseURL string) echo.HandlerFunc {
 // AuthorizationServerMetadata returns a handler for RFC 8414 metadata.
 // GET /.well-known/oauth-authorization-server
 func AuthorizationServerMetadata(baseURL string, dynamicRegistration bool) echo.HandlerFunc {
+	baseURL = strings.TrimRight(baseURL, "/")
 	return func(c echo.Context) error {
 		meta := map[string]any{
 			"issuer":                                baseURL,
@@ -46,7 +49,7 @@ func AuthorizationServerMetadata(baseURL string, dynamicRegistration bool) echo.
 			"response_types_supported":              []string{"code"},
 			"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 			"code_challenge_methods_supported":      []string{"S256"},
-			"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
+			"token_endpoint_auth_methods_supported": []string{"none"},
 		}
 		if dynamicRegistration {
 			meta["registration_endpoint"] = baseURL + "/oauth/register"

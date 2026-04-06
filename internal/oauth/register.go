@@ -136,11 +136,17 @@ func validateRedirectURI(uri string) error {
 	if parsed.Fragment != "" {
 		return fmt.Errorf("redirect_uri must not contain a fragment: %s", uri)
 	}
+	if parsed.User != nil {
+		return fmt.Errorf("redirect_uri must not contain userinfo: %s", uri)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("redirect_uri must have a host: %s", uri)
+	}
 	switch parsed.Scheme {
 	case "https":
 		return nil
 	case "http":
-		host := parsed.Hostname()
 		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
 			return nil
 		}
