@@ -34,6 +34,7 @@ type PresetResourceType struct {
 	Description string
 	Context     json.RawMessage
 	Schema      json.RawMessage
+	Fixtures    []json.RawMessage // optional seed data created on install
 }
 
 // PresetSidebarConfig holds default sidebar settings applied when a preset is installed.
@@ -56,9 +57,10 @@ type PresetDefinition struct {
 
 // InstallPresetResult reports which types were created, updated, or skipped.
 type InstallPresetResult struct {
-	Created []string `json:"created"`
-	Updated []string `json:"updated,omitempty"`
-	Skipped []string `json:"skipped"`
+	Created []string       `json:"created"`
+	Updated []string       `json:"updated,omitempty"`
+	Skipped []string       `json:"skipped"`
+	Seeded  map[string]int `json:"seeded,omitempty"` // slug -> count of fixtures created
 }
 
 // PresetRegistry holds all registered presets. Preset packages call Add() to register.
@@ -83,6 +85,9 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 	for i, pt := range def.Types {
 		if pt.Name == "" || pt.Slug == "" {
 			return fmt.Errorf("type at index %d in preset %q: name and slug are required", i, def.Name)
+		}
+		if err := pt.validateFixtures(); err != nil {
+			return fmt.Errorf("preset %q: %w", def.Name, err)
 		}
 	}
 	r.mu.Lock()
@@ -132,6 +137,13 @@ func (d PresetDefinition) clone() PresetDefinition {
 			}
 			if t.Schema != nil {
 				types[i].Schema = append(json.RawMessage(nil), t.Schema...)
+			}
+			if t.Fixtures != nil {
+				fixtures := make([]json.RawMessage, len(t.Fixtures))
+				for j, f := range t.Fixtures {
+					fixtures[j] = append(json.RawMessage(nil), f...)
+				}
+				types[i].Fixtures = fixtures
 			}
 		}
 		d.Types = types
@@ -221,6 +233,26 @@ func (r *PresetRegistry) Behaviors() ResourceBehaviorRegistry {
 		}
 	}
 	return behaviors
+}
+
+// validateFixtures checks that fixture data is well-formed at registration time.
+func (pt PresetResourceType) validateFixtures() error {
+	if len(pt.Fixtures) == 0 {
+		return nil
+	}
+	if len(pt.Schema) == 0 {
+		return fmt.Errorf("type %q has fixtures but no schema", pt.Slug)
+	}
+	for i, f := range pt.Fixtures {
+		if !json.Valid(f) {
+			return fmt.Errorf("type %q fixture[%d] is not valid JSON", pt.Slug, i)
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(f, &obj); err != nil || obj == nil {
+			return fmt.Errorf("type %q fixture[%d] must be a JSON object", pt.Slug, i)
+		}
+	}
+	return nil
 }
 
 // NewPresetType is a helper to create a PresetResourceType from raw strings.

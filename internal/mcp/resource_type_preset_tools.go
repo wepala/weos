@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 
 	"weos/application"
 
@@ -26,9 +27,10 @@ type PresetInstallInput struct {
 }
 
 type PresetInstallOutput struct {
-	Created []string `json:"created"`
-	Updated []string `json:"updated,omitempty"`
-	Skipped []string `json:"skipped"`
+	Created []string       `json:"created"`
+	Updated []string       `json:"updated,omitempty"`
+	Skipped []string       `json:"skipped"`
+	Seeded  map[string]int `json:"seeded,omitempty"`
 }
 
 func registerResourceTypePresetTools(server *mcp.Server, svc application.ResourceTypeService) {
@@ -62,12 +64,24 @@ func registerResourceTypePresetTools(server *mcp.Server, svc application.Resourc
 	) (*mcp.CallToolResult, PresetInstallOutput, error) {
 		result, err := svc.InstallPreset(ctx, input.Name, input.Update)
 		if err != nil {
-			return nil, PresetInstallOutput{}, err
+			if result == nil {
+				return nil, PresetInstallOutput{}, err
+			}
+			return nil, PresetInstallOutput{
+				Created: result.Created,
+				Updated: result.Updated,
+				Skipped: result.Skipped,
+				Seeded:  result.Seeded,
+			}, err
+		}
+		if result == nil {
+			return nil, PresetInstallOutput{}, fmt.Errorf("install preset %q returned nil result", input.Name)
 		}
 		return nil, PresetInstallOutput{
 			Created: result.Created,
 			Updated: result.Updated,
 			Skipped: result.Skipped,
+			Seeded:  result.Seeded,
 		}, nil
 	})
 }

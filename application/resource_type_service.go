@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"weos/domain/entities"
@@ -47,30 +48,33 @@ type ResourceTypeService interface {
 }
 
 type resourceTypeService struct {
-	repo       repositories.ResourceTypeRepository
-	projMgr    repositories.ProjectionManager
-	eventStore domain.EventStore
-	dispatcher *domain.EventDispatcher
-	registry   *PresetRegistry
-	logger     entities.Logger
+	repo        repositories.ResourceTypeRepository
+	projMgr     repositories.ProjectionManager
+	eventStore  domain.EventStore
+	dispatcher  *domain.EventDispatcher
+	registry    *PresetRegistry
+	logger      entities.Logger
+	resourceSvc ResourceService
 }
 
 func ProvideResourceTypeService(params struct {
 	fx.In
-	Repo       repositories.ResourceTypeRepository
-	ProjMgr    repositories.ProjectionManager
-	EventStore domain.EventStore
-	Dispatcher *domain.EventDispatcher
-	Registry   *PresetRegistry
-	Logger     entities.Logger
+	Repo        repositories.ResourceTypeRepository
+	ProjMgr     repositories.ProjectionManager
+	EventStore  domain.EventStore
+	Dispatcher  *domain.EventDispatcher
+	Registry    *PresetRegistry
+	Logger      entities.Logger
+	ResourceSvc ResourceService
 }) ResourceTypeService {
 	return &resourceTypeService{
-		repo:       params.Repo,
-		projMgr:    params.ProjMgr,
-		eventStore: params.EventStore,
-		dispatcher: params.Dispatcher,
-		registry:   params.Registry,
-		logger:     params.Logger,
+		repo:        params.Repo,
+		projMgr:     params.ProjMgr,
+		eventStore:  params.EventStore,
+		dispatcher:  params.Dispatcher,
+		registry:    params.Registry,
+		logger:      params.Logger,
+		resourceSvc: params.ResourceSvc,
 	}
 }
 
@@ -182,30 +186,76 @@ func (s *resourceTypeService) InstallPreset(
 	result := &InstallPresetResult{}
 	for _, pt := range preset.Types {
 		existing, err := s.GetBySlug(ctx, pt.Slug)
-		if err == nil {
+		switch {
+		case err == nil:
 			if !update {
 				result.Skipped = append(result.Skipped, pt.Slug)
 				continue
 			}
-			_, err := s.Update(ctx, UpdateResourceTypeCommand{
+			_, uErr := s.Update(ctx, UpdateResourceTypeCommand{
 				ID:          existing.GetID(),
 				Name:        pt.Name,
 				Slug:        pt.Slug,
 				Description: pt.Description,
+				Status:      existing.Status(),
 				Context:     pt.Context,
 				Schema:      pt.Schema,
 			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to update resource type %q: %w", pt.Slug, err)
+			if uErr != nil {
+				return result, fmt.Errorf("failed to update resource type %q: %w", pt.Slug, uErr)
 			}
 			result.Updated = append(result.Updated, pt.Slug)
-			continue
+		case errors.Is(err, repositories.ErrNotFound):
+			_, cErr := s.Create(ctx, CreateResourceTypeCommand{
+				Name: pt.Name, Slug: pt.Slug, Description: pt.Description,
+				Context: pt.Context, Schema: pt.Schema,
+			})
+			if cErr != nil {
+				return result, fmt.Errorf("failed to create resource type %q: %w", pt.Slug, cErr)
+			}
+			result.Created = append(result.Created, pt.Slug)
+			s.seedFixtures(ctx, pt, result)
+		default:
+			return result, fmt.Errorf("failed to look up resource type %q: %w", pt.Slug, err)
 		}
-		_, err = s.Create(ctx, CreateResourceTypeCommand(pt))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create resource type %q: %w", pt.Slug, err)
-		}
-		result.Created = append(result.Created, pt.Slug)
 	}
 	return result, nil
+}
+
+// seedFixtures creates resources from the preset type's fixture data.
+// Fixtures require a schema on the resource type for validation.
+// Failures are logged but do not prevent the rest of the preset from installing.
+// Built-in fixtures seeded at startup (via ensureBuiltInResourceTypes) use a
+// background context and have no owner — they are intentionally global/public.
+func (s *resourceTypeService) seedFixtures(
+	ctx context.Context, pt PresetResourceType, result *InstallPresetResult,
+) {
+	if len(pt.Fixtures) == 0 {
+		return
+	}
+	if len(pt.Schema) == 0 {
+		s.logger.Error(ctx, "cannot seed fixtures without a schema", "slug", pt.Slug)
+		return
+	}
+	if result.Seeded == nil {
+		result.Seeded = make(map[string]int)
+	}
+	count := 0
+	for i, fixture := range pt.Fixtures {
+		// Schema validation is handled by ResourceService.Create.
+		_, err := s.resourceSvc.Create(ctx, CreateResourceCommand{
+			TypeSlug: pt.Slug,
+			Data:     fixture,
+		})
+		if err != nil {
+			s.logger.Error(ctx, "failed to seed fixture",
+				"slug", pt.Slug, "index", i, "error", err)
+			continue
+		}
+		count++
+	}
+	result.Seeded[pt.Slug] = count
+	if count > 0 {
+		s.logger.Info(ctx, "seeded fixture data", "slug", pt.Slug, "count", count)
+	}
 }
