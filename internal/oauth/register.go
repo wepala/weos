@@ -76,8 +76,20 @@ func RegisterClient(clientRepo ClientRepository, enabled bool) echo.HandlerFunc 
 		if len(req.GrantTypes) == 0 {
 			req.GrantTypes = []string{"authorization_code"}
 		}
+		for _, gt := range req.GrantTypes {
+			if gt != "authorization_code" && gt != "refresh_token" {
+				return c.JSON(http.StatusBadRequest,
+					map[string]string{"error": "unsupported grant_type: " + gt})
+			}
+		}
 		if len(req.ResponseTypes) == 0 {
 			req.ResponseTypes = []string{"code"}
+		}
+		for _, rt := range req.ResponseTypes {
+			if rt != "code" {
+				return c.JSON(http.StatusBadRequest,
+					map[string]string{"error": "unsupported response_type: " + rt})
+			}
 		}
 		if req.TokenEndpointAuthMethod == "" {
 			req.TokenEndpointAuthMethod = "none"

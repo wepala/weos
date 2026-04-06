@@ -66,17 +66,8 @@ func Callback(
 		}
 		expectedState, _ := sess.Values["oauth_state"].(string)
 
-		// Clear session values and save.
-		delete(sess.Values, "oauth_code")
-		delete(sess.Values, "oauth_code_verifier")
-		delete(sess.Values, "oauth_state")
-		if err := sess.Save(c.Request(), c.Response()); err != nil {
-			logger.Error(ctx, "oauth callback: session save failed", "error", err)
-			return c.JSON(http.StatusInternalServerError,
-				map[string]string{"error": "server_error"})
-		}
-
-		// Verify Google OAuth state parameter (CSRF protection).
+		// Verify state BEFORE clearing the session, so that a malicious or
+		// stale callback hit doesn't wipe an in-progress flow.
 		if expectedState == "" || c.QueryParam("state") != expectedState {
 			logger.Warn(ctx, "oauth callback: state mismatch",
 				"expected", expectedState, "got", c.QueryParam("state"))
@@ -85,7 +76,7 @@ func Callback(
 					"error_description": "state mismatch"})
 		}
 
-		// Validate the authorization code.
+		// Validate the authorization code (also before clearing session).
 		authCode, err := codeRepo.FindByCode(ctx, codeStr)
 		if err != nil || authCode.Status != StatusPending ||
 			time.Now().After(authCode.ExpiresAt) {
@@ -93,12 +84,22 @@ func Callback(
 				map[string]string{"error": "invalid_grant"})
 		}
 
-		// Exchange Google auth code for token and resolve identity.
+		// Validate provider auth code is present before clearing session.
 		googleCode := c.QueryParam("code")
 		if googleCode == "" {
 			return c.JSON(http.StatusBadRequest,
 				map[string]string{"error": "invalid_request",
 					"error_description": "missing provider auth code"})
+		}
+
+		// All validations passed — now clear the session.
+		delete(sess.Values, "oauth_code")
+		delete(sess.Values, "oauth_code_verifier")
+		delete(sess.Values, "oauth_state")
+		if err := sess.Save(c.Request(), c.Response()); err != nil {
+			logger.Error(ctx, "oauth callback: session save failed", "error", err)
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": "server_error"})
 		}
 
 		callbackURL := baseURL + "/oauth/callback"

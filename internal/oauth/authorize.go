@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"weos/domain/entities"
 
@@ -28,6 +29,28 @@ import (
 )
 
 const oauthSessionName = "weos-oauth-flow"
+
+// SupportedScopes is the set of scopes the server will issue tokens for.
+// Must stay in sync with discovery.go's scopes_supported field.
+var SupportedScopes = map[string]bool{
+	"mcp:read":  true,
+	"mcp:write": true,
+	"mcp:admin": true,
+}
+
+// validateScope returns an error if the requested scope string contains
+// any unknown scope. An empty scope is allowed (caller may apply defaults).
+func validateScope(scope string) error {
+	if scope == "" {
+		return nil
+	}
+	for _, s := range strings.Fields(scope) {
+		if !SupportedScopes[s] {
+			return fmt.Errorf("unsupported scope: %s", s)
+		}
+	}
+	return nil
+}
 
 // Authorize returns a handler for the OAuth authorization endpoint.
 // GET /oauth/authorize
@@ -66,6 +89,11 @@ func Authorize(
 			return c.JSON(http.StatusBadRequest,
 				map[string]string{"error": "invalid_request",
 					"error_description": "code_challenge_method must be S256"})
+		}
+		if err := validateScope(scope); err != nil {
+			return c.JSON(http.StatusBadRequest,
+				map[string]string{"error": "invalid_scope",
+					"error_description": err.Error()})
 		}
 
 		// Validate client exists and redirect_uri is registered.

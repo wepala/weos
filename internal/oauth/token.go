@@ -140,6 +140,23 @@ func handleAuthCodeGrant(
 		})
 	}
 
+	// Atomically claim the code (single-use enforcement). This must happen
+	// before any heavy work (agent lookup, refresh token creation) so
+	// concurrent requests for the same code cannot create duplicate refresh
+	// tokens before one of them flips the status.
+	if err := codeRepo.MarkExchanged(ctx, code); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+				Error: "invalid_grant",
+			})
+		}
+		logger.Error(ctx, "oauth token: mark exchanged failed",
+			"code", code, "error", err)
+		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+			Error: "server_error",
+		})
+	}
+
 	agent, err := agentRepo.FindByID(ctx, authCode.AgentID)
 	if err != nil {
 		logger.Error(ctx, "oauth token: agent lookup failed",
@@ -183,18 +200,6 @@ func handleAuthCodeGrant(
 			"error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
 			Error: "server_error",
-		})
-	}
-
-	// Mark code as exchanged only after all downstream steps succeed,
-	// so a transient failure doesn't permanently burn the code.
-	// MarkExchanged is atomic (WHERE status = 'issued') so concurrent
-	// requests still get rejected.
-	if err := codeRepo.MarkExchanged(ctx, code); err != nil {
-		logger.Error(ctx, "oauth token: mark exchanged failed",
-			"code", code, "error", err)
-		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
-			Error: "invalid_grant",
 		})
 	}
 
