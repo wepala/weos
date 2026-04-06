@@ -34,6 +34,7 @@ import (
 	gormdb "weos/infrastructure/database/gorm"
 	"weos/internal/config"
 	mcpserver "weos/internal/mcp"
+	weosoauth "weos/internal/oauth"
 	"weos/web"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -46,6 +47,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/fx"
+	gormlib "gorm.io/gorm"
 )
 
 var serveViper = viper.New()
@@ -84,12 +86,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var roleSettingsRepo *gormdb.RoleSettingsRepository
 	var roleAccessRepo *gormdb.RoleResourceAccessRepository
 	var authzChecker *authcasbin.CasbinAuthorizationChecker
+	var jwtService authapp.JWTService
+	var db *gormlib.DB
 
 	registry := presets.NewDefaultRegistry()
 
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(appCfg, registry),
+		fx.Provide(weosoauth.ProvideJWTService),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&resourcePermService),
@@ -104,6 +109,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&roleSettingsRepo),
 		fx.Populate(&roleAccessRepo),
 		fx.Populate(&authzChecker),
+		fx.Populate(&jwtService),
+		fx.Populate(&db),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -165,6 +172,27 @@ func runServe(cmd *cobra.Command, args []string) error {
 		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
 	}
 	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
+
+	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth)
+	if appCfg.OAuthEnabled() && appCfg.OAuth.BaseURL != "" {
+		baseURL := appCfg.OAuth.BaseURL
+		clientRepo := weosoauth.NewClientRepository(db)
+		codeRepo := weosoauth.NewAuthCodeRepository(db)
+		refreshRepo := weosoauth.NewRefreshTokenRepository(db)
+
+		e.GET("/.well-known/oauth-protected-resource",
+			weosoauth.ProtectedResourceMetadata(baseURL))
+		e.GET("/.well-known/oauth-authorization-server",
+			weosoauth.AuthorizationServerMetadata(baseURL, appCfg.OAuth.DynamicRegistration))
+		e.POST("/oauth/register",
+			weosoauth.RegisterClient(clientRepo, appCfg.OAuth.DynamicRegistration))
+		e.GET("/oauth/authorize",
+			weosoauth.Authorize(authService, sessionStore, clientRepo, codeRepo, logger, baseURL))
+		e.GET("/oauth/callback",
+			weosoauth.Callback(authService, sessionStore, codeRepo, accountRepo, logger, baseURL))
+		e.POST("/oauth/token",
+			weosoauth.Token(jwtService, codeRepo, refreshRepo, agentRepo, accountRepo, logger))
+	}
 
 	// Protected API group — apply auth middleware when OAuth is configured
 	protected := api.Group("")
@@ -250,8 +278,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if mcpErr != nil {
 			return fmt.Errorf("failed to create MCP handler: %w", mcpErr)
 		}
-		protected.Any("/mcp", echo.WrapHandler(mcpHandler))
-		protected.Any("/mcp/*", echo.WrapHandler(mcpHandler))
+		// MCP gets its own group with BearerOrSession auth when OAuth is enabled.
+		mcpGroup := api.Group("")
+		if appCfg.OAuthEnabled() && appCfg.OAuth.BaseURL != "" {
+			sessionAuth := authhttp.RequireAuth(sessionManager, authService)
+			mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, appCfg.OAuth.BaseURL))
+		} else if appCfg.OAuthEnabled() {
+			mcpGroup.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
+		} else {
+			mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
+		}
+		mcpGroup.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
+		mcpGroup.Any("/mcp", echo.WrapHandler(mcpHandler))
+		mcpGroup.Any("/mcp/*", echo.WrapHandler(mcpHandler))
 		logger.Info(context.Background(), "MCP server enabled", "path", "/api/mcp")
 	} else {
 		logger.Info(context.Background(), "MCP server disabled via configuration")

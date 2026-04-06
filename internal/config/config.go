@@ -22,9 +22,12 @@ import (
 
 // OAuthConfig holds configuration for OAuth authentication.
 type OAuthConfig struct {
-	GoogleClientID     string
-	GoogleClientSecret string
-	FrontendURL        string
+	GoogleClientID      string
+	GoogleClientSecret  string
+	FrontendURL         string
+	BaseURL             string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
+	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
+	DynamicRegistration bool   // Enable OAuth Dynamic Client Registration (RFC 7591)
 }
 
 // Config holds the standard configuration used by all applications.
@@ -121,6 +124,9 @@ func Default() Config {
 		LLM: LLMConfig{
 			GeminiModel: "gemini-2.0-flash",
 		},
+		OAuth: OAuthConfig{
+			DynamicRegistration: false,
+		},
 	}
 }
 
@@ -167,6 +173,18 @@ func (c *Config) LoadFromEnvironment() {
 
 	if frontendURL := os.Getenv("FRONTEND_URL"); frontendURL != "" {
 		c.OAuth.FrontendURL = frontendURL
+	}
+
+	if baseURL := os.Getenv("BASE_URL"); baseURL != "" {
+		c.OAuth.BaseURL = baseURL
+	}
+
+	if jwtKey := os.Getenv("JWT_SIGNING_KEY"); jwtKey != "" {
+		c.OAuth.JWTSigningKey = jwtKey
+	}
+
+	if dynReg := os.Getenv("OAUTH_DYNAMIC_REGISTRATION"); dynReg != "" {
+		c.OAuth.DynamicRegistration = dynReg == "true" || dynReg == "1"
 	}
 
 	if bqProject := os.Getenv("BIGQUERY_PROJECT_ID"); bqProject != "" {
