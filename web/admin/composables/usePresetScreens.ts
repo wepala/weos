@@ -15,6 +15,7 @@
 
 import type { Component } from 'vue'
 import type { ApiMessage } from './useNotifications'
+import { forwardMessages } from './useApi'
 
 export interface ScreenMeta {
   name: string
@@ -62,7 +63,8 @@ export function usePresetScreens() {
       manifest.value = mapping
       manifestLoaded.value = true
       return true
-    } catch (err) {
+    } catch (err: any) {
+      forwardMessages(err?.data)
       console.error('[usePresetScreens] fetchManifest failed:', err)
       return false
     }
