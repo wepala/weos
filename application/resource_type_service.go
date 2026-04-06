@@ -408,7 +408,7 @@ func (s *resourceTypeService) SetBehaviors(
 		accountID = ident.ActiveAccountID
 	}
 	if accountID == "" {
-		return fmt.Errorf("account context required to set behaviors")
+		return fmt.Errorf("account context required to set behaviors: %w", ErrForbidden)
 	}
 
 	return s.behaviorSettings.SaveByAccountAndType(
@@ -418,7 +418,7 @@ func (s *resourceTypeService) SetBehaviors(
 func (s *resourceTypeService) requireAdmin(ctx context.Context) error {
 	ident := auth.AgentFromCtx(ctx)
 	if ident == nil {
-		return nil
+		return fmt.Errorf("authentication required: %w", ErrForbidden)
 	}
 	if ident.ActiveAccountID == "" {
 		return fmt.Errorf("account context required: %w", ErrForbidden)
