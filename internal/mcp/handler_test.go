@@ -58,6 +58,16 @@ func (s *stubResourceTypeService) InstallPreset(
 	return nil, nil
 }
 
+func (s *stubResourceTypeService) ListBehaviors(
+	_ context.Context, _ string,
+) ([]application.BehaviorInfo, error) {
+	return nil, nil
+}
+
+func (s *stubResourceTypeService) SetBehaviors(_ context.Context, _ string, _ []string) error {
+	return nil
+}
+
 // stubResourceService is a minimal stub satisfying application.ResourceService.
 type stubResourceService struct{}
 
@@ -162,7 +172,7 @@ func TestNewMCPServer_AllServices(t *testing.T) {
 
 	names := toolNames(t, server)
 
-	// All 4 service groups should be registered (22 tools total).
+	// All 4 service groups should be registered (24 tools total).
 	expectedPrefixes := []string{"person_", "organization_", "resource_type_", "resource_"}
 	for _, prefix := range expectedPrefixes {
 		found := false
@@ -177,8 +187,8 @@ func TestNewMCPServer_AllServices(t *testing.T) {
 		}
 	}
 
-	if len(names) != 22 {
-		t.Errorf("expected 22 tools, got %d: %v", len(names), names)
+	if len(names) != 24 {
+		t.Errorf("expected 24 tools, got %d: %v", len(names), names)
 	}
 }
 

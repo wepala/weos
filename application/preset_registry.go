@@ -46,13 +46,14 @@ type PresetSidebarConfig struct {
 // PresetDefinition defines a named preset package that bundles resource types,
 // behaviors, screen components, and sidebar configuration.
 type PresetDefinition struct {
-	Name        string
-	Description string
-	Types       []PresetResourceType
-	Behaviors   map[string]entities.ResourceBehavior // slug -> behavior
-	Screens     fs.FS                                // optional embedded screen components
-	Sidebar     *PresetSidebarConfig                 // optional sidebar defaults
-	AutoInstall bool                                 // if true, types are auto-created at startup
+	Name         string
+	Description  string
+	Types        []PresetResourceType
+	Behaviors    map[string]entities.ResourceBehavior // slug -> behavior implementation
+	BehaviorMeta map[string]entities.BehaviorMeta     // slug -> metadata for UI/config
+	Screens      fs.FS                                // optional embedded screen components
+	Sidebar      *PresetSidebarConfig                 // optional sidebar defaults
+	AutoInstall  bool                                 // if true, types are auto-created at startup
 }
 
 // InstallPresetResult reports which types were created, updated, or skipped.
@@ -155,6 +156,13 @@ func (d PresetDefinition) clone() PresetDefinition {
 		}
 		d.Behaviors = behaviors
 	}
+	if d.BehaviorMeta != nil {
+		meta := make(map[string]entities.BehaviorMeta, len(d.BehaviorMeta))
+		for k, v := range d.BehaviorMeta {
+			meta[k] = v
+		}
+		d.BehaviorMeta = meta
+	}
 	if d.Sidebar != nil {
 		s := *d.Sidebar
 		if s.HiddenSlugs != nil {
@@ -253,6 +261,26 @@ func (pt PresetResourceType) validateFixtures() error {
 		}
 	}
 	return nil
+}
+
+// BehaviorsMeta returns a merged BehaviorMetaRegistry from all registered presets.
+// Same merge semantics as Behaviors(): alphabetical order, last wins.
+func (r *PresetRegistry) BehaviorsMeta() BehaviorMetaRegistry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.presets))
+	for name := range r.presets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	meta := make(BehaviorMetaRegistry)
+	for _, name := range names {
+		for slug, m := range r.presets[name].BehaviorMeta {
+			meta[slug] = m
+		}
+	}
+	return meta
 }
 
 // NewPresetType is a helper to create a PresetResourceType from raw strings.

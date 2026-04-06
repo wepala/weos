@@ -53,6 +53,22 @@ func Register(registry *application.PresetRegistry) {
 			"person":       &personBehavior{},
 			"organization": &organizationBehavior{},
 		},
+		BehaviorMeta: map[string]entities.BehaviorMeta{
+			"person": {
+				Slug:        "person",
+				DisplayName: "Computed Name",
+				Description: "Auto-computes full name from givenName + familyName",
+				Default:     true,
+				Manageable:  false,
+			},
+			"organization": {
+				Slug:        "organization",
+				DisplayName: "Organization Defaults",
+				Description: "Placeholder for organization-specific logic",
+				Default:     true,
+				Manageable:  false,
+			},
+		},
 		AutoInstall: true,
 	})
 }

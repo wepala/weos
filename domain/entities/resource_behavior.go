@@ -5,6 +5,18 @@ import (
 	"encoding/json"
 )
 
+// BehaviorMeta describes a behavior for display and configuration purposes.
+// Presets declare metadata alongside their ResourceBehavior implementations
+// so that APIs can expose which behaviors exist, their defaults, and whether
+// users can toggle them per account.
+type BehaviorMeta struct {
+	Slug        string // matches the key in PresetDefinition.Behaviors
+	DisplayName string // human-readable name shown in UI
+	Description string // short explanation of what this behavior does
+	Default     bool   // enabled when no account-level override exists
+	Manageable  bool   // if true, account admins can toggle on/off
+}
+
 // ResourceBehavior allows concrete types to specialize business logic for
 // specific resource type slugs. If no behavior is registered for a slug,
 // DefaultBehavior (a no-op) is used — mirroring the frontend pattern where

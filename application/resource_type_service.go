@@ -7,11 +7,21 @@ import (
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
+	"weos/pkg/jsonld"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
+	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
 )
+
+// ErrValidation is returned for client-side validation failures (bad input).
+var ErrValidation = errors.New("validation error")
+
+// ErrForbidden is returned when the caller lacks required permissions.
+var ErrForbidden = errors.New("forbidden")
 
 var reservedSlugs = map[string]bool{
 	"persons":        true,
@@ -35,6 +45,16 @@ func ReservedResourceTypeSlugs() map[string]bool {
 	return cp
 }
 
+// BehaviorInfo describes a behavior's state for a resource type within
+// the caller's account context.
+type BehaviorInfo struct {
+	Slug        string `json:"slug"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+	Manageable  bool   `json:"manageable"`
+}
+
 type ResourceTypeService interface {
 	Create(ctx context.Context, cmd CreateResourceTypeCommand) (*entities.ResourceType, error)
 	GetByID(ctx context.Context, id string) (*entities.ResourceType, error)
@@ -45,36 +65,50 @@ type ResourceTypeService interface {
 	Delete(ctx context.Context, cmd DeleteResourceTypeCommand) error
 	ListPresets() []PresetDefinition
 	InstallPreset(ctx context.Context, presetName string, update bool) (*InstallPresetResult, error)
+	ListBehaviors(ctx context.Context, typeSlug string) ([]BehaviorInfo, error)
+	SetBehaviors(ctx context.Context, typeSlug string, slugs []string) error
 }
 
 type resourceTypeService struct {
-	repo        repositories.ResourceTypeRepository
-	projMgr     repositories.ProjectionManager
-	eventStore  domain.EventStore
-	dispatcher  *domain.EventDispatcher
-	registry    *PresetRegistry
-	logger      entities.Logger
-	resourceSvc ResourceService
+	repo             repositories.ResourceTypeRepository
+	projMgr          repositories.ProjectionManager
+	eventStore       domain.EventStore
+	dispatcher       *domain.EventDispatcher
+	registry         *PresetRegistry
+	logger           entities.Logger
+	resourceSvc      ResourceService
+	behaviors        ResourceBehaviorRegistry
+	behaviorMeta     BehaviorMetaRegistry
+	behaviorSettings repositories.BehaviorSettingsRepository
+	accountRepo      authrepos.AccountRepository
 }
 
 func ProvideResourceTypeService(params struct {
 	fx.In
-	Repo        repositories.ResourceTypeRepository
-	ProjMgr     repositories.ProjectionManager
-	EventStore  domain.EventStore
-	Dispatcher  *domain.EventDispatcher
-	Registry    *PresetRegistry
-	Logger      entities.Logger
-	ResourceSvc ResourceService
+	Repo             repositories.ResourceTypeRepository
+	ProjMgr          repositories.ProjectionManager
+	EventStore       domain.EventStore
+	Dispatcher       *domain.EventDispatcher
+	Registry         *PresetRegistry
+	Logger           entities.Logger
+	ResourceSvc      ResourceService
+	Behaviors        ResourceBehaviorRegistry
+	BehaviorMeta     BehaviorMetaRegistry
+	BehaviorSettings repositories.BehaviorSettingsRepository
+	AccountRepo      authrepos.AccountRepository
 }) ResourceTypeService {
 	return &resourceTypeService{
-		repo:        params.Repo,
-		projMgr:     params.ProjMgr,
-		eventStore:  params.EventStore,
-		dispatcher:  params.Dispatcher,
-		registry:    params.Registry,
-		logger:      params.Logger,
-		resourceSvc: params.ResourceSvc,
+		repo:             params.Repo,
+		projMgr:          params.ProjMgr,
+		eventStore:       params.EventStore,
+		dispatcher:       params.Dispatcher,
+		registry:         params.Registry,
+		logger:           params.Logger,
+		resourceSvc:      params.ResourceSvc,
+		behaviors:        params.Behaviors,
+		behaviorMeta:     params.BehaviorMeta,
+		behaviorSettings: params.BehaviorSettings,
+		accountRepo:      params.AccountRepo,
 	}
 }
 
@@ -258,4 +292,213 @@ func (s *resourceTypeService) seedFixtures(
 	if count > 0 {
 		s.logger.Info(ctx, "seeded fixture data", "slug", pt.Slug, "count", count)
 	}
+}
+
+func (s *resourceTypeService) ListBehaviors(
+	ctx context.Context, typeSlug string,
+) ([]BehaviorInfo, error) {
+	// Verify the resource type exists.
+	rt, err := s.repo.FindBySlug(ctx, typeSlug)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, fmt.Errorf("resource type %q not found: %w", typeSlug, err)
+		}
+		return nil, fmt.Errorf("failed to load resource type %q: %w", typeSlug, err)
+	}
+
+	// Load account-level overrides (nil means use preset defaults).
+	var overrides []string
+	accountID := ""
+	if ident := auth.AgentFromCtx(ctx); ident != nil {
+		accountID = ident.ActiveAccountID
+	}
+	if accountID != "" && s.behaviorSettings != nil {
+		overrides, err = s.behaviorSettings.GetByAccountAndType(
+			ctx, accountID, typeSlug)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load behavior settings: %w", err)
+		}
+	}
+
+	// Walk the inheritance chain to collect all behaviors that apply.
+	var infos []BehaviorInfo
+	visited := map[string]bool{rt.Slug(): true}
+	current := rt
+
+	for current != nil {
+		slug := current.Slug()
+		if meta, ok := s.behaviorMeta[slug]; ok {
+			enabled := meta.Default
+			if meta.Manageable && overrides != nil {
+				enabled = slugInList(slug, overrides)
+			}
+			infos = append(infos, BehaviorInfo{
+				Slug:        slug,
+				DisplayName: meta.DisplayName,
+				Description: meta.Description,
+				Enabled:     enabled,
+				Manageable:  meta.Manageable,
+			})
+		} else if _, hasBehavior := s.behaviors[slug]; hasBehavior {
+			infos = append(infos, BehaviorInfo{
+				Slug:    slug,
+				Enabled: true,
+			})
+		}
+		parentSlug := jsonld.SubClassOf(current.Context())
+		if parentSlug == "" || visited[parentSlug] {
+			break
+		}
+		visited[parentSlug] = true
+		parentRT, lookupErr := s.repo.FindBySlug(ctx, parentSlug)
+		if lookupErr != nil {
+			if errors.Is(lookupErr, repositories.ErrNotFound) {
+				break
+			}
+			return nil, fmt.Errorf(
+				"failed to load parent resource type %q for %q: %w",
+				parentSlug, current.Slug(), lookupErr,
+			)
+		}
+		current = parentRT
+	}
+
+	return infos, nil
+}
+
+func (s *resourceTypeService) SetBehaviors(
+	ctx context.Context, typeSlug string, slugs []string,
+) error {
+	if err := s.requireAdmin(ctx); err != nil {
+		return err
+	}
+
+	if s.behaviorSettings == nil {
+		return fmt.Errorf("behavior settings not available")
+	}
+
+	applicable, err := s.applicableBehaviorSlugs(ctx, typeSlug)
+	if err != nil {
+		return err
+	}
+
+	if slugs == nil {
+		slugs = []string{}
+	}
+	slugs = dedup(slugs)
+
+	for _, slug := range slugs {
+		if !applicable[slug] {
+			return fmt.Errorf(
+				"behavior %q does not apply to type %q: %w",
+				slug, typeSlug, ErrValidation)
+		}
+		meta, ok := s.behaviorMeta[slug]
+		if !ok {
+			return fmt.Errorf(
+				"behavior %q is not user-manageable: %w", slug, ErrValidation)
+		}
+		if !meta.Manageable {
+			return fmt.Errorf(
+				"behavior %q is not user-manageable: %w", slug, ErrValidation)
+		}
+	}
+
+	accountID := ""
+	if ident := auth.AgentFromCtx(ctx); ident != nil {
+		accountID = ident.ActiveAccountID
+	}
+	if accountID == "" {
+		return fmt.Errorf("account context required to set behaviors: %w", ErrForbidden)
+	}
+
+	return s.behaviorSettings.SaveByAccountAndType(
+		ctx, accountID, typeSlug, slugs)
+}
+
+func (s *resourceTypeService) requireAdmin(ctx context.Context) error {
+	ident := auth.AgentFromCtx(ctx)
+	if ident == nil {
+		return fmt.Errorf("authentication required: %w", ErrForbidden)
+	}
+	if ident.ActiveAccountID == "" {
+		return fmt.Errorf("account context required: %w", ErrForbidden)
+	}
+	if s.accountRepo == nil {
+		return fmt.Errorf("authorization not configured: %w", ErrForbidden)
+	}
+	role, err := s.accountRepo.FindMemberRole(
+		ctx, ident.ActiveAccountID, ident.AgentID)
+	if err != nil {
+		return fmt.Errorf("failed to check admin status: %w", err)
+	}
+	if role != authentities.RoleAdmin && role != authentities.RoleOwner {
+		return fmt.Errorf("admin role required: %w", ErrForbidden)
+	}
+	return nil
+}
+
+func (s *resourceTypeService) applicableBehaviorSlugs(
+	ctx context.Context, typeSlug string,
+) (map[string]bool, error) {
+	rt, err := s.repo.FindBySlug(ctx, typeSlug)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil, fmt.Errorf(
+				"resource type %q not found: %w", typeSlug, err)
+		}
+		return nil, fmt.Errorf(
+			"failed to look up resource type %q: %w", typeSlug, err)
+	}
+
+	allowed := make(map[string]bool)
+	visited := map[string]bool{rt.Slug(): true}
+	current := rt
+
+	for current != nil {
+		slug := current.Slug()
+		if _, ok := s.behaviorMeta[slug]; ok {
+			allowed[slug] = true
+		} else if _, ok := s.behaviors[slug]; ok {
+			allowed[slug] = true
+		}
+		parentSlug := jsonld.SubClassOf(current.Context())
+		if parentSlug == "" || visited[parentSlug] {
+			break
+		}
+		visited[parentSlug] = true
+		parentRT, lookupErr := s.repo.FindBySlug(ctx, parentSlug)
+		if lookupErr != nil {
+			if errors.Is(lookupErr, repositories.ErrNotFound) {
+				break
+			}
+			return nil, fmt.Errorf(
+				"failed to look up parent type %q for %q: %w",
+				parentSlug, typeSlug, lookupErr)
+		}
+		current = parentRT
+	}
+
+	return allowed, nil
+}
+
+func slugInList(slug string, list []string) bool {
+	for _, s := range list {
+		if s == slug {
+			return true
+		}
+	}
+	return false
+}
+
+func dedup(slugs []string) []string {
+	seen := make(map[string]bool, len(slugs))
+	out := make([]string, 0, len(slugs))
+	for _, s := range slugs {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }

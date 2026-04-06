@@ -28,3 +28,12 @@ type ResourceBehaviorRegistry map[string]entities.ResourceBehavior
 func ProvideResourceBehaviorRegistry(registry *PresetRegistry) ResourceBehaviorRegistry {
 	return registry.Behaviors()
 }
+
+// BehaviorMetaRegistry maps resource type slugs to their behavior metadata.
+// Used by services to expose available behaviors and enforce manageability.
+type BehaviorMetaRegistry map[string]entities.BehaviorMeta
+
+// ProvideBehaviorMetaRegistry builds the metadata registry from all presets.
+func ProvideBehaviorMetaRegistry(registry *PresetRegistry) BehaviorMetaRegistry {
+	return registry.BehaviorsMeta()
+}

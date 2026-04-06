@@ -90,8 +90,10 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideAuthenticationService),
 		fx.Provide(ProvideSessionManager),
 
-		// Resource behavior registry (must come before ProvideResourceService)
+		// Resource behavior registries (must come before ProvideResourceService)
 		fx.Provide(ProvideResourceBehaviorRegistry),
+		fx.Provide(ProvideBehaviorMetaRegistry),
+		fx.Provide(gorm.ProvideBehaviorSettingsRepository),
 
 		// Service providers
 		fx.Provide(ProvideResourceTypeService),

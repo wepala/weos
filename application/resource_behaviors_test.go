@@ -9,6 +9,8 @@ import (
 	"weos/domain/entities"
 	"weos/domain/repositories"
 	"weos/pkg/jsonld"
+
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 )
 
 // stubTypeRepo implements ResourceTypeRepository for testing behavior hierarchy.
@@ -265,5 +267,233 @@ func TestSubClassOf_UsedByBehaviorFor(t *testing.T) {
 	parent := jsonld.SubClassOf(ctx)
 	if parent != "commitment" {
 		t.Errorf("SubClassOf = %q, want %q", parent, "commitment")
+	}
+}
+
+// --- Stub BehaviorSettingsRepository for tests ---
+
+type stubBehaviorSettings struct {
+	data map[string][]string // key = accountID+"|"+typeSlug
+	err  error
+}
+
+func (s *stubBehaviorSettings) GetByAccountAndType(
+	_ context.Context, accountID, typeSlug string,
+) ([]string, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	slugs, ok := s.data[accountID+"|"+typeSlug]
+	if !ok {
+		return nil, nil
+	}
+	return slugs, nil
+}
+
+func (s *stubBehaviorSettings) SaveByAccountAndType(
+	_ context.Context, accountID, typeSlug string, slugs []string,
+) error {
+	if s.err != nil {
+		return s.err
+	}
+	if s.data == nil {
+		s.data = make(map[string][]string)
+	}
+	s.data[accountID+"|"+typeSlug] = slugs
+	return nil
+}
+
+func withAccount(ctx context.Context, agentID, accountID string) context.Context {
+	return auth.ContextWithAgent(ctx, &auth.Identity{
+		AgentID:         agentID,
+		AccountIDs:      []string{accountID},
+		ActiveAccountID: accountID,
+	})
+}
+
+// --- Account-scoped behavior filtering tests ---
+
+func TestBehaviorFor_AccountOverrideDisablesBehavior(t *testing.T) {
+	var calls []string
+	rt := makeTestRT("person", json.RawMessage(`{"@vocab":"https://schema.org/"}`))
+
+	settings := &stubBehaviorSettings{
+		data: map[string][]string{
+			"acct1|person": {}, // empty list = all disabled
+		},
+	}
+
+	svc := &resourceService{
+		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
+		logger:           noopLogger{},
+		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: true}},
+		behaviorSettings: settings,
+	}
+
+	ctx := withAccount(context.Background(), "agent1", "acct1")
+	behavior := svc.behaviorFor(ctx, rt)
+	_, _ = behavior.BeforeCreate(ctx, json.RawMessage(`{"name":"test"}`), rt)
+
+	if len(calls) != 0 {
+		t.Errorf("expected no calls (behavior disabled by account), got %v", calls)
+	}
+}
+
+func TestBehaviorFor_NoAccountOverrideUsesPresetDefaults(t *testing.T) {
+	var calls []string
+	rt := makeTestRT("person", json.RawMessage(`{"@vocab":"https://schema.org/"}`))
+
+	settings := &stubBehaviorSettings{} // no overrides stored
+
+	svc := &resourceService{
+		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
+		logger:           noopLogger{},
+		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: true}},
+		behaviorSettings: settings,
+	}
+
+	ctx := withAccount(context.Background(), "agent1", "acct1")
+	behavior := svc.behaviorFor(ctx, rt)
+	_, _ = behavior.BeforeCreate(ctx, json.RawMessage(`{"name":"test"}`), rt)
+
+	if len(calls) != 1 || calls[0] != "person.BeforeCreate" {
+		t.Errorf("expected [person.BeforeCreate] (default enabled), got %v", calls)
+	}
+}
+
+func TestBehaviorFor_PresetDefaultFalseDisablesBehavior(t *testing.T) {
+	var calls []string
+	rt := makeTestRT("person", json.RawMessage(`{"@vocab":"https://schema.org/"}`))
+
+	svc := &resourceService{
+		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
+		logger:           noopLogger{},
+		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: false}},
+		behaviorSettings: &stubBehaviorSettings{},
+	}
+
+	ctx := withAccount(context.Background(), "agent1", "acct1")
+	behavior := svc.behaviorFor(ctx, rt)
+	_, _ = behavior.BeforeCreate(ctx, json.RawMessage(`{"name":"test"}`), rt)
+
+	if len(calls) != 0 {
+		t.Errorf("expected no calls (default=false, no override), got %v", calls)
+	}
+}
+
+func TestBehaviorFor_SettingsErrorFallsBackToDefaults(t *testing.T) {
+	var calls []string
+	rt := makeTestRT("person", json.RawMessage(`{"@vocab":"https://schema.org/"}`))
+
+	settings := &stubBehaviorSettings{err: errors.New("db down")}
+
+	svc := &resourceService{
+		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
+		logger:           noopLogger{},
+		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: true}},
+		behaviorSettings: settings,
+	}
+
+	ctx := withAccount(context.Background(), "agent1", "acct1")
+	behavior := svc.behaviorFor(ctx, rt)
+	_, _ = behavior.BeforeCreate(ctx, json.RawMessage(`{"name":"test"}`), rt)
+
+	// Should fall back to defaults (Default: true), so behavior fires
+	if len(calls) != 1 || calls[0] != "person.BeforeCreate" {
+		t.Errorf("expected [person.BeforeCreate] (fallback to defaults), got %v", calls)
+	}
+}
+
+func TestBehaviorFor_NilSettingsRepo(t *testing.T) {
+	var calls []string
+	rt := makeTestRT("person", json.RawMessage(`{"@vocab":"https://schema.org/"}`))
+
+	svc := &resourceService{
+		typeRepo:     &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
+		logger:       noopLogger{},
+		behaviors:    ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
+		behaviorMeta: BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: true}},
+		// behaviorSettings intentionally nil
+	}
+
+	ctx := withAccount(context.Background(), "agent1", "acct1")
+	// Should not panic — nil guard in resolveEnabledBehaviors
+	behavior := svc.behaviorFor(ctx, rt)
+	_, _ = behavior.BeforeCreate(ctx, json.RawMessage(`{"name":"test"}`), rt)
+
+	if len(calls) != 1 || calls[0] != "person.BeforeCreate" {
+		t.Errorf("expected [person.BeforeCreate] (nil settings repo), got %v", calls)
+	}
+}
+
+func TestBehaviorFor_InheritanceWithAccountOverride(t *testing.T) {
+	var calls []string
+	commitmentRT := makeTestRT("commitment", vfContext(""))
+	invoiceRT := makeTestRT("invoice", vfContext(subClassOf("commitment")))
+
+	repo := &stubTypeRepo{types: map[string]*entities.ResourceType{
+		"invoice":    invoiceRT,
+		"commitment": commitmentRT,
+	}}
+
+	// Account override enables invoice but not commitment
+	settings := &stubBehaviorSettings{
+		data: map[string][]string{
+			"acct1|invoice": {"invoice"}, // only invoice enabled
+		},
+	}
+
+	svc := &resourceService{
+		typeRepo: repo,
+		logger:   noopLogger{},
+		behaviors: ResourceBehaviorRegistry{
+			"invoice":    &trackBehavior{label: "invoice", calls: &calls},
+			"commitment": &trackBehavior{label: "commitment", calls: &calls},
+		},
+		behaviorMeta: BehaviorMetaRegistry{
+			"invoice":    entities.BehaviorMeta{Slug: "invoice", Default: true, Manageable: true},
+			"commitment": entities.BehaviorMeta{Slug: "commitment", Default: true, Manageable: true},
+		},
+		behaviorSettings: settings,
+	}
+
+	ctx := withAccount(context.Background(), "agent1", "acct1")
+	behavior := svc.behaviorFor(ctx, invoiceRT)
+	_, _ = behavior.BeforeCreate(ctx, json.RawMessage(`{"name":"test"}`), invoiceRT)
+
+	// Only invoice should fire; commitment is excluded from override list
+	if len(calls) != 1 || calls[0] != "invoice.BeforeCreate" {
+		t.Errorf("expected [invoice.BeforeCreate], got %v", calls)
+	}
+}
+
+func TestBehaviorFor_NonManageableNotAffectedByOverride(t *testing.T) {
+	var calls []string
+	rt := makeTestRT("person", json.RawMessage(`{"@vocab":"https://schema.org/"}`))
+
+	settings := &stubBehaviorSettings{
+		data: map[string][]string{
+			"acct1|person": {},
+		},
+	}
+
+	svc := &resourceService{
+		typeRepo:         &stubTypeRepo{types: map[string]*entities.ResourceType{"person": rt}},
+		logger:           noopLogger{},
+		behaviors:        ResourceBehaviorRegistry{"person": &trackBehavior{label: "person", calls: &calls}},
+		behaviorMeta:     BehaviorMetaRegistry{"person": entities.BehaviorMeta{Slug: "person", Default: true, Manageable: false}},
+		behaviorSettings: settings,
+	}
+
+	ctx := withAccount(context.Background(), "agent1", "acct1")
+	behavior := svc.behaviorFor(ctx, rt)
+	_, _ = behavior.BeforeCreate(ctx, json.RawMessage(`{"name":"test"}`), rt)
+
+	if len(calls) != 1 || calls[0] != "person.BeforeCreate" {
+		t.Errorf("expected [person.BeforeCreate] (non-manageable, ignores override), got %v", calls)
 	}
 }
