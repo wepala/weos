@@ -59,14 +59,19 @@ func Register(registry *application.PresetRegistry) {
 // -- contexts ----------------------------------------------------------------
 
 // mpTypeContext returns a JSON-LD context for a meal-planning type (mp:<typeName>).
-// Most resource types in this preset share this pattern.
-func mpTypeContext(typeName string) json.RawMessage {
-	return json.RawMessage(
-		`{"@vocab":"https://schema.org/",` +
-			`"mp":"https://weos.org/vocab/meal-planning#",` +
-			`"mealType":"mp:mealType",` +
-			`"servings":"mp:servings",` +
-			`"@type":"mp:` + typeName + `"}`)
+// extraTerms is a JSON object fragment of additional term mappings (without
+// surrounding braces) to include — used by types that have reference properties
+// needing explicit predicate IRIs.
+func mpTypeContext(typeName, extraTerms string) json.RawMessage {
+	terms := `"@vocab":"https://schema.org/",` +
+		`"mp":"https://weos.org/vocab/meal-planning#",` +
+		`"mealType":"mp:mealType",` +
+		`"servings":"mp:servings",` +
+		`"@type":"mp:` + typeName + `"`
+	if extraTerms != "" {
+		terms += "," + extraTerms
+	}
+	return json.RawMessage("{" + terms + "}")
 }
 
 // -- type constructors -------------------------------------------------------
@@ -79,7 +84,11 @@ func recipeType() application.PresetResourceType {
 		Context: json.RawMessage(`{
 	"@vocab":"https://schema.org/","@type":"Recipe",
 	"mp":"https://weos.org/vocab/meal-planning#",
-	"fo":"http://purl.org/foodontology#"
+	"fo":"http://purl.org/foodontology#",
+	"recipeInstructions":"https://schema.org/recipeInstructions",
+	"recipeIngredient":"fo:hasIngredient",
+	"nutrition":"https://schema.org/nutrition",
+	"suitableForDiet":"https://schema.org/suitableForDiet"
 }`),
 		Schema: json.RawMessage(`{
 	"type":"object",
@@ -117,7 +126,11 @@ func howToStepType() application.PresetResourceType {
 		Name:        "How-To Step",
 		Slug:        "how-to-step",
 		Description: "A single step in a recipe's instructions",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","@type":"HowToStep"}`),
+		Context: json.RawMessage(`{
+	"@vocab":"https://schema.org/","@type":"HowToStep",
+	"mp":"https://weos.org/vocab/meal-planning#",
+	"recipe":"https://schema.org/isPartOf"
+}`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -174,7 +187,9 @@ func recipeIngredientType() application.PresetResourceType {
 		Name:        "Recipe Ingredient",
 		Slug:        "recipe-ingredient",
 		Description: "A reified relation linking a recipe to an ingredient with quantity and preparation",
-		Context:     mpTypeContext("RecipeIngredient"),
+		Context: mpTypeContext("RecipeIngredient",
+			`"recipe":"mp:recipe","ingredient":"fo:ingredient",`+
+				`"fo":"http://purl.org/foodontology#"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -195,7 +210,11 @@ func nutritionInformationType() application.PresetResourceType {
 		Name:        "Nutrition Information",
 		Slug:        "nutrition-information",
 		Description: "Nutritional data for a recipe or ingredient",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","@type":"NutritionInformation"}`),
+		Context: json.RawMessage(`{
+	"@vocab":"https://schema.org/","@type":"NutritionInformation",
+	"recipe":"https://schema.org/isPartOf",
+	"ingredient":"https://schema.org/about"
+}`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -221,7 +240,8 @@ func cookbookType() application.PresetResourceType {
 		Name:        "Cookbook",
 		Slug:        "cookbook",
 		Description: "A named collection of recipes",
-		Context:     mpTypeContext("Cookbook"),
+		Context: mpTypeContext("Cookbook",
+			`"recipes":"https://schema.org/hasPart"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -241,7 +261,7 @@ func mealPlanType() application.PresetResourceType {
 		Name:        "Meal Plan",
 		Slug:        "meal-plan",
 		Description: "A weekly or custom-period meal plan",
-		Context:     mpTypeContext("MealPlan"),
+		Context: mpTypeContext("MealPlan", ""),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -263,7 +283,8 @@ func scheduledMealType() application.PresetResourceType {
 		Name:        "Scheduled Meal",
 		Slug:        "scheduled-meal",
 		Description: "A scheduled (possibly recurring) meal within a meal plan",
-		Context:     mpTypeContext("ScheduledMeal"),
+		Context: mpTypeContext("ScheduledMeal",
+			`"recipe":"mp:recipe","mealPlan":"mp:mealPlan"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -297,7 +318,8 @@ func mealOccurrenceType() application.PresetResourceType {
 		Name:        "Meal Occurrence",
 		Slug:        "meal-occurrence",
 		Description: "A concrete single-date instance of a scheduled meal",
-		Context:     mpTypeContext("MealOccurrence"),
+		Context: mpTypeContext("MealOccurrence",
+			`"scheduledMeal":"mp:occurrenceOf"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -319,7 +341,7 @@ func pantryType() application.PresetResourceType {
 		Name:        "Pantry",
 		Slug:        "pantry",
 		Description: "A named storage context for food items (e.g. Home, Beach House)",
-		Context:     mpTypeContext("Pantry"),
+		Context: mpTypeContext("Pantry", ""),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -338,7 +360,8 @@ func foodItemType() application.PresetResourceType {
 		Name:        "Food Item",
 		Slug:        "food-item",
 		Description: "A physical food item in a pantry (instance of an ingredient)",
-		Context:     mpTypeContext("FoodItem"),
+		Context: mpTypeContext("FoodItem",
+			`"ingredient":"mp:isInstanceOf","pantry":"mp:pantry"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -361,7 +384,9 @@ func shoppingListType() application.PresetResourceType {
 		Name:        "Shopping List",
 		Slug:        "shopping-list",
 		Description: "A grocery shopping list, optionally derived from a meal plan",
-		Context:     mpTypeContext("ShoppingList"),
+		Context: mpTypeContext("ShoppingList",
+			`"mealPlan":"http://www.w3.org/ns/prov#wasDerivedFrom",`+
+				`"pantry":"mp:targetsPantry"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -381,7 +406,8 @@ func shoppingListItemType() application.PresetResourceType {
 		Name:        "Shopping List Item",
 		Slug:        "shopping-list-item",
 		Description: "A line item on a shopping list",
-		Context:     mpTypeContext("ShoppingListItem"),
+		Context: mpTypeContext("ShoppingListItem",
+			`"ingredient":"mp:ingredient","shoppingList":"mp:hasItem"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
