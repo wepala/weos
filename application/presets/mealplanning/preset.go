@@ -58,20 +58,14 @@ func Register(registry *application.PresetRegistry) {
 
 // -- contexts ----------------------------------------------------------------
 
-const mpContext = `{
-	"@vocab":"https://schema.org/",
-	"mp":"https://weos.org/vocab/meal-planning#",
-	"fo":"http://purl.org/foodontology#",
-	"skos":"http://www.w3.org/2004/02/skos/core#"
-}`
-
-const ingredientContext = `{
-	"@vocab":"https://schema.org/",
-	"@type":"fo:Food",
-	"fo":"http://purl.org/foodontology#",
-	"skos":"http://www.w3.org/2004/02/skos/core#",
-	"mp":"https://weos.org/vocab/meal-planning#"
-}`
+// mpTypeContext returns a JSON-LD context for a meal-planning type (mp:<typeName>).
+// Most resource types in this preset share this pattern.
+func mpTypeContext(typeName string) json.RawMessage {
+	return json.RawMessage(
+		`{"@vocab":"https://schema.org/",` +
+			`"mp":"https://weos.org/vocab/meal-planning#",` +
+			`"@type":"mp:` + typeName + `"}`)
+}
 
 // -- type constructors -------------------------------------------------------
 
@@ -80,7 +74,11 @@ func recipeType() application.PresetResourceType {
 		Name:        "Recipe",
 		Slug:        "recipe",
 		Description: "A food recipe with ingredients, steps, and nutritional information",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Recipe","mp":"https://weos.org/vocab/meal-planning#","fo":"http://purl.org/foodontology#"}`),
+		Context: json.RawMessage(`{
+	"@vocab":"https://schema.org/","@type":"Recipe",
+	"mp":"https://weos.org/vocab/meal-planning#",
+	"fo":"http://purl.org/foodontology#"
+}`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -93,7 +91,9 @@ func recipeType() application.PresetResourceType {
 		"recipeCuisine":{"type":"string"},
 		"recipeCategory":{"type":"string"},
 		"keywords":{"type":"array","items":{"type":"string"}},
-		"suitableForDiet":{"type":"array","items":{"type":"string","x-resource-type":"restricted-diet","x-display-property":"name"}},
+		"suitableForDiet":{"type":"array","items":{
+			"type":"string","x-resource-type":"restricted-diet",
+			"x-display-property":"name"}},
 		"image":{"type":"string","format":"uri"}
 	},
 	"required":["name"]
@@ -112,7 +112,8 @@ func howToStepType() application.PresetResourceType {
 	"properties":{
 		"position":{"type":"integer"},
 		"text":{"type":"string"},
-		"image":{"type":"string","format":"uri"}
+		"image":{"type":"string","format":"uri"},
+		"recipe":{"type":"string","x-resource-type":"recipe","x-display-property":"name"}
 	},
 	"required":["text"]
 }`),
@@ -124,16 +125,26 @@ func ingredientType() application.PresetResourceType {
 		Name:        "Ingredient",
 		Slug:        "ingredient",
 		Description: "A type-level food ingredient (e.g. garlic, chicken breast)",
-		Context:     json.RawMessage(ingredientContext),
+		Context: json.RawMessage(`{
+	"@vocab":"https://schema.org/",
+	"@type":"fo:Food",
+	"fo":"http://purl.org/foodontology#",
+	"skos":"http://www.w3.org/2004/02/skos/core#",
+	"mp":"https://weos.org/vocab/meal-planning#"
+}`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
 		"name":{"type":"string"},
 		"description":{"type":"string"},
 		"alternateNames":{"type":"array","items":{"type":"string"}},
-		"shoppingCategory":{"type":"string","enum":["produce","meat","seafood","dairy","bakery","pantry","frozen","beverages","condiments","spices","other"]},
+		"shoppingCategory":{"type":"string","enum":[
+			"produce","meat","seafood","dairy","bakery","pantry",
+			"frozen","beverages","condiments","spices","other"]},
 		"season":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},
-		"suitableForDiet":{"type":"array","items":{"type":"string","x-resource-type":"restricted-diet","x-display-property":"name"}},
+		"suitableForDiet":{"type":"array","items":{
+			"type":"string","x-resource-type":"restricted-diet",
+			"x-display-property":"name"}},
 		"defaultUnit":{"type":"string"},
 		"image":{"type":"string","format":"uri"}
 	},
@@ -148,7 +159,7 @@ func recipeIngredientType() application.PresetResourceType {
 		Name:        "Recipe Ingredient",
 		Slug:        "recipe-ingredient",
 		Description: "A reified relation linking a recipe to an ingredient with quantity and preparation",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#","@type":"mp:RecipeIngredient"}`),
+		Context:     mpTypeContext("RecipeIngredient"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -181,7 +192,9 @@ func nutritionInformationType() application.PresetResourceType {
 		"saturatedFatContent":{"type":"string"},
 		"fiberContent":{"type":"string"},
 		"sugarContent":{"type":"string"},
-		"sodiumContent":{"type":"string"}
+		"sodiumContent":{"type":"string"},
+		"recipe":{"type":"string","x-resource-type":"recipe","x-display-property":"name"},
+		"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"}
 	},
 	"required":["servingSize"]
 }`),
@@ -193,14 +206,15 @@ func cookbookType() application.PresetResourceType {
 		Name:        "Cookbook",
 		Slug:        "cookbook",
 		Description: "A named collection of recipes",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#","@type":"mp:Cookbook"}`),
+		Context:     mpTypeContext("Cookbook"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
 		"name":{"type":"string"},
 		"description":{"type":"string"},
 		"image":{"type":"string","format":"uri"},
-		"keywords":{"type":"array","items":{"type":"string"}}
+		"keywords":{"type":"array","items":{"type":"string"}},
+		"recipes":{"type":"array","items":{"type":"string","x-resource-type":"recipe","x-display-property":"name"}}
 	},
 	"required":["name"]
 }`),
@@ -212,7 +226,7 @@ func mealPlanType() application.PresetResourceType {
 		Name:        "Meal Plan",
 		Slug:        "meal-plan",
 		Description: "A weekly or custom-period meal plan",
-		Context:     json.RawMessage(mpContext),
+		Context:     mpTypeContext("MealPlan"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -220,7 +234,9 @@ func mealPlanType() application.PresetResourceType {
 		"description":{"type":"string"},
 		"startDate":{"type":"string","format":"date"},
 		"endDate":{"type":"string","format":"date"},
-		"suitableForDiet":{"type":"array","items":{"type":"string","x-resource-type":"restricted-diet","x-display-property":"name"}}
+		"suitableForDiet":{"type":"array","items":{
+			"type":"string","x-resource-type":"restricted-diet",
+			"x-display-property":"name"}}
 	},
 	"required":["name","startDate","endDate"]
 }`),
@@ -232,7 +248,7 @@ func scheduledMealType() application.PresetResourceType {
 		Name:        "Scheduled Meal",
 		Slug:        "scheduled-meal",
 		Description: "A scheduled (possibly recurring) meal within a meal plan",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#","@type":"mp:ScheduledMeal"}`),
+		Context:     mpTypeContext("ScheduledMeal"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -243,7 +259,9 @@ func scheduledMealType() application.PresetResourceType {
 		"duration":{"type":"string","description":"ISO 8601 duration"},
 		"repeatFrequency":{"type":"string","description":"ISO 8601 duration, e.g. P1W for weekly"},
 		"repeatCount":{"type":"integer"},
-		"byDay":{"type":"array","items":{"type":"string","enum":["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]}},
+		"byDay":{"type":"array","items":{"type":"string","enum":[
+			"Monday","Tuesday","Wednesday","Thursday",
+			"Friday","Saturday","Sunday"]}},
 		"byMonth":{"type":"array","items":{"type":"integer","minimum":1,"maximum":12}},
 		"byMonthDay":{"type":"array","items":{"type":"integer","minimum":1,"maximum":31}},
 		"exceptDate":{"type":"array","items":{"type":"string","format":"date"}},
@@ -264,7 +282,7 @@ func mealOccurrenceType() application.PresetResourceType {
 		Name:        "Meal Occurrence",
 		Slug:        "meal-occurrence",
 		Description: "A concrete single-date instance of a scheduled meal",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#","@type":"mp:MealOccurrence"}`),
+		Context:     mpTypeContext("MealOccurrence"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -286,7 +304,7 @@ func pantryType() application.PresetResourceType {
 		Name:        "Pantry",
 		Slug:        "pantry",
 		Description: "A named storage context for food items (e.g. Home, Beach House)",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#","@type":"mp:Pantry"}`),
+		Context:     mpTypeContext("Pantry"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -305,7 +323,7 @@ func foodItemType() application.PresetResourceType {
 		Name:        "Food Item",
 		Slug:        "food-item",
 		Description: "A physical food item in a pantry (instance of an ingredient)",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#","@type":"mp:FoodItem"}`),
+		Context:     mpTypeContext("FoodItem"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -328,7 +346,7 @@ func shoppingListType() application.PresetResourceType {
 		Name:        "Shopping List",
 		Slug:        "shopping-list",
 		Description: "A grocery shopping list, optionally derived from a meal plan",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#","@type":"mp:ShoppingList"}`),
+		Context:     mpTypeContext("ShoppingList"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -347,7 +365,7 @@ func shoppingListItemType() application.PresetResourceType {
 		Name:        "Shopping List Item",
 		Slug:        "shopping-list-item",
 		Description: "A line item on a shopping list",
-		Context:     json.RawMessage(`{"@vocab":"https://schema.org/","mp":"https://weos.org/vocab/meal-planning#","@type":"mp:ShoppingListItem"}`),
+		Context:     mpTypeContext("ShoppingListItem"),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
