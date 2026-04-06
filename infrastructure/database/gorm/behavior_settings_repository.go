@@ -49,13 +49,12 @@ func (r *BehaviorSettingsRepository) GetByAccountAndType(
 		return nil, err
 	}
 	var slugs []string
-	if row.EnabledBehaviors != "" {
-		if err := json.Unmarshal([]byte(row.EnabledBehaviors), &slugs); err != nil {
-			return nil, fmt.Errorf(
-				"corrupt behavior settings for account %q type %q: %w",
-				accountID, typeSlug, err)
-		}
+	if err := json.Unmarshal([]byte(row.EnabledBehaviors), &slugs); err != nil {
+		return nil, fmt.Errorf(
+			"corrupt behavior settings for account %q type %q: %w",
+			accountID, typeSlug, err)
 	}
+	// Row exists — return the parsed list (may be empty, meaning all disabled).
 	return slugs, nil
 }
 

@@ -23,7 +23,7 @@ type BehaviorSettings struct {
 	ID               uint   `gorm:"primaryKey;autoIncrement"`
 	AccountID        string `gorm:"type:varchar(255);not null;uniqueIndex:idx_behavior_acct_type"`
 	TypeSlug         string `gorm:"type:varchar(255);not null;uniqueIndex:idx_behavior_acct_type"`
-	EnabledBehaviors string `gorm:"type:text"` // JSON array of behavior slugs
+	EnabledBehaviors string `gorm:"type:text;not null;default:'[]'"` // JSON array of behavior slugs
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
