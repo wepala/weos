@@ -39,8 +39,16 @@ const (
 // When JWTSigningKey is empty or "auto", an ephemeral RSA key is generated
 // (tokens become invalid across restarts — suitable for development only).
 // For production, provide a PEM-encoded RSA private key.
+//
+// When OAuth is not enabled, this returns a service with an ephemeral key
+// regardless of the JWT_SIGNING_KEY value, so a malformed key in an
+// OAuth-disabled deployment doesn't prevent server startup.
 func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
-	key, err := loadOrGenerateKey(cfg.OAuth.JWTSigningKey)
+	keyConfig := cfg.OAuth.JWTSigningKey
+	if !cfg.OAuthEnabled() {
+		keyConfig = "auto"
+	}
+	key, err := loadOrGenerateKey(keyConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load JWT signing key: %w", err)
 	}

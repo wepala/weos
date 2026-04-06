@@ -16,6 +16,7 @@
 package oauth
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -92,8 +93,15 @@ func handleAuthCodeGrant(
 
 	authCode, err := codeRepo.FindByCode(ctx, code)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
-			Error: "invalid_grant",
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+				Error: "invalid_grant",
+			})
+		}
+		logger.Error(ctx, "oauth token: code lookup failed",
+			"code", code, "error", err)
+		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+			Error: "server_error",
 		})
 	}
 	if authCode.Status != StatusIssued {
@@ -127,15 +135,6 @@ func handleAuthCodeGrant(
 	if challenge != authCode.CodeChallenge {
 		logger.Warn(ctx, "oauth token: PKCE verification failed",
 			"client", authCode.ClientID)
-		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
-			Error: "invalid_grant",
-		})
-	}
-
-	// Mark code as exchanged (atomic — prevents replay).
-	if err := codeRepo.MarkExchanged(ctx, code); err != nil {
-		logger.Error(ctx, "oauth token: mark exchanged failed",
-			"code", code, "error", err)
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
 			Error: "invalid_grant",
 		})
@@ -187,6 +186,18 @@ func handleAuthCodeGrant(
 		})
 	}
 
+	// Mark code as exchanged only after all downstream steps succeed,
+	// so a transient failure doesn't permanently burn the code.
+	// MarkExchanged is atomic (WHERE status = 'issued') so concurrent
+	// requests still get rejected.
+	if err := codeRepo.MarkExchanged(ctx, code); err != nil {
+		logger.Error(ctx, "oauth token: mark exchanged failed",
+			"code", code, "error", err)
+		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+			Error: "invalid_grant",
+		})
+	}
+
 	logger.Info(ctx, "oauth access token issued",
 		"agent", agent.GetID(), "client", authCode.ClientID)
 
@@ -220,8 +231,14 @@ func handleRefreshGrant(
 	tokenHash := HashToken(rawToken)
 	stored, err := refreshRepo.FindByTokenHash(ctx, tokenHash)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
-			Error: "invalid_grant",
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+				Error: "invalid_grant",
+			})
+		}
+		logger.Error(ctx, "oauth refresh: token lookup failed", "error", err)
+		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+			Error: "server_error",
 		})
 	}
 	if stored.Revoked || time.Now().After(stored.ExpiresAt) {

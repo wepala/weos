@@ -38,7 +38,8 @@ func BearerOrSession(
 	sessionAuth func(http.Handler) http.Handler,
 	baseURL string,
 ) echo.MiddlewareFunc {
-	wwwAuth := `Bearer resource_metadata="` + baseURL +
+	normalizedBaseURL := strings.TrimRight(baseURL, "/")
+	wwwAuth := `Bearer resource_metadata="` + normalizedBaseURL +
 		`/.well-known/oauth-protected-resource"`
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {

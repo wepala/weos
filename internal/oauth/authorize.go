@@ -62,10 +62,10 @@ func Authorize(
 				map[string]string{"error": "invalid_request",
 					"error_description": "client_id, redirect_uri, and code_challenge are required"})
 		}
-		if codeChallengeMethod != "" && codeChallengeMethod != "S256" {
+		if codeChallengeMethod != "S256" {
 			return c.JSON(http.StatusBadRequest,
 				map[string]string{"error": "invalid_request",
-					"error_description": "only S256 code_challenge_method is supported"})
+					"error_description": "code_challenge_method must be S256"})
 		}
 
 		// Validate client exists and redirect_uri is registered.

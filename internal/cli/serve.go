@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -174,7 +175,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
 
 	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth.
-	baseURL := appCfg.OAuth.BaseURL
+	baseURL := strings.TrimRight(appCfg.OAuth.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = fmt.Sprintf("http://%s:%d", appCfg.Server.Host, appCfg.Server.Port)
 	}
