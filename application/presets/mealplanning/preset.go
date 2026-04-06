@@ -64,6 +64,8 @@ func mpTypeContext(typeName string) json.RawMessage {
 	return json.RawMessage(
 		`{"@vocab":"https://schema.org/",` +
 			`"mp":"https://weos.org/vocab/meal-planning#",` +
+			`"mealType":"mp:mealType",` +
+			`"servings":"mp:servings",` +
 			`"@type":"mp:` + typeName + `"}`)
 }
 
@@ -130,7 +132,11 @@ func ingredientType() application.PresetResourceType {
 	"@type":"fo:Food",
 	"fo":"http://purl.org/foodontology#",
 	"skos":"http://www.w3.org/2004/02/skos/core#",
-	"mp":"https://weos.org/vocab/meal-planning#"
+	"mp":"https://weos.org/vocab/meal-planning#",
+	"alternateNames":"skos:altLabel",
+	"shoppingCategory":"fo:ShoppingCategory",
+	"season":"fo:at_its_best",
+	"defaultUnit":"mp:defaultUnit"
 }`),
 		Schema: json.RawMessage(`{
 	"type":"object",
@@ -170,7 +176,7 @@ func recipeIngredientType() application.PresetResourceType {
 		"recipe":{"type":"string","x-resource-type":"recipe","x-display-property":"name"},
 		"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"}
 	},
-	"required":["quantity","unit"]
+	"required":["quantity","unit","recipe","ingredient"]
 }`),
 	}
 }
@@ -272,7 +278,7 @@ func scheduledMealType() application.PresetResourceType {
 		"recipe":{"type":"string","x-resource-type":"recipe","x-display-property":"name"},
 		"mealPlan":{"type":"string","x-resource-type":"meal-plan","x-display-property":"name"}
 	},
-	"required":["startDate","mealType"]
+	"required":["startDate","mealType","recipe","mealPlan"]
 }`),
 	}
 }
@@ -294,7 +300,7 @@ func mealOccurrenceType() application.PresetResourceType {
 		"notes":{"type":"string"},
 		"scheduledMeal":{"type":"string","x-resource-type":"scheduled-meal","x-display-property":"mealType"}
 	},
-	"required":["date","mealType","status"]
+	"required":["date","mealType","status","scheduledMeal"]
 }`),
 	}
 }
@@ -336,7 +342,7 @@ func foodItemType() application.PresetResourceType {
 		"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"},
 		"pantry":{"type":"string","x-resource-type":"pantry","x-display-property":"name"}
 	},
-	"required":["quantity","unit"]
+	"required":["quantity","unit","ingredient","pantry"]
 }`),
 	}
 }
@@ -376,7 +382,7 @@ func shoppingListItemType() application.PresetResourceType {
 		"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"},
 		"shoppingList":{"type":"string","x-resource-type":"shopping-list","x-display-property":"name"}
 	},
-	"required":["quantity","unit"]
+	"required":["quantity","unit","ingredient","shoppingList"]
 }`),
 	}
 }
