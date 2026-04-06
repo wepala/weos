@@ -38,15 +38,17 @@ type ResourceService interface {
 }
 
 type resourceService struct {
-	repo        repositories.ResourceRepository
-	typeRepo    repositories.ResourceTypeRepository
-	tripleRepo  repositories.TripleRepository
-	permRepo    repositories.ResourcePermissionRepository
-	accountRepo authrepos.AccountRepository
-	eventStore  domain.EventStore
-	dispatcher  *domain.EventDispatcher
-	logger      entities.Logger
-	behaviors   ResourceBehaviorRegistry
+	repo             repositories.ResourceRepository
+	typeRepo         repositories.ResourceTypeRepository
+	tripleRepo       repositories.TripleRepository
+	permRepo         repositories.ResourcePermissionRepository
+	accountRepo      authrepos.AccountRepository
+	eventStore       domain.EventStore
+	dispatcher       *domain.EventDispatcher
+	logger           entities.Logger
+	behaviors        ResourceBehaviorRegistry
+	behaviorMeta     BehaviorMetaRegistry
+	behaviorSettings repositories.BehaviorSettingsRepository
 }
 
 func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.ResourceType) entities.ResourceBehavior {
@@ -54,13 +56,17 @@ func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.Resource
 		return entities.DefaultBehavior{}
 	}
 
+	enabledSet := s.resolveEnabledBehaviors(ctx, rt.Slug())
+
 	var chain []entities.ResourceBehavior
 	visited := map[string]bool{rt.Slug(): true}
 	current := rt
 
 	for current != nil {
 		if b, ok := s.behaviors[current.Slug()]; ok {
-			chain = append(chain, b)
+			if s.isBehaviorEnabled(current.Slug(), enabledSet) {
+				chain = append(chain, b)
+			}
 		}
 		parentSlug := jsonld.SubClassOf(current.Context())
 		if parentSlug == "" || visited[parentSlug] {
@@ -86,28 +92,79 @@ func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.Resource
 	}
 }
 
+// resolveEnabledBehaviors returns the set of enabled behavior slugs for the
+// given resource type in the caller's account context. Returns nil when no
+// account override exists (use preset defaults).
+func (s *resourceService) resolveEnabledBehaviors(ctx context.Context, typeSlug string) map[string]bool {
+	accountID := ""
+	if ident := auth.AgentFromCtx(ctx); ident != nil {
+		accountID = ident.ActiveAccountID
+	}
+	if accountID == "" {
+		return nil // no account context — use defaults
+	}
+	if s.behaviorSettings == nil {
+		return nil // no settings repo configured — use defaults
+	}
+
+	slugs, err := s.behaviorSettings.GetByAccountAndType(ctx, accountID, typeSlug)
+	if err != nil {
+		s.logger.Error(ctx, "failed to load behavior settings, using defaults",
+			"account", accountID, "type", typeSlug, "error", err)
+		return nil
+	}
+	if slugs == nil {
+		return nil // no override — use defaults
+	}
+
+	set := make(map[string]bool, len(slugs))
+	for _, slug := range slugs {
+		set[slug] = true
+	}
+	return set
+}
+
+// isBehaviorEnabled checks whether a behavior slug should be active.
+// When enabledSet is nil (no account override), falls back to preset defaults.
+// When no metadata exists for the slug, the behavior fires (backward compat).
+func (s *resourceService) isBehaviorEnabled(slug string, enabledSet map[string]bool) bool {
+	if enabledSet != nil {
+		return enabledSet[slug]
+	}
+	// No account override — use preset default.
+	meta, ok := s.behaviorMeta[slug]
+	if !ok {
+		return true // no metadata — legacy behavior, always fire
+	}
+	return meta.Default
+}
+
 func ProvideResourceService(params struct {
 	fx.In
-	Repo        repositories.ResourceRepository
-	TypeRepo    repositories.ResourceTypeRepository
-	TripleRepo  repositories.TripleRepository
-	PermRepo    repositories.ResourcePermissionRepository
-	AccountRepo authrepos.AccountRepository
-	EventStore  domain.EventStore
-	Dispatcher  *domain.EventDispatcher
-	Logger      entities.Logger
-	Behaviors   ResourceBehaviorRegistry
+	Repo             repositories.ResourceRepository
+	TypeRepo         repositories.ResourceTypeRepository
+	TripleRepo       repositories.TripleRepository
+	PermRepo         repositories.ResourcePermissionRepository
+	AccountRepo      authrepos.AccountRepository
+	EventStore       domain.EventStore
+	Dispatcher       *domain.EventDispatcher
+	Logger           entities.Logger
+	Behaviors        ResourceBehaviorRegistry
+	BehaviorMeta     BehaviorMetaRegistry
+	BehaviorSettings repositories.BehaviorSettingsRepository
 }) ResourceService {
 	return &resourceService{
-		repo:        params.Repo,
-		typeRepo:    params.TypeRepo,
-		tripleRepo:  params.TripleRepo,
-		permRepo:    params.PermRepo,
-		accountRepo: params.AccountRepo,
-		eventStore:  params.EventStore,
-		dispatcher:  params.Dispatcher,
-		logger:      params.Logger,
-		behaviors:   params.Behaviors,
+		repo:             params.Repo,
+		typeRepo:         params.TypeRepo,
+		tripleRepo:       params.TripleRepo,
+		permRepo:         params.PermRepo,
+		accountRepo:      params.AccountRepo,
+		eventStore:       params.EventStore,
+		dispatcher:       params.Dispatcher,
+		logger:           params.Logger,
+		behaviors:        params.Behaviors,
+		behaviorMeta:     params.BehaviorMeta,
+		behaviorSettings: params.BehaviorSettings,
 	}
 }
 

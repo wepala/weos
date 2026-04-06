@@ -55,13 +55,46 @@ func NewResourceServiceForTest(
 		behaviors = make(ResourceBehaviorRegistry)
 	}
 	return &resourceService{
-		repo:       repo,
-		typeRepo:   typeRepo,
-		tripleRepo: tripleRepo,
-		eventStore: eventStore,
-		dispatcher: dispatcher,
-		logger:     logger,
-		behaviors:  behaviors,
+		repo:         repo,
+		typeRepo:     typeRepo,
+		tripleRepo:   tripleRepo,
+		eventStore:   eventStore,
+		dispatcher:   dispatcher,
+		logger:       logger,
+		behaviors:    behaviors,
+		behaviorMeta: make(BehaviorMetaRegistry),
+	}
+}
+
+// NewResourceServiceForTestWithSettings creates a ResourceService with
+// behavior settings support for tests that need account-scoped behavior config.
+func NewResourceServiceForTestWithSettings(
+	repo repositories.ResourceRepository,
+	typeRepo repositories.ResourceTypeRepository,
+	tripleRepo repositories.TripleRepository,
+	eventStore domain.EventStore,
+	dispatcher *domain.EventDispatcher,
+	logger entities.Logger,
+	behaviors ResourceBehaviorRegistry,
+	behaviorMeta BehaviorMetaRegistry,
+	behaviorSettings repositories.BehaviorSettingsRepository,
+) ResourceService {
+	if behaviors == nil {
+		behaviors = make(ResourceBehaviorRegistry)
+	}
+	if behaviorMeta == nil {
+		behaviorMeta = make(BehaviorMetaRegistry)
+	}
+	return &resourceService{
+		repo:             repo,
+		typeRepo:         typeRepo,
+		tripleRepo:       tripleRepo,
+		eventStore:       eventStore,
+		dispatcher:       dispatcher,
+		logger:           logger,
+		behaviors:        behaviors,
+		behaviorMeta:     behaviorMeta,
+		behaviorSettings: behaviorSettings,
 	}
 }
 

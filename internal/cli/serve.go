@@ -201,6 +201,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	presetHandler := handlers.NewResourceTypePresetHandler(resourceTypeService)
 	protected.GET("/resource-types/presets", presetHandler.List)
 	protected.POST("/resource-types/presets/:name", presetHandler.Install)
+	protected.GET("/resource-types/:slug/behaviors", presetHandler.ListBehaviors)
+	protected.PUT("/resource-types/:slug/behaviors", presetHandler.SetBehaviors)
 
 	screenHandler := handlers.NewPresetScreenHandler(registry)
 	protected.GET("/resource-types/presets/:name/screens/*", screenHandler.Serve)

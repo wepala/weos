@@ -65,3 +65,33 @@ func (h *ResourceTypePresetHandler) Install(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, result)
 }
+
+func (h *ResourceTypePresetHandler) ListBehaviors(c echo.Context) error {
+	typeSlug := c.Param("slug")
+	behaviors, err := h.service.ListBehaviors(c.Request().Context(), typeSlug)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": "failed to list behaviors"})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"data": behaviors})
+}
+
+func (h *ResourceTypePresetHandler) SetBehaviors(c echo.Context) error {
+	typeSlug := c.Param("slug")
+	var body struct {
+		Slugs *[]string `json:"slugs"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "invalid request body"})
+	}
+	if body.Slugs == nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "slugs field is required"})
+	}
+	if err := h.service.SetBehaviors(c.Request().Context(), typeSlug, *body.Slugs); err != nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]bool{"success": true})
+}

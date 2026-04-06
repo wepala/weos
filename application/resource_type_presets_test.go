@@ -23,6 +23,7 @@ import (
 
 	"weos/application"
 	"weos/application/presets"
+	"weos/domain/entities"
 )
 
 func testRegistry() *application.PresetRegistry {
@@ -370,5 +371,69 @@ func TestScreenManifest_WithSubFS(t *testing.T) {
 	}
 	if len(manifest["widget"]) != 1 {
 		t.Fatalf("expected 1 widget screen, got %v", manifest)
+	}
+}
+
+func TestPresets_CoreHasBehaviorMeta(t *testing.T) {
+	t.Parallel()
+	d, ok := testRegistry().Get("core")
+	if !ok {
+		t.Fatal("expected to find 'core' preset")
+	}
+	if d.BehaviorMeta == nil {
+		t.Fatal("core preset should have BehaviorMeta")
+	}
+	pm, ok := d.BehaviorMeta["person"]
+	if !ok {
+		t.Fatal("core preset should have 'person' behavior metadata")
+	}
+	if pm.Slug != "person" {
+		t.Fatalf("expected slug 'person', got %q", pm.Slug)
+	}
+	if pm.DisplayName == "" {
+		t.Fatal("person behavior meta should have a display name")
+	}
+	if !pm.Default {
+		t.Fatal("person behavior should be default-enabled")
+	}
+	if pm.Manageable {
+		t.Fatal("person behavior should not be user-manageable")
+	}
+}
+
+func TestPresets_BehaviorsMetaRegistry(t *testing.T) {
+	t.Parallel()
+	meta := testRegistry().BehaviorsMeta()
+	if _, ok := meta["person"]; !ok {
+		t.Fatal("merged behavior meta should include 'person'")
+	}
+	if _, ok := meta["organization"]; !ok {
+		t.Fatal("merged behavior meta should include 'organization'")
+	}
+}
+
+func TestPresets_BehaviorMetaClone(t *testing.T) {
+	t.Parallel()
+	d, ok := testRegistry().Get("core")
+	if !ok {
+		t.Fatal("expected to find 'core' preset")
+	}
+	// Mutating the clone should not affect the registry.
+	d.BehaviorMeta["person"] = entities.BehaviorMeta{Slug: "mutated"}
+	d2, _ := testRegistry().Get("core")
+	if d2.BehaviorMeta["person"].Slug == "mutated" {
+		t.Fatal("clone mutation leaked into registry")
+	}
+}
+
+func TestPresets_BehaviorMetaKeysMatchBehaviors(t *testing.T) {
+	t.Parallel()
+	for _, d := range testRegistry().List() {
+		for slug := range d.BehaviorMeta {
+			if _, ok := d.Behaviors[slug]; !ok {
+				t.Fatalf("preset %q has BehaviorMeta for %q but no matching Behaviors entry",
+					d.Name, slug)
+			}
+		}
 	}
 }
