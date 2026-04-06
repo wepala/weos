@@ -96,6 +96,15 @@ func recipeType() application.PresetResourceType {
 		"suitableForDiet":{"type":"array","items":{
 			"type":"string","x-resource-type":"restricted-diet",
 			"x-display-property":"name"}},
+		"recipeInstructions":{"type":"array","items":{
+			"type":"string","x-resource-type":"how-to-step",
+			"x-display-property":"text"}},
+		"recipeIngredient":{"type":"array","items":{
+			"type":"string","x-resource-type":"recipe-ingredient",
+			"x-display-property":"unit"}},
+		"nutrition":{"type":"string",
+			"x-resource-type":"nutrition-information",
+			"x-display-property":"servingSize"},
 		"image":{"type":"string","format":"uri"}
 	},
 	"required":["name"]
@@ -117,7 +126,7 @@ func howToStepType() application.PresetResourceType {
 		"image":{"type":"string","format":"uri"},
 		"recipe":{"type":"string","x-resource-type":"recipe","x-display-property":"name"}
 	},
-	"required":["text"]
+	"required":["position","text","recipe"]
 }`),
 	}
 }
@@ -357,6 +366,7 @@ func shoppingListType() application.PresetResourceType {
 	"type":"object",
 	"properties":{
 		"name":{"type":"string"},
+		"createdAt":{"type":"string","format":"date-time"},
 		"status":{"type":"string","enum":["draft","active","completed"]},
 		"mealPlan":{"type":"string","x-resource-type":"meal-plan","x-display-property":"name"},
 		"pantry":{"type":"string","x-resource-type":"pantry","x-display-property":"name"}
@@ -410,17 +420,17 @@ func restrictedDietType() application.PresetResourceType {
 
 func restrictedDietFixtures() []json.RawMessage {
 	return []json.RawMessage{
-		json.RawMessage(`{"name":"Diabetic Diet","identifier":"schema:DiabeticDiet"}`),
-		json.RawMessage(`{"name":"Gluten-Free Diet","identifier":"schema:GlutenFreeDiet"}`),
-		json.RawMessage(`{"name":"Halal Diet","identifier":"schema:HalalDiet"}`),
-		json.RawMessage(`{"name":"Hindu Diet","identifier":"schema:HinduDiet"}`),
-		json.RawMessage(`{"name":"Kosher Diet","identifier":"schema:KosherDiet"}`),
-		json.RawMessage(`{"name":"Low Calorie Diet","identifier":"schema:LowCalorieDiet"}`),
-		json.RawMessage(`{"name":"Low Fat Diet","identifier":"schema:LowFatDiet"}`),
-		json.RawMessage(`{"name":"Low Lactose Diet","identifier":"schema:LowLactoseDiet"}`),
-		json.RawMessage(`{"name":"Low Salt Diet","identifier":"schema:LowSaltDiet"}`),
-		json.RawMessage(`{"name":"Vegan Diet","identifier":"schema:VeganDiet"}`),
-		json.RawMessage(`{"name":"Vegetarian Diet","identifier":"schema:VegetarianDiet"}`),
+		json.RawMessage(`{"name":"Diabetic Diet","identifier":"https://schema.org/DiabeticDiet"}`),
+		json.RawMessage(`{"name":"Gluten-Free Diet","identifier":"https://schema.org/GlutenFreeDiet"}`),
+		json.RawMessage(`{"name":"Halal Diet","identifier":"https://schema.org/HalalDiet"}`),
+		json.RawMessage(`{"name":"Hindu Diet","identifier":"https://schema.org/HinduDiet"}`),
+		json.RawMessage(`{"name":"Kosher Diet","identifier":"https://schema.org/KosherDiet"}`),
+		json.RawMessage(`{"name":"Low Calorie Diet","identifier":"https://schema.org/LowCalorieDiet"}`),
+		json.RawMessage(`{"name":"Low Fat Diet","identifier":"https://schema.org/LowFatDiet"}`),
+		json.RawMessage(`{"name":"Low Lactose Diet","identifier":"https://schema.org/LowLactoseDiet"}`),
+		json.RawMessage(`{"name":"Low Salt Diet","identifier":"https://schema.org/LowSaltDiet"}`),
+		json.RawMessage(`{"name":"Vegan Diet","identifier":"https://schema.org/VeganDiet"}`),
+		json.RawMessage(`{"name":"Vegetarian Diet","identifier":"https://schema.org/VegetarianDiet"}`),
 	}
 }
 
