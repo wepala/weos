@@ -107,7 +107,16 @@ func recipeType() application.PresetResourceType {
 	"properties":{
 		"name":{"type":"string"},
 		"description":{"type":"string"},
-		"recipeYield":{"type":"string"},
+		"recipeYield":{
+			"type":"object",
+			"description":"Structured yield for scaling/shopping-list math",
+			"properties":{
+				"@type":{"type":"string","enum":["QuantitativeValue"]},
+				"value":{"type":"number"},
+				"unitText":{"type":"string"}
+			},
+			"required":["value","unitText"]
+		},
 		"prepTime":{"type":"string","description":"ISO 8601 duration, e.g. PT15M"},
 		"cookTime":{"type":"string","description":"ISO 8601 duration"},
 		"totalTime":{"type":"string","description":"ISO 8601 duration"},
