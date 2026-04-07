@@ -55,6 +55,10 @@ func Token(
 	logger entities.Logger,
 ) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// OAuth 2.0/2.1 §5.1: token responses must not be cached.
+		c.Response().Header().Set("Cache-Control", "no-store")
+		c.Response().Header().Set("Pragma", "no-cache")
+
 		grantType := c.FormValue("grant_type")
 		switch grantType {
 		case "authorization_code":
@@ -260,6 +264,23 @@ func handleRefreshGrant(
 		})
 	}
 
+	// Atomically revoke the old token. RevokeIfActive uses a conditional
+	// update (WHERE revoked = false), so concurrent refresh requests for
+	// the same token can't both succeed — only one will get RowsAffected=1,
+	// the other gets ErrNotFound which we treat as token reuse.
+	if err := refreshRepo.RevokeIfActive(ctx, stored.ID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+				Error: "invalid_grant",
+			})
+		}
+		logger.Error(ctx, "oauth refresh: revocation failed",
+			"token", stored.ID, "error", err)
+		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
+			Error: "server_error",
+		})
+	}
+
 	agent, err := agentRepo.FindByID(ctx, stored.AgentID)
 	if err != nil {
 		logger.Error(ctx, "oauth refresh: agent lookup failed",
@@ -303,13 +324,6 @@ func handleRefreshGrant(
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
 			Error: "server_error",
 		})
-	}
-
-	// Revoke old token after new one is persisted (safe ordering).
-	if err := refreshRepo.Revoke(ctx, stored.ID); err != nil {
-		logger.Error(ctx, "oauth refresh: old token revocation failed",
-			"token", stored.ID, "error", err)
-		// New token already issued — continue but log the failure.
 	}
 
 	logger.Info(ctx, "oauth access token refreshed",

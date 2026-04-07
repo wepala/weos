@@ -122,21 +122,6 @@ func Authorize(
 					"error_description": "redirect_uri not registered for this client"})
 		}
 
-		// Create pending authorization code.
-		authCode := &OAuthAuthorizationCode{
-			ClientID:            clientID,
-			RedirectURI:         redirectURI,
-			CodeChallenge:       codeChallenge,
-			CodeChallengeMethod: "S256",
-			Scope:               scope,
-			State:               state,
-			Status:              StatusPending,
-		}
-		if err := codeRepo.Create(c.Request().Context(), authCode); err != nil {
-			return c.JSON(http.StatusInternalServerError,
-				map[string]string{"error": "server_error"})
-		}
-
 		// Initiate Google OAuth via pericarp's auth flow.
 		callbackURL := baseURL + "/oauth/callback"
 		authReq, err := authService.InitiateAuthFlow(
@@ -148,18 +133,45 @@ func Authorize(
 				map[string]string{"error": "server_error"})
 		}
 
-		// Store auth code ID + PKCE verifier in session for the callback.
+		// Pre-generate the code value so it can be stored in the session
+		// before we persist the DB row, allowing us to defer the DB write
+		// until after the session save succeeds.
+		codeValue, err := generateRandomCode()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": "server_error"})
+		}
+
 		sess, err := sessionStore.Get(c.Request(), oauthSessionName)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError,
 				map[string]string{"error": "session_error"})
 		}
-		sess.Values["oauth_code"] = authCode.Code
+		sess.Values["oauth_code"] = codeValue
 		sess.Values["oauth_code_verifier"] = authReq.CodeVerifier
 		sess.Values["oauth_state"] = authReq.State
 		if err := sess.Save(c.Request(), c.Response()); err != nil {
 			return c.JSON(http.StatusInternalServerError,
 				map[string]string{"error": "session_error"})
+		}
+
+		// Persist the pending authorization code only after session save
+		// succeeds, so transient failures don't leave orphaned DB rows.
+		authCode := &OAuthAuthorizationCode{
+			Code:                codeValue,
+			ClientID:            clientID,
+			RedirectURI:         redirectURI,
+			CodeChallenge:       codeChallenge,
+			CodeChallengeMethod: "S256",
+			Scope:               scope,
+			State:               state,
+			Status:              StatusPending,
+		}
+		if err := codeRepo.Create(c.Request().Context(), authCode); err != nil {
+			logger.Error(c.Request().Context(), "oauth authorize: code persistence failed",
+				"error", err)
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": "server_error"})
 		}
 
 		return c.Redirect(http.StatusFound, authReq.AuthURL)

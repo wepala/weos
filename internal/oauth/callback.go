@@ -150,7 +150,7 @@ func Callback(
 		if err := codeRepo.UpdateIdentity(
 			ctx, authCode.Code, agent.GetID(), accountID); err != nil {
 			logger.Error(ctx, "oauth callback: identity update failed",
-				"code", authCode.Code, "error", err)
+				"code_hash", MaskCode(authCode.Code), "error", err)
 			return c.JSON(http.StatusInternalServerError,
 				map[string]string{"error": "server_error"})
 		}

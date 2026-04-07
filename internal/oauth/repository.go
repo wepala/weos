@@ -144,6 +144,10 @@ type RefreshTokenRepository interface {
 	Create(ctx context.Context, token *OAuthRefreshToken, rawToken string) error
 	FindByTokenHash(ctx context.Context, tokenHash string) (*OAuthRefreshToken, error)
 	Revoke(ctx context.Context, id string) error
+	// RevokeIfActive atomically revokes the token only if it is currently
+	// not revoked. Returns ErrNotFound if the token is missing or already
+	// revoked. Used for safe rotation under concurrent refresh requests.
+	RevokeIfActive(ctx context.Context, id string) error
 }
 
 type gormRefreshTokenRepo struct{ db *gorm.DB }
@@ -180,6 +184,20 @@ func (r *gormRefreshTokenRepo) Revoke(ctx context.Context, id string) error {
 	result := r.db.WithContext(ctx).
 		Model(&OAuthRefreshToken{}).
 		Where("id = ?", id).
+		Update("revoked", true)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *gormRefreshTokenRepo) RevokeIfActive(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).
+		Model(&OAuthRefreshToken{}).
+		Where("id = ? AND revoked = ?", id, false).
 		Update("revoked", true)
 	if result.Error != nil {
 		return result.Error
