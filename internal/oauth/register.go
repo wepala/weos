@@ -58,21 +58,19 @@ func RegisterClient(clientRepo ClientRepository, enabled bool) echo.HandlerFunc 
 
 		var req registerRequest
 		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest,
-				map[string]string{"error": "invalid request body"})
+			return registrationError(c, "invalid_client_metadata", "invalid request body")
 		}
 		if req.ClientName == "" {
-			return c.JSON(http.StatusBadRequest,
-				map[string]string{"error": "client_name is required"})
+			return registrationError(c, "invalid_client_metadata",
+				"client_name is required")
 		}
 		if len(req.RedirectURIs) == 0 {
-			return c.JSON(http.StatusBadRequest,
-				map[string]string{"error": "redirect_uris is required"})
+			return registrationError(c, "invalid_redirect_uri",
+				"redirect_uris is required")
 		}
 		for _, uri := range req.RedirectURIs {
 			if err := validateRedirectURI(uri); err != nil {
-				return c.JSON(http.StatusBadRequest,
-					map[string]string{"error": err.Error()})
+				return registrationError(c, "invalid_redirect_uri", err.Error())
 			}
 		}
 
@@ -81,8 +79,8 @@ func RegisterClient(clientRepo ClientRepository, enabled bool) echo.HandlerFunc 
 		}
 		for _, gt := range req.GrantTypes {
 			if gt != "authorization_code" && gt != "refresh_token" {
-				return c.JSON(http.StatusBadRequest,
-					map[string]string{"error": "unsupported grant_type: " + gt})
+				return registrationError(c, "invalid_client_metadata",
+					"unsupported grant_type: "+gt)
 			}
 		}
 		if len(req.ResponseTypes) == 0 {
@@ -90,16 +88,16 @@ func RegisterClient(clientRepo ClientRepository, enabled bool) echo.HandlerFunc 
 		}
 		for _, rt := range req.ResponseTypes {
 			if rt != "code" {
-				return c.JSON(http.StatusBadRequest,
-					map[string]string{"error": "unsupported response_type: " + rt})
+				return registrationError(c, "invalid_client_metadata",
+					"unsupported response_type: "+rt)
 			}
 		}
 		if req.TokenEndpointAuthMethod == "" {
 			req.TokenEndpointAuthMethod = "none"
 		}
 		if req.TokenEndpointAuthMethod != "none" {
-			return c.JSON(http.StatusBadRequest,
-				map[string]string{"error": "only token_endpoint_auth_method \"none\" is supported"})
+			return registrationError(c, "invalid_client_metadata",
+				"only token_endpoint_auth_method \"none\" is supported")
 		}
 
 		redirectJSON, err := json.Marshal(req.RedirectURIs)
@@ -143,6 +141,15 @@ func RegisterClient(clientRepo ClientRepository, enabled bool) echo.HandlerFunc 
 			Scope:                   req.Scope,
 		})
 	}
+}
+
+// registrationError returns a 400 response with a stable RFC 7591 error
+// code and a human-readable description.
+func registrationError(c echo.Context, code, description string) error {
+	return c.JSON(http.StatusBadRequest, map[string]string{
+		"error":             code,
+		"error_description": description,
+	})
 }
 
 // validateRedirectURI checks that a redirect URI uses HTTPS or is a localhost
