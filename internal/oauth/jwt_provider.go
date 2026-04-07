@@ -55,7 +55,12 @@ func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
 
 	issuer := cfg.OAuth.BaseURL
 	if issuer == "" {
-		issuer = fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
+		host := cfg.Server.Host
+		// Wildcard bind hosts aren't valid issuers; map to localhost.
+		if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+			host = "localhost"
+		}
+		issuer = fmt.Sprintf("http://%s:%d", host, cfg.Server.Port)
 	}
 	// Normalize to match discovery handlers (which trim trailing slashes).
 	issuer = strings.TrimRight(issuer, "/")

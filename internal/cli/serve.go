@@ -177,7 +177,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth.
 	baseURL := strings.TrimRight(appCfg.OAuth.BaseURL, "/")
 	if baseURL == "" {
-		baseURL = fmt.Sprintf("http://%s:%d", appCfg.Server.Host, appCfg.Server.Port)
+		host := appCfg.Server.Host
+		// Wildcard bind hosts aren't valid public origins; map to localhost.
+		if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+			host = "localhost"
+		}
+		baseURL = fmt.Sprintf("http://%s:%d", host, appCfg.Server.Port)
 	}
 
 	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth).
