@@ -123,7 +123,8 @@ func (r *gormAuthCodeRepo) UpdateIdentity(
 ) error {
 	result := r.db.WithContext(ctx).
 		Model(&OAuthAuthorizationCode{}).
-		Where("code = ? AND status = ?", code, StatusPending).
+		Where("code = ? AND status = ? AND expires_at > ?",
+			code, StatusPending, time.Now()).
 		Updates(map[string]any{
 			"agent_id":   agentID,
 			"account_id": accountID,

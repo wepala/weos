@@ -21,6 +21,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,7 +62,8 @@ func ProvideJWTService(cfg config.Config) (authapp.JWTService, error) {
 		if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
 			host = "localhost"
 		}
-		issuer = fmt.Sprintf("http://%s:%d", host, cfg.Server.Port)
+		// net.JoinHostPort handles IPv6 bracketing correctly.
+		issuer = "http://" + net.JoinHostPort(host, strconv.Itoa(cfg.Server.Port))
 	}
 	// Normalize to match discovery handlers (which trim trailing slashes).
 	issuer = strings.TrimRight(issuer, "/")

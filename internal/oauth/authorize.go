@@ -31,13 +31,23 @@ import (
 
 const oauthSessionName = "weos-oauth-flow"
 
-// SupportedScopes is the set of scopes the server will issue tokens for.
-// Must stay in sync with discovery.go's scopes_supported field.
-var SupportedScopes = map[string]bool{
-	"mcp:read":  true,
-	"mcp:write": true,
-	"mcp:admin": true,
+// SupportedScopesList is the canonical list of scopes the server issues
+// tokens for. Discovery metadata and the validateScope helper both derive
+// from this single source to prevent drift.
+var SupportedScopesList = []string{
+	"mcp:read",
+	"mcp:write",
+	"mcp:admin",
 }
+
+// SupportedScopes is a set built from SupportedScopesList for fast lookup.
+var SupportedScopes = func() map[string]bool {
+	m := make(map[string]bool, len(SupportedScopesList))
+	for _, s := range SupportedScopesList {
+		m[s] = true
+	}
+	return m
+}()
 
 // validateScope returns an error if the requested scope string contains
 // any unknown scope. An empty scope is allowed (caller may apply defaults).

@@ -30,7 +30,7 @@ func ProtectedResourceMetadata(baseURL string) echo.HandlerFunc {
 		return c.JSON(http.StatusOK, map[string]any{
 			"resource":                 baseURL + "/api/mcp",
 			"authorization_servers":    []string{baseURL},
-			"scopes_supported":         []string{"mcp:read", "mcp:write", "mcp:admin"},
+			"scopes_supported":         SupportedScopesList,
 			"bearer_methods_supported": []string{"header"},
 		})
 	}
@@ -45,7 +45,7 @@ func AuthorizationServerMetadata(baseURL string, dynamicRegistration bool) echo.
 			"issuer":                                baseURL,
 			"authorization_endpoint":                baseURL + "/oauth/authorize",
 			"token_endpoint":                        baseURL + "/oauth/token",
-			"scopes_supported":                      []string{"mcp:read", "mcp:write", "mcp:admin"},
+			"scopes_supported":                      SupportedScopesList,
 			"response_types_supported":              []string{"code"},
 			"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 			"code_challenge_methods_supported":      []string{"S256"},

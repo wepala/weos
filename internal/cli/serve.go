@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -182,7 +183,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
 			host = "localhost"
 		}
-		baseURL = fmt.Sprintf("http://%s:%d", host, appCfg.Server.Port)
+		// net.JoinHostPort handles IPv6 bracketing correctly.
+		hostPort := net.JoinHostPort(host, strconv.Itoa(appCfg.Server.Port))
+		baseURL = "http://" + hostPort
 	}
 
 	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth).
