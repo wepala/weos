@@ -58,6 +58,16 @@ func newTokenRequest(form string) *http.Request {
 	return req
 }
 
+// mustNoErr fails the test fatally if err is non-nil. Used for setup calls
+// where any error indicates broken test fixtures rather than the behavior
+// under test.
+func mustNoErr(t *testing.T, err error, msg string) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("%s: %v", msg, err)
+	}
+}
+
 func TestValidateRedirectURI_HTTPS(t *testing.T) {
 	t.Parallel()
 	if err := validateRedirectURI("https://example.com/callback"); err != nil {
@@ -278,7 +288,7 @@ func TestAuthCodeRepo_StatusTransition_PendingToIssued(t *testing.T) {
 		ClientID: "c", RedirectURI: "https://e.com/cb",
 		CodeChallenge: "ch", CodeChallengeMethod: "S256", Status: StatusPending,
 	}
-	_ = repo.Create(ctx, code)
+	mustNoErr(t, repo.Create(ctx, code), "create code")
 
 	if err := repo.UpdateIdentity(ctx, code.Code, "agent-1", "acct-1"); err != nil {
 		t.Fatalf("update identity: %v", err)
@@ -303,8 +313,8 @@ func TestAuthCodeRepo_UpdateIdentity_RejectsNonPending(t *testing.T) {
 		ClientID: "c", RedirectURI: "https://e.com/cb",
 		CodeChallenge: "ch", CodeChallengeMethod: "S256", Status: StatusPending,
 	}
-	_ = repo.Create(ctx, code)
-	_ = repo.UpdateIdentity(ctx, code.Code, "agent-1", "acct-1")
+	mustNoErr(t, repo.Create(ctx, code), "create code")
+	mustNoErr(t, repo.UpdateIdentity(ctx, code.Code, "agent-1", "acct-1"), "update identity")
 
 	// Second UpdateIdentity should fail because status is now "issued".
 	err := repo.UpdateIdentity(ctx, code.Code, "agent-2", "acct-2")
@@ -323,8 +333,8 @@ func TestAuthCodeRepo_MarkExchanged_SingleUse(t *testing.T) {
 		ClientID: "c", RedirectURI: "https://e.com/cb",
 		CodeChallenge: "ch", CodeChallengeMethod: "S256", Status: StatusPending,
 	}
-	_ = repo.Create(ctx, code)
-	_ = repo.UpdateIdentity(ctx, code.Code, "agent-1", "acct-1")
+	mustNoErr(t, repo.Create(ctx, code), "create code")
+	mustNoErr(t, repo.UpdateIdentity(ctx, code.Code, "agent-1", "acct-1"), "update identity")
 
 	// First exchange should succeed.
 	if err := repo.MarkExchanged(ctx, code.Code); err != nil {
@@ -342,14 +352,21 @@ func TestAuthCodeRepo_MarkExchanged_RejectsExpired(t *testing.T) {
 	repo := NewAuthCodeRepository(db)
 	ctx := context.Background()
 
+	// Create as pending with a future expiry, transition to issued, then
+	// rewind ExpiresAt directly in the DB to simulate expiry between issue
+	// and exchange (UpdateIdentity itself rejects already-expired codes).
 	code := &OAuthAuthorizationCode{
 		ClientID: "c", RedirectURI: "https://e.com/cb",
 		CodeChallenge: "ch", CodeChallengeMethod: "S256",
-		Status:    StatusPending,
-		ExpiresAt: time.Now().Add(-1 * time.Minute), // already expired
+		Status: StatusPending,
 	}
-	_ = repo.Create(ctx, code)
-	_ = repo.UpdateIdentity(ctx, code.Code, "a", "acc")
+	mustNoErr(t, repo.Create(ctx, code), "create code")
+	mustNoErr(t, repo.UpdateIdentity(ctx, code.Code, "a", "acc"), "update identity")
+
+	mustNoErr(t, db.Model(&OAuthAuthorizationCode{}).
+		Where("code = ?", code.Code).
+		Update("expires_at", time.Now().Add(-1*time.Minute)).Error,
+		"expire code")
 
 	if err := repo.MarkExchanged(ctx, code.Code); err != ErrNotFound {
 		t.Errorf("expired code should not be exchangeable, got %v", err)
@@ -389,7 +406,7 @@ func TestRefreshTokenRepo_Revoke(t *testing.T) {
 	ctx := context.Background()
 
 	token := &OAuthRefreshToken{AgentID: "a", ClientID: "c"}
-	_ = repo.Create(ctx, token, "raw")
+	mustNoErr(t, repo.Create(ctx, token, "raw"), "create token")
 
 	if err := repo.Revoke(ctx, token.ID); err != nil {
 		t.Fatalf("revoke: %v", err)
@@ -449,7 +466,9 @@ func TestTokenHandler_AuthCodeMissingFields(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -474,7 +493,9 @@ func TestTokenHandler_RefreshMissingToken(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -502,7 +523,9 @@ func TestTokenHandler_AuthCode_NotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -526,8 +549,8 @@ func TestTokenHandler_AuthCode_PKCEFailure(t *testing.T) {
 		CodeChallengeMethod: "S256",
 		Status:              StatusPending,
 	}
-	_ = codeRepo.Create(ctx, authCode)
-	_ = codeRepo.UpdateIdentity(ctx, authCode.Code, "agent-1", "acct-1")
+	mustNoErr(t, codeRepo.Create(ctx, authCode), "create code")
+	mustNoErr(t, codeRepo.UpdateIdentity(ctx, authCode.Code, "agent-1", "acct-1"), "update identity")
 
 	handler := Token(nil, codeRepo, NewRefreshTokenRepository(db), nil, nil, noopLogger{})
 
@@ -542,7 +565,9 @@ func TestTokenHandler_AuthCode_PKCEFailure(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -566,8 +591,8 @@ func TestTokenHandler_AuthCode_ClientIDMismatch(t *testing.T) {
 		CodeChallengeMethod: "S256",
 		Status:              StatusPending,
 	}
-	_ = codeRepo.Create(ctx, authCode)
-	_ = codeRepo.UpdateIdentity(ctx, authCode.Code, "agent-1", "acct-1")
+	mustNoErr(t, codeRepo.Create(ctx, authCode), "create code")
+	mustNoErr(t, codeRepo.UpdateIdentity(ctx, authCode.Code, "agent-1", "acct-1"), "update identity")
 
 	handler := Token(nil, codeRepo, NewRefreshTokenRepository(db), nil, nil, noopLogger{})
 
@@ -582,7 +607,9 @@ func TestTokenHandler_AuthCode_ClientIDMismatch(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
 		t.Errorf("expected 400 invalid_grant, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -600,8 +627,8 @@ func TestTokenHandler_AuthCode_RedirectURIMismatch(t *testing.T) {
 		ClientID: "client-1", RedirectURI: "https://example.com/cb",
 		CodeChallenge: challenge, CodeChallengeMethod: "S256", Status: StatusPending,
 	}
-	_ = codeRepo.Create(ctx, authCode)
-	_ = codeRepo.UpdateIdentity(ctx, authCode.Code, "a", "acc")
+	mustNoErr(t, codeRepo.Create(ctx, authCode), "create code")
+	mustNoErr(t, codeRepo.UpdateIdentity(ctx, authCode.Code, "a", "acc"), "update identity")
 
 	handler := Token(nil, codeRepo, NewRefreshTokenRepository(db), nil, nil, noopLogger{})
 
@@ -616,7 +643,9 @@ func TestTokenHandler_AuthCode_RedirectURIMismatch(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
 		t.Errorf("expected 400 invalid_grant, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -639,7 +668,9 @@ func TestTokenHandler_RefreshToken_NotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
 		t.Errorf("expected 400 invalid_grant, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -653,8 +684,8 @@ func TestTokenHandler_RefreshToken_Revoked(t *testing.T) {
 
 	tok := &OAuthRefreshToken{AgentID: "a", ClientID: "c"}
 	raw := "raw-refresh"
-	_ = refreshRepo.Create(ctx, tok, raw)
-	_ = refreshRepo.Revoke(ctx, tok.ID)
+	mustNoErr(t, refreshRepo.Create(ctx, tok, raw), "create refresh token")
+	mustNoErr(t, refreshRepo.Revoke(ctx, tok.ID), "revoke token")
 
 	handler := Token(nil, NewAuthCodeRepository(db), refreshRepo, nil, nil, noopLogger{})
 
@@ -667,7 +698,9 @@ func TestTokenHandler_RefreshToken_Revoked(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
 		t.Errorf("expected 400 invalid_grant for revoked token, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -684,7 +717,7 @@ func TestTokenHandler_RefreshToken_Expired(t *testing.T) {
 		ExpiresAt: time.Now().Add(-1 * time.Hour), // already expired
 	}
 	raw := "raw-refresh"
-	_ = refreshRepo.Create(ctx, tok, raw)
+	mustNoErr(t, refreshRepo.Create(ctx, tok, raw), "create refresh token")
 
 	handler := Token(nil, NewAuthCodeRepository(db), refreshRepo, nil, nil, noopLogger{})
 
@@ -697,7 +730,9 @@ func TestTokenHandler_RefreshToken_Expired(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
 		t.Errorf("expected 400 invalid_grant for expired token, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -711,7 +746,7 @@ func TestTokenHandler_RefreshToken_ClientIDMismatch(t *testing.T) {
 
 	tok := &OAuthRefreshToken{AgentID: "a", ClientID: "client-1"}
 	raw := "raw-refresh"
-	_ = refreshRepo.Create(ctx, tok, raw)
+	mustNoErr(t, refreshRepo.Create(ctx, tok, raw), "create refresh token")
 
 	handler := Token(nil, NewAuthCodeRepository(db), refreshRepo, nil, nil, noopLogger{})
 
@@ -724,7 +759,9 @@ func TestTokenHandler_RefreshToken_ClientIDMismatch(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	_ = handler(c)
+	if err := handler(c); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_grant") {
 		t.Errorf("expected 400 invalid_grant for client mismatch, got %d: %s", rec.Code, rec.Body.String())
 	}
