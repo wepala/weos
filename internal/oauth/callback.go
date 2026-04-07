@@ -149,6 +149,15 @@ func Callback(
 		// Update the authorization code with identity info.
 		if err := codeRepo.UpdateIdentity(
 			ctx, authCode.Code, agent.GetID(), accountID); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				// Code expired between FindByCode and UpdateIdentity, or
+				// a concurrent callback already issued it. Treat as a
+				// client error rather than an internal failure.
+				logger.Warn(ctx, "oauth callback: identity update found no pending code",
+					"code_hash", MaskCode(authCode.Code))
+				return c.JSON(http.StatusBadRequest,
+					map[string]string{"error": "invalid_grant"})
+			}
 			logger.Error(ctx, "oauth callback: identity update failed",
 				"code_hash", MaskCode(authCode.Code), "error", err)
 			return c.JSON(http.StatusInternalServerError,
