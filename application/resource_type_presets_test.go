@@ -16,6 +16,7 @@
 package application_test
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"testing"
@@ -24,7 +25,34 @@ import (
 	"weos/application"
 	"weos/application/presets"
 	"weos/domain/entities"
+	"weos/domain/repositories"
 )
+
+// Minimal interface-embedding stubs so this external test package can build a
+// non-nil BehaviorServices. Methods on the embedded nil interface panic if
+// called, which is fine — these stubs are only used for identity, never invoked.
+type stubResources struct {
+	repositories.ResourceRepository
+}
+type stubTriples struct{ repositories.TripleRepository }
+type stubTypes struct {
+	repositories.ResourceTypeRepository
+}
+
+type stubLogger struct{}
+
+func (stubLogger) Info(context.Context, string, ...any)  {}
+func (stubLogger) Warn(context.Context, string, ...any)  {}
+func (stubLogger) Error(context.Context, string, ...any) {}
+
+func testBehaviorServices() application.BehaviorServices {
+	return application.BehaviorServices{
+		Resources:     &stubResources{},
+		Triples:       &stubTriples{},
+		ResourceTypes: &stubTypes{},
+		Logger:        stubLogger{},
+	}
+}
 
 func testRegistry() *application.PresetRegistry {
 	return presets.NewDefaultRegistry()
@@ -145,7 +173,7 @@ func TestPresets_CoreHasBehaviors(t *testing.T) {
 
 func TestPresets_BehaviorsRegistry(t *testing.T) {
 	t.Parallel()
-	behaviors, err := testRegistry().Behaviors(application.BehaviorServices{})
+	behaviors, err := testRegistry().Behaviors(testBehaviorServices())
 	if err != nil {
 		t.Fatalf("Behaviors() returned error: %v", err)
 	}

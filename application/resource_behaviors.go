@@ -18,6 +18,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
@@ -90,9 +91,13 @@ func ProvideResourceBehaviorRegistry(
 	if err != nil {
 		return nil, err
 	}
+	slugs := make([]string, 0, len(behaviors))
 	for slug := range behaviors {
-		logger.Info(context.Background(), "resource behavior registered", "slug", slug)
+		slugs = append(slugs, slug)
 	}
+	sort.Strings(slugs)
+	logger.Info(context.Background(), "resource behaviors registered",
+		"count", len(slugs), "slugs", slugs)
 	return behaviors, nil
 }
 
