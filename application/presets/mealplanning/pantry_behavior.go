@@ -85,8 +85,11 @@ func (b *enforceSingleDefaultBehavior) enforce(
 		return
 	}
 
+	// Use "1" as the portable boolean representation: SQLite stores BOOLEAN
+	// as INTEGER 0/1, and PostgreSQL coerces "1" to true. String "true"
+	// fails to match in SQLite.
 	filters := []repositories.FilterCondition{
-		{Field: "isDefault", Operator: "eq", Value: "true"},
+		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
 	resp, err := svc.ListFlatWithFilters(
 		ctx, "pantry", filters, "", 1000, repositories.SortOptions{},

@@ -50,6 +50,8 @@ func NewDepletePantryOnCookBehavior() *depletePantryOnCookBehavior {
 
 // BeforeUpdate detects the status transition from non-cooked → cooked and
 // stashes the resource ID so AfterUpdate knows to run depletion exactly once.
+// Any previous marker for the same ID is cleared first so a failed-then-
+// retried update doesn't carry a stale marker forward.
 func (b *depletePantryOnCookBehavior) BeforeUpdate(
 	_ context.Context, existing *entities.Resource,
 	data json.RawMessage, _ *entities.ResourceType,
@@ -57,6 +59,10 @@ func (b *depletePantryOnCookBehavior) BeforeUpdate(
 	if existing == nil {
 		return data, nil
 	}
+	// Clear any stale marker first (in case a prior update failed after
+	// BeforeUpdate but before AfterUpdate could consume it).
+	b.clearPending(existing.GetID())
+
 	prev, err := extractFlatData(existing)
 	if err != nil {
 		return data, nil //nolint:nilerr // behavior must not block the update
@@ -87,6 +93,14 @@ func (b *depletePantryOnCookBehavior) markPending(id string) {
 	b.pendingMu.Lock()
 	defer b.pendingMu.Unlock()
 	b.pending[id] = struct{}{}
+}
+
+// clearPending removes any marker for id. Called at the start of
+// BeforeUpdate to prevent stale markers from leaking across failed updates.
+func (b *depletePantryOnCookBehavior) clearPending(id string) {
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	delete(b.pending, id)
 }
 
 // takePending atomically checks and clears the pending marker for id.
@@ -381,8 +395,10 @@ func (b *depletePantryOnCookBehavior) resolvePantry(
 		}
 	}
 	// Fall back to default pantry in the account.
+	// Portable boolean filter: "1" works on both SQLite (INTEGER 0/1) and
+	// PostgreSQL (coerced to true).
 	filters := []repositories.FilterCondition{
-		{Field: "isDefault", Operator: "eq", Value: "true"},
+		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
 	resp, err := svc.ListFlatWithFilters(
 		ctx, "pantry", filters, "", 1, repositories.SortOptions{},

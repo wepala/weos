@@ -403,10 +403,10 @@ func (b *scheduledMealBehavior) listOccurrences(
 // expandSchedule walks the recurrence rule and returns all concrete dates.
 // The boolean return indicates whether the MaxOccurrences cap was hit.
 //
-// When onlyFuture is true, dates strictly before or equal to `now` (day
-// granularity) are excluded. Note this uses `!d.Before(today)` meaning
-// today IS included. regenerateOccurrences additionally preserves dates
-// that have existing non-planned occurrences to avoid duplicates.
+// When onlyFuture is true, dates strictly before `today` (day granularity)
+// are excluded — today IS included. regenerateOccurrences additionally
+// preserves dates that have existing non-planned occurrences to avoid
+// duplicates.
 func expandSchedule(
 	sm map[string]any, now time.Time, onlyFuture bool,
 ) ([]time.Time, bool, error) {

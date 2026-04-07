@@ -36,14 +36,15 @@ func setupScheduledMealBehavior(t *testing.T) (*scheduledMealBehavior, *stubReso
 	return b, stub
 }
 
-// futureDate returns a date N days from now formatted as YYYY-MM-DD.
+// futureDate / pastDate use time.Now().UTC() to match the behavior code's
+// day-boundary comparisons. Using local time would make these helpers
+// timezone-dependent and flaky around midnight.
 func futureDate(days int) string {
-	return time.Now().AddDate(0, 0, days).Format("2006-01-02")
+	return time.Now().UTC().AddDate(0, 0, days).Format("2006-01-02")
 }
 
-// pastDate returns a date N days ago formatted as YYYY-MM-DD.
 func pastDate(days int) string {
-	return time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	return time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
 }
 
 func TestGenerateOccurrences_AfterCreate_CreatesForEachDate(t *testing.T) {

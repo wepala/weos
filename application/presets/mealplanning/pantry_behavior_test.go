@@ -145,7 +145,14 @@ func matchesAllFilters(row map[string]any, filters []repositories.FilterConditio
 				return false
 			}
 		case bool:
-			if (val && f.Value != "true") || (!val && f.Value != "false") {
+			// Accept both "true"/"false" and "1"/"0" to match the portable
+			// boolean representation used by behavior code.
+			trueVals := map[string]bool{"true": true, "1": true}
+			falseVals := map[string]bool{"false": true, "0": true}
+			if val && !trueVals[f.Value] {
+				return false
+			}
+			if !val && !falseVals[f.Value] {
 				return false
 			}
 		default:
