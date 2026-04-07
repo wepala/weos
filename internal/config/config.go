@@ -184,7 +184,9 @@ func (c *Config) LoadFromEnvironment() {
 	}
 
 	if dynReg := os.Getenv("OAUTH_DYNAMIC_REGISTRATION"); dynReg != "" {
-		c.OAuth.DynamicRegistration = dynReg == "true" || dynReg == "1"
+		if enabled, err := strconv.ParseBool(dynReg); err == nil {
+			c.OAuth.DynamicRegistration = enabled
+		}
 	}
 
 	if bqProject := os.Getenv("BIGQUERY_PROJECT_ID"); bqProject != "" {

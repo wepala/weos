@@ -196,6 +196,8 @@ func handleAuthCodeGrant(
 
 	rawRefresh, err := GenerateRefreshToken()
 	if err != nil {
+		logger.Error(ctx, "oauth token: refresh token generation failed",
+			"agent", agent.GetID(), "client", authCode.ClientID, "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
 			Error: "server_error",
 		})
@@ -299,6 +301,9 @@ func handleRefreshGrant(
 
 	newRawRefresh, err := GenerateRefreshToken()
 	if err != nil {
+		logger.Error(ctx, "oauth refresh: refresh token generation failed",
+			"token", stored.ID, "agent", agent.GetID(),
+			"client", stored.ClientID, "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
 			Error: "server_error",
 		})

@@ -39,8 +39,11 @@ func BearerOrSession(
 	baseURL string,
 ) echo.MiddlewareFunc {
 	normalizedBaseURL := strings.TrimRight(baseURL, "/")
-	wwwAuth := `Bearer resource_metadata="` + normalizedBaseURL +
+	resourceMetadata := `resource_metadata="` + normalizedBaseURL +
 		`/.well-known/oauth-protected-resource"`
+	wwwAuth := `Bearer ` + resourceMetadata
+	wwwAuthInvalidToken := `Bearer ` + resourceMetadata +
+		`, error="invalid_token", error_description="The access token is invalid or expired"`
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -52,9 +55,9 @@ func BearerOrSession(
 
 			claims, err := jwtService.ValidateToken(c.Request().Context(), token)
 			if err != nil {
-				c.Response().Header().Set("WWW-Authenticate", wwwAuth)
+				c.Response().Header().Set("WWW-Authenticate", wwwAuthInvalidToken)
 				return c.JSON(http.StatusUnauthorized,
-					map[string]string{"error": "invalid token"})
+					map[string]string{"error": "invalid_token"})
 			}
 
 			identity := &auth.Identity{
