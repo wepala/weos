@@ -67,9 +67,8 @@ newman/
 test-results/
 playwright-report/
 
-# Local Claude context (site-specific, not shared)
-.claude/local-context.md
-.claude/settings.local.json
+# Claude Code (agent workspace, not shared)
+.claude/
 .idea
 .run
 .nuxt/

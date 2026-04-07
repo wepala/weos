@@ -22,6 +22,7 @@ import (
 
 	weosmodels "weos/infrastructure/models"
 	"weos/internal/config"
+	"weos/internal/oauth"
 
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
 	"go.uber.org/fx"
@@ -81,6 +82,9 @@ func ProvideGormDB(params struct {
 		&weosmodels.Triple{},
 		&weosmodels.ResourcePermission{},
 		&weosmodels.BehaviorSettings{},
+		&oauth.OAuthClient{},
+		&oauth.OAuthAuthorizationCode{},
+		&oauth.OAuthRefreshToken{},
 	}
 	if err := db.AutoMigrate(models...); err != nil {
 		return GormDBResult{}, fmt.Errorf("failed to run auto migrate: %w", err)
