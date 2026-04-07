@@ -68,8 +68,17 @@ func ProvideResourceBehaviorRegistry(
 	if registry == nil {
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil PresetRegistry")
 	}
-	if resources == nil || triples == nil || resourceTypes == nil || logger == nil {
-		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil dependency injected")
+	if resources == nil {
+		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil Resources")
+	}
+	if triples == nil {
+		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil Triples")
+	}
+	if resourceTypes == nil {
+		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil ResourceTypes")
+	}
+	if logger == nil {
+		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil Logger")
 	}
 	services := BehaviorServices{
 		Resources:     resources,
@@ -81,10 +90,7 @@ func ProvideResourceBehaviorRegistry(
 	if err != nil {
 		return nil, err
 	}
-	for slug, b := range behaviors {
-		if b == nil {
-			return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: factory for slug %q returned nil", slug)
-		}
+	for slug := range behaviors {
 		logger.Info(context.Background(), "resource behavior registered", "slug", slug)
 	}
 	return behaviors, nil

@@ -507,7 +507,9 @@ type serviceAwareBehavior struct {
 // stubResourceRepo embeds the interface so it satisfies the type without
 // implementing methods. Method calls on the nil embedded field panic — these
 // stubs are only used for identity checks, not invocation.
-type stubResourceRepo struct{ repositories.ResourceRepository }
+type stubResourceRepo struct {
+	repositories.ResourceRepository
+}
 type stubTripleRepo struct{ repositories.TripleRepository }
 
 // recordingLogger captures Warn calls for assertion in merge tests.
@@ -668,6 +670,21 @@ func TestProvideResourceBehaviorRegistry_RejectsNilDeps(t *testing.T) {
 	}
 }
 
+func TestPresetRegistry_BehaviorsRejectsNilReturningFactory(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{
+		Name:  "p",
+		Types: []PresetResourceType{NewPresetType("T", "t", "d", "", "")},
+		Behaviors: map[string]BehaviorFactory{
+			"t": func(BehaviorServices) entities.ResourceBehavior { return nil },
+		},
+	})
+	if _, err := registry.Behaviors(BehaviorServices{}); err == nil {
+		t.Fatal("expected error when factory returns nil")
+	}
+}
+
 func TestProvideResourceBehaviorRegistry_RejectsNilReturningFactory(t *testing.T) {
 	t.Parallel()
 	registry := NewPresetRegistry()
@@ -712,4 +729,3 @@ func TestProvideResourceBehaviorRegistry_PassesThroughDeps(t *testing.T) {
 		t.Fatal("provider did not pass dependencies through to factory")
 	}
 }
-

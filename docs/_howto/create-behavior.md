@@ -125,20 +125,20 @@ dependencies (like the one above), `application.StaticBehavior` wraps a plain in
 ## 3a. Inject Application Services
 
 If your behavior needs a repository or logger, write a real factory instead of
-`StaticBehavior`. The factory receives a populated `application.BehaviorServices`:
+`StaticBehavior`. The factory receives a populated `application.BehaviorServices`,
+whose fields are `Resources` (`repositories.ResourceRepository`), `Triples`
+(`repositories.TripleRepository`), `ResourceTypes` (`repositories.ResourceTypeRepository`),
+and `Logger` (`entities.Logger`).
+
+Example (showing imports):
 
 ```go
-type BehaviorServices struct {
-    Resources     repositories.ResourceRepository
-    Triples       repositories.TripleRepository
-    ResourceTypes repositories.ResourceTypeRepository
-    Logger        entities.Logger
-}
-```
+import (
+    "weos/application"
+    "weos/domain/entities"
+    "weos/domain/repositories"
+)
 
-Example:
-
-```go
 type blogPostBehavior struct {
     entities.DefaultBehavior
     resources repositories.ResourceRepository
