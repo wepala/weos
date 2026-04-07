@@ -29,31 +29,56 @@ import (
 // It stores pre-seeded flat resources and records Update/Delete calls.
 type stubResourceSvc struct {
 	// listFlatData holds per-typeSlug pre-seeded results for ListFlatWithFilters.
+	// When listFlatFilter is set for a type, it's called to filter results.
 	listFlatData map[string][]map[string]any
+	// getByIDData holds pre-seeded resources returned by GetByID.
+	getByIDData map[string]*entities.Resource
+	// getByIDErr holds canned errors for GetByID.
+	getByIDErr map[string]error
+	// listFlatErr holds canned errors for ListFlatWithFilters.
+	listFlatErr map[string]error
+	// updateErr forces Update to fail when set.
+	updateErr error
+	// deleteErr forces Delete to fail when set.
+	deleteErr error
 	// updates records all Update calls.
 	updates []application.UpdateResourceCommand
 	// creates records all Create calls.
 	creates []application.CreateResourceCommand
 	// deletes records all Delete calls.
 	deletes []application.DeleteResourceCommand
+	// createErr forces Create to fail when set.
+	createErr error
 }
 
 func newStubResourceSvc() *stubResourceSvc {
 	return &stubResourceSvc{
 		listFlatData: make(map[string][]map[string]any),
+		getByIDData:  make(map[string]*entities.Resource),
+		getByIDErr:   make(map[string]error),
+		listFlatErr:  make(map[string]error),
 	}
 }
 
 func (s *stubResourceSvc) Create(
 	_ context.Context, cmd application.CreateResourceCommand,
 ) (*entities.Resource, error) {
+	if s.createErr != nil {
+		return nil, s.createErr
+	}
 	s.creates = append(s.creates, cmd)
 	return nil, nil //nolint:nilnil
 }
 
 func (s *stubResourceSvc) GetByID(
-	context.Context, string,
+	_ context.Context, id string,
 ) (*entities.Resource, error) {
+	if err, ok := s.getByIDErr[id]; ok {
+		return nil, err
+	}
+	if r, ok := s.getByIDData[id]; ok {
+		return r, nil
+	}
 	return nil, nil //nolint:nilnil
 }
 
@@ -83,17 +108,60 @@ func (s *stubResourceSvc) ListWithFilters(
 }
 
 func (s *stubResourceSvc) ListFlatWithFilters(
-	_ context.Context, typeSlug string, _ []repositories.FilterCondition,
+	_ context.Context, typeSlug string, filters []repositories.FilterCondition,
 	_ string, _ int, _ repositories.SortOptions,
 ) (repositories.PaginatedResponse[map[string]any], error) {
-	return repositories.PaginatedResponse[map[string]any]{
-		Data: s.listFlatData[typeSlug],
-	}, nil
+	if err, ok := s.listFlatErr[typeSlug]; ok {
+		return repositories.PaginatedResponse[map[string]any]{}, err
+	}
+	data := s.listFlatData[typeSlug]
+	// Apply simple eq filters so tests can pre-seed a superset and
+	// behaviors see the filtered subset.
+	if len(filters) > 0 {
+		filtered := make([]map[string]any, 0, len(data))
+		for _, row := range data {
+			if matchesAllFilters(row, filters) {
+				filtered = append(filtered, row)
+			}
+		}
+		data = filtered
+	}
+	return repositories.PaginatedResponse[map[string]any]{Data: data}, nil
+}
+
+func matchesAllFilters(row map[string]any, filters []repositories.FilterCondition) bool {
+	for _, f := range filters {
+		if f.Operator != "eq" {
+			continue
+		}
+		v, ok := row[f.Field]
+		if !ok {
+			return false
+		}
+		// Coerce to string for comparison since FilterCondition.Value is string.
+		switch val := v.(type) {
+		case string:
+			if val != f.Value {
+				return false
+			}
+		case bool:
+			if (val && f.Value != "true") || (!val && f.Value != "false") {
+				return false
+			}
+		default:
+			// No other coercions needed for these tests.
+			return false
+		}
+	}
+	return true
 }
 
 func (s *stubResourceSvc) Update(
 	_ context.Context, cmd application.UpdateResourceCommand,
 ) (*entities.Resource, error) {
+	if s.updateErr != nil {
+		return nil, s.updateErr
+	}
 	s.updates = append(s.updates, cmd)
 	return nil, nil //nolint:nilnil
 }
@@ -101,6 +169,9 @@ func (s *stubResourceSvc) Update(
 func (s *stubResourceSvc) Delete(
 	_ context.Context, cmd application.DeleteResourceCommand,
 ) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
 	s.deletes = append(s.deletes, cmd)
 	return nil
 }

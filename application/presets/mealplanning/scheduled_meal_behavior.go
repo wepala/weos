@@ -18,6 +18,7 @@ package mealplanning
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -53,7 +54,6 @@ func (b *scheduledMealBehavior) AfterCreate(
 func (b *scheduledMealBehavior) AfterUpdate(
 	ctx context.Context, resource *entities.Resource,
 ) error {
-	// Regenerate: preserve past/cooked/skipped, recreate future planned.
 	b.regenerateOccurrences(ctx, resource)
 	return nil
 }
@@ -66,18 +66,19 @@ func (b *scheduledMealBehavior) AfterDelete(
 }
 
 // generateOccurrences expands the schedule and creates MealOccurrence
-// resources for every concrete date. If preserveFuture is true, dates in
-// the past or >= today with non-planned status are skipped (used by regenerate).
+// resources for every concrete date. Errors during expansion or individual
+// creates surface as user-facing warning messages.
 func (b *scheduledMealBehavior) generateOccurrences(
 	ctx context.Context, resource *entities.Resource, onlyFuture bool,
 ) {
 	svc := b.svc()
 	log := b.log()
 	if svc == nil {
+		addNilSvcWarning(ctx, "scheduled-meal generation")
 		return
 	}
 
-	sm, err := extractFlatData(resource)
+	sm, err := extractFlatDataByID(resource, resource.GetID())
 	if err != nil {
 		if log != nil {
 			log.Error(ctx, "scheduled-meal behavior: invalid data",
@@ -86,13 +87,22 @@ func (b *scheduledMealBehavior) generateOccurrences(
 		return
 	}
 
-	dates, capped, err := expandSchedule(sm, time.Now(), onlyFuture)
+	dates, capped, warnings, err := expandScheduleWithWarnings(sm, time.Now(), onlyFuture)
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "scheduled-meal behavior: schedule expansion failed",
-				"id", resource.GetID(), "error", err)
-		}
+		addServiceErrorMessage(ctx, log,
+			"scheduled-meal behavior: schedule expansion failed",
+			fmt.Sprintf("Schedule expansion failed: %v — no occurrences generated", err),
+			"scheduled_meal_expansion_error",
+			"id", resource.GetID(), "error", err)
 		return
+	}
+
+	for _, w := range warnings {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: "Schedule contains invalid exceptDate entry: " + w,
+			Code: "scheduled_meal_invalid_except_date",
+		})
 	}
 
 	if capped {
@@ -108,6 +118,7 @@ func (b *scheduledMealBehavior) generateOccurrences(
 	mealType, _ := sm["mealType"].(string)
 	servings := sm["servings"]
 
+	failures := 0
 	for _, d := range dates {
 		occurrence := map[string]any{
 			"date":          d.Format("2006-01-02"),
@@ -120,56 +131,205 @@ func (b *scheduledMealBehavior) generateOccurrences(
 		}
 		data, mErr := json.Marshal(occurrence)
 		if mErr != nil {
+			if log != nil {
+				log.Error(ctx, "scheduled-meal behavior: failed to marshal occurrence",
+					"date", d.Format("2006-01-02"), "error", mErr)
+			}
+			failures++
 			continue
 		}
 		if _, cErr := svc.Create(ctx, application.CreateResourceCommand{
 			TypeSlug: "meal-occurrence", Data: data,
-		}); cErr != nil && log != nil {
-			log.Error(ctx, "scheduled-meal behavior: failed to create occurrence",
-				"date", d.Format("2006-01-02"), "error", cErr)
+		}); cErr != nil {
+			if log != nil {
+				log.Error(ctx, "scheduled-meal behavior: failed to create occurrence",
+					"date", d.Format("2006-01-02"), "error", cErr)
+			}
+			failures++
 		}
+	}
+	if failures > 0 {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: fmt.Sprintf(
+				"%d of %d occurrences failed to create; check the schedule",
+				failures, len(dates)),
+			Code: "scheduled_meal_occurrence_create_partial",
+		})
 	}
 }
 
 // regenerateOccurrences deletes future planned occurrences for the given
 // scheduled meal and recreates them from the updated schedule. Past and
 // cooked/skipped occurrences are preserved as historical records.
+//
+// Strategy: validate the new schedule FIRST (dry run expandSchedule). Only
+// if expansion succeeds do we delete existing future planned occurrences
+// and then create the new ones. This prevents destroying user data when
+// the update contains a malformed recurrence rule.
 func (b *scheduledMealBehavior) regenerateOccurrences(
 	ctx context.Context, resource *entities.Resource,
 ) {
 	svc := b.svc()
 	log := b.log()
 	if svc == nil {
+		addNilSvcWarning(ctx, "scheduled-meal regeneration")
 		return
 	}
 
-	// Load existing occurrences linked to this ScheduledMeal.
-	existing := b.listOccurrences(ctx, resource.GetID())
-	today := time.Now().Truncate(24 * time.Hour)
+	sm, err := extractFlatDataByID(resource, resource.GetID())
+	if err != nil {
+		if log != nil {
+			log.Error(ctx, "scheduled-meal behavior: invalid data",
+				"id", resource.GetID(), "error", err)
+		}
+		return
+	}
+
+	now := time.Now()
+	// Dry-run: validate the new schedule before deleting anything.
+	newDates, capped, warnings, err := expandScheduleWithWarnings(sm, now, true)
+	if err != nil {
+		addServiceErrorMessage(ctx, log,
+			"scheduled-meal behavior: regenerate expansion failed",
+			fmt.Sprintf("Schedule update rejected: %v — existing occurrences preserved", err),
+			"scheduled_meal_regenerate_expansion_error",
+			"id", resource.GetID(), "error", err)
+		return
+	}
+	for _, w := range warnings {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: "Schedule contains invalid exceptDate entry: " + w,
+			Code: "scheduled_meal_invalid_except_date",
+		})
+	}
+
+	// List existing occurrences (propagate error instead of silent no-op).
+	existing, listErr := b.listOccurrences(ctx, resource.GetID())
+	if listErr != nil {
+		addServiceErrorMessage(ctx, log,
+			"scheduled-meal behavior: failed to list existing occurrences",
+			"Failed to list existing occurrences; schedule not regenerated",
+			"scheduled_meal_regenerate_list_error",
+			"id", resource.GetID(), "error", listErr)
+		return
+	}
+
+	today := now.Truncate(24 * time.Hour)
+	preservedDates := map[string]bool{}
+	deleteFailures := 0
 
 	for _, occ := range existing {
 		date, _ := occ["date"].(string)
 		status, _ := occ["status"].(string)
 		id, _ := occ["id"].(string)
 		if id == "" {
+			if log != nil {
+				log.Warn(ctx, "scheduled-meal behavior: occurrence missing id")
+			}
 			continue
 		}
-		d, err := time.Parse("2006-01-02", date)
-		if err != nil {
+		d, parseErr := time.Parse("2006-01-02", date)
+		if parseErr != nil {
+			if log != nil {
+				log.Warn(ctx, "scheduled-meal behavior: invalid occurrence date",
+					"id", id, "date", date)
+			}
 			continue
 		}
 		// Preserve past or non-planned occurrences.
 		if d.Before(today) || status != "planned" {
+			preservedDates[date] = true
 			continue
 		}
-		if dErr := svc.Delete(ctx, application.DeleteResourceCommand{ID: id}); dErr != nil && log != nil {
-			log.Error(ctx, "scheduled-meal behavior: failed to delete future occurrence",
-				"id", id, "error", dErr)
+		if dErr := svc.Delete(ctx, application.DeleteResourceCommand{ID: id}); dErr != nil {
+			if log != nil {
+				log.Error(ctx, "scheduled-meal behavior: failed to delete future occurrence",
+					"id", id, "error", dErr)
+			}
+			deleteFailures++
 		}
 	}
 
-	// Re-walk the schedule and generate only future occurrences.
-	b.generateOccurrences(ctx, resource, true)
+	if deleteFailures > 0 {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: fmt.Sprintf(
+				"%d existing occurrences could not be deleted; schedule may be inconsistent",
+				deleteFailures),
+			Code: "scheduled_meal_regenerate_delete_partial",
+		})
+	}
+
+	// Create new occurrences, skipping any dates already preserved.
+	if capped {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: fmt.Sprintf(
+				"Showing first %d occurrences — edit the schedule to extend",
+				MaxOccurrences),
+			Code: "scheduled_meal_occurrence_cap_reached",
+		})
+	}
+
+	b.createOccurrencesForDates(ctx, resource, sm, newDates, preservedDates)
+}
+
+// createOccurrencesForDates creates MealOccurrence resources for each date,
+// skipping any date already covered by a preserved occurrence.
+func (b *scheduledMealBehavior) createOccurrencesForDates(
+	ctx context.Context, resource *entities.Resource,
+	sm map[string]any, dates []time.Time, preserved map[string]bool,
+) {
+	svc := b.svc()
+	log := b.log()
+	mealType, _ := sm["mealType"].(string)
+	servings := sm["servings"]
+	failures := 0
+
+	for _, d := range dates {
+		dateStr := d.Format("2006-01-02")
+		if preserved[dateStr] {
+			continue
+		}
+		occurrence := map[string]any{
+			"date":          dateStr,
+			"mealType":      mealType,
+			"status":        "planned",
+			"scheduledMeal": resource.GetID(),
+		}
+		if servings != nil {
+			occurrence["servings"] = servings
+		}
+		data, mErr := json.Marshal(occurrence)
+		if mErr != nil {
+			if log != nil {
+				log.Error(ctx, "scheduled-meal behavior: failed to marshal occurrence",
+					"date", dateStr, "error", mErr)
+			}
+			failures++
+			continue
+		}
+		if _, cErr := svc.Create(ctx, application.CreateResourceCommand{
+			TypeSlug: "meal-occurrence", Data: data,
+		}); cErr != nil {
+			if log != nil {
+				log.Error(ctx, "scheduled-meal behavior: failed to create occurrence",
+					"date", dateStr, "error", cErr)
+			}
+			failures++
+		}
+	}
+	if failures > 0 {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: fmt.Sprintf(
+				"%d occurrences failed to create during schedule regeneration",
+				failures),
+			Code: "scheduled_meal_regenerate_create_partial",
+		})
+	}
 }
 
 // cascadeDelete removes future planned occurrences when the scheduled meal
@@ -180,10 +340,19 @@ func (b *scheduledMealBehavior) cascadeDelete(
 	svc := b.svc()
 	log := b.log()
 	if svc == nil {
+		addNilSvcWarning(ctx, "scheduled-meal cascade delete")
 		return
 	}
 
-	existing := b.listOccurrences(ctx, resource.GetID())
+	existing, err := b.listOccurrences(ctx, resource.GetID())
+	if err != nil {
+		addServiceErrorMessage(ctx, log,
+			"scheduled-meal behavior: cascade delete list failed",
+			"Failed to list occurrences; some may be orphaned",
+			"scheduled_meal_cascade_list_error",
+			"id", resource.GetID(), "error", err)
+		return
+	}
 	today := time.Now().Truncate(24 * time.Hour)
 
 	for _, occ := range existing {
@@ -193,8 +362,8 @@ func (b *scheduledMealBehavior) cascadeDelete(
 		if id == "" {
 			continue
 		}
-		d, err := time.Parse("2006-01-02", date)
-		if err != nil {
+		d, parseErr := time.Parse("2006-01-02", date)
+		if parseErr != nil {
 			continue
 		}
 		if d.Before(today) || status != "planned" {
@@ -207,13 +376,14 @@ func (b *scheduledMealBehavior) cascadeDelete(
 	}
 }
 
-// listOccurrences returns all MealOccurrence resources linked to a scheduled meal.
+// listOccurrences returns all MealOccurrence resources linked to a
+// scheduled meal. Errors are propagated so callers can react.
 func (b *scheduledMealBehavior) listOccurrences(
 	ctx context.Context, scheduledMealID string,
-) []map[string]any {
+) ([]map[string]any, error) {
 	svc := b.svc()
 	if svc == nil {
-		return nil
+		return nil, errors.New("resource service not injected")
 	}
 	filters := []repositories.FilterCondition{
 		{Field: "scheduledMeal", Operator: "eq", Value: scheduledMealID},
@@ -222,15 +392,20 @@ func (b *scheduledMealBehavior) listOccurrences(
 		ctx, "meal-occurrence", filters, "", 500, repositories.SortOptions{},
 	)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return resp.Data
+	return resp.Data, nil
 }
 
 // -- recurrence walker -------------------------------------------------------
 
 // expandSchedule walks the recurrence rule and returns all concrete dates.
 // The boolean return indicates whether the MaxOccurrences cap was hit.
+//
+// When onlyFuture is true, dates strictly before or equal to `now` (day
+// granularity) are excluded. Note this uses `!d.Before(today)` meaning
+// today IS included. regenerateOccurrences additionally preserves dates
+// that have existing non-planned occurrences to avoid duplicates.
 func expandSchedule(
 	sm map[string]any, now time.Time, onlyFuture bool,
 ) ([]time.Time, bool, error) {
@@ -240,16 +415,17 @@ func expandSchedule(
 	}
 	start, err := time.Parse("2006-01-02", startStr)
 	if err != nil {
-		return nil, false, fmt.Errorf("invalid startDate: %w", err)
+		return nil, false, fmt.Errorf("invalid startDate %q: %w", startStr, err)
 	}
 
-	// Parse optional constraints.
 	endStr, _ := sm["endDate"].(string)
 	var end *time.Time
 	if endStr != "" {
 		e, pErr := time.Parse("2006-01-02", endStr)
 		if pErr == nil {
 			end = &e
+		} else {
+			return nil, false, fmt.Errorf("invalid endDate %q: %w", endStr, pErr)
 		}
 	}
 
@@ -257,7 +433,7 @@ func expandSchedule(
 	byDay := parseStringArray(sm["byDay"])
 	byMonth := parseIntArray(sm["byMonth"])
 	byMonthDay := parseIntArray(sm["byMonthDay"])
-	exceptDates := parseDateArray(sm["exceptDate"])
+	exceptDates, exceptWarnings := parseDateArrayWithWarnings(sm["exceptDate"])
 	repeatCount := parseInt(sm["repeatCount"])
 
 	today := now.Truncate(24 * time.Hour)
@@ -278,16 +454,51 @@ func expandSchedule(
 		return nil, false, stepErr
 	}
 
+	dates, capped := walkSchedule(walkParams{
+		start: start, end: end, today: today,
+		step: step, byDay: byDay, byMonth: byMonth, byMonthDay: byMonthDay,
+		exceptDates: exceptDates, repeatCount: repeatCount, onlyFuture: onlyFuture,
+	})
+	_ = exceptWarnings // warnings bubble via the caller if desired; kept for API symmetry
+	return dates, capped, nil
+}
+
+// expandScheduleWithWarnings returns the same as expandSchedule plus any
+// parse warnings discovered in exceptDate entries. Behaviors use this to
+// surface user-facing warning messages for bad input.
+func expandScheduleWithWarnings(
+	sm map[string]any, now time.Time, onlyFuture bool,
+) ([]time.Time, bool, []string, error) {
+	_, exceptWarnings := parseDateArrayWithWarnings(sm["exceptDate"])
+	dates, capped, err := expandSchedule(sm, now, onlyFuture)
+	return dates, capped, exceptWarnings, err
+}
+
+type walkParams struct {
+	start, today time.Time
+	end          *time.Time
+	step         func(time.Time) time.Time
+	byDay        []string
+	byMonth      []int
+	byMonthDay   []int
+	exceptDates  []time.Time
+	repeatCount  int
+	onlyFuture   bool
+}
+
+// walkSchedule is the inner recurrence iteration loop, kept separate from
+// expandSchedule to satisfy function length limits.
+func walkSchedule(p walkParams) ([]time.Time, bool) {
 	var dates []time.Time
-	current := start
+	current := p.start
 	capped := false
-	maxIterations := 10000 // safety against infinite loops
+	const maxIterations = 10000
 
 	for i := 0; i < maxIterations; i++ {
-		if end != nil && current.After(*end) {
+		if p.end != nil && current.After(*p.end) {
 			break
 		}
-		if repeatCount > 0 && len(dates) >= repeatCount {
+		if p.repeatCount > 0 && len(dates) >= p.repeatCount {
 			break
 		}
 		if len(dates) >= MaxOccurrences {
@@ -295,22 +506,20 @@ func expandSchedule(
 			break
 		}
 
-		if matchesFilters(current, byDay, byMonth, byMonthDay) &&
-			!isExcepted(current, exceptDates) {
-			if !onlyFuture || !current.Before(today) {
+		if matchesFilters(current, p.byDay, p.byMonth, p.byMonthDay) &&
+			!isExcepted(current, p.exceptDates) {
+			if !p.onlyFuture || !current.Before(p.today) {
 				dates = append(dates, current)
 			}
 		}
 
-		next := step(current)
+		next := p.step(current)
 		if !next.After(current) {
-			// Safety: step must advance time.
 			break
 		}
 		current = next
 	}
-
-	return dates, capped, nil
+	return dates, capped
 }
 
 // parseISODuration parses an ISO 8601 duration of the form P<N>D, P<N>W,
@@ -318,7 +527,7 @@ func expandSchedule(
 // Composite durations (e.g. P1Y6M) are not supported in this minimal parser.
 func parseISODuration(s string) (func(time.Time) time.Time, error) {
 	if !strings.HasPrefix(s, "P") || len(s) < 3 {
-		return nil, fmt.Errorf("invalid ISO 8601 duration: %q", s)
+		return nil, fmt.Errorf("invalid ISO 8601 duration %q (expected P<N>D/W/M/Y)", s)
 	}
 	body := s[1:]
 	unit := body[len(body)-1:]
@@ -337,27 +546,21 @@ func parseISODuration(s string) (func(time.Time) time.Time, error) {
 	case "Y":
 		return func(t time.Time) time.Time { return t.AddDate(n, 0, 0) }, nil
 	default:
-		return nil, fmt.Errorf("unsupported duration unit %q in %q", unit, s)
+		return nil, fmt.Errorf("unsupported duration unit %q in %q (use D/W/M/Y)", unit, s)
 	}
 }
 
 // matchesFilters returns true if the date satisfies all byDay/byMonth/byMonthDay
 // constraints. Empty filters are treated as "no constraint".
 func matchesFilters(d time.Time, byDay []string, byMonth, byMonthDay []int) bool {
-	if len(byDay) > 0 {
-		if !containsString(byDay, d.Weekday().String()) {
-			return false
-		}
+	if len(byDay) > 0 && !containsString(byDay, d.Weekday().String()) {
+		return false
 	}
-	if len(byMonth) > 0 {
-		if !containsInt(byMonth, int(d.Month())) {
-			return false
-		}
+	if len(byMonth) > 0 && !containsInt(byMonth, int(d.Month())) {
+		return false
 	}
-	if len(byMonthDay) > 0 {
-		if !containsInt(byMonthDay, d.Day()) {
-			return false
-		}
+	if len(byMonthDay) > 0 && !containsInt(byMonthDay, d.Day()) {
+		return false
 	}
 	return true
 }
@@ -401,20 +604,31 @@ func parseIntArray(v any) []int {
 	return out
 }
 
-func parseDateArray(v any) []time.Time {
+// parseDateArrayWithWarnings parses an array of date strings and returns
+// both the successfully parsed dates and any parse warnings encountered.
+// The warnings should be surfaced to the caller via entities.AddMessage.
+func parseDateArrayWithWarnings(v any) ([]time.Time, []string) {
 	arr, ok := v.([]any)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	out := make([]time.Time, 0, len(arr))
+	var warnings []string
 	for _, x := range arr {
-		if s, ok := x.(string); ok {
-			if t, err := time.Parse("2006-01-02", s); err == nil {
-				out = append(out, t)
-			}
+		s, ok := x.(string)
+		if !ok {
+			warnings = append(warnings, fmt.Sprintf("%v is not a string", x))
+			continue
 		}
+		t, err := time.Parse("2006-01-02", s)
+		if err != nil {
+			warnings = append(warnings,
+				fmt.Sprintf("%q is not a valid date (YYYY-MM-DD)", s))
+			continue
+		}
+		out = append(out, t)
 	}
-	return out
+	return out, warnings
 }
 
 func parseInt(v any) int {

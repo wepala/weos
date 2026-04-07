@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 
 	"weos/application"
 	"weos/domain/entities"
@@ -27,21 +28,77 @@ import (
 )
 
 // depletePantryOnCookBehavior decrements FoodItem quantities in the target
-// pantry when a MealOccurrence transitions to status=cooked.
+// pantry when a MealOccurrence transitions from non-cooked to cooked.
+//
+// Re-depletion guard: BeforeUpdate compares the existing status against the
+// incoming data and marks the occurrence ID as "pending depletion" in an
+// internal map. AfterUpdate only runs depletion if the marker is set, then
+// removes it. This ensures editing a field on an already-cooked occurrence
+// (e.g. fixing notes) does NOT re-deplete the pantry.
 type depletePantryOnCookBehavior struct {
 	baseBehavior
+	pendingMu sync.Mutex
+	pending   map[string]struct{}
 }
 
 // NewDepletePantryOnCookBehavior returns a stateless behavior instance.
 func NewDepletePantryOnCookBehavior() *depletePantryOnCookBehavior {
-	return &depletePantryOnCookBehavior{}
+	return &depletePantryOnCookBehavior{
+		pending: make(map[string]struct{}),
+	}
+}
+
+// BeforeUpdate detects the status transition from non-cooked → cooked and
+// stashes the resource ID so AfterUpdate knows to run depletion exactly once.
+func (b *depletePantryOnCookBehavior) BeforeUpdate(
+	_ context.Context, existing *entities.Resource,
+	data json.RawMessage, _ *entities.ResourceType,
+) (json.RawMessage, error) {
+	if existing == nil {
+		return data, nil
+	}
+	prev, err := extractFlatData(existing)
+	if err != nil {
+		return data, nil //nolint:nilerr // behavior must not block the update
+	}
+	var next map[string]any
+	if err := json.Unmarshal(data, &next); err != nil {
+		return data, nil //nolint:nilerr
+	}
+	prevStatus, _ := prev["status"].(string)
+	nextStatus, _ := next["status"].(string)
+	if nextStatus == "cooked" && prevStatus != "cooked" {
+		b.markPending(existing.GetID())
+	}
+	return data, nil
 }
 
 func (b *depletePantryOnCookBehavior) AfterUpdate(
 	ctx context.Context, resource *entities.Resource,
 ) error {
+	if !b.takePending(resource.GetID()) {
+		return nil // not a transition → cooked, skip
+	}
 	b.deplete(ctx, resource)
 	return nil
+}
+
+func (b *depletePantryOnCookBehavior) markPending(id string) {
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	b.pending[id] = struct{}{}
+}
+
+// takePending atomically checks and clears the pending marker for id.
+// Returns true if the marker was set (and was just cleared).
+func (b *depletePantryOnCookBehavior) takePending(id string) bool {
+	b.pendingMu.Lock()
+	defer b.pendingMu.Unlock()
+	_, ok := b.pending[id]
+	if ok {
+		delete(b.pending, id)
+	}
+	return ok
 }
 
 func (b *depletePantryOnCookBehavior) deplete(
@@ -50,10 +107,11 @@ func (b *depletePantryOnCookBehavior) deplete(
 	svc := b.svc()
 	log := b.log()
 	if svc == nil {
+		addNilSvcWarning(ctx, "meal-occurrence depletion")
 		return
 	}
 
-	occurrence, err := extractFlatData(resource)
+	occurrence, err := extractFlatDataByID(resource, resource.GetID())
 	if err != nil {
 		if log != nil {
 			log.Error(ctx, "depletion: invalid occurrence data",
@@ -62,6 +120,9 @@ func (b *depletePantryOnCookBehavior) deplete(
 		return
 	}
 
+	// Defensive: even if pending marker was set, re-check status.
+	// (Guards against stale markers if BeforeUpdate ran but AfterUpdate
+	// fires on a later update where status was reverted before marker consumed.)
 	status, _ := occurrence["status"].(string)
 	if status != "cooked" {
 		return
@@ -69,44 +130,61 @@ func (b *depletePantryOnCookBehavior) deplete(
 
 	scheduledMealID, _ := occurrence["scheduledMeal"].(string)
 	if scheduledMealID == "" {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: "Cooked meal occurrence has no scheduled meal reference; pantry not depleted.",
+			Code: "pantry_depletion_no_scheduled_meal",
+		})
 		return
 	}
 
-	// Resolve ScheduledMeal → Recipe → RecipeIngredients.
 	scheduledMeal, err := svc.GetByID(ctx, scheduledMealID)
 	if err != nil {
+		addServiceErrorMessage(ctx, log,
+			"depletion: failed to load scheduled meal",
+			"scheduled meal could not be loaded; pantry not depleted",
+			"pantry_depletion_scheduled_meal_error",
+			"id", scheduledMealID, "error", err)
+		return
+	}
+	smData, err := extractFlatDataByID(scheduledMeal, scheduledMealID)
+	if err != nil {
 		if log != nil {
-			log.Error(ctx, "depletion: failed to load scheduled meal",
+			log.Error(ctx, "depletion: invalid scheduled meal data",
 				"id", scheduledMealID, "error", err)
 		}
 		return
 	}
-	smData, err := extractFlatData(scheduledMeal)
-	if err != nil {
-		return
-	}
 	recipeID, _ := smData["recipe"].(string)
 	if recipeID == "" {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: "Scheduled meal has no recipe reference; pantry not depleted.",
+			Code: "pantry_depletion_no_recipe",
+		})
 		return
 	}
 
 	recipe, err := svc.GetByID(ctx, recipeID)
 	if err != nil {
+		addServiceErrorMessage(ctx, log,
+			"depletion: failed to load recipe",
+			"recipe could not be loaded; pantry not depleted",
+			"pantry_depletion_recipe_error",
+			"id", recipeID, "error", err)
+		return
+	}
+	recipeData, err := extractFlatDataByID(recipe, recipeID)
+	if err != nil {
 		if log != nil {
-			log.Error(ctx, "depletion: failed to load recipe",
+			log.Error(ctx, "depletion: invalid recipe data",
 				"id", recipeID, "error", err)
 		}
 		return
 	}
-	recipeData, err := extractFlatData(recipe)
-	if err != nil {
-		return
-	}
 
-	// Compute scaling factor: occurrence servings / recipe yield value.
 	scale := computeScalingFactor(occurrence, recipeData)
 
-	// Load RecipeIngredient resources linked to this recipe.
 	ingredientFilters := []repositories.FilterCondition{
 		{Field: "recipe", Operator: "eq", Value: recipeID},
 	}
@@ -115,16 +193,21 @@ func (b *depletePantryOnCookBehavior) deplete(
 		repositories.SortOptions{},
 	)
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "depletion: failed to list recipe ingredients",
-				"error", err)
-		}
+		addServiceErrorMessage(ctx, log,
+			"depletion: failed to list recipe ingredients",
+			"failed to load recipe ingredients; pantry not depleted",
+			"pantry_depletion_ingredient_list_error",
+			"error", err)
 		return
 	}
 
-	// Resolve target pantry.
 	pantryID := b.resolvePantry(ctx, smData)
 	if pantryID == "" {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: "No target pantry could be resolved; pantry not depleted.",
+			Code: "pantry_depletion_no_pantry",
+		})
 		if log != nil {
 			log.Warn(ctx, "depletion: no target pantry resolved",
 				"occurrence", resource.GetID())
@@ -146,6 +229,10 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 
 	ingredientID, _ := ri["ingredient"].(string)
 	if ingredientID == "" {
+		if log != nil {
+			log.Warn(ctx, "depletion: recipe ingredient missing ingredient ref",
+				"recipeIngredient", ri["id"])
+		}
 		return
 	}
 	neededQty := toFloat(ri["quantity"]) * scale
@@ -154,7 +241,6 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 		return
 	}
 
-	// Find FoodItems in target pantry matching this ingredient.
 	filters := []repositories.FilterCondition{
 		{Field: "pantry", Operator: "eq", Value: pantryID},
 		{Field: "ingredient", Operator: "eq", Value: ingredientID},
@@ -163,17 +249,26 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 		ctx, "food-item", filters, "", 500, repositories.SortOptions{},
 	)
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "depletion: failed to list food items",
-				"ingredient", ingredientID, "error", err)
-		}
+		addServiceErrorMessage(ctx, log,
+			"depletion: failed to list food items",
+			fmt.Sprintf("failed to load food items for %q; pantry not depleted",
+				ingredientID),
+			"pantry_depletion_food_item_list_error",
+			"ingredient", ingredientID, "error", err)
 		return
 	}
 	if len(resp.Data) == 0 {
+		// No matching food items means full shortfall.
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: fmt.Sprintf(
+				"Pantry shortfall for %q: %.2f %s needed, none on hand",
+				ingredientID, neededQty, neededUnit),
+			Code: "pantry_depletion_shortfall",
+		})
 		return
 	}
 
-	// Sort by expirationDate ascending (FIFO by expiry).
 	sortFoodItemsByExpiration(resp.Data)
 
 	remaining := neededQty
@@ -214,8 +309,16 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 	}
 }
 
+// foodItemWriteFields are the FoodItem schema fields that are safe to echo
+// back in an update payload. System fields (id, createdAt, updatedAt,
+// sequence_no, type_slug, etc.) are deliberately excluded.
+var foodItemWriteFields = []string{
+	"quantity", "unit", "storage", "purchaseDate", "expirationDate",
+	"notes", "ingredient", "pantry",
+}
+
 // updateFoodItemQuantity issues an update with the new quantity, preserving
-// other fields.
+// schema-defined fields only (no system columns).
 func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 	ctx context.Context, fi map[string]any, newQty float64,
 ) {
@@ -226,14 +329,20 @@ func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 		return
 	}
 	update := map[string]any{"quantity": newQty}
-	for k, v := range fi {
-		if k == "id" || k == "quantity" {
+	for _, field := range foodItemWriteFields {
+		if field == "quantity" {
 			continue
 		}
-		update[k] = v
+		if v, ok := fi[field]; ok && v != nil {
+			update[field] = v
+		}
 	}
 	data, err := json.Marshal(update)
 	if err != nil {
+		if log != nil {
+			log.Error(ctx, "depletion: failed to marshal food item update",
+				"id", id, "error", err)
+		}
 		return
 	}
 	if _, uErr := svc.Update(ctx, application.UpdateResourceCommand{
@@ -250,15 +359,21 @@ func (b *depletePantryOnCookBehavior) resolvePantry(
 	ctx context.Context, scheduledMealData map[string]any,
 ) string {
 	svc := b.svc()
+	log := b.log()
 	if svc == nil {
 		return ""
 	}
 	mealPlanID, _ := scheduledMealData["mealPlan"].(string)
 	if mealPlanID != "" {
 		mealPlan, err := svc.GetByID(ctx, mealPlanID)
-		if err == nil {
-			mpData, _ := extractFlatData(mealPlan)
-			if mpData != nil {
+		if err != nil {
+			if log != nil {
+				log.Error(ctx, "depletion: failed to load meal plan",
+					"id", mealPlanID, "error", err)
+			}
+		} else if mealPlan != nil {
+			mpData, mpErr := extractFlatDataByID(mealPlan, mealPlanID)
+			if mpErr == nil && mpData != nil {
 				if p, _ := mpData["pantry"].(string); p != "" {
 					return p
 				}
@@ -272,7 +387,14 @@ func (b *depletePantryOnCookBehavior) resolvePantry(
 	resp, err := svc.ListFlatWithFilters(
 		ctx, "pantry", filters, "", 1, repositories.SortOptions{},
 	)
-	if err != nil || len(resp.Data) == 0 {
+	if err != nil {
+		if log != nil {
+			log.Error(ctx, "depletion: failed to list default pantries",
+				"error", err)
+		}
+		return ""
+	}
+	if len(resp.Data) == 0 {
 		return ""
 	}
 	id, _ := resp.Data[0]["id"].(string)
@@ -304,25 +426,11 @@ func sortFoodItemsByExpiration(items []map[string]any) {
 		ei, _ := items[i]["expirationDate"].(string)
 		ej, _ := items[j]["expirationDate"].(string)
 		if ei == "" {
-			return false
+			return false // i without date goes after j
 		}
 		if ej == "" {
-			return true
+			return true // j without date goes after i
 		}
 		return ei < ej
 	})
-}
-
-func toFloat(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int:
-		return float64(n)
-	case int64:
-		return float64(n)
-	case string:
-		return 0
-	}
-	return 0
 }
