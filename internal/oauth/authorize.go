@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"weos/domain/entities"
@@ -63,6 +64,28 @@ func validateScope(scope string) error {
 	return nil
 }
 
+// redirectAuthError redirects back to the MCP client's redirect_uri with
+// the standard OAuth error parameters per RFC 6749 §4.1.2.1. Used after
+// client_id and redirect_uri have been validated.
+func redirectAuthError(c echo.Context, redirectURI, errCode, errDesc, state string) error {
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "invalid_request",
+				"error_description": "invalid redirect_uri"})
+	}
+	q := u.Query()
+	q.Set("error", errCode)
+	if errDesc != "" {
+		q.Set("error_description", errDesc)
+	}
+	if state != "" {
+		q.Set("state", state)
+	}
+	u.RawQuery = q.Encode()
+	return c.Redirect(http.StatusFound, u.String())
+}
+
 // Authorize returns a handler for the OAuth authorization endpoint.
 // GET /oauth/authorize
 //
@@ -79,35 +102,17 @@ func Authorize(
 	baseURL string,
 ) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		responseType := c.QueryParam("response_type")
 		clientID := c.QueryParam("client_id")
 		redirectURI := c.QueryParam("redirect_uri")
-		codeChallenge := c.QueryParam("code_challenge")
-		codeChallengeMethod := c.QueryParam("code_challenge_method")
-		state := c.QueryParam("state")
-		scope := c.QueryParam("scope")
 
-		if responseType != "code" {
-			return c.JSON(http.StatusBadRequest,
-				map[string]string{"error": "unsupported_response_type"})
-		}
-		if clientID == "" || redirectURI == "" || codeChallenge == "" {
+		// Step 1: Validate client_id and redirect_uri FIRST. These errors
+		// must use JSON responses because we can't yet trust the redirect_uri
+		// (RFC 6749 §4.1.2.1: don't redirect to an unverified URI).
+		if clientID == "" || redirectURI == "" {
 			return c.JSON(http.StatusBadRequest,
 				map[string]string{"error": "invalid_request",
-					"error_description": "client_id, redirect_uri, and code_challenge are required"})
+					"error_description": "client_id and redirect_uri are required"})
 		}
-		if codeChallengeMethod != "S256" {
-			return c.JSON(http.StatusBadRequest,
-				map[string]string{"error": "invalid_request",
-					"error_description": "code_challenge_method must be S256"})
-		}
-		if err := validateScope(scope); err != nil {
-			return c.JSON(http.StatusBadRequest,
-				map[string]string{"error": "invalid_scope",
-					"error_description": err.Error()})
-		}
-
-		// Validate client exists and redirect_uri is registered.
 		client, err := clientRepo.FindByID(c.Request().Context(), clientID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -132,6 +137,31 @@ func Authorize(
 					"error_description": "redirect_uri not registered for this client"})
 		}
 
+		// Step 2: redirect_uri is now trusted. From here on, return errors
+		// via redirect to the client per RFC 6749 §4.1.2.1.
+		responseType := c.QueryParam("response_type")
+		codeChallenge := c.QueryParam("code_challenge")
+		codeChallengeMethod := c.QueryParam("code_challenge_method")
+		state := c.QueryParam("state")
+		scope := c.QueryParam("scope")
+
+		if responseType != "code" {
+			return redirectAuthError(c, redirectURI,
+				"unsupported_response_type", "only response_type=code is supported", state)
+		}
+		if codeChallenge == "" {
+			return redirectAuthError(c, redirectURI,
+				"invalid_request", "code_challenge is required", state)
+		}
+		if codeChallengeMethod != "S256" {
+			return redirectAuthError(c, redirectURI,
+				"invalid_request", "code_challenge_method must be S256", state)
+		}
+		if err := validateScope(scope); err != nil {
+			return redirectAuthError(c, redirectURI,
+				"invalid_scope", err.Error(), state)
+		}
+
 		// Initiate Google OAuth via pericarp's auth flow.
 		callbackURL := baseURL + "/oauth/callback"
 		authReq, err := authService.InitiateAuthFlow(
@@ -139,8 +169,7 @@ func Authorize(
 		if err != nil {
 			logger.Error(c.Request().Context(), "oauth authorize: initiate flow failed",
 				"error", err)
-			return c.JSON(http.StatusInternalServerError,
-				map[string]string{"error": "server_error"})
+			return redirectAuthError(c, redirectURI, "server_error", "", state)
 		}
 
 		// Pre-generate the code value so it can be stored in the session
@@ -148,21 +177,24 @@ func Authorize(
 		// until after the session save succeeds.
 		codeValue, err := generateRandomCode()
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError,
-				map[string]string{"error": "server_error"})
+			logger.Error(c.Request().Context(), "oauth authorize: code generation failed",
+				"error", err)
+			return redirectAuthError(c, redirectURI, "server_error", "", state)
 		}
 
 		sess, err := sessionStore.Get(c.Request(), oauthSessionName)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError,
-				map[string]string{"error": "session_error"})
+			logger.Error(c.Request().Context(), "oauth authorize: session get failed",
+				"error", err)
+			return redirectAuthError(c, redirectURI, "server_error", "", state)
 		}
 		sess.Values["oauth_code"] = codeValue
 		sess.Values["oauth_code_verifier"] = authReq.CodeVerifier
 		sess.Values["oauth_state"] = authReq.State
 		if err := sess.Save(c.Request(), c.Response()); err != nil {
-			return c.JSON(http.StatusInternalServerError,
-				map[string]string{"error": "session_error"})
+			logger.Error(c.Request().Context(), "oauth authorize: session save failed",
+				"error", err)
+			return redirectAuthError(c, redirectURI, "server_error", "", state)
 		}
 
 		// Persist the pending authorization code only after session save
@@ -180,8 +212,7 @@ func Authorize(
 		if err := codeRepo.Create(c.Request().Context(), authCode); err != nil {
 			logger.Error(c.Request().Context(), "oauth authorize: code persistence failed",
 				"error", err)
-			return c.JSON(http.StatusInternalServerError,
-				map[string]string{"error": "server_error"})
+			return redirectAuthError(c, redirectURI, "server_error", "", state)
 		}
 
 		return c.Redirect(http.StatusFound, authReq.AuthURL)
