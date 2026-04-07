@@ -62,7 +62,7 @@ func Callback(
 		codeVerifier, ok := sess.Values["oauth_code_verifier"].(string)
 		if !ok || codeVerifier == "" {
 			logger.Error(ctx, "oauth callback: missing PKCE verifier in session")
-			return c.JSON(http.StatusBadRequest,
+			return c.JSON(http.StatusInternalServerError,
 				map[string]string{"error": "server_error"})
 		}
 		expectedState, _ := sess.Values["oauth_state"].(string)
@@ -85,7 +85,7 @@ func Callback(
 					map[string]string{"error": "invalid_grant"})
 			}
 			logger.Error(ctx, "oauth callback: code lookup failed",
-				"code", codeStr, "error", err)
+				"code_hash", MaskCode(codeStr), "error", err)
 			return c.JSON(http.StatusInternalServerError,
 				map[string]string{"error": "server_error"})
 		}

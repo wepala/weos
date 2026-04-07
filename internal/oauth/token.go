@@ -99,7 +99,7 @@ func handleAuthCodeGrant(
 			})
 		}
 		logger.Error(ctx, "oauth token: code lookup failed",
-			"code", code, "error", err)
+			"code_hash", MaskCode(code), "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
 			Error: "server_error",
 		})
@@ -151,7 +151,7 @@ func handleAuthCodeGrant(
 			})
 		}
 		logger.Error(ctx, "oauth token: mark exchanged failed",
-			"code", code, "error", err)
+			"code_hash", MaskCode(code), "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
 			Error: "server_error",
 		})

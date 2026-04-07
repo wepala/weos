@@ -210,3 +210,13 @@ func HashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
 }
+
+// MaskCode returns a safe-to-log identifier for a sensitive credential
+// (authorization code, refresh token, etc.) — the first 8 hex chars of
+// the SHA-256 hash. Never logs the raw value.
+func MaskCode(code string) string {
+	if code == "" {
+		return ""
+	}
+	return HashToken(code)[:8]
+}
