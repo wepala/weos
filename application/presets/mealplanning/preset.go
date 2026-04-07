@@ -307,7 +307,8 @@ func scheduledMealType() application.PresetResourceType {
 		Slug:        "scheduled-meal",
 		Description: "A scheduled (possibly recurring) meal within a meal plan",
 		Context: schemaTypeContext("Schedule",
-			`"recipe":"mp:recipe","mealPlan":"mp:mealPlan"`),
+			`"recipe":"mp:recipe","mealPlan":"mp:mealPlan",`+
+				`"notes":"https://schema.org/description"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -342,7 +343,8 @@ func mealOccurrenceType() application.PresetResourceType {
 		Slug:        "meal-occurrence",
 		Description: "A concrete single-date instance of a scheduled meal",
 		Context: mpTypeContext("MealOccurrence",
-			`"scheduledMeal":"mp:occurrenceOf"`),
+			`"scheduledMeal":"mp:occurrenceOf",`+
+				`"notes":"https://schema.org/description"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -384,7 +386,8 @@ func foodItemType() application.PresetResourceType {
 		Slug:        "food-item",
 		Description: "A physical food item in a pantry (instance of an ingredient)",
 		Context: mpTypeContext("FoodItem",
-			`"ingredient":"mp:isInstanceOf","pantry":"mp:pantry"`),
+			`"ingredient":"mp:isInstanceOf","pantry":"mp:pantry",`+
+				`"notes":"https://schema.org/description"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -430,7 +433,8 @@ func shoppingListItemType() application.PresetResourceType {
 		Slug:        "shopping-list-item",
 		Description: "A line item on a shopping list",
 		Context: mpTypeContext("ShoppingListItem",
-			`"ingredient":"mp:ingredient","shoppingList":"mp:hasItem"`),
+			`"ingredient":"mp:ingredient","shoppingList":"mp:hasItem",`+
+				`"notes":"https://schema.org/description"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
