@@ -19,12 +19,15 @@ import "time"
 
 // OAuthClient stores dynamically registered MCP clients (RFC 7591).
 type OAuthClient struct {
-	ClientID                string `gorm:"primaryKey;type:varchar(255)"`
-	ClientSecret            string `gorm:"type:varchar(255)"` // bcrypt hash; empty for public clients
-	ClientName              string `gorm:"type:varchar(255);not null"`
-	RedirectURIs            string `gorm:"type:text;not null;default:'[]'"` // JSON array
-	GrantTypes              string `gorm:"type:text;not null;default:'[\"authorization_code\"]'"`
-	ResponseTypes           string `gorm:"type:text;not null;default:'[\"code\"]'"`
+	ClientID     string `gorm:"primaryKey;type:varchar(255)"`
+	ClientSecret string `gorm:"type:varchar(255)"` // bcrypt hash; empty for public clients
+	ClientName   string `gorm:"type:varchar(255);not null"`
+	// JSON arrays. Defaults are populated by the registration handler
+	// (not via GORM defaults, since SQL string literals can't represent
+	// JSON arrays without escaping issues across drivers).
+	RedirectURIs            string `gorm:"type:text;not null"`
+	GrantTypes              string `gorm:"type:text;not null"`
+	ResponseTypes           string `gorm:"type:text;not null"`
 	TokenEndpointAuthMethod string `gorm:"type:varchar(50);not null;default:'none'"`
 	Scope                   string `gorm:"type:varchar(500)"`
 	CreatedAt               time.Time

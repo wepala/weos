@@ -61,6 +61,11 @@ func Token(
 
 		grantType := c.FormValue("grant_type")
 		switch grantType {
+		case "":
+			return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+				Error:       "invalid_request",
+				Description: "grant_type is required",
+			})
 		case "authorization_code":
 			return handleAuthCodeGrant(c, jwtService, codeRepo, agentRepo, accountRepo, refreshRepo, logger)
 		case "refresh_token":
