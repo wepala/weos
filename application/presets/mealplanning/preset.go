@@ -58,16 +58,28 @@ func Register(registry *application.PresetRegistry) {
 
 // -- contexts ----------------------------------------------------------------
 
-// mpTypeContext returns a JSON-LD context for a meal-planning type (mp:<typeName>).
-// extraTerms is a JSON object fragment of additional term mappings (without
-// surrounding braces) to include — used by types that have reference properties
-// needing explicit predicate IRIs.
+// mpTypeContext returns a JSON-LD context for a meal-planning type whose
+// @type is the custom mp:<typeName>. extraTerms is a JSON object fragment of
+// additional term mappings (without surrounding braces) for types that have
+// reference properties needing explicit predicate IRIs.
 func mpTypeContext(typeName, extraTerms string) json.RawMessage {
+	return mpContext("mp:"+typeName, extraTerms)
+}
+
+// schemaTypeContext returns a JSON-LD context whose @type is a schema.org type
+// (e.g. "MealPlan", "Schedule", "Collection"). The mp: namespace and shared
+// custom-term mappings are still declared so types can use mp: predicates.
+func schemaTypeContext(schemaType, extraTerms string) json.RawMessage {
+	return mpContext(schemaType, extraTerms)
+}
+
+// mpContext is the shared builder for both helpers.
+func mpContext(typeIRI, extraTerms string) json.RawMessage {
 	terms := `"@vocab":"https://schema.org/",` +
 		`"mp":"https://weos.org/vocab/meal-planning#",` +
 		`"mealType":"mp:mealType",` +
 		`"servings":"mp:servings",` +
-		`"@type":"mp:` + typeName + `"`
+		`"@type":"` + typeIRI + `"`
 	if extraTerms != "" {
 		terms += "," + extraTerms
 	}
@@ -102,15 +114,18 @@ func recipeType() application.PresetResourceType {
 		"recipeCuisine":{"type":"string"},
 		"recipeCategory":{"type":"string"},
 		"keywords":{"type":"array","items":{"type":"string"}},
-		"suitableForDiet":{"type":"array","items":{
-			"type":"string","x-resource-type":"restricted-diet",
-			"x-display-property":"name"}},
-		"recipeInstructions":{"type":"array","items":{
-			"type":"string","x-resource-type":"how-to-step",
-			"x-display-property":"text"}},
-		"recipeIngredient":{"type":"array","items":{
-			"type":"string","x-resource-type":"recipe-ingredient",
-			"x-display-property":"unit"}},
+		"suitableForDiet":{"type":"array",
+			"x-resource-type":"restricted-diet",
+			"x-display-property":"name",
+			"items":{"type":"string"}},
+		"recipeInstructions":{"type":"array",
+			"x-resource-type":"how-to-step",
+			"x-display-property":"text",
+			"items":{"type":"string"}},
+		"recipeIngredient":{"type":"array",
+			"x-resource-type":"recipe-ingredient",
+			"x-display-property":"unit",
+			"items":{"type":"string"}},
 		"nutrition":{"type":"string",
 			"x-resource-type":"nutrition-information",
 			"x-display-property":"servingSize"},
@@ -170,9 +185,10 @@ func ingredientType() application.PresetResourceType {
 			"produce","meat","seafood","dairy","bakery","pantry",
 			"frozen","beverages","condiments","spices","other"]},
 		"season":{"type":"array","items":{"type":"string","enum":["spring","summer","autumn","winter"]}},
-		"suitableForDiet":{"type":"array","items":{
-			"type":"string","x-resource-type":"restricted-diet",
-			"x-display-property":"name"}},
+		"suitableForDiet":{"type":"array",
+			"x-resource-type":"restricted-diet",
+			"x-display-property":"name",
+			"items":{"type":"string"}},
 		"defaultUnit":{"type":"string"},
 		"image":{"type":"string","format":"uri"}
 	},
@@ -230,7 +246,11 @@ func nutritionInformationType() application.PresetResourceType {
 		"recipe":{"type":"string","x-resource-type":"recipe","x-display-property":"name"},
 		"ingredient":{"type":"string","x-resource-type":"ingredient","x-display-property":"name"}
 	},
-	"required":["servingSize"]
+	"required":["servingSize"],
+	"anyOf":[
+		{"required":["recipe"]},
+		{"required":["ingredient"]}
+	]
 }`),
 	}
 }
@@ -240,7 +260,7 @@ func cookbookType() application.PresetResourceType {
 		Name:        "Cookbook",
 		Slug:        "cookbook",
 		Description: "A named collection of recipes",
-		Context: mpTypeContext("Cookbook",
+		Context: schemaTypeContext("Collection",
 			`"recipes":"https://schema.org/hasPart"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
@@ -249,7 +269,9 @@ func cookbookType() application.PresetResourceType {
 		"description":{"type":"string"},
 		"image":{"type":"string","format":"uri"},
 		"keywords":{"type":"array","items":{"type":"string"}},
-		"recipes":{"type":"array","items":{"type":"string","x-resource-type":"recipe","x-display-property":"name"}}
+		"recipes":{"type":"array",
+			"x-resource-type":"recipe","x-display-property":"name",
+			"items":{"type":"string"}}
 	},
 	"required":["name"]
 }`),
@@ -261,7 +283,7 @@ func mealPlanType() application.PresetResourceType {
 		Name:        "Meal Plan",
 		Slug:        "meal-plan",
 		Description: "A weekly or custom-period meal plan",
-		Context:     mpTypeContext("MealPlan", ""),
+		Context:     schemaTypeContext("MealPlan", ""),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{
@@ -269,9 +291,10 @@ func mealPlanType() application.PresetResourceType {
 		"description":{"type":"string"},
 		"startDate":{"type":"string","format":"date"},
 		"endDate":{"type":"string","format":"date"},
-		"suitableForDiet":{"type":"array","items":{
-			"type":"string","x-resource-type":"restricted-diet",
-			"x-display-property":"name"}}
+		"suitableForDiet":{"type":"array",
+			"x-resource-type":"restricted-diet",
+			"x-display-property":"name",
+			"items":{"type":"string"}}
 	},
 	"required":["name","startDate","endDate"]
 }`),
@@ -283,7 +306,7 @@ func scheduledMealType() application.PresetResourceType {
 		Name:        "Scheduled Meal",
 		Slug:        "scheduled-meal",
 		Description: "A scheduled (possibly recurring) meal within a meal plan",
-		Context: mpTypeContext("ScheduledMeal",
+		Context: schemaTypeContext("Schedule",
 			`"recipe":"mp:recipe","mealPlan":"mp:mealPlan"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
