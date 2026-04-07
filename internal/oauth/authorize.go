@@ -17,6 +17,7 @@ package oauth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -99,8 +100,14 @@ func Authorize(
 		// Validate client exists and redirect_uri is registered.
 		client, err := clientRepo.FindByID(c.Request().Context(), clientID)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest,
-				map[string]string{"error": "invalid_client"})
+			if errors.Is(err, ErrNotFound) {
+				return c.JSON(http.StatusBadRequest,
+					map[string]string{"error": "invalid_client"})
+			}
+			logger.Error(c.Request().Context(), "oauth authorize: client lookup failed",
+				"client", clientID, "error", err)
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": "server_error"})
 		}
 		allowed, uriErr := isRedirectURIAllowed(client.RedirectURIs, redirectURI)
 		if uriErr != nil {

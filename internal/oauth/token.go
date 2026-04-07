@@ -226,10 +226,10 @@ func handleRefreshGrant(
 	ctx := c.Request().Context()
 	rawToken := c.FormValue("refresh_token")
 	clientID := c.FormValue("client_id")
-	if rawToken == "" {
+	if rawToken == "" || clientID == "" {
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
 			Error:       "invalid_request",
-			Description: "refresh_token is required",
+			Description: "refresh_token and client_id are required",
 		})
 	}
 
@@ -251,8 +251,8 @@ func handleRefreshGrant(
 			Error: "invalid_grant",
 		})
 	}
-	// Verify client_id matches the refresh token's client.
-	if clientID != "" && clientID != stored.ClientID {
+	// Verify client_id matches the refresh token's client (RFC 6749 §6).
+	if clientID != stored.ClientID {
 		logger.Warn(ctx, "oauth refresh: client_id mismatch",
 			"expected", stored.ClientID, "got", clientID)
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{

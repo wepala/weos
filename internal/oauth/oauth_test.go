@@ -625,6 +625,7 @@ func TestTokenHandler_RefreshToken_NotFound(t *testing.T) {
 	req := newTokenRequest(tokenForm(map[string]string{
 		"grant_type":    "refresh_token",
 		"refresh_token": "nonexistent",
+		"client_id":     "c",
 	}))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -652,6 +653,7 @@ func TestTokenHandler_RefreshToken_Revoked(t *testing.T) {
 	req := newTokenRequest(tokenForm(map[string]string{
 		"grant_type":    "refresh_token",
 		"refresh_token": raw,
+		"client_id":     "c",
 	}))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -681,6 +683,7 @@ func TestTokenHandler_RefreshToken_Expired(t *testing.T) {
 	req := newTokenRequest(tokenForm(map[string]string{
 		"grant_type":    "refresh_token",
 		"refresh_token": raw,
+		"client_id":     "c",
 	}))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)

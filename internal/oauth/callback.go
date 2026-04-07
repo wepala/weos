@@ -16,6 +16,7 @@
 package oauth
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"time"
@@ -78,8 +79,17 @@ func Callback(
 
 		// Validate the authorization code (also before clearing session).
 		authCode, err := codeRepo.FindByCode(ctx, codeStr)
-		if err != nil || authCode.Status != StatusPending ||
-			time.Now().After(authCode.ExpiresAt) {
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return c.JSON(http.StatusBadRequest,
+					map[string]string{"error": "invalid_grant"})
+			}
+			logger.Error(ctx, "oauth callback: code lookup failed",
+				"code", codeStr, "error", err)
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": "server_error"})
+		}
+		if authCode.Status != StatusPending || time.Now().After(authCode.ExpiresAt) {
 			return c.JSON(http.StatusBadRequest,
 				map[string]string{"error": "invalid_grant"})
 		}
