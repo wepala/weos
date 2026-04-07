@@ -108,14 +108,54 @@ func Register(registry *application.PresetRegistry) {
                 }`,
             ),
         },
-        Behaviors: map[string]entities.ResourceBehavior{
-            "blog-post": &blogPostBehavior{},
+        Behaviors: map[string]application.BehaviorFactory{
+            "blog-post": application.StaticBehavior(&blogPostBehavior{}),
         },
     })
 }
 ```
 
 The slug key (`"blog-post"`) must match the resource type's slug exactly.
+
+`Behaviors` is a map of **factory functions**, not pre-built instances. Factories are
+invoked at startup, after the dependency injection container is wired, so a behavior
+can close over real repositories and loggers. For a behavior with no service
+dependencies (like the one above), `application.StaticBehavior` wraps a plain instance.
+
+## 3a. Inject Application Services
+
+If your behavior needs a repository or logger, write a real factory instead of
+`StaticBehavior`. The factory receives a populated `application.BehaviorServices`,
+whose fields are `Resources` (`repositories.ResourceRepository`), `Triples`
+(`repositories.TripleRepository`), `ResourceTypes` (`repositories.ResourceTypeRepository`),
+and `Logger` (`entities.Logger`).
+
+Example (showing imports):
+
+```go
+import (
+    "weos/application"
+    "weos/domain/entities"
+    "weos/domain/repositories"
+)
+
+type blogPostBehavior struct {
+    entities.DefaultBehavior
+    resources repositories.ResourceRepository
+    logger    entities.Logger
+}
+
+func newBlogPostBehavior(s application.BehaviorServices) entities.ResourceBehavior {
+    return &blogPostBehavior{resources: s.Resources, logger: s.Logger}
+}
+
+// In Register():
+Behaviors: map[string]application.BehaviorFactory{
+    "blog-post": newBlogPostBehavior,
+},
+```
+
+The factory is called once, at startup, by `application.ProvideResourceBehaviorRegistry`.
 
 ## 4. Register the Preset
 

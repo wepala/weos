@@ -16,6 +16,7 @@
 package application
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -49,11 +50,11 @@ type PresetDefinition struct {
 	Name         string
 	Description  string
 	Types        []PresetResourceType
-	Behaviors    map[string]entities.ResourceBehavior // slug -> behavior implementation
-	BehaviorMeta map[string]entities.BehaviorMeta     // slug -> metadata for UI/config
-	Screens      fs.FS                                // optional embedded screen components
-	Sidebar      *PresetSidebarConfig                 // optional sidebar defaults
-	AutoInstall  bool                                 // if true, types are auto-created at startup
+	Behaviors    map[string]BehaviorFactory       // slug -> factory invoked at startup with services
+	BehaviorMeta map[string]entities.BehaviorMeta // slug -> metadata for UI/config
+	Screens      fs.FS                            // optional embedded screen components
+	Sidebar      *PresetSidebarConfig             // optional sidebar defaults
+	AutoInstall  bool                             // if true, types are auto-created at startup
 }
 
 // InstallPresetResult reports which types were created, updated, or skipped.
@@ -89,6 +90,11 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 		}
 		if err := pt.validateFixtures(); err != nil {
 			return fmt.Errorf("preset %q: %w", def.Name, err)
+		}
+	}
+	for slug, factory := range def.Behaviors {
+		if factory == nil {
+			return fmt.Errorf("preset %q: behavior factory for slug %q is nil", def.Name, slug)
 		}
 	}
 	r.mu.Lock()
@@ -150,7 +156,7 @@ func (d PresetDefinition) clone() PresetDefinition {
 		d.Types = types
 	}
 	if d.Behaviors != nil {
-		behaviors := make(map[string]entities.ResourceBehavior, len(d.Behaviors))
+		behaviors := make(map[string]BehaviorFactory, len(d.Behaviors))
 		for k, v := range d.Behaviors {
 			behaviors[k] = v
 		}
@@ -221,26 +227,56 @@ func (d PresetDefinition) ScreenManifest() map[string][]string {
 	return manifest
 }
 
-// Behaviors returns a merged ResourceBehaviorRegistry from all registered presets.
+// Behaviors returns a merged ResourceBehaviorRegistry from all registered presets,
+// invoking each preset's BehaviorFactory exactly once with the supplied services.
 // Presets are processed in alphabetical order; if multiple presets declare a behavior
-// for the same slug, the last preset alphabetically wins (silent overwrite).
-func (r *PresetRegistry) Behaviors() ResourceBehaviorRegistry {
+// for the same slug, the last preset alphabetically wins and a warning is logged
+// (when services.Logger is non-nil). Returns an error if any factory is nil or
+// returns a nil ResourceBehavior — Add() rejects nil factories at registration time,
+// so the nil-factory branch here is defense in depth.
+func (r *PresetRegistry) Behaviors(services BehaviorServices) (ResourceBehaviorRegistry, error) {
+	// Snapshot presets under the lock so we don't hold it while invoking
+	// factories or the logger (either of which could be slow or call back
+	// into the registry).
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	// Sort preset names for deterministic merge order.
 	names := make([]string, 0, len(r.presets))
-	for name := range r.presets {
+	snapshot := make(map[string]map[string]BehaviorFactory, len(r.presets))
+	for name, def := range r.presets {
 		names = append(names, name)
+		if len(def.Behaviors) == 0 {
+			continue
+		}
+		factories := make(map[string]BehaviorFactory, len(def.Behaviors))
+		for slug, f := range def.Behaviors {
+			factories[slug] = f
+		}
+		snapshot[name] = factories
 	}
+	r.mu.RUnlock()
+
 	sort.Strings(names)
 
 	behaviors := make(ResourceBehaviorRegistry)
+	source := make(map[string]string) // slug -> preset name that registered it
 	for _, name := range names {
-		for slug, behavior := range r.presets[name].Behaviors {
+		for slug, factory := range snapshot[name] {
+			if factory == nil {
+				return nil, fmt.Errorf("preset %q: behavior factory for slug %q is nil", name, slug)
+			}
+			if prev, ok := source[slug]; ok && !isNilInterface(services.Logger) {
+				services.Logger.Warn(context.Background(),
+					"resource behavior overridden by later preset",
+					"slug", slug, "previousPreset", prev, "newPreset", name)
+			}
+			behavior := factory(services)
+			if behavior == nil {
+				return nil, fmt.Errorf("preset %q: behavior factory for slug %q returned nil", name, slug)
+			}
 			behaviors[slug] = behavior
+			source[slug] = name
 		}
 	}
-	return behaviors
+	return behaviors, nil
 }
 
 // validateFixtures checks that fixture data is well-formed at registration time.

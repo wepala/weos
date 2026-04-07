@@ -497,3 +497,258 @@ func TestBehaviorFor_NonManageableNotAffectedByOverride(t *testing.T) {
 		t.Errorf("expected [person.BeforeCreate] (non-manageable, ignores override), got %v", calls)
 	}
 }
+
+// serviceAwareBehavior records the services it received at construction.
+type serviceAwareBehavior struct {
+	entities.DefaultBehavior
+	services BehaviorServices
+}
+
+// stubResourceRepo embeds the interface so it satisfies the type without
+// implementing methods. Method calls on the nil embedded field panic — these
+// stubs are only used for identity checks, not invocation.
+type stubResourceRepo struct {
+	repositories.ResourceRepository
+}
+type stubTripleRepo struct{ repositories.TripleRepository }
+
+// recordingLogger captures Warn calls for assertion in merge tests.
+type recordingLogger struct {
+	noopLogger
+	warns []string
+}
+
+func (l *recordingLogger) Warn(_ context.Context, msg string, _ ...any) {
+	l.warns = append(l.warns, msg)
+}
+
+func TestStaticBehavior_IgnoresServices(t *testing.T) {
+	t.Parallel()
+	want := &serviceAwareBehavior{}
+	factory := StaticBehavior(want)
+	got := factory(BehaviorServices{})
+	if got != want {
+		t.Fatalf("StaticBehavior should return the same instance regardless of services")
+	}
+}
+
+func TestStaticBehavior_PanicsOnNil(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("StaticBehavior(nil) should panic")
+		}
+	}()
+	_ = StaticBehavior(nil)
+}
+
+func TestPresetRegistry_BehaviorsInjectsAllServices(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{
+		Name:  "p",
+		Types: []PresetResourceType{NewPresetType("Thing", "thing", "desc", "", "")},
+		Behaviors: map[string]BehaviorFactory{
+			"thing": func(s BehaviorServices) entities.ResourceBehavior {
+				return &serviceAwareBehavior{services: s}
+			},
+		},
+	})
+
+	resources := &stubResourceRepo{}
+	triples := &stubTripleRepo{}
+	types := &stubTypeRepo{}
+	logger := noopLogger{}
+	services := BehaviorServices{
+		Resources:     resources,
+		Triples:       triples,
+		ResourceTypes: types,
+		Logger:        logger,
+	}
+	merged, err := registry.Behaviors(services)
+	if err != nil {
+		t.Fatalf("Behaviors() returned error: %v", err)
+	}
+
+	b, ok := merged["thing"].(*serviceAwareBehavior)
+	if !ok {
+		t.Fatalf("expected serviceAwareBehavior, got %T", merged["thing"])
+	}
+	if b.services.Resources != resources {
+		t.Errorf("Resources field not propagated")
+	}
+	if b.services.Triples != triples {
+		t.Errorf("Triples field not propagated")
+	}
+	if b.services.ResourceTypes != types {
+		t.Errorf("ResourceTypes field not propagated")
+	}
+	if b.services.Logger != logger {
+		t.Errorf("Logger field not propagated")
+	}
+}
+
+func TestPresetRegistry_AddRejectsNilFactory(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	err := registry.Add(PresetDefinition{
+		Name:  "p",
+		Types: []PresetResourceType{NewPresetType("T", "t", "d", "", "")},
+		Behaviors: map[string]BehaviorFactory{
+			"t": nil,
+		},
+	})
+	if err == nil {
+		t.Fatal("Add should reject nil factory")
+	}
+}
+
+func TestPresetRegistry_BehaviorsFactoryInvokedOncePerSlug(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	calls := 0
+	registry.MustAdd(PresetDefinition{
+		Name:  "p",
+		Types: []PresetResourceType{NewPresetType("T", "t", "d", "", "")},
+		Behaviors: map[string]BehaviorFactory{
+			"t": func(BehaviorServices) entities.ResourceBehavior {
+				calls++
+				return &serviceAwareBehavior{}
+			},
+		},
+	})
+	if _, err := registry.Behaviors(BehaviorServices{}); err != nil {
+		t.Fatalf("Behaviors() returned error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected factory to be invoked exactly once, got %d", calls)
+	}
+}
+
+func TestPresetRegistry_BehaviorsMultiPresetMergeLastWins(t *testing.T) {
+	t.Parallel()
+	winner := &serviceAwareBehavior{}
+	loser := &serviceAwareBehavior{}
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{
+		Name:      "a-first",
+		Types:     []PresetResourceType{NewPresetType("T", "t", "d", "", "")},
+		Behaviors: map[string]BehaviorFactory{"t": StaticBehavior(loser)},
+	})
+	registry.MustAdd(PresetDefinition{
+		Name:      "b-second",
+		Types:     []PresetResourceType{NewPresetType("T", "t", "d", "", "")},
+		Behaviors: map[string]BehaviorFactory{"t": StaticBehavior(winner)},
+	})
+	logger := &recordingLogger{}
+	merged, err := registry.Behaviors(BehaviorServices{Logger: logger})
+	if err != nil {
+		t.Fatalf("Behaviors() returned error: %v", err)
+	}
+	if merged["t"] != winner {
+		t.Fatalf("expected later preset to win the merge")
+	}
+	if len(logger.warns) != 1 {
+		t.Fatalf("expected exactly one override warning, got %d", len(logger.warns))
+	}
+}
+
+func TestProvideResourceBehaviorRegistry_RejectsTypedNilDeps(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	var typedNilResources *stubResourceRepo
+	var typedNilTriples *stubTripleRepo
+	var typedNilTypes *stubTypeRepo
+	if _, err := ProvideResourceBehaviorRegistry(
+		registry, typedNilResources, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{},
+	); err == nil {
+		t.Error("expected error for typed-nil Resources")
+	}
+	if _, err := ProvideResourceBehaviorRegistry(
+		registry, &stubResourceRepo{}, typedNilTriples, &stubTypeRepo{}, noopLogger{},
+	); err == nil {
+		t.Error("expected error for typed-nil Triples")
+	}
+	if _, err := ProvideResourceBehaviorRegistry(
+		registry, &stubResourceRepo{}, &stubTripleRepo{}, typedNilTypes, noopLogger{},
+	); err == nil {
+		t.Error("expected error for typed-nil ResourceTypes")
+	}
+}
+
+func TestProvideResourceBehaviorRegistry_RejectsNilDeps(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	if _, err := ProvideResourceBehaviorRegistry(registry, nil, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{}); err == nil {
+		t.Error("expected error when Resources is nil")
+	}
+	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, nil, &stubTypeRepo{}, noopLogger{}); err == nil {
+		t.Error("expected error when Triples is nil")
+	}
+	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, &stubTripleRepo{}, nil, noopLogger{}); err == nil {
+		t.Error("expected error when ResourceTypes is nil")
+	}
+	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, &stubTripleRepo{}, &stubTypeRepo{}, nil); err == nil {
+		t.Error("expected error when Logger is nil")
+	}
+}
+
+func TestPresetRegistry_BehaviorsRejectsNilReturningFactory(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{
+		Name:  "p",
+		Types: []PresetResourceType{NewPresetType("T", "t", "d", "", "")},
+		Behaviors: map[string]BehaviorFactory{
+			"t": func(BehaviorServices) entities.ResourceBehavior { return nil },
+		},
+	})
+	if _, err := registry.Behaviors(BehaviorServices{}); err == nil {
+		t.Fatal("expected error when factory returns nil")
+	}
+}
+
+func TestProvideResourceBehaviorRegistry_RejectsNilReturningFactory(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{
+		Name:  "p",
+		Types: []PresetResourceType{NewPresetType("T", "t", "d", "", "")},
+		Behaviors: map[string]BehaviorFactory{
+			"t": func(BehaviorServices) entities.ResourceBehavior { return nil },
+		},
+	})
+	_, err := ProvideResourceBehaviorRegistry(
+		registry, &stubResourceRepo{}, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{},
+	)
+	if err == nil {
+		t.Fatal("expected error when factory returns nil")
+	}
+}
+
+func TestProvideResourceBehaviorRegistry_PassesThroughDeps(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{
+		Name:  "p",
+		Types: []PresetResourceType{NewPresetType("T", "t", "d", "", "")},
+		Behaviors: map[string]BehaviorFactory{
+			"t": func(s BehaviorServices) entities.ResourceBehavior {
+				return &serviceAwareBehavior{services: s}
+			},
+		},
+	})
+	resources := &stubResourceRepo{}
+	triples := &stubTripleRepo{}
+	types := &stubTypeRepo{}
+	logger := noopLogger{}
+	merged, err := ProvideResourceBehaviorRegistry(registry, resources, triples, types, logger)
+	if err != nil {
+		t.Fatalf("ProvideResourceBehaviorRegistry returned error: %v", err)
+	}
+	b := merged["t"].(*serviceAwareBehavior)
+	if b.services.Resources != resources || b.services.Triples != triples ||
+		b.services.ResourceTypes != types || b.services.Logger != logger {
+		t.Fatal("provider did not pass dependencies through to factory")
+	}
+}
