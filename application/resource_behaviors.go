@@ -16,17 +16,78 @@
 package application
 
 import (
+	"context"
+	"fmt"
+
 	"weos/domain/entities"
+	"weos/domain/repositories"
 )
+
+// BehaviorServices bundles application services that ResourceBehavior factories
+// may depend on. All fields are required when constructed by
+// ProvideResourceBehaviorRegistry; tests that build BehaviorServices directly
+// must supply real or fake implementations for any field their behavior touches.
+type BehaviorServices struct {
+	Resources     repositories.ResourceRepository
+	Triples       repositories.TripleRepository
+	ResourceTypes repositories.ResourceTypeRepository
+	Logger        entities.Logger
+}
+
+// BehaviorFactory constructs a ResourceBehavior given the available application
+// services. Factories are invoked once at startup, after the Fx container is
+// wired, allowing behaviors to close over real repositories and loggers.
+// A factory must not return nil — that is treated as a programmer error and
+// fails startup.
+type BehaviorFactory func(services BehaviorServices) entities.ResourceBehavior
+
+// StaticBehavior wraps a pre-constructed ResourceBehavior in a BehaviorFactory.
+// Use this for behaviors that have no service dependencies, so presets can
+// declare them inline without writing a factory function. Panics if b is nil.
+func StaticBehavior(b entities.ResourceBehavior) BehaviorFactory {
+	if b == nil {
+		panic("application.StaticBehavior: behavior must not be nil")
+	}
+	return func(BehaviorServices) entities.ResourceBehavior { return b }
+}
 
 // ResourceBehaviorRegistry maps resource type slugs to their custom behaviors.
 // Types without a registered behavior use DefaultBehavior (no-op).
 type ResourceBehaviorRegistry map[string]entities.ResourceBehavior
 
 // ProvideResourceBehaviorRegistry builds the behavior registry from all
-// registered presets. Each preset can declare behaviors for its resource types.
-func ProvideResourceBehaviorRegistry(registry *PresetRegistry) ResourceBehaviorRegistry {
-	return registry.Behaviors()
+// registered presets, invoking each factory with the supplied services. Fails
+// startup if any injected dependency is nil or any factory returns nil.
+func ProvideResourceBehaviorRegistry(
+	registry *PresetRegistry,
+	resources repositories.ResourceRepository,
+	triples repositories.TripleRepository,
+	resourceTypes repositories.ResourceTypeRepository,
+	logger entities.Logger,
+) (ResourceBehaviorRegistry, error) {
+	if registry == nil {
+		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil PresetRegistry")
+	}
+	if resources == nil || triples == nil || resourceTypes == nil || logger == nil {
+		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil dependency injected")
+	}
+	services := BehaviorServices{
+		Resources:     resources,
+		Triples:       triples,
+		ResourceTypes: resourceTypes,
+		Logger:        logger,
+	}
+	behaviors, err := registry.Behaviors(services)
+	if err != nil {
+		return nil, err
+	}
+	for slug, b := range behaviors {
+		if b == nil {
+			return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: factory for slug %q returned nil", slug)
+		}
+		logger.Info(context.Background(), "resource behavior registered", "slug", slug)
+	}
+	return behaviors, nil
 }
 
 // BehaviorMetaRegistry maps resource type slugs to their behavior metadata.

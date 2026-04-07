@@ -49,9 +49,9 @@ func Register(registry *application.PresetRegistry) {
 				}`,
 			),
 		},
-		Behaviors: map[string]entities.ResourceBehavior{
-			"person":       &personBehavior{},
-			"organization": &organizationBehavior{},
+		Behaviors: map[string]application.BehaviorFactory{
+			"person":       application.StaticBehavior(&personBehavior{}),
+			"organization": application.StaticBehavior(&organizationBehavior{}),
 		},
 		BehaviorMeta: map[string]entities.BehaviorMeta{
 			"person": {

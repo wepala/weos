@@ -145,7 +145,10 @@ func TestPresets_CoreHasBehaviors(t *testing.T) {
 
 func TestPresets_BehaviorsRegistry(t *testing.T) {
 	t.Parallel()
-	behaviors := testRegistry().Behaviors()
+	behaviors, err := testRegistry().Behaviors(application.BehaviorServices{})
+	if err != nil {
+		t.Fatalf("Behaviors() returned error: %v", err)
+	}
 	if _, ok := behaviors["person"]; !ok {
 		t.Fatal("merged behaviors should include 'person'")
 	}

@@ -16,6 +16,7 @@
 package application
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -49,7 +50,7 @@ type PresetDefinition struct {
 	Name         string
 	Description  string
 	Types        []PresetResourceType
-	Behaviors    map[string]entities.ResourceBehavior // slug -> behavior implementation
+	Behaviors    map[string]BehaviorFactory           // slug -> factory invoked at startup with services
 	BehaviorMeta map[string]entities.BehaviorMeta     // slug -> metadata for UI/config
 	Screens      fs.FS                                // optional embedded screen components
 	Sidebar      *PresetSidebarConfig                 // optional sidebar defaults
@@ -89,6 +90,11 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 		}
 		if err := pt.validateFixtures(); err != nil {
 			return fmt.Errorf("preset %q: %w", def.Name, err)
+		}
+	}
+	for slug, factory := range def.Behaviors {
+		if factory == nil {
+			return fmt.Errorf("preset %q: behavior factory for slug %q is nil", def.Name, slug)
 		}
 	}
 	r.mu.Lock()
@@ -150,7 +156,7 @@ func (d PresetDefinition) clone() PresetDefinition {
 		d.Types = types
 	}
 	if d.Behaviors != nil {
-		behaviors := make(map[string]entities.ResourceBehavior, len(d.Behaviors))
+		behaviors := make(map[string]BehaviorFactory, len(d.Behaviors))
 		for k, v := range d.Behaviors {
 			behaviors[k] = v
 		}
@@ -221,10 +227,13 @@ func (d PresetDefinition) ScreenManifest() map[string][]string {
 	return manifest
 }
 
-// Behaviors returns a merged ResourceBehaviorRegistry from all registered presets.
+// Behaviors returns a merged ResourceBehaviorRegistry from all registered presets,
+// invoking each preset's BehaviorFactory exactly once with the supplied services.
 // Presets are processed in alphabetical order; if multiple presets declare a behavior
-// for the same slug, the last preset alphabetically wins (silent overwrite).
-func (r *PresetRegistry) Behaviors() ResourceBehaviorRegistry {
+// for the same slug, the last preset alphabetically wins and a warning is logged
+// (when services.Logger is non-nil). Returns an error if any factory is nil —
+// Add() rejects nil factories at registration time, so this is a defense in depth.
+func (r *PresetRegistry) Behaviors(services BehaviorServices) (ResourceBehaviorRegistry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	// Sort preset names for deterministic merge order.
@@ -235,12 +244,22 @@ func (r *PresetRegistry) Behaviors() ResourceBehaviorRegistry {
 	sort.Strings(names)
 
 	behaviors := make(ResourceBehaviorRegistry)
+	source := make(map[string]string) // slug -> preset name that registered it
 	for _, name := range names {
-		for slug, behavior := range r.presets[name].Behaviors {
-			behaviors[slug] = behavior
+		for slug, factory := range r.presets[name].Behaviors {
+			if factory == nil {
+				return nil, fmt.Errorf("preset %q: behavior factory for slug %q is nil", name, slug)
+			}
+			if prev, ok := source[slug]; ok && services.Logger != nil {
+				services.Logger.Warn(context.Background(),
+					"resource behavior overridden by later preset",
+					"slug", slug, "previousPreset", prev, "newPreset", name)
+			}
+			behaviors[slug] = factory(services)
+			source[slug] = name
 		}
 	}
-	return behaviors
+	return behaviors, nil
 }
 
 // validateFixtures checks that fixture data is well-formed at registration time.
