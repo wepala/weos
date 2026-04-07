@@ -66,8 +66,9 @@ func (b *scheduledMealBehavior) AfterDelete(
 }
 
 // generateOccurrences expands the schedule and creates MealOccurrence
-// resources for every concrete date. Errors during expansion or individual
-// creates surface as user-facing warning messages.
+// resources for every concrete date. If onlyFuture is true, only dates
+// on or after today (UTC) are emitted. Errors during expansion or
+// individual creates surface as user-facing warning messages.
 func (b *scheduledMealBehavior) generateOccurrences(
 	ctx context.Context, resource *entities.Resource, onlyFuture bool,
 ) {
@@ -87,7 +88,7 @@ func (b *scheduledMealBehavior) generateOccurrences(
 		return
 	}
 
-	dates, capped, warnings, err := expandScheduleWithWarnings(sm, time.Now(), onlyFuture)
+	dates, capped, warnings, err := expandScheduleWithWarnings(sm, time.Now().UTC(), onlyFuture)
 	if err != nil {
 		addServiceErrorMessage(ctx, log,
 			"scheduled-meal behavior: schedule expansion failed",
@@ -186,7 +187,7 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 		return
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	// Dry-run: validate the new schedule before deleting anything.
 	newDates, capped, warnings, err := expandScheduleWithWarnings(sm, now, true)
 	if err != nil {
@@ -353,7 +354,7 @@ func (b *scheduledMealBehavior) cascadeDelete(
 			"id", resource.GetID(), "error", err)
 		return
 	}
-	today := time.Now().Truncate(24 * time.Hour)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
 
 	for _, occ := range existing {
 		date, _ := occ["date"].(string)
@@ -454,24 +455,77 @@ func expandSchedule(
 		return nil, false, stepErr
 	}
 
-	dates, capped := walkSchedule(walkParams{
+	dates, capped, _ := walkSchedule(walkParams{
 		start: start, end: end, today: today,
 		step: step, byDay: byDay, byMonth: byMonth, byMonthDay: byMonthDay,
 		exceptDates: exceptDates, repeatCount: repeatCount, onlyFuture: onlyFuture,
 	})
-	_ = exceptWarnings // warnings bubble via the caller if desired; kept for API symmetry
+	_ = exceptWarnings // kept for API symmetry with expandScheduleWithWarnings
 	return dates, capped, nil
 }
 
 // expandScheduleWithWarnings returns the same as expandSchedule plus any
-// parse warnings discovered in exceptDate entries. Behaviors use this to
-// surface user-facing warning messages for bad input.
+// parse warnings discovered in exceptDate entries or iteration truncation.
+// Behaviors use this to surface user-facing warning messages for bad input.
 func expandScheduleWithWarnings(
 	sm map[string]any, now time.Time, onlyFuture bool,
 ) ([]time.Time, bool, []string, error) {
-	_, exceptWarnings := parseDateArrayWithWarnings(sm["exceptDate"])
-	dates, capped, err := expandSchedule(sm, now, onlyFuture)
-	return dates, capped, exceptWarnings, err
+	// Parse upfront so we can report bad input and pass clean data to the walker.
+	exceptDates, exceptWarnings := parseDateArrayWithWarnings(sm["exceptDate"])
+
+	startStr, _ := sm["startDate"].(string)
+	if startStr == "" {
+		return nil, false, exceptWarnings, fmt.Errorf("startDate is required")
+	}
+	start, err := time.Parse("2006-01-02", startStr)
+	if err != nil {
+		return nil, false, exceptWarnings,
+			fmt.Errorf("invalid startDate %q: %w", startStr, err)
+	}
+
+	endStr, _ := sm["endDate"].(string)
+	var end *time.Time
+	if endStr != "" {
+		e, pErr := time.Parse("2006-01-02", endStr)
+		if pErr != nil {
+			return nil, false, exceptWarnings,
+				fmt.Errorf("invalid endDate %q: %w", endStr, pErr)
+		}
+		end = &e
+	}
+
+	repeatFrequency, _ := sm["repeatFrequency"].(string)
+	today := now.Truncate(24 * time.Hour)
+
+	if repeatFrequency == "" {
+		if onlyFuture && start.Before(today) {
+			return nil, false, exceptWarnings, nil
+		}
+		if isExcepted(start, exceptDates) {
+			return nil, false, exceptWarnings, nil
+		}
+		return []time.Time{start}, false, exceptWarnings, nil
+	}
+
+	step, stepErr := parseISODuration(repeatFrequency)
+	if stepErr != nil {
+		return nil, false, exceptWarnings, stepErr
+	}
+
+	dates, capped, truncated := walkSchedule(walkParams{
+		start: start, end: end, today: today, step: step,
+		byDay:       parseStringArray(sm["byDay"]),
+		byMonth:     parseIntArray(sm["byMonth"]),
+		byMonthDay:  parseIntArray(sm["byMonthDay"]),
+		exceptDates: exceptDates,
+		repeatCount: parseInt(sm["repeatCount"]),
+		onlyFuture:  onlyFuture,
+	})
+	if truncated {
+		exceptWarnings = append(exceptWarnings,
+			"schedule walk exceeded max iterations; results may be incomplete")
+	}
+	return dates, capped, exceptWarnings, nil
 }
 
 type walkParams struct {
@@ -486,23 +540,51 @@ type walkParams struct {
 	onlyFuture   bool
 }
 
+// maxWalkIterations caps the recurrence walker's iteration count as a
+// safety net against runaway schedules. When exceeded, walkSchedule returns
+// truncated=true so the caller can surface a warning.
+const maxWalkIterations = 10000
+
 // walkSchedule is the inner recurrence iteration loop, kept separate from
-// expandSchedule to satisfy function length limits.
-func walkSchedule(p walkParams) ([]time.Time, bool) {
+// expandSchedule to satisfy function length limits. Returns the emitted
+// dates plus two boolean flags: capped (MaxOccurrences reached) and
+// truncated (maxWalkIterations exhausted before the schedule naturally ended).
+func walkSchedule(p walkParams) ([]time.Time, bool, bool) {
 	var dates []time.Time
 	current := p.start
 	capped := false
-	const maxIterations = 10000
+	truncated := true // assume truncation until we exit via a natural break
 
-	for i := 0; i < maxIterations; i++ {
+	// Fast-forward: when onlyFuture is true and start is well before today,
+	// skip the step()-by-step walk through the past. We advance by step()
+	// without recording dates until current is within one step of today.
+	// This preserves byDay/byMonth/byMonthDay filters (they're checked at
+	// emission time below) while avoiding wasted iterations.
+	if p.onlyFuture {
+		for i := 0; i < maxWalkIterations; i++ {
+			next := p.step(current)
+			if !next.After(current) {
+				break
+			}
+			if !next.Before(p.today) {
+				break
+			}
+			current = next
+		}
+	}
+
+	for i := 0; i < maxWalkIterations; i++ {
 		if p.end != nil && current.After(*p.end) {
+			truncated = false
 			break
 		}
 		if p.repeatCount > 0 && len(dates) >= p.repeatCount {
+			truncated = false
 			break
 		}
 		if len(dates) >= MaxOccurrences {
 			capped = true
+			truncated = false
 			break
 		}
 
@@ -515,11 +597,12 @@ func walkSchedule(p walkParams) ([]time.Time, bool) {
 
 		next := p.step(current)
 		if !next.After(current) {
+			truncated = false
 			break
 		}
 		current = next
 	}
-	return dates, capped
+	return dates, capped, truncated
 }
 
 // parseISODuration parses an ISO 8601 duration of the form P<N>D, P<N>W,
