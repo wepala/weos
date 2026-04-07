@@ -18,11 +18,29 @@ package application
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
 )
+
+// isNilInterface returns true if v is a nil interface value or an interface
+// holding a typed-nil pointer/map/slice/chan/func. This catches the common Go
+// pitfall where `var p *T = nil; var i I = p` produces an interface that
+// compares != nil but still panics when dereferenced.
+func isNilInterface(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return rv.IsNil()
+	default:
+		return false
+	}
+}
 
 // BehaviorServices bundles application services that ResourceBehavior factories
 // may depend on. All fields are required when constructed by
@@ -69,16 +87,16 @@ func ProvideResourceBehaviorRegistry(
 	if registry == nil {
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil PresetRegistry")
 	}
-	if resources == nil {
+	if isNilInterface(resources) {
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil Resources")
 	}
-	if triples == nil {
+	if isNilInterface(triples) {
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil Triples")
 	}
-	if resourceTypes == nil {
+	if isNilInterface(resourceTypes) {
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil ResourceTypes")
 	}
-	if logger == nil {
+	if isNilInterface(logger) {
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil Logger")
 	}
 	services := BehaviorServices{

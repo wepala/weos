@@ -263,7 +263,7 @@ func (r *PresetRegistry) Behaviors(services BehaviorServices) (ResourceBehaviorR
 			if factory == nil {
 				return nil, fmt.Errorf("preset %q: behavior factory for slug %q is nil", name, slug)
 			}
-			if prev, ok := source[slug]; ok && services.Logger != nil {
+			if prev, ok := source[slug]; ok && !isNilInterface(services.Logger) {
 				services.Logger.Warn(context.Background(),
 					"resource behavior overridden by later preset",
 					"slug", slug, "previousPreset", prev, "newPreset", name)

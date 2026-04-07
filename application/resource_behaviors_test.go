@@ -653,6 +653,29 @@ func TestPresetRegistry_BehaviorsMultiPresetMergeLastWins(t *testing.T) {
 	}
 }
 
+func TestProvideResourceBehaviorRegistry_RejectsTypedNilDeps(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	var typedNilResources *stubResourceRepo
+	var typedNilTriples *stubTripleRepo
+	var typedNilTypes *stubTypeRepo
+	if _, err := ProvideResourceBehaviorRegistry(
+		registry, typedNilResources, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{},
+	); err == nil {
+		t.Error("expected error for typed-nil Resources")
+	}
+	if _, err := ProvideResourceBehaviorRegistry(
+		registry, &stubResourceRepo{}, typedNilTriples, &stubTypeRepo{}, noopLogger{},
+	); err == nil {
+		t.Error("expected error for typed-nil Triples")
+	}
+	if _, err := ProvideResourceBehaviorRegistry(
+		registry, &stubResourceRepo{}, &stubTripleRepo{}, typedNilTypes, noopLogger{},
+	); err == nil {
+		t.Error("expected error for typed-nil ResourceTypes")
+	}
+}
+
 func TestProvideResourceBehaviorRegistry_RejectsNilDeps(t *testing.T) {
 	t.Parallel()
 	registry := NewPresetRegistry()
