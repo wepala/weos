@@ -50,7 +50,10 @@ func RegisterClient(clientRepo ClientRepository, enabled bool) echo.HandlerFunc 
 	return func(c echo.Context) error {
 		if !enabled {
 			return c.JSON(http.StatusForbidden,
-				map[string]string{"error": "dynamic client registration is disabled"})
+				map[string]string{
+					"error":             "access_denied",
+					"error_description": "dynamic client registration is disabled",
+				})
 		}
 
 		var req registerRequest
@@ -127,7 +130,7 @@ func RegisterClient(clientRepo ClientRepository, enabled bool) echo.HandlerFunc 
 
 		if err := clientRepo.Create(c.Request().Context(), client); err != nil {
 			return c.JSON(http.StatusInternalServerError,
-				map[string]string{"error": "failed to register client"})
+				map[string]string{"error": "server_error"})
 		}
 
 		return c.JSON(http.StatusCreated, registerResponse{
