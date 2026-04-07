@@ -1,8 +1,14 @@
 # WeOS
 
-A Go microservices template following Clean Architecture principles with event sourcing support.
+WeOS is an open source Go application for building a **digital twin** of yourself or your business — a knowledge graph of the information from the apps and devices you use, exposed to any LLM so it can answer with your real context. WeOS never calls an LLM directly; it exposes an MCP server that any MCP-compatible LLM (Claude, GPT, Gemini, Ollama) connects to.
 
-## Features
+## What it does
+
+1. **Stores your data as a knowledge graph** — resources are modeled as RDF triples typed with Schema.org, FOAF, vCard and other ontologies, so people, events, products, places, messages and the relationships between them are first-class.
+2. **Runs an MCP server** — any MCP-compatible LLM connects and queries your graph for grounded, context-rich responses.
+3. **Optionally renders sites and APIs** — the same graph can drive a static-first HTML site or a REST API when you want to publish or integrate.
+
+## Under the hood
 
 - **Clean Architecture** with domain-driven design
 - **Event Sourcing** via [pericarp](https://github.com/akeemphilbert/pericarp) library
