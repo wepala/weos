@@ -90,7 +90,9 @@ func sessionAuthEcho(
 ) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Set WWW-Authenticate before calling wrapped so it is present
-		// even if the session middleware commits a 401 response.
+		// if the session middleware commits a 401 response. The inner
+		// handler clears it BEFORE calling next(c) so the header doesn't
+		// leak onto successful responses (where next(c) writes the body).
 		c.Response().Header().Set("WWW-Authenticate", wwwAuth)
 
 		var called bool
@@ -98,6 +100,8 @@ func sessionAuthEcho(
 		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			called = true
 			c.SetRequest(r)
+			// Auth succeeded — clear the 401 header before next(c) writes.
+			c.Response().Header().Del("WWW-Authenticate")
 			handlerErr = next(c)
 		})
 
@@ -105,8 +109,6 @@ func sessionAuthEcho(
 		wrapped.ServeHTTP(c.Response(), c.Request())
 
 		if called {
-			// Clear the header on successful auth — only relevant for 401s.
-			c.Response().Header().Del("WWW-Authenticate")
 			return handlerErr
 		}
 		// Session middleware rejected — 401 already written with header.
