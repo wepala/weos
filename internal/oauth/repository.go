@@ -148,6 +148,16 @@ type RefreshTokenRepository interface {
 	// not revoked. Returns ErrNotFound if the token is missing or already
 	// revoked. Used for safe rotation under concurrent refresh requests.
 	RevokeIfActive(ctx context.Context, id string) error
+	// Rotate atomically revokes the old token (only if active) and creates
+	// the new token in a single transaction. If the old token is already
+	// revoked, returns ErrNotFound (token reuse). If the new token cannot
+	// be created, the old token is NOT revoked (transaction rollback).
+	Rotate(
+		ctx context.Context,
+		oldID string,
+		newToken *OAuthRefreshToken,
+		newRawToken string,
+	) error
 }
 
 type gormRefreshTokenRepo struct{ db *gorm.DB }
@@ -206,6 +216,37 @@ func (r *gormRefreshTokenRepo) RevokeIfActive(ctx context.Context, id string) er
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *gormRefreshTokenRepo) Rotate(
+	ctx context.Context,
+	oldID string,
+	newToken *OAuthRefreshToken,
+	newRawToken string,
+) error {
+	if newToken.ID == "" {
+		newToken.ID = ksuid.New().String()
+	}
+	newToken.TokenHash = HashToken(newRawToken)
+	if newToken.ExpiresAt.IsZero() {
+		newToken.ExpiresAt = time.Now().Add(30 * 24 * time.Hour)
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Conditional revoke — fails if token is already revoked.
+		result := tx.Model(&OAuthRefreshToken{}).
+			Where("id = ? AND revoked = ?", oldID, false).
+			Update("revoked", true)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		// Persist new token in the same transaction. If this fails,
+		// the revocation is rolled back automatically.
+		return tx.Create(newToken).Error
+	})
 }
 
 // --- Helpers ---

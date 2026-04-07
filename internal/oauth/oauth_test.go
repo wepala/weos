@@ -17,10 +17,19 @@ import (
 
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	// Use a single shared connection for the in-memory database so all
+	// queries in a single test see the same schema. ":memory:" with the
+	// default GORM pool gives each connection its own DB which would
+	// produce missing-table errors under parallel test execution.
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(
 		&OAuthClient{}, &OAuthAuthorizationCode{}, &OAuthRefreshToken{},
 	); err != nil {

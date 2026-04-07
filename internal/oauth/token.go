@@ -134,7 +134,14 @@ func handleAuthCodeGrant(
 		})
 	}
 
-	// Verify PKCE.
+	// Verify PKCE method matches what was stored at authorize-time.
+	if authCode.CodeChallengeMethod != "S256" {
+		logger.Warn(ctx, "oauth token: unsupported code_challenge_method on stored code",
+			"client", authCode.ClientID, "method", authCode.CodeChallengeMethod)
+		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+			Error: "invalid_grant",
+		})
+	}
 	challenge := authapp.GenerateCodeChallenge(codeVerifier)
 	if challenge != authCode.CodeChallenge {
 		logger.Warn(ctx, "oauth token: PKCE verification failed",
@@ -264,23 +271,6 @@ func handleRefreshGrant(
 		})
 	}
 
-	// Atomically revoke the old token. RevokeIfActive uses a conditional
-	// update (WHERE revoked = false), so concurrent refresh requests for
-	// the same token can't both succeed — only one will get RowsAffected=1,
-	// the other gets ErrNotFound which we treat as token reuse.
-	if err := refreshRepo.RevokeIfActive(ctx, stored.ID); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusBadRequest, tokenErrorResponse{
-				Error: "invalid_grant",
-			})
-		}
-		logger.Error(ctx, "oauth refresh: revocation failed",
-			"token", stored.ID, "error", err)
-		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
-			Error: "server_error",
-		})
-	}
-
 	agent, err := agentRepo.FindByID(ctx, stored.AgentID)
 	if err != nil {
 		logger.Error(ctx, "oauth refresh: agent lookup failed",
@@ -319,8 +309,19 @@ func handleRefreshGrant(
 		ClientID:  stored.ClientID,
 		Scope:     stored.Scope,
 	}
-	if err := refreshRepo.Create(ctx, newRefresh, newRawRefresh); err != nil {
-		logger.Error(ctx, "oauth refresh: token creation failed", "error", err)
+	// Atomic rotation: revoke old + create new in a single DB transaction.
+	// RevokeIfActive (WHERE revoked = false) prevents concurrent rotation:
+	// only one request flips the row, the other gets ErrNotFound (treated
+	// as token reuse). If new token creation fails, the revocation is
+	// rolled back so the client retains its valid refresh token.
+	if err := refreshRepo.Rotate(ctx, stored.ID, newRefresh, newRawRefresh); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+				Error: "invalid_grant",
+			})
+		}
+		logger.Error(ctx, "oauth refresh: rotation failed",
+			"token", stored.ID, "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
 			Error: "server_error",
 		})
