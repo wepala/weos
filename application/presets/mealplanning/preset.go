@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 
 	"weos/application"
+	"weos/domain/entities"
 )
 
 // Register adds the meal-planning preset to the registry.
@@ -51,6 +52,34 @@ func Register(registry *application.PresetRegistry) {
 				"scheduled-meal":     "meal-plan",
 				"shopping-list-item": "shopping-list",
 				"food-item":          "pantry",
+			},
+		},
+		Behaviors: map[string]entities.ResourceBehavior{
+			"pantry":          NewEnforceSingleDefaultBehavior(),
+			"scheduled-meal":  NewScheduledMealBehavior(),
+			"meal-occurrence": NewDepletePantryOnCookBehavior(),
+		},
+		BehaviorMeta: map[string]entities.BehaviorMeta{
+			"pantry": {
+				Slug:        "pantry",
+				DisplayName: "Enforce Single Default Pantry",
+				Description: "When a pantry is marked default, unsets isDefault on all others.",
+				Default:     true,
+				Manageable:  true,
+			},
+			"scheduled-meal": {
+				Slug:        "scheduled-meal",
+				DisplayName: "Generate Meal Occurrences",
+				Description: "Expands recurring schedules into MealOccurrence resources and cascades on update/delete.",
+				Default:     true,
+				Manageable:  true,
+			},
+			"meal-occurrence": {
+				Slug:        "meal-occurrence",
+				DisplayName: "Deplete Pantry on Cook",
+				Description: "Decrements pantry FoodItem quantities when an occurrence is marked cooked.",
+				Default:     true,
+				Manageable:  true,
 			},
 		},
 	})
