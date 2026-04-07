@@ -264,7 +264,22 @@ func handleRefreshGrant(
 			Error: "server_error",
 		})
 	}
-	if stored.Revoked || time.Now().After(stored.ExpiresAt) {
+	if stored.Revoked {
+		// Reuse of a revoked refresh token signals theft. Revoke the
+		// entire token family to invalidate any tokens an attacker
+		// rotated from the same chain.
+		logger.Warn(ctx, "oauth refresh: revoked token reuse — revoking family",
+			"token", stored.ID, "family", stored.FamilyID,
+			"client", stored.ClientID, "agent", stored.AgentID)
+		if err := refreshRepo.RevokeFamily(ctx, stored.FamilyID); err != nil {
+			logger.Error(ctx, "oauth refresh: family revocation failed",
+				"family", stored.FamilyID, "error", err)
+		}
+		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
+			Error: "invalid_grant",
+		})
+	}
+	if time.Now().After(stored.ExpiresAt) {
 		return c.JSON(http.StatusBadRequest, tokenErrorResponse{
 			Error: "invalid_grant",
 		})
@@ -317,6 +332,7 @@ func handleRefreshGrant(
 		AgentID:   stored.AgentID,
 		AccountID: stored.AccountID,
 		ClientID:  stored.ClientID,
+		FamilyID:  stored.FamilyID, // inherit family for theft detection
 		Scope:     stored.Scope,
 	}
 	// Atomic rotation: revoke old + create new in a single DB transaction.

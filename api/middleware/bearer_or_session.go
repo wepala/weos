@@ -76,7 +76,7 @@ func extractBearer(r *http.Request) string {
 	h := r.Header.Get("Authorization")
 	const prefix = "Bearer "
 	if len(h) > len(prefix) && strings.EqualFold(h[:len(prefix)], prefix) {
-		return h[len(prefix):]
+		return strings.TrimSpace(h[len(prefix):])
 	}
 	return ""
 }

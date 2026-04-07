@@ -54,12 +54,16 @@ type OAuthAuthorizationCode struct {
 func (OAuthAuthorizationCode) TableName() string { return "oauth_authorization_codes" }
 
 // OAuthRefreshToken stores refresh tokens with revocation support.
+// FamilyID groups tokens that descend from the same initial issuance via
+// rotation. When a revoked token is presented (replay/theft signal), the
+// entire family is revoked to invalidate any tokens an attacker may hold.
 type OAuthRefreshToken struct {
 	ID        string `gorm:"primaryKey;type:varchar(255)"`
 	TokenHash string `gorm:"type:varchar(255);not null;uniqueIndex"` // SHA-256 of token
 	AgentID   string `gorm:"type:varchar(255);not null;index"`
 	AccountID string `gorm:"type:varchar(255)"`
 	ClientID  string `gorm:"type:varchar(255);not null"`
+	FamilyID  string `gorm:"type:varchar(255);not null;index"`
 	Scope     string `gorm:"type:varchar(500)"`
 	ExpiresAt time.Time
 	Revoked   bool `gorm:"not null;default:false"`

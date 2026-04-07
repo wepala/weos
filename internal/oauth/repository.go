@@ -149,6 +149,10 @@ type RefreshTokenRepository interface {
 	// not revoked. Returns ErrNotFound if the token is missing or already
 	// revoked. Used for safe rotation under concurrent refresh requests.
 	RevokeIfActive(ctx context.Context, id string) error
+	// RevokeFamily revokes all active tokens in the given family. Used as
+	// a compromise response when a previously-revoked token is presented
+	// (signals theft of an earlier rotation).
+	RevokeFamily(ctx context.Context, familyID string) error
 	// Rotate atomically revokes the old token (only if active) and creates
 	// the new token in a single transaction. If the old token is already
 	// revoked, returns ErrNotFound (token reuse). If the new token cannot
@@ -172,6 +176,11 @@ func (r *gormRefreshTokenRepo) Create(
 ) error {
 	if token.ID == "" {
 		token.ID = ksuid.New().String()
+	}
+	// Initial issuance: family ID equals the token's own ID. Subsequent
+	// rotations inherit the same FamilyID via Rotate.
+	if token.FamilyID == "" {
+		token.FamilyID = token.ID
 	}
 	token.TokenHash = HashToken(rawToken)
 	if token.ExpiresAt.IsZero() {
@@ -203,6 +212,16 @@ func (r *gormRefreshTokenRepo) Revoke(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *gormRefreshTokenRepo) RevokeFamily(ctx context.Context, familyID string) error {
+	if familyID == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&OAuthRefreshToken{}).
+		Where("family_id = ? AND revoked = ?", familyID, false).
+		Update("revoked", true).Error
 }
 
 func (r *gormRefreshTokenRepo) RevokeIfActive(ctx context.Context, id string) error {
