@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 See `.claude/local-context.md` for full product vision, user personas, and business context.
 
 ### What the Go Binary Does
-1. **Stores data as a knowledge graph** — RDF triples and ontology-typed resources (Schema.org, FOAF, vCard, etc.)
+1. **Stores data as a knowledge graph** — JSON-LD resources plus RDF triples for relationships, using ontology-typed entities (Schema.org, FOAF, vCard, etc.)
 2. **Runs the MCP server** — LLMs connect over MCP to query the graph for grounded responses
 3. **Optionally serves a static site and REST API** — the same graph can drive HTML output or be accessed programmatically
 

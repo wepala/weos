@@ -10,7 +10,7 @@ WeOS is an open source Go application for building a **digital twin** of yoursel
 
 The Go binary does three things:
 
-1. **Stores your data as a knowledge graph** — resources are modeled as RDF triples typed with Schema.org, FOAF, vCard and other ontologies, so people, events, products, places, messages and the relationships between them are first-class.
+1. **Stores your data as a knowledge graph** — resources are represented as JSON-LD entities, and relationships between them are modeled as RDF triples using Schema.org, FOAF, vCard and other ontologies, so people, events, products, places, messages and the relationships between them are first-class.
 2. **Runs the MCP server** — any MCP-compatible LLM connects and queries your graph for grounded, context-rich responses.
 3. **Optionally renders sites and APIs** — the same graph can drive a static-first HTML site or a REST API when you want to publish or integrate.
 
