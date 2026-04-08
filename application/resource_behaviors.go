@@ -209,7 +209,7 @@ func ProvideResourceBehaviorRegistry(
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil Logger")
 	}
 	if writer == nil {
-		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil ResourceWriter")
+		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil lazyResourceWriter")
 	}
 	services := BehaviorServices{
 		Resources:     resources,
@@ -233,10 +233,21 @@ func ProvideResourceBehaviorRegistry(
 }
 
 // WireResourceWriter installs the real ResourceService into the lazy writer
-// proxy after both have been constructed by Fx. Register this as an fx.Invoke
-// that runs after ProvideResourceService; Fx will detect the dependency and
-// order it correctly. Returns an error on nil svc, self-target, or double-set
-// so Fx aborts startup loudly instead of silently installing a broken proxy.
+// proxy after both have been constructed by Fx.
+//
+// Fx guarantees that lazyResourceWriter and ResourceService are available
+// before this invoke runs (parameter-level dependency ordering), but it does
+// NOT impose ordering relative to other fx.Invoke calls that also depend on
+// ResourceService. Any startup invoke that may call ResourceService.Create,
+// Update, or Delete — and thus trigger behavior hooks that use
+// BehaviorServices.Writer — MUST be registered after WireResourceWriter in
+// application/module.go. Today the only such invoke is
+// ensureBuiltInResourceTypes, and the module registers WireResourceWriter
+// first; adding a new hook-triggering invoke earlier would silently regress
+// this contract.
+//
+// Returns an error on nil svc, self-target, or double-set so Fx aborts
+// startup loudly instead of silently installing a broken proxy.
 func WireResourceWriter(writer *lazyResourceWriter, svc ResourceService) error {
 	if writer == nil {
 		return fmt.Errorf("WireResourceWriter: nil lazyResourceWriter")

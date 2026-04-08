@@ -73,13 +73,14 @@ type behaviorDepthKey struct{}
 // inflates the counter, which is the intended accounting.
 func enterResourceCall(ctx context.Context) (context.Context, error) {
 	depth, _ := ctx.Value(behaviorDepthKey{}).(int)
+	nextDepth := depth + 1
 	if depth >= maxBehaviorRecursionDepth {
 		return ctx, fmt.Errorf(
-			"resource behavior recursion depth %d exceeds max %d (likely cycle)",
-			depth, maxBehaviorRecursionDepth,
+			"resource behavior recursion depth reached max %d; attempted next depth %d would exceed it (likely cycle)",
+			maxBehaviorRecursionDepth, nextDepth,
 		)
 	}
-	return context.WithValue(ctx, behaviorDepthKey{}, depth+1), nil
+	return context.WithValue(ctx, behaviorDepthKey{}, nextDepth), nil
 }
 
 func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.ResourceType) entities.ResourceBehavior {
