@@ -53,6 +53,9 @@ bin/
 # Dev seed manifest
 .dev-seed.json
 
+# Private preset registration (local only, build-tag-gated)
+application/presets/register_custom.go
+
 # Configuration files with secrets
 config/local.yaml
 config/secrets.yaml

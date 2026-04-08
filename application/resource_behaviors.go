@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"sync/atomic"
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
@@ -42,6 +43,107 @@ func isNilInterface(v any) bool {
 	}
 }
 
+// ResourceWriter is the subset of ResourceService that behaviors need to
+// create, update, and delete other resources from inside a hook. It
+// intentionally omits queries — use BehaviorServices.Resources for reads.
+//
+// Write methods go through the full ResourceService pipeline: schema
+// validation, JSON-LD graph assembly, triple extraction, event recording, and
+// UnitOfWork commit, including nested behavior dispatch on the affected
+// resources.
+type ResourceWriter interface {
+	Create(ctx context.Context, cmd CreateResourceCommand) (*entities.Resource, error)
+	Update(ctx context.Context, cmd UpdateResourceCommand) (*entities.Resource, error)
+	Delete(ctx context.Context, cmd DeleteResourceCommand) error
+}
+
+// lazyResourceWriter is a ResourceWriter proxy that is constructed before the
+// real ResourceService exists and populated via SetTarget once the Fx
+// container has wired ResourceService. It breaks the Fx construction cycle
+// ResourceService -> ResourceBehaviorRegistry -> ResourceService (the inner
+// step runs through BehaviorServices.Writer, which the registry provider
+// populates with this proxy).
+//
+// Behaviors receive this proxy at factory time and close over it; by the time
+// any hook runs (during a request), Fx has invoked SetTarget so the proxy
+// forwards cleanly to the real service. Calls before wiring return a clear
+// error instead of panicking.
+//
+// Because behaviors write through this proxy, each forwarded call enters
+// resourceService.Create/Update/Delete, which apply a recursion-depth guard
+// (see maxBehaviorRecursionDepth in resource_service.go) so runaway cascades
+// fail fast instead of blowing the stack.
+type lazyResourceWriter struct {
+	// svc is set exactly once by SetTarget and then read concurrently by every
+	// behavior hook. The atomic store/load pair gives a happens-before edge
+	// independent of Fx ordering, so there is no data race even if a future
+	// refactor reorders construction.
+	svc atomic.Pointer[ResourceWriter]
+}
+
+func newLazyResourceWriter() *lazyResourceWriter { return &lazyResourceWriter{} }
+
+// SetTarget installs the real ResourceWriter. It must be called exactly once,
+// before any behavior hook can fire — in production that ordering is enforced
+// by registering WireResourceWriter as an Fx invoke that runs after
+// ProvideResourceService but before any invoke or lifecycle hook that can
+// trigger a resource write (see application/module.go for the current order).
+// Returns an error on nil input or double-set so misuse fails startup rather
+// than silently installing a broken target.
+func (l *lazyResourceWriter) SetTarget(svc ResourceWriter) error {
+	if isNilInterface(svc) {
+		return fmt.Errorf("lazyResourceWriter.SetTarget: nil ResourceWriter")
+	}
+	if svc == ResourceWriter(l) {
+		return fmt.Errorf("lazyResourceWriter.SetTarget: refusing to target self (would infinite-loop)")
+	}
+	if !l.svc.CompareAndSwap(nil, &svc) {
+		return fmt.Errorf("lazyResourceWriter.SetTarget: already wired")
+	}
+	return nil
+}
+
+// target returns the installed ResourceWriter or an error if SetTarget has
+// not run yet. The error phrasing points at the likely cause — a behavior
+// fired before Fx wiring completed.
+func (l *lazyResourceWriter) target(op string) (ResourceWriter, error) {
+	p := l.svc.Load()
+	if p == nil {
+		return nil, fmt.Errorf(
+			"ResourceWriter.%s called before wiring; behavior invoked during startup?", op,
+		)
+	}
+	return *p, nil
+}
+
+func (l *lazyResourceWriter) Create(
+	ctx context.Context, cmd CreateResourceCommand,
+) (*entities.Resource, error) {
+	svc, err := l.target("Create")
+	if err != nil {
+		return nil, err
+	}
+	return svc.Create(ctx, cmd)
+}
+
+func (l *lazyResourceWriter) Update(
+	ctx context.Context, cmd UpdateResourceCommand,
+) (*entities.Resource, error) {
+	svc, err := l.target("Update")
+	if err != nil {
+		return nil, err
+	}
+	return svc.Update(ctx, cmd)
+}
+
+func (l *lazyResourceWriter) Delete(ctx context.Context, cmd DeleteResourceCommand) error {
+	svc, err := l.target("Delete")
+	if err != nil {
+		return err
+	}
+	return svc.Delete(ctx, cmd)
+}
+
 // BehaviorServices bundles application services that ResourceBehavior factories
 // may depend on. All fields are required when constructed by
 // ProvideResourceBehaviorRegistry; tests that build BehaviorServices directly
@@ -51,6 +153,10 @@ type BehaviorServices struct {
 	Triples       repositories.TripleRepository
 	ResourceTypes repositories.ResourceTypeRepository
 	Logger        entities.Logger
+	// Writer lets behaviors create, update, or delete other resources through
+	// the full ResourceService pipeline. See lazyResourceWriter for the
+	// cycle-breaking rationale behind how this is wired.
+	Writer ResourceWriter
 }
 
 // BehaviorFactory constructs a ResourceBehavior given the available application
@@ -76,13 +182,16 @@ type ResourceBehaviorRegistry map[string]entities.ResourceBehavior
 
 // ProvideResourceBehaviorRegistry builds the behavior registry from all
 // registered presets, invoking each factory with the supplied services. Fails
-// startup if any injected dependency is nil or any factory returns nil.
+// startup if any injected dependency is nil or any factory returns nil. The
+// writer parameter is an unwired *lazyResourceWriter — see that type for the
+// cycle-breaking rationale.
 func ProvideResourceBehaviorRegistry(
 	registry *PresetRegistry,
 	resources repositories.ResourceRepository,
 	triples repositories.TripleRepository,
 	resourceTypes repositories.ResourceTypeRepository,
 	logger entities.Logger,
+	writer *lazyResourceWriter,
 ) (ResourceBehaviorRegistry, error) {
 	if registry == nil {
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil PresetRegistry")
@@ -99,11 +208,15 @@ func ProvideResourceBehaviorRegistry(
 	if isNilInterface(logger) {
 		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil Logger")
 	}
+	if writer == nil {
+		return nil, fmt.Errorf("ProvideResourceBehaviorRegistry: nil ResourceWriter")
+	}
 	services := BehaviorServices{
 		Resources:     resources,
 		Triples:       triples,
 		ResourceTypes: resourceTypes,
 		Logger:        logger,
+		Writer:        writer,
 	}
 	behaviors, err := registry.Behaviors(services)
 	if err != nil {
@@ -117,6 +230,21 @@ func ProvideResourceBehaviorRegistry(
 	logger.Info(context.Background(), "resource behaviors registered",
 		"count", len(slugs), "slugs", slugs)
 	return behaviors, nil
+}
+
+// WireResourceWriter installs the real ResourceService into the lazy writer
+// proxy after both have been constructed by Fx. Register this as an fx.Invoke
+// that runs after ProvideResourceService; Fx will detect the dependency and
+// order it correctly. Returns an error on nil svc, self-target, or double-set
+// so Fx aborts startup loudly instead of silently installing a broken proxy.
+func WireResourceWriter(writer *lazyResourceWriter, svc ResourceService) error {
+	if writer == nil {
+		return fmt.Errorf("WireResourceWriter: nil lazyResourceWriter")
+	}
+	if err := writer.SetTarget(svc); err != nil {
+		return fmt.Errorf("WireResourceWriter: %w", err)
+	}
+	return nil
 }
 
 // BehaviorMetaRegistry maps resource type slugs to their behavior metadata.

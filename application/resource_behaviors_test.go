@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"weos/domain/entities"
@@ -656,21 +657,22 @@ func TestPresetRegistry_BehaviorsMultiPresetMergeLastWins(t *testing.T) {
 func TestProvideResourceBehaviorRegistry_RejectsTypedNilDeps(t *testing.T) {
 	t.Parallel()
 	registry := NewPresetRegistry()
+	writer := newLazyResourceWriter()
 	var typedNilResources *stubResourceRepo
 	var typedNilTriples *stubTripleRepo
 	var typedNilTypes *stubTypeRepo
 	if _, err := ProvideResourceBehaviorRegistry(
-		registry, typedNilResources, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{},
+		registry, typedNilResources, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{}, writer,
 	); err == nil {
 		t.Error("expected error for typed-nil Resources")
 	}
 	if _, err := ProvideResourceBehaviorRegistry(
-		registry, &stubResourceRepo{}, typedNilTriples, &stubTypeRepo{}, noopLogger{},
+		registry, &stubResourceRepo{}, typedNilTriples, &stubTypeRepo{}, noopLogger{}, writer,
 	); err == nil {
 		t.Error("expected error for typed-nil Triples")
 	}
 	if _, err := ProvideResourceBehaviorRegistry(
-		registry, &stubResourceRepo{}, &stubTripleRepo{}, typedNilTypes, noopLogger{},
+		registry, &stubResourceRepo{}, &stubTripleRepo{}, typedNilTypes, noopLogger{}, writer,
 	); err == nil {
 		t.Error("expected error for typed-nil ResourceTypes")
 	}
@@ -679,17 +681,21 @@ func TestProvideResourceBehaviorRegistry_RejectsTypedNilDeps(t *testing.T) {
 func TestProvideResourceBehaviorRegistry_RejectsNilDeps(t *testing.T) {
 	t.Parallel()
 	registry := NewPresetRegistry()
-	if _, err := ProvideResourceBehaviorRegistry(registry, nil, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{}); err == nil {
+	writer := newLazyResourceWriter()
+	if _, err := ProvideResourceBehaviorRegistry(registry, nil, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{}, writer); err == nil {
 		t.Error("expected error when Resources is nil")
 	}
-	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, nil, &stubTypeRepo{}, noopLogger{}); err == nil {
+	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, nil, &stubTypeRepo{}, noopLogger{}, writer); err == nil {
 		t.Error("expected error when Triples is nil")
 	}
-	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, &stubTripleRepo{}, nil, noopLogger{}); err == nil {
+	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, &stubTripleRepo{}, nil, noopLogger{}, writer); err == nil {
 		t.Error("expected error when ResourceTypes is nil")
 	}
-	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, &stubTripleRepo{}, &stubTypeRepo{}, nil); err == nil {
+	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, &stubTripleRepo{}, &stubTypeRepo{}, nil, writer); err == nil {
 		t.Error("expected error when Logger is nil")
+	}
+	if _, err := ProvideResourceBehaviorRegistry(registry, &stubResourceRepo{}, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{}, nil); err == nil {
+		t.Error("expected error when Writer is nil")
 	}
 }
 
@@ -719,7 +725,7 @@ func TestProvideResourceBehaviorRegistry_RejectsNilReturningFactory(t *testing.T
 		},
 	})
 	_, err := ProvideResourceBehaviorRegistry(
-		registry, &stubResourceRepo{}, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{},
+		registry, &stubResourceRepo{}, &stubTripleRepo{}, &stubTypeRepo{}, noopLogger{}, newLazyResourceWriter(),
 	)
 	if err == nil {
 		t.Fatal("expected error when factory returns nil")
@@ -742,13 +748,164 @@ func TestProvideResourceBehaviorRegistry_PassesThroughDeps(t *testing.T) {
 	triples := &stubTripleRepo{}
 	types := &stubTypeRepo{}
 	logger := noopLogger{}
-	merged, err := ProvideResourceBehaviorRegistry(registry, resources, triples, types, logger)
+	writer := newLazyResourceWriter()
+	merged, err := ProvideResourceBehaviorRegistry(registry, resources, triples, types, logger, writer)
 	if err != nil {
 		t.Fatalf("ProvideResourceBehaviorRegistry returned error: %v", err)
 	}
 	b := merged["t"].(*serviceAwareBehavior)
 	if b.services.Resources != resources || b.services.Triples != triples ||
-		b.services.ResourceTypes != types || b.services.Logger != logger {
+		b.services.ResourceTypes != types || b.services.Logger != logger ||
+		b.services.Writer != writer {
 		t.Fatal("provider did not pass dependencies through to factory")
+	}
+	// Registry build-time invariant: the proxy is constructed but not yet
+	// targeted. This guards the two-phase wiring contract — WireResourceWriter
+	// must still be able to install the real service later.
+	if writer.svc.Load() != nil {
+		t.Fatal("lazyResourceWriter.svc should be nil at registry build time")
+	}
+}
+
+// fakeResourceWriter records the calls made through ResourceWriter so tests
+// can assert the lazy proxy forwards to the right method with the right args.
+type fakeResourceWriter struct {
+	createCalls []CreateResourceCommand
+	updateCalls []UpdateResourceCommand
+	deleteCalls []DeleteResourceCommand
+	createErr   error
+	updateErr   error
+	deleteErr   error
+	createRes   *entities.Resource
+	updateRes   *entities.Resource
+}
+
+func (f *fakeResourceWriter) Create(
+	_ context.Context, cmd CreateResourceCommand,
+) (*entities.Resource, error) {
+	f.createCalls = append(f.createCalls, cmd)
+	return f.createRes, f.createErr
+}
+
+func (f *fakeResourceWriter) Update(
+	_ context.Context, cmd UpdateResourceCommand,
+) (*entities.Resource, error) {
+	f.updateCalls = append(f.updateCalls, cmd)
+	return f.updateRes, f.updateErr
+}
+
+func (f *fakeResourceWriter) Delete(_ context.Context, cmd DeleteResourceCommand) error {
+	f.deleteCalls = append(f.deleteCalls, cmd)
+	return f.deleteErr
+}
+
+func TestLazyResourceWriter_PreWireReturnsError(t *testing.T) {
+	t.Parallel()
+	w := newLazyResourceWriter()
+	ctx := context.Background()
+
+	if _, err := w.Create(ctx, CreateResourceCommand{TypeSlug: "t"}); err == nil {
+		t.Error("expected error from Create before wiring")
+	} else if !strings.Contains(err.Error(), "before wiring") {
+		t.Errorf("Create error = %q, want contains 'before wiring'", err.Error())
+	}
+
+	if _, err := w.Update(ctx, UpdateResourceCommand{ID: "id"}); err == nil {
+		t.Error("expected error from Update before wiring")
+	} else if !strings.Contains(err.Error(), "before wiring") {
+		t.Errorf("Update error = %q, want contains 'before wiring'", err.Error())
+	}
+
+	if err := w.Delete(ctx, DeleteResourceCommand{ID: "id"}); err == nil {
+		t.Error("expected error from Delete before wiring")
+	} else if !strings.Contains(err.Error(), "before wiring") {
+		t.Errorf("Delete error = %q, want contains 'before wiring'", err.Error())
+	}
+}
+
+func TestLazyResourceWriter_ForwardsAfterSetTarget(t *testing.T) {
+	t.Parallel()
+	w := newLazyResourceWriter()
+	fake := &fakeResourceWriter{}
+	if err := w.SetTarget(fake); err != nil {
+		t.Fatalf("SetTarget returned error: %v", err)
+	}
+
+	ctx := context.Background()
+	createCmd := CreateResourceCommand{TypeSlug: "t", Data: json.RawMessage(`{"x":1}`)}
+	if _, err := w.Create(ctx, createCmd); err != nil {
+		t.Fatalf("Create after wiring returned error: %v", err)
+	}
+	updateCmd := UpdateResourceCommand{ID: "id-1", Data: json.RawMessage(`{"x":2}`)}
+	if _, err := w.Update(ctx, updateCmd); err != nil {
+		t.Fatalf("Update after wiring returned error: %v", err)
+	}
+	deleteCmd := DeleteResourceCommand{ID: "id-2"}
+	if err := w.Delete(ctx, deleteCmd); err != nil {
+		t.Fatalf("Delete after wiring returned error: %v", err)
+	}
+
+	// Each method must forward to its matching target method with the exact
+	// command value — catches a wiring regression like Update calling Create.
+	if len(fake.createCalls) != 1 || fake.createCalls[0].TypeSlug != "t" {
+		t.Errorf("Create forwarding: got %+v, want one call with TypeSlug=t", fake.createCalls)
+	}
+	if len(fake.updateCalls) != 1 || fake.updateCalls[0].ID != "id-1" {
+		t.Errorf("Update forwarding: got %+v, want one call with ID=id-1", fake.updateCalls)
+	}
+	if len(fake.deleteCalls) != 1 || fake.deleteCalls[0].ID != "id-2" {
+		t.Errorf("Delete forwarding: got %+v, want one call with ID=id-2", fake.deleteCalls)
+	}
+}
+
+func TestLazyResourceWriter_SetTargetRejectsNil(t *testing.T) {
+	t.Parallel()
+	w := newLazyResourceWriter()
+	if err := w.SetTarget(nil); err == nil {
+		t.Error("SetTarget(nil) = nil error, want rejection")
+	}
+	// Typed-nil interface: a nil *fakeResourceWriter wrapped in the ResourceWriter
+	// interface is != nil but still unusable. isNilInterface must catch it.
+	var typedNil *fakeResourceWriter
+	if err := w.SetTarget(typedNil); err == nil {
+		t.Error("SetTarget(typed-nil) = nil error, want rejection")
+	}
+}
+
+func TestLazyResourceWriter_SetTargetRejectsDoubleSet(t *testing.T) {
+	t.Parallel()
+	w := newLazyResourceWriter()
+	if err := w.SetTarget(&fakeResourceWriter{}); err != nil {
+		t.Fatalf("first SetTarget returned error: %v", err)
+	}
+	if err := w.SetTarget(&fakeResourceWriter{}); err == nil {
+		t.Error("second SetTarget = nil error, want 'already wired'")
+	}
+}
+
+func TestLazyResourceWriter_SetTargetRejectsSelf(t *testing.T) {
+	t.Parallel()
+	w := newLazyResourceWriter()
+	// Targeting self would infinite-loop on the first forwarded call.
+	if err := w.SetTarget(w); err == nil {
+		t.Error("SetTarget(self) = nil error, want refusal")
+	}
+}
+
+func TestWireResourceWriter_RejectsNilService(t *testing.T) {
+	t.Parallel()
+	w := newLazyResourceWriter()
+	// A nil ResourceService interface must cause Fx to fail startup, not
+	// silently install a nil target that panics at the first hook.
+	if err := WireResourceWriter(w, nil); err == nil {
+		t.Error("WireResourceWriter with nil svc = nil error, want rejection")
+	}
+}
+
+func TestWireResourceWriter_RejectsNilWriter(t *testing.T) {
+	t.Parallel()
+	// A nil *lazyResourceWriter must fail startup rather than nil-deref.
+	if err := WireResourceWriter(nil, nil); err == nil {
+		t.Error("WireResourceWriter with nil writer = nil error, want rejection")
 	}
 }

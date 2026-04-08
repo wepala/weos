@@ -90,7 +90,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideAuthenticationService),
 		fx.Provide(ProvideSessionManager),
 
-		// Resource behavior registries (must come before ProvideResourceService)
+		// Resource behavior registries (must come before ProvideResourceService).
+		// The lazy resource writer breaks the construction cycle between
+		// ResourceService and ResourceBehaviorRegistry; WireResourceWriter
+		// (fx.Invoke below) installs the real service into it at startup.
+		fx.Provide(newLazyResourceWriter),
 		fx.Provide(ProvideResourceBehaviorRegistry),
 		fx.Provide(ProvideBehaviorMetaRegistry),
 		fx.Provide(gorm.ProvideBehaviorSettingsRepository),
@@ -99,6 +103,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
 		fx.Provide(ProvideResourcePermissionService),
+
+		// Install the real ResourceService into the lazy writer proxy now that
+		// both exist. Behaviors close over the proxy at factory time; this
+		// invoke must run before any hook can be called.
+		fx.Invoke(WireResourceWriter),
 
 		// Subscribe event handlers (projections)
 		fx.Invoke(subscribeEventHandlers),

@@ -51,6 +51,37 @@ type resourceService struct {
 	behaviorSettings repositories.BehaviorSettingsRepository
 }
 
+// maxBehaviorRecursionDepth caps how deep a behavior cascade can go. Behaviors
+// can legitimately create/update/delete other resources (via
+// BehaviorServices.Writer), and those cross-resource writes run the target's
+// own behaviors, so cascades are expected (e.g. course-instance creates
+// education-events, which create attendance-records). A small depth limit
+// catches accidental cycles fast instead of blowing the stack or hanging on
+// exponential fan-out.
+const maxBehaviorRecursionDepth = 8
+
+type behaviorDepthKey struct{}
+
+// enterResourceCall increments the cascade depth counter in ctx and returns
+// the updated context. It fails if the depth would exceed
+// maxBehaviorRecursionDepth — an indicator of a cycle or runaway cascade.
+// On failure it returns the original (unchanged) ctx alongside the error so a
+// caller that forgets to guard the error still gets a usable context.
+//
+// Because context values are immutable, sibling writes from the same hook
+// each see the parent's depth N (not N+1 and N+2) — only true nesting
+// inflates the counter, which is the intended accounting.
+func enterResourceCall(ctx context.Context) (context.Context, error) {
+	depth, _ := ctx.Value(behaviorDepthKey{}).(int)
+	if depth >= maxBehaviorRecursionDepth {
+		return ctx, fmt.Errorf(
+			"resource behavior recursion depth %d exceeds max %d (likely cycle)",
+			depth, maxBehaviorRecursionDepth,
+		)
+	}
+	return context.WithValue(ctx, behaviorDepthKey{}, depth+1), nil
+}
+
 func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.ResourceType) entities.ResourceBehavior {
 	if rt == nil {
 		return entities.DefaultBehavior{}
@@ -172,6 +203,10 @@ func ProvideResourceService(params struct {
 func (s *resourceService) Create(
 	ctx context.Context, cmd CreateResourceCommand,
 ) (*entities.Resource, error) {
+	ctx, err := enterResourceCall(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rt, err := s.typeRepo.FindBySlug(ctx, cmd.TypeSlug)
 	if err != nil {
 		return nil, fmt.Errorf("resource type %q not found: %w", cmd.TypeSlug, err)
@@ -348,6 +383,10 @@ func (s *resourceService) ListWithFilters(
 func (s *resourceService) Update(
 	ctx context.Context, cmd UpdateResourceCommand,
 ) (*entities.Resource, error) {
+	ctx, err := enterResourceCall(ctx)
+	if err != nil {
+		return nil, err
+	}
 	entity, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
 		return nil, err
@@ -422,6 +461,10 @@ func (s *resourceService) Update(
 func (s *resourceService) Delete(
 	ctx context.Context, cmd DeleteResourceCommand,
 ) error {
+	ctx, err := enterResourceCall(ctx)
+	if err != nil {
+		return err
+	}
 	entity, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
 		return err
