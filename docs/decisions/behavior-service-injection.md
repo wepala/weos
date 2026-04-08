@@ -7,7 +7,7 @@ nav_order: 3
 
 # ADR: Injecting Services into ResourceBehavior Implementations
 
-**Status:** Proposed
+**Status:** Accepted (Implemented)
 **Date:** 2026-04-07
 **Context:** Preset-defined `ResourceBehavior` implementations need access to application services (repositories, domain services, loggers, HTTP clients, etc.) but are currently instantiated before Fx wires the container.
 

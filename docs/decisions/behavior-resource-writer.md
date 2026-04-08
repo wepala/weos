@@ -199,12 +199,12 @@ If a real-world preset needs deeper nesting, raising the constant is a one-line 
 
 ## Implementation
 
-- [x] `services/core/application/resource_behaviors.go`: define `ResourceWriter`, `lazyResourceWriter`, `newLazyResourceWriter`, `WireResourceWriter`
-- [x] `services/core/application/resource_behaviors.go`: add `Writer ResourceWriter` field to `BehaviorServices`
-- [x] `services/core/application/resource_behaviors.go`: `ProvideResourceBehaviorRegistry` takes `*lazyResourceWriter` and passes it in `BehaviorServices`
-- [x] `services/core/application/module.go`: `fx.Provide(newLazyResourceWriter)` + `fx.Invoke(WireResourceWriter)` after `ProvideResourceService`
-- [x] `services/core/application/resource_service.go`: `enterResourceCall` + `maxBehaviorRecursionDepth` + calls at the top of `Create`, `Update`, `Delete`
-- [x] `services/core/application/resource_behaviors_test.go`: test fixtures supply a fake or real `*lazyResourceWriter`
-- [x] `services/core/application/resource_service_test.go`: direct tests for `enterResourceCall` (boundary, sibling immutability) and per-method guard enforcement
-- [x] `services/core/docs/_howto/create-behavior.md`: §3a mentions `Writer` and shows a cross-resource example
+- [x] `application/resource_behaviors.go`: define `ResourceWriter`, `lazyResourceWriter`, `newLazyResourceWriter`, `WireResourceWriter`
+- [x] `application/resource_behaviors.go`: add `Writer ResourceWriter` field to `BehaviorServices`
+- [x] `application/resource_behaviors.go`: `ProvideResourceBehaviorRegistry` takes `*lazyResourceWriter` and passes it in `BehaviorServices`
+- [x] `application/module.go`: `fx.Provide(newLazyResourceWriter)` + `fx.Invoke(WireResourceWriter)` after `ProvideResourceService`
+- [x] `application/resource_service.go`: `enterResourceCall` + `maxBehaviorRecursionDepth` + calls at the top of `Create`, `Update`, `Delete`
+- [x] `application/resource_behaviors_test.go`: test fixtures supply a fake or real `*lazyResourceWriter`
+- [x] `application/resource_service_test.go`: direct tests for `enterResourceCall` (boundary, sibling immutability) and per-method guard enforcement
+- [x] `docs/_howto/create-behavior.md`: §3a mentions `Writer` and shows a cross-resource example
 - [ ] End-to-end cascade test once a consumer (e.g. the education preset) lands
