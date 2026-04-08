@@ -125,10 +125,15 @@ dependencies (like the one above), `application.StaticBehavior` wraps a plain in
 ## 3a. Inject Application Services
 
 If your behavior needs a repository or logger, write a real factory instead of
-`StaticBehavior`. The factory receives a populated `application.BehaviorServices`,
-whose fields are `Resources` (`repositories.ResourceRepository`), `Triples`
-(`repositories.TripleRepository`), `ResourceTypes` (`repositories.ResourceTypeRepository`),
-and `Logger` (`entities.Logger`).
+`StaticBehavior`. The factory receives a populated `application.BehaviorServices`:
+
+| Field | Type | Use for |
+|---|---|---|
+| `Resources` | `repositories.ResourceRepository` | reading other resources (queries, lookups) |
+| `Triples` | `repositories.TripleRepository` | reading relationships between resources |
+| `ResourceTypes` | `repositories.ResourceTypeRepository` | loading a type's schema/context (e.g. to call `application.EdgeValue`) |
+| `Logger` | `entities.Logger` | structured logging |
+| `Writer` | `application.ResourceWriter` | **creating, updating, or deleting other resources** through the full service pipeline |
 
 Example (showing imports):
 
@@ -156,6 +161,65 @@ Behaviors: map[string]application.BehaviorFactory{
 ```
 
 The factory is called once, at startup, by `application.ProvideResourceBehaviorRegistry`.
+
+### Creating or updating other resources
+
+When a hook needs to write *other* resources (not just transform the current
+one), use `services.Writer`. It is a `ResourceWriter` that forwards to the real
+`ResourceService`, so writes go through schema validation, JSON-LD graph
+assembly, triple extraction, event recording, UnitOfWork commit, and nested
+behavior dispatch — i.e. creating a resource from a behavior runs that
+resource's own behaviors in turn.
+
+Example: a `comment` behavior that bumps a `replyCount` on the parent post:
+
+```go
+type commentBehavior struct {
+    entities.DefaultBehavior
+    writer    application.ResourceWriter
+    resources repositories.ResourceRepository
+    types     repositories.ResourceTypeRepository
+    logger    entities.Logger
+}
+
+func newCommentBehavior(s application.BehaviorServices) entities.ResourceBehavior {
+    return &commentBehavior{
+        writer:    s.Writer,
+        resources: s.Resources,
+        types:     s.ResourceTypes,
+        logger:    s.Logger,
+    }
+}
+
+func (b *commentBehavior) AfterCreate(ctx context.Context, r *entities.Resource) error {
+    commentType, err := b.types.FindBySlug(ctx, r.TypeSlug())
+    if err != nil {
+        return err
+    }
+    postID := application.EdgeValue(r.Data(), commentType.Context(), "postId")
+    if postID == "" {
+        return nil
+    }
+    post, err := b.resources.FindByID(ctx, postID)
+    if err != nil {
+        return err
+    }
+    // Build newData by round-tripping post.Data() through json.Unmarshal /
+    // json.Marshal and incrementing the replyCount field. Preserve `@id` and
+    // `@context` on the result — Update revalidates the full JSON-LD graph
+    // and will reject a payload that has lost them.
+    _, err = b.writer.Update(ctx, application.UpdateResourceCommand{
+        ID:   post.GetID(),
+        Data: newData,
+    })
+    return err
+}
+```
+
+Behavior cascades are bounded: `ResourceService` caps the nesting depth
+(see `maxBehaviorRecursionDepth` in `application/resource_service.go`) to
+catch accidental cycles. If you hit that limit, you probably have a loop —
+check that two behaviors aren't triggering each other indefinitely.
 
 ## 4. Register the Preset
 

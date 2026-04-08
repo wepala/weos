@@ -60,14 +60,19 @@ func testRegistry() *application.PresetRegistry {
 
 func TestPresets_AllPresetsExist(t *testing.T) {
 	t.Parallel()
+	// The canonical built-in presets. Custom presets registered via the
+	// "custom" build tag (weos-private-presets) may add more on top of this
+	// list, so the assertion is a subset check, not strict equality.
 	expected := []string{"auth", "core", "ecommerce", "events", "knowledge", "meal-planning", "tasks", "website"}
 	defs := testRegistry().List()
-	if len(defs) != len(expected) {
-		t.Fatalf("expected %d presets, got %d", len(expected), len(defs))
+	present := make(map[string]application.PresetDefinition, len(defs))
+	for _, d := range defs {
+		present[d.Name] = d
 	}
-	for i, d := range defs {
-		if d.Name != expected[i] {
-			t.Fatalf("preset[%d] = %q, want %q", i, d.Name, expected[i])
+	for _, name := range expected {
+		d, ok := present[name]
+		if !ok {
+			t.Fatalf("expected built-in preset %q not registered", name)
 		}
 		if len(d.Types) == 0 {
 			t.Fatalf("preset %q has no types", d.Name)
