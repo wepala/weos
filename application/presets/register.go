@@ -16,6 +16,17 @@ import (
 
 var customRegistrars []func(*application.PresetRegistry)
 
+// Register adds a custom preset registrar that will be invoked by RegisterAll
+// after the built-in presets have been registered. Downstream services that
+// embed the weos binary can call this from a package init() to plug custom
+// presets into the default registry before cli.Execute() runs.
+func Register(fn func(*application.PresetRegistry)) {
+	if fn == nil {
+		return
+	}
+	customRegistrars = append(customRegistrars, fn)
+}
+
 // RegisterAll registers all built-in presets with the given registry.
 func RegisterAll(registry *application.PresetRegistry) {
 	core.Register(registry)
