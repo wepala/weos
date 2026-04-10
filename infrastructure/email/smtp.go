@@ -92,16 +92,16 @@ func (s *SMTPSender) sendWithContext(ctx context.Context, addr, to string, msg [
 		deadline = d
 	}
 	if err := conn.SetDeadline(deadline); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("smtp set deadline: %w", err)
 	}
 
 	c, err := smtp.NewClient(conn, s.host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("smtp new client: %w", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	// Attempt STARTTLS if supported.
 	if ok, _ := c.Extension("STARTTLS"); ok {
