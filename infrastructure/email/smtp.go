@@ -70,6 +70,10 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 	if cfg.Host == "" || cfg.From == "" {
 		return nil
 	}
+	// Reject host:port values — Host must be a bare hostname.
+	if _, _, err := net.SplitHostPort(cfg.Host); err == nil {
+		return nil
+	}
 	parsed, err := mail.ParseAddress(cfg.From)
 	if err != nil {
 		return nil

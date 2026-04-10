@@ -98,6 +98,16 @@ func TestNewSMTPSender_Port465_ReturnsNil(t *testing.T) {
 	}
 }
 
+func TestNewSMTPSender_HostWithPort_ReturnsNil(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com:587",
+		From: "test@example.com",
+	})
+	if sender != nil {
+		t.Fatal("expected nil sender when Host contains a port")
+	}
+}
+
 func TestNewSMTPSender_InvalidPort_ReturnsNil(t *testing.T) {
 	for _, port := range []string{"abc", "0", "99999", "-1"} {
 		sender := NewSMTPSender(config.SMTPConfig{
