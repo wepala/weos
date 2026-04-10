@@ -17,6 +17,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -74,7 +75,10 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	// Derive Content-Type server-side by sniffing the first 512 bytes
 	// rather than trusting the client-supplied multipart header, which
 	// could specify text/html or image/svg+xml to enable stored XSS.
-	contentType := detectContentType(file)
+	contentType, err := detectContentType(file)
+	if err != nil {
+		return respondError(c, http.StatusInternalServerError, "failed to detect file type")
+	}
 
 	ctx := c.Request().Context()
 	result, err := h.fileService.Upload(ctx, fh.Filename, contentType, file)
@@ -89,15 +93,16 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 
 // detectContentType reads up to 512 bytes from the file to sniff the MIME
 // type, then seeks back to the start so the full file can still be read.
-// Falls back to application/octet-stream on any error.
-func detectContentType(file io.ReadSeeker) string {
+// Returns an error if the file cannot be rewound after sniffing, since
+// proceeding would silently corrupt the stored file (missing sniffed bytes).
+func detectContentType(file io.ReadSeeker) (string, error) {
 	buf := make([]byte, sniffBufSize)
 	n, _ := file.Read(buf)
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return "application/octet-stream"
+		return "", fmt.Errorf("rewind after content-type sniff: %w", err)
 	}
 	if n == 0 {
-		return "application/octet-stream"
+		return "application/octet-stream", nil
 	}
-	return http.DetectContentType(buf[:n])
+	return http.DetectContentType(buf[:n]), nil
 }
