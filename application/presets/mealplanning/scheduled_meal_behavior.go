@@ -525,11 +525,26 @@ func expandScheduleWithWarnings(
 		return nil, false, exceptWarnings, stepErr
 	}
 
+	byDay := parseStringArray(sm["byDay"])
+	byMonth := parseIntArray(sm["byMonth"])
+	byMonthDay := parseIntArray(sm["byMonthDay"])
+
+	// Warn when startDate doesn't satisfy the given filters — the walker
+	// steps by repeatFrequency and applies filters as pass/fail checks, so
+	// a misaligned start (e.g. Monday start + byDay=[Wednesday] + P1W step)
+	// produces zero occurrences.
+	if !matchesFilters(start, byDay, byMonth, byMonthDay) {
+		exceptWarnings = append(exceptWarnings,
+			fmt.Sprintf("startDate %s does not match the byDay/byMonth/byMonthDay "+
+				"filters; the schedule may produce fewer occurrences than expected",
+				startStr))
+	}
+
 	dates, capped, truncated := walkSchedule(walkParams{
 		start: start, end: end, today: today, step: step,
-		byDay:       parseStringArray(sm["byDay"]),
-		byMonth:     parseIntArray(sm["byMonth"]),
-		byMonthDay:  parseIntArray(sm["byMonthDay"]),
+		byDay:       byDay,
+		byMonth:     byMonth,
+		byMonthDay:  byMonthDay,
 		exceptDates: exceptDates,
 		repeatCount: parseInt(sm["repeatCount"]),
 		onlyFuture:  onlyFuture,
