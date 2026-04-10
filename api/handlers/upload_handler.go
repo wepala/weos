@@ -17,6 +17,7 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"net/http"
 
 	"weos/application"
@@ -24,6 +25,9 @@ import (
 
 	"github.com/labstack/echo/v4"
 )
+
+// sniffBufSize is the number of bytes read for http.DetectContentType.
+const sniffBufSize = 512
 
 // UploadHandler handles file upload requests.
 type UploadHandler struct {
@@ -67,10 +71,10 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	}
 	defer func() { _ = file.Close() }()
 
-	contentType := fh.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
+	// Derive Content-Type server-side by sniffing the first 512 bytes
+	// rather than trusting the client-supplied multipart header, which
+	// could specify text/html or image/svg+xml to enable stored XSS.
+	contentType := detectContentType(file)
 
 	ctx := c.Request().Context()
 	result, err := h.fileService.Upload(ctx, fh.Filename, contentType, file)
@@ -81,4 +85,19 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	}
 
 	return respond(c, http.StatusCreated, result)
+}
+
+// detectContentType reads up to 512 bytes from the file to sniff the MIME
+// type, then seeks back to the start so the full file can still be read.
+// Falls back to application/octet-stream on any error.
+func detectContentType(file io.ReadSeeker) string {
+	buf := make([]byte, sniffBufSize)
+	n, _ := file.Read(buf)
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "application/octet-stream"
+	}
+	if n == 0 {
+		return "application/octet-stream"
+	}
+	return http.DetectContentType(buf[:n])
 }

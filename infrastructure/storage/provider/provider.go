@@ -37,8 +37,8 @@ import (
 
 // ProvideFileService builds a FileService from the application config.
 // Local storage is always available. When a cloud bucket is configured,
-// it becomes the primary backend and local acts as a secondary cache.
-// The local upload directory is eagerly validated at startup.
+// it becomes the primary backend and local acts as a secondary replica.
+// The local upload directory is eagerly created at startup via MkdirAll.
 func ProvideFileService(params struct {
 	fx.In
 	Lifecycle fx.Lifecycle
