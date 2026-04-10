@@ -61,6 +61,34 @@ type Config struct {
 	BigQueryProjectID string
 	BigQueryDatasetID string
 	BigQueryTableID   string
+
+	// Storage holds configuration for file storage backends.
+	Storage StorageConfig
+}
+
+// StorageConfig holds configuration for pluggable file storage backends.
+// At most one cloud backend (GCS or S3) may be configured. If both are set,
+// the application will log a warning and use GCS as primary.
+type StorageConfig struct {
+	// LocalPath is the local filesystem directory for uploads.
+	// Default: "./uploads"
+	LocalPath string
+
+	// GCSBucket is the Google Cloud Storage bucket name.
+	// When set, the GCS backend is activated as the primary storage.
+	GCSBucket string
+
+	// S3Bucket is the AWS S3 bucket name.
+	// When set (and GCSBucket is empty), the S3 backend is activated as the primary storage.
+	S3Bucket string
+
+	// S3Region is the AWS region for the S3 bucket.
+	// Default: "us-east-1"
+	S3Region string
+
+	// MaxUploadBytes is the maximum allowed upload size in bytes.
+	// Default: 50 MB (52428800)
+	MaxUploadBytes int64
 }
 
 // OAuthEnabled returns true when Google OAuth credentials are configured.
@@ -126,6 +154,11 @@ func Default() Config {
 		},
 		OAuth: OAuthConfig{
 			DynamicRegistration: false,
+		},
+		Storage: StorageConfig{
+			LocalPath:      "./uploads",
+			S3Region:       "us-east-1",
+			MaxUploadBytes: 50 << 20, // 50 MB
 		},
 	}
 }
@@ -197,5 +230,23 @@ func (c *Config) LoadFromEnvironment() {
 	}
 	if bqTable := os.Getenv("BIGQUERY_TABLE_ID"); bqTable != "" {
 		c.BigQueryTableID = bqTable
+	}
+
+	if v := os.Getenv("STORAGE_LOCAL_PATH"); v != "" {
+		c.Storage.LocalPath = v
+	}
+	if v := os.Getenv("STORAGE_GCS_BUCKET"); v != "" {
+		c.Storage.GCSBucket = v
+	}
+	if v := os.Getenv("STORAGE_S3_BUCKET"); v != "" {
+		c.Storage.S3Bucket = v
+	}
+	if v := os.Getenv("STORAGE_S3_REGION"); v != "" {
+		c.Storage.S3Region = v
+	}
+	if v := os.Getenv("STORAGE_MAX_UPLOAD_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			c.Storage.MaxUploadBytes = n
+		}
 	}
 }

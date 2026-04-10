@@ -8,6 +8,7 @@ import (
 	"weos/infrastructure/database/gorm"
 	"weos/infrastructure/events"
 	"weos/infrastructure/logging"
+	storageprovider "weos/infrastructure/storage/provider"
 	"weos/internal/config"
 
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -103,6 +104,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
 		fx.Provide(ProvideResourcePermissionService),
+		fx.Provide(storageprovider.ProvideFileService),
 
 		// Install the real ResourceService into the lazy writer proxy now that
 		// both exist. Behaviors close over the proxy at factory time; this

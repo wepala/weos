@@ -77,6 +77,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 	var resourcePermService application.ResourcePermissionService
+	var fileService application.FileService
 	var authService authapp.AuthenticationService
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
@@ -100,6 +101,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&resourcePermService),
+		fx.Populate(&fileService),
 		fx.Populate(&authService),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
@@ -303,6 +305,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
 	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
 	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
+
+	// File upload routes — registered before dynamic catch-all
+	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)
+	protected.POST("/uploads", uploadHandler.Upload)
+	api.Static("/uploads/files", appCfg.Storage.LocalPath)
 
 	// MCP routes — registered before dynamic catch-all
 	if serveViper.GetBool("enabled") {
