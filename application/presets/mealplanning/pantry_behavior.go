@@ -64,7 +64,7 @@ var pantryWriteFields = []string{
 func (b *enforceSingleDefaultBehavior) enforce(
 	ctx context.Context, resource *entities.Resource,
 ) {
-	if b.writer == nil {
+	if b.writer == nil || b.svc.Resources == nil {
 		addNilSvcWarning(ctx, "pantry enforcement")
 		return
 	}

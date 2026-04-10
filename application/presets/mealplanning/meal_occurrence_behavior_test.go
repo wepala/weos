@@ -77,7 +77,11 @@ func setupDepletionBehavior(t *testing.T) (
 		},
 	}
 	stub.listFlatData["meal-plan"] = []map[string]any{
-		{"id": "mp-1", "name": "Week", "pantry": "pantry-1"},
+		{"id": "mp-1", "name": "Week"},
+	}
+	// Seed a default pantry (depletion always uses the default pantry).
+	stub.listFlatData["pantry"] = []map[string]any{
+		{"id": "pantry-1", "isDefault": true, "name": "Home"},
 	}
 
 	// Seed RecipeIngredient list.
@@ -379,7 +383,7 @@ func TestDeplete_PantryResolution_FromMealPlan(t *testing.T) {
 	_, _ = b.BeforeUpdate(context.Background(), existing, dataBytes, nil)
 	_ = b.AfterUpdate(context.Background(), makeCookedOccurrence(t, 2))
 
-	// Update should target the food item in pantry-1 (from mealPlan).
+	// Update should target the food item in pantry-1 (default pantry).
 	if len(stub.updates) != 1 {
 		t.Fatalf("expected 1 update, got %d", len(stub.updates))
 	}

@@ -66,6 +66,10 @@ func visibilityScope(ctx context.Context) *repositories.VisibilityScope {
 func (b *baseBehavior) loadFlatRow(
 	ctx context.Context, typeSlug, id string,
 ) map[string]any {
+	if b.svc.Resources == nil {
+		addNilSvcWarning(ctx, "loadFlatRow")
+		return nil
+	}
 	filters := []repositories.FilterCondition{
 		{Field: "id", Operator: "eq", Value: id},
 	}

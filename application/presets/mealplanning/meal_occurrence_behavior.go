@@ -348,32 +348,17 @@ func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 	}
 }
 
-// resolvePantry returns the pantry ID to deplete from. Uses the scheduled
-// meal's mealPlan.pantry if set, otherwise the user's default pantry.
+// resolvePantry returns the pantry ID to deplete from. Currently always
+// uses the account's default pantry. A future schema addition could add a
+// "pantry" reference to the meal-plan type, at which point this function
+// would check that first before falling back to the default.
 func (b *depletePantryOnCookBehavior) resolvePantry(
-	ctx context.Context, scheduledMealData map[string]any,
+	ctx context.Context, _ map[string]any,
 ) string {
 	if b.svc.Resources == nil {
 		return ""
 	}
-	mealPlanID, _ := scheduledMealData["mealPlan"].(string)
-	if mealPlanID != "" {
-		mealPlan, err := b.svc.Resources.FindByID(ctx, mealPlanID)
-		if err != nil {
-			if b.logger != nil {
-				b.logger.Error(ctx, "depletion: failed to load meal plan",
-					"id", mealPlanID, "error", err)
-			}
-		} else if mealPlan != nil {
-			mpData, mpErr := extractFlatDataByID(mealPlan, mealPlanID)
-			if mpErr == nil && mpData != nil {
-				if p, _ := mpData["pantry"].(string); p != "" {
-					return p
-				}
-			}
-		}
-	}
-	// Fall back to default pantry in the account.
+	// Resolve the account's default pantry.
 	// Portable boolean filter: "1" works on both SQLite (INTEGER 0/1) and
 	// PostgreSQL (coerced to true).
 	filters := []repositories.FilterCondition{
