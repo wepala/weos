@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**WeOS** is an open source Go application for building a **digital twin** — of yourself or your business — that gives any LLM context-rich access to the information from the apps and devices you use. WeOS stores that information as a knowledge graph and exposes an MCP server so any MCP-compatible LLM (Claude, GPT, Gemini, Ollama) can query it. WeOS never calls an LLM directly.
+**WeOS** is an open source Go application for building a **digital twin** — of yourself or your business — that gives any LLM context-rich access to the information from the apps and devices you use. WeOS stores that information as a knowledge graph and exposes an MCP server so any MCP-compatible LLM (Claude, GPT, Gemini, Ollama) can query it. WeOS is MCP-first by default; optional built-in agent integrations (e.g. Google ADK/Gemini) are available when configured.
 
 See `.claude/local-context.md` for full product vision, user personas, and business context.
 
 ### What the Go Binary Does
-1. **Stores data as a knowledge graph** — JSON-LD resources plus RDF triples for relationships, using ontology-typed entities (Schema.org, FOAF, vCard, etc.)
+1. **Stores data as a knowledge graph** — JSON-LD resources plus RDF triples for relationships, using ontology-typed entities (Schema.org, FOAF, etc.)
 2. **Runs the MCP server** — LLMs connect over MCP to query the graph for grounded responses
 3. **Optionally serves a static site and REST API** — the same graph can drive HTML output or be accessed programmatically
 
 ### Key Design Decisions
-- **LLM-agnostic** — MCP server interface, no direct LLM calls
+- **LLM-agnostic** — MCP-first by default; optional provider-backed agents (Google ADK/Gemini) when configured
 - **Static HTML output is optional** — sites are one way to surface the graph, not the core purpose; server-side rendering is opt-in
 - **Ontology-backed entities** — content objects (products, events, services) are RDF-typed using Schema.org, FOAF, etc. — gives free SEO structured data and grounded LLM reasoning
 - **Resource types with dynamic projection tables** — when a resource type is created, a dedicated projection table is generated from its JSON Schema. All content (websites, pages, products, etc.) is modeled as resource types + resources.
