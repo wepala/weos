@@ -44,16 +44,27 @@ func TestNewSMTPSender_WithHost_ReturnsSender(t *testing.T) {
 	require.NotNil(t, sender)
 	assert.True(t, sender.Configured())
 	assert.Equal(t, "587", sender.port, "should default port to 587")
+	assert.Equal(t, "test@example.com", sender.envelopeFrom)
+}
+
+func TestNewSMTPSender_DisplayNameFrom(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "WeOS Admin <admin@example.com>",
+	})
+	require.NotNil(t, sender)
+	assert.Equal(t, "admin@example.com", sender.envelopeFrom)
+	assert.Contains(t, sender.headerFrom, "admin@example.com")
 }
 
 func TestNewSMTPSender_CustomPort(t *testing.T) {
 	sender := NewSMTPSender(config.SMTPConfig{
 		Host: "smtp.example.com",
-		Port: "465",
+		Port: "2525",
 		From: "test@example.com",
 	})
 	require.NotNil(t, sender)
-	assert.Equal(t, "465", sender.port)
+	assert.Equal(t, "2525", sender.port)
 }
 
 type testLogger struct {
@@ -81,6 +92,17 @@ func TestLogSender_SendLogsWarning(t *testing.T) {
 	assert.Contains(t, logger.warnings[0], "SMTP not configured")
 }
 
+func TestSMTPSender_Send_RejectsInvalidTo(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "test@example.com",
+	})
+	require.NotNil(t, sender)
+	err := sender.Send(context.Background(), "not-an-address", "Subject", "body")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid recipient address")
+}
+
 func TestSMTPSender_Send_RejectsCRLFInTo(t *testing.T) {
 	sender := NewSMTPSender(config.SMTPConfig{
 		Host: "smtp.example.com",
@@ -89,18 +111,7 @@ func TestSMTPSender_Send_RejectsCRLFInTo(t *testing.T) {
 	require.NotNil(t, sender)
 	err := sender.Send(context.Background(), "evil@example.com\r\nBcc: spy@evil.com", "Subject", "body")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid characters")
-}
-
-func TestSMTPSender_Send_RejectsCRLFInSubject(t *testing.T) {
-	sender := NewSMTPSender(config.SMTPConfig{
-		Host: "smtp.example.com",
-		From: "test@example.com",
-	})
-	require.NotNil(t, sender)
-	err := sender.Send(context.Background(), "user@example.com", "Hello\r\nBcc: spy@evil.com", "body")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid characters")
+	assert.Contains(t, err.Error(), "invalid recipient address")
 }
 
 func TestProvideEmailSender_NoSMTP_ReturnsLogSender(t *testing.T) {

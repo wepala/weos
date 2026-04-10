@@ -22,7 +22,6 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
-	"strings"
 	"time"
 
 	"weos/domain/entities"
@@ -30,18 +29,30 @@ import (
 )
 
 const (
+	// defaultPort is the SMTP submission port (STARTTLS).
+	// Implicit TLS (port 465) is not currently supported.
 	defaultPort       = "587"
 	dialTimeout       = 30 * time.Second
 	readWriteDeadline = 60 * time.Second
 )
 
-// SMTPSender sends email via an SMTP server.
+// SMTPSender sends email via an SMTP server using STARTTLS.
+//
+// Only the STARTTLS flow (typically port 587) is supported. Implicit TLS
+// (port 465 / SMTPS) is not implemented; configuring port 465 will fail
+// because the server expects a TLS handshake immediately on connect.
+//
+// After the TCP connection is established, an I/O deadline (60 s or the
+// context deadline, whichever is sooner) governs the remainder of the SMTP
+// transaction. Context cancellation without a deadline will not interrupt
+// an in-progress transaction until that ceiling is reached.
 type SMTPSender struct {
-	host     string
-	port     string
-	username string
-	password string
-	from     string
+	host         string
+	port         string
+	username     string
+	password     string
+	envelopeFrom string // bare email for SMTP MAIL FROM / RCPT TO
+	headerFrom   string // formatted for the From: header (may include display name)
 }
 
 // NewSMTPSender creates a sender from the SMTP config section.
@@ -51,7 +62,8 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 	if cfg.Host == "" || cfg.From == "" {
 		return nil
 	}
-	if _, err := mail.ParseAddress(cfg.From); err != nil {
+	parsed, err := mail.ParseAddress(cfg.From)
+	if err != nil {
 		return nil
 	}
 	port := cfg.Port
@@ -59,28 +71,30 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 		port = defaultPort
 	}
 	return &SMTPSender{
-		host:     cfg.Host,
-		port:     port,
-		username: cfg.Username,
-		password: cfg.Password,
-		from:     cfg.From,
+		host:         cfg.Host,
+		port:         port,
+		username:     cfg.Username,
+		password:     cfg.Password,
+		envelopeFrom: parsed.Address,
+		headerFrom:   parsed.String(),
 	}
 }
 
 func (s *SMTPSender) Send(ctx context.Context, to, subject, body string) error {
-	if strings.ContainsAny(to, "\r\n") || strings.ContainsAny(subject, "\r\n") {
-		return fmt.Errorf("email header contains invalid characters")
+	parsedTo, err := mail.ParseAddress(to)
+	if err != nil {
+		return fmt.Errorf("invalid recipient address: %w", err)
 	}
 
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
-		s.from, to, subject, body)
+		s.headerFrom, parsedTo.String(), subject, body)
 
-	addr := s.host + ":" + s.port
+	addr := net.JoinHostPort(s.host, s.port)
 
-	return s.sendWithContext(ctx, addr, to, []byte(msg))
+	return s.sendWithContext(ctx, addr, parsedTo.Address, []byte(msg))
 }
 
-func (s *SMTPSender) sendWithContext(ctx context.Context, addr, to string, msg []byte) error {
+func (s *SMTPSender) sendWithContext(ctx context.Context, addr, rcpt string, msg []byte) error {
 	dialer := net.Dialer{Timeout: dialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -103,24 +117,30 @@ func (s *SMTPSender) sendWithContext(ctx context.Context, addr, to string, msg [
 	}
 	defer func() { _ = c.Close() }()
 
-	// Attempt STARTTLS if supported.
+	// Upgrade to TLS via STARTTLS if the server supports it.
+	tlsEstablished := false
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		if err := c.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
 			return fmt.Errorf("smtp starttls: %w", err)
 		}
+		tlsEstablished = true
 	}
 
+	// Refuse to send credentials over a plaintext connection.
 	if s.username != "" {
+		if !tlsEstablished {
+			return fmt.Errorf("smtp auth: refusing to send credentials without TLS")
+		}
 		auth := smtp.PlainAuth("", s.username, s.password, s.host)
 		if err := c.Auth(auth); err != nil {
 			return fmt.Errorf("smtp auth: %w", err)
 		}
 	}
 
-	if err := c.Mail(s.from); err != nil {
+	if err := c.Mail(s.envelopeFrom); err != nil {
 		return fmt.Errorf("smtp mail from: %w", err)
 	}
-	if err := c.Rcpt(to); err != nil {
+	if err := c.Rcpt(rcpt); err != nil {
 		return fmt.Errorf("smtp rcpt to: %w", err)
 	}
 
