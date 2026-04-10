@@ -59,8 +59,11 @@ type SMTPSender struct {
 }
 
 // NewSMTPSender creates a sender from the SMTP config section.
-// Returns a configured sender when both Host and From are set and From is a
-// valid email address, or nil otherwise.
+// Returns a configured sender when Host and From are set, From is a valid
+// email address, and Port is either empty or a valid numeric TCP port in the
+// range 1-65535 excluding 465. Port 465 is rejected because implicit TLS
+// (SMTPS) is not supported; only the STARTTLS flow is implemented.
+// Returns nil otherwise.
 func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 	if cfg.Host == "" || cfg.From == "" {
 		return nil
@@ -168,11 +171,15 @@ func (s *SMTPSender) sendWithContext(ctx context.Context, addr, rcpt string, msg
 
 func (s *SMTPSender) Configured() bool { return true }
 
-// ProvideEmailSender returns an SMTPSender when SMTP is configured,
+// ProvideEmailSender returns an SMTPSender when SMTP is fully configured,
 // or a LogSender that warns on each send attempt otherwise.
 func ProvideEmailSender(cfg config.Config, logger entities.Logger) entities.EmailSender {
 	if sender := NewSMTPSender(cfg.SMTP); sender != nil {
 		return sender
+	}
+	if cfg.SMTP.Host != "" {
+		logger.Warn(context.Background(), "SMTP configured but invalid, falling back to no-op sender",
+			"host", cfg.SMTP.Host)
 	}
 	return &LogSender{logger: logger}
 }
