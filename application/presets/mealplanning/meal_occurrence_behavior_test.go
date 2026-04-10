@@ -70,10 +70,11 @@ func setupDepletionBehavior(t *testing.T) (
 	stub.listFlatData["scheduled-meal"] = []map[string]any{
 		{"id": "sm-1", "recipe": "recipe-1", "mealPlan": "mp-1"},
 	}
+	// Projection rows store object-valued fields as JSON strings.
 	stub.listFlatData["recipe"] = []map[string]any{
 		{
 			"id": "recipe-1", "name": "Pasta",
-			"recipeYield": map[string]any{"value": float64(2), "unitText": "servings"},
+			"recipeYield": `{"value":2,"unitText":"servings"}`,
 		},
 	}
 	stub.listFlatData["meal-plan"] = []map[string]any{
@@ -494,13 +495,21 @@ func TestComputeScalingFactor_DefaultsToOne(t *testing.T) {
 	if f != 1.0 {
 		t.Fatalf("expected 1.0 for zero yield, got %v", f)
 	}
-	// Normal case: 4 / 2 = 2.
+	// Normal case (nested map): 4 / 2 = 2.
 	f = computeScalingFactor(
 		map[string]any{"servings": float64(4)},
 		map[string]any{"recipeYield": map[string]any{"value": float64(2)}},
 	)
 	if f != 2.0 {
-		t.Fatalf("expected 2.0, got %v", f)
+		t.Fatalf("expected 2.0 (nested map), got %v", f)
+	}
+	// Normal case (JSON string — projection row format): 4 / 2 = 2.
+	f = computeScalingFactor(
+		map[string]any{"servings": float64(4)},
+		map[string]any{"recipeYield": `{"value":2,"unitText":"servings"}`},
+	)
+	if f != 2.0 {
+		t.Fatalf("expected 2.0 (JSON string), got %v", f)
 	}
 }
 

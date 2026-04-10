@@ -120,7 +120,7 @@ func (b *depletePantryOnCookBehavior) takePending(id string) bool {
 func (b *depletePantryOnCookBehavior) deplete(
 	ctx context.Context, resource *entities.Resource,
 ) {
-	if b.writer == nil {
+	if b.writer == nil || b.svc.Resources == nil {
 		addNilSvcWarning(ctx, "meal-occurrence depletion")
 		return
 	}
@@ -382,14 +382,16 @@ func (b *depletePantryOnCookBehavior) resolvePantry(
 }
 
 // computeScalingFactor returns occurrence_servings / recipe_yield_value,
-// defaulting to 1.0 when either is missing.
+// defaulting to 1.0 when either is missing. Handles recipeYield as both
+// a nested map (in-memory) and a JSON string (flat projection rows store
+// object-valued properties as serialized JSON strings).
 func computeScalingFactor(occurrence, recipe map[string]any) float64 {
 	occServings := toFloat(occurrence["servings"])
 	if occServings <= 0 {
 		return 1.0
 	}
-	yield, ok := recipe["recipeYield"].(map[string]any)
-	if !ok {
+	yield := parseObjectField(recipe["recipeYield"])
+	if yield == nil {
 		return 1.0
 	}
 	yieldValue := toFloat(yield["value"])
@@ -397,6 +399,22 @@ func computeScalingFactor(occurrence, recipe map[string]any) float64 {
 		return 1.0
 	}
 	return occServings / yieldValue
+}
+
+// parseObjectField handles a value that may be either a map[string]any
+// (in-memory JSON object) or a string (JSON-serialized by the projection
+// layer for object-valued columns). Returns nil if the value is neither.
+func parseObjectField(v any) map[string]any {
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	if s, ok := v.(string); ok && len(s) > 0 && s[0] == '{' {
+		var m map[string]any
+		if json.Unmarshal([]byte(s), &m) == nil {
+			return m
+		}
+	}
+	return nil
 }
 
 // sortFoodItemsByExpiration sorts items with earlier expirationDate first.

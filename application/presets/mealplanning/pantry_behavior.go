@@ -59,8 +59,8 @@ var pantryWriteFields = []string{
 }
 
 // enforce unsets isDefault on all other pantries when this one is default.
-// Errors are logged and surfaced as warning messages so the triggering
-// operation succeeds but the user sees any failures.
+// Enforcement is best-effort: failures are logged, and some paths emit
+// warnings, but the triggering operation is still allowed to succeed.
 func (b *enforceSingleDefaultBehavior) enforce(
 	ctx context.Context, resource *entities.Resource,
 ) {
