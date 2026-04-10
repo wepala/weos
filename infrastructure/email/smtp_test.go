@@ -20,6 +20,22 @@ func TestNewSMTPSender_EmptyFrom_ReturnsNil(t *testing.T) {
 	assert.Nil(t, sender)
 }
 
+func TestNewSMTPSender_InvalidFromAddress_ReturnsNil(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "not-an-email",
+	})
+	assert.Nil(t, sender)
+}
+
+func TestNewSMTPSender_FromWithCRLF_ReturnsNil(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "evil@example.com\r\nBcc: spy@evil.com",
+	})
+	assert.Nil(t, sender)
+}
+
 func TestNewSMTPSender_WithHost_ReturnsSender(t *testing.T) {
 	sender := NewSMTPSender(config.SMTPConfig{
 		Host: "smtp.example.com",

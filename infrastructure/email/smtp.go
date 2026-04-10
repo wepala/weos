@@ -17,12 +17,22 @@ package email
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
+	"net/mail"
 	"net/smtp"
 	"strings"
+	"time"
 
 	"weos/domain/entities"
 	"weos/internal/config"
+)
+
+const (
+	defaultPort       = "587"
+	dialTimeout       = 30 * time.Second
+	readWriteDeadline = 60 * time.Second
 )
 
 // SMTPSender sends email via an SMTP server.
@@ -35,14 +45,18 @@ type SMTPSender struct {
 }
 
 // NewSMTPSender creates a sender from the SMTP config section.
-// Returns a configured sender when Host is set, or nil otherwise.
+// Returns a configured sender when both Host and From are set and From is a
+// valid email address, or nil otherwise.
 func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 	if cfg.Host == "" || cfg.From == "" {
 		return nil
 	}
+	if _, err := mail.ParseAddress(cfg.From); err != nil {
+		return nil
+	}
 	port := cfg.Port
 	if port == "" {
-		port = "587"
+		port = defaultPort
 	}
 	return &SMTPSender{
 		host:     cfg.Host,
@@ -53,7 +67,7 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 	}
 }
 
-func (s *SMTPSender) Send(_ context.Context, to, subject, body string) error {
+func (s *SMTPSender) Send(ctx context.Context, to, subject, body string) error {
 	if strings.ContainsAny(to, "\r\n") || strings.ContainsAny(subject, "\r\n") {
 		return fmt.Errorf("email header contains invalid characters")
 	}
@@ -63,12 +77,65 @@ func (s *SMTPSender) Send(_ context.Context, to, subject, body string) error {
 
 	addr := s.host + ":" + s.port
 
-	var auth smtp.Auth
-	if s.username != "" {
-		auth = smtp.PlainAuth("", s.username, s.password, s.host)
+	return s.sendWithContext(ctx, addr, to, []byte(msg))
+}
+
+func (s *SMTPSender) sendWithContext(ctx context.Context, addr, to string, msg []byte) error {
+	dialer := net.Dialer{Timeout: dialTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("smtp dial: %w", err)
 	}
 
-	return smtp.SendMail(addr, auth, s.from, []string{to}, []byte(msg))
+	deadline := time.Now().Add(readWriteDeadline)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		conn.Close()
+		return fmt.Errorf("smtp set deadline: %w", err)
+	}
+
+	c, err := smtp.NewClient(conn, s.host)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("smtp new client: %w", err)
+	}
+	defer c.Close()
+
+	// Attempt STARTTLS if supported.
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if err := c.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
+			return fmt.Errorf("smtp starttls: %w", err)
+		}
+	}
+
+	if s.username != "" {
+		auth := smtp.PlainAuth("", s.username, s.password, s.host)
+		if err := c.Auth(auth); err != nil {
+			return fmt.Errorf("smtp auth: %w", err)
+		}
+	}
+
+	if err := c.Mail(s.from); err != nil {
+		return fmt.Errorf("smtp mail from: %w", err)
+	}
+	if err := c.Rcpt(to); err != nil {
+		return fmt.Errorf("smtp rcpt to: %w", err)
+	}
+
+	w, err := c.Data()
+	if err != nil {
+		return fmt.Errorf("smtp data: %w", err)
+	}
+	if _, err := w.Write(msg); err != nil {
+		return fmt.Errorf("smtp write: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("smtp data close: %w", err)
+	}
+
+	return c.Quit()
 }
 
 func (s *SMTPSender) Configured() bool { return true }
