@@ -20,8 +20,10 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"mime"
 	"net/mail"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,8 +73,9 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 	if port == "" {
 		port = defaultPort
 	}
-	if port == "465" {
-		return nil // implicit TLS (SMTPS) is not supported; use STARTTLS (port 587)
+	p, err := strconv.Atoi(port)
+	if err != nil || p < 1 || p > 65535 || port == "465" {
+		return nil // invalid port, or implicit TLS (465) which is not supported
 	}
 	return &SMTPSender{
 		host:         cfg.Host,
@@ -93,8 +96,11 @@ func (s *SMTPSender) Send(ctx context.Context, to, subject, body string) error {
 		return fmt.Errorf("email subject contains invalid characters")
 	}
 
+	// RFC 2047 Q-encode subject for non-ASCII safety.
+	encodedSubject := mime.QEncoding.Encode("UTF-8", subject)
+
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
-		s.headerFrom, parsedTo.String(), subject, body)
+		s.headerFrom, parsedTo.String(), encodedSubject, body)
 
 	addr := net.JoinHostPort(s.host, s.port)
 

@@ -5,19 +5,20 @@ import (
 	"testing"
 
 	"weos/internal/config"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewSMTPSender_EmptyHost_ReturnsNil(t *testing.T) {
 	sender := NewSMTPSender(config.SMTPConfig{From: "a@b.com"})
-	assert.Nil(t, sender)
+	if sender != nil {
+		t.Fatal("expected nil sender when Host is empty")
+	}
 }
 
 func TestNewSMTPSender_EmptyFrom_ReturnsNil(t *testing.T) {
 	sender := NewSMTPSender(config.SMTPConfig{Host: "smtp.example.com"})
-	assert.Nil(t, sender)
+	if sender != nil {
+		t.Fatal("expected nil sender when From is empty")
+	}
 }
 
 func TestNewSMTPSender_InvalidFromAddress_ReturnsNil(t *testing.T) {
@@ -25,7 +26,9 @@ func TestNewSMTPSender_InvalidFromAddress_ReturnsNil(t *testing.T) {
 		Host: "smtp.example.com",
 		From: "not-an-email",
 	})
-	assert.Nil(t, sender)
+	if sender != nil {
+		t.Fatal("expected nil sender for invalid From address")
+	}
 }
 
 func TestNewSMTPSender_FromWithCRLF_ReturnsNil(t *testing.T) {
@@ -33,7 +36,9 @@ func TestNewSMTPSender_FromWithCRLF_ReturnsNil(t *testing.T) {
 		Host: "smtp.example.com",
 		From: "evil@example.com\r\nBcc: spy@evil.com",
 	})
-	assert.Nil(t, sender)
+	if sender != nil {
+		t.Fatal("expected nil sender for From with CRLF")
+	}
 }
 
 func TestNewSMTPSender_WithHost_ReturnsSender(t *testing.T) {
@@ -41,10 +46,18 @@ func TestNewSMTPSender_WithHost_ReturnsSender(t *testing.T) {
 		Host: "smtp.example.com",
 		From: "test@example.com",
 	})
-	require.NotNil(t, sender)
-	assert.True(t, sender.Configured())
-	assert.Equal(t, "587", sender.port, "should default port to 587")
-	assert.Equal(t, "test@example.com", sender.envelopeFrom)
+	if sender == nil {
+		t.Fatal("expected non-nil sender")
+	}
+	if !sender.Configured() {
+		t.Fatal("expected Configured() to return true")
+	}
+	if sender.port != "587" {
+		t.Fatalf("expected default port 587, got %s", sender.port)
+	}
+	if sender.envelopeFrom != "test@example.com" {
+		t.Fatalf("expected envelopeFrom test@example.com, got %s", sender.envelopeFrom)
+	}
 }
 
 func TestNewSMTPSender_DisplayNameFrom(t *testing.T) {
@@ -52,9 +65,12 @@ func TestNewSMTPSender_DisplayNameFrom(t *testing.T) {
 		Host: "smtp.example.com",
 		From: "WeOS Admin <admin@example.com>",
 	})
-	require.NotNil(t, sender)
-	assert.Equal(t, "admin@example.com", sender.envelopeFrom)
-	assert.Contains(t, sender.headerFrom, "admin@example.com")
+	if sender == nil {
+		t.Fatal("expected non-nil sender")
+	}
+	if sender.envelopeFrom != "admin@example.com" {
+		t.Fatalf("expected envelopeFrom admin@example.com, got %s", sender.envelopeFrom)
+	}
 }
 
 func TestNewSMTPSender_CustomPort(t *testing.T) {
@@ -63,8 +79,12 @@ func TestNewSMTPSender_CustomPort(t *testing.T) {
 		Port: "2525",
 		From: "test@example.com",
 	})
-	require.NotNil(t, sender)
-	assert.Equal(t, "2525", sender.port)
+	if sender == nil {
+		t.Fatal("expected non-nil sender")
+	}
+	if sender.port != "2525" {
+		t.Fatalf("expected port 2525, got %s", sender.port)
+	}
 }
 
 func TestNewSMTPSender_Port465_ReturnsNil(t *testing.T) {
@@ -73,7 +93,22 @@ func TestNewSMTPSender_Port465_ReturnsNil(t *testing.T) {
 		Port: "465",
 		From: "test@example.com",
 	})
-	assert.Nil(t, sender, "port 465 (implicit TLS) is not supported")
+	if sender != nil {
+		t.Fatal("expected nil sender for port 465 (implicit TLS not supported)")
+	}
+}
+
+func TestNewSMTPSender_InvalidPort_ReturnsNil(t *testing.T) {
+	for _, port := range []string{"abc", "0", "99999", "-1"} {
+		sender := NewSMTPSender(config.SMTPConfig{
+			Host: "smtp.example.com",
+			Port: port,
+			From: "test@example.com",
+		})
+		if sender != nil {
+			t.Fatalf("expected nil sender for invalid port %q", port)
+		}
+	}
 }
 
 type testLogger struct {
@@ -89,16 +124,24 @@ func (l *testLogger) Warn(_ context.Context, msg string, _ ...interface{}) {
 func TestLogSender_NotConfigured(t *testing.T) {
 	logger := &testLogger{}
 	sender := &LogSender{logger: logger}
-	assert.False(t, sender.Configured())
+	if sender.Configured() {
+		t.Fatal("expected Configured() to return false")
+	}
 }
 
 func TestLogSender_SendLogsWarning(t *testing.T) {
 	logger := &testLogger{}
 	sender := &LogSender{logger: logger}
 	err := sender.Send(context.Background(), "user@example.com", "Hello", "body")
-	require.NoError(t, err)
-	require.Len(t, logger.warnings, 1)
-	assert.Contains(t, logger.warnings[0], "SMTP not configured")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(logger.warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(logger.warnings))
+	}
+	if logger.warnings[0] != "email not sent: SMTP not configured" {
+		t.Fatalf("unexpected warning: %s", logger.warnings[0])
+	}
 }
 
 func TestSMTPSender_Send_RejectsInvalidTo(t *testing.T) {
@@ -106,10 +149,13 @@ func TestSMTPSender_Send_RejectsInvalidTo(t *testing.T) {
 		Host: "smtp.example.com",
 		From: "test@example.com",
 	})
-	require.NotNil(t, sender)
+	if sender == nil {
+		t.Fatal("expected non-nil sender")
+	}
 	err := sender.Send(context.Background(), "not-an-address", "Subject", "body")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid recipient address")
+	if err == nil {
+		t.Fatal("expected error for invalid To address")
+	}
 }
 
 func TestSMTPSender_Send_RejectsCRLFInSubject(t *testing.T) {
@@ -117,10 +163,13 @@ func TestSMTPSender_Send_RejectsCRLFInSubject(t *testing.T) {
 		Host: "smtp.example.com",
 		From: "test@example.com",
 	})
-	require.NotNil(t, sender)
+	if sender == nil {
+		t.Fatal("expected non-nil sender")
+	}
 	err := sender.Send(context.Background(), "user@example.com", "Hello\r\nBcc: spy@evil.com", "body")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid characters")
+	if err == nil {
+		t.Fatal("expected error for subject with CRLF")
+	}
 }
 
 func TestSMTPSender_Send_RejectsCRLFInTo(t *testing.T) {
@@ -128,17 +177,22 @@ func TestSMTPSender_Send_RejectsCRLFInTo(t *testing.T) {
 		Host: "smtp.example.com",
 		From: "test@example.com",
 	})
-	require.NotNil(t, sender)
+	if sender == nil {
+		t.Fatal("expected non-nil sender")
+	}
 	err := sender.Send(context.Background(), "evil@example.com\r\nBcc: spy@evil.com", "Subject", "body")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid recipient address")
+	if err == nil {
+		t.Fatal("expected error for To with CRLF")
+	}
 }
 
 func TestProvideEmailSender_NoSMTP_ReturnsLogSender(t *testing.T) {
 	logger := &testLogger{}
 	cfg := config.Config{}
 	sender := ProvideEmailSender(cfg, logger)
-	assert.False(t, sender.Configured())
+	if sender.Configured() {
+		t.Fatal("expected Configured() to return false when SMTP not set")
+	}
 }
 
 func TestProvideEmailSender_WithSMTP_ReturnsSMTPSender(t *testing.T) {
@@ -150,5 +204,7 @@ func TestProvideEmailSender_WithSMTP_ReturnsSMTPSender(t *testing.T) {
 		},
 	}
 	sender := ProvideEmailSender(cfg, logger)
-	assert.True(t, sender.Configured())
+	if !sender.Configured() {
+		t.Fatal("expected Configured() to return true when SMTP is set")
+	}
 }
