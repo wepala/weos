@@ -90,7 +90,8 @@ func (b *enforceSingleDefaultBehavior) enforce(
 		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
 	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
-		ctx, "pantry", filters, "", 1000, repositories.SortOptions{}, nil,
+		ctx, "pantry", filters, "", 1000, repositories.SortOptions{},
+		visibilityScope(ctx),
 	)
 	if err != nil {
 		addServiceErrorMessage(ctx, b.logger,

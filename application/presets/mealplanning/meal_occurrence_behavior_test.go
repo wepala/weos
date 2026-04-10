@@ -58,6 +58,28 @@ func setupDepletionBehavior(t *testing.T) (
 	})
 	stub.getByIDData["recipe-1"] = recipe
 
+	// Seed flat projection rows. loadFlatRow queries via
+	// FindAllByTypeFlatWithFilters with id eq <id>, so we seed full rows
+	// including FK values for reference properties.
+	stub.listFlatData["meal-occurrence"] = []map[string]any{
+		{
+			"id": "occ-1", "date": "2026-04-15", "mealType": "dinner",
+			"status": "cooked", "servings": float64(2), "scheduledMeal": "sm-1",
+		},
+	}
+	stub.listFlatData["scheduled-meal"] = []map[string]any{
+		{"id": "sm-1", "recipe": "recipe-1", "mealPlan": "mp-1"},
+	}
+	stub.listFlatData["recipe"] = []map[string]any{
+		{
+			"id": "recipe-1", "name": "Pasta",
+			"recipeYield": map[string]any{"value": float64(2), "unitText": "servings"},
+		},
+	}
+	stub.listFlatData["meal-plan"] = []map[string]any{
+		{"id": "mp-1", "name": "Week", "pantry": "pantry-1"},
+	}
+
 	// Seed RecipeIngredient list.
 	stub.listFlatData["recipe-ingredient"] = []map[string]any{
 		{
@@ -92,13 +114,14 @@ func TestDeplete_StatusGuard_NoDepletionWhenNotCooked(t *testing.T) {
 		{"id": "fi-1", "pantry": "pantry-1", "ingredient": "ing-1",
 			"quantity": float64(500), "unit": "g"},
 	}
+	// Override the occurrence flat row to be planned (not cooked).
+	stub.listFlatData["meal-occurrence"] = []map[string]any{
+		{"id": "occ-1", "date": "2026-04-15", "mealType": "dinner",
+			"status": "planned", "servings": float64(2), "scheduledMeal": "sm-1"},
+	}
 
 	resource := makeTestResource(t, "occ-1", "meal-occurrence", map[string]any{
-		"date":          "2026-04-15",
-		"mealType":      "dinner",
-		"status":        "planned",
-		"servings":      float64(2),
-		"scheduledMeal": "sm-1",
+		"status": "planned",
 	})
 
 	// BeforeUpdate sees planned→planned (no transition); AfterUpdate must no-op.
@@ -183,6 +206,11 @@ func TestDeplete_ScalingFactor(t *testing.T) {
 	stub.listFlatData["food-item"] = []map[string]any{
 		{"id": "fi-1", "pantry": "pantry-1", "ingredient": "ing-1",
 			"quantity": float64(1000), "unit": "g"},
+	}
+	// Override flat row to 4 servings for scaling test.
+	stub.listFlatData["meal-occurrence"] = []map[string]any{
+		{"id": "occ-1", "date": "2026-04-15", "mealType": "dinner",
+			"status": "cooked", "servings": float64(4), "scheduledMeal": "sm-1"},
 	}
 	// 4 servings / 2 yield = 2.0 scale → 200g needed from 1000g.
 	existing := makeTestResource(t, "occ-1", "meal-occurrence",
@@ -361,12 +389,10 @@ func TestDeplete_PantryResolution_FallbackToDefault(t *testing.T) {
 	t.Parallel()
 	b, stub := setupDepletionBehavior(t)
 
-	// Remove the mealPlan reference from the scheduled meal by re-seeding.
-	sm := makeTestResource(t, "sm-1", "scheduled-meal", map[string]any{
-		"recipe": "recipe-1",
-		// no mealPlan
-	})
-	stub.getByIDData["sm-1"] = sm
+	// Override scheduled meal flat row to have no mealPlan.
+	stub.listFlatData["scheduled-meal"] = []map[string]any{
+		{"id": "sm-1", "recipe": "recipe-1"},
+	}
 
 	// Pre-seed a default pantry and a food item in it.
 	stub.listFlatData["pantry"] = []map[string]any{
@@ -391,11 +417,10 @@ func TestDeplete_PantryResolution_FallbackToDefault(t *testing.T) {
 func TestDeplete_NoPantryResolvedEmitsWarning(t *testing.T) {
 	t.Parallel()
 	b, stub := setupDepletionBehavior(t)
-	// No mealPlan AND no default pantry.
-	sm := makeTestResource(t, "sm-1", "scheduled-meal", map[string]any{
-		"recipe": "recipe-1",
-	})
-	stub.getByIDData["sm-1"] = sm
+	// Override scheduled meal to have no mealPlan AND no default pantry.
+	stub.listFlatData["scheduled-meal"] = []map[string]any{
+		{"id": "sm-1", "recipe": "recipe-1"},
+	}
 	stub.listFlatData["pantry"] = nil
 
 	ctx := entities.ContextWithMessages(context.Background())

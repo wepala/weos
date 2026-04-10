@@ -358,7 +358,7 @@ func (b *scheduledMealBehavior) listOccurrences(
 	for {
 		resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
 			ctx, "meal-occurrence", filters, cursor, pageSize,
-			repositories.SortOptions{}, nil,
+			repositories.SortOptions{}, visibilityScope(ctx),
 		)
 		if err != nil {
 			return nil, err

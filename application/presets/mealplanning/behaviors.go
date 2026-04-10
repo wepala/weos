@@ -16,8 +16,13 @@
 package mealplanning
 
 import (
+	"context"
+
 	"weos/application"
 	"weos/domain/entities"
+	"weos/domain/repositories"
+
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 )
 
 // baseBehavior holds the BehaviorServices injected via BehaviorFactory
@@ -36,4 +41,40 @@ func newBase(svc application.BehaviorServices) baseBehavior {
 		logger: svc.Logger,
 		svc:    svc,
 	}
+}
+
+// visibilityScope derives a per-request VisibilityScope from the auth
+// context. Behaviors must scope queries to the current user's resources
+// in multi-user environments. Returns nil for system contexts (CLI/MCP
+// without auth), which disables visibility filtering.
+func visibilityScope(ctx context.Context) *repositories.VisibilityScope {
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		return nil
+	}
+	return &repositories.VisibilityScope{
+		AgentID:   identity.AgentID,
+		AccountID: identity.ActiveAccountID,
+		IsAdmin:   false,
+	}
+}
+
+// loadFlatRow loads the flat projection row for a resource, including FK
+// values for reference properties (which are stripped from the JSON-LD
+// data stored in Resource.Data()). Returns nil if the resource is not found
+// or has no projection row.
+func (b *baseBehavior) loadFlatRow(
+	ctx context.Context, typeSlug, id string,
+) map[string]any {
+	filters := []repositories.FilterCondition{
+		{Field: "id", Operator: "eq", Value: id},
+	}
+	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
+		ctx, typeSlug, filters, "", 1, repositories.SortOptions{},
+		visibilityScope(ctx),
+	)
+	if err != nil || len(resp.Data) == 0 {
+		return nil
+	}
+	return resp.Data[0]
 }

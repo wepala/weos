@@ -125,18 +125,17 @@ func (b *depletePantryOnCookBehavior) deplete(
 		return
 	}
 
-	occurrence, err := extractFlatDataByID(resource, resource.GetID())
-	if err != nil {
+	// Load the flat projection row which includes FK values for reference
+	// properties (scheduledMeal, etc.) that are stripped from Resource.Data().
+	occurrence := b.loadFlatRow(ctx, "meal-occurrence", resource.GetID())
+	if occurrence == nil {
 		if b.logger != nil {
-			b.logger.Error(ctx, "depletion: invalid occurrence data",
-				"id", resource.GetID(), "error", err)
+			b.logger.Error(ctx, "depletion: failed to load occurrence flat row",
+				"id", resource.GetID())
 		}
 		return
 	}
 
-	// Defensive: even if pending marker was set, re-check status.
-	// (Guards against stale markers if BeforeUpdate ran but AfterUpdate
-	// fires on a later update where status was reverted before marker consumed.)
 	status, _ := occurrence["status"].(string)
 	if status != "cooked" {
 		return
@@ -152,21 +151,14 @@ func (b *depletePantryOnCookBehavior) deplete(
 		return
 	}
 
-	scheduledMeal, err := b.svc.Resources.FindByID(ctx, scheduledMealID)
-	if err != nil {
+	// Load scheduled meal flat row to get recipe + mealPlan FK values.
+	smData := b.loadFlatRow(ctx, "scheduled-meal", scheduledMealID)
+	if smData == nil {
 		addServiceErrorMessage(ctx, b.logger,
 			"depletion: failed to load scheduled meal",
 			"scheduled meal could not be loaded; pantry not depleted",
 			"pantry_depletion_scheduled_meal_error",
-			"id", scheduledMealID, "error", err)
-		return
-	}
-	smData, err := extractFlatDataByID(scheduledMeal, scheduledMealID)
-	if err != nil {
-		if b.logger != nil {
-			b.logger.Error(ctx, "depletion: invalid scheduled meal data",
-				"id", scheduledMealID, "error", err)
-		}
+			"id", scheduledMealID)
 		return
 	}
 	recipeID, _ := smData["recipe"].(string)
@@ -179,32 +171,26 @@ func (b *depletePantryOnCookBehavior) deplete(
 		return
 	}
 
-	recipe, err := b.svc.Resources.FindByID(ctx, recipeID)
-	if err != nil {
+	// Load recipe flat row to get recipeYield for scaling.
+	recipeData := b.loadFlatRow(ctx, "recipe", recipeID)
+	if recipeData == nil {
 		addServiceErrorMessage(ctx, b.logger,
 			"depletion: failed to load recipe",
 			"recipe could not be loaded; pantry not depleted",
 			"pantry_depletion_recipe_error",
-			"id", recipeID, "error", err)
-		return
-	}
-	recipeData, err := extractFlatDataByID(recipe, recipeID)
-	if err != nil {
-		if b.logger != nil {
-			b.logger.Error(ctx, "depletion: invalid recipe data",
-				"id", recipeID, "error", err)
-		}
+			"id", recipeID)
 		return
 	}
 
 	scale := computeScalingFactor(occurrence, recipeData)
 
+	scope := visibilityScope(ctx)
 	ingredientFilters := []repositories.FilterCondition{
 		{Field: "recipe", Operator: "eq", Value: recipeID},
 	}
 	riResp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
 		ctx, "recipe-ingredient", ingredientFilters, "", 500,
-		repositories.SortOptions{}, nil,
+		repositories.SortOptions{}, scope,
 	)
 	if err != nil {
 		addServiceErrorMessage(ctx, b.logger,
@@ -257,7 +243,7 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 		{Field: "ingredient", Operator: "eq", Value: ingredientID},
 	}
 	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
-		ctx, "food-item", filters, "", 500, repositories.SortOptions{}, nil,
+		ctx, "food-item", filters, "", 500, repositories.SortOptions{}, visibilityScope(ctx),
 	)
 	if err != nil {
 		addServiceErrorMessage(ctx, b.logger,
@@ -394,7 +380,7 @@ func (b *depletePantryOnCookBehavior) resolvePantry(
 		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
 	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
-		ctx, "pantry", filters, "", 1, repositories.SortOptions{}, nil,
+		ctx, "pantry", filters, "", 1, repositories.SortOptions{}, visibilityScope(ctx),
 	)
 	if err != nil {
 		if b.logger != nil {
