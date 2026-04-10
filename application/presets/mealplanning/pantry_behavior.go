@@ -174,13 +174,13 @@ func extractFlatDataByID(resource *entities.Resource, id string) (map[string]any
 }
 
 // addNilSvcWarning surfaces a user-facing warning when a behavior fires
-// without its ResourceService dependency injected. This makes dependency
+// without required dependencies injected. This makes dependency
 // misconfiguration visible instead of silently no-opping.
 func addNilSvcWarning(ctx context.Context, where string) {
 	entities.AddMessage(ctx, entities.Message{
 		Type: "warning",
 		Text: "Behavior misconfiguration: " + where +
-			" ran without an injected ResourceService; no action taken.",
+			" — required behavior dependencies are missing; no action taken.",
 		Code: "behavior_dependency_missing",
 	})
 }

@@ -224,6 +224,8 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 				b.logger.Error(ctx, "scheduled-meal behavior: failed to delete future occurrence",
 					"id", id, "error", dErr)
 			}
+			// Mark as preserved so the create loop doesn't duplicate it.
+			preservedDates[date] = true
 			deleteFailures++
 		}
 	}
