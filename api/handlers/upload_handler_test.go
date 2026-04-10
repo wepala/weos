@@ -163,3 +163,35 @@ func TestUploadHandler_ServiceError(t *testing.T) {
 		t.Errorf("error = %q, want %q (should not contain internal details)", env.Error, "file upload failed")
 	}
 }
+
+func TestUploadHandler_RequestEntityTooLarge(t *testing.T) {
+	const maxBytes int64 = 64 // very small limit
+
+	handler := handlers.NewUploadHandler(&mockFileService{}, nopLogger{}, maxBytes)
+
+	// Build a multipart body larger than maxBytes.
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	part, err := w.CreateFormFile("file", "big.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write more than maxBytes of data.
+	for i := 0; i < int(maxBytes)+1024; i++ {
+		_, _ = part.Write([]byte("x"))
+	}
+	w.Close()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/api/uploads", &body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := handler.Upload(c); err != nil {
+		t.Fatalf("Upload() error: %v", err)
+	}
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}

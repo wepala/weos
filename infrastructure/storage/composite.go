@@ -16,10 +16,10 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"weos/domain/entities"
 	"weos/domain/services"
@@ -34,6 +34,8 @@ type compositeFileService struct {
 // NewComposite creates a FileService that fans out uploads to a primary
 // and zero or more secondary backends. The primary result is returned;
 // secondary failures are logged but do not cause the upload to fail.
+// Upload data is spooled to a temporary file to avoid holding the entire
+// body in memory during fan-out.
 func NewComposite(
 	primary services.FileService,
 	secondaries []services.FileService,
@@ -49,18 +51,37 @@ func NewComposite(
 func (c *compositeFileService) Upload(
 	ctx context.Context, filename string, contentType string, reader io.Reader,
 ) (*services.UploadResult, error) {
-	buf, err := io.ReadAll(reader)
+	// Spool to a temp file so concurrent large uploads don't exhaust RAM.
+	tmp, err := os.CreateTemp("", "weos-upload-*")
 	if err != nil {
-		return nil, fmt.Errorf("buffer upload data: %w", err)
+		return nil, fmt.Errorf("create temp spool file: %w", err)
+	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+
+	if _, err := io.Copy(tmp, reader); err != nil {
+		return nil, fmt.Errorf("spool upload data: %w", err)
 	}
 
-	result, err := c.primary.Upload(ctx, filename, contentType, bytes.NewReader(buf))
+	// Rewind for primary.
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("rewind spool file: %w", err)
+	}
+
+	result, err := c.primary.Upload(ctx, filename, contentType, tmp)
 	if err != nil {
 		return nil, fmt.Errorf("primary upload: %w", err)
 	}
 
 	for i, sec := range c.secondaries {
-		if _, secErr := sec.Upload(ctx, filename, contentType, bytes.NewReader(buf)); secErr != nil {
+		if _, seekErr := tmp.Seek(0, io.SeekStart); seekErr != nil {
+			c.logger.Warn(ctx, "failed to rewind spool for secondary",
+				"backendIndex", i, "error", seekErr)
+			continue
+		}
+		if _, secErr := sec.Upload(ctx, filename, contentType, tmp); secErr != nil {
 			c.logger.Warn(ctx, "secondary upload failed",
 				"backendIndex", i, "filename", filename,
 				"contentType", contentType, "error", secErr)

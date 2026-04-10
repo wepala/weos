@@ -16,7 +16,6 @@
 package s3
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -26,18 +25,18 @@ import (
 	"weos/infrastructure/storage"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type s3FileService struct {
-	client *s3.Client
+	client *s3sdk.Client
 	bucket string
 	region string
 	logger entities.Logger
 }
 
 // New creates a FileService backed by AWS S3.
-func New(client *s3.Client, bucket, region string, logger entities.Logger) services.FileService {
+func New(client *s3sdk.Client, bucket, region string, logger entities.Logger) services.FileService {
 	return &s3FileService{
 		client: client,
 		bucket: bucket,
@@ -46,20 +45,30 @@ func New(client *s3.Client, bucket, region string, logger entities.Logger) servi
 	}
 }
 
+// countingReader wraps an io.Reader and counts bytes read.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
 func (s *s3FileService) Upload(
 	ctx context.Context, filename string, contentType string, reader io.Reader,
 ) (*services.UploadResult, error) {
 	id, key := storage.GenerateObjectKeyWithID("uploads", filename)
 
-	body, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("read upload body: %w", err)
-	}
+	// Wrap reader to count bytes streamed without buffering.
+	cr := &countingReader{r: reader}
 
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+	_, err := s.client.PutObject(ctx, &s3sdk.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
-		Body:        bytes.NewReader(body),
+		Body:        cr,
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
@@ -69,13 +78,13 @@ func (s *s3FileService) Upload(
 	url := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.bucket, s.region, key)
 
 	s.logger.Info(ctx, "file uploaded to S3",
-		"bucket", s.bucket, "key", key, "size", len(body))
+		"bucket", s.bucket, "key", key, "size", cr.n)
 
 	return &services.UploadResult{
 		ID:          id,
 		URL:         url,
 		Filename:    storage.SanitizeFilename(filename),
 		ContentType: contentType,
-		Size:        int64(len(body)),
+		Size:        cr.n,
 	}, nil
 }

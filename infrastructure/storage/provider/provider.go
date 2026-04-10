@@ -48,9 +48,10 @@ func ProvideFileService(params struct {
 	cfg := params.Config.Storage
 	logger := params.Logger
 
-	// Eagerly validate the local upload directory is writable.
+	// Eagerly create the local upload directory at startup so missing-path
+	// errors surface immediately rather than on the first upload request.
 	if err := os.MkdirAll(cfg.LocalPath, 0o755); err != nil {
-		return nil, fmt.Errorf("local storage path %q is not writable: %w", cfg.LocalPath, err)
+		return nil, fmt.Errorf("cannot create local storage path %q: %w", cfg.LocalPath, err)
 	}
 
 	localSvc := local.New(cfg.LocalPath, "/api/uploads/files", logger)

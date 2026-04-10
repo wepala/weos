@@ -16,6 +16,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"weos/application"
@@ -53,7 +54,8 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 
 	fh, err := c.FormFile("file")
 	if err != nil {
-		if err.Error() == "http: request body too large" {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
 			return respondError(c, http.StatusRequestEntityTooLarge, "file exceeds maximum upload size")
 		}
 		return respondError(c, http.StatusBadRequest, "missing or invalid file field")

@@ -128,7 +128,7 @@ func TestComposite_BufferingFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from broken reader")
 	}
-	if !strings.Contains(err.Error(), "buffer upload data") {
-		t.Errorf("error = %q, want to contain 'buffer upload data'", err.Error())
+	if !strings.Contains(err.Error(), "spool upload data") {
+		t.Errorf("error = %q, want to contain 'spool upload data'", err.Error())
 	}
 }

@@ -309,7 +309,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// File upload routes — registered before dynamic catch-all
 	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)
 	protected.POST("/uploads", uploadHandler.Upload)
-	api.Static("/uploads/files", appCfg.Storage.LocalPath)
+	protected.Static("/uploads/files", appCfg.Storage.LocalPath)
 
 	// MCP routes — registered before dynamic catch-all
 	if serveViper.GetBool("enabled") {
