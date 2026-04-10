@@ -16,47 +16,24 @@
 package mealplanning
 
 import (
-	"sync"
-
 	"weos/application"
 	"weos/domain/entities"
 )
 
-// Note: the application layer owns the generic InjectBehaviorDependencies
-// function (in application/behavior_injection.go). This package provides
-// only the concrete behavior implementations.
-
-// baseBehavior holds the dependencies injected after DI construction.
-// All meal-planning behaviors embed this (and entities.DefaultBehavior)
-// so they share the same dependency wiring.
+// baseBehavior holds the BehaviorServices injected via BehaviorFactory
+// at startup. All meal-planning behaviors embed this so they share the
+// same dependency wiring pattern.
 type baseBehavior struct {
 	entities.DefaultBehavior
-	mu          sync.RWMutex
-	resourceSvc application.ResourceService
-	logger      entities.Logger
+	writer application.ResourceWriter
+	logger entities.Logger
+	svc    application.BehaviorServices
 }
 
-// SetDependencies stores the injected services. Called by InjectDependencies
-// after the DI container has built ResourceService.
-func (b *baseBehavior) SetDependencies(deps entities.BehaviorDependencies) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if svc, ok := deps.ResourceSvc.(application.ResourceService); ok {
-		b.resourceSvc = svc
+func newBase(svc application.BehaviorServices) baseBehavior {
+	return baseBehavior{
+		writer: svc.Writer,
+		logger: svc.Logger,
+		svc:    svc,
 	}
-	b.logger = deps.Logger
-}
-
-// svc returns the injected ResourceService (nil-safe).
-func (b *baseBehavior) svc() application.ResourceService {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.resourceSvc
-}
-
-// log returns the injected logger (nil-safe).
-func (b *baseBehavior) log() entities.Logger {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.logger
 }

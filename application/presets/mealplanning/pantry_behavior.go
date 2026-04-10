@@ -32,10 +32,10 @@ type enforceSingleDefaultBehavior struct {
 	baseBehavior
 }
 
-// NewEnforceSingleDefaultBehavior returns a stateless behavior instance.
-// Dependencies are injected later via SetDependencies.
-func NewEnforceSingleDefaultBehavior() *enforceSingleDefaultBehavior {
-	return &enforceSingleDefaultBehavior{}
+// newEnforceSingleDefaultBehavior returns a behavior instance wired with the
+// given services. Called by the BehaviorFactory registered in the preset.
+func newEnforceSingleDefaultBehavior(svc application.BehaviorServices) *enforceSingleDefaultBehavior {
+	return &enforceSingleDefaultBehavior{baseBehavior: newBase(svc)}
 }
 
 func (b *enforceSingleDefaultBehavior) AfterCreate(
@@ -64,17 +64,15 @@ var pantryWriteFields = []string{
 func (b *enforceSingleDefaultBehavior) enforce(
 	ctx context.Context, resource *entities.Resource,
 ) {
-	svc := b.svc()
-	log := b.log()
-	if svc == nil {
+	if b.writer == nil {
 		addNilSvcWarning(ctx, "pantry enforcement")
 		return
 	}
 
 	pantry, err := extractFlatDataByID(resource, resource.GetID())
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "pantry behavior: invalid data",
+		if b.logger != nil {
+			b.logger.Error(ctx, "pantry behavior: invalid data",
 				"id", resource.GetID(), "error", err)
 		}
 		return
@@ -91,11 +89,11 @@ func (b *enforceSingleDefaultBehavior) enforce(
 	filters := []repositories.FilterCondition{
 		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
-	resp, err := svc.ListFlatWithFilters(
-		ctx, "pantry", filters, "", 1000, repositories.SortOptions{},
+	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
+		ctx, "pantry", filters, "", 1000, repositories.SortOptions{}, nil,
 	)
 	if err != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"pantry behavior: failed to list default pantries",
 			"Failed to list default pantries; single-default invariant not enforced.",
 			"pantry_default_list_error",
@@ -119,16 +117,16 @@ func (b *enforceSingleDefaultBehavior) enforce(
 		}
 		data, mErr := json.Marshal(update)
 		if mErr != nil {
-			if log != nil {
-				log.Error(ctx, "pantry behavior: failed to marshal update",
+			if b.logger != nil {
+				b.logger.Error(ctx, "pantry behavior: failed to marshal update",
 					"id", otherID, "error", mErr)
 			}
 			continue
 		}
-		if _, uErr := svc.Update(ctx, application.UpdateResourceCommand{
+		if _, uErr := b.writer.Update(ctx, application.UpdateResourceCommand{
 			ID: otherID, Data: data,
-		}); uErr != nil && log != nil {
-			log.Error(ctx, "pantry behavior: failed to unset default",
+		}); uErr != nil && b.logger != nil {
+			b.logger.Error(ctx, "pantry behavior: failed to unset default",
 				"id", otherID, "error", uErr)
 		}
 	}

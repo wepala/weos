@@ -32,11 +32,7 @@ func setupDepletionBehavior(t *testing.T) (
 ) {
 	t.Helper()
 	stub := newStubResourceSvc()
-	b := NewDepletePantryOnCookBehavior()
-	b.SetDependencies(entities.BehaviorDependencies{
-		ResourceSvc: application.ResourceService(stub),
-		Logger:      noopLogger{},
-	})
+	b := newDepletePantryOnCookBehavior(testBehaviorServices(stub))
 
 	// Seed ScheduledMeal resource.
 	sm := makeTestResource(t, "sm-1", "scheduled-meal", map[string]any{
@@ -422,8 +418,8 @@ func TestDeplete_NoPantryResolvedEmitsWarning(t *testing.T) {
 
 func TestDeplete_NilServiceEmitsWarning(t *testing.T) {
 	t.Parallel()
-	b := NewDepletePantryOnCookBehavior()
-	// No SetDependencies call.
+	b := newDepletePantryOnCookBehavior(application.BehaviorServices{})
+	// No writer injected.
 	ctx := entities.ContextWithMessages(context.Background())
 	// Mark pending manually so deplete runs.
 	b.markPending("occ-1")

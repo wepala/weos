@@ -112,10 +112,6 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Subscribe event handlers (projections)
 		fx.Invoke(subscribeEventHandlers),
 
-		// Inject runtime dependencies into behaviors that need them
-		// (e.g., meal planning behaviors that create child resources).
-		fx.Invoke(InjectBehaviorDependencies),
-
 		// Ensure built-in resource types and projection tables at startup
 		fx.Invoke(ensureBuiltInResourceTypes),
 		fx.Invoke(ensureProjectionTables),

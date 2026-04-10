@@ -41,10 +41,12 @@ type depletePantryOnCookBehavior struct {
 	pending   map[string]struct{}
 }
 
-// NewDepletePantryOnCookBehavior returns a stateless behavior instance.
-func NewDepletePantryOnCookBehavior() *depletePantryOnCookBehavior {
+// newDepletePantryOnCookBehavior returns a behavior instance wired with the
+// given services. Called by the BehaviorFactory registered in the preset.
+func newDepletePantryOnCookBehavior(svc application.BehaviorServices) *depletePantryOnCookBehavior {
 	return &depletePantryOnCookBehavior{
-		pending: make(map[string]struct{}),
+		baseBehavior: newBase(svc),
+		pending:      make(map[string]struct{}),
 	}
 }
 
@@ -118,17 +120,15 @@ func (b *depletePantryOnCookBehavior) takePending(id string) bool {
 func (b *depletePantryOnCookBehavior) deplete(
 	ctx context.Context, resource *entities.Resource,
 ) {
-	svc := b.svc()
-	log := b.log()
-	if svc == nil {
+	if b.writer == nil {
 		addNilSvcWarning(ctx, "meal-occurrence depletion")
 		return
 	}
 
 	occurrence, err := extractFlatDataByID(resource, resource.GetID())
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "depletion: invalid occurrence data",
+		if b.logger != nil {
+			b.logger.Error(ctx, "depletion: invalid occurrence data",
 				"id", resource.GetID(), "error", err)
 		}
 		return
@@ -152,9 +152,9 @@ func (b *depletePantryOnCookBehavior) deplete(
 		return
 	}
 
-	scheduledMeal, err := svc.GetByID(ctx, scheduledMealID)
+	scheduledMeal, err := b.svc.Resources.FindByID(ctx, scheduledMealID)
 	if err != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"depletion: failed to load scheduled meal",
 			"scheduled meal could not be loaded; pantry not depleted",
 			"pantry_depletion_scheduled_meal_error",
@@ -163,8 +163,8 @@ func (b *depletePantryOnCookBehavior) deplete(
 	}
 	smData, err := extractFlatDataByID(scheduledMeal, scheduledMealID)
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "depletion: invalid scheduled meal data",
+		if b.logger != nil {
+			b.logger.Error(ctx, "depletion: invalid scheduled meal data",
 				"id", scheduledMealID, "error", err)
 		}
 		return
@@ -179,9 +179,9 @@ func (b *depletePantryOnCookBehavior) deplete(
 		return
 	}
 
-	recipe, err := svc.GetByID(ctx, recipeID)
+	recipe, err := b.svc.Resources.FindByID(ctx, recipeID)
 	if err != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"depletion: failed to load recipe",
 			"recipe could not be loaded; pantry not depleted",
 			"pantry_depletion_recipe_error",
@@ -190,8 +190,8 @@ func (b *depletePantryOnCookBehavior) deplete(
 	}
 	recipeData, err := extractFlatDataByID(recipe, recipeID)
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "depletion: invalid recipe data",
+		if b.logger != nil {
+			b.logger.Error(ctx, "depletion: invalid recipe data",
 				"id", recipeID, "error", err)
 		}
 		return
@@ -202,12 +202,12 @@ func (b *depletePantryOnCookBehavior) deplete(
 	ingredientFilters := []repositories.FilterCondition{
 		{Field: "recipe", Operator: "eq", Value: recipeID},
 	}
-	riResp, err := svc.ListFlatWithFilters(
+	riResp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
 		ctx, "recipe-ingredient", ingredientFilters, "", 500,
-		repositories.SortOptions{},
+		repositories.SortOptions{}, nil,
 	)
 	if err != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"depletion: failed to list recipe ingredients",
 			"failed to load recipe ingredients; pantry not depleted",
 			"pantry_depletion_ingredient_list_error",
@@ -222,8 +222,8 @@ func (b *depletePantryOnCookBehavior) deplete(
 			Text: "No target pantry could be resolved; pantry not depleted.",
 			Code: "pantry_depletion_no_pantry",
 		})
-		if log != nil {
-			log.Warn(ctx, "depletion: no target pantry resolved",
+		if b.logger != nil {
+			b.logger.Warn(ctx, "depletion: no target pantry resolved",
 				"occurrence", resource.GetID())
 		}
 		return
@@ -238,13 +238,10 @@ func (b *depletePantryOnCookBehavior) deplete(
 func (b *depletePantryOnCookBehavior) depleteIngredient(
 	ctx context.Context, ri map[string]any, pantryID string, scale float64,
 ) {
-	svc := b.svc()
-	log := b.log()
-
 	ingredientID, _ := ri["ingredient"].(string)
 	if ingredientID == "" {
-		if log != nil {
-			log.Warn(ctx, "depletion: recipe ingredient missing ingredient ref",
+		if b.logger != nil {
+			b.logger.Warn(ctx, "depletion: recipe ingredient missing ingredient ref",
 				"recipeIngredient", ri["id"])
 		}
 		return
@@ -259,11 +256,11 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 		{Field: "pantry", Operator: "eq", Value: pantryID},
 		{Field: "ingredient", Operator: "eq", Value: ingredientID},
 	}
-	resp, err := svc.ListFlatWithFilters(
-		ctx, "food-item", filters, "", 500, repositories.SortOptions{},
+	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
+		ctx, "food-item", filters, "", 500, repositories.SortOptions{}, nil,
 	)
 	if err != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"depletion: failed to list food items",
 			fmt.Sprintf("failed to load food items for %q; pantry not depleted",
 				ingredientID),
@@ -336,8 +333,6 @@ var foodItemWriteFields = []string{
 func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 	ctx context.Context, fi map[string]any, newQty float64,
 ) {
-	svc := b.svc()
-	log := b.log()
 	id, _ := fi["id"].(string)
 	if id == "" {
 		return
@@ -353,16 +348,16 @@ func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 	}
 	data, err := json.Marshal(update)
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "depletion: failed to marshal food item update",
+		if b.logger != nil {
+			b.logger.Error(ctx, "depletion: failed to marshal food item update",
 				"id", id, "error", err)
 		}
 		return
 	}
-	if _, uErr := svc.Update(ctx, application.UpdateResourceCommand{
+	if _, uErr := b.writer.Update(ctx, application.UpdateResourceCommand{
 		ID: id, Data: data,
-	}); uErr != nil && log != nil {
-		log.Error(ctx, "depletion: failed to update food item",
+	}); uErr != nil && b.logger != nil {
+		b.logger.Error(ctx, "depletion: failed to update food item",
 			"id", id, "error", uErr)
 	}
 }
@@ -372,17 +367,15 @@ func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 func (b *depletePantryOnCookBehavior) resolvePantry(
 	ctx context.Context, scheduledMealData map[string]any,
 ) string {
-	svc := b.svc()
-	log := b.log()
-	if svc == nil {
+	if b.svc.Resources == nil {
 		return ""
 	}
 	mealPlanID, _ := scheduledMealData["mealPlan"].(string)
 	if mealPlanID != "" {
-		mealPlan, err := svc.GetByID(ctx, mealPlanID)
+		mealPlan, err := b.svc.Resources.FindByID(ctx, mealPlanID)
 		if err != nil {
-			if log != nil {
-				log.Error(ctx, "depletion: failed to load meal plan",
+			if b.logger != nil {
+				b.logger.Error(ctx, "depletion: failed to load meal plan",
 					"id", mealPlanID, "error", err)
 			}
 		} else if mealPlan != nil {
@@ -400,12 +393,12 @@ func (b *depletePantryOnCookBehavior) resolvePantry(
 	filters := []repositories.FilterCondition{
 		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
-	resp, err := svc.ListFlatWithFilters(
-		ctx, "pantry", filters, "", 1, repositories.SortOptions{},
+	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
+		ctx, "pantry", filters, "", 1, repositories.SortOptions{}, nil,
 	)
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "depletion: failed to list default pantries",
+		if b.logger != nil {
+			b.logger.Error(ctx, "depletion: failed to list default pantries",
 				"error", err)
 		}
 		return ""

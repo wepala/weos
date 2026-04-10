@@ -54,10 +54,16 @@ func Register(registry *application.PresetRegistry) {
 				"food-item":          "pantry",
 			},
 		},
-		Behaviors: map[string]entities.ResourceBehavior{
-			"pantry":          NewEnforceSingleDefaultBehavior(),
-			"scheduled-meal":  NewScheduledMealBehavior(),
-			"meal-occurrence": NewDepletePantryOnCookBehavior(),
+		Behaviors: map[string]application.BehaviorFactory{
+			"pantry": func(svc application.BehaviorServices) entities.ResourceBehavior {
+				return newEnforceSingleDefaultBehavior(svc)
+			},
+			"scheduled-meal": func(svc application.BehaviorServices) entities.ResourceBehavior {
+				return newScheduledMealBehavior(svc)
+			},
+			"meal-occurrence": func(svc application.BehaviorServices) entities.ResourceBehavior {
+				return newDepletePantryOnCookBehavior(svc)
+			},
 		},
 		BehaviorMeta: map[string]entities.BehaviorMeta{
 			"pantry": {

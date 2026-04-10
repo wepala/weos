@@ -21,18 +21,13 @@ import (
 	"testing"
 	"time"
 
-	"weos/application"
 	"weos/domain/entities"
 )
 
 func setupScheduledMealBehavior(t *testing.T) (*scheduledMealBehavior, *stubResourceSvc) {
 	t.Helper()
 	stub := newStubResourceSvc()
-	b := NewScheduledMealBehavior()
-	b.SetDependencies(entities.BehaviorDependencies{
-		ResourceSvc: application.ResourceService(stub),
-		Logger:      noopLogger{},
-	})
+	b := newScheduledMealBehavior(testBehaviorServices(stub))
 	return b, stub
 }
 

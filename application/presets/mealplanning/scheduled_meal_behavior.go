@@ -39,9 +39,10 @@ type scheduledMealBehavior struct {
 	baseBehavior
 }
 
-// NewScheduledMealBehavior returns a stateless behavior instance.
-func NewScheduledMealBehavior() *scheduledMealBehavior {
-	return &scheduledMealBehavior{}
+// newScheduledMealBehavior returns a behavior instance wired with the given
+// services. Called by the BehaviorFactory registered in the preset.
+func newScheduledMealBehavior(svc application.BehaviorServices) *scheduledMealBehavior {
+	return &scheduledMealBehavior{baseBehavior: newBase(svc)}
 }
 
 func (b *scheduledMealBehavior) AfterCreate(
@@ -72,17 +73,15 @@ func (b *scheduledMealBehavior) AfterDelete(
 func (b *scheduledMealBehavior) generateOccurrences(
 	ctx context.Context, resource *entities.Resource, onlyFuture bool,
 ) {
-	svc := b.svc()
-	log := b.log()
-	if svc == nil {
+	if b.writer == nil {
 		addNilSvcWarning(ctx, "scheduled-meal generation")
 		return
 	}
 
 	sm, err := extractFlatDataByID(resource, resource.GetID())
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "scheduled-meal behavior: invalid data",
+		if b.logger != nil {
+			b.logger.Error(ctx, "scheduled-meal behavior: invalid data",
 				"id", resource.GetID(), "error", err)
 		}
 		return
@@ -90,7 +89,7 @@ func (b *scheduledMealBehavior) generateOccurrences(
 
 	dates, capped, warnings, err := expandScheduleWithWarnings(sm, time.Now().UTC(), onlyFuture)
 	if err != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"scheduled-meal behavior: schedule expansion failed",
 			fmt.Sprintf("Schedule expansion failed: %v — no occurrences generated", err),
 			"scheduled_meal_expansion_error",
@@ -116,18 +115,18 @@ func (b *scheduledMealBehavior) generateOccurrences(
 		}
 		data, mErr := json.Marshal(occurrence)
 		if mErr != nil {
-			if log != nil {
-				log.Error(ctx, "scheduled-meal behavior: failed to marshal occurrence",
+			if b.logger != nil {
+				b.logger.Error(ctx, "scheduled-meal behavior: failed to marshal occurrence",
 					"date", d.Format("2006-01-02"), "error", mErr)
 			}
 			failures++
 			continue
 		}
-		if _, cErr := svc.Create(ctx, application.CreateResourceCommand{
+		if _, cErr := b.writer.Create(ctx, application.CreateResourceCommand{
 			TypeSlug: "meal-occurrence", Data: data,
 		}); cErr != nil {
-			if log != nil {
-				log.Error(ctx, "scheduled-meal behavior: failed to create occurrence",
+			if b.logger != nil {
+				b.logger.Error(ctx, "scheduled-meal behavior: failed to create occurrence",
 					"date", d.Format("2006-01-02"), "error", cErr)
 			}
 			failures++
@@ -155,17 +154,15 @@ func (b *scheduledMealBehavior) generateOccurrences(
 func (b *scheduledMealBehavior) regenerateOccurrences(
 	ctx context.Context, resource *entities.Resource,
 ) {
-	svc := b.svc()
-	log := b.log()
-	if svc == nil {
+	if b.writer == nil {
 		addNilSvcWarning(ctx, "scheduled-meal regeneration")
 		return
 	}
 
 	sm, err := extractFlatDataByID(resource, resource.GetID())
 	if err != nil {
-		if log != nil {
-			log.Error(ctx, "scheduled-meal behavior: invalid data",
+		if b.logger != nil {
+			b.logger.Error(ctx, "scheduled-meal behavior: invalid data",
 				"id", resource.GetID(), "error", err)
 		}
 		return
@@ -175,7 +172,7 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 	// Dry-run: validate the new schedule before deleting anything.
 	newDates, capped, warnings, err := expandScheduleWithWarnings(sm, now, true)
 	if err != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"scheduled-meal behavior: regenerate expansion failed",
 			fmt.Sprintf("Schedule update rejected: %v — existing occurrences preserved", err),
 			"scheduled_meal_regenerate_expansion_error",
@@ -187,7 +184,7 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 	// List existing occurrences (propagate error instead of silent no-op).
 	existing, listErr := b.listOccurrences(ctx, resource.GetID())
 	if listErr != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"scheduled-meal behavior: failed to list existing occurrences",
 			"Failed to list existing occurrences; schedule not regenerated",
 			"scheduled_meal_regenerate_list_error",
@@ -204,15 +201,15 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 		status, _ := occ["status"].(string)
 		id, _ := occ["id"].(string)
 		if id == "" {
-			if log != nil {
-				log.Warn(ctx, "scheduled-meal behavior: occurrence missing id")
+			if b.logger != nil {
+				b.logger.Warn(ctx, "scheduled-meal behavior: occurrence missing id")
 			}
 			continue
 		}
 		d, parseErr := time.Parse("2006-01-02", date)
 		if parseErr != nil {
-			if log != nil {
-				log.Warn(ctx, "scheduled-meal behavior: invalid occurrence date",
+			if b.logger != nil {
+				b.logger.Warn(ctx, "scheduled-meal behavior: invalid occurrence date",
 					"id", id, "date", date)
 			}
 			continue
@@ -222,9 +219,9 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 			preservedDates[date] = true
 			continue
 		}
-		if dErr := svc.Delete(ctx, application.DeleteResourceCommand{ID: id}); dErr != nil {
-			if log != nil {
-				log.Error(ctx, "scheduled-meal behavior: failed to delete future occurrence",
+		if dErr := b.writer.Delete(ctx, application.DeleteResourceCommand{ID: id}); dErr != nil {
+			if b.logger != nil {
+				b.logger.Error(ctx, "scheduled-meal behavior: failed to delete future occurrence",
 					"id", id, "error", dErr)
 			}
 			deleteFailures++
@@ -251,8 +248,6 @@ func (b *scheduledMealBehavior) createOccurrencesForDates(
 	ctx context.Context, resource *entities.Resource,
 	sm map[string]any, dates []time.Time, preserved map[string]bool,
 ) {
-	svc := b.svc()
-	log := b.log()
 	mealType, _ := sm["mealType"].(string)
 	servings := sm["servings"]
 	failures := 0
@@ -273,18 +268,18 @@ func (b *scheduledMealBehavior) createOccurrencesForDates(
 		}
 		data, mErr := json.Marshal(occurrence)
 		if mErr != nil {
-			if log != nil {
-				log.Error(ctx, "scheduled-meal behavior: failed to marshal occurrence",
+			if b.logger != nil {
+				b.logger.Error(ctx, "scheduled-meal behavior: failed to marshal occurrence",
 					"date", dateStr, "error", mErr)
 			}
 			failures++
 			continue
 		}
-		if _, cErr := svc.Create(ctx, application.CreateResourceCommand{
+		if _, cErr := b.writer.Create(ctx, application.CreateResourceCommand{
 			TypeSlug: "meal-occurrence", Data: data,
 		}); cErr != nil {
-			if log != nil {
-				log.Error(ctx, "scheduled-meal behavior: failed to create occurrence",
+			if b.logger != nil {
+				b.logger.Error(ctx, "scheduled-meal behavior: failed to create occurrence",
 					"date", dateStr, "error", cErr)
 			}
 			failures++
@@ -306,16 +301,14 @@ func (b *scheduledMealBehavior) createOccurrencesForDates(
 func (b *scheduledMealBehavior) cascadeDelete(
 	ctx context.Context, resource *entities.Resource,
 ) {
-	svc := b.svc()
-	log := b.log()
-	if svc == nil {
+	if b.writer == nil {
 		addNilSvcWarning(ctx, "scheduled-meal cascade delete")
 		return
 	}
 
 	existing, err := b.listOccurrences(ctx, resource.GetID())
 	if err != nil {
-		addServiceErrorMessage(ctx, log,
+		addServiceErrorMessage(ctx, b.logger,
 			"scheduled-meal behavior: cascade delete list failed",
 			"Failed to list occurrences; some may be orphaned",
 			"scheduled_meal_cascade_list_error",
@@ -338,8 +331,8 @@ func (b *scheduledMealBehavior) cascadeDelete(
 		if d.Before(today) || status != "planned" {
 			continue
 		}
-		if dErr := svc.Delete(ctx, application.DeleteResourceCommand{ID: id}); dErr != nil && log != nil {
-			log.Error(ctx, "scheduled-meal behavior: cascade delete failed",
+		if dErr := b.writer.Delete(ctx, application.DeleteResourceCommand{ID: id}); dErr != nil && b.logger != nil {
+			b.logger.Error(ctx, "scheduled-meal behavior: cascade delete failed",
 				"id", id, "error", dErr)
 		}
 	}
@@ -350,9 +343,8 @@ func (b *scheduledMealBehavior) cascadeDelete(
 func (b *scheduledMealBehavior) listOccurrences(
 	ctx context.Context, scheduledMealID string,
 ) ([]map[string]any, error) {
-	svc := b.svc()
-	if svc == nil {
-		return nil, errors.New("resource service not injected")
+	if b.svc.Resources == nil {
+		return nil, errors.New("resource repository not injected")
 	}
 	filters := []repositories.FilterCondition{
 		{Field: "scheduledMeal", Operator: "eq", Value: scheduledMealID},
@@ -364,9 +356,9 @@ func (b *scheduledMealBehavior) listOccurrences(
 	var all []map[string]any
 	cursor := ""
 	for {
-		resp, err := svc.ListFlatWithFilters(
+		resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
 			ctx, "meal-occurrence", filters, cursor, pageSize,
-			repositories.SortOptions{},
+			repositories.SortOptions{}, nil,
 		)
 		if err != nil {
 			return nil, err

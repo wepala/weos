@@ -25,17 +25,18 @@ import (
 	"weos/domain/repositories"
 )
 
-// stubResourceSvc is a minimal ResourceService stub for behavior tests.
-// It stores pre-seeded flat resources and records Update/Delete calls.
+// stubResourceSvc is the backing data store for behavior tests. It records
+// write calls and holds pre-seeded data for reads. Access it through the
+// stubWriter and stubRepo wrappers that implement ResourceWriter and
+// ResourceRepository respectively.
 type stubResourceSvc struct {
-	// listFlatData holds per-typeSlug pre-seeded results for ListFlatWithFilters.
-	// When listFlatFilter is set for a type, it's called to filter results.
+	// listFlatData holds per-typeSlug pre-seeded results for FindAllByTypeFlatWithFilters.
 	listFlatData map[string][]map[string]any
-	// getByIDData holds pre-seeded resources returned by GetByID.
+	// getByIDData holds pre-seeded resources returned by FindByID.
 	getByIDData map[string]*entities.Resource
-	// getByIDErr holds canned errors for GetByID.
+	// getByIDErr holds canned errors for FindByID.
 	getByIDErr map[string]error
-	// listFlatErr holds canned errors for ListFlatWithFilters.
+	// listFlatErr holds canned errors for FindAllByTypeFlatWithFilters.
 	listFlatErr map[string]error
 	// updateErr forces Update to fail when set.
 	updateErr error
@@ -60,61 +61,108 @@ func newStubResourceSvc() *stubResourceSvc {
 	}
 }
 
-func (s *stubResourceSvc) Create(
+// testBehaviorServices builds an application.BehaviorServices from the stub.
+func testBehaviorServices(stub *stubResourceSvc) application.BehaviorServices {
+	return application.BehaviorServices{
+		Resources: &stubRepo{stub},
+		Logger:    noopLogger{},
+		Writer:    &stubWriter{stub},
+	}
+}
+
+// -- stubWriter implements application.ResourceWriter -------------------------
+
+type stubWriter struct{ s *stubResourceSvc }
+
+func (w *stubWriter) Create(
 	_ context.Context, cmd application.CreateResourceCommand,
 ) (*entities.Resource, error) {
-	if s.createErr != nil {
-		return nil, s.createErr
+	if w.s.createErr != nil {
+		return nil, w.s.createErr
 	}
-	s.creates = append(s.creates, cmd)
+	w.s.creates = append(w.s.creates, cmd)
 	return nil, nil //nolint:nilnil
 }
 
-func (s *stubResourceSvc) GetByID(
+func (w *stubWriter) Update(
+	_ context.Context, cmd application.UpdateResourceCommand,
+) (*entities.Resource, error) {
+	if w.s.updateErr != nil {
+		return nil, w.s.updateErr
+	}
+	w.s.updates = append(w.s.updates, cmd)
+	return nil, nil //nolint:nilnil
+}
+
+func (w *stubWriter) Delete(
+	_ context.Context, cmd application.DeleteResourceCommand,
+) error {
+	if w.s.deleteErr != nil {
+		return w.s.deleteErr
+	}
+	w.s.deletes = append(w.s.deletes, cmd)
+	return nil
+}
+
+// -- stubRepo implements repositories.ResourceRepository ----------------------
+
+type stubRepo struct{ s *stubResourceSvc }
+
+func (*stubRepo) Save(context.Context, *entities.Resource) error { return nil }
+
+func (r *stubRepo) FindByID(
 	_ context.Context, id string,
 ) (*entities.Resource, error) {
-	if err, ok := s.getByIDErr[id]; ok {
+	if err, ok := r.s.getByIDErr[id]; ok {
 		return nil, err
 	}
-	if r, ok := s.getByIDData[id]; ok {
-		return r, nil
+	if res, ok := r.s.getByIDData[id]; ok {
+		return res, nil
 	}
 	return nil, nil //nolint:nilnil
 }
 
-func (s *stubResourceSvc) List(
-	context.Context, string, string, int, repositories.SortOptions,
+func (*stubRepo) FindAllByType(
+	context.Context, string, string, int,
+	repositories.SortOptions, *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	return repositories.PaginatedResponse[*entities.Resource]{}, nil
 }
 
-func (s *stubResourceSvc) ListFlat(
-	context.Context, string, string, int, repositories.SortOptions,
+func (*stubRepo) FindAllByTypeAndField(
+	context.Context, string, string, string,
+) ([]*entities.Resource, error) {
+	return nil, nil
+}
+
+func (*stubRepo) FindAllByTypeWithFilters(
+	context.Context, string, []repositories.FilterCondition,
+	string, int, repositories.SortOptions, *repositories.VisibilityScope,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	return repositories.PaginatedResponse[*entities.Resource]{}, nil
+}
+
+func (*stubRepo) Update(context.Context, *entities.Resource) error { return nil }
+
+func (*stubRepo) UpdateData(context.Context, string, json.RawMessage, int) error { return nil }
+
+func (*stubRepo) Delete(context.Context, string) error { return nil }
+
+func (*stubRepo) FindAllByTypeFlat(
+	context.Context, string, string, int,
+	repositories.SortOptions, *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	return repositories.PaginatedResponse[map[string]any]{}, nil
 }
 
-func (s *stubResourceSvc) ListByField(
-	context.Context, string, string, string,
-) (repositories.PaginatedResponse[*entities.Resource], error) {
-	return repositories.PaginatedResponse[*entities.Resource]{}, nil
-}
-
-func (s *stubResourceSvc) ListWithFilters(
-	context.Context, string, []repositories.FilterCondition,
-	string, int, repositories.SortOptions,
-) (repositories.PaginatedResponse[*entities.Resource], error) {
-	return repositories.PaginatedResponse[*entities.Resource]{}, nil
-}
-
-func (s *stubResourceSvc) ListFlatWithFilters(
+func (r *stubRepo) FindAllByTypeFlatWithFilters(
 	_ context.Context, typeSlug string, filters []repositories.FilterCondition,
-	_ string, _ int, _ repositories.SortOptions,
+	_ string, _ int, _ repositories.SortOptions, _ *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
-	if err, ok := s.listFlatErr[typeSlug]; ok {
+	if err, ok := r.s.listFlatErr[typeSlug]; ok {
 		return repositories.PaginatedResponse[map[string]any]{}, err
 	}
-	data := s.listFlatData[typeSlug]
+	data := r.s.listFlatData[typeSlug]
 	// Apply simple eq filters so tests can pre-seed a superset and
 	// behaviors see the filtered subset.
 	if len(filters) > 0 {
@@ -163,26 +211,6 @@ func matchesAllFilters(row map[string]any, filters []repositories.FilterConditio
 	return true
 }
 
-func (s *stubResourceSvc) Update(
-	_ context.Context, cmd application.UpdateResourceCommand,
-) (*entities.Resource, error) {
-	if s.updateErr != nil {
-		return nil, s.updateErr
-	}
-	s.updates = append(s.updates, cmd)
-	return nil, nil //nolint:nilnil
-}
-
-func (s *stubResourceSvc) Delete(
-	_ context.Context, cmd application.DeleteResourceCommand,
-) error {
-	if s.deleteErr != nil {
-		return s.deleteErr
-	}
-	s.deletes = append(s.deletes, cmd)
-	return nil
-}
-
 // makeTestResource constructs a minimal Resource entity for behavior tests.
 func makeTestResource(t *testing.T, id, typeSlug string, data map[string]any) *entities.Resource {
 	t.Helper()
@@ -200,11 +228,7 @@ func makeTestResource(t *testing.T, id, typeSlug string, data map[string]any) *e
 func TestEnforceSingleDefault_NonDefaultIsNoop(t *testing.T) {
 	t.Parallel()
 	stub := newStubResourceSvc()
-	b := NewEnforceSingleDefaultBehavior()
-	b.SetDependencies(entities.BehaviorDependencies{
-		ResourceSvc: application.ResourceService(stub),
-		Logger:      noopLogger{},
-	})
+	b := newEnforceSingleDefaultBehavior(testBehaviorServices(stub))
 
 	// Pre-seed an existing default pantry that should NOT be touched.
 	stub.listFlatData["pantry"] = []map[string]any{
@@ -229,11 +253,7 @@ func TestEnforceSingleDefault_NonDefaultIsNoop(t *testing.T) {
 func TestEnforceSingleDefault_UnsetsOthers(t *testing.T) {
 	t.Parallel()
 	stub := newStubResourceSvc()
-	b := NewEnforceSingleDefaultBehavior()
-	b.SetDependencies(entities.BehaviorDependencies{
-		ResourceSvc: application.ResourceService(stub),
-		Logger:      noopLogger{},
-	})
+	b := newEnforceSingleDefaultBehavior(testBehaviorServices(stub))
 
 	// Two existing default pantries; the new one is also default.
 	stub.listFlatData["pantry"] = []map[string]any{
@@ -280,8 +300,8 @@ func TestEnforceSingleDefault_UnsetsOthers(t *testing.T) {
 
 func TestEnforceSingleDefault_NilServiceSafe(t *testing.T) {
 	t.Parallel()
-	// Behavior with no injected service must not panic.
-	b := NewEnforceSingleDefaultBehavior()
+	// Behavior with nil writer must not panic.
+	b := newEnforceSingleDefaultBehavior(application.BehaviorServices{})
 	resource := makeTestResource(t, "pantry-new", "pantry", map[string]any{
 		"name":      "New",
 		"isDefault": true,
