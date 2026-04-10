@@ -74,7 +74,7 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 		port = defaultPort
 	}
 	p, err := strconv.Atoi(port)
-	if err != nil || p < 1 || p > 65535 || port == "465" {
+	if err != nil || p < 1 || p > 65535 || p == 465 {
 		return nil // invalid port, or implicit TLS (465) which is not supported
 	}
 	return &SMTPSender{
