@@ -1,8 +1,14 @@
 # WeOS
 
-A Go microservices template following Clean Architecture principles with event sourcing support.
+WeOS is an open source Go application for building a **digital twin** of yourself or your business — a knowledge graph of the information from the apps and devices you use, exposed to any LLM so it can answer with your real context. By default WeOS is MCP-first: it exposes an MCP server that any MCP-compatible LLM (Claude, GPT, Gemini, Ollama) connects to. Optional built-in agent integrations (e.g. Google ADK/Gemini) are available when configured.
 
-## Features
+## What it does
+
+1. **Stores your data as a knowledge graph** — resources are stored as JSON-LD documents typed with ontologies like Schema.org and FOAF, with relationships between resources modeled as RDF triples, so people, events, products, places, messages and the relationships between them are first-class.
+2. **Runs an MCP server** — any MCP-compatible LLM connects and queries your graph for grounded, context-rich responses.
+3. **Optionally renders sites and APIs** — the same graph can drive a static-first HTML site or a REST API when you want to publish or integrate.
+
+## Under the hood
 
 - **Clean Architecture** with domain-driven design
 - **Event Sourcing** via [pericarp](https://github.com/akeemphilbert/pericarp) library
@@ -61,10 +67,10 @@ weos/
 
 ## Getting Started
 
-1. Clone and rename the module:
+1. Clone the repository:
 ```bash
-# Update go.mod module name
-# Find and replace "weos" with your module name across all Go files
+git clone https://github.com/wepala/weos.git
+cd weos
 ```
 
 2. Install dependencies:
@@ -72,14 +78,10 @@ weos/
 make deps
 ```
 
-3. Run the API server:
-```bash
-make run
-```
-
-4. Build all binaries:
+3. Build and run:
 ```bash
 make build
+./bin/weos serve
 ```
 
 ## Key Patterns
