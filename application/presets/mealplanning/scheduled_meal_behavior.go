@@ -98,23 +98,7 @@ func (b *scheduledMealBehavior) generateOccurrences(
 		return
 	}
 
-	for _, w := range warnings {
-		entities.AddMessage(ctx, entities.Message{
-			Type: "warning",
-			Text: "Schedule contains invalid exceptDate entry: " + w,
-			Code: "scheduled_meal_invalid_except_date",
-		})
-	}
-
-	if capped {
-		entities.AddMessage(ctx, entities.Message{
-			Type: "warning",
-			Text: fmt.Sprintf(
-				"Showing first %d occurrences — edit the schedule to extend",
-				MaxOccurrences),
-			Code: "scheduled_meal_occurrence_cap_reached",
-		})
-	}
+	emitScheduleWarnings(ctx, warnings, capped)
 
 	mealType, _ := sm["mealType"].(string)
 	servings := sm["servings"]
@@ -198,13 +182,7 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 			"id", resource.GetID(), "error", err)
 		return
 	}
-	for _, w := range warnings {
-		entities.AddMessage(ctx, entities.Message{
-			Type: "warning",
-			Text: "Schedule contains invalid exceptDate entry: " + w,
-			Code: "scheduled_meal_invalid_except_date",
-		})
-	}
+	emitScheduleWarnings(ctx, warnings, capped)
 
 	// List existing occurrences (propagate error instead of silent no-op).
 	existing, listErr := b.listOccurrences(ctx, resource.GetID())
@@ -264,16 +242,6 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 	}
 
 	// Create new occurrences, skipping any dates already preserved.
-	if capped {
-		entities.AddMessage(ctx, entities.Message{
-			Type: "warning",
-			Text: fmt.Sprintf(
-				"Showing first %d occurrences — edit the schedule to extend",
-				MaxOccurrences),
-			Code: "scheduled_meal_occurrence_cap_reached",
-		})
-	}
-
 	b.createOccurrencesForDates(ctx, resource, sm, newDates, preservedDates)
 }
 
@@ -389,13 +357,64 @@ func (b *scheduledMealBehavior) listOccurrences(
 	filters := []repositories.FilterCondition{
 		{Field: "scheduledMeal", Operator: "eq", Value: scheduledMealID},
 	}
-	resp, err := svc.ListFlatWithFilters(
-		ctx, "meal-occurrence", filters, "", 500, repositories.SortOptions{},
-	)
-	if err != nil {
-		return nil, err
+	// Page through all occurrences. The 52-occurrence cap keeps the typical
+	// count well below 100, but historical preserved occurrences can accumulate
+	// across repeated regenerations.
+	const pageSize = 100
+	var all []map[string]any
+	cursor := ""
+	for {
+		resp, err := svc.ListFlatWithFilters(
+			ctx, "meal-occurrence", filters, cursor, pageSize,
+			repositories.SortOptions{},
+		)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, resp.Data...)
+		if resp.Cursor == "" || len(resp.Data) < pageSize {
+			break
+		}
+		cursor = resp.Cursor
 	}
-	return resp.Data, nil
+	return all, nil
+}
+
+// emitScheduleWarnings classifies each warning string and adds an
+// appropriate user-facing message with a dedicated code.
+func emitScheduleWarnings(
+	ctx context.Context, warnings []string, capped bool,
+) {
+	for _, w := range warnings {
+		text, code := classifyScheduleWarning(w)
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning", Text: text, Code: code,
+		})
+	}
+	if capped {
+		entities.AddMessage(ctx, entities.Message{
+			Type: "warning",
+			Text: fmt.Sprintf(
+				"Showing first %d occurrences — edit the schedule to extend",
+				MaxOccurrences),
+			Code: "scheduled_meal_occurrence_cap_reached",
+		})
+	}
+}
+
+// classifyScheduleWarning maps a raw warning string to a user-facing
+// message text and a stable machine-readable code.
+func classifyScheduleWarning(w string) (string, string) {
+	lower := strings.ToLower(w)
+	switch {
+	case strings.Contains(lower, "max iteration") ||
+		strings.Contains(lower, "truncat"):
+		return "Schedule expansion was truncated: " + w,
+			"scheduled_meal_expansion_truncated"
+	default:
+		return "Schedule contains invalid exceptDate entry: " + w,
+			"scheduled_meal_invalid_except_date"
+	}
 }
 
 // -- recurrence walker -------------------------------------------------------
