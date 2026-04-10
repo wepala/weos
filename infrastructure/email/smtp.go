@@ -16,10 +16,12 @@
 package email
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -102,8 +104,18 @@ func (s *SMTPSender) Send(ctx context.Context, to, subject, body string) error {
 	// RFC 2047 Q-encode subject for non-ASCII safety.
 	encodedSubject := mime.QEncoding.Encode("UTF-8", subject)
 
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
-		s.headerFrom, parsedTo.String(), encodedSubject, body)
+	// Encode body as quoted-printable for non-ASCII safety.
+	var qpBody bytes.Buffer
+	qpw := quotedprintable.NewWriter(&qpBody)
+	if _, err := qpw.Write([]byte(body)); err != nil {
+		return fmt.Errorf("email body encoding: %w", err)
+	}
+	if err := qpw.Close(); err != nil {
+		return fmt.Errorf("email body encoding: %w", err)
+	}
+
+	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n%s",
+		s.headerFrom, parsedTo.String(), encodedSubject, qpBody.String())
 
 	addr := net.JoinHostPort(s.host, s.port)
 
