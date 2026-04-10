@@ -20,72 +20,93 @@ func (nopLogger) Warn(_ context.Context, _ string, _ ...interface{})  {}
 func (nopLogger) Error(_ context.Context, _ string, _ ...interface{}) {}
 
 type capturingFileService struct {
-	id          string
-	gotFilename string
-	gotCType    string
-	gotBody     []byte
-	err         error
+	url      string
+	gotID    string
+	gotFname string
+	gotCType string
+	gotBody  []byte
+	err      error
 }
 
 func (m *capturingFileService) Upload(
-	_ context.Context, filename, contentType string, reader io.Reader,
+	_ context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
-	m.gotFilename = filename
-	m.gotCType = contentType
+	m.gotID = params.ID
+	m.gotFname = params.Filename
+	m.gotCType = params.ContentType
 	if reader != nil {
 		m.gotBody, _ = io.ReadAll(reader)
 	}
 	if m.err != nil {
 		return nil, m.err
 	}
-	if m.id == "" {
-		m.id = ksuid.New().String()
+	id := params.ID
+	if id == "" {
+		id = ksuid.New().String()
 	}
-	return &services.UploadResult{ID: m.id, URL: "https://example/" + m.id}, nil
+	url := m.url
+	if url == "" {
+		url = "https://example/" + id
+	}
+	return &services.UploadResult{ID: id, URL: url}, nil
 }
 
 func TestComposite_PrimaryResultReturned(t *testing.T) {
-	primary := &capturingFileService{id: "primary-id"}
-	secondary := &capturingFileService{id: "secondary-id"}
+	primary := &capturingFileService{url: "https://cloud/obj"}
+	secondary := &capturingFileService{url: "/api/uploads/files/local"}
 
 	svc := storage.NewComposite(primary, []services.FileService{secondary}, nopLogger{})
-	result, err := svc.Upload(context.Background(), "test.txt", "text/plain", strings.NewReader("data"))
+	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain"}
+	result, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
 	}
-	if result.ID != "primary-id" {
-		t.Errorf("ID = %q, want %q", result.ID, "primary-id")
+	// Composite should prefer the secondary (local) URL.
+	if result.URL != "/api/uploads/files/local" {
+		t.Errorf("URL = %q, want %q", result.URL, "/api/uploads/files/local")
+	}
+}
+
+func TestComposite_SharedIDacrossBackends(t *testing.T) {
+	primary := &capturingFileService{}
+	secondary := &capturingFileService{}
+
+	svc := storage.NewComposite(primary, []services.FileService{secondary}, nopLogger{})
+	params := services.UploadParams{Filename: "photo.jpg", ContentType: "image/jpeg"}
+	_, err := svc.Upload(context.Background(), params, strings.NewReader("body"))
+	if err != nil {
+		t.Fatalf("Upload() error: %v", err)
+	}
+
+	// Both backends must receive the same pre-generated ID.
+	if primary.gotID == "" {
+		t.Fatal("primary received empty ID")
+	}
+	if primary.gotID != secondary.gotID {
+		t.Errorf("IDs differ: primary=%q secondary=%q", primary.gotID, secondary.gotID)
 	}
 }
 
 func TestComposite_SecondariesReceiveCorrectData(t *testing.T) {
-	primary := &capturingFileService{id: "p"}
-	secondary := &capturingFileService{id: "s"}
+	primary := &capturingFileService{}
+	secondary := &capturingFileService{}
 
 	svc := storage.NewComposite(primary, []services.FileService{secondary}, nopLogger{})
 	body := "file-content-here"
-	_, err := svc.Upload(context.Background(), "photo.jpg", "image/jpeg", strings.NewReader(body))
+	params := services.UploadParams{Filename: "photo.jpg", ContentType: "image/jpeg"}
+	_, err := svc.Upload(context.Background(), params, strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
 	}
 
-	// Verify primary received the correct data.
-	if primary.gotFilename != "photo.jpg" {
-		t.Errorf("primary filename = %q, want %q", primary.gotFilename, "photo.jpg")
-	}
-	if primary.gotCType != "image/jpeg" {
-		t.Errorf("primary contentType = %q, want %q", primary.gotCType, "image/jpeg")
+	if primary.gotFname != "photo.jpg" {
+		t.Errorf("primary filename = %q, want %q", primary.gotFname, "photo.jpg")
 	}
 	if string(primary.gotBody) != body {
 		t.Errorf("primary body = %q, want %q", primary.gotBody, body)
 	}
-
-	// Verify secondary received identical data.
-	if secondary.gotFilename != "photo.jpg" {
-		t.Errorf("secondary filename = %q, want %q", secondary.gotFilename, "photo.jpg")
-	}
-	if secondary.gotCType != "image/jpeg" {
-		t.Errorf("secondary contentType = %q, want %q", secondary.gotCType, "image/jpeg")
+	if secondary.gotFname != "photo.jpg" {
+		t.Errorf("secondary filename = %q, want %q", secondary.gotFname, "photo.jpg")
 	}
 	if string(secondary.gotBody) != body {
 		t.Errorf("secondary body = %q, want %q", secondary.gotBody, body)
@@ -96,23 +117,26 @@ func TestComposite_PrimaryFailure(t *testing.T) {
 	primary := &capturingFileService{err: errors.New("primary failure")}
 
 	svc := storage.NewComposite(primary, nil, nopLogger{})
-	_, err := svc.Upload(context.Background(), "test.txt", "text/plain", strings.NewReader("data"))
+	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain"}
+	_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 	if err == nil {
 		t.Fatal("expected error from primary failure")
 	}
 }
 
 func TestComposite_SecondaryFailureNonFatal(t *testing.T) {
-	primary := &capturingFileService{id: "ok"}
+	primary := &capturingFileService{url: "https://cloud/ok"}
 	failing := &capturingFileService{err: errors.New("secondary down")}
 
 	svc := storage.NewComposite(primary, []services.FileService{failing}, nopLogger{})
-	result, err := svc.Upload(context.Background(), "test.txt", "text/plain", strings.NewReader("data"))
+	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain"}
+	result, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 	if err != nil {
 		t.Fatalf("Upload() should not fail on secondary error: %v", err)
 	}
-	if result.ID != "ok" {
-		t.Errorf("ID = %q, want %q", result.ID, "ok")
+	// With no successful secondary, falls back to primary result.
+	if result.URL != "https://cloud/ok" {
+		t.Errorf("URL = %q, want %q", result.URL, "https://cloud/ok")
 	}
 }
 
@@ -121,10 +145,11 @@ type errReader struct{ err error }
 func (e errReader) Read(_ []byte) (int, error) { return 0, e.err }
 
 func TestComposite_BufferingFailure(t *testing.T) {
-	primary := &capturingFileService{id: "p"}
+	primary := &capturingFileService{}
 	svc := storage.NewComposite(primary, nil, nopLogger{})
 
-	_, err := svc.Upload(context.Background(), "test.txt", "text/plain", errReader{errors.New("stream broken")})
+	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain"}
+	_, err := svc.Upload(context.Background(), params, errReader{errors.New("stream broken")})
 	if err == nil {
 		t.Fatal("expected error from broken reader")
 	}

@@ -20,6 +20,18 @@ import (
 	"io"
 )
 
+// UploadParams holds parameters for an upload operation.
+// When ID is non-empty, backends must use it as the upload identifier
+// instead of generating their own, ensuring correlation across replicas.
+type UploadParams struct {
+	Filename    string
+	ContentType string
+	// ID is an optional caller-supplied identifier. When set, backends use
+	// this value as the upload ID to ensure consistent identification across
+	// primary and secondary replicas.
+	ID string
+}
+
 // UploadResult contains the metadata returned after a successful file upload.
 type UploadResult struct {
 	ID          string `json:"id"`
@@ -31,5 +43,5 @@ type UploadResult struct {
 
 // FileService defines the interface for uploading files to a storage backend.
 type FileService interface {
-	Upload(ctx context.Context, filename string, contentType string, reader io.Reader) (*UploadResult, error)
+	Upload(ctx context.Context, params UploadParams, reader io.Reader) (*UploadResult, error)
 }

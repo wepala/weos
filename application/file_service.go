@@ -20,5 +20,8 @@ import "weos/domain/services"
 // FileService is the application-layer alias for the domain FileService interface.
 type FileService = services.FileService
 
+// UploadParams is the application-layer alias for the domain UploadParams type.
+type UploadParams = services.UploadParams
+
 // UploadResult is the application-layer alias for the domain UploadResult type.
 type UploadResult = services.UploadResult

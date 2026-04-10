@@ -23,6 +23,8 @@ import (
 
 	"weos/domain/entities"
 	"weos/domain/services"
+
+	"github.com/segmentio/ksuid"
 )
 
 type compositeFileService struct {
@@ -32,10 +34,11 @@ type compositeFileService struct {
 }
 
 // NewComposite creates a FileService that fans out uploads to a primary
-// and zero or more secondary backends. The primary result is returned;
-// secondary failures are logged but do not cause the upload to fail.
-// Upload data is spooled to a temporary file to avoid holding the entire
-// body in memory during fan-out.
+// and zero or more secondary backends. A single ID is pre-generated and
+// shared across all backends so replicas are correlated. The result from
+// the first secondary that succeeds is returned (providing an app-hosted
+// URL), falling back to the primary result. Upload data is spooled to a
+// temporary file to avoid holding the entire body in memory.
 func NewComposite(
 	primary services.FileService,
 	secondaries []services.FileService,
@@ -49,8 +52,14 @@ func NewComposite(
 }
 
 func (c *compositeFileService) Upload(
-	ctx context.Context, filename string, contentType string, reader io.Reader,
+	ctx context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
+	// Pre-generate a shared ID so all backends use the same identifier,
+	// making replicas traceable/correlated across primary and secondaries.
+	if params.ID == "" {
+		params.ID = ksuid.New().String()
+	}
+
 	// Spool to a temp file so concurrent large uploads don't exhaust RAM.
 	tmp, err := os.CreateTemp("", "weos-upload-*")
 	if err != nil {
@@ -70,23 +79,44 @@ func (c *compositeFileService) Upload(
 		return nil, fmt.Errorf("rewind spool file: %w", err)
 	}
 
-	result, err := c.primary.Upload(ctx, filename, contentType, tmp)
+	primaryResult, err := c.primary.Upload(ctx, params, tmp)
 	if err != nil {
 		return nil, fmt.Errorf("primary upload: %w", err)
 	}
 
+	// Upload to secondaries. Use the first secondary's result as the
+	// returned result since secondaries (typically local) provide
+	// app-hosted URLs that are directly accessible by clients, while
+	// cloud primary URLs may require authentication.
+	var returnResult *services.UploadResult
 	for i, sec := range c.secondaries {
 		if _, seekErr := tmp.Seek(0, io.SeekStart); seekErr != nil {
 			c.logger.Warn(ctx, "failed to rewind spool for secondary",
 				"backendIndex", i, "error", seekErr)
 			continue
 		}
-		if _, secErr := sec.Upload(ctx, filename, contentType, tmp); secErr != nil {
+		secResult, secErr := sec.Upload(ctx, params, tmp)
+		if secErr != nil {
 			c.logger.Warn(ctx, "secondary upload failed",
-				"backendIndex", i, "filename", filename,
-				"contentType", contentType, "error", secErr)
+				"backendIndex", i, "filename", params.Filename,
+				"contentType", params.ContentType, "error", secErr)
+			continue
+		}
+		if returnResult == nil {
+			returnResult = secResult
 		}
 	}
 
-	return result, nil
+	// If a secondary provided an app-hosted URL, prefer it; otherwise
+	// fall back to the primary result.
+	if returnResult != nil {
+		// Preserve the primary's size if the secondary didn't report one
+		// (e.g., cloud backends may not return size).
+		if returnResult.Size == 0 {
+			returnResult.Size = primaryResult.Size
+		}
+		return returnResult, nil
+	}
+
+	return primaryResult, nil
 }

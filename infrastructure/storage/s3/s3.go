@@ -26,6 +26,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/segmentio/ksuid"
 )
 
 type s3FileService struct {
@@ -58,33 +59,34 @@ func (c *countingReader) Read(p []byte) (int, error) {
 }
 
 func (s *s3FileService) Upload(
-	ctx context.Context, filename string, contentType string, reader io.Reader,
+	ctx context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
-	id, key := storage.GenerateObjectKeyWithID("uploads", filename)
+	id := params.ID
+	if id == "" {
+		id = ksuid.New().String()
+	}
+	safeName := storage.SanitizeFilename(params.Filename)
+	key := "uploads/" + id + "-" + safeName
 
-	// Wrap reader to count bytes streamed without buffering.
 	cr := &countingReader{r: reader}
 
 	_, err := s.client.PutObject(ctx, &s3sdk.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
 		Body:        cr,
-		ContentType: aws.String(contentType),
+		ContentType: aws.String(params.ContentType),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("upload to S3: %w", err)
 	}
-
-	url := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.bucket, s.region, key)
 
 	s.logger.Info(ctx, "file uploaded to S3",
 		"bucket", s.bucket, "key", key, "size", cr.n)
 
 	return &services.UploadResult{
 		ID:          id,
-		URL:         url,
-		Filename:    storage.SanitizeFilename(filename),
-		ContentType: contentType,
+		Filename:    safeName,
+		ContentType: params.ContentType,
 		Size:        cr.n,
 	}, nil
 }

@@ -47,14 +47,17 @@ func New(basePath, baseURL string, logger entities.Logger) services.FileService 
 }
 
 func (s *localFileService) Upload(
-	ctx context.Context, filename string, contentType string, reader io.Reader,
+	ctx context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
 	if err := os.MkdirAll(s.basePath, 0o755); err != nil {
 		return nil, fmt.Errorf("create upload directory: %w", err)
 	}
 
-	id := ksuid.New().String()
-	safeName := storage.SanitizeFilename(filename)
+	id := params.ID
+	if id == "" {
+		id = ksuid.New().String()
+	}
+	safeName := storage.SanitizeFilename(params.Filename)
 	diskName := id + "-" + safeName
 	fullPath := filepath.Join(s.basePath, diskName)
 
@@ -88,7 +91,7 @@ func (s *localFileService) Upload(
 		ID:          id,
 		URL:         s.baseURL + "/" + diskName,
 		Filename:    safeName,
-		ContentType: contentType,
+		ContentType: params.ContentType,
 		Size:        written,
 	}, nil
 }

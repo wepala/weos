@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"weos/domain/services"
 	"weos/infrastructure/storage/local"
 )
 
@@ -21,7 +22,8 @@ func TestUpload(t *testing.T) {
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
 	body := "hello world"
-	result, err := svc.Upload(context.Background(), "test.txt", "text/plain", strings.NewReader(body))
+	params := services.UploadParams{Filename: "test.txt", ContentType: "text/plain"}
+	result, err := svc.Upload(context.Background(), params, strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
 	}
@@ -53,11 +55,33 @@ func TestUpload(t *testing.T) {
 	}
 }
 
+func TestUpload_UsesCallerSuppliedID(t *testing.T) {
+	dir := t.TempDir()
+	svc := local.New(dir, "/api/uploads/files", nopLogger{})
+
+	params := services.UploadParams{
+		Filename:    "test.txt",
+		ContentType: "text/plain",
+		ID:          "fixed-id-123",
+	}
+	result, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
+	if err != nil {
+		t.Fatalf("Upload() error: %v", err)
+	}
+	if result.ID != "fixed-id-123" {
+		t.Errorf("ID = %q, want %q", result.ID, "fixed-id-123")
+	}
+	if !strings.Contains(result.URL, "fixed-id-123") {
+		t.Errorf("URL = %q, should contain caller-supplied ID", result.URL)
+	}
+}
+
 func TestUpload_SanitizesFilename(t *testing.T) {
 	dir := t.TempDir()
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
-	result, err := svc.Upload(context.Background(), "../../etc/passwd", "text/plain", strings.NewReader("x"))
+	params := services.UploadParams{Filename: "../../etc/passwd", ContentType: "text/plain"}
+	result, err := svc.Upload(context.Background(), params, strings.NewReader("x"))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
 	}
@@ -74,7 +98,8 @@ func TestUpload_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "uploads")
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})
 
-	_, err := svc.Upload(context.Background(), "file.txt", "text/plain", strings.NewReader("data"))
+	params := services.UploadParams{Filename: "file.txt", ContentType: "text/plain"}
+	_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
 	}

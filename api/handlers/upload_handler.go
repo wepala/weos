@@ -81,7 +81,11 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	result, err := h.fileService.Upload(ctx, fh.Filename, contentType, file)
+	params := application.UploadParams{
+		Filename:    fh.Filename,
+		ContentType: contentType,
+	}
+	result, err := h.fileService.Upload(ctx, params, file)
 	if err != nil {
 		h.logger.Error(ctx, "file upload failed",
 			"filename", fh.Filename, "contentType", contentType, "error", err)

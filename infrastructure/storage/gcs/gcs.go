@@ -24,6 +24,8 @@ import (
 	"weos/domain/services"
 	"weos/infrastructure/storage"
 
+	"github.com/segmentio/ksuid"
+
 	gcsstorage "cloud.google.com/go/storage"
 )
 
@@ -43,12 +45,18 @@ func New(client *gcsstorage.Client, bucket string, logger entities.Logger) servi
 }
 
 func (s *gcsFileService) Upload(
-	ctx context.Context, filename string, contentType string, reader io.Reader,
+	ctx context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
-	id, key := storage.GenerateObjectKeyWithID("uploads", filename)
+	id := params.ID
+	if id == "" {
+		id = ksuid.New().String()
+	}
+	safeName := storage.SanitizeFilename(params.Filename)
+	key := "uploads/" + id + "-" + safeName
+
 	obj := s.client.Bucket(s.bucket).Object(key)
 	w := obj.NewWriter(ctx)
-	w.ContentType = contentType
+	w.ContentType = params.ContentType
 
 	written, err := io.Copy(w, reader)
 	if err != nil {
@@ -61,16 +69,13 @@ func (s *gcsFileService) Upload(
 		return nil, fmt.Errorf("close GCS writer: %w", err)
 	}
 
-	url := fmt.Sprintf("https://storage.googleapis.com/%s/%s", s.bucket, key)
-
 	s.logger.Info(ctx, "file uploaded to GCS",
 		"bucket", s.bucket, "key", key, "size", written)
 
 	return &services.UploadResult{
 		ID:          id,
-		URL:         url,
-		Filename:    storage.SanitizeFilename(filename),
-		ContentType: contentType,
+		Filename:    safeName,
+		ContentType: params.ContentType,
 		Size:        written,
 	}, nil
 }

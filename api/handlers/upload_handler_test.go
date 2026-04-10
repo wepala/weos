@@ -24,18 +24,20 @@ func (nopLogger) Warn(_ context.Context, _ string, _ ...interface{})  {}
 func (nopLogger) Error(_ context.Context, _ string, _ ...interface{}) {}
 
 type mockFileService struct {
-	result      *services.UploadResult
-	err         error
-	gotFilename string
-	gotCType    string
-	gotBody     []byte
+	result   *services.UploadResult
+	err      error
+	gotID    string
+	gotFname string
+	gotCType string
+	gotBody  []byte
 }
 
 func (m *mockFileService) Upload(
-	_ context.Context, filename, contentType string, reader io.Reader,
+	_ context.Context, params services.UploadParams, reader io.Reader,
 ) (*services.UploadResult, error) {
-	m.gotFilename = filename
-	m.gotCType = contentType
+	m.gotID = params.ID
+	m.gotFname = params.Filename
+	m.gotCType = params.ContentType
 	if reader != nil {
 		m.gotBody, _ = io.ReadAll(reader)
 	}
@@ -101,8 +103,8 @@ func TestUploadHandler_Success(t *testing.T) {
 	}
 
 	// Verify service received correct arguments.
-	if svc.gotFilename != "test.txt" {
-		t.Errorf("service got filename = %q, want %q", svc.gotFilename, "test.txt")
+	if svc.gotFname != "test.txt" {
+		t.Errorf("service got filename = %q, want %q", svc.gotFname, "test.txt")
 	}
 	if string(svc.gotBody) != "hello" {
 		t.Errorf("service got body = %q, want %q", svc.gotBody, "hello")
@@ -124,7 +126,6 @@ func TestUploadHandler_MissingFile(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 
-	// Verify error message.
 	var env struct {
 		Error string `json:"error"`
 	}
@@ -152,7 +153,6 @@ func TestUploadHandler_ServiceError(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 
-	// Verify generic error message (no internal details leaked).
 	var env struct {
 		Error string `json:"error"`
 	}
@@ -165,18 +165,16 @@ func TestUploadHandler_ServiceError(t *testing.T) {
 }
 
 func TestUploadHandler_RequestEntityTooLarge(t *testing.T) {
-	const maxBytes int64 = 64 // very small limit
+	const maxBytes int64 = 64
 
 	handler := handlers.NewUploadHandler(&mockFileService{}, nopLogger{}, maxBytes)
 
-	// Build a multipart body larger than maxBytes.
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	part, err := w.CreateFormFile("file", "big.bin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Write more than maxBytes of data.
 	for i := 0; i < int(maxBytes)+1024; i++ {
 		_, _ = part.Write([]byte("x"))
 	}
