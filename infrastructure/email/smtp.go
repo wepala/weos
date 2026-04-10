@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"strings"
 	"time"
 
 	"weos/domain/entities"
@@ -85,6 +86,9 @@ func (s *SMTPSender) Send(ctx context.Context, to, subject, body string) error {
 	if err != nil {
 		return fmt.Errorf("invalid recipient address: %w", err)
 	}
+	if strings.ContainsAny(subject, "\r\n") {
+		return fmt.Errorf("email subject contains invalid characters")
+	}
 
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
 		s.headerFrom, parsedTo.String(), subject, body)
@@ -117,20 +121,15 @@ func (s *SMTPSender) sendWithContext(ctx context.Context, addr, rcpt string, msg
 	}
 	defer func() { _ = c.Close() }()
 
-	// Upgrade to TLS via STARTTLS if the server supports it.
-	tlsEstablished := false
-	if ok, _ := c.Extension("STARTTLS"); ok {
-		if err := c.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
-			return fmt.Errorf("smtp starttls: %w", err)
-		}
-		tlsEstablished = true
+	// Require STARTTLS — fail closed if the server does not support it.
+	if ok, _ := c.Extension("STARTTLS"); !ok {
+		return fmt.Errorf("smtp starttls: server does not advertise STARTTLS")
+	}
+	if err := c.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
+		return fmt.Errorf("smtp starttls: %w", err)
 	}
 
-	// Refuse to send credentials over a plaintext connection.
 	if s.username != "" {
-		if !tlsEstablished {
-			return fmt.Errorf("smtp auth: refusing to send credentials without TLS")
-		}
 		auth := smtp.PlainAuth("", s.username, s.password, s.host)
 		if err := c.Auth(auth); err != nil {
 			return fmt.Errorf("smtp auth: %w", err)

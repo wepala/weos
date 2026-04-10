@@ -103,6 +103,17 @@ func TestSMTPSender_Send_RejectsInvalidTo(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid recipient address")
 }
 
+func TestSMTPSender_Send_RejectsCRLFInSubject(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "test@example.com",
+	})
+	require.NotNil(t, sender)
+	err := sender.Send(context.Background(), "user@example.com", "Hello\r\nBcc: spy@evil.com", "body")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid characters")
+}
+
 func TestSMTPSender_Send_RejectsCRLFInTo(t *testing.T) {
 	sender := NewSMTPSender(config.SMTPConfig{
 		Host: "smtp.example.com",
