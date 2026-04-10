@@ -30,6 +30,15 @@ type OAuthConfig struct {
 	DynamicRegistration bool   // Enable OAuth Dynamic Client Registration (RFC 7591)
 }
 
+// SMTPConfig holds configuration for outbound email via SMTP.
+type SMTPConfig struct {
+	Host     string // SMTP server hostname
+	Port     string // SMTP server port (default "587")
+	Username string // SMTP auth username (optional — skips auth if empty)
+	Password string // SMTP auth password
+	From     string // Sender email address
+}
+
 // Config holds the standard configuration used by all applications.
 // Each application is responsible for providing a Config instance,
 // which may be populated from environment variables, command flags, or other sources.
@@ -55,6 +64,9 @@ type Config struct {
 
 	// OAuth holds configuration for OAuth authentication.
 	OAuth OAuthConfig
+
+	// SMTP holds configuration for outbound email.
+	SMTP SMTPConfig
 
 	// BigQuery event store configuration.
 	// When BigQueryProjectID is set, events are dual-written to both the primary store and BigQuery.
@@ -197,5 +209,21 @@ func (c *Config) LoadFromEnvironment() {
 	}
 	if bqTable := os.Getenv("BIGQUERY_TABLE_ID"); bqTable != "" {
 		c.BigQueryTableID = bqTable
+	}
+
+	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {
+		c.SMTP.Host = smtpHost
+	}
+	if smtpPort := os.Getenv("SMTP_PORT"); smtpPort != "" {
+		c.SMTP.Port = smtpPort
+	}
+	if smtpUser := os.Getenv("SMTP_USERNAME"); smtpUser != "" {
+		c.SMTP.Username = smtpUser
+	}
+	if smtpPass := os.Getenv("SMTP_PASSWORD"); smtpPass != "" {
+		c.SMTP.Password = smtpPass
+	}
+	if smtpFrom := os.Getenv("SMTP_FROM"); smtpFrom != "" {
+		c.SMTP.From = smtpFrom
 	}
 }
