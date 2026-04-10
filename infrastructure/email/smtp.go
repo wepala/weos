@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"net/smtp"
+	"strings"
 
 	"weos/domain/entities"
 	"weos/internal/config"
@@ -36,7 +37,7 @@ type SMTPSender struct {
 // NewSMTPSender creates a sender from the SMTP config section.
 // Returns a configured sender when Host is set, or nil otherwise.
 func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
-	if cfg.Host == "" {
+	if cfg.Host == "" || cfg.From == "" {
 		return nil
 	}
 	port := cfg.Port
@@ -53,6 +54,10 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 }
 
 func (s *SMTPSender) Send(_ context.Context, to, subject, body string) error {
+	if strings.ContainsAny(to, "\r\n") || strings.ContainsAny(subject, "\r\n") {
+		return fmt.Errorf("email header contains invalid characters")
+	}
+
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
 		s.from, to, subject, body)
 

@@ -11,7 +11,12 @@ import (
 )
 
 func TestNewSMTPSender_EmptyHost_ReturnsNil(t *testing.T) {
-	sender := NewSMTPSender(config.SMTPConfig{})
+	sender := NewSMTPSender(config.SMTPConfig{From: "a@b.com"})
+	assert.Nil(t, sender)
+}
+
+func TestNewSMTPSender_EmptyFrom_ReturnsNil(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{Host: "smtp.example.com"})
 	assert.Nil(t, sender)
 }
 
@@ -29,6 +34,7 @@ func TestNewSMTPSender_CustomPort(t *testing.T) {
 	sender := NewSMTPSender(config.SMTPConfig{
 		Host: "smtp.example.com",
 		Port: "465",
+		From: "test@example.com",
 	})
 	require.NotNil(t, sender)
 	assert.Equal(t, "465", sender.port)
@@ -57,6 +63,28 @@ func TestLogSender_SendLogsWarning(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, logger.warnings, 1)
 	assert.Contains(t, logger.warnings[0], "SMTP not configured")
+}
+
+func TestSMTPSender_Send_RejectsCRLFInTo(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "test@example.com",
+	})
+	require.NotNil(t, sender)
+	err := sender.Send(context.Background(), "evil@example.com\r\nBcc: spy@evil.com", "Subject", "body")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid characters")
+}
+
+func TestSMTPSender_Send_RejectsCRLFInSubject(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		From: "test@example.com",
+	})
+	require.NotNil(t, sender)
+	err := sender.Send(context.Background(), "user@example.com", "Hello\r\nBcc: spy@evil.com", "body")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid characters")
 }
 
 func TestProvideEmailSender_NoSMTP_ReturnsLogSender(t *testing.T) {
