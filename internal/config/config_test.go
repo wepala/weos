@@ -8,7 +8,7 @@ import (
 
 func TestLoadFromEnvironment_SMTP(t *testing.T) {
 	t.Setenv("SMTP_HOST", "mail.example.com")
-	t.Setenv("SMTP_PORT", "465")
+	t.Setenv("SMTP_PORT", "2525")
 	t.Setenv("SMTP_USERNAME", "user")
 	t.Setenv("SMTP_PASSWORD", "pass")
 	t.Setenv("SMTP_FROM", "noreply@example.com")
@@ -17,7 +17,7 @@ func TestLoadFromEnvironment_SMTP(t *testing.T) {
 	cfg.LoadFromEnvironment()
 
 	assert.Equal(t, "mail.example.com", cfg.SMTP.Host)
-	assert.Equal(t, "465", cfg.SMTP.Port)
+	assert.Equal(t, "2525", cfg.SMTP.Port)
 	assert.Equal(t, "user", cfg.SMTP.Username)
 	assert.Equal(t, "pass", cfg.SMTP.Password)
 	assert.Equal(t, "noreply@example.com", cfg.SMTP.From)

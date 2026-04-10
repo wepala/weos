@@ -67,6 +67,15 @@ func TestNewSMTPSender_CustomPort(t *testing.T) {
 	assert.Equal(t, "2525", sender.port)
 }
 
+func TestNewSMTPSender_Port465_ReturnsNil(t *testing.T) {
+	sender := NewSMTPSender(config.SMTPConfig{
+		Host: "smtp.example.com",
+		Port: "465",
+		From: "test@example.com",
+	})
+	assert.Nil(t, sender, "port 465 (implicit TLS) is not supported")
+}
+
 type testLogger struct {
 	warnings []string
 }

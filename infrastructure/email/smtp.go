@@ -71,6 +71,9 @@ func NewSMTPSender(cfg config.SMTPConfig) *SMTPSender {
 	if port == "" {
 		port = defaultPort
 	}
+	if port == "465" {
+		return nil // implicit TLS (SMTPS) is not supported; use STARTTLS (port 587)
+	}
 	return &SMTPSender{
 		host:         cfg.Host,
 		port:         port,
