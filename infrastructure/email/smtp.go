@@ -176,9 +176,8 @@ type LogSender struct {
 	logger entities.Logger
 }
 
-func (l *LogSender) Send(ctx context.Context, to, subject, _ string) error {
-	l.logger.Warn(ctx, "email not sent: SMTP not configured",
-		"to", to, "subject", subject)
+func (l *LogSender) Send(ctx context.Context, _, _, _ string) error {
+	l.logger.Warn(ctx, "email not sent: SMTP not configured")
 	return nil
 }
 

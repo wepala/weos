@@ -31,8 +31,10 @@ type OAuthConfig struct {
 }
 
 // SMTPConfig holds configuration for outbound email via SMTP.
-// When Host and From are both set, an SMTPSender is created.
-// If Port is left empty, the SMTPSender applies the default port "587" (STARTTLS).
+// An SMTPSender is created only when Host is set, From is set and parses as a
+// valid email address, and the configured port is accepted by the SMTP sender.
+// If Port is left empty, the SMTP sender uses the default port "587" (STARTTLS);
+// port "465" is rejected and will prevent SMTP from being enabled.
 type SMTPConfig struct {
 	Host     string // SMTP server hostname (required to enable email)
 	Port     string // SMTP server port; if empty, SMTPSender uses default "587"
