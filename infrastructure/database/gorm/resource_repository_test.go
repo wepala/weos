@@ -18,7 +18,7 @@ func setupDualProjectionTest(t *testing.T) (
 ) {
 	t.Helper()
 	db := newTestDB(t)
-	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+	if err := db.AutoMigrate(&models.Resource{}, &models.ResourcePermission{}); err != nil {
 		t.Fatalf("migrate resources: %v", err)
 	}
 	pm := &projectionManager{db: db, logger: &testLogger{}}
@@ -157,7 +157,7 @@ func TestDualProjection_DeleteRemovesFromBothTables(t *testing.T) {
 func setupReferenceProjectionTest(t *testing.T) (*ResourceRepository, context.Context) {
 	t.Helper()
 	db := newTestDB(t)
-	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+	if err := db.AutoMigrate(&models.Resource{}, &models.ResourcePermission{}); err != nil {
 		t.Fatalf("migrate resources: %v", err)
 	}
 	pm := &projectionManager{db: db, logger: &testLogger{}}
@@ -552,7 +552,7 @@ func (l *recordingLogger) Warn(_ context.Context, msg string, _ ...any) {
 func TestSaveToProjection_DisplayLookupError_LogsAndPersists(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+	if err := db.AutoMigrate(&models.Resource{}, &models.ResourcePermission{}); err != nil {
 		t.Fatalf("migrate resources: %v", err)
 	}
 	logger := &recordingLogger{}
@@ -648,7 +648,7 @@ func TestPopulateDisplayColumns_NonStringFK_LogsAndSkips(t *testing.T) {
 func TestSaveToProjection_DualProjectionAncestor_SkipsMissingDisplayColumn(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+	if err := db.AutoMigrate(&models.Resource{}, &models.ResourcePermission{}); err != nil {
 		t.Fatalf("migrate resources: %v", err)
 	}
 	pm := &projectionManager{db: db, logger: &testLogger{}}
@@ -875,7 +875,7 @@ func TestUpdateProjection_RebindToUnknownReference_ClearsDisplay(t *testing.T) {
 func TestUpdateProjection_RebindOnLookupError_ClearsDisplay(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
-	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+	if err := db.AutoMigrate(&models.Resource{}, &models.ResourcePermission{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	pm := &projectionManager{db: db, logger: &testLogger{}}
@@ -926,5 +926,128 @@ func TestUpdateProjection_RebindOnLookupError_ClearsDisplay(t *testing.T) {
 	}
 	if len(logger.errors) == 0 {
 		t.Errorf("expected at least one Error log for the failed lookup")
+	}
+}
+
+// makeTestResourceForAgent restores a Resource with explicit created_by AND
+// account_id, for tests that exercise the per-agent visibility scoping.
+func makeTestResourceForAgent(t *testing.T, id, typeSlug, dataJSON, createdBy, accountID string) *entities.Resource {
+	t.Helper()
+	e := &entities.Resource{}
+	if err := e.Restore(
+		id, typeSlug, "active",
+		json.RawMessage(dataJSON),
+		createdBy, accountID,
+		time.Now(), 1,
+	); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	return e
+}
+
+// TestSaveToProjection_OtherAgentSameAccount_DisplayStaysNull verifies the
+// per-agent visibility check: a writer in the same account as the referenced
+// resource but who is NOT the creator (and has no explicit read grant) must
+// not see the referenced resource's name denormalized into their own
+// projection row. This is the deeper version of the cross-account check —
+// shared account, different agents.
+func TestSaveToProjection_OtherAgentSameAccount_DisplayStaysNull(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	// Course created by user-alice in account A.
+	private := makeTestResourceForAgent(t, "urn:course:alice", "course",
+		`{"name":"Alice's Private Course"}`, "user-alice", "acct-A")
+	if err := repo.Save(ctx, private); err != nil {
+		t.Fatalf("Save private course: %v", err)
+	}
+
+	// Bob is in the same account but did not create the course and has no
+	// explicit permission grant. He references it from his own course-instance.
+	bobsCI := makeTestResourceForAgent(t, "urn:course-instance:bobs", "course-instance",
+		`{"name":"Bob's CI","courseId":"urn:course:alice"}`, "user-bob", "acct-A")
+	if err := repo.Save(ctx, bobsCI); err != nil {
+		t.Fatalf("Save bob ci: %v", err)
+	}
+
+	var row map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:bobs").Take(&row)
+	if row["course_id_display"] != nil {
+		t.Errorf("course_id_display = %v, want nil (Bob can't see Alice's private course)",
+			row["course_id_display"])
+	}
+}
+
+// TestSaveToProjection_OtherAgentWithReadGrant_DisplayPopulated verifies the
+// other half of the visibility check: when an explicit read grant exists for
+// the writer in resource_permissions, the lookup succeeds and the display is
+// populated. This is the same access boundary applyVisibilityScope enforces
+// for list/get queries.
+func TestSaveToProjection_OtherAgentWithReadGrant_DisplayPopulated(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	// Course created by user-alice in account A.
+	shared := makeTestResourceForAgent(t, "urn:course:shared", "course",
+		`{"name":"Shared Yoga"}`, "user-alice", "acct-A")
+	if err := repo.Save(ctx, shared); err != nil {
+		t.Fatalf("Save shared course: %v", err)
+	}
+
+	// Grant Bob explicit "read" permission on the course. The schema mirrors
+	// the resource_permissions row applyVisibilityScope checks.
+	if err := repo.db.Table("resource_permissions").Create(map[string]any{
+		"id":          "perm-bob-shared",
+		"resource_id": "urn:course:shared",
+		"agent_id":    "user-bob",
+		"actions":     `["read"]`,
+		"granted_by":  "user-alice",
+		"granted_at":  time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("grant permission: %v", err)
+	}
+
+	// Bob saves a course-instance referencing the shared course.
+	bobsCI := makeTestResourceForAgent(t, "urn:course-instance:bobs-shared", "course-instance",
+		`{"name":"Bob's Shared CI","courseId":"urn:course:shared"}`, "user-bob", "acct-A")
+	if err := repo.Save(ctx, bobsCI); err != nil {
+		t.Fatalf("Save bob ci: %v", err)
+	}
+
+	var row map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:bobs-shared").Take(&row)
+	if fmt.Sprint(row["course_id_display"]) != "Shared Yoga" {
+		t.Errorf("course_id_display = %v, want Shared Yoga (read grant should allow display lookup)",
+			row["course_id_display"])
+	}
+}
+
+// TestSaveToProjection_CanonicalFallback_OtherAgent_DisplayStaysNull mirrors
+// the visibility check for the canonical-fallback path. The referenced course
+// only exists in the canonical resources table; the writer is not the creator;
+// the lookup must miss.
+func TestSaveToProjection_CanonicalFallback_OtherAgent_DisplayStaysNull(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	// Insert canonical row only — no projection row — created by Alice.
+	private := makeTestResourceForAgent(t, "urn:course:canon-alice", "course",
+		`{"@graph":[{"@id":"urn:course:canon-alice","@type":"Course","name":"Alice Canon"}]}`,
+		"user-alice", "acct-A")
+	if err := repo.db.Create(models.FromResource(private)).Error; err != nil {
+		t.Fatalf("insert canonical: %v", err)
+	}
+
+	bobsCI := makeTestResourceForAgent(t, "urn:course-instance:canon-bob", "course-instance",
+		`{"name":"Canon Bob","courseId":"urn:course:canon-alice"}`, "user-bob", "acct-A")
+	if err := repo.Save(ctx, bobsCI); err != nil {
+		t.Fatalf("Save bob ci: %v", err)
+	}
+
+	var row map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:canon-bob").Take(&row)
+	if row["course_id_display"] != nil {
+		t.Errorf("course_id_display = %v, want nil (canonical fallback must enforce per-agent visibility)",
+			row["course_id_display"])
 	}
 }

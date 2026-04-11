@@ -228,18 +228,27 @@ func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[strin
 //   - the caller has already supplied a non-empty display value.
 //
 // When the FK is explicitly nil or empty string, OR present but unresolvable
-// (target row missing, cross-account, lookup error), the display column is
+// (target row missing, out-of-scope, lookup error), the display column is
 // explicitly set to nil so UPDATE statements clear any prior database value.
 // Without this, an FK rebound to a non-existent or out-of-scope target would
 // keep the old `<fk>_display` row in the database — a ghost name in the UI.
 //
-// **Multi-tenant scope.** When the row carries an `account_id` (i.e. it's
-// being written by an authenticated user) and the referenced type also has
-// an `account_id` column, the lookup is restricted to that account. This
-// prevents a user from leaking the display name of a resource they can't
-// read by planting a cross-account FK and then reading their own row's
-// `<fk>_display` field. When `account_id` is empty (system context, abstract
-// types) or the target type isn't account-scoped, the lookup is unscoped.
+// **Visibility scope.** Display lookups mirror the visibility rules the rest
+// of the stack uses for reads (see applyVisibilityScope and checkInstanceAccess):
+//   - the row's account_id must match the target's account_id when both sides
+//     are account-scoped (multi-tenant isolation);
+//   - the writer (row's created_by) must be the target's creator OR have an
+//     explicit "read" grant in resource_permissions.
+//
+// This prevents a writer from leaking a referenced resource's display name
+// into their own projection row's `<fk>_display` field when they can't read
+// the target through the normal API. When the row carries no account_id /
+// created_by (system context, abstract types, CLI seeds), the lookup is
+// unscoped — matching the privileged-context pattern in checkInstanceAccess.
+// Note: the admin/owner role bypass is NOT enforced here (it requires the
+// account membership repository, which the gorm layer can't import). Admins
+// who write rows referencing other users' private resources within the same
+// account will see a NULL display until the triple-propagation path fills it.
 //
 // **Error policy.** Display columns are denormalized read optimizations, not
 // correctness invariants — a NULL display is a valid state (the frontend
@@ -257,10 +266,12 @@ func (r *ResourceRepository) populateDisplayColumns(
 	if len(forwardRefs) == 0 {
 		return
 	}
-	// Caller account scope: defends against cross-account display leaks. May
-	// be empty for system writes (CLI, replay, abstract types) — in which
-	// case lookups are unscoped (the existing privileged-context pattern).
+	// Caller scope: drives both account isolation and per-agent visibility
+	// (created_by + resource_permissions). Empty IDs => unscoped (system
+	// context), matching checkInstanceAccess's nil-auth fail-open path.
 	rowAccountID, _ := row["account_id"].(string)
+	rowCreatedBy, _ := row["created_by"].(string)
+	scope := buildLookupScope(rowAccountID, rowCreatedBy)
 	for _, ref := range forwardRefs {
 		// Dual-projection ancestor may not have a display column for every
 		// forward ref declared on the concrete type; skip silently.
@@ -296,7 +307,7 @@ func (r *ResourceRepository) populateDisplayColumns(
 			continue
 		}
 
-		display, found, err := r.lookupDisplayValue(ctx, ref, fkVal, rowAccountID)
+		display, found, err := r.lookupDisplayValue(ctx, ref, fkVal, scope)
 		if err != nil {
 			// Log loudly but do not abort the write — persist the display as
 			// NULL and let the UI fall back to the raw FK. A subsequent write
@@ -318,17 +329,32 @@ func (r *ResourceRepository) populateDisplayColumns(
 	}
 }
 
+// buildLookupScope packages the row's account/agent identity into a
+// VisibilityScope for display lookups. Returns nil when both fields are
+// empty, signaling "system context" — the same fail-open convention
+// checkInstanceAccess uses for nil auth.
+func buildLookupScope(accountID, createdBy string) *repositories.VisibilityScope {
+	if accountID == "" && createdBy == "" {
+		return nil
+	}
+	return &repositories.VisibilityScope{
+		AgentID:   createdBy,
+		AccountID: accountID,
+		IsAdmin:   false,
+	}
+}
+
 // lookupDisplayValue resolves a single forward-reference display value.
 //
 // Returns (value, true, nil) on success. Returns ("", false, nil) for a
-// legitimate not-found (neither the projection table nor the canonical
-// resources table has the referenced row, or the row is out of the caller's
-// account scope). Returns ("", false, err) for real infrastructure or decode
-// failures — those must never be silently dropped.
+// legitimate not-found (target row missing, or out of the writer's visibility
+// scope). Returns ("", false, err) for real infrastructure or decode failures
+// — those must never be silently dropped.
 //
-// rowAccountID, when non-empty, restricts lookups to the same account. An
-// empty rowAccountID means "system context" — the lookup runs unscoped, the
-// same convention checkInstanceAccess uses for nil auth.
+// scope, when non-nil, restricts lookups to the writer's account AND the
+// per-agent visibility set (creator + explicit "read" grants in
+// resource_permissions). A nil scope means "system context" — the lookup
+// runs unscoped, matching checkInstanceAccess's nil-auth fail-open path.
 //
 // Resolution order:
 //  1. Projection table of the target type (single indexed lookup).
@@ -340,12 +366,13 @@ func (r *ResourceRepository) populateDisplayColumns(
 // because importing application from this package would create a cycle.
 // TODO: hoist ExtractEntityNode into a shared pkg to remove the duplication.
 func (r *ResourceRepository) lookupDisplayValue(
-	ctx context.Context, ref repositories.ForwardReference, fkVal, rowAccountID string,
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	scope *repositories.VisibilityScope,
 ) (string, bool, error) {
-	if v, found, err := r.lookupDisplayFromProjection(ctx, ref, fkVal, rowAccountID); err != nil || found {
+	if v, found, err := r.lookupDisplayFromProjection(ctx, ref, fkVal, scope); err != nil || found {
 		return v, found, err
 	}
-	return r.lookupDisplayFromCanonical(ctx, ref, fkVal, rowAccountID)
+	return r.lookupDisplayFromCanonical(ctx, ref, fkVal, scope)
 }
 
 // lookupDisplayFromProjection reads the display property from the referenced
@@ -353,16 +380,22 @@ func (r *ResourceRepository) lookupDisplayValue(
 // missing so the caller can fall back to the canonical path; all other errors
 // are propagated.
 //
-// When rowAccountID is non-empty AND the target table has an account_id column,
-// the query is constrained to that account so cross-account references resolve
-// to a miss (multi-tenant isolation for the denormalized display value).
+// When scope is non-nil, the query enforces:
+//   - account_id match (when the target table has an account_id column);
+//   - applyVisibilityScope: created_by match OR an explicit "read" grant in
+//     resource_permissions for the writing agent.
+//
+// Both filters are AND-composed so cross-account references and within-account
+// private references both resolve to a miss (the display column stays NULL,
+// the UI falls back to the raw FK).
 //
 // Note on Scan semantics: GORM v2's .Scan() does NOT return ErrRecordNotFound
 // for zero-row results (only First/Take/Last do). A missing row appears here
 // as (err==nil, value==nil), handled by the default case. Genuine driver
 // errors arrive via the err != nil branch and are propagated.
 func (r *ResourceRepository) lookupDisplayFromProjection(
-	ctx context.Context, ref repositories.ForwardReference, fkVal, rowAccountID string,
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	scope *repositories.VisibilityScope,
 ) (string, bool, error) {
 	if !r.projMgr.HasProjectionTable(ref.TargetTypeSlug) {
 		return "", false, nil
@@ -375,11 +408,17 @@ func (r *ResourceRepository) lookupDisplayFromProjection(
 	query := r.db.WithContext(ctx).Table(tableName).
 		Select(displayCol).
 		Where("id = ?", fkVal)
-	// Multi-tenant scope: only constrain when both sides have an account.
-	// Empty rowAccountID = system context (unscoped). Target type with no
-	// account_id column = global reference data (also unscoped).
-	if rowAccountID != "" && r.projMgr.HasColumn(ref.TargetTypeSlug, "account_id") {
-		query = query.Where("account_id = ?", rowAccountID)
+	if scope != nil {
+		// Account isolation when both sides are account-scoped.
+		if scope.AccountID != "" && r.projMgr.HasColumn(ref.TargetTypeSlug, "account_id") {
+			query = query.Where("account_id = ?", scope.AccountID)
+		}
+		// Per-agent visibility: created_by match OR explicit read grant. This
+		// is the same helper applyVisibilityScope uses for list/get queries,
+		// so display lookups follow the same access boundary.
+		if scope.AgentID != "" {
+			query = applyVisibilityScope(query, scope, "")
+		}
 	}
 	var value *string
 	if err := query.Scan(&value).Error; err != nil {
@@ -396,15 +435,24 @@ func (r *ResourceRepository) lookupDisplayFromProjection(
 // (returns false, nil); unmarshal failures indicate corrupt data and are
 // propagated so the caller can surface them.
 //
-// When rowAccountID is non-empty, the entity must belong to that account for
-// the lookup to succeed; otherwise treated as a miss. This mirrors the
-// projection-path scoping and prevents canonical-fallback leaks.
+// When scope is non-nil, the canonical entity is post-checked against the
+// same boundary the projection path enforces:
+//   - account_id must match (when both sides have one);
+//   - the writing agent must be the entity's creator (the explicit-permission
+//     half of applyVisibilityScope is approximated here by accepting matches
+//     on created_by only — the canonical fallback is rare enough that the
+//     extra resource_permissions query is not justified).
+//
+// Resources with no account_id and no created_by (legacy/system data) are
+// allowed through, matching the pre-migration backward-compat path in
+// checkInstanceAccess.
 //
 // FindByID's contract: returns (entity, nil) on success or (nil, err) on
 // any failure. It never returns (nil, nil), so a non-error return guarantees
 // entity is non-nil.
 func (r *ResourceRepository) lookupDisplayFromCanonical(
-	ctx context.Context, ref repositories.ForwardReference, fkVal, rowAccountID string,
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	scope *repositories.VisibilityScope,
 ) (string, bool, error) {
 	entity, err := r.FindByID(ctx, fkVal)
 	if err != nil {
@@ -413,11 +461,7 @@ func (r *ResourceRepository) lookupDisplayFromCanonical(
 		}
 		return "", false, fmt.Errorf("canonical lookup for %s: %w", fkVal, err)
 	}
-	// Multi-tenant scope: drop the lookup if the referenced entity is in a
-	// different account. Resources with no account (legacy/system data) are
-	// allowed through, matching the pre-migration backward-compat path in
-	// checkInstanceAccess.
-	if rowAccountID != "" && entity.AccountID() != "" && entity.AccountID() != rowAccountID {
+	if !canonicalLookupVisible(entity, scope) {
 		return "", false, nil
 	}
 	var doc map[string]any
@@ -436,6 +480,29 @@ func (r *ResourceRepository) lookupDisplayFromCanonical(
 		}
 	}
 	return "", false, nil
+}
+
+// canonicalLookupVisible reports whether the writer (described by scope) can
+// read the referenced entity, using a conservative subset of the rules in
+// checkInstanceAccess: account match AND created_by match. Legacy resources
+// with no creator/account are allowed through. A nil scope (system context)
+// always passes.
+func canonicalLookupVisible(entity *entities.Resource, scope *repositories.VisibilityScope) bool {
+	if scope == nil {
+		return true
+	}
+	if scope.AccountID != "" && entity.AccountID() != "" && entity.AccountID() != scope.AccountID {
+		return false
+	}
+	// Pre-migration / system rows with no creator are visible (matching
+	// checkInstanceAccess's backward-compat clause).
+	if entity.CreatedBy() == "" {
+		return true
+	}
+	// The strict per-agent path: writer must be the entity's creator.
+	// Explicit resource_permissions grants are not honored here — that case
+	// would require a second query and the canonical fallback is rare.
+	return scope.AgentID != "" && entity.CreatedBy() == scope.AgentID
 }
 
 func (r *ResourceRepository) FindByID(

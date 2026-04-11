@@ -128,6 +128,14 @@ func (h *ResourceHandler) Get(c echo.Context) error {
 			return respondError(c, http.StatusInternalServerError, "failed to load resource")
 		}
 	}
+	// Type-slug mismatch guard: a URL like /resources/course/<id-of-a-product>
+	// must not return the product entity simplified with the course context.
+	// GetByID does not enforce this on its own, and the flat path's mismatch
+	// signal (ErrNotFound) collides with "row missing" in the fall-through
+	// switch above — so the canonical path needs its own explicit check.
+	if entity.TypeSlug() != typeSlug {
+		return respondError(c, http.StatusNotFound, "resource not found")
+	}
 	return respondWithResourceData(c, http.StatusOK, entity, rt.Context())
 }
 

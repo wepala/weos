@@ -317,3 +317,65 @@ func TestResourceHandler_Get_CanonicalPathUnexpectedErrorReturns500(t *testing.T
 		t.Errorf("logger.Error calls = %d, want 1 (operators must see DB error context)", len(logger.errors))
 	}
 }
+
+// makeTestProductEntity returns a Resource whose type_slug is "product",
+// for the type-mismatch guard test.
+func makeTestProductEntity(t *testing.T, id string) *entities.Resource {
+	t.Helper()
+	e := &entities.Resource{}
+	if err := e.Restore(
+		id, "product", "active",
+		json.RawMessage(`{"@graph":[{"@id":"`+id+`","@type":"Product","name":"Widget"}]}`),
+		"", "", time.Unix(0, 0), 1,
+	); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	return e
+}
+
+// TestResourceHandler_Get_CanonicalPath_TypeSlugMismatchReturns404 verifies
+// the type-slug guard on the canonical path. URL says /resources/course/<id>
+// but the entity behind the id is actually a product. GetByID returns it
+// without enforcement; the handler must reject the mismatch and return 404
+// rather than simplify the product with the course type's JSON-LD context.
+func TestResourceHandler_Get_CanonicalPath_TypeSlugMismatchReturns404(t *testing.T) {
+	t.Parallel()
+	svc := &stubResourceSvc{
+		flatErr:    repositories.ErrNotFound, // forces fall-through to canonical
+		byIDEntity: makeTestProductEntity(t, "urn:product:wrong-type"),
+	}
+	h := newHandler(t, svc)
+
+	c, rec := newGetRequest(t, "application/json")
+	if err := h.Get(c); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404 (type-slug mismatch must not return the wrong-type entity)",
+			rec.Code)
+	}
+}
+
+// TestResourceHandler_Get_JSONLD_TypeSlugMismatchReturns404 covers the same
+// guard for JSON-LD requests, which bypass the flat path entirely. Without
+// the explicit type check, the handler would simplify the wrong-type entity
+// with the route's type context.
+func TestResourceHandler_Get_JSONLD_TypeSlugMismatchReturns404(t *testing.T) {
+	t.Parallel()
+	svc := &stubResourceSvc{
+		byIDEntity: makeTestProductEntity(t, "urn:product:wrong-jsonld"),
+	}
+	h := newHandler(t, svc)
+
+	c, rec := newGetRequest(t, "application/ld+json")
+	if err := h.Get(c); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404 (JSON-LD path must also enforce type-slug match)",
+			rec.Code)
+	}
+	if svc.flatHit != 0 {
+		t.Errorf("flatHit = %d, want 0 (JSON-LD requests must not call GetFlat)", svc.flatHit)
+	}
+}
