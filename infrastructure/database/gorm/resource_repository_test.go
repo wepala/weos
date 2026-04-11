@@ -420,7 +420,7 @@ func TestPopulateDisplayColumns_RespectsCallerProvidedValue(t *testing.T) {
 		"course_id":         "urn:course:ghost",
 		"course_id_display": "Pre-Seeded Name",
 	}
-	repo.populateDisplayColumns(ctx, "course-instance", row)
+	repo.populateDisplayColumns(ctx, "course-instance", row, nil)
 	if row["course_id_display"] != "Pre-Seeded Name" {
 		t.Errorf("course_id_display = %v, want 'Pre-Seeded Name' (caller value must be respected)",
 			row["course_id_display"])
@@ -629,7 +629,7 @@ func TestPopulateDisplayColumns_NonStringFK_LogsAndSkips(t *testing.T) {
 		"id":        "urn:course-instance:typo",
 		"course_id": 12345, // not a string — represents schema drift
 	}
-	repo.populateDisplayColumns(ctx, "course-instance", row)
+	repo.populateDisplayColumns(ctx, "course-instance", row, nil)
 
 	if _, ok := row["course_id_display"]; ok {
 		t.Errorf("course_id_display should not have been set on non-string FK, got %v", row["course_id_display"])
@@ -1048,6 +1048,200 @@ func TestSaveToProjection_CanonicalFallback_OtherAgent_DisplayStaysNull(t *testi
 	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:canon-bob").Take(&row)
 	if row["course_id_display"] != nil {
 		t.Errorf("course_id_display = %v, want nil (canonical fallback must enforce per-agent visibility)",
+			row["course_id_display"])
+	}
+}
+
+// TestSaveToProjection_CanonicalFallback_WrongTargetType_DisplayStaysNull
+// guards against the canonical-fallback type-confusion bug. A child writes
+// an FK that points at an entity of the wrong type (urn:product:xyz under
+// the courseId column). The projection-path lookup misses naturally because
+// it queries the "courses" table by id, but the canonical resources table
+// holds every type — without an explicit type-slug check the lookup would
+// extract the product's display property and persist it under
+// course_id_display, breaking referential integrity.
+func TestSaveToProjection_CanonicalFallback_WrongTargetType_DisplayStaysNull(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	// Insert a canonical row of the WRONG type ("product") at an id that the
+	// child is going to use as if it were a course. No projection row, so the
+	// lookup falls through to canonical.
+	wrongType := makeTestResource(t, "urn:product:wrong", "product",
+		`{"@graph":[{"@id":"urn:product:wrong","@type":"Product","name":"Stolen Name"}]}`)
+	if err := repo.db.Create(models.FromResource(wrongType)).Error; err != nil {
+		t.Fatalf("insert wrong-type canonical: %v", err)
+	}
+
+	// Child stores the wrong-type id under courseId — schema drift / malicious input.
+	ci := makeTestResource(t, "urn:course-instance:wrong-type", "course-instance",
+		`{"name":"Drift","courseId":"urn:product:wrong"}`)
+	if err := repo.Save(ctx, ci); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	var row map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:wrong-type").Take(&row)
+	if row["course_id_display"] != nil {
+		t.Errorf("course_id_display = %v, want nil (wrong-type FK must not denormalize the other entity)",
+			row["course_id_display"])
+	}
+}
+
+// TestEnsureTable_SchemaEditRemovesXResourceType_ClearsStaleRefs verifies
+// the clear-and-rebuild behavior of registerReverseReferences. A schema is
+// first registered with an x-resource-type property, then re-registered with
+// the property removed. The reverse-ref bucket for the old target type and
+// the forward-ref bucket for the referencing type must both lose the stale
+// entry — otherwise propagation would still try to write display values into
+// columns the new schema no longer has.
+func TestEnsureTable_SchemaEditRemovesXResourceType_ClearsStaleRefs(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	v1 := json.RawMessage(`{"type":"object","properties":{` +
+		`"name":{"type":"string"},` +
+		`"courseId":{"type":"string","x-resource-type":"course"}}}`)
+	v2 := json.RawMessage(`{"type":"object","properties":{` +
+		`"name":{"type":"string"}}}`)
+
+	if err := pm.EnsureTable(ctx, "course-instance", v1, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Sanity: v1 produces a forward and a reverse ref.
+	if got := len(pm.ForwardReferences("course-instance")); got != 1 {
+		t.Fatalf("after v1: forward refs = %d, want 1", got)
+	}
+	if got := len(pm.ReverseReferences("course")); got != 1 {
+		t.Fatalf("after v1: reverse refs for course = %d, want 1", got)
+	}
+
+	// v2 drops courseId entirely.
+	if err := pm.EnsureTable(ctx, "course-instance", v2, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(pm.ForwardReferences("course-instance")); got != 0 {
+		t.Errorf("after v2: forward refs = %d, want 0 (stale entry not cleared)", got)
+	}
+	if got := len(pm.ReverseReferences("course")); got != 0 {
+		t.Errorf("after v2: reverse refs for course = %d, want 0 (stale entry not cleared)", got)
+	}
+}
+
+// TestEnsureTable_SchemaEditRepointsXResourceType_ClearsStaleTarget verifies
+// the more subtle case where an x-resource-type is repointed at a different
+// target. v1 has courseId → course; v2 has courseId → module. The "course"
+// reverse-ref bucket must drop its entry, and a new entry must appear under
+// "module".
+func TestEnsureTable_SchemaEditRepointsXResourceType_ClearsStaleTarget(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	v1 := json.RawMessage(`{"type":"object","properties":{` +
+		`"courseId":{"type":"string","x-resource-type":"course"}}}`)
+	v2 := json.RawMessage(`{"type":"object","properties":{` +
+		`"courseId":{"type":"string","x-resource-type":"module"}}}`)
+
+	if err := pm.EnsureTable(ctx, "course-instance", v1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "course-instance", v2, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := len(pm.ReverseReferences("course")); got != 0 {
+		t.Errorf("after repoint: reverse refs for course = %d, want 0 (stale target not cleared)", got)
+	}
+	revs := pm.ReverseReferences("module")
+	if len(revs) != 1 || revs[0].ReferencingTypeSlug != "course-instance" {
+		t.Errorf("after repoint: reverse refs for module = %+v, want one entry for course-instance", revs)
+	}
+	fwd := pm.ForwardReferences("course-instance")
+	if len(fwd) != 1 || fwd[0].TargetTypeSlug != "module" {
+		t.Errorf("after repoint: forward refs = %+v, want one entry pointing at module", fwd)
+	}
+}
+
+// TestUpdateData_LoadsScopeFromCanonicalRow verifies the visibility-scope
+// loading path in updateDataInProjection. The partial UpdateData patch
+// doesn't carry account_id/created_by, but the existing row owner must
+// still constrain the display lookup. We construct a scenario where:
+//   - the existing course-instance is owned by user-bob in account A;
+//   - the patch rebinds courseId to a course owned by user-alice in account A
+//     (same account, different agent — Bob can't read Alice's course);
+//   - UpdateData should load Bob's owner scope from the canonical row and
+//     pass it to populateDisplayColumns, which then refuses to populate
+//     course_id_display.
+func TestUpdateData_LoadsScopeFromCanonicalRow(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	// Alice's private course.
+	alice := makeTestResourceForAgent(t, "urn:course:alice-priv", "course",
+		`{"name":"Alice Private"}`, "user-alice", "acct-A")
+	if err := repo.Save(ctx, alice); err != nil {
+		t.Fatalf("Save alice: %v", err)
+	}
+
+	// Bob's course-instance, initially with no FK so no display to clear.
+	bobsCI := makeTestResourceForAgent(t, "urn:course-instance:bob-update", "course-instance",
+		`{"name":"Bob Update"}`, "user-bob", "acct-A")
+	if err := repo.Save(ctx, bobsCI); err != nil {
+		t.Fatalf("Save bob ci: %v", err)
+	}
+
+	// Patch the FK to point at Alice's private course. Bob has no read
+	// permission — display lookup must miss.
+	patch := json.RawMessage(`{"courseId":"urn:course:alice-priv"}`)
+	if err := repo.UpdateData(ctx, "urn:course-instance:bob-update", patch, 2); err != nil {
+		t.Fatalf("UpdateData: %v", err)
+	}
+
+	var row map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:bob-update").Take(&row)
+	if row["course_id"] != "urn:course:alice-priv" {
+		t.Errorf("course_id = %v, want urn:course:alice-priv (FK update should still happen)", row["course_id"])
+	}
+	if row["course_id_display"] != nil {
+		t.Errorf("course_id_display = %v, want nil (Bob can't see Alice's private course via UpdateData)",
+			row["course_id_display"])
+	}
+}
+
+// TestUpdateData_LoadsScopeFromCanonicalRow_AllowsCreatorMatch is the
+// counter-test: when the canonical row's owner matches the FK target's
+// owner, UpdateData populates the display normally. Confirms that loading
+// scope from the canonical row doesn't accidentally block legitimate
+// same-creator partial updates.
+func TestUpdateData_LoadsScopeFromCanonicalRow_AllowsCreatorMatch(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	// Course and instance both owned by Alice.
+	course := makeTestResourceForAgent(t, "urn:course:alice-pub", "course",
+		`{"name":"Alice Public"}`, "user-alice", "acct-A")
+	if err := repo.Save(ctx, course); err != nil {
+		t.Fatalf("Save course: %v", err)
+	}
+	ci := makeTestResourceForAgent(t, "urn:course-instance:alice-update", "course-instance",
+		`{"name":"Alice CI"}`, "user-alice", "acct-A")
+	if err := repo.Save(ctx, ci); err != nil {
+		t.Fatalf("Save ci: %v", err)
+	}
+
+	patch := json.RawMessage(`{"courseId":"urn:course:alice-pub"}`)
+	if err := repo.UpdateData(ctx, "urn:course-instance:alice-update", patch, 2); err != nil {
+		t.Fatalf("UpdateData: %v", err)
+	}
+
+	var row map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:alice-update").Take(&row)
+	if fmt.Sprint(row["course_id_display"]) != "Alice Public" {
+		t.Errorf("course_id_display = %v, want 'Alice Public' (same-owner UpdateData should populate)",
 			row["course_id_display"])
 	}
 }

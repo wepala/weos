@@ -276,7 +276,22 @@ func (pm *projectionManager) AncestorSlugs(slug string) []string {
 // which projection tables need updating when a target resource changes, and the
 // symmetric forward-reference entries used to populate display columns on the
 // referencing type's own projection row at write time.
+//
+// Schema-edit safety: stale entries from a previous registration of the same
+// slug are *cleared* before new entries are added. Without this, removing or
+// repointing an x-resource-type property would leave dangling refs in both
+// maps — the old target's reverseRe bucket and the slug's forwardRe bucket
+// would still claim the property exists. The clear+rebuild pass also makes
+// the per-property dedup in the append helpers redundant for re-registrations
+// (they now operate on a fresh state for this slug), but the helpers still
+// dedup defensively against duplicate properties within a single schema.
 func (pm *projectionManager) registerReverseReferences(slug string, schema json.RawMessage) {
+	pm.reverseReMu.Lock()
+	defer pm.reverseReMu.Unlock()
+
+	// Clear any prior entries that name this slug — schema may have changed.
+	pm.clearReferencesForSlugLocked(slug)
+
 	if len(schema) == 0 {
 		return
 	}
@@ -311,15 +326,49 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 			TargetTypeSlug:  prop.XResourceType,
 			DisplayProperty: displayProp,
 		}
-
-		// Append using copy-on-write under lock to prevent TOCTOU races and
-		// avoid data races with concurrent readers. A single lock guards both
-		// maps so reverse/forward entries stay consistent with each other.
-		pm.reverseReMu.Lock()
 		pm.appendReverseRefLocked(prop.XResourceType, reverseRef)
 		pm.appendForwardRefLocked(slug, forwardRef)
-		pm.reverseReMu.Unlock()
 	}
+}
+
+// clearReferencesForSlugLocked removes every reference entry that names slug
+// from both the forward and reverse maps. The forward bucket for slug is
+// dropped wholesale; reverse buckets are walked and any entry whose
+// ReferencingTypeSlug matches slug is filtered out (using copy-on-write so
+// concurrent readers of the previous slice are unaffected). Caller must hold
+// reverseReMu.
+func (pm *projectionManager) clearReferencesForSlugLocked(slug string) {
+	// Drop the forward bucket entirely — all forward refs for slug come from
+	// its own schema, so they're all stale by definition on re-registration.
+	pm.forwardRe.Delete(slug)
+
+	// Walk reverse buckets and filter out any entries that name slug as the
+	// referencer. Buckets keyed on different target types may contain refs
+	// from many referencing types, so we can't drop them wholesale.
+	pm.reverseRe.Range(func(key, value any) bool {
+		refs, ok := value.([]repositories.ReverseReference)
+		if !ok {
+			return true
+		}
+		filtered := make([]repositories.ReverseReference, 0, len(refs))
+		removed := false
+		for _, r := range refs {
+			if r.ReferencingTypeSlug == slug {
+				removed = true
+				continue
+			}
+			filtered = append(filtered, r)
+		}
+		if !removed {
+			return true
+		}
+		if len(filtered) == 0 {
+			pm.reverseRe.Delete(key)
+		} else {
+			pm.reverseRe.Store(key, filtered)
+		}
+		return true
+	})
 }
 
 // appendReverseRefLocked appends a ReverseReference to the targetSlug bucket,

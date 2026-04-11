@@ -154,7 +154,8 @@ func (r *ResourceRepository) saveToProjection(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
-	r.populateDisplayColumns(ctx, targetSlug, row)
+	r.populateDisplayColumns(ctx, targetSlug, row,
+		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
 	if err := r.db.WithContext(ctx).Table(tableName).Create(row).Error; err != nil {
 		return fmt.Errorf("failed to save resource to projection %s: %w", tableName, err)
 	}
@@ -180,7 +181,8 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
-	r.populateDisplayColumns(ctx, targetSlug, row)
+	r.populateDisplayColumns(ctx, targetSlug, row,
+		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
 
 	// Build column list for ON CONFLICT UPDATE, excluding immutable fields.
 	immutable := map[string]bool{"id": true, "created_at": true, "created_by": true, "account_id": true}
@@ -233,18 +235,19 @@ func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[strin
 // Without this, an FK rebound to a non-existent or out-of-scope target would
 // keep the old `<fk>_display` row in the database — a ghost name in the UI.
 //
-// **Visibility scope.** Display lookups mirror the visibility rules the rest
-// of the stack uses for reads (see applyVisibilityScope and checkInstanceAccess):
+// **Visibility scope.** The caller passes an explicit *VisibilityScope so this
+// helper can enforce the same access boundary the rest of the stack uses (see
+// applyVisibilityScope and checkInstanceAccess):
 //   - the row's account_id must match the target's account_id when both sides
 //     are account-scoped (multi-tenant isolation);
-//   - the writer (row's created_by) must be the target's creator OR have an
+//   - the writer (scope.AgentID) must be the target's creator OR have an
 //     explicit "read" grant in resource_permissions.
 //
-// This prevents a writer from leaking a referenced resource's display name
-// into their own projection row's `<fk>_display` field when they can't read
-// the target through the normal API. When the row carries no account_id /
-// created_by (system context, abstract types, CLI seeds), the lookup is
-// unscoped — matching the privileged-context pattern in checkInstanceAccess.
+// Passing scope explicitly (rather than reading it from the row map) is
+// important because partial-update paths like updateDataInProjection don't
+// carry account_id/created_by in the row map — those callers load the scope
+// from the canonical row. A nil scope means "system context" — the lookup
+// runs unscoped, matching checkInstanceAccess's nil-auth fail-open path.
 // Note: the admin/owner role bypass is NOT enforced here (it requires the
 // account membership repository, which the gorm layer can't import). Admins
 // who write rows referencing other users' private resources within the same
@@ -261,17 +264,12 @@ func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[strin
 // when the parent resource changes. The helper itself never returns an error.
 func (r *ResourceRepository) populateDisplayColumns(
 	ctx context.Context, targetSlug string, row map[string]any,
+	scope *repositories.VisibilityScope,
 ) {
 	forwardRefs := r.projMgr.ForwardReferences(targetSlug)
 	if len(forwardRefs) == 0 {
 		return
 	}
-	// Caller scope: drives both account isolation and per-agent visibility
-	// (created_by + resource_permissions). Empty IDs => unscoped (system
-	// context), matching checkInstanceAccess's nil-auth fail-open path.
-	rowAccountID, _ := row["account_id"].(string)
-	rowCreatedBy, _ := row["created_by"].(string)
-	scope := buildLookupScope(rowAccountID, rowCreatedBy)
 	for _, ref := range forwardRefs {
 		// Dual-projection ancestor may not have a display column for every
 		// forward ref declared on the concrete type; skip silently.
@@ -342,6 +340,35 @@ func buildLookupScope(accountID, createdBy string) *repositories.VisibilityScope
 		AccountID: accountID,
 		IsAdmin:   false,
 	}
+}
+
+// loadRowOwnerScope returns the visibility scope for an existing canonical
+// resources row. Used by partial-update paths (updateDataInProjection) where
+// the row map doesn't carry account_id/created_by — we have to fetch the
+// owner from the canonical store before invoking populateDisplayColumns,
+// otherwise the lookup would run unscoped and reintroduce the data leak.
+//
+// Lightweight by design: SELECTs only the two ownership columns from the
+// resources table. Returns nil if the row doesn't exist or the query errors
+// — populateDisplayColumns then runs in fail-open (system) mode, which is
+// the safest degradation for a missing-row condition (the partial update
+// itself will hit the same missing row and 0-row update without error).
+func (r *ResourceRepository) loadRowOwnerScope(
+	ctx context.Context, id string,
+) *repositories.VisibilityScope {
+	var owner struct {
+		AccountID string
+		CreatedBy string
+	}
+	err := r.db.WithContext(ctx).
+		Table("resources").
+		Select("account_id", "created_by").
+		Where("id = ?", id).
+		Take(&owner).Error
+	if err != nil {
+		return nil
+	}
+	return buildLookupScope(owner.AccountID, owner.CreatedBy)
 }
 
 // lookupDisplayValue resolves a single forward-reference display value.
@@ -460,6 +487,15 @@ func (r *ResourceRepository) lookupDisplayFromCanonical(
 			return "", false, nil
 		}
 		return "", false, fmt.Errorf("canonical lookup for %s: %w", fkVal, err)
+	}
+	// Type-slug guard: a malformed or stale FK could point at a row of a
+	// different type (e.g. courseId="urn:product:xyz"). The projection-path
+	// lookup is implicitly type-safe — it queries the target type's table —
+	// but the canonical resources table holds every type, so we have to
+	// reject the mismatch explicitly. Otherwise we'd extract the wrong
+	// entity's display property and persist it under the wrong column.
+	if entity.TypeSlug() != ref.TargetTypeSlug {
+		return "", false, nil
 	}
 	if !canonicalLookupVisible(entity, scope) {
 		return "", false, nil
@@ -1214,7 +1250,13 @@ func (r *ResourceRepository) updateDataInProjection(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(data, ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
-	r.populateDisplayColumns(ctx, targetSlug, row)
+	// updateDataInProjection runs partial patches that don't include
+	// account_id/created_by, so we have to load the row owner ourselves to
+	// scope display lookups. Without this, populateDisplayColumns would run
+	// in unscoped (system context) mode and reintroduce the cross-account /
+	// per-agent display leak the scoped lookup logic exists to prevent.
+	scope := r.loadRowOwnerScope(ctx, id)
+	r.populateDisplayColumns(ctx, targetSlug, row, scope)
 	if len(row) == 0 {
 		return nil
 	}
