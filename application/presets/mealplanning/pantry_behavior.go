@@ -25,9 +25,9 @@ import (
 	"weos/domain/repositories"
 )
 
-// enforceSingleDefaultBehavior ensures only one pantry per account has
-// isDefault=true. When a new/updated pantry is marked default, every other
-// default pantry gets its isDefault cleared.
+// enforceSingleDefaultBehavior ensures only one pantry in the acting user's
+// visibility scope has isDefault=true. When a new/updated pantry is marked
+// default, every other visible default pantry gets its isDefault cleared.
 type enforceSingleDefaultBehavior struct {
 	baseBehavior
 }

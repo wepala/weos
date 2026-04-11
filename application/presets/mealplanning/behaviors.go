@@ -81,12 +81,9 @@ func visibilityScope(
 
 // loadFlatRow loads the flat projection row for a resource, including FK
 // values for reference properties (which are stripped from the JSON-LD
-// data stored in Resource.Data()). Returns nil if the resource is not found
-// or has no projection row.
-// loadFlatRow loads the flat projection row for a resource, including FK
-// values for reference properties (which are stripped from the JSON-LD
 // data stored in Resource.Data()). The fallback resource is used to
-// derive a VisibilityScope when auth context is absent.
+// derive a VisibilityScope when auth context is absent. Returns nil if
+// the resource is not found or has no projection row.
 func (b *baseBehavior) loadFlatRow(
 	ctx context.Context, typeSlug, id string,
 	fallback *entities.Resource,
