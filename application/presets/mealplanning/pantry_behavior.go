@@ -89,18 +89,22 @@ func (b *enforceSingleDefaultBehavior) enforce(
 	filters := []repositories.FilterCondition{
 		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
-	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
-		ctx, "pantry", filters, "", 1000, repositories.SortOptions{},
-		visibilityScope(ctx),
-	)
-	if err != nil {
-		addServiceErrorMessage(ctx, b.logger,
-			"pantry behavior: failed to list default pantries",
-			"Failed to list default pantries; single-default invariant not enforced.",
-			"pantry_default_list_error",
-			"error", err)
-		return
-	}
+	scope := visibilityScope(ctx)
+	const pageSize = 100
+	cursor := ""
+	for {
+		resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
+			ctx, "pantry", filters, cursor, pageSize,
+			repositories.SortOptions{}, scope,
+		)
+		if err != nil {
+			addServiceErrorMessage(ctx, b.logger,
+				"pantry behavior: failed to list default pantries",
+				"Failed to list default pantries; single-default invariant not enforced.",
+				"pantry_default_list_error",
+				"error", err)
+			return
+		}
 
 	for _, other := range resp.Data {
 		otherID, _ := other["id"].(string)
@@ -130,6 +134,12 @@ func (b *enforceSingleDefaultBehavior) enforce(
 			b.logger.Error(ctx, "pantry behavior: failed to unset default",
 				"id", otherID, "error", uErr)
 		}
+	}
+
+		if resp.Cursor == "" || len(resp.Data) < pageSize {
+			break
+		}
+		cursor = resp.Cursor
 	}
 }
 

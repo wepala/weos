@@ -303,9 +303,19 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 			deduct = available
 		}
 		newQty := available - deduct
-		remaining -= deduct
 
-		b.updateFoodItemQuantity(ctx, fi, newQty)
+		if err := b.updateFoodItemQuantity(ctx, fi, newQty); err != nil {
+			foodItemID, _ := fi["id"].(string)
+			entities.AddMessage(ctx, entities.Message{
+				Type: "warning",
+				Text: fmt.Sprintf(
+					"Failed to deplete pantry item %q for %q: %v",
+					foodItemID, ingredientID, err),
+				Code: "pantry_depletion_update_failed",
+			})
+			continue
+		}
+		remaining -= deduct
 	}
 
 	if remaining > 0 {
@@ -328,13 +338,14 @@ var foodItemWriteFields = []string{
 }
 
 // updateFoodItemQuantity issues an update with the new quantity, preserving
-// schema-defined fields only (no system columns).
+// schema-defined fields only (no system columns). Returns an error if the
+// update fails so the caller can decide whether to count the deduction.
 func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 	ctx context.Context, fi map[string]any, newQty float64,
-) {
+) error {
 	id, _ := fi["id"].(string)
 	if id == "" {
-		return
+		return fmt.Errorf("food item missing id")
 	}
 	update := map[string]any{"quantity": newQty}
 	for _, field := range foodItemWriteFields {
@@ -347,18 +358,14 @@ func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 	}
 	data, err := json.Marshal(update)
 	if err != nil {
-		if b.logger != nil {
-			b.logger.Error(ctx, "depletion: failed to marshal food item update",
-				"id", id, "error", err)
-		}
-		return
+		return fmt.Errorf("marshal: %w", err)
 	}
 	if _, uErr := b.writer.Update(ctx, application.UpdateResourceCommand{
 		ID: id, Data: data,
-	}); uErr != nil && b.logger != nil {
-		b.logger.Error(ctx, "depletion: failed to update food item",
-			"id", id, "error", uErr)
+	}); uErr != nil {
+		return uErr
 	}
+	return nil
 }
 
 // resolvePantry returns the pantry ID to deplete from. Currently always

@@ -369,7 +369,7 @@ func TestDeplete_ShortfallWhenPartiallyCovered(t *testing.T) {
 	}
 }
 
-func TestDeplete_PantryResolution_FromMealPlan(t *testing.T) {
+func TestDeplete_PantryResolution_DefaultPantry(t *testing.T) {
 	t.Parallel()
 	b, stub := setupDepletionBehavior(t)
 	// Pre-seed a food item in the expected pantry.
