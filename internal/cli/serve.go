@@ -77,6 +77,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 	var resourcePermService application.ResourcePermissionService
+	var fileService application.FileService
 	var authService authapp.AuthenticationService
 	var sessionManager session.SessionManager
 	var credentialRepo authrepos.CredentialRepository
@@ -100,6 +101,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&resourcePermService),
+		fx.Populate(&fileService),
 		fx.Populate(&authService),
 		fx.Populate(&sessionManager),
 		fx.Populate(&credentialRepo),
@@ -303,6 +305,30 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
 	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
 	protected.GET("/admin/impersonation-status", impersonationHandler.Status)
+
+	// File upload routes — registered before dynamic catch-all
+	uploadHandler := handlers.NewUploadHandler(fileService, logger, appCfg.Storage.MaxUploadBytes)
+	protected.POST("/uploads", uploadHandler.Upload)
+
+	// Serve uploaded files with security headers to prevent stored XSS.
+	// Content-Disposition: attachment forces download instead of inline render;
+	// X-Content-Type-Options: nosniff prevents browser MIME-type guessing.
+	// Directory listings are blocked to avoid leaking filenames/IDs.
+	uploadFS := http.Dir(appCfg.Storage.LocalPath)
+	protected.GET("/uploads/files/*", echo.WrapHandler(
+		http.StripPrefix("/api/uploads/files/", http.FileServer(uploadFS)),
+	), func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			reqPath := c.Param("*")
+			if reqPath == "" || reqPath == "/" || strings.HasSuffix(reqPath, "/") {
+				return echo.ErrNotFound
+			}
+			c.Response().Header().Set("Content-Disposition", "attachment")
+			c.Response().Header().Set("X-Content-Type-Options", "nosniff")
+			c.Response().Header().Set("Content-Security-Policy", "default-src 'none'")
+			return next(c)
+		}
+	})
 
 	// MCP routes — registered before dynamic catch-all
 	if serveViper.GetBool("enabled") {
