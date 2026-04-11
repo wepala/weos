@@ -349,13 +349,20 @@ func buildLookupScope(accountID, createdBy string) *repositories.VisibilityScope
 // otherwise the lookup would run unscoped and reintroduce the data leak.
 //
 // Lightweight by design: SELECTs only the two ownership columns from the
-// resources table. Returns nil if the row doesn't exist or the query errors
-// — populateDisplayColumns then runs in fail-open (system) mode, which is
-// the safest degradation for a missing-row condition (the partial update
-// itself will hit the same missing row and 0-row update without error).
+// resources table.
+//
+// Error semantics (fail closed):
+//   - Row missing (gorm.ErrRecordNotFound) → returns (nil, nil). The partial
+//     update is going to UPDATE 0 rows anyway, so display population is moot
+//     and the caller can proceed harmlessly with a nil scope.
+//   - Any other error (driver, schema, context cancellation) → returns
+//     (nil, err). The caller MUST propagate the error and abort the write.
+//     Falling open here would let a transient DB error silently turn the
+//     scoped lookup into an unscoped one and reintroduce the cross-agent
+//     display leak we just fixed.
 func (r *ResourceRepository) loadRowOwnerScope(
 	ctx context.Context, id string,
-) *repositories.VisibilityScope {
+) (*repositories.VisibilityScope, error) {
 	var owner struct {
 		AccountID string
 		CreatedBy string
@@ -366,9 +373,12 @@ func (r *ResourceRepository) loadRowOwnerScope(
 		Where("id = ?", id).
 		Take(&owner).Error
 	if err != nil {
-		return nil
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load row owner scope for %s: %w", id, err)
 	}
-	return buildLookupScope(owner.AccountID, owner.CreatedBy)
+	return buildLookupScope(owner.AccountID, owner.CreatedBy), nil
 }
 
 // lookupDisplayValue resolves a single forward-reference display value.
@@ -1255,7 +1265,15 @@ func (r *ResourceRepository) updateDataInProjection(
 	// scope display lookups. Without this, populateDisplayColumns would run
 	// in unscoped (system context) mode and reintroduce the cross-account /
 	// per-agent display leak the scoped lookup logic exists to prevent.
-	scope := r.loadRowOwnerScope(ctx, id)
+	//
+	// Fail closed: a real DB error from loadRowOwnerScope aborts the write
+	// rather than silently degrading to an unscoped lookup. A row-missing
+	// result (scope == nil, err == nil) is fine — the UPDATE below will
+	// affect 0 rows anyway.
+	scope, err := r.loadRowOwnerScope(ctx, id)
+	if err != nil {
+		return err
+	}
 	r.populateDisplayColumns(ctx, targetSlug, row, scope)
 	if len(row) == 0 {
 		return nil

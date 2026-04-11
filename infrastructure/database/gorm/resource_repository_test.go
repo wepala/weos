@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1243,5 +1244,75 @@ func TestUpdateData_LoadsScopeFromCanonicalRow_AllowsCreatorMatch(t *testing.T) 
 	if fmt.Sprint(row["course_id_display"]) != "Alice Public" {
 		t.Errorf("course_id_display = %v, want 'Alice Public' (same-owner UpdateData should populate)",
 			row["course_id_display"])
+	}
+}
+
+// TestLoadRowOwnerScope_RowFound_BuildsScope is the happy-path baseline:
+// loading the scope for a row that exists in the canonical resources table
+// returns a non-nil scope populated with that row's account_id and created_by.
+func TestLoadRowOwnerScope_RowFound_BuildsScope(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	entity := makeTestResourceForAgent(t, "urn:course:scoped", "course",
+		`{"name":"Scoped"}`, "user-alice", "acct-A")
+	if err := repo.Save(ctx, entity); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	scope, err := repo.loadRowOwnerScope(ctx, "urn:course:scoped")
+	if err != nil {
+		t.Fatalf("loadRowOwnerScope: %v", err)
+	}
+	if scope == nil {
+		t.Fatal("expected non-nil scope for an existing row")
+	}
+	if scope.AgentID != "user-alice" || scope.AccountID != "acct-A" {
+		t.Errorf("scope = %+v, want AgentID=user-alice AccountID=acct-A", scope)
+	}
+}
+
+// TestLoadRowOwnerScope_RowMissing_ReturnsNilNil verifies that a missing
+// row returns (nil, nil). The caller (updateDataInProjection) treats this as
+// a "no scope to enforce" condition; the partial update will affect 0 rows
+// anyway so this is a safe degraded-but-not-leaky outcome.
+func TestLoadRowOwnerScope_RowMissing_ReturnsNilNil(t *testing.T) {
+	t.Parallel()
+	repo, _ := setupReferenceProjectionTest(t)
+
+	scope, err := repo.loadRowOwnerScope(context.Background(), "urn:course:does-not-exist")
+	if err != nil {
+		t.Fatalf("expected nil error for missing row, got %v", err)
+	}
+	if scope != nil {
+		t.Errorf("expected nil scope for missing row, got %+v", scope)
+	}
+}
+
+// TestLoadRowOwnerScope_DBError_FailsClosed is the load-bearing security
+// regression for the fail-closed semantics. A real DB error (here, a dropped
+// resources table) MUST surface as a non-nil error so the caller aborts the
+// write. Without this guarantee a transient driver failure would silently
+// turn the scoped display lookup back into an unscoped one and reintroduce
+// the cross-agent leak the visibility-scope plumbing was added to fix.
+func TestLoadRowOwnerScope_DBError_FailsClosed(t *testing.T) {
+	t.Parallel()
+	repo, _ := setupReferenceProjectionTest(t)
+
+	// Drop the canonical resources table — the next SELECT against it will
+	// return a "no such table" error, distinct from gorm.ErrRecordNotFound.
+	if err := repo.db.Migrator().DropTable("resources"); err != nil {
+		t.Fatalf("drop resources: %v", err)
+	}
+
+	scope, err := repo.loadRowOwnerScope(context.Background(), "urn:course:any")
+	if err == nil {
+		t.Fatal("expected error after dropping resources table, got nil (would silently fail open!)")
+	}
+	if scope != nil {
+		t.Errorf("expected nil scope on error, got %+v", scope)
+	}
+	if !strings.Contains(err.Error(), "load row owner scope") {
+		t.Errorf("error = %v, want wrap from load row owner scope", err)
 	}
 }
