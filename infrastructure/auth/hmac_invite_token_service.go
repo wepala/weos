@@ -107,7 +107,10 @@ func (s *HMACInviteTokenService) ValidateInviteToken(
 
 	claims := &application.InviteClaims{}
 	token, err := gojwt.ParseWithClaims(tokenString, claims, func(token *gojwt.Token) (any, error) {
-		if _, ok := token.Method.(*gojwt.SigningMethodHMAC); !ok {
+		// Enforce HS256 specifically — accepting any HMAC variant would
+		// allow a caller-chosen hash strength that doesn't match the
+		// documented algorithm.
+		if token.Method != gojwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return s.secret, nil
@@ -122,6 +125,22 @@ func (s *HMACInviteTokenService) ValidateInviteToken(
 		return nil, application.ErrTokenInvalid
 	}
 
+	// Semantic claim validation — defence in depth beyond JWT's built-in
+	// signature/expiry checks. A token signed with the correct secret but
+	// missing required fields is still invalid for our use case.
+	if claims.Issuer != s.issuer {
+		return nil, fmt.Errorf("%w: unexpected issuer %q", application.ErrTokenInvalid, claims.Issuer)
+	}
+	if claims.ExpiresAt == nil {
+		return nil, fmt.Errorf("%w: missing expiry", application.ErrTokenInvalid)
+	}
+	if claims.InviteID == "" {
+		return nil, fmt.Errorf("%w: missing invite_id", application.ErrTokenInvalid)
+	}
+	if claims.Subject != claims.InviteID {
+		return nil, fmt.Errorf("%w: subject does not match invite_id", application.ErrTokenInvalid)
+	}
+
 	return claims, nil
 }
 
@@ -130,3 +149,8 @@ func (s *HMACInviteTokenService) ValidateInviteToken(
 func ProvideInviteTokenService(cfg config.Config) (application.InviteTokenService, error) {
 	return NewHMACInviteTokenService(cfg.SessionSecret)
 }
+
+// Compile-time assertion that HMACInviteTokenService satisfies the pericarp
+// InviteTokenService interface. Lives in the implementation file so normal
+// `go build` catches interface drift.
+var _ application.InviteTokenService = (*HMACInviteTokenService)(nil)

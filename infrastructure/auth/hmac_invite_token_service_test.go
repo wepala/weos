@@ -156,6 +156,107 @@ func TestValidateInviteToken_WrongAlgorithm(t *testing.T) {
 	}
 }
 
+// signedClaims is a test helper that HS256-signs the given claims with the
+// given secret, bypassing the service's own IssueInviteToken to produce
+// intentionally malformed tokens for validation tests.
+func signedClaims(t *testing.T, secret string, claims application.InviteClaims) string {
+	t.Helper()
+	token := gojwt.NewWithClaims(gojwt.SigningMethodHS256, claims)
+	s, err := token.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	return s
+}
+
+func TestValidateInviteToken_HS384_Rejected(t *testing.T) {
+	svc, _ := NewHMACInviteTokenService("shhh")
+
+	// HS384 is a valid HMAC variant but should be rejected — we only
+	// accept HS256 to match the documented algorithm.
+	claims := application.InviteClaims{
+		RegisteredClaims: gojwt.RegisteredClaims{
+			Issuer:    "weos",
+			Subject:   "invite-1",
+			ExpiresAt: gojwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+		InviteID: "invite-1",
+	}
+	token := gojwt.NewWithClaims(gojwt.SigningMethodHS384, claims)
+	signed, err := token.SignedString(svc.secret)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	_, err = svc.ValidateInviteToken(context.Background(), signed)
+	if !errors.Is(err, application.ErrTokenInvalid) {
+		t.Fatalf("expected ErrTokenInvalid for HS384, got %v", err)
+	}
+}
+
+func TestValidateInviteToken_WrongIssuer(t *testing.T) {
+	svc, _ := NewHMACInviteTokenService("shhh")
+	signed := signedClaims(t, "shhh", application.InviteClaims{
+		RegisteredClaims: gojwt.RegisteredClaims{
+			Issuer:    "not-weos",
+			Subject:   "invite-1",
+			ExpiresAt: gojwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+		InviteID: "invite-1",
+	})
+	_, err := svc.ValidateInviteToken(context.Background(), signed)
+	if !errors.Is(err, application.ErrTokenInvalid) {
+		t.Fatalf("expected ErrTokenInvalid, got %v", err)
+	}
+}
+
+func TestValidateInviteToken_MissingExpiry(t *testing.T) {
+	svc, _ := NewHMACInviteTokenService("shhh")
+	signed := signedClaims(t, "shhh", application.InviteClaims{
+		RegisteredClaims: gojwt.RegisteredClaims{
+			Issuer:  "weos",
+			Subject: "invite-1",
+		},
+		InviteID: "invite-1",
+	})
+	_, err := svc.ValidateInviteToken(context.Background(), signed)
+	if !errors.Is(err, application.ErrTokenInvalid) {
+		t.Fatalf("expected ErrTokenInvalid, got %v", err)
+	}
+}
+
+func TestValidateInviteToken_MissingInviteID(t *testing.T) {
+	svc, _ := NewHMACInviteTokenService("shhh")
+	signed := signedClaims(t, "shhh", application.InviteClaims{
+		RegisteredClaims: gojwt.RegisteredClaims{
+			Issuer:    "weos",
+			Subject:   "invite-1",
+			ExpiresAt: gojwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+		// InviteID intentionally empty
+	})
+	_, err := svc.ValidateInviteToken(context.Background(), signed)
+	if !errors.Is(err, application.ErrTokenInvalid) {
+		t.Fatalf("expected ErrTokenInvalid, got %v", err)
+	}
+}
+
+func TestValidateInviteToken_SubjectMismatch(t *testing.T) {
+	svc, _ := NewHMACInviteTokenService("shhh")
+	signed := signedClaims(t, "shhh", application.InviteClaims{
+		RegisteredClaims: gojwt.RegisteredClaims{
+			Issuer:    "weos",
+			Subject:   "different-id",
+			ExpiresAt: gojwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+		InviteID: "invite-1",
+	})
+	_, err := svc.ValidateInviteToken(context.Background(), signed)
+	if !errors.Is(err, application.ErrTokenInvalid) {
+		t.Fatalf("expected ErrTokenInvalid, got %v", err)
+	}
+}
+
 func TestValidateInviteToken_Malformed(t *testing.T) {
 	svc, _ := NewHMACInviteTokenService("shhh")
 	_, err := svc.ValidateInviteToken(context.Background(), "not.a.jwt")
@@ -202,7 +303,3 @@ func TestProvideInviteTokenService_NoSecret(t *testing.T) {
 		t.Fatalf("expected ErrNoSigningKey, got %v", err)
 	}
 }
-
-// Compile-time assertion that HMACInviteTokenService satisfies the pericarp
-// InviteTokenService interface.
-var _ application.InviteTokenService = (*HMACInviteTokenService)(nil)
