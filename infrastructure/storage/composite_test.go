@@ -51,7 +51,7 @@ func (m *capturingFileService) Upload(
 	return &services.UploadResult{ID: id, URL: url}, nil
 }
 
-func TestComposite_PrimaryResultReturned(t *testing.T) {
+func TestComposite_PrefersSecondaryURL(t *testing.T) {
 	primary := &capturingFileService{url: "https://cloud/obj"}
 	secondary := &capturingFileService{url: "/api/uploads/files/local"}
 
@@ -61,13 +61,13 @@ func TestComposite_PrimaryResultReturned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upload() error: %v", err)
 	}
-	// Composite should prefer the secondary (local) URL.
+	// Composite should prefer the secondary (local) URL since it's app-hosted.
 	if result.URL != "/api/uploads/files/local" {
 		t.Errorf("URL = %q, want %q", result.URL, "/api/uploads/files/local")
 	}
 }
 
-func TestComposite_SharedIDacrossBackends(t *testing.T) {
+func TestComposite_SharedIDAcrossBackends(t *testing.T) {
 	primary := &capturingFileService{}
 	secondary := &capturingFileService{}
 
