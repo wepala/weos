@@ -149,7 +149,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	protected.GET("/:typeSlug/:id/permissions", permHandler.List)
 	protected.DELETE("/:typeSlug/:id/permissions/:agentId", permHandler.Revoke)
 
-	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)
+	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService, logger)
 	protected.POST("/:typeSlug", resourceHandler.Create)
 	protected.GET("/:typeSlug", resourceHandler.List)
 	protected.GET("/:typeSlug/:id", resourceHandler.Get)

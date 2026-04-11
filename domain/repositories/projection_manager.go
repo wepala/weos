@@ -54,6 +54,12 @@ type ProjectionManager interface {
 	// Each entry describes a FK column and its corresponding display column.
 	ReverseReferences(targetTypeSlug string) []ReverseReference
 
+	// ForwardReferences returns the list of outgoing references on a resource type — i.e. for every
+	// x-resource-type property on its schema, the FK column name, the sibling display column,
+	// the target type slug, and the display property to read from the target.
+	// Used during projection writes to look up display values for newly inserted rows.
+	ForwardReferences(typeSlug string) []ForwardReference
+
 	// HasColumn reports whether a projection table has a specific column.
 	// Uses the column set cached during EnsureTable for fast lookup without DB queries.
 	HasColumn(slug, column string) bool
@@ -66,9 +72,25 @@ type ProjectionManager interface {
 }
 
 // ReverseReference describes a resource type that references another via a FK column.
+// It is the inbound view of a schema reference: "who points at me and through
+// which column?". Populated alongside ForwardReference from x-resource-type
+// schema properties. Use ReferencingTypeSlug (not the removed TypeSlug field)
+// to identify the type holding the FK.
 type ReverseReference struct {
-	TypeSlug        string // the resource type that holds the FK
-	FKColumn        string // e.g. "course_id"
-	DisplayColumn   string // e.g. "course_id_display"
-	DisplayProperty string // e.g. "name" — which property on the target to denormalize
+	ReferencingTypeSlug string // the resource type that holds the FK
+	FKColumn            string // e.g. "course_id"
+	DisplayColumn       string // e.g. "course_id_display"
+	DisplayProperty     string // e.g. "name" — which property on the target to denormalize
+}
+
+// ForwardReference describes an outgoing reference from a resource type to another.
+// It is the symmetric counterpart of ReverseReference keyed on the referencing
+// type. Use TargetTypeSlug to identify the referenced type. Populated alongside
+// ReverseReference from x-resource-type schema properties and used to populate
+// display columns on newly inserted/updated projection rows.
+type ForwardReference struct {
+	FKColumn        string // e.g. "course_id" on the referencing table
+	DisplayColumn   string // e.g. "course_id_display" on the referencing table
+	TargetTypeSlug  string // e.g. "course" — the type being referenced
+	DisplayProperty string // e.g. "name" — property to read from the referenced row
 }

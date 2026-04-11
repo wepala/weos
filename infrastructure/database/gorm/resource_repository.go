@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -81,6 +82,7 @@ func normalizeSortOptions(sort repositories.SortOptions) (string, string) {
 type ResourceRepository struct {
 	db      *gorm.DB
 	projMgr repositories.ProjectionManager
+	logger  entities.Logger
 }
 
 type ResourceRepositoryResult struct {
@@ -92,11 +94,13 @@ func ProvideResourceRepository(params struct {
 	fx.In
 	DB            *gorm.DB
 	ProjectionMgr repositories.ProjectionManager
+	Logger        entities.Logger
 }) (ResourceRepositoryResult, error) {
 	return ResourceRepositoryResult{
 		Repository: &ResourceRepository{
 			db:      params.DB,
 			projMgr: params.ProjectionMgr,
+			logger:  params.Logger,
 		},
 	}, nil
 }
@@ -150,6 +154,7 @@ func (r *ResourceRepository) saveToProjection(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
+	r.populateDisplayColumns(ctx, targetSlug, row)
 	if err := r.db.WithContext(ctx).Table(tableName).Create(row).Error; err != nil {
 		return fmt.Errorf("failed to save resource to projection %s: %w", tableName, err)
 	}
@@ -175,6 +180,7 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
+	r.populateDisplayColumns(ctx, targetSlug, row)
 
 	// Build column list for ON CONFLICT UPDATE, excluding immutable fields.
 	immutable := map[string]bool{"id": true, "created_at": true, "created_by": true, "account_id": true}
@@ -209,6 +215,185 @@ func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[strin
 	}
 }
 
+// populateDisplayColumns looks up display values for every outgoing reference
+// on the target type and injects them into the row before INSERT/UPDATE. Called
+// from all three projection write paths (saveToProjection, updateProjectionBySlug,
+// updateDataInProjection) so that reference columns like `course_id_display` are
+// populated at write time instead of relying on async propagation alone.
+//
+// For each ForwardReference registered for targetSlug the helper skips when:
+//   - the destination display column doesn't exist on this projection table
+//     (dual-projection ancestors may lack the column);
+//   - the row doesn't carry the FK key at all (partial UpdateData patch);
+//   - the caller has already supplied a non-empty display value.
+//
+// When the FK is explicitly nil or empty string, the display column is cleared
+// to nil so UPDATE statements atomically null both sides of the reference
+// (otherwise a stale display value from a prior write would survive an FK
+// clear — rendering as a ghost name in the UI).
+//
+// **Error policy.** Display columns are denormalized read optimizations, not
+// correctness invariants — a NULL display is a valid state (the frontend
+// falls back to rendering the raw FK). To honor Save's eventually-consistent
+// projection contract (see Save's doc), this helper *logs and tolerates*
+// errors from the underlying lookup rather than aborting the write: a
+// transient DB hiccup on a reference lookup must not strand the canonical
+// resources row by failing the projection insert. The display will be
+// re-populated on the next write or via the triple-handler propagation path
+// when the parent resource changes. The helper itself never returns an error.
+func (r *ResourceRepository) populateDisplayColumns(
+	ctx context.Context, targetSlug string, row map[string]any,
+) {
+	forwardRefs := r.projMgr.ForwardReferences(targetSlug)
+	if len(forwardRefs) == 0 {
+		return
+	}
+	for _, ref := range forwardRefs {
+		// Dual-projection ancestor may not have a display column for every
+		// forward ref declared on the concrete type; skip silently.
+		if !r.projMgr.HasColumn(targetSlug, ref.DisplayColumn) {
+			continue
+		}
+		rawFK, hasFK := row[ref.FKColumn]
+		if !hasFK {
+			continue
+		}
+		// Explicit FK clear — null the sibling display column atomically so a
+		// stale value from an earlier write doesn't survive.
+		if rawFK == nil {
+			row[ref.DisplayColumn] = nil
+			continue
+		}
+		fkVal, ok := rawFK.(string)
+		if !ok {
+			// Schema drift or upstream bug: FK column should always be string.
+			// Log so the situation is visible without failing the write.
+			r.logger.Warn(ctx, "display lookup: non-string FK value, skipping",
+				"targetSlug", targetSlug, "fkColumn", ref.FKColumn,
+				"valueType", fmt.Sprintf("%T", rawFK))
+			continue
+		}
+		if fkVal == "" {
+			row[ref.DisplayColumn] = nil
+			continue
+		}
+		// Respect a display value already present on the row (e.g. a behavior
+		// that provided it explicitly).
+		if existing, ok := row[ref.DisplayColumn].(string); ok && existing != "" {
+			continue
+		}
+
+		display, found, err := r.lookupDisplayValue(ctx, ref, fkVal)
+		if err != nil {
+			// Log loudly but do not abort the write — leave the display NULL
+			// and let the UI fall back to the raw FK. A subsequent write or
+			// triple-propagation event will re-populate it.
+			r.logger.Error(ctx, "display lookup failed; persisting row with NULL display",
+				"targetSlug", targetSlug, "fkColumn", ref.FKColumn,
+				"targetType", ref.TargetTypeSlug, "fkValue", fkVal, "error", err)
+			continue
+		}
+		if found {
+			row[ref.DisplayColumn] = display
+		}
+	}
+}
+
+// lookupDisplayValue resolves a single forward-reference display value.
+//
+// Returns (value, true, nil) on success. Returns ("", false, nil) for a
+// legitimate not-found (neither the projection table nor the canonical
+// resources table has the referenced row). Returns ("", false, err) for real
+// infrastructure or decode failures — those must never be silently dropped.
+//
+// Resolution order:
+//  1. Projection table of the target type (single indexed lookup).
+//  2. Canonical resources table via FindByID + JSON-LD @graph extraction.
+//     Covers event-replay ordering and any case where the referenced projection
+//     row hasn't been written yet.
+//
+// The JSON-LD extraction is duplicated from application.ExtractEntityNode
+// because importing application from this package would create a cycle.
+// TODO: hoist ExtractEntityNode into a shared pkg to remove the duplication.
+func (r *ResourceRepository) lookupDisplayValue(
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+) (string, bool, error) {
+	if v, found, err := r.lookupDisplayFromProjection(ctx, ref, fkVal); err != nil || found {
+		return v, found, err
+	}
+	return r.lookupDisplayFromCanonical(ctx, ref, fkVal)
+}
+
+// lookupDisplayFromProjection reads the display property from the referenced
+// type's projection table. Returns (_, false, nil) when the row is simply
+// missing so the caller can fall back to the canonical path; all other errors
+// are propagated.
+//
+// Note on Scan semantics: GORM v2's .Scan() does NOT return ErrRecordNotFound
+// for zero-row results (only First/Take/Last do). A missing row appears here
+// as (err==nil, value==nil), handled by the default case. Genuine driver
+// errors arrive via the err != nil branch and are propagated.
+func (r *ResourceRepository) lookupDisplayFromProjection(
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+) (string, bool, error) {
+	if !r.projMgr.HasProjectionTable(ref.TargetTypeSlug) {
+		return "", false, nil
+	}
+	displayCol := utils.CamelToSnake(ref.DisplayProperty)
+	if !r.projMgr.HasColumn(ref.TargetTypeSlug, displayCol) {
+		return "", false, nil
+	}
+	tableName := r.projMgr.TableName(ref.TargetTypeSlug)
+	var value *string
+	err := r.db.WithContext(ctx).Table(tableName).
+		Select(displayCol).
+		Where("id = ?", fkVal).
+		Scan(&value).Error
+	if err != nil {
+		return "", false, fmt.Errorf("projection lookup %s.%s: %w", tableName, displayCol, err)
+	}
+	if value != nil && *value != "" {
+		return *value, true, nil
+	}
+	return "", false, nil
+}
+
+// lookupDisplayFromCanonical loads the referenced entity's canonical JSON-LD
+// and extracts the display property. A missing row is a legitimate miss
+// (returns false, nil); unmarshal failures indicate corrupt data and are
+// propagated so the caller can surface them.
+//
+// FindByID's contract: returns (entity, nil) on success or (nil, err) on
+// any failure. It never returns (nil, nil), so a non-error return guarantees
+// entity is non-nil.
+func (r *ResourceRepository) lookupDisplayFromCanonical(
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+) (string, bool, error) {
+	entity, err := r.FindByID(ctx, fkVal)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("canonical lookup for %s: %w", fkVal, err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(entity.Data(), &doc); err != nil {
+		return "", false, fmt.Errorf("parse JSON-LD for %s: %w", fkVal, err)
+	}
+	node := doc
+	if graphArr, ok := doc["@graph"].([]any); ok && len(graphArr) > 0 {
+		if first, ok := graphArr[0].(map[string]any); ok {
+			node = first
+		}
+	}
+	if v, ok := node[ref.DisplayProperty]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func (r *ResourceRepository) FindByID(
 	ctx context.Context, id string,
 ) (*entities.Resource, error) {
@@ -217,6 +402,9 @@ func (r *ResourceRepository) FindByID(
 	err := r.db.WithContext(ctx).
 		Where("id = ? ", id).First(&model).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("resource %q: %w", id, repositories.ErrNotFound)
+		}
 		return nil, fmt.Errorf("failed to find resource: %w", err)
 	}
 	return model.ToResource()
@@ -675,7 +863,8 @@ func (r *ResourceRepository) FindAllByTypeFlat(
 	sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	if !r.projMgr.HasProjectionTable(typeSlug) {
-		return repositories.PaginatedResponse[map[string]any]{}, fmt.Errorf("no projection table for %q", typeSlug)
+		return repositories.PaginatedResponse[map[string]any]{},
+			fmt.Errorf("%w: %q", repositories.ErrNoProjectionTable, typeSlug)
 	}
 	return r.findAllFlatFromProjection(ctx, typeSlug, nil, cursor, limit, sort, scope)
 }
@@ -685,9 +874,42 @@ func (r *ResourceRepository) FindAllByTypeFlatWithFilters(
 	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	if !r.projMgr.HasProjectionTable(typeSlug) {
-		return repositories.PaginatedResponse[map[string]any]{}, fmt.Errorf("no projection table for %q", typeSlug)
+		return repositories.PaginatedResponse[map[string]any]{},
+			fmt.Errorf("%w: %q", repositories.ErrNoProjectionTable, typeSlug)
 	}
 	return r.findAllFlatFromProjection(ctx, typeSlug, filters, cursor, limit, sort, scope)
+}
+
+// FindFlatByID returns a single flat projection row by ID with snake_case→camelCase
+// key conversion (matching FindAllByTypeFlat's output shape).
+//
+// Error contract (detectable via errors.Is):
+//   - repositories.ErrNoProjectionTable — type has no dedicated projection table;
+//     caller should fall back to FindByID.
+//   - repositories.ErrNotFound — projection table exists but the row is missing.
+//
+// All other errors indicate a real database failure and should surface to the
+// caller so the handler can return 500 rather than silently falling through.
+func (r *ResourceRepository) FindFlatByID(
+	ctx context.Context, typeSlug, id string,
+) (map[string]any, error) {
+	if !r.projMgr.HasProjectionTable(typeSlug) {
+		return nil, fmt.Errorf("%w: %q", repositories.ErrNoProjectionTable, typeSlug)
+	}
+	tableName := r.projMgr.TableName(typeSlug)
+	var row map[string]any
+	if err := r.db.WithContext(ctx).Table(tableName).
+		Where("id = ?", id).Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("flat resource %s in %s: %w", id, tableName, repositories.ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to load flat resource %s from %s: %w", id, tableName, err)
+	}
+	camelRow := make(map[string]any, len(row))
+	for k, v := range row {
+		camelRow[utils.SnakeToCamel(k)] = v
+	}
+	return camelRow, nil
 }
 
 // findAllFlatFromProjection queries the projection table directly and returns flat rows
@@ -881,6 +1103,7 @@ func (r *ResourceRepository) updateDataInProjection(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(data, ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
+	r.populateDisplayColumns(ctx, targetSlug, row)
 	if len(row) == 0 {
 		return nil
 	}

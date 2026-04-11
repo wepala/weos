@@ -127,6 +127,9 @@ func (f *fakeResourceSvc) ListFlat(
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	return repositories.PaginatedResponse[map[string]any]{}, nil
 }
+func (f *fakeResourceSvc) GetFlat(context.Context, string, string) (map[string]any, error) {
+	return nil, nil
+}
 func (f *fakeResourceSvc) ListByField(
 	context.Context, string, string, string,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {

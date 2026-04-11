@@ -34,15 +34,18 @@ import (
 type ResourceHandler struct {
 	resourceService     application.ResourceService
 	resourceTypeService application.ResourceTypeService
+	logger              entities.Logger
 }
 
 func NewResourceHandler(
 	rs application.ResourceService,
 	rts application.ResourceTypeService,
+	logger entities.Logger,
 ) *ResourceHandler {
 	return &ResourceHandler{
 		resourceService:     rs,
 		resourceTypeService: rts,
+		logger:              logger,
 	}
 }
 
@@ -85,12 +88,45 @@ func (h *ResourceHandler) Get(c echo.Context) error {
 		return respondError(c, http.StatusNotFound, "resource type not found")
 	}
 
-	entity, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
-	if err != nil {
-		if errors.Is(err, entities.ErrAccessDenied) {
+	// Prefer the flat projection path for non-JSON-LD requests so the response
+	// includes denormalized `<field>Display` columns for x-resource-type refs.
+	// JSON-LD clients still get the canonical entity via respondWithResourceData.
+	ctx := c.Request().Context()
+	id := c.Param("id")
+	if !wantsJSONLD(c) {
+		row, flatErr := h.resourceService.GetFlat(ctx, typeSlug, id)
+		switch {
+		case flatErr == nil && row != nil:
+			return respond(c, http.StatusOK, row)
+		case errors.Is(flatErr, entities.ErrAccessDenied):
 			return respondForbidden(c)
+		case errors.Is(flatErr, repositories.ErrNoProjectionTable),
+			errors.Is(flatErr, repositories.ErrNotFound):
+			// Legitimate fall-through: no projection table or row missing.
+			// The canonical-entity path below may still find it (dual-read
+			// during migrations, pre-projection data).
+		default:
+			if flatErr != nil {
+				h.logger.Error(ctx, "flat resource lookup failed",
+					"typeSlug", typeSlug, "id", id, "error", flatErr)
+				return respondError(c, http.StatusInternalServerError,
+					"failed to load resource")
+			}
 		}
-		return respondError(c, http.StatusNotFound, "resource not found")
+	}
+
+	entity, err := h.resourceService.GetByID(ctx, id)
+	if err != nil {
+		switch {
+		case errors.Is(err, entities.ErrAccessDenied):
+			return respondForbidden(c)
+		case errors.Is(err, repositories.ErrNotFound):
+			return respondError(c, http.StatusNotFound, "resource not found")
+		default:
+			h.logger.Error(ctx, "canonical resource lookup failed",
+				"typeSlug", typeSlug, "id", id, "error", err)
+			return respondError(c, http.StatusInternalServerError, "failed to load resource")
+		}
 	}
 	return respondWithResourceData(c, http.StatusOK, entity, rt.Context())
 }

@@ -45,6 +45,10 @@ func (s *stubProjMgr) ReverseReferences(slug string) []repositories.ReverseRefer
 	return s.reverseRefs[slug]
 }
 
+func (s *stubProjMgr) ForwardReferences(_ string) []repositories.ForwardReference {
+	return nil
+}
+
 func (s *stubProjMgr) AncestorSlugs(slug string) []string {
 	return s.ancestorMap[slug]
 }

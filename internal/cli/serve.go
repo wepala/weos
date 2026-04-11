@@ -362,7 +362,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.DELETE("/:typeSlug/:id/permissions/:agentId", permHandler.Revoke)
 
 	// Dynamic resource routes — MUST be registered after ALL static routes
-	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService)
+	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService, logger)
 	protected.POST("/:typeSlug", resourceHandler.Create)
 	protected.GET("/:typeSlug", resourceHandler.List)
 	protected.GET("/:typeSlug/:id", resourceHandler.Get)

@@ -80,10 +80,10 @@ func propagateDisplayValues(
 		}
 		displayStr := fmt.Sprint(val)
 		if err := projMgr.UpdateColumnByFK(
-			ctx, ref.TypeSlug, ref.FKColumn, resourceID, ref.DisplayColumn, displayStr,
+			ctx, ref.ReferencingTypeSlug, ref.FKColumn, resourceID, ref.DisplayColumn, displayStr,
 		); err != nil {
 			logger.Error(ctx, "failed to propagate display value",
-				"targetType", ref.TypeSlug, "column", ref.DisplayColumn, "error", err)
+				"referencingType", ref.ReferencingTypeSlug, "column", ref.DisplayColumn, "error", err)
 		}
 	}
 	return nil

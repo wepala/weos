@@ -71,7 +71,8 @@ type projectionManager struct {
 	logger      entities.Logger
 	tables      sync.Map   // slug → tableInfo
 	reverseRe   sync.Map   // targetTypeSlug → []repositories.ReverseReference
-	reverseReMu sync.Mutex // guards reverseRe writes
+	forwardRe   sync.Map   // referencingTypeSlug → []repositories.ForwardReference
+	reverseReMu sync.Mutex // guards reverseRe AND forwardRe writes (symmetric)
 	parentOf    sync.Map   // slug → parentSlug (from rdfs:subClassOf, for ancestor chain)
 }
 
@@ -237,6 +238,17 @@ func (pm *projectionManager) ReverseReferences(targetTypeSlug string) []reposito
 	return nil
 }
 
+func (pm *projectionManager) ForwardReferences(typeSlug string) []repositories.ForwardReference {
+	if v, ok := pm.forwardRe.Load(typeSlug); ok {
+		if refs, ok := v.([]repositories.ForwardReference); ok {
+			cp := make([]repositories.ForwardReference, len(refs))
+			copy(cp, refs)
+			return cp
+		}
+	}
+	return nil
+}
+
 // AncestorSlugs returns the ordered chain of ancestor type slugs by walking
 // rdfs:subClassOf relationships cached during EnsureTable.
 func (pm *projectionManager) AncestorSlugs(slug string) []string {
@@ -261,7 +273,9 @@ func (pm *projectionManager) AncestorSlugs(slug string) []string {
 
 // registerReverseReferences parses a schema for x-resource-type properties and
 // registers reverse-reference entries so that display value propagation can find
-// which projection tables need updating when a target resource changes.
+// which projection tables need updating when a target resource changes, and the
+// symmetric forward-reference entries used to populate display columns on the
+// referencing type's own projection row at write time.
 func (pm *projectionManager) registerReverseReferences(slug string, schema json.RawMessage) {
 	if len(schema) == 0 {
 		return
@@ -285,36 +299,77 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 			displayProp = "name"
 		}
 		colName := utils.CamelToSnake(propName)
-		ref := repositories.ReverseReference{
-			TypeSlug:        slug,
+		reverseRef := repositories.ReverseReference{
+			ReferencingTypeSlug: slug,
+			FKColumn:            colName,
+			DisplayColumn:       colName + "_display",
+			DisplayProperty:     displayProp,
+		}
+		forwardRef := repositories.ForwardReference{
 			FKColumn:        colName,
 			DisplayColumn:   colName + "_display",
+			TargetTypeSlug:  prop.XResourceType,
 			DisplayProperty: displayProp,
 		}
 
 		// Append using copy-on-write under lock to prevent TOCTOU races and
-		// avoid data races with concurrent readers of ReverseReferences().
+		// avoid data races with concurrent readers. A single lock guards both
+		// maps so reverse/forward entries stay consistent with each other.
 		pm.reverseReMu.Lock()
-		existing, _ := pm.reverseRe.Load(prop.XResourceType)
-		var old []repositories.ReverseReference
-		if existing != nil {
-			old = existing.([]repositories.ReverseReference)
-		}
-		found := false
-		for _, r := range old {
-			if r.TypeSlug == ref.TypeSlug && r.FKColumn == ref.FKColumn {
-				found = true
-				break
-			}
-		}
-		if !found {
-			updated := make([]repositories.ReverseReference, len(old)+1)
-			copy(updated, old)
-			updated[len(old)] = ref
-			pm.reverseRe.Store(prop.XResourceType, updated)
-		}
+		pm.appendReverseRefLocked(prop.XResourceType, reverseRef)
+		pm.appendForwardRefLocked(slug, forwardRef)
 		pm.reverseReMu.Unlock()
 	}
+}
+
+// appendReverseRefLocked appends a ReverseReference to the targetSlug bucket,
+// replacing any existing entry keyed on (ReferencingTypeSlug, FKColumn). This
+// lets a schema edit (e.g. a new x-display-property) take effect on the next
+// EnsureTable instead of being silently dropped as a "duplicate". Caller must
+// hold reverseReMu.
+func (pm *projectionManager) appendReverseRefLocked(
+	targetSlug string, ref repositories.ReverseReference,
+) {
+	existing, _ := pm.reverseRe.Load(targetSlug)
+	var old []repositories.ReverseReference
+	if existing != nil {
+		old = existing.([]repositories.ReverseReference)
+	}
+	updated := make([]repositories.ReverseReference, 0, len(old)+1)
+	for _, r := range old {
+		if r.ReferencingTypeSlug == ref.ReferencingTypeSlug && r.FKColumn == ref.FKColumn {
+			continue // drop stale entry — overwrite with the new one
+		}
+		updated = append(updated, r)
+	}
+	updated = append(updated, ref)
+	pm.reverseRe.Store(targetSlug, updated)
+}
+
+// appendForwardRefLocked appends a ForwardReference to the referencingSlug
+// bucket, replacing any existing entry keyed on (FKColumn, TargetTypeSlug).
+// Overwrite-on-conflict is important: a schema edit that changes
+// x-display-property from "name" to "title" must take effect on the next
+// EnsureTable — otherwise the stale DisplayProperty would silently win and
+// populateDisplayColumns would keep reading from the wrong field. Caller must
+// hold reverseReMu.
+func (pm *projectionManager) appendForwardRefLocked(
+	referencingSlug string, ref repositories.ForwardReference,
+) {
+	existing, _ := pm.forwardRe.Load(referencingSlug)
+	var old []repositories.ForwardReference
+	if existing != nil {
+		old = existing.([]repositories.ForwardReference)
+	}
+	updated := make([]repositories.ForwardReference, 0, len(old)+1)
+	for _, r := range old {
+		if r.FKColumn == ref.FKColumn && r.TargetTypeSlug == ref.TargetTypeSlug {
+			continue // drop stale entry — overwrite with the new one
+		}
+		updated = append(updated, r)
+	}
+	updated = append(updated, ref)
+	pm.forwardRe.Store(referencingSlug, updated)
 }
 
 func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
