@@ -71,7 +71,7 @@ type ResourceRepository interface {
 	// FindFlatByID returns a single flat projection row by ID, used for detail views.
 	// Returns an error wrapping ErrNoProjectionTable when no projection table exists
 	// for the type (caller should fall back to FindByID + JSON-LD simplification).
-	// Returns an error wrapping gorm.ErrRecordNotFound when the projection table
-	// exists but the row is missing — detectable via errors.Is.
+	// Returns an error wrapping ErrNotFound when the projection table exists but the
+	// row is missing — detectable via errors.Is.
 	FindFlatByID(ctx context.Context, typeSlug, id string) (map[string]any, error)
 }

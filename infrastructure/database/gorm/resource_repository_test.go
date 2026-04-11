@@ -719,3 +719,212 @@ func TestSaveToProjection_DualProjectionAncestor_SkipsMissingDisplayColumn(t *te
 		t.Errorf("ancestor name = %v, want Mortgage", instrRow["name"])
 	}
 }
+
+// makeTestResourceForAccount restores a Resource with an explicit account_id,
+// for tests that exercise cross-account scoping.
+func makeTestResourceForAccount(t *testing.T, id, typeSlug, dataJSON, accountID string) *entities.Resource {
+	t.Helper()
+	e := &entities.Resource{}
+	if err := e.Restore(
+		id, typeSlug, "active",
+		json.RawMessage(dataJSON),
+		"user-x", accountID,
+		time.Now(), 1,
+	); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	return e
+}
+
+// TestSaveToProjection_CrossAccountReference_DisplayStaysNull is the security
+// regression test for the cross-account display leak. A user in account A
+// references a course in account B by id. The lookup must NOT denormalize the
+// other account's name into the user's row, even though the FK is technically
+// resolvable. The display column must end up NULL.
+func TestSaveToProjection_CrossAccountReference_DisplayStaysNull(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	// Course owned by account B.
+	otherCourse := makeTestResourceForAccount(t, "urn:course:other", "course",
+		`{"name":"Secret Course"}`, "acct-B")
+	if err := repo.Save(ctx, otherCourse); err != nil {
+		t.Fatalf("Save other course: %v", err)
+	}
+
+	// Child written by a user in account A referencing account B's course.
+	ci := makeTestResourceForAccount(t, "urn:course-instance:leak1", "course-instance",
+		`{"name":"Tenant A","courseId":"urn:course:other"}`, "acct-A")
+	if err := repo.Save(ctx, ci); err != nil {
+		t.Fatalf("Save ci: %v", err)
+	}
+
+	var row map[string]any
+	if err := repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:leak1").
+		Take(&row).Error; err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if row["course_id_display"] != nil {
+		t.Errorf("course_id_display = %v, want nil (cross-account lookup must not leak the name)",
+			row["course_id_display"])
+	}
+}
+
+// TestSaveToProjection_CrossAccountCanonicalFallback_DisplayStaysNull mirrors
+// the above for the canonical fallback path. The referenced course only
+// exists in the canonical resources table (no projection row), forcing the
+// canonical-fallback branch — which must also enforce account scoping.
+func TestSaveToProjection_CrossAccountCanonicalFallback_DisplayStaysNull(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	// Insert canonical row directly without a projection row, in account B.
+	otherCourse := makeTestResourceForAccount(t, "urn:course:canon-other", "course",
+		`{"@graph":[{"@id":"urn:course:canon-other","@type":"Course","name":"Hidden"}]}`, "acct-B")
+	otherModel := models.FromResource(otherCourse)
+	if err := repo.db.Create(otherModel).Error; err != nil {
+		t.Fatalf("insert canonical other: %v", err)
+	}
+
+	// Child in account A references account B's course.
+	ci := makeTestResourceForAccount(t, "urn:course-instance:leak2", "course-instance",
+		`{"name":"Tenant A","courseId":"urn:course:canon-other"}`, "acct-A")
+	if err := repo.Save(ctx, ci); err != nil {
+		t.Fatalf("Save ci: %v", err)
+	}
+
+	var row map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:leak2").Take(&row)
+	if row["course_id_display"] != nil {
+		t.Errorf("course_id_display = %v, want nil (canonical fallback must enforce account scope)",
+			row["course_id_display"])
+	}
+}
+
+// TestSaveToProjection_SameAccountReference_DisplayPopulated is the
+// counter-test to the cross-account guards: when caller and target are in
+// the same account, the lookup must still succeed.
+func TestSaveToProjection_SameAccountReference_DisplayPopulated(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	course := makeTestResourceForAccount(t, "urn:course:sameacct", "course",
+		`{"name":"Yoga"}`, "acct-shared")
+	if err := repo.Save(ctx, course); err != nil {
+		t.Fatalf("Save course: %v", err)
+	}
+	ci := makeTestResourceForAccount(t, "urn:course-instance:sameacct", "course-instance",
+		`{"name":"Morning","courseId":"urn:course:sameacct"}`, "acct-shared")
+	if err := repo.Save(ctx, ci); err != nil {
+		t.Fatalf("Save ci: %v", err)
+	}
+
+	var row map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:sameacct").Take(&row)
+	if fmt.Sprint(row["course_id_display"]) != "Yoga" {
+		t.Errorf("course_id_display = %v, want Yoga (same-account lookup must succeed)",
+			row["course_id_display"])
+	}
+}
+
+// TestUpdateProjection_RebindToUnknownReference_ClearsDisplay covers the
+// ghost-name regression: when the FK is rebound from a valid to an unknown
+// reference, the prior display value must NOT survive in the database. The
+// row map's display column must be set to nil so the UPDATE clears it.
+func TestUpdateProjection_RebindToUnknownReference_ClearsDisplay(t *testing.T) {
+	t.Parallel()
+	repo, ctx := setupReferenceProjectionTest(t)
+
+	course := makeTestResource(t, "urn:course:initial", "course", `{"name":"Initial"}`)
+	if err := repo.Save(ctx, course); err != nil {
+		t.Fatalf("Save course: %v", err)
+	}
+	ci := makeTestResource(t, "urn:course-instance:rebind", "course-instance",
+		`{"name":"Rebind","courseId":"urn:course:initial"}`)
+	if err := repo.Save(ctx, ci); err != nil {
+		t.Fatalf("Save ci: %v", err)
+	}
+
+	// Confirm baseline display is populated before the rebind.
+	var pre map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:rebind").Take(&pre)
+	if fmt.Sprint(pre["course_id_display"]) != "Initial" {
+		t.Fatalf("baseline display = %v, want Initial", pre["course_id_display"])
+	}
+
+	// Rebind to a course that does not exist anywhere.
+	rebound := makeTestResource(t, "urn:course-instance:rebind", "course-instance",
+		`{"name":"Rebind","courseId":"urn:course:vanished"}`)
+	if err := repo.Update(ctx, rebound); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	var post map[string]any
+	repo.db.Table("course_instances").Where("id = ?", "urn:course-instance:rebind").Take(&post)
+	if post["course_id_display"] != nil {
+		t.Errorf("course_id_display = %v, want nil (unresolved rebind must clear stale display)",
+			post["course_id_display"])
+	}
+}
+
+// TestUpdateProjection_RebindOnLookupError_ClearsDisplay verifies that even
+// when the lookup *errors* (e.g. corrupt JSON-LD), the prior display value is
+// cleared instead of persisting as a ghost. Combined with the log+continue
+// policy, this means: an FK rebind to a corrupt target = NULL display + log,
+// not stale "Initial" + log.
+func TestUpdateProjection_RebindOnLookupError_ClearsDisplay(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+	courseSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	ciSchema := json.RawMessage(`{"type":"object","properties":{` +
+		`"name":{"type":"string"},` +
+		`"courseId":{"type":"string","x-resource-type":"course"}}}`)
+	if err := pm.EnsureTable(ctx, "course", courseSchema, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.EnsureTable(ctx, "course-instance", ciSchema, nil); err != nil {
+		t.Fatal(err)
+	}
+	logger := &recordingLogger{}
+	repo := &ResourceRepository{db: db, projMgr: pm, logger: logger}
+
+	// Baseline: child references a real, healthy course.
+	good := makeTestResource(t, "urn:course:good", "course", `{"name":"Good"}`)
+	if err := repo.Save(ctx, good); err != nil {
+		t.Fatal(err)
+	}
+	ci := makeTestResource(t, "urn:course-instance:err-rebind", "course-instance",
+		`{"name":"Was-Good","courseId":"urn:course:good"}`)
+	if err := repo.Save(ctx, ci); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert a corrupt canonical row for the new target — no projection row.
+	corrupt := makeTestResource(t, "urn:course:bad", "course", `not json{`)
+	if err := db.Create(models.FromResource(corrupt)).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// Rebind. The lookup will error (json parse failure) → row map should
+	// still set the display to nil so the UPDATE clears the stale "Good".
+	rebound := makeTestResource(t, "urn:course-instance:err-rebind", "course-instance",
+		`{"name":"Was-Good","courseId":"urn:course:bad"}`)
+	if err := repo.Update(ctx, rebound); err != nil {
+		t.Fatalf("Update must not abort on lookup error: %v", err)
+	}
+
+	var row map[string]any
+	db.Table("course_instances").Where("id = ?", "urn:course-instance:err-rebind").Take(&row)
+	if row["course_id_display"] != nil {
+		t.Errorf("course_id_display = %v, want nil (lookup error must clear stale display)",
+			row["course_id_display"])
+	}
+	if len(logger.errors) == 0 {
+		t.Errorf("expected at least one Error log for the failed lookup")
+	}
+}

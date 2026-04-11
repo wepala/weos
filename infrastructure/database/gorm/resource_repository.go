@@ -227,10 +227,19 @@ func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[strin
 //   - the row doesn't carry the FK key at all (partial UpdateData patch);
 //   - the caller has already supplied a non-empty display value.
 //
-// When the FK is explicitly nil or empty string, the display column is cleared
-// to nil so UPDATE statements atomically null both sides of the reference
-// (otherwise a stale display value from a prior write would survive an FK
-// clear — rendering as a ghost name in the UI).
+// When the FK is explicitly nil or empty string, OR present but unresolvable
+// (target row missing, cross-account, lookup error), the display column is
+// explicitly set to nil so UPDATE statements clear any prior database value.
+// Without this, an FK rebound to a non-existent or out-of-scope target would
+// keep the old `<fk>_display` row in the database — a ghost name in the UI.
+//
+// **Multi-tenant scope.** When the row carries an `account_id` (i.e. it's
+// being written by an authenticated user) and the referenced type also has
+// an `account_id` column, the lookup is restricted to that account. This
+// prevents a user from leaking the display name of a resource they can't
+// read by planting a cross-account FK and then reading their own row's
+// `<fk>_display` field. When `account_id` is empty (system context, abstract
+// types) or the target type isn't account-scoped, the lookup is unscoped.
 //
 // **Error policy.** Display columns are denormalized read optimizations, not
 // correctness invariants — a NULL display is a valid state (the frontend
@@ -248,6 +257,10 @@ func (r *ResourceRepository) populateDisplayColumns(
 	if len(forwardRefs) == 0 {
 		return
 	}
+	// Caller account scope: defends against cross-account display leaks. May
+	// be empty for system writes (CLI, replay, abstract types) — in which
+	// case lookups are unscoped (the existing privileged-context pattern).
+	rowAccountID, _ := row["account_id"].(string)
 	for _, ref := range forwardRefs {
 		// Dual-projection ancestor may not have a display column for every
 		// forward ref declared on the concrete type; skip silently.
@@ -283,18 +296,24 @@ func (r *ResourceRepository) populateDisplayColumns(
 			continue
 		}
 
-		display, found, err := r.lookupDisplayValue(ctx, ref, fkVal)
+		display, found, err := r.lookupDisplayValue(ctx, ref, fkVal, rowAccountID)
 		if err != nil {
-			// Log loudly but do not abort the write — leave the display NULL
-			// and let the UI fall back to the raw FK. A subsequent write or
-			// triple-propagation event will re-populate it.
+			// Log loudly but do not abort the write — persist the display as
+			// NULL and let the UI fall back to the raw FK. A subsequent write
+			// or triple-propagation event will re-populate it.
 			r.logger.Error(ctx, "display lookup failed; persisting row with NULL display",
 				"targetSlug", targetSlug, "fkColumn", ref.FKColumn,
 				"targetType", ref.TargetTypeSlug, "fkValue", fkVal, "error", err)
+			row[ref.DisplayColumn] = nil
 			continue
 		}
 		if found {
 			row[ref.DisplayColumn] = display
+		} else {
+			// FK is present but unresolved (missing target row, cross-account,
+			// or missing display property). Clear any previously persisted
+			// display value so an UPDATE doesn't leave a stale ghost name.
+			row[ref.DisplayColumn] = nil
 		}
 	}
 }
@@ -303,8 +322,13 @@ func (r *ResourceRepository) populateDisplayColumns(
 //
 // Returns (value, true, nil) on success. Returns ("", false, nil) for a
 // legitimate not-found (neither the projection table nor the canonical
-// resources table has the referenced row). Returns ("", false, err) for real
-// infrastructure or decode failures — those must never be silently dropped.
+// resources table has the referenced row, or the row is out of the caller's
+// account scope). Returns ("", false, err) for real infrastructure or decode
+// failures — those must never be silently dropped.
+//
+// rowAccountID, when non-empty, restricts lookups to the same account. An
+// empty rowAccountID means "system context" — the lookup runs unscoped, the
+// same convention checkInstanceAccess uses for nil auth.
 //
 // Resolution order:
 //  1. Projection table of the target type (single indexed lookup).
@@ -316,12 +340,12 @@ func (r *ResourceRepository) populateDisplayColumns(
 // because importing application from this package would create a cycle.
 // TODO: hoist ExtractEntityNode into a shared pkg to remove the duplication.
 func (r *ResourceRepository) lookupDisplayValue(
-	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	ctx context.Context, ref repositories.ForwardReference, fkVal, rowAccountID string,
 ) (string, bool, error) {
-	if v, found, err := r.lookupDisplayFromProjection(ctx, ref, fkVal); err != nil || found {
+	if v, found, err := r.lookupDisplayFromProjection(ctx, ref, fkVal, rowAccountID); err != nil || found {
 		return v, found, err
 	}
-	return r.lookupDisplayFromCanonical(ctx, ref, fkVal)
+	return r.lookupDisplayFromCanonical(ctx, ref, fkVal, rowAccountID)
 }
 
 // lookupDisplayFromProjection reads the display property from the referenced
@@ -329,12 +353,16 @@ func (r *ResourceRepository) lookupDisplayValue(
 // missing so the caller can fall back to the canonical path; all other errors
 // are propagated.
 //
+// When rowAccountID is non-empty AND the target table has an account_id column,
+// the query is constrained to that account so cross-account references resolve
+// to a miss (multi-tenant isolation for the denormalized display value).
+//
 // Note on Scan semantics: GORM v2's .Scan() does NOT return ErrRecordNotFound
 // for zero-row results (only First/Take/Last do). A missing row appears here
 // as (err==nil, value==nil), handled by the default case. Genuine driver
 // errors arrive via the err != nil branch and are propagated.
 func (r *ResourceRepository) lookupDisplayFromProjection(
-	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	ctx context.Context, ref repositories.ForwardReference, fkVal, rowAccountID string,
 ) (string, bool, error) {
 	if !r.projMgr.HasProjectionTable(ref.TargetTypeSlug) {
 		return "", false, nil
@@ -344,12 +372,17 @@ func (r *ResourceRepository) lookupDisplayFromProjection(
 		return "", false, nil
 	}
 	tableName := r.projMgr.TableName(ref.TargetTypeSlug)
-	var value *string
-	err := r.db.WithContext(ctx).Table(tableName).
+	query := r.db.WithContext(ctx).Table(tableName).
 		Select(displayCol).
-		Where("id = ?", fkVal).
-		Scan(&value).Error
-	if err != nil {
+		Where("id = ?", fkVal)
+	// Multi-tenant scope: only constrain when both sides have an account.
+	// Empty rowAccountID = system context (unscoped). Target type with no
+	// account_id column = global reference data (also unscoped).
+	if rowAccountID != "" && r.projMgr.HasColumn(ref.TargetTypeSlug, "account_id") {
+		query = query.Where("account_id = ?", rowAccountID)
+	}
+	var value *string
+	if err := query.Scan(&value).Error; err != nil {
 		return "", false, fmt.Errorf("projection lookup %s.%s: %w", tableName, displayCol, err)
 	}
 	if value != nil && *value != "" {
@@ -363,11 +396,15 @@ func (r *ResourceRepository) lookupDisplayFromProjection(
 // (returns false, nil); unmarshal failures indicate corrupt data and are
 // propagated so the caller can surface them.
 //
+// When rowAccountID is non-empty, the entity must belong to that account for
+// the lookup to succeed; otherwise treated as a miss. This mirrors the
+// projection-path scoping and prevents canonical-fallback leaks.
+//
 // FindByID's contract: returns (entity, nil) on success or (nil, err) on
 // any failure. It never returns (nil, nil), so a non-error return guarantees
 // entity is non-nil.
 func (r *ResourceRepository) lookupDisplayFromCanonical(
-	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	ctx context.Context, ref repositories.ForwardReference, fkVal, rowAccountID string,
 ) (string, bool, error) {
 	entity, err := r.FindByID(ctx, fkVal)
 	if err != nil {
@@ -375,6 +412,13 @@ func (r *ResourceRepository) lookupDisplayFromCanonical(
 			return "", false, nil
 		}
 		return "", false, fmt.Errorf("canonical lookup for %s: %w", fkVal, err)
+	}
+	// Multi-tenant scope: drop the lookup if the referenced entity is in a
+	// different account. Resources with no account (legacy/system data) are
+	// allowed through, matching the pre-migration backward-compat path in
+	// checkInstanceAccess.
+	if rowAccountID != "" && entity.AccountID() != "" && entity.AccountID() != rowAccountID {
+		return "", false, nil
 	}
 	var doc map[string]any
 	if err := json.Unmarshal(entity.Data(), &doc); err != nil {
