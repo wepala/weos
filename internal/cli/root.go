@@ -23,8 +23,8 @@ var (
 	// rootCmd represents the base command when called without any subcommands
 	rootCmd = &cobra.Command{
 		Use:     "weos",
-		Short:   "WeOS - AI-powered website system",
-		Long:    `WeOS is an open source website system where your AI is the webmaster.`,
+		Short:   "WeOS - open source digital twin for LLMs",
+		Long:    `WeOS is an open source Go application for building a digital twin — a knowledge graph of the information from the apps and devices you use, exposed to any LLM via MCP for context-rich responses.`,
 		Version: "0.1.0",
 	}
 )

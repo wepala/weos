@@ -6,6 +6,7 @@ import (
 	"weos/domain/entities"
 	"weos/domain/repositories"
 	"weos/infrastructure/database/gorm"
+	"weos/infrastructure/email"
 	"weos/infrastructure/events"
 	"weos/infrastructure/logging"
 	storageprovider "weos/infrastructure/storage/provider"
@@ -99,6 +100,9 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideResourceBehaviorRegistry),
 		fx.Provide(ProvideBehaviorMetaRegistry),
 		fx.Provide(gorm.ProvideBehaviorSettingsRepository),
+
+		// Email sender
+		fx.Provide(email.ProvideEmailSender),
 
 		// Service providers
 		fx.Provide(ProvideResourceTypeService),
