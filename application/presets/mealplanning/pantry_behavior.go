@@ -106,35 +106,35 @@ func (b *enforceSingleDefaultBehavior) enforce(
 			return
 		}
 
-	for _, other := range resp.Data {
-		otherID, _ := other["id"].(string)
-		if otherID == "" || otherID == resource.GetID() {
-			continue
-		}
-		update := map[string]any{"isDefault": false}
-		for _, field := range pantryWriteFields {
-			if field == "isDefault" {
+		for _, other := range resp.Data {
+			otherID, _ := other["id"].(string)
+			if otherID == "" || otherID == resource.GetID() {
 				continue
 			}
-			if v, ok := other[field]; ok && v != nil {
-				update[field] = v
+			update := map[string]any{"isDefault": false}
+			for _, field := range pantryWriteFields {
+				if field == "isDefault" {
+					continue
+				}
+				if v, ok := other[field]; ok && v != nil {
+					update[field] = v
+				}
+			}
+			data, mErr := json.Marshal(update)
+			if mErr != nil {
+				if b.logger != nil {
+					b.logger.Error(ctx, "pantry behavior: failed to marshal update",
+						"id", otherID, "error", mErr)
+				}
+				continue
+			}
+			if _, uErr := b.writer.Update(ctx, application.UpdateResourceCommand{
+				ID: otherID, Data: data,
+			}); uErr != nil && b.logger != nil {
+				b.logger.Error(ctx, "pantry behavior: failed to unset default",
+					"id", otherID, "error", uErr)
 			}
 		}
-		data, mErr := json.Marshal(update)
-		if mErr != nil {
-			if b.logger != nil {
-				b.logger.Error(ctx, "pantry behavior: failed to marshal update",
-					"id", otherID, "error", mErr)
-			}
-			continue
-		}
-		if _, uErr := b.writer.Update(ctx, application.UpdateResourceCommand{
-			ID: otherID, Data: data,
-		}); uErr != nil && b.logger != nil {
-			b.logger.Error(ctx, "pantry behavior: failed to unset default",
-				"id", otherID, "error", uErr)
-		}
-	}
 
 		if resp.Cursor == "" || len(resp.Data) < pageSize {
 			break
