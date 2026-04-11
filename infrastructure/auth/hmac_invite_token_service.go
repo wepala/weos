@@ -125,7 +125,7 @@ func (s *HMACInviteTokenService) ValidateInviteToken(
 		return nil, application.ErrTokenInvalid
 	}
 
-	// Semantic claim validation — defence in depth beyond JWT's built-in
+	// Semantic claim validation — defense in depth beyond JWT's built-in
 	// signature/expiry checks. A token signed with the correct secret but
 	// missing required fields is still invalid for our use case.
 	if claims.Issuer != s.issuer {
