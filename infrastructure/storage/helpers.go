@@ -16,6 +16,7 @@
 package storage
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,7 +26,23 @@ import (
 
 const maxFilenameLength = 200
 
-var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+var (
+	unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+	safeIDChars = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+)
+
+// ValidateID checks that a caller-supplied ID contains only safe characters
+// (alphanumeric, underscore, hyphen) and is non-empty. This prevents path
+// traversal when the ID is used as part of a filesystem path or object key.
+func ValidateID(id string) error {
+	if id == "" {
+		return fmt.Errorf("upload ID must not be empty")
+	}
+	if !safeIDChars.MatchString(id) {
+		return fmt.Errorf("upload ID contains unsafe characters: %q", id)
+	}
+	return nil
+}
 
 // SanitizeFilename strips path separators, collapses unsafe characters,
 // and truncates the result to a safe length.

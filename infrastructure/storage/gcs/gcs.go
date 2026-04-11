@@ -51,6 +51,9 @@ func (s *gcsFileService) Upload(
 	if id == "" {
 		id = ksuid.New().String()
 	}
+	if err := storage.ValidateID(id); err != nil {
+		return nil, fmt.Errorf("invalid upload ID: %w", err)
+	}
 	safeName := storage.SanitizeFilename(params.Filename)
 	key := "uploads/" + id + "-" + safeName
 

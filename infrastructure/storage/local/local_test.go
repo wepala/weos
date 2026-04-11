@@ -94,6 +94,36 @@ func TestUpload_SanitizesFilename(t *testing.T) {
 	}
 }
 
+func TestUpload_RejectsPathTraversalID(t *testing.T) {
+	dir := t.TempDir()
+	svc := local.New(dir, "/api/uploads/files", nopLogger{})
+
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{"dot-dot-slash", "../../etc/passwd"},
+		{"absolute path", "/tmp/evil"},
+		{"backslash", `foo\bar`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := services.UploadParams{
+				Filename:    "test.txt",
+				ContentType: "text/plain",
+				ID:          tt.id,
+			}
+			_, err := svc.Upload(context.Background(), params, strings.NewReader("data"))
+			if err == nil {
+				t.Fatal("expected error for unsafe ID")
+			}
+			if !strings.Contains(err.Error(), "invalid upload ID") {
+				t.Errorf("error = %q, want to contain 'invalid upload ID'", err.Error())
+			}
+		})
+	}
+}
+
 func TestUpload_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "uploads")
 	svc := local.New(dir, "/api/uploads/files", nopLogger{})

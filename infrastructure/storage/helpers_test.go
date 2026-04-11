@@ -30,6 +30,33 @@ func TestSanitizeFilename(t *testing.T) {
 	}
 }
 
+func TestValidateID(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{"valid ksuid", "2RpNqLbKz5dVfPjOmTgQhJnE123", false},
+		{"alphanumeric", "abc123", false},
+		{"with hyphens", "my-upload-id", false},
+		{"with underscores", "my_upload_id", false},
+		{"empty", "", true},
+		{"path traversal dots", "../..", true},
+		{"path traversal slash", "../../etc/passwd", true},
+		{"absolute path", "/tmp/evil", true},
+		{"backslash", `foo\bar`, true},
+		{"spaces", "foo bar", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := storage.ValidateID(tt.id)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateID(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestGenerateObjectKey(t *testing.T) {
 	key := storage.GenerateObjectKey("uploads", "photo.jpg")
 	if !strings.HasPrefix(key, "uploads/") {

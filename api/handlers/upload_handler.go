@@ -30,6 +30,11 @@ import (
 // sniffBufSize is the number of bytes read for http.DetectContentType.
 const sniffBufSize = 512
 
+// multipartMemory limits how much of a multipart upload is buffered in RAM
+// before spilling to a temp file. The stdlib default is 32 MB; we use 2 MB
+// to reduce per-request memory pressure under concurrent uploads.
+const multipartMemory int64 = 2 << 20 // 2 MB
+
 // UploadHandler handles file upload requests.
 type UploadHandler struct {
 	fileService    application.FileService
@@ -56,6 +61,17 @@ func NewUploadHandler(
 func (h *UploadHandler) Upload(c echo.Context) error {
 	// Enforce upload size limit before reading any data.
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, h.maxUploadBytes)
+
+	// Parse multipart with a small in-memory limit (2 MB) so large uploads
+	// spill to temp files rather than consuming RAM. This must be called
+	// before FormFile to override the stdlib's default 32 MB memory buffer.
+	if err := c.Request().ParseMultipartForm(multipartMemory); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return respondError(c, http.StatusRequestEntityTooLarge, "file exceeds maximum upload size")
+		}
+		return respondError(c, http.StatusBadRequest, "missing or invalid file field")
+	}
 
 	fh, err := c.FormFile("file")
 	if err != nil {
