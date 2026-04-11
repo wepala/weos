@@ -69,11 +69,14 @@ func (s *gcsFileService) Upload(
 		return nil, fmt.Errorf("close GCS writer: %w", err)
 	}
 
+	url := fmt.Sprintf("https://storage.googleapis.com/%s/%s", s.bucket, key)
+
 	s.logger.Info(ctx, "file uploaded to GCS",
 		"bucket", s.bucket, "key", key, "size", written)
 
 	return &services.UploadResult{
 		ID:          id,
+		URL:         url,
 		Filename:    safeName,
 		ContentType: params.ContentType,
 		Size:        written,

@@ -80,11 +80,14 @@ func (s *s3FileService) Upload(
 		return nil, fmt.Errorf("upload to S3: %w", err)
 	}
 
+	url := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.bucket, s.region, key)
+
 	s.logger.Info(ctx, "file uploaded to S3",
 		"bucket", s.bucket, "region", s.region, "key", key, "size", cr.n)
 
 	return &services.UploadResult{
 		ID:          id,
+		URL:         url,
 		Filename:    safeName,
 		ContentType: params.ContentType,
 		Size:        cr.n,
