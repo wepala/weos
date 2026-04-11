@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -81,6 +82,7 @@ func normalizeSortOptions(sort repositories.SortOptions) (string, string) {
 type ResourceRepository struct {
 	db      *gorm.DB
 	projMgr repositories.ProjectionManager
+	logger  entities.Logger
 }
 
 type ResourceRepositoryResult struct {
@@ -92,11 +94,13 @@ func ProvideResourceRepository(params struct {
 	fx.In
 	DB            *gorm.DB
 	ProjectionMgr repositories.ProjectionManager
+	Logger        entities.Logger
 }) (ResourceRepositoryResult, error) {
 	return ResourceRepositoryResult{
 		Repository: &ResourceRepository{
 			db:      params.DB,
 			projMgr: params.ProjectionMgr,
+			logger:  params.Logger,
 		},
 	}, nil
 }
@@ -150,6 +154,8 @@ func (r *ResourceRepository) saveToProjection(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
+	r.populateDisplayColumns(ctx, targetSlug, row,
+		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
 	if err := r.db.WithContext(ctx).Table(tableName).Create(row).Error; err != nil {
 		return fmt.Errorf("failed to save resource to projection %s: %w", tableName, err)
 	}
@@ -175,6 +181,8 @@ func (r *ResourceRepository) updateProjectionBySlug(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(entity.Data(), ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
+	r.populateDisplayColumns(ctx, targetSlug, row,
+		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
 
 	// Build column list for ON CONFLICT UPDATE, excluding immutable fields.
 	immutable := map[string]bool{"id": true, "created_at": true, "created_by": true, "account_id": true}
@@ -209,6 +217,340 @@ func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[strin
 	}
 }
 
+// populateDisplayColumns looks up display values for every outgoing reference
+// on the target type and injects them into the row before INSERT/UPDATE. Called
+// from all three projection write paths (saveToProjection, updateProjectionBySlug,
+// updateDataInProjection) so that reference columns like `course_id_display` are
+// populated at write time instead of relying on async propagation alone.
+//
+// For each ForwardReference registered for targetSlug the helper skips when:
+//   - the destination display column doesn't exist on this projection table
+//     (dual-projection ancestors may lack the column);
+//   - the row doesn't carry the FK key at all (partial UpdateData patch);
+//   - the caller has already supplied a non-empty display value.
+//
+// When the FK is explicitly nil or empty string, OR present but unresolvable
+// (target row missing, out-of-scope, lookup error), the display column is
+// explicitly set to nil so UPDATE statements clear any prior database value.
+// Without this, an FK rebound to a non-existent or out-of-scope target would
+// keep the old `<fk>_display` row in the database — a ghost name in the UI.
+//
+// **Visibility scope.** The caller passes an explicit *VisibilityScope so this
+// helper can enforce the same access boundary the rest of the stack uses (see
+// applyVisibilityScope and checkInstanceAccess):
+//   - the row's account_id must match the target's account_id when both sides
+//     are account-scoped (multi-tenant isolation);
+//   - the writer (scope.AgentID) must be the target's creator OR have an
+//     explicit "read" grant in resource_permissions.
+//
+// Passing scope explicitly (rather than reading it from the row map) is
+// important because partial-update paths like updateDataInProjection don't
+// carry account_id/created_by in the row map — those callers load the scope
+// from the canonical row. A nil scope means "system context" — the lookup
+// runs unscoped, matching checkInstanceAccess's nil-auth fail-open path.
+// Note: the admin/owner role bypass is NOT enforced here (it requires the
+// account membership repository, which the gorm layer can't import). Admins
+// who write rows referencing other users' private resources within the same
+// account will see a NULL display until the triple-propagation path fills it.
+//
+// **Error policy.** Display columns are denormalized read optimizations, not
+// correctness invariants — a NULL display is a valid state (the frontend
+// falls back to rendering the raw FK). To honor Save's eventually-consistent
+// projection contract (see Save's doc), this helper *logs and tolerates*
+// errors from the underlying lookup rather than aborting the write: a
+// transient DB hiccup on a reference lookup must not strand the canonical
+// resources row by failing the projection insert. The display will be
+// re-populated on the next write or via the triple-handler propagation path
+// when the parent resource changes. The helper itself never returns an error.
+func (r *ResourceRepository) populateDisplayColumns(
+	ctx context.Context, targetSlug string, row map[string]any,
+	scope *repositories.VisibilityScope,
+) {
+	forwardRefs := r.projMgr.ForwardReferences(targetSlug)
+	if len(forwardRefs) == 0 {
+		return
+	}
+	for _, ref := range forwardRefs {
+		// Dual-projection ancestor may not have a display column for every
+		// forward ref declared on the concrete type; skip silently.
+		if !r.projMgr.HasColumn(targetSlug, ref.DisplayColumn) {
+			continue
+		}
+		rawFK, hasFK := row[ref.FKColumn]
+		if !hasFK {
+			continue
+		}
+		// Explicit FK clear — null the sibling display column atomically so a
+		// stale value from an earlier write doesn't survive.
+		if rawFK == nil {
+			row[ref.DisplayColumn] = nil
+			continue
+		}
+		fkVal, ok := rawFK.(string)
+		if !ok {
+			// Schema drift or upstream bug: FK column should always be string.
+			// Log so the situation is visible without failing the write.
+			r.logger.Warn(ctx, "display lookup: non-string FK value, skipping",
+				"targetSlug", targetSlug, "fkColumn", ref.FKColumn,
+				"valueType", fmt.Sprintf("%T", rawFK))
+			continue
+		}
+		if fkVal == "" {
+			row[ref.DisplayColumn] = nil
+			continue
+		}
+		// Respect a display value already present on the row (e.g. a behavior
+		// that provided it explicitly).
+		if existing, ok := row[ref.DisplayColumn].(string); ok && existing != "" {
+			continue
+		}
+
+		display, found, err := r.lookupDisplayValue(ctx, ref, fkVal, scope)
+		if err != nil {
+			// Log loudly but do not abort the write — persist the display as
+			// NULL and let the UI fall back to the raw FK. A subsequent write
+			// or triple-propagation event will re-populate it.
+			r.logger.Error(ctx, "display lookup failed; persisting row with NULL display",
+				"targetSlug", targetSlug, "fkColumn", ref.FKColumn,
+				"targetType", ref.TargetTypeSlug, "fkValue", fkVal, "error", err)
+			row[ref.DisplayColumn] = nil
+			continue
+		}
+		if found {
+			row[ref.DisplayColumn] = display
+		} else {
+			// FK is present but unresolved (missing target row, cross-account,
+			// or missing display property). Clear any previously persisted
+			// display value so an UPDATE doesn't leave a stale ghost name.
+			row[ref.DisplayColumn] = nil
+		}
+	}
+}
+
+// buildLookupScope packages the row's account/agent identity into a
+// VisibilityScope for display lookups. Returns nil when both fields are
+// empty, signaling "system context" — the same fail-open convention
+// checkInstanceAccess uses for nil auth.
+func buildLookupScope(accountID, createdBy string) *repositories.VisibilityScope {
+	if accountID == "" && createdBy == "" {
+		return nil
+	}
+	return &repositories.VisibilityScope{
+		AgentID:   createdBy,
+		AccountID: accountID,
+		IsAdmin:   false,
+	}
+}
+
+// loadRowOwnerScope returns the visibility scope for an existing canonical
+// resources row. Used by partial-update paths (updateDataInProjection) where
+// the row map doesn't carry account_id/created_by — we have to fetch the
+// owner from the canonical store before invoking populateDisplayColumns,
+// otherwise the lookup would run unscoped and reintroduce the data leak.
+//
+// Lightweight by design: SELECTs only the two ownership columns from the
+// resources table.
+//
+// Error semantics (fail closed):
+//   - Row missing (gorm.ErrRecordNotFound) → returns (nil, nil). The partial
+//     update is going to UPDATE 0 rows anyway, so display population is moot
+//     and the caller can proceed harmlessly with a nil scope.
+//   - Any other error (driver, schema, context cancellation) → returns
+//     (nil, err). The caller MUST propagate the error and abort the write.
+//     Falling open here would let a transient DB error silently turn the
+//     scoped lookup into an unscoped one and reintroduce the cross-agent
+//     display leak we just fixed.
+func (r *ResourceRepository) loadRowOwnerScope(
+	ctx context.Context, id string,
+) (*repositories.VisibilityScope, error) {
+	var owner struct {
+		AccountID string
+		CreatedBy string
+	}
+	err := r.db.WithContext(ctx).
+		Table("resources").
+		Select("account_id", "created_by").
+		Where("id = ?", id).
+		Take(&owner).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load row owner scope for %s: %w", id, err)
+	}
+	return buildLookupScope(owner.AccountID, owner.CreatedBy), nil
+}
+
+// lookupDisplayValue resolves a single forward-reference display value.
+//
+// Returns (value, true, nil) on success. Returns ("", false, nil) for a
+// legitimate not-found (target row missing, or out of the writer's visibility
+// scope). Returns ("", false, err) for real infrastructure or decode failures
+// — those must never be silently dropped.
+//
+// scope, when non-nil, restricts lookups to the writer's account AND the
+// per-agent visibility set (creator + explicit "read" grants in
+// resource_permissions). A nil scope means "system context" — the lookup
+// runs unscoped, matching checkInstanceAccess's nil-auth fail-open path.
+//
+// Resolution order:
+//  1. Projection table of the target type (single indexed lookup).
+//  2. Canonical resources table via FindByID + JSON-LD @graph extraction.
+//     Covers event-replay ordering and any case where the referenced projection
+//     row hasn't been written yet.
+//
+// The JSON-LD extraction is duplicated from application.ExtractEntityNode
+// because importing application from this package would create a cycle.
+// TODO: hoist ExtractEntityNode into a shared pkg to remove the duplication.
+func (r *ResourceRepository) lookupDisplayValue(
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	scope *repositories.VisibilityScope,
+) (string, bool, error) {
+	if v, found, err := r.lookupDisplayFromProjection(ctx, ref, fkVal, scope); err != nil || found {
+		return v, found, err
+	}
+	return r.lookupDisplayFromCanonical(ctx, ref, fkVal, scope)
+}
+
+// lookupDisplayFromProjection reads the display property from the referenced
+// type's projection table. Returns (_, false, nil) when the row is simply
+// missing so the caller can fall back to the canonical path; all other errors
+// are propagated.
+//
+// When scope is non-nil, the query enforces:
+//   - account_id match (when the target table has an account_id column);
+//   - applyVisibilityScope: created_by match OR an explicit "read" grant in
+//     resource_permissions for the writing agent.
+//
+// Both filters are AND-composed so cross-account references and within-account
+// private references both resolve to a miss (the display column stays NULL,
+// the UI falls back to the raw FK).
+//
+// Note on Scan semantics: GORM v2's .Scan() does NOT return ErrRecordNotFound
+// for zero-row results (only First/Take/Last do). A missing row appears here
+// as (err==nil, value==nil), handled by the default case. Genuine driver
+// errors arrive via the err != nil branch and are propagated.
+func (r *ResourceRepository) lookupDisplayFromProjection(
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	scope *repositories.VisibilityScope,
+) (string, bool, error) {
+	if !r.projMgr.HasProjectionTable(ref.TargetTypeSlug) {
+		return "", false, nil
+	}
+	displayCol := utils.CamelToSnake(ref.DisplayProperty)
+	if !r.projMgr.HasColumn(ref.TargetTypeSlug, displayCol) {
+		return "", false, nil
+	}
+	tableName := r.projMgr.TableName(ref.TargetTypeSlug)
+	query := r.db.WithContext(ctx).Table(tableName).
+		Select(displayCol).
+		Where("id = ?", fkVal)
+	if scope != nil {
+		// Account isolation when both sides are account-scoped.
+		if scope.AccountID != "" && r.projMgr.HasColumn(ref.TargetTypeSlug, "account_id") {
+			query = query.Where("account_id = ?", scope.AccountID)
+		}
+		// Per-agent visibility: created_by match OR explicit read grant. This
+		// is the same helper applyVisibilityScope uses for list/get queries,
+		// so display lookups follow the same access boundary.
+		if scope.AgentID != "" {
+			query = applyVisibilityScope(query, scope, "")
+		}
+	}
+	var value *string
+	if err := query.Scan(&value).Error; err != nil {
+		return "", false, fmt.Errorf("projection lookup %s.%s: %w", tableName, displayCol, err)
+	}
+	if value != nil && *value != "" {
+		return *value, true, nil
+	}
+	return "", false, nil
+}
+
+// lookupDisplayFromCanonical loads the referenced entity's canonical JSON-LD
+// and extracts the display property. A missing row is a legitimate miss
+// (returns false, nil); unmarshal failures indicate corrupt data and are
+// propagated so the caller can surface them.
+//
+// When scope is non-nil, the canonical entity is post-checked against the
+// same boundary the projection path enforces:
+//   - account_id must match (when both sides have one);
+//   - the writing agent must be the entity's creator (the explicit-permission
+//     half of applyVisibilityScope is approximated here by accepting matches
+//     on created_by only — the canonical fallback is rare enough that the
+//     extra resource_permissions query is not justified).
+//
+// Resources with no account_id and no created_by (legacy/system data) are
+// allowed through, matching the pre-migration backward-compat path in
+// checkInstanceAccess.
+//
+// FindByID's contract: returns (entity, nil) on success or (nil, err) on
+// any failure. It never returns (nil, nil), so a non-error return guarantees
+// entity is non-nil.
+func (r *ResourceRepository) lookupDisplayFromCanonical(
+	ctx context.Context, ref repositories.ForwardReference, fkVal string,
+	scope *repositories.VisibilityScope,
+) (string, bool, error) {
+	entity, err := r.FindByID(ctx, fkVal)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("canonical lookup for %s: %w", fkVal, err)
+	}
+	// Type-slug guard: a malformed or stale FK could point at a row of a
+	// different type (e.g. courseId="urn:product:xyz"). The projection-path
+	// lookup is implicitly type-safe — it queries the target type's table —
+	// but the canonical resources table holds every type, so we have to
+	// reject the mismatch explicitly. Otherwise we'd extract the wrong
+	// entity's display property and persist it under the wrong column.
+	if entity.TypeSlug() != ref.TargetTypeSlug {
+		return "", false, nil
+	}
+	if !canonicalLookupVisible(entity, scope) {
+		return "", false, nil
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(entity.Data(), &doc); err != nil {
+		return "", false, fmt.Errorf("parse JSON-LD for %s: %w", fkVal, err)
+	}
+	node := doc
+	if graphArr, ok := doc["@graph"].([]any); ok && len(graphArr) > 0 {
+		if first, ok := graphArr[0].(map[string]any); ok {
+			node = first
+		}
+	}
+	if v, ok := node[ref.DisplayProperty]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// canonicalLookupVisible reports whether the writer (described by scope) can
+// read the referenced entity, using a conservative subset of the rules in
+// checkInstanceAccess: account match AND created_by match. Legacy resources
+// with no creator/account are allowed through. A nil scope (system context)
+// always passes.
+func canonicalLookupVisible(entity *entities.Resource, scope *repositories.VisibilityScope) bool {
+	if scope == nil {
+		return true
+	}
+	if scope.AccountID != "" && entity.AccountID() != "" && entity.AccountID() != scope.AccountID {
+		return false
+	}
+	// Pre-migration / system rows with no creator are visible (matching
+	// checkInstanceAccess's backward-compat clause).
+	if entity.CreatedBy() == "" {
+		return true
+	}
+	// The strict per-agent path: writer must be the entity's creator.
+	// Explicit resource_permissions grants are not honored here — that case
+	// would require a second query and the canonical fallback is rare.
+	return scope.AgentID != "" && entity.CreatedBy() == scope.AgentID
+}
+
 func (r *ResourceRepository) FindByID(
 	ctx context.Context, id string,
 ) (*entities.Resource, error) {
@@ -217,6 +559,9 @@ func (r *ResourceRepository) FindByID(
 	err := r.db.WithContext(ctx).
 		Where("id = ? ", id).First(&model).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("resource %q: %w", id, repositories.ErrNotFound)
+		}
 		return nil, fmt.Errorf("failed to find resource: %w", err)
 	}
 	return model.ToResource()
@@ -675,7 +1020,8 @@ func (r *ResourceRepository) FindAllByTypeFlat(
 	sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	if !r.projMgr.HasProjectionTable(typeSlug) {
-		return repositories.PaginatedResponse[map[string]any]{}, fmt.Errorf("no projection table for %q", typeSlug)
+		return repositories.PaginatedResponse[map[string]any]{},
+			fmt.Errorf("%w: %q", repositories.ErrNoProjectionTable, typeSlug)
 	}
 	return r.findAllFlatFromProjection(ctx, typeSlug, nil, cursor, limit, sort, scope)
 }
@@ -685,9 +1031,42 @@ func (r *ResourceRepository) FindAllByTypeFlatWithFilters(
 	cursor string, limit int, sort repositories.SortOptions, scope *repositories.VisibilityScope,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	if !r.projMgr.HasProjectionTable(typeSlug) {
-		return repositories.PaginatedResponse[map[string]any]{}, fmt.Errorf("no projection table for %q", typeSlug)
+		return repositories.PaginatedResponse[map[string]any]{},
+			fmt.Errorf("%w: %q", repositories.ErrNoProjectionTable, typeSlug)
 	}
 	return r.findAllFlatFromProjection(ctx, typeSlug, filters, cursor, limit, sort, scope)
+}
+
+// FindFlatByID returns a single flat projection row by ID with snake_case→camelCase
+// key conversion (matching FindAllByTypeFlat's output shape).
+//
+// Error contract (detectable via errors.Is):
+//   - repositories.ErrNoProjectionTable — type has no dedicated projection table;
+//     caller should fall back to FindByID.
+//   - repositories.ErrNotFound — projection table exists but the row is missing.
+//
+// All other errors indicate a real database failure and should surface to the
+// caller so the handler can return 500 rather than silently falling through.
+func (r *ResourceRepository) FindFlatByID(
+	ctx context.Context, typeSlug, id string,
+) (map[string]any, error) {
+	if !r.projMgr.HasProjectionTable(typeSlug) {
+		return nil, fmt.Errorf("%w: %q", repositories.ErrNoProjectionTable, typeSlug)
+	}
+	tableName := r.projMgr.TableName(typeSlug)
+	var row map[string]any
+	if err := r.db.WithContext(ctx).Table(tableName).
+		Where("id = ?", id).Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("flat resource %s in %s: %w", id, tableName, repositories.ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to load flat resource %s from %s: %w", id, tableName, err)
+	}
+	camelRow := make(map[string]any, len(row))
+	for k, v := range row {
+		camelRow[utils.SnakeToCamel(k)] = v
+	}
+	return camelRow, nil
 }
 
 // findAllFlatFromProjection queries the projection table directly and returns flat rows
@@ -881,6 +1260,21 @@ func (r *ResourceRepository) updateDataInProjection(
 	ldCtx := r.projMgr.Context(targetSlug)
 	ExtractFlatColumns(data, ldCtx, row)
 	r.dropMissingColumns(targetSlug, row)
+	// updateDataInProjection runs partial patches that don't include
+	// account_id/created_by, so we have to load the row owner ourselves to
+	// scope display lookups. Without this, populateDisplayColumns would run
+	// in unscoped (system context) mode and reintroduce the cross-account /
+	// per-agent display leak the scoped lookup logic exists to prevent.
+	//
+	// Fail closed: a real DB error from loadRowOwnerScope aborts the write
+	// rather than silently degrading to an unscoped lookup. A row-missing
+	// result (scope == nil, err == nil) is fine — the UPDATE below will
+	// affect 0 rows anyway.
+	scope, err := r.loadRowOwnerScope(ctx, id)
+	if err != nil {
+		return err
+	}
+	r.populateDisplayColumns(ctx, targetSlug, row, scope)
 	if len(row) == 0 {
 		return nil
 	}

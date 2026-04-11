@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"weos/domain/repositories"
 	"weos/infrastructure/models"
 	"weos/pkg/utils"
 
@@ -532,5 +533,108 @@ func TestEnsureExistingTables_SkipsDeletedTypes(t *testing.T) {
 
 	if pm.HasProjectionTable("deleted-type") {
 		t.Fatal("deleted type should not have a projection table")
+	}
+}
+
+func TestForwardAndReverseReferences_SymmetricFromSchema(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+
+	courseInstanceSchema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"},
+			"courseId": {"type": "string", "x-resource-type": "course"},
+			"instructorId": {"type": "string", "x-resource-type": "instructor", "x-display-property": "givenName"},
+			"locationId": {"type": "string", "x-resource-type": "location"}
+		}
+	}`)
+	if err := pm.EnsureTable(context.Background(), "course-instance", courseInstanceSchema, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+
+	// Forward references — everything course-instance points AT.
+	fwd := pm.ForwardReferences("course-instance")
+	if len(fwd) != 3 {
+		t.Fatalf("expected 3 forward references, got %d: %+v", len(fwd), fwd)
+	}
+	byFK := make(map[string]repositories.ForwardReference, len(fwd))
+	for _, f := range fwd {
+		byFK[f.FKColumn] = f
+	}
+	expected := []struct {
+		fk, displayCol, target, displayProp string
+	}{
+		{"course_id", "course_id_display", "course", "name"},
+		{"instructor_id", "instructor_id_display", "instructor", "givenName"},
+		{"location_id", "location_id_display", "location", "name"},
+	}
+	for _, e := range expected {
+		got, ok := byFK[e.fk]
+		if !ok {
+			t.Fatalf("missing forward ref for %s", e.fk)
+		}
+		if got.DisplayColumn != e.displayCol || got.TargetTypeSlug != e.target || got.DisplayProperty != e.displayProp {
+			t.Errorf("%s: got %+v, want displayCol=%s target=%s displayProp=%s",
+				e.fk, got, e.displayCol, e.target, e.displayProp)
+		}
+	}
+
+	// Reverse references stay consistent: each target type should report
+	// course-instance as a referrer. This guards against the maps drifting.
+	for _, target := range []string{"course", "instructor", "location"} {
+		revs := pm.ReverseReferences(target)
+		if len(revs) != 1 || revs[0].ReferencingTypeSlug != "course-instance" {
+			t.Errorf("reverse refs for %s: got %+v, want one entry ReferencingTypeSlug=course-instance",
+				target, revs)
+		}
+	}
+}
+
+func TestForwardReferences_DeduplicatesOnReEnsureTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+
+	schema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"},
+			"courseId": {"type": "string", "x-resource-type": "course"}
+		}
+	}`)
+	ctx := context.Background()
+	if err := pm.EnsureTable(ctx, "course-instance", schema, nil); err != nil {
+		t.Fatalf("first EnsureTable failed: %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "course-instance", schema, nil); err != nil {
+		t.Fatalf("second EnsureTable failed: %v", err)
+	}
+
+	fwd := pm.ForwardReferences("course-instance")
+	if len(fwd) != 1 {
+		t.Fatalf("expected deduped forward refs (1 entry), got %d: %+v", len(fwd), fwd)
+	}
+	revs := pm.ReverseReferences("course")
+	if len(revs) != 1 {
+		t.Fatalf("expected deduped reverse refs (1 entry), got %d: %+v", len(revs), revs)
+	}
+}
+
+func TestForwardReferences_NoXResourceTypeReturnsNil(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+
+	schema := json.RawMessage(`{
+		"type": "object",
+		"properties": {"name": {"type": "string"}, "price": {"type": "number"}}
+	}`)
+	if err := pm.EnsureTable(context.Background(), "course", schema, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+	if fwd := pm.ForwardReferences("course"); fwd != nil {
+		t.Errorf("expected nil forward refs for schema without x-resource-type, got %+v", fwd)
 	}
 }

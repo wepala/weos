@@ -32,6 +32,11 @@ export interface ColumnDescriptor {
   dataIndex: string
   key: string
   resourceType?: string
+  // displayKey is the sibling camelCase key on the projection row that holds
+  // the denormalised display value for an x-resource-type reference — e.g.
+  // `courseIdDisplay` alongside `courseId`. Tables render from this field
+  // directly, falling back to the FK value when it is null.
+  displayKey?: string
   format?: string
   order?: number
   sorter?: (a: any, b: any) => number
@@ -74,6 +79,11 @@ export function useSchemaUtils() {
 
       if (prop['x-resource-type']) {
         col.resourceType = prop['x-resource-type']
+        // API contract: flat list/detail responses carry a sibling
+        // `<fkCamelCase>Display` field alongside every x-resource-type property,
+        // holding the denormalised reference name. Tables and detail views
+        // render from this field directly and fall back to the raw FK when null.
+        col.displayKey = key + 'Display'
       }
 
       if (prop.format) {

@@ -21,6 +21,12 @@ import (
 type ResourceService interface {
 	Create(ctx context.Context, cmd CreateResourceCommand) (*entities.Resource, error)
 	GetByID(ctx context.Context, id string) (*entities.Resource, error)
+	// GetFlat returns a single resource as a flat projection row (camelCase keys),
+	// including denormalized _display columns for x-resource-type references.
+	// Used by detail views so the frontend can render reference names without a
+	// client-side ID→name lookup cache. Returns an error for types with no
+	// projection table; caller should fall back to GetByID.
+	GetFlat(ctx context.Context, typeSlug, id string) (map[string]any, error)
 	List(ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions) (
 		repositories.PaginatedResponse[*entities.Resource], error)
 	ListFlat(ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions) (
@@ -363,6 +369,28 @@ func (s *resourceService) ListFlat(
 	ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions,
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	return s.repo.FindAllByTypeFlat(ctx, typeSlug, cursor, limit, sort, s.buildVisibilityScope(ctx))
+}
+
+func (s *resourceService) GetFlat(
+	ctx context.Context, typeSlug, id string,
+) (map[string]any, error) {
+	// Reuse GetByID for the access check — centralizes ErrAccessDenied
+	// semantics so the flat path and entity path enforce ownership identically.
+	entity, err := s.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// Reject cross-type lookups: a URL like /resources/course/<id-of-a-product>
+	// must not leak a product row through the course projection table. Without
+	// this check, GetByID would approve access based on the product's ACL while
+	// FindFlatByID queries the wrong table, risking data bleed if IDs collide.
+	if entity.TypeSlug() != typeSlug {
+		return nil, fmt.Errorf(
+			"resource %q is of type %q, not %q: %w",
+			id, entity.TypeSlug(), typeSlug, repositories.ErrNotFound,
+		)
+	}
+	return s.repo.FindFlatByID(ctx, typeSlug, id)
 }
 
 func (s *resourceService) ListFlatWithFilters(

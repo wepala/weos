@@ -177,6 +177,10 @@ func (r *stubRepo) FindAllByTypeFlatWithFilters(
 	return repositories.PaginatedResponse[map[string]any]{Data: data}, nil
 }
 
+func (*stubRepo) FindFlatByID(context.Context, string, string) (map[string]any, error) {
+	return nil, nil
+}
+
 func matchesAllFilters(row map[string]any, filters []repositories.FilterCondition) bool {
 	for _, f := range filters {
 		if f.Operator != "eq" {

@@ -40,7 +40,7 @@
             {{ resource[field.key] ? 'Yes' : 'No' }}
           </template>
           <template v-else-if="field.inputType === 'resource-select' && field.resourceType && resource[field.key]">
-            {{ resolve(field.resourceType, resource[field.key]) }}
+            {{ resource[field.key + 'Display'] || resource[field.key] }}
           </template>
           <template v-else>
             {{ resource[field.key] || '-' }}
@@ -86,7 +86,6 @@ const { resourceTypes, getBySlug, fetchResourceTypes, loaded } = useResourceType
 const { get } = useResourceApi(typeSlug)
 const { schemaToFields, schemaToColumns } = useSchemaUtils()
 const { getChildren } = useSidebarSettings()
-const { preloadType, resolve } = useResourceLookup()
 
 const resource = ref<any>(null)
 const loading = ref(true)
@@ -196,9 +195,6 @@ onMounted(async () => {
     loading.value = false
   }
   if (resource.value) {
-    for (const field of fields.value) {
-      if (field.resourceType) preloadType(field.resourceType)
-    }
     initChildSections()
   }
 })

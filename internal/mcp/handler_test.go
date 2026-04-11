@@ -93,6 +93,12 @@ func (s *stubResourceService) ListFlat(
 	return repositories.PaginatedResponse[map[string]any]{}, nil
 }
 
+func (s *stubResourceService) GetFlat(
+	_ context.Context, _, _ string,
+) (map[string]any, error) {
+	return nil, nil
+}
+
 func (s *stubResourceService) ListByField(
 	_ context.Context, _, _, _ string,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {

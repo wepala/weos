@@ -13,8 +13,10 @@ func NewProjectionManagerForTest(db *gorm.DB, logger entities.Logger) repositori
 }
 
 // NewResourceRepositoryForTest creates a ResourceRepository without fx wiring.
-func NewResourceRepositoryForTest(db *gorm.DB, projMgr repositories.ProjectionManager) repositories.ResourceRepository {
-	return &ResourceRepository{db: db, projMgr: projMgr}
+func NewResourceRepositoryForTest(
+	db *gorm.DB, projMgr repositories.ProjectionManager, logger entities.Logger,
+) repositories.ResourceRepository {
+	return &ResourceRepository{db: db, projMgr: projMgr, logger: logger}
 }
 
 // NewResourceTypeRepositoryForTest creates a ResourceTypeRepository without fx wiring.
