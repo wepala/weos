@@ -5,6 +5,7 @@ import (
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
+	"weos/infrastructure/auth"
 	"weos/infrastructure/database/gorm"
 	"weos/infrastructure/email"
 	"weos/infrastructure/events"
@@ -90,6 +91,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideAuthorizationChecker),
 		fx.Provide(ProvideAuthenticationService),
 		fx.Provide(ProvideSessionManager),
+		fx.Provide(auth.ProvideInviteTokenService),
 
 		// Resource behavior registries (must come before ProvideResourceService).
 		// The lazy resource writer breaks the construction cycle between
