@@ -405,9 +405,17 @@ func classifyScheduleWarning(w string) (string, string) {
 		strings.Contains(lower, "truncat"):
 		return "Schedule expansion was truncated: " + w,
 			"scheduled_meal_expansion_truncated"
-	default:
+	case strings.Contains(lower, "startdate") &&
+		strings.Contains(lower, "does not match"):
+		return "Schedule startDate does not match recurrence filters: " + w,
+			"scheduled_meal_start_date_filter_mismatch"
+	case strings.Contains(lower, "not a valid date") ||
+		strings.Contains(lower, "not a string"):
 		return "Schedule contains invalid exceptDate entry: " + w,
 			"scheduled_meal_invalid_except_date"
+	default:
+		return "Schedule warning: " + w,
+			"scheduled_meal_schedule_warning"
 	}
 }
 
