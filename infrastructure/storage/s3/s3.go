@@ -81,7 +81,7 @@ func (s *s3FileService) Upload(
 	}
 
 	s.logger.Info(ctx, "file uploaded to S3",
-		"bucket", s.bucket, "key", key, "size", cr.n)
+		"bucket", s.bucket, "region", s.region, "key", key, "size", cr.n)
 
 	return &services.UploadResult{
 		ID:          id,
