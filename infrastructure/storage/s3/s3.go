@@ -80,7 +80,9 @@ func (s *s3FileService) Upload(
 		return nil, fmt.Errorf("upload to S3: %w", err)
 	}
 
-	url := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.bucket, s.region, key)
+	// Use path-style URL to avoid TLS cert mismatch with dotted bucket names
+	// and to work across non-standard endpoints (GovCloud, China, dualstack).
+	url := fmt.Sprintf("https://s3.%s.amazonaws.com/%s/%s", s.region, s.bucket, key)
 
 	s.logger.Info(ctx, "file uploaded to S3",
 		"bucket", s.bucket, "region", s.region, "key", key, "size", cr.n)

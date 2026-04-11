@@ -101,7 +101,10 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 // proceeding would silently corrupt the stored file (missing sniffed bytes).
 func detectContentType(file io.ReadSeeker) (string, error) {
 	buf := make([]byte, sniffBufSize)
-	n, _ := file.Read(buf)
+	n, readErr := file.Read(buf)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return "", fmt.Errorf("read for content-type sniff: %w", readErr)
+	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return "", fmt.Errorf("rewind after content-type sniff: %w", err)
 	}
