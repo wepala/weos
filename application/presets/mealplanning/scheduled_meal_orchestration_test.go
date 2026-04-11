@@ -69,7 +69,9 @@ func TestGenerateOccurrences_AfterCreate_CreatesForEachDate(t *testing.T) {
 			t.Fatalf("unexpected typeSlug: %q", c.TypeSlug)
 		}
 		var m map[string]any
-		_ = json.Unmarshal(c.Data, &m)
+		if err := json.Unmarshal(c.Data, &m); err != nil {
+			t.Fatalf("failed to unmarshal create payload: %v; data=%s", err, c.Data)
+		}
 		if m["status"] != "planned" {
 			t.Fatalf("expected status=planned, got %v", m["status"])
 		}

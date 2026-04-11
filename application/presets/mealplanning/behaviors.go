@@ -44,17 +44,37 @@ func newBase(svc application.BehaviorServices) baseBehavior {
 }
 
 // visibilityScope derives a per-request VisibilityScope from the auth
-// context. Behaviors must scope queries to the current user's resources
-// in multi-user environments. Returns nil for system contexts (CLI/MCP
-// without auth), which disables visibility filtering.
-func visibilityScope(ctx context.Context) *repositories.VisibilityScope {
+// context. When auth context is absent (CLI, MCP, background jobs),
+// falls back to the triggering resource's ownership so behaviors never
+// query/mutate resources across tenants.
+//
+// Pass the triggering resource as a fallback; if both auth and resource
+// are unavailable, returns a scope that matches nothing (fail closed).
+func visibilityScope(
+	ctx context.Context, fallback *entities.Resource,
+) *repositories.VisibilityScope {
 	identity := auth.AgentFromCtx(ctx)
-	if identity == nil {
-		return nil
+	if identity != nil {
+		return &repositories.VisibilityScope{
+			AgentID:   identity.AgentID,
+			AccountID: identity.ActiveAccountID,
+			IsAdmin:   false,
+		}
 	}
+	// No auth context — fall back to the resource's ownership fields.
+	if fallback != nil {
+		if aid := fallback.AccountID(); aid != "" {
+			return &repositories.VisibilityScope{
+				AgentID:   fallback.CreatedBy(),
+				AccountID: aid,
+				IsAdmin:   false,
+			}
+		}
+	}
+	// Fail closed: scope that cannot match any resource.
 	return &repositories.VisibilityScope{
-		AgentID:   identity.AgentID,
-		AccountID: identity.ActiveAccountID,
+		AgentID:   "__no_identity__",
+		AccountID: "__no_identity__",
 		IsAdmin:   false,
 	}
 }
@@ -63,8 +83,13 @@ func visibilityScope(ctx context.Context) *repositories.VisibilityScope {
 // values for reference properties (which are stripped from the JSON-LD
 // data stored in Resource.Data()). Returns nil if the resource is not found
 // or has no projection row.
+// loadFlatRow loads the flat projection row for a resource, including FK
+// values for reference properties (which are stripped from the JSON-LD
+// data stored in Resource.Data()). The fallback resource is used to
+// derive a VisibilityScope when auth context is absent.
 func (b *baseBehavior) loadFlatRow(
 	ctx context.Context, typeSlug, id string,
+	fallback *entities.Resource,
 ) map[string]any {
 	if b.svc.Resources == nil {
 		addNilSvcWarning(ctx, "loadFlatRow")
@@ -75,7 +100,7 @@ func (b *baseBehavior) loadFlatRow(
 	}
 	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
 		ctx, typeSlug, filters, "", 1, repositories.SortOptions{},
-		visibilityScope(ctx),
+		visibilityScope(ctx, fallback),
 	)
 	if err != nil || len(resp.Data) == 0 {
 		return nil

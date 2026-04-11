@@ -89,7 +89,7 @@ func (b *enforceSingleDefaultBehavior) enforce(
 	filters := []repositories.FilterCondition{
 		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
-	scope := visibilityScope(ctx)
+	scope := visibilityScope(ctx, resource)
 	const pageSize = 100
 	cursor := ""
 	for {

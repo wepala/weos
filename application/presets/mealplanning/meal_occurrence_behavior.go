@@ -127,7 +127,7 @@ func (b *depletePantryOnCookBehavior) deplete(
 
 	// Load the flat projection row which includes FK values for reference
 	// properties (scheduledMeal, etc.) that are stripped from Resource.Data().
-	occurrence := b.loadFlatRow(ctx, "meal-occurrence", resource.GetID())
+	occurrence := b.loadFlatRow(ctx, "meal-occurrence", resource.GetID(), resource)
 	if occurrence == nil {
 		if b.logger != nil {
 			b.logger.Error(ctx, "depletion: failed to load occurrence flat row",
@@ -152,7 +152,7 @@ func (b *depletePantryOnCookBehavior) deplete(
 	}
 
 	// Load scheduled meal flat row to get recipe + mealPlan FK values.
-	smData := b.loadFlatRow(ctx, "scheduled-meal", scheduledMealID)
+	smData := b.loadFlatRow(ctx, "scheduled-meal", scheduledMealID, resource)
 	if smData == nil {
 		addServiceErrorMessage(ctx, b.logger,
 			"depletion: failed to load scheduled meal",
@@ -172,7 +172,7 @@ func (b *depletePantryOnCookBehavior) deplete(
 	}
 
 	// Load recipe flat row to get recipeYield for scaling.
-	recipeData := b.loadFlatRow(ctx, "recipe", recipeID)
+	recipeData := b.loadFlatRow(ctx, "recipe", recipeID, resource)
 	if recipeData == nil {
 		addServiceErrorMessage(ctx, b.logger,
 			"depletion: failed to load recipe",
@@ -184,7 +184,7 @@ func (b *depletePantryOnCookBehavior) deplete(
 
 	scale := computeScalingFactor(occurrence, recipeData)
 
-	scope := visibilityScope(ctx)
+	scope := visibilityScope(ctx, resource)
 	ingredientFilters := []repositories.FilterCondition{
 		{Field: "recipe", Operator: "eq", Value: recipeID},
 	}
@@ -201,7 +201,7 @@ func (b *depletePantryOnCookBehavior) deplete(
 		return
 	}
 
-	pantryID := b.resolvePantry(ctx, smData)
+	pantryID := b.resolvePantry(ctx, resource)
 	if pantryID == "" {
 		entities.AddMessage(ctx, entities.Message{
 			Type: "warning",
@@ -216,13 +216,14 @@ func (b *depletePantryOnCookBehavior) deplete(
 	}
 
 	for _, ri := range riResp.Data {
-		b.depleteIngredient(ctx, ri, pantryID, scale)
+		b.depleteIngredient(ctx, ri, pantryID, scale, resource)
 	}
 }
 
 // depleteIngredient decrements FoodItem quantities for a single RecipeIngredient.
 func (b *depletePantryOnCookBehavior) depleteIngredient(
 	ctx context.Context, ri map[string]any, pantryID string, scale float64,
+	resource *entities.Resource,
 ) {
 	ingredientID, _ := ri["ingredient"].(string)
 	if ingredientID == "" {
@@ -244,7 +245,7 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 	}
 	// Page through all matching FoodItems to handle large inventories.
 	const pageSize = 100
-	scope := visibilityScope(ctx)
+	scope := visibilityScope(ctx, resource)
 	var allItems []map[string]any
 	cursor := ""
 	for {
@@ -373,7 +374,7 @@ func (b *depletePantryOnCookBehavior) updateFoodItemQuantity(
 // "pantry" reference to the meal-plan type, at which point this function
 // would check that first before falling back to the default.
 func (b *depletePantryOnCookBehavior) resolvePantry(
-	ctx context.Context, _ map[string]any,
+	ctx context.Context, resource *entities.Resource,
 ) string {
 	if b.svc.Resources == nil {
 		return ""
@@ -385,7 +386,7 @@ func (b *depletePantryOnCookBehavior) resolvePantry(
 		{Field: "isDefault", Operator: "eq", Value: "1"},
 	}
 	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
-		ctx, "pantry", filters, "", 1, repositories.SortOptions{}, visibilityScope(ctx),
+		ctx, "pantry", filters, "", 1, repositories.SortOptions{}, visibilityScope(ctx, resource),
 	)
 	if err != nil {
 		if b.logger != nil {

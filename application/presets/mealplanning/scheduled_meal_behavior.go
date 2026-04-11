@@ -182,7 +182,7 @@ func (b *scheduledMealBehavior) regenerateOccurrences(
 	emitScheduleWarnings(ctx, warnings, capped)
 
 	// List existing occurrences (propagate error instead of silent no-op).
-	existing, listErr := b.listOccurrences(ctx, resource.GetID())
+	existing, listErr := b.listOccurrences(ctx, resource.GetID(), resource)
 	if listErr != nil {
 		addServiceErrorMessage(ctx, b.logger,
 			"scheduled-meal behavior: failed to list existing occurrences",
@@ -308,7 +308,7 @@ func (b *scheduledMealBehavior) cascadeDelete(
 		return
 	}
 
-	existing, err := b.listOccurrences(ctx, resource.GetID())
+	existing, err := b.listOccurrences(ctx, resource.GetID(), resource)
 	if err != nil {
 		addServiceErrorMessage(ctx, b.logger,
 			"scheduled-meal behavior: cascade delete list failed",
@@ -344,6 +344,7 @@ func (b *scheduledMealBehavior) cascadeDelete(
 // scheduled meal. Errors are propagated so callers can react.
 func (b *scheduledMealBehavior) listOccurrences(
 	ctx context.Context, scheduledMealID string,
+	fallback *entities.Resource,
 ) ([]map[string]any, error) {
 	if b.svc.Resources == nil {
 		return nil, errors.New("resource repository not injected")
@@ -360,7 +361,7 @@ func (b *scheduledMealBehavior) listOccurrences(
 	for {
 		resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
 			ctx, "meal-occurrence", filters, cursor, pageSize,
-			repositories.SortOptions{}, visibilityScope(ctx),
+			repositories.SortOptions{}, visibilityScope(ctx, fallback),
 		)
 		if err != nil {
 			return nil, err
