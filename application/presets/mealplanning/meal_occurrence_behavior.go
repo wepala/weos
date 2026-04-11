@@ -151,7 +151,7 @@ func (b *depletePantryOnCookBehavior) deplete(
 		return
 	}
 
-	// Load scheduled meal flat row to get recipe + mealPlan FK values.
+	// Load scheduled meal flat row to get the recipe FK value.
 	smData := b.loadFlatRow(ctx, "scheduled-meal", scheduledMealID, resource)
 	if smData == nil {
 		addServiceErrorMessage(ctx, b.logger,
@@ -283,19 +283,24 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 	sortFoodItemsByExpiration(allItems)
 
 	remaining := neededQty
+	unitMismatchEmitted := false
 	for _, fi := range allItems {
 		if remaining <= 0 {
 			break
 		}
 		fiUnit, _ := fi["unit"].(string)
 		if fiUnit != neededUnit {
-			entities.AddMessage(ctx, entities.Message{
-				Type: "warning",
-				Text: fmt.Sprintf(
-					"Unit mismatch depleting %q: recipe=%s, pantry=%s — skipped",
-					ingredientID, neededUnit, fiUnit),
-				Code: "pantry_depletion_unit_mismatch",
-			})
+			// Emit the mismatch warning once per ingredient, not per item.
+			if !unitMismatchEmitted {
+				entities.AddMessage(ctx, entities.Message{
+					Type: "warning",
+					Text: fmt.Sprintf(
+						"Unit mismatch depleting %q: recipe=%s, pantry has %s — mismatched items skipped",
+						ingredientID, neededUnit, fiUnit),
+					Code: "pantry_depletion_unit_mismatch",
+				})
+				unitMismatchEmitted = true
+			}
 			continue
 		}
 		available := toFloat(fi["quantity"])

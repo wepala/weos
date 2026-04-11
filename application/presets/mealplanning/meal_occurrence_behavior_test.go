@@ -34,20 +34,6 @@ func setupDepletionBehavior(t *testing.T) (
 	stub := newStubResourceSvc()
 	b := newDepletePantryOnCookBehavior(testBehaviorServices(stub))
 
-	// Seed ScheduledMeal resource.
-	sm := makeTestResource(t, "sm-1", "scheduled-meal", map[string]any{
-		"recipe":   "recipe-1",
-		"mealPlan": "mp-1",
-	})
-	stub.getByIDData["sm-1"] = sm
-
-	// Seed MealPlan resource with an explicit pantry.
-	mp := makeTestResource(t, "mp-1", "meal-plan", map[string]any{
-		"name":   "Week",
-		"pantry": "pantry-1",
-	})
-	stub.getByIDData["mp-1"] = mp
-
 	// Seed Recipe with yield=2.
 	recipe := makeTestResource(t, "recipe-1", "recipe", map[string]any{
 		"name": "Pasta",
@@ -68,7 +54,7 @@ func setupDepletionBehavior(t *testing.T) (
 		},
 	}
 	stub.listFlatData["scheduled-meal"] = []map[string]any{
-		{"id": "sm-1", "recipe": "recipe-1", "mealPlan": "mp-1"},
+		{"id": "sm-1", "recipe": "recipe-1"},
 	}
 	// Projection rows store object-valued fields as JSON strings.
 	stub.listFlatData["recipe"] = []map[string]any{
@@ -76,9 +62,6 @@ func setupDepletionBehavior(t *testing.T) (
 			"id": "recipe-1", "name": "Pasta",
 			"recipeYield": `{"value":2,"unitText":"servings"}`,
 		},
-	}
-	stub.listFlatData["meal-plan"] = []map[string]any{
-		{"id": "mp-1", "name": "Week"},
 	}
 	// Seed a default pantry (depletion always uses the default pantry).
 	stub.listFlatData["pantry"] = []map[string]any{
