@@ -31,15 +31,16 @@ func setupScheduledMealBehavior(t *testing.T) (*scheduledMealBehavior, *stubReso
 	return b, stub
 }
 
-// futureDate / pastDate use time.Now().UTC() to match the behavior code's
-// day-boundary comparisons. Using local time would make these helpers
-// timezone-dependent and flaky around midnight.
+// scheduledMealTestBaseNow is captured once so all helpers use the same
+// UTC day, avoiding flakiness if the test suite runs across midnight.
+var scheduledMealTestBaseNow = time.Now().UTC().Truncate(24 * time.Hour)
+
 func futureDate(days int) string {
-	return time.Now().UTC().AddDate(0, 0, days).Format("2006-01-02")
+	return scheduledMealTestBaseNow.AddDate(0, 0, days).Format("2006-01-02")
 }
 
 func pastDate(days int) string {
-	return time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
+	return scheduledMealTestBaseNow.AddDate(0, 0, -days).Format("2006-01-02")
 }
 
 func TestGenerateOccurrences_AfterCreate_CreatesForEachDate(t *testing.T) {

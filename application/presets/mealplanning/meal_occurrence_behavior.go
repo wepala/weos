@@ -242,19 +242,32 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 		{Field: "pantry", Operator: "eq", Value: pantryID},
 		{Field: "ingredient", Operator: "eq", Value: ingredientID},
 	}
-	resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
-		ctx, "food-item", filters, "", 500, repositories.SortOptions{}, visibilityScope(ctx),
-	)
-	if err != nil {
-		addServiceErrorMessage(ctx, b.logger,
-			"depletion: failed to list food items",
-			fmt.Sprintf("failed to load food items for %q; pantry not depleted",
-				ingredientID),
-			"pantry_depletion_food_item_list_error",
-			"ingredient", ingredientID, "error", err)
-		return
+	// Page through all matching FoodItems to handle large inventories.
+	const pageSize = 100
+	scope := visibilityScope(ctx)
+	var allItems []map[string]any
+	cursor := ""
+	for {
+		resp, err := b.svc.Resources.FindAllByTypeFlatWithFilters(
+			ctx, "food-item", filters, cursor, pageSize,
+			repositories.SortOptions{}, scope,
+		)
+		if err != nil {
+			addServiceErrorMessage(ctx, b.logger,
+				"depletion: failed to list food items",
+				fmt.Sprintf("failed to load food items for %q; pantry not depleted",
+					ingredientID),
+				"pantry_depletion_food_item_list_error",
+				"ingredient", ingredientID, "error", err)
+			return
+		}
+		allItems = append(allItems, resp.Data...)
+		if resp.Cursor == "" || len(resp.Data) < pageSize {
+			break
+		}
+		cursor = resp.Cursor
 	}
-	if len(resp.Data) == 0 {
+	if len(allItems) == 0 {
 		// No matching food items means full shortfall.
 		entities.AddMessage(ctx, entities.Message{
 			Type: "warning",
@@ -266,10 +279,10 @@ func (b *depletePantryOnCookBehavior) depleteIngredient(
 		return
 	}
 
-	sortFoodItemsByExpiration(resp.Data)
+	sortFoodItemsByExpiration(allItems)
 
 	remaining := neededQty
-	for _, fi := range resp.Data {
+	for _, fi := range allItems {
 		if remaining <= 0 {
 			break
 		}
