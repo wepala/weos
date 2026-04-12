@@ -17,6 +17,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -87,6 +88,9 @@ func (h *ResourceTypeHandler) Create(c echo.Context) error {
 		},
 	)
 	if err != nil {
+		if errors.Is(err, application.ErrValidation) {
+			return respondError(c, http.StatusBadRequest, err.Error())
+		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return respond(c, http.StatusCreated, toResourceTypeResponse(entity))
@@ -174,6 +178,9 @@ func (h *ResourceTypeHandler) Update(c echo.Context) error {
 		},
 	)
 	if err != nil {
+		if errors.Is(err, application.ErrValidation) {
+			return respondError(c, http.StatusBadRequest, err.Error())
+		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return respond(c, http.StatusOK, toResourceTypeResponse(entity))

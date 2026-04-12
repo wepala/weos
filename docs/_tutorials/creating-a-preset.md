@@ -113,19 +113,16 @@ func menuItemType() application.PresetResourceType {
 
 ## Step 2: Register the Preset
 
-Open `application/presets/register.go` and add your preset to the `RegisterAll` function:
+Open `application/presets/register.go` and add your preset's import and registration call to the `RegisterAll` function. The existing built-in presets are already registered there; you only need to add the new line:
 
 ```go
-import "github.com/wepala/weos/application/presets/restaurant"
+import (
+    // ... existing imports ...
+    "weos/application/presets/restaurant" // Add this import
+)
 
 func RegisterAll(r *application.PresetRegistry) {
-    core.Register(r)
-    auth.Register(r)
-    ecommerce.Register(r)
-    tasks.Register(r)
-    website.Register(r)
-    events.Register(r)
-    knowledge.Register(r)
+    // ... existing Register calls ...
     restaurant.Register(r) // Add this line
 }
 ```

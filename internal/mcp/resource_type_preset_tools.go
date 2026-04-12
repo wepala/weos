@@ -32,7 +32,7 @@ type PresetBehaviorMeta struct {
 }
 
 type PresetInstallInput struct {
-	Name   string `json:"name" jsonschema:"preset name to install (core, auth, website, events, tasks, knowledge)"`
+	Name   string `json:"name" jsonschema:"preset name to install (core, website, events, tasks, knowledge, ecommerce, meal-planning)"`
 	Update bool   `json:"update,omitempty" jsonschema:"update existing resource types with preset definitions instead of skipping"`
 }
 

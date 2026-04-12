@@ -94,4 +94,4 @@ weos org delete urn:organization:abc123
 - **Person** — a domain entity (FOAF/Schema.org). Represents a person in your content model.
 - **User** — an auth entity. Represents someone who can log in.
 
-They're separate resource types. A person exists in your content; a user exists in your auth system. They may or may not correspond to the same real person.
+They're separate entity types. A person exists in your content model (managed as a resource type); a user exists in the auth system (managed as a dedicated domain entity via `/api/users`). They may or may not correspond to the same real person.

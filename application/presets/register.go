@@ -4,7 +4,6 @@ package presets
 
 import (
 	"weos/application"
-	"weos/application/presets/auth"
 	"weos/application/presets/core"
 	"weos/application/presets/ecommerce"
 	"weos/application/presets/events"
@@ -30,7 +29,6 @@ func Register(fn func(*application.PresetRegistry)) {
 // RegisterAll registers all built-in presets with the given registry.
 func RegisterAll(registry *application.PresetRegistry) {
 	core.Register(registry)
-	auth.Register(registry)
 	ecommerce.Register(registry)
 	tasks.Register(registry)
 	website.Register(registry)
