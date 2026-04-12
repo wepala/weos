@@ -39,6 +39,8 @@
 </template>
 
 <script setup lang="ts">
+import { forwardMessages } from '~/composables/useApi'
+
 definePageMeta({
   layout: false,
 })
@@ -86,7 +88,9 @@ onMounted(async () => {
       accepted.value = true
       setTimeout(() => navigateTo('/'), 1500)
     } catch (err: any) {
+      if (err?.data) forwardMessages(err.data)
       error.value = err?.data?.error || 'Failed to accept invite.'
+      console.error('[invite] accept failed:', err)
     } finally {
       accepting.value = false
     }

@@ -287,7 +287,7 @@ async function handleInvite() {
       body: { email: inviteForm.email, role: inviteForm.role },
     })
     const res = unwrapEnvelope<any>(raw)
-    inviteLink.value = `${window.location.origin}/invite?token=${res.token}`
+    inviteLink.value = `${window.location.origin}/invite?token=${encodeURIComponent(res.token)}`
     message.success('Invite link generated')
     await fetchInvites()
   } catch (err: any) {

@@ -316,7 +316,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.POST("/invites", inviteHandler.Create)
 	protected.GET("/invites", inviteHandler.List)
 	protected.DELETE("/invites/:id", inviteHandler.Revoke)
-	api.POST("/invites/accept", inviteHandler.Accept)
+
+	// Accept uses a separate group that loads session identity when present
+	// (so the handler can verify email from the session) but does not require
+	// auth — the invite token itself is the authorization.
+	acceptGroup := api.Group("")
+	if appCfg.OAuthEnabled() {
+		acceptGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
+	} else {
+		acceptGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
+	}
+	acceptGroup.POST("/invites/accept", inviteHandler.Accept)
 
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
 	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
