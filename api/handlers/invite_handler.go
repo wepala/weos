@@ -225,7 +225,10 @@ func (h *InviteHandler) Accept(c echo.Context) error {
 		Email string `json:"email"`
 		Name  string `json:"name"`
 	}
-	if err := c.Bind(&req); err != nil || req.Token == "" {
+	if err := c.Bind(&req); err != nil {
+		return respondError(c, http.StatusBadRequest, "invalid request")
+	}
+	if req.Token == "" {
 		return respondError(c, http.StatusBadRequest, "token is required")
 	}
 

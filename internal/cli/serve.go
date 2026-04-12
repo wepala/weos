@@ -320,11 +320,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Accept uses a separate group that loads session identity when present
 	// (so the handler can verify email from the session) but does not require
 	// auth — the invite token itself is the authorization.
+	// In dev mode (no OAuth), no auth middleware is applied so the handler
+	// runs anonymously and uses the request-body email. SoftAuth is NOT used
+	// here because it defaults to admin@weos.dev, which would force the
+	// fail-closed session-email path for every accept request.
 	acceptGroup := api.Group("")
 	if appCfg.OAuthEnabled() {
 		acceptGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
-	} else {
-		acceptGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
 	acceptGroup.POST("/invites/accept", inviteHandler.Accept)
 
