@@ -94,6 +94,31 @@ The Task type's `project` property references the Project type, creating a forei
 
 ---
 
+## meal-planning
+
+**Auto-install:** No
+
+| Type | Slug | @type | Properties |
+|------|------|-------|------------|
+| Recipe | `recipe` | schema:Recipe | `name`\*, `description`, `recipeYield` (object), `prepTime`, `cookTime`, `totalTime`, `recipeCuisine`, `recipeCategory`, `keywords` (array), `suitableForDiet` (ref→restricted-diet), `recipeInstructions` (ref→how-to-step), `recipeIngredient` (ref→recipe-ingredient), `nutrition` (ref→nutrition-information), `image` (format: uri) |
+| How-To Step | `how-to-step` | schema:HowToStep | `position`\* (integer), `text`\*, `image` (format: uri), `recipe`\* (ref→recipe) |
+| Ingredient | `ingredient` | fo:Food | `name`\*, `description`, `alternateNames` (array), `shoppingCategory` (enum), `season` (array), `suitableForDiet` (ref→restricted-diet), `defaultUnit`, `image` (format: uri) |
+| Recipe Ingredient | `recipe-ingredient` | mp:RecipeIngredient | `quantity`\* (number), `unit`\*, `preparation`, `optional` (boolean), `recipe`\* (ref→recipe), `ingredient`\* (ref→ingredient) |
+| Nutrition Information | `nutrition-information` | schema:NutritionInformation | `servingSize`\*, `calories`, `proteinContent`, `carbohydrateContent`, `fatContent`, `saturatedFatContent`, `fiberContent`, `sugarContent`, `sodiumContent`, `recipe` (ref→recipe), `ingredient` (ref→ingredient) |
+| Cookbook | `cookbook` | schema:Collection | `name`\*, `description`, `image` (format: uri), `keywords` (array), `recipes` (ref→recipe) |
+| Meal Plan | `meal-plan` | schema:MealPlan | `name`\*, `description`, `startDate`\* (format: date), `endDate`\* (format: date), `suitableForDiet` (ref→restricted-diet) |
+| Scheduled Meal | `scheduled-meal` | schema:Schedule | `startDate`\*, `endDate`, `startTime`, `endTime`, `duration`, `repeatFrequency`, `repeatCount` (integer), `byDay` (array), `mealType`\* (enum), `servings` (number), `notes`, `recipe`\* (ref→recipe), `mealPlan`\* (ref→meal-plan) |
+| Meal Occurrence | `meal-occurrence` | mp:MealOccurrence | `date`\* (format: date), `mealType`\* (enum), `servings` (number), `status`\* (enum: planned, cooked, skipped), `cookedAt` (format: date-time), `notes`, `scheduledMeal`\* (ref→scheduled-meal) |
+| Pantry | `pantry` | mp:Pantry | `name`\*, `description`, `location`, `isDefault` (boolean) |
+| Food Item | `food-item` | mp:FoodItem | `quantity`\* (number), `unit`\*, `storage` (enum), `purchaseDate` (format: date), `expirationDate` (format: date), `notes`, `ingredient`\* (ref→ingredient), `pantry`\* (ref→pantry) |
+| Shopping List | `shopping-list` | mp:ShoppingList | `name`\*, `createdAt` (format: date-time), `status` (enum: draft, active, completed), `mealPlan` (ref→meal-plan), `pantry` (ref→pantry) |
+| Shopping List Item | `shopping-list-item` | mp:ShoppingListItem | `quantity`\* (number), `unit`\*, `checked` (boolean), `notes`, `ingredient`\* (ref→ingredient), `shoppingList`\* (ref→shopping-list) |
+| Restricted Diet | `restricted-diet` | schema:RestrictedDiet | `name`\*, `description`, `identifier` |
+
+Behaviors: `pantry` (enforce single default), `scheduled-meal` (generate meal occurrences), `meal-occurrence` (deplete pantry on cook). Hidden from sidebar by default: how-to-step, recipe-ingredient, nutrition-information, meal-occurrence, food-item, shopping-list-item, restricted-diet.
+
+---
+
 \* = required property
 
 ## JSON Schema Extensions
