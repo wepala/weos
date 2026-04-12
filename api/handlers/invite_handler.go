@@ -86,7 +86,7 @@ func (h *InviteHandler) Create(c echo.Context) error {
 	accountID := identity.ActiveAccountID
 	if accountID == "" {
 		var acctErr error
-		accountID, acctErr = h.defaultAccountID(ctx)
+		accountID, acctErr = h.agentAccountID(ctx, identity.AgentID)
 		if acctErr != nil {
 			h.logger.Error(ctx, "failed to resolve account", "error", acctErr)
 			return respondError(c, http.StatusInternalServerError, "failed to resolve account")
@@ -132,13 +132,13 @@ func (h *InviteHandler) List(c echo.Context) error {
 	}
 
 	identity := auth.AgentFromCtx(ctx)
-	accountID := ""
-	if identity != nil {
-		accountID = identity.ActiveAccountID
+	if identity == nil {
+		return respondError(c, http.StatusUnauthorized, "not authenticated")
 	}
+	accountID := identity.ActiveAccountID
 	if accountID == "" {
 		var acctErr error
-		accountID, acctErr = h.defaultAccountID(ctx)
+		accountID, acctErr = h.agentAccountID(ctx, identity.AgentID)
 		if acctErr != nil {
 			h.logger.Error(ctx, "failed to resolve account", "error", acctErr)
 			return respondError(c, http.StatusInternalServerError, "failed to resolve account")
@@ -262,13 +262,13 @@ func (h *InviteHandler) Accept(c echo.Context) error {
 	})
 }
 
-func (h *InviteHandler) defaultAccountID(ctx context.Context) (string, error) {
-	accounts, err := h.accountRepo.FindAll(ctx, "", 1)
+func (h *InviteHandler) agentAccountID(ctx context.Context, agentID string) (string, error) {
+	accounts, err := h.accountRepo.FindByMember(ctx, agentID)
 	if err != nil {
 		return "", err
 	}
-	if len(accounts.Data) == 0 {
+	if len(accounts) == 0 {
 		return "", nil
 	}
-	return accounts.Data[0].GetID(), nil
+	return accounts[0].GetID(), nil
 }
