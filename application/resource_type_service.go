@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
@@ -16,6 +17,29 @@ import (
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
 )
+
+// slugPattern enforces kebab-case identifiers: lowercase alphanumeric
+// segments separated by single hyphens, max 64 characters. This prevents
+// malformed slugs from reaching route registration or SQL DDL.
+var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+const maxSlugLen = 64
+
+func validateSlug(slug string) error {
+	if slug == "" {
+		return fmt.Errorf("slug must not be empty: %w", ErrValidation)
+	}
+	if len(slug) > maxSlugLen {
+		return fmt.Errorf("slug must be at most %d characters: %w", maxSlugLen, ErrValidation)
+	}
+	if !slugPattern.MatchString(slug) {
+		return fmt.Errorf("slug %q must be lowercase kebab-case (a-z, 0-9, hyphens): %w", slug, ErrValidation)
+	}
+	if reservedSlugs[slug] {
+		return fmt.Errorf("slug %q is reserved: %w", slug, ErrValidation)
+	}
+	return nil
+}
 
 // ErrValidation is returned for client-side validation failures (bad input).
 var ErrValidation = errors.New("validation error")
@@ -127,8 +151,8 @@ func ProvideResourceTypeService(params struct {
 func (s *resourceTypeService) Create(
 	ctx context.Context, cmd CreateResourceTypeCommand,
 ) (*entities.ResourceType, error) {
-	if reservedSlugs[cmd.Slug] {
-		return nil, fmt.Errorf("slug %q is reserved", cmd.Slug)
+	if err := validateSlug(cmd.Slug); err != nil {
+		return nil, err
 	}
 	entity, err := new(entities.ResourceType).With(
 		cmd.Name, cmd.Slug, cmd.Description, cmd.Context, cmd.Schema,
@@ -170,8 +194,8 @@ func (s *resourceTypeService) List(
 func (s *resourceTypeService) Update(
 	ctx context.Context, cmd UpdateResourceTypeCommand,
 ) (*entities.ResourceType, error) {
-	if reservedSlugs[cmd.Slug] {
-		return nil, fmt.Errorf("slug %q is reserved", cmd.Slug)
+	if err := validateSlug(cmd.Slug); err != nil {
+		return nil, err
 	}
 	entity, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
