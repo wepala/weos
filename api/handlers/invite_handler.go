@@ -101,11 +101,12 @@ func (h *InviteHandler) Create(c echo.Context) error {
 
 	invite, token, err := h.inviteService.CreateInvite(ctx, accountID, req.Email, req.Role, identity.AgentID)
 	if err != nil {
-		h.logger.Error(ctx, "failed to create invite", "error", err)
 		switch {
 		case errors.Is(err, authapp.ErrNotAccountAdmin):
+			h.logger.Warn(ctx, "invite create forbidden", "error", err)
 			return respondError(c, http.StatusForbidden, "admin role required for this account")
 		default:
+			h.logger.Error(ctx, "failed to create invite", "error", err)
 			return respondError(c, http.StatusInternalServerError, "failed to create invite")
 		}
 	}
@@ -193,15 +194,18 @@ func (h *InviteHandler) Revoke(c echo.Context) error {
 	}
 
 	if err := h.inviteService.RevokeInvite(ctx, id, identity.AgentID); err != nil {
-		h.logger.Error(ctx, "failed to revoke invite", "error", err, "invite_id", id)
 		switch {
 		case errors.Is(err, authapp.ErrInviteNotFound):
+			h.logger.Warn(ctx, "invite not found for revoke", "invite_id", id)
 			return respondError(c, http.StatusNotFound, "invite not found")
 		case errors.Is(err, authapp.ErrInviteNotPending):
+			h.logger.Warn(ctx, "invite not pending for revoke", "invite_id", id)
 			return respondError(c, http.StatusConflict, "invite is no longer pending")
 		case errors.Is(err, authapp.ErrNotAccountAdmin):
+			h.logger.Warn(ctx, "revoke forbidden", "error", err, "invite_id", id)
 			return respondError(c, http.StatusForbidden, "admin role required for this account")
 		default:
+			h.logger.Error(ctx, "failed to revoke invite", "error", err, "invite_id", id)
 			return respondError(c, http.StatusInternalServerError, "failed to revoke invite")
 		}
 	}
@@ -261,19 +265,24 @@ func (h *InviteHandler) Accept(c echo.Context) error {
 
 	agent, credential, _, err := h.inviteService.AcceptInvite(ctx, req.Token, userInfo)
 	if err != nil {
-		h.logger.Error(ctx, "failed to accept invite", "error", err)
 		switch {
 		case errors.Is(err, authapp.ErrInviteTokenInvalid):
+			h.logger.Warn(ctx, "invalid invite token", "error", err)
 			return respondError(c, http.StatusBadRequest, "invite token is invalid")
 		case errors.Is(err, authapp.ErrInviteExpired):
+			h.logger.Warn(ctx, "expired invite token", "error", err)
 			return respondError(c, http.StatusBadRequest, "invite has expired")
 		case errors.Is(err, authapp.ErrInviteNotPending):
+			h.logger.Warn(ctx, "invite not pending", "error", err)
 			return respondError(c, http.StatusConflict, "invite is no longer pending")
 		case errors.Is(err, authapp.ErrInviteEmailMismatch):
+			h.logger.Warn(ctx, "invite email mismatch", "error", err)
 			return respondError(c, http.StatusBadRequest, "email does not match invite")
 		case errors.Is(err, authapp.ErrInviteNotFound):
+			h.logger.Warn(ctx, "invite not found", "error", err)
 			return respondError(c, http.StatusNotFound, "invite not found")
 		default:
+			h.logger.Error(ctx, "failed to accept invite", "error", err)
 			return respondError(c, http.StatusInternalServerError, "failed to accept invite")
 		}
 	}
