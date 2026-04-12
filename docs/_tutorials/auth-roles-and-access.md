@@ -19,7 +19,7 @@ WeOS uses a hybrid RBAC (Role-Based Access Control) + ownership model to control
 WeOS manages authentication and authorization through dedicated admin features backed by the Pericarp library (not the resource type system):
 - **User** — a person who can log in (managed via `/api/users`)
 - **Role** — a named permission set (managed via `/api/settings/roles`)
-- **Account** — an organizational tenant
+- **Account** — an organizational tenant; account administration is handled separately and is not covered in this tutorial
 
 Access control is enforced at two levels:
 1. **Role-based policies** — which resource types a role can read, modify, or delete

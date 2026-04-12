@@ -218,10 +218,14 @@ func TestPresets_NoReservedSlugCollisions(t *testing.T) {
 	}
 }
 
-func TestReservedSlugs_ContainsAuthEntities(t *testing.T) {
+func TestReservedSlugs_ContainsAuthAndRoutePrefixes(t *testing.T) {
 	t.Parallel()
 	reserved := application.ReservedResourceTypeSlugs()
-	for _, slug := range []string{"user", "users", "role", "roles", "account", "accounts"} {
+	expected := []string{
+		"user", "users", "role", "roles", "account", "accounts",
+		"auth", "settings", "admin", "uploads", "mcp",
+	}
+	for _, slug := range expected {
 		if !reserved[slug] {
 			t.Fatalf("expected %q to be a reserved slug", slug)
 		}

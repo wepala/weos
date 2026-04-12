@@ -39,6 +39,11 @@ var reservedSlugs = map[string]bool{
 	"roles":          true,
 	"account":        true,
 	"accounts":       true,
+	"auth":           true,
+	"settings":       true,
+	"admin":          true,
+	"uploads":        true,
+	"mcp":            true,
 }
 
 // ReservedResourceTypeSlugs returns the set of slugs that cannot be used as
