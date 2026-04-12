@@ -290,15 +290,16 @@ func (h *InviteHandler) Accept(c echo.Context) error {
 		}
 	}
 
-	credEmail := ""
-	if credential != nil {
+	credEmail := email
+	if credential != nil && credential.Email() != "" {
 		credEmail = credential.Email()
 	}
 
 	return respond(c, http.StatusOK, UserResponse{
-		ID:    agent.GetID(),
-		Name:  agent.Name(),
-		Email: credEmail,
+		ID:     agent.GetID(),
+		Name:   agent.Name(),
+		Email:  credEmail,
+		Status: agent.Status(),
 	})
 }
 

@@ -39,13 +39,14 @@
 </template>
 
 <script setup lang="ts">
-import { forwardMessages } from '~/composables/useApi'
+import { unwrapEnvelope, forwardMessages } from '~/composables/useApi'
 
 definePageMeta({
   layout: false,
 })
 
 const route = useRoute()
+const { user, fetchUser } = useAuth()
 const token = computed(() => (route.query.token as string) || '')
 const error = ref('')
 const accepting = ref(false)
@@ -56,9 +57,6 @@ async function acceptOrLogin() {
     error.value = 'No invite token provided.'
     return
   }
-  // Redirect to OAuth login with a redirect back to this page (preserving the token).
-  // After login, the auth middleware will recognize the user and onMounted will
-  // auto-accept below.
   const redirectBack = `/invite?token=${encodeURIComponent(token.value)}`
   window.location.href = '/api/auth/login?redirect=' + encodeURIComponent(redirectBack)
 }
@@ -71,13 +69,12 @@ onMounted(async () => {
 
   // Check if user is already authenticated (e.g., after OAuth redirect back).
   // If so, auto-accept the invite.
-  const { user, fetchUser } = useAuth()
   await fetchUser()
 
   if (user.value) {
     accepting.value = true
     try {
-      await $fetch('/api/invites/accept', {
+      const raw = await $fetch<unknown>('/api/invites/accept', {
         method: 'POST',
         body: {
           token: token.value,
@@ -85,6 +82,7 @@ onMounted(async () => {
           name: user.value.name || '',
         },
       })
+      forwardMessages(raw)
       accepted.value = true
       setTimeout(() => navigateTo('/'), 1500)
     } catch (err: any) {
