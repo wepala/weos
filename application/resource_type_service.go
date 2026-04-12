@@ -33,10 +33,17 @@ var reservedSlugs = map[string]bool{
 	"sections":       true,
 	"themes":         true,
 	"templates":      true,
+	"user":           true,
+	"users":          true,
+	"role":           true,
+	"roles":          true,
+	"account":        true,
+	"accounts":       true,
 }
 
 // ReservedResourceTypeSlugs returns the set of slugs that cannot be used as
-// resource type identifiers because they conflict with API route prefixes.
+// resource type identifiers because they conflict with API route prefixes or
+// are reserved for dedicated domain entities (auth).
 func ReservedResourceTypeSlugs() map[string]bool {
 	cp := make(map[string]bool, len(reservedSlugs))
 	for k, v := range reservedSlugs {

@@ -19,7 +19,7 @@ weos resource-type preset list
 weos resource-type preset install website
 ```
 
-Available presets: `core`, `auth`, `ecommerce`, `tasks`, `website`, `events`, `knowledge`. See [Preset Catalog]({% link _reference/preset-catalog.md %}).
+Available presets: `core`, `ecommerce`, `tasks`, `website`, `events`, `knowledge`, `meal-planning`. See [Preset Catalog]({% link _reference/preset-catalog.md %}).
 
 To update existing types when re-installing:
 

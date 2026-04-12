@@ -29,7 +29,7 @@ weos serve
 - Starts an Echo HTTP server with API routes under `/api`
 - Serves embedded frontend SPA for all non-API routes
 - Auto-migrates database tables on startup
-- Installs auto-install presets (core, auth)
+- Installs auto-install presets (core)
 - Runs in development mode when OAuth is not configured
 
 **Environment variables used:** `PORT` (overrides `SERVER_PORT`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `FRONTEND_URL`

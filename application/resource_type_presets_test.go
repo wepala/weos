@@ -63,7 +63,7 @@ func TestPresets_AllPresetsExist(t *testing.T) {
 	// The canonical built-in presets. Custom presets registered via the
 	// "custom" build tag (weos-private-presets) may add more on top of this
 	// list, so the assertion is a subset check, not strict equality.
-	expected := []string{"auth", "core", "ecommerce", "events", "knowledge", "meal-planning", "tasks", "website"}
+	expected := []string{"core", "ecommerce", "events", "knowledge", "meal-planning", "tasks", "website"}
 	defs := testRegistry().List()
 	present := make(map[string]application.PresetDefinition, len(defs))
 	for _, d := range defs {
@@ -194,7 +194,7 @@ func TestPresets_AutoInstallFlag(t *testing.T) {
 	t.Parallel()
 	for _, d := range testRegistry().List() {
 		switch d.Name {
-		case "core", "auth":
+		case "core":
 			if !d.AutoInstall {
 				t.Fatalf("preset %q should be marked as AutoInstall", d.Name)
 			}
@@ -214,6 +214,16 @@ func TestPresets_NoReservedSlugCollisions(t *testing.T) {
 			if reserved[pt.Slug] {
 				t.Fatalf("preset %q type slug %q collides with reserved API route", d.Name, pt.Slug)
 			}
+		}
+	}
+}
+
+func TestReservedSlugs_ContainsAuthEntities(t *testing.T) {
+	t.Parallel()
+	reserved := application.ReservedResourceTypeSlugs()
+	for _, slug := range []string{"user", "users", "role", "roles", "account", "accounts"} {
+		if !reserved[slug] {
+			t.Fatalf("expected %q to be a reserved slug", slug)
 		}
 	}
 }

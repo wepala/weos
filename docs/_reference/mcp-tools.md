@@ -173,7 +173,7 @@ No input required.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Preset name (core, auth, website, events, tasks, knowledge, ecommerce) |
+| `name` | string | Yes | Preset name (core, website, events, tasks, knowledge, ecommerce, meal-planning) |
 | `update` | bool | No | Update existing types instead of skipping |
 
 **Output:** `{created: [slug], updated: [slug], skipped: [slug]}`

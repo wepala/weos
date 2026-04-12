@@ -26,18 +26,6 @@ The Person type auto-computes `name` from `givenName` + `familyName`.
 
 ---
 
-## auth
-
-**Auto-install:** Yes
-
-| Type | Slug | @type | Properties |
-|------|------|-------|------------|
-| User | `user` | foaf:Person | `name`, `email`\* (format: email), `avatarURL` (format: uri), `status` (enum: active, inactive, suspended) |
-| Role | `role` | schema:Role | `name`\*, `description`, `roleName`\* |
-| Account | `account` | org:Organization | `name`\*, `slug`\*, `description` |
-
----
-
 ## ecommerce
 
 **Auto-install:** No

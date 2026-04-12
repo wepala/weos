@@ -120,12 +120,12 @@ import "github.com/wepala/weos/application/presets/restaurant"
 
 func RegisterAll(r *application.PresetRegistry) {
     core.Register(r)
-    auth.Register(r)
     ecommerce.Register(r)
     tasks.Register(r)
     website.Register(r)
     events.Register(r)
     knowledge.Register(r)
+    mealplanning.Register(r)
     restaurant.Register(r) // Add this line
 }
 ```
