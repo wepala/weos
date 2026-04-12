@@ -17,25 +17,28 @@ import (
 )
 
 type InviteHandler struct {
-	inviteService *authapp.InviteService
-	inviteRepo    authrepos.InviteRepository
-	accountRepo   authrepos.AccountRepository
-	logger        entities.Logger
+	inviteService  *authapp.InviteService
+	inviteRepo     authrepos.InviteRepository
+	accountRepo    authrepos.AccountRepository
+	credentialRepo authrepos.CredentialRepository
+	logger         entities.Logger
 }
 
 type InviteHandlerConfig struct {
-	InviteService *authapp.InviteService
-	InviteRepo    authrepos.InviteRepository
-	AccountRepo   authrepos.AccountRepository
-	Logger        entities.Logger
+	InviteService  *authapp.InviteService
+	InviteRepo     authrepos.InviteRepository
+	AccountRepo    authrepos.AccountRepository
+	CredentialRepo authrepos.CredentialRepository
+	Logger         entities.Logger
 }
 
 func NewInviteHandler(cfg InviteHandlerConfig) *InviteHandler {
 	return &InviteHandler{
-		inviteService: cfg.InviteService,
-		inviteRepo:    cfg.InviteRepo,
-		accountRepo:   cfg.AccountRepo,
-		logger:        cfg.Logger,
+		inviteService:  cfg.InviteService,
+		inviteRepo:     cfg.InviteRepo,
+		accountRepo:    cfg.AccountRepo,
+		credentialRepo: cfg.CredentialRepo,
+		logger:         cfg.Logger,
 	}
 }
 
@@ -58,6 +61,11 @@ type InviteResponse struct {
 func (h *InviteHandler) Create(c echo.Context) error {
 	ctx := c.Request().Context()
 
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		return respondError(c, http.StatusUnauthorized, "not authenticated")
+	}
+
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
@@ -76,11 +84,6 @@ func (h *InviteHandler) Create(c echo.Context) error {
 	}
 	if req.Role == "" {
 		return respondError(c, http.StatusBadRequest, "role is required")
-	}
-
-	identity := auth.AgentFromCtx(ctx)
-	if identity == nil {
-		return respondError(c, http.StatusUnauthorized, "not authenticated")
 	}
 
 	accountID := identity.ActiveAccountID
@@ -122,6 +125,11 @@ func (h *InviteHandler) Create(c echo.Context) error {
 func (h *InviteHandler) List(c echo.Context) error {
 	ctx := c.Request().Context()
 
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		return respondError(c, http.StatusUnauthorized, "not authenticated")
+	}
+
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
@@ -131,10 +139,6 @@ func (h *InviteHandler) List(c echo.Context) error {
 		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
-	identity := auth.AgentFromCtx(ctx)
-	if identity == nil {
-		return respondError(c, http.StatusUnauthorized, "not authenticated")
-	}
 	accountID := identity.ActiveAccountID
 	if accountID == "" {
 		var acctErr error
@@ -174,6 +178,11 @@ func (h *InviteHandler) Revoke(c echo.Context) error {
 	id := c.Param("id")
 	ctx := c.Request().Context()
 
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		return respondError(c, http.StatusUnauthorized, "not authenticated")
+	}
+
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
@@ -181,11 +190,6 @@ func (h *InviteHandler) Revoke(c echo.Context) error {
 	}
 	if !isAdmin {
 		return respondError(c, http.StatusForbidden, "admin role required")
-	}
-
-	identity := auth.AgentFromCtx(ctx)
-	if identity == nil {
-		return respondError(c, http.StatusUnauthorized, "not authenticated")
 	}
 
 	if err := h.inviteService.RevokeInvite(ctx, id, identity.AgentID); err != nil {
@@ -207,8 +211,8 @@ func (h *InviteHandler) Revoke(c echo.Context) error {
 
 // Accept handles POST /api/invites/accept — accepts an invite using the token.
 // This is a public endpoint (no auth required) — the token IS the authorization.
-// The invitee provides their info so AcceptInvite can create the credential
-// and verify the email matches the invite.
+// When the caller is authenticated (post-OAuth), the email is derived from
+// the session identity rather than trusting the request body.
 func (h *InviteHandler) Accept(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -220,15 +224,26 @@ func (h *InviteHandler) Accept(c echo.Context) error {
 	if err := c.Bind(&req); err != nil || req.Token == "" {
 		return respondError(c, http.StatusBadRequest, "token is required")
 	}
-	if req.Email == "" {
+
+	// When authenticated, derive email from the session to prevent spoofing.
+	email := req.Email
+	name := req.Name
+	if identity := auth.AgentFromCtx(ctx); identity != nil && h.credentialRepo != nil {
+		creds, credErr := h.credentialRepo.FindByAgent(ctx, identity.AgentID)
+		if credErr == nil && len(creds) > 0 {
+			email = creds[0].Email()
+		}
+	}
+
+	if email == "" {
 		return respondError(c, http.StatusBadRequest, "email is required")
 	}
 
 	userInfo := authapp.UserInfo{
 		Provider:       "invite",
-		ProviderUserID: req.Email,
-		Email:          req.Email,
-		DisplayName:    req.Name,
+		ProviderUserID: email,
+		Email:          email,
+		DisplayName:    name,
 	}
 
 	agent, credential, _, err := h.inviteService.AcceptInvite(ctx, req.Token, userInfo)
@@ -250,15 +265,15 @@ func (h *InviteHandler) Accept(c echo.Context) error {
 		}
 	}
 
-	email := ""
+	credEmail := ""
 	if credential != nil {
-		email = credential.Email()
+		credEmail = credential.Email()
 	}
 
 	return respond(c, http.StatusOK, UserResponse{
 		ID:    agent.GetID(),
 		Name:  agent.Name(),
-		Email: email,
+		Email: credEmail,
 	})
 }
 

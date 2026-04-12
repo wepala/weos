@@ -307,10 +307,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.PUT("/users/:id", userHandler.Update)
 
 	inviteHandler := handlers.NewInviteHandler(handlers.InviteHandlerConfig{
-		InviteService: inviteService,
-		InviteRepo:    inviteRepo,
-		AccountRepo:   accountRepo,
-		Logger:        logger,
+		InviteService:  inviteService,
+		InviteRepo:     inviteRepo,
+		AccountRepo:    accountRepo,
+		CredentialRepo: credentialRepo,
+		Logger:         logger,
 	})
 	protected.POST("/invites", inviteHandler.Create)
 	protected.GET("/invites", inviteHandler.List)
