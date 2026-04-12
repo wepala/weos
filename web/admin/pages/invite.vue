@@ -25,6 +25,26 @@
         <a-spin size="large" />
       </template>
 
+      <template v-else-if="needsEmail">
+        <h1 style="margin-bottom: 8px">You're Invited</h1>
+        <p style="color: #666; margin-bottom: 24px">
+          Enter your details to accept this invitation.
+        </p>
+        <a-form layout="vertical">
+          <a-form-item label="Email" :required="true">
+            <a-input v-model:value="manualEmail" placeholder="you@example.com" />
+          </a-form-item>
+          <a-form-item label="Name">
+            <a-input v-model:value="manualName" placeholder="Your name" />
+          </a-form-item>
+          <a-form-item>
+            <a-button type="primary" block @click="acceptWithEmail">
+              Accept Invite
+            </a-button>
+          </a-form-item>
+        </a-form>
+      </template>
+
       <template v-else>
         <h1 style="margin-bottom: 8px">You're Invited</h1>
         <p style="color: #666; margin-bottom: 24px">
@@ -39,7 +59,8 @@
 </template>
 
 <script setup lang="ts">
-import { unwrapEnvelope, forwardMessages } from '~/composables/useApi'
+import { message } from 'ant-design-vue'
+import { forwardMessages } from '~/composables/useApi'
 
 definePageMeta({
   layout: false,
@@ -51,6 +72,9 @@ const token = computed(() => (route.query.token as string) || '')
 const error = ref('')
 const accepting = ref(false)
 const accepted = ref(false)
+const needsEmail = ref(false)
+const manualEmail = ref('')
+const manualName = ref('')
 
 async function acceptOrLogin() {
   if (!token.value) {
@@ -61,6 +85,33 @@ async function acceptOrLogin() {
   window.location.href = '/api/auth/login?redirect=' + encodeURIComponent(redirectBack)
 }
 
+async function submitAccept(email: string, name: string) {
+  if (!email) {
+    message.error('Email is required')
+    return
+  }
+  accepting.value = true
+  try {
+    const raw = await $fetch<unknown>('/api/invites/accept', {
+      method: 'POST',
+      body: { token: token.value, email, name },
+    })
+    forwardMessages(raw)
+    accepted.value = true
+    setTimeout(() => navigateTo('/'), 1500)
+  } catch (err: any) {
+    if (err?.data) forwardMessages(err.data)
+    error.value = err?.data?.error || 'Failed to accept invite.'
+    console.error('[invite] accept failed:', err)
+  } finally {
+    accepting.value = false
+  }
+}
+
+async function acceptWithEmail() {
+  await submitAccept(manualEmail.value, manualName.value)
+}
+
 onMounted(async () => {
   if (!token.value) {
     error.value = 'No invite token provided.'
@@ -68,30 +119,16 @@ onMounted(async () => {
   }
 
   // Check if user is already authenticated (e.g., after OAuth redirect back).
-  // If so, auto-accept the invite.
+  // If so, auto-accept the invite using the session email.
   await fetchUser()
 
   if (user.value) {
-    accepting.value = true
-    try {
-      const raw = await $fetch<unknown>('/api/invites/accept', {
-        method: 'POST',
-        body: {
-          token: token.value,
-          email: user.value.email,
-          name: user.value.name || '',
-        },
-      })
-      forwardMessages(raw)
-      accepted.value = true
-      setTimeout(() => navigateTo('/'), 1500)
-    } catch (err: any) {
-      if (err?.data) forwardMessages(err.data)
-      error.value = err?.data?.error || 'Failed to accept invite.'
-      console.error('[invite] accept failed:', err)
-    } finally {
-      accepting.value = false
-    }
+    await submitAccept(user.value.email, user.value.name || '')
+  } else {
+    // No authenticated user — show email form so the user can accept
+    // without OAuth (e.g., dev mode where SoftAuth is not applied to
+    // the accept endpoint).
+    needsEmail.value = true
   }
 })
 </script>
