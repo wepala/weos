@@ -90,6 +90,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var roleAccessRepo *gormdb.RoleResourceAccessRepository
 	var authzChecker *authcasbin.CasbinAuthorizationChecker
 	var jwtService authapp.JWTService
+	var inviteService *authapp.InviteService
+	var inviteRepo authrepos.InviteRepository
 	var db *gormlib.DB
 
 	registry := presets.NewDefaultRegistry()
@@ -114,6 +116,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&roleAccessRepo),
 		fx.Populate(&authzChecker),
 		fx.Populate(&jwtService),
+		fx.Populate(&inviteService),
+		fx.Populate(&inviteRepo),
 		fx.Populate(&db),
 	)
 
@@ -301,6 +305,30 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.GET("/users", userHandler.List)
 	protected.GET("/users/:id", userHandler.Get)
 	protected.PUT("/users/:id", userHandler.Update)
+
+	inviteHandler := handlers.NewInviteHandler(handlers.InviteHandlerConfig{
+		InviteService:  inviteService,
+		InviteRepo:     inviteRepo,
+		AccountRepo:    accountRepo,
+		CredentialRepo: credentialRepo,
+		Logger:         logger,
+	})
+	protected.POST("/invites", inviteHandler.Create)
+	protected.GET("/invites", inviteHandler.List)
+	protected.DELETE("/invites/:id", inviteHandler.Revoke)
+
+	// Accept uses a separate group that loads session identity when present
+	// (so the handler can verify email from the session) but does not require
+	// auth — the invite token itself is the authorization.
+	// In dev mode (no OAuth), no auth middleware is applied so the handler
+	// runs anonymously and uses the request-body email. SoftAuth is NOT used
+	// here because it defaults to admin@weos.dev, which would force the
+	// fail-closed session-email path for every accept request.
+	acceptGroup := api.Group("")
+	if appCfg.OAuthEnabled() {
+		acceptGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
+	}
+	acceptGroup.POST("/invites/accept", inviteHandler.Accept)
 
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
 	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)

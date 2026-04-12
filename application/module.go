@@ -13,6 +13,7 @@ import (
 	storageprovider "weos/infrastructure/storage/provider"
 	"weos/internal/config"
 
+	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
@@ -86,6 +87,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 			return authgorm.NewAuthSessionRepository(db)
 		}),
 		fx.Provide(func(db *gormdb.DB) authrepos.AccountRepository { return authgorm.NewAccountRepository(db) }),
+		fx.Provide(func(db *gormdb.DB) authrepos.InviteRepository { return authgorm.NewInviteRepository(db) }),
 
 		// Auth infrastructure
 		fx.Provide(ProvideOAuthProviderRegistry),
@@ -93,6 +95,18 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideAuthenticationService),
 		fx.Provide(ProvideSessionManager),
 		fx.Provide(auth.ProvideInviteTokenService),
+		fx.Provide(func(
+			invites authrepos.InviteRepository,
+			agents authrepos.AgentRepository,
+			accounts authrepos.AccountRepository,
+			creds authrepos.CredentialRepository,
+			tokenSvc authapp.InviteTokenService,
+			logger entities.Logger,
+		) *authapp.InviteService {
+			return authapp.NewInviteService(invites, agents, accounts, creds, tokenSvc,
+				authapp.WithInviteLogger(logger),
+			)
+		}),
 
 		// Resource behavior registries (must come before ProvideResourceService).
 		// The lazy resource writer breaks the construction cycle between
