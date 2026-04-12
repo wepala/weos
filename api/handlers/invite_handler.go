@@ -226,12 +226,25 @@ func (h *InviteHandler) Accept(c echo.Context) error {
 	}
 
 	// When authenticated, derive email from the session to prevent spoofing.
+	// Fail closed: if authenticated but email cannot be determined, reject.
 	email := req.Email
 	name := req.Name
-	if identity := auth.AgentFromCtx(ctx); identity != nil && h.credentialRepo != nil {
+	if identity := auth.AgentFromCtx(ctx); identity != nil {
+		if h.credentialRepo == nil {
+			h.logger.Error(ctx, "credential repository unavailable for authenticated accept")
+			return respondError(c, http.StatusInternalServerError, "failed to accept invite")
+		}
 		creds, credErr := h.credentialRepo.FindByAgent(ctx, identity.AgentID)
-		if credErr == nil && len(creds) > 0 {
-			email = creds[0].Email()
+		if credErr != nil {
+			h.logger.Error(ctx, "failed to derive authenticated email", "error", credErr, "agent_id", identity.AgentID)
+			return respondError(c, http.StatusInternalServerError, "failed to accept invite")
+		}
+		if len(creds) == 0 || creds[0].Email() == "" {
+			return respondError(c, http.StatusUnauthorized, "authenticated email could not be determined")
+		}
+		email = creds[0].Email()
+		if req.Email != "" && req.Email != email {
+			return respondError(c, http.StatusBadRequest, "email does not match authenticated user")
 		}
 	}
 
