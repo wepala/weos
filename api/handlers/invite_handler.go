@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"weos/domain/entities"
 
@@ -112,8 +113,8 @@ func (h *InviteHandler) Create(c echo.Context) error {
 		Role:      invite.RoleID(),
 		Status:    invite.Status(),
 		Token:     token,
-		ExpiresAt: invite.ExpiresAt().Format("2006-01-02T15:04:05Z"),
-		CreatedAt: invite.CreatedAt().Format("2006-01-02T15:04:05Z"),
+		ExpiresAt: invite.ExpiresAt().UTC().Format(time.RFC3339),
+		CreatedAt: invite.CreatedAt().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -160,8 +161,8 @@ func (h *InviteHandler) List(c echo.Context) error {
 			Email:     inv.Email(),
 			Role:      inv.RoleID(),
 			Status:    inv.Status(),
-			ExpiresAt: inv.ExpiresAt().Format("2006-01-02T15:04:05Z"),
-			CreatedAt: inv.CreatedAt().Format("2006-01-02T15:04:05Z"),
+			ExpiresAt: inv.ExpiresAt().UTC().Format(time.RFC3339),
+			CreatedAt: inv.CreatedAt().UTC().Format(time.RFC3339),
 		})
 	}
 

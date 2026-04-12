@@ -276,8 +276,8 @@ async function handleInvite() {
     message.error('Email is required')
     return
   }
-  if (!inviteForm.role) {
-    message.error('Role is required')
+  if (!inviteForm.role || !availableRoles.value.includes(inviteForm.role)) {
+    message.error('Please select a valid role')
     return
   }
   inviting.value = true
@@ -291,7 +291,9 @@ async function handleInvite() {
     message.success('Invite link generated')
     await fetchInvites()
   } catch (err: any) {
+    if (err?.data) forwardMessages(err.data)
     message.error(err?.data?.error || 'Failed to create invite')
+    console.error('[users] handleInvite failed:', err)
   } finally {
     inviting.value = false
   }
@@ -312,7 +314,9 @@ async function revokeInvite(id: string) {
     message.success('Invite revoked')
     await fetchInvites()
   } catch (err: any) {
+    if (err?.data) forwardMessages(err.data)
     message.error(err?.data?.error || 'Failed to revoke invite')
+    console.error('[users] revokeInvite failed:', err)
   }
 }
 
