@@ -229,7 +229,6 @@ async function loadResource() {
     resource.value = await get(id.value)
   } catch (err) {
     error.value = 'Failed to load resource'
-    loading.value = false
     return
   } finally {
     loading.value = false

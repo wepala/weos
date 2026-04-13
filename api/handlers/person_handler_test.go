@@ -26,6 +26,12 @@ type stubPersonSvc struct {
 	listErr     error
 }
 
+func (s *stubPersonSvc) List(
+	_ context.Context, _ string, _ string, _ int, _ repositories.SortOptions,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	return s.listResult, s.listErr
+}
+
 func (s *stubPersonSvc) ListWithFilters(
 	_ context.Context, _ string, filters []repositories.FilterCondition,
 	_ string, _ int, _ repositories.SortOptions,

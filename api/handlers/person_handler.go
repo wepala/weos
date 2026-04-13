@@ -131,11 +131,12 @@ func (h *PersonHandler) Update(c echo.Context) error {
 		fields["status"] = *req.Status
 	} else {
 		existing, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
-		if err == nil {
-			existingFields, _ := application.ExtractResourceFields(existing)
-			if s := application.StringField(existingFields, "status"); s != "" {
-				fields["status"] = s
-			}
+		if err != nil {
+			return respondError(c, http.StatusNotFound, "person not found")
+		}
+		existingFields, _ := application.ExtractResourceFields(existing)
+		if s := application.StringField(existingFields, "status"); s != "" {
+			fields["status"] = s
 		}
 	}
 	data, _ := json.Marshal(fields)
