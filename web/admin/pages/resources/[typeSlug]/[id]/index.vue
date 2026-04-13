@@ -42,6 +42,18 @@
       </template>
     </a-page-header>
     <a-spin v-if="loading" />
+    <a-result
+      v-else-if="error"
+      status="error"
+      :title="error"
+      sub-title="The requested resource could not be loaded."
+    >
+      <template #extra>
+        <NuxtLink :to="`/resources/${typeSlug}`">
+          <a-button type="primary">Back to List</a-button>
+        </NuxtLink>
+      </template>
+    </a-result>
     <template v-else-if="resource">
       <a-descriptions bordered :column="1">
         <a-descriptions-item label="ID">{{ resource.id }}</a-descriptions-item>
@@ -103,6 +115,7 @@ const { fetchManifest, getAvailableScreens } = usePresetScreens()
 
 const resource = ref<any>(null)
 const loading = ref(true)
+const error = ref<string | null>(null)
 const screens = ref<{ file: string; label: string }[]>([])
 
 const resourceType = computed(() => getBySlug(typeSlug.value))
@@ -207,12 +220,17 @@ async function fetchChildResources(section: ChildSection) {
 async function loadResource() {
   loading.value = true
   resource.value = null
+  error.value = null
   childSections.value = []
   screens.value = []
   if (!loaded.value) await fetchResourceTypes()
   try {
     const { get } = useResourceApi(typeSlug.value)
     resource.value = await get(id.value)
+  } catch (err) {
+    error.value = 'Failed to load resource'
+    loading.value = false
+    return
   } finally {
     loading.value = false
   }
