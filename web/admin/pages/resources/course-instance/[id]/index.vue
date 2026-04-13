@@ -322,7 +322,7 @@ import { message } from 'ant-design-vue'
 
 const route = useRoute()
 const router = useRouter()
-const id = route.params.id as string
+const id = computed(() => route.params.id as string)
 const typeSlug = 'course-instance'
 
 const { getBySlug, fetchResourceTypes, loaded, resourceTypes } = useResourceTypeStore()
@@ -370,8 +370,16 @@ const enrollmentColumns = [
 async function fetchEnrollments() {
   enrollmentsLoading.value = true
   try {
-    const res = await listEnrollments('', 100, '', '', { courseInstanceId: { eq: id } })
-    enrolledStudents.value = res.data
+    const all: any[] = []
+    let cursor = ''
+    let hasMore = true
+    while (hasMore) {
+      const res = await listEnrollments(cursor, 100, '', '', { courseInstanceId: { eq: id.value } })
+      all.push(...res.data)
+      cursor = res.cursor
+      hasMore = res.has_more
+    }
+    enrolledStudents.value = all
     fetchEnrollmentInvoices()
   } finally {
     enrollmentsLoading.value = false
@@ -708,7 +716,7 @@ async function fetchChildResources(section: ChildSection) {
   try {
     const api = useResourceApi(section.slug)
     const refField = findReferenceField(section.slug)
-    const filters = refField ? { [refField]: { eq: id } } : undefined
+    const filters = refField ? { [refField]: { eq: id.value } } : undefined
     const res = await api.list(section.cursor, 100, '', '', filters)
     section.items = [...section.items, ...res.data]
     section.cursor = res.cursor
@@ -734,7 +742,7 @@ const taskColumns = [
 async function fetchEnrollmentTasks() {
   tasksLoading.value = true
   try {
-    const res = await listTasks('', 200, '', '', { courseInstanceId: { eq: id } })
+    const res = await listTasks('', 200, '', '', { courseInstanceId: { eq: id.value } })
     enrollmentTasks.value = (res.data || []).sort((a: any, b: any) => {
       const aComplete = a.actionStatus === 'CompletedActionStatus' ? 1 : 0
       const bComplete = b.actionStatus === 'CompletedActionStatus' ? 1 : 0
@@ -748,6 +756,7 @@ async function fetchEnrollmentTasks() {
 
 async function toggleTask(task: any, completed: boolean) {
   const status = completed ? 'CompletedActionStatus' : 'PotentialActionStatus'
+  const oldStatus = task.actionStatus
   const updateData: Record<string, any> = { ...task, actionStatus: status }
   if (completed) {
     updateData.completedDate = new Date().toISOString()
@@ -757,14 +766,22 @@ async function toggleTask(task: any, completed: boolean) {
   }
   delete updateData.id
   delete updateData.type
-  await updateTask(task.id, updateData)
   task.actionStatus = status
+  try {
+    await updateTask(task.id, updateData)
+  } catch {
+    task.actionStatus = oldStatus
+    message.error('Failed to update task')
+  }
 }
 
-onMounted(async () => {
+async function loadCourseInstance() {
+  loading.value = true
+  resource.value = null
+  enrolledStudents.value = []
   if (!loaded.value) await fetchResourceTypes()
   try {
-    resource.value = await get(id)
+    resource.value = await get(id.value)
   } finally {
     loading.value = false
   }
@@ -778,5 +795,7 @@ onMounted(async () => {
     initChildSections()
     fetchEnrollmentTasks()
   }
-})
+}
+
+watch(() => id.value, () => loadCourseInstance(), { immediate: true })
 </script>

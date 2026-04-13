@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,14 +17,20 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// stubPersonSvc captures calls to ListWithFilters so tests can assert
-// that the handler translates filter field names correctly.
+// stubPersonSvc captures calls so tests can assert handler behavior.
 type stubPersonSvc struct {
 	application.ResourceService
 
 	listFilters []repositories.FilterCondition
 	listResult  repositories.PaginatedResponse[*entities.Resource]
 	listErr     error
+
+	getByIDEntity *entities.Resource
+	getByIDErr    error
+
+	updateData   json.RawMessage
+	updateEntity *entities.Resource
+	updateErr    error
 }
 
 func (s *stubPersonSvc) List(
@@ -38,6 +45,15 @@ func (s *stubPersonSvc) ListWithFilters(
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
 	s.listFilters = filters
 	return s.listResult, s.listErr
+}
+
+func (s *stubPersonSvc) GetByID(_ context.Context, _ string) (*entities.Resource, error) {
+	return s.getByIDEntity, s.getByIDErr
+}
+
+func (s *stubPersonSvc) Update(_ context.Context, cmd application.UpdateResourceCommand) (*entities.Resource, error) {
+	s.updateData = cmd.Data
+	return s.updateEntity, s.updateErr
 }
 
 func makeTestPersonEntity(t *testing.T, id string) *entities.Resource {
@@ -118,5 +134,85 @@ func TestPersonHandler_List_UnmappedFilterPassedThrough(t *testing.T) {
 	}
 	if svc.listFilters[0].Field != "customField" {
 		t.Errorf("field = %q, want %q (unmapped fields should pass through)", svc.listFilters[0].Field, "customField")
+	}
+}
+
+func makePersonWithStatus(t *testing.T, id, status string) *entities.Resource {
+	t.Helper()
+	e := &entities.Resource{}
+	data := `{"@graph":[{"@id":"` + id + `","@type":"Person","givenName":"Jane","status":"` + status + `"}]}`
+	if err := e.Restore(id, "person", "active", json.RawMessage(data), "", "", time.Unix(0, 0), 1); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	return e
+}
+
+func TestPersonHandler_Update_OmitStatusPreservesExisting(t *testing.T) {
+	t.Parallel()
+	existing := makePersonWithStatus(t, "urn:person:1", "active")
+	updated := makePersonWithStatus(t, "urn:person:1", "active")
+	svc := &stubPersonSvc{
+		getByIDEntity: existing,
+		updateEntity:  updated,
+	}
+	h := handlers.NewPersonHandler(svc)
+
+	e := echo.New()
+	body := `{"given_name":"Jane","family_name":"Doe","email":"j@example.com","avatar_url":""}`
+	req := httptest.NewRequest(http.MethodPut, "/api/persons/urn:person:1",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("urn:person:1")
+
+	if err := h.Update(c); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+
+	var sent map[string]any
+	if err := json.Unmarshal(svc.updateData, &sent); err != nil {
+		t.Fatalf("unmarshal updateData: %v", err)
+	}
+	if sent["status"] != "active" {
+		t.Errorf("status = %v, want 'active' (should be carried forward from existing)", sent["status"])
+	}
+}
+
+func TestPersonHandler_Update_ProvidedStatusUpdates(t *testing.T) {
+	t.Parallel()
+	updated := makePersonWithStatus(t, "urn:person:1", "inactive")
+	svc := &stubPersonSvc{
+		updateEntity: updated,
+	}
+	h := handlers.NewPersonHandler(svc)
+
+	e := echo.New()
+	body := `{"given_name":"Jane","family_name":"Doe","email":"j@example.com","avatar_url":"","status":"inactive"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/persons/urn:person:1",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("urn:person:1")
+
+	if err := h.Update(c); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+
+	var sent map[string]any
+	if err := json.Unmarshal(svc.updateData, &sent); err != nil {
+		t.Fatalf("unmarshal updateData: %v", err)
+	}
+	if sent["status"] != "inactive" {
+		t.Errorf("status = %v, want 'inactive'", sent["status"])
 	}
 }

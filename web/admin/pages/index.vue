@@ -123,7 +123,6 @@
 </template>
 
 <script setup lang="ts">
-const { user } = useAuth()
 const { fetchResourceTypes, loaded } = useResourceTypeStore()
 const { list: listEvents } = useResourceApi('education-event')
 const { list: listCourseInstances } = useResourceApi('course-instance')
@@ -241,20 +240,33 @@ function parseLineItems(inv: any): any[] {
 async function fetchBilling() {
   invoicesLoading.value = true
   try {
-    const invRes = await listInvoices('', 100)
-    for (const inv of invRes.data) {
-      inv._guardianName = inv.guardianId ? resolve('guardian', inv.guardianId) : ''
-      const items = parseLineItems(inv)
-      if (items.length > 0 && items[0].studentId) {
-        inv._studentName = resolve('student', items[0].studentId)
-      } else {
-        inv._studentName = ''
+    const invoices: any[] = []
+    let invCursor = ''
+    let invMore = true
+    while (invMore) {
+      const invRes = await listInvoices(invCursor, 100)
+      for (const inv of invRes.data) {
+        inv._guardianName = inv.guardianId ? resolve('guardian', inv.guardianId) : ''
+        const items = parseLineItems(inv)
+        inv._studentName = items.length > 0 && items[0].studentId
+          ? resolve('student', items[0].studentId) : ''
+        invoices.push(inv)
       }
+      invCursor = invRes.cursor
+      invMore = invRes.has_more
     }
-    allInvoices.value = invRes.data
+    allInvoices.value = invoices
 
-    const payRes = await listPayments('', 100)
-    allPayments.value = payRes.data
+    const payments: any[] = []
+    let payCursor = ''
+    let payMore = true
+    while (payMore) {
+      const payRes = await listPayments(payCursor, 100)
+      payments.push(...payRes.data)
+      payCursor = payRes.cursor
+      payMore = payRes.has_more
+    }
+    allPayments.value = payments
   } catch {
     // Invoice/payment types might not be installed
     canAccessInvoices.value = false
@@ -291,9 +303,15 @@ async function fetchClassesThisWeek() {
       return
     }
 
-    const ciRes = await listCourseInstances('', 100)
     const ciById = new Map<string, any>()
-    for (const ci of ciRes.data) ciById.set(ci.id, ci)
+    let ciCursor = ''
+    let ciMore = true
+    while (ciMore && ciById.size < courseMap.size) {
+      const ciRes = await listCourseInstances(ciCursor, 100)
+      for (const ci of ciRes.data) ciById.set(ci.id, ci)
+      ciCursor = ciRes.cursor
+      ciMore = ciRes.has_more
+    }
 
     const classes: any[] = []
     for (const [ciId, events] of courseMap) {
@@ -319,10 +337,11 @@ async function fetchClassesThisWeek() {
 
 onMounted(async () => {
   if (!loaded.value) await fetchResourceTypes()
-  preloadType('course-instance')
-  preloadType('student')
-  preloadType('guardian')
-  await nextTick()
+  await Promise.all([
+    preloadType('course-instance'),
+    preloadType('student'),
+    preloadType('guardian'),
+  ])
 
   fetchBilling()
   fetchClassesThisWeek()

@@ -49,9 +49,6 @@
     <a-empty v-else-if="visibleEvents.length === 0" description="No classes scheduled in this period" />
     <a-empty v-else description="No students enrolled" />
 
-    <div v-if="toggleError" style="margin-top: 8px; padding: 6px 12px; border-radius: 4px; background: #fff2f0; border: 1px solid #ffccc7; color: #cf1322; font-size: 12px">
-      {{ toggleError }}
-    </div>
   </div>
 </template>
 
@@ -68,7 +65,6 @@ const { list: listRecords, create: createRecord, update: updateRecord } = useRes
 const { preloadType, resolve } = useResourceLookup()
 
 const loading = ref(true)
-const toggleError = ref<string | null>(null)
 const events = ref<any[]>([])
 const enrollments = ref<any[]>([])
 const records = ref<Record<string, any>>({})
@@ -138,7 +134,6 @@ function isPresent(studentId: string, eventId: string): boolean {
 }
 
 async function toggleAttendance(studentId: string, eventId: string) {
-  toggleError.value = null
   const key = `${studentId}:${eventId}`
   const existing = records.value[key]
 

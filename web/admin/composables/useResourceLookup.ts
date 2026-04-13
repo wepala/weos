@@ -22,16 +22,19 @@ export function useResourceLookup() {
     if (cache.has(typeSlug) && !force) return
     const api = useResourceApi(typeSlug)
     const map = new Map<string, string>()
+    const maxPages = 10
     try {
       let cursor = ''
       let hasMore = true
-      while (hasMore) {
+      let page = 0
+      while (hasMore && page < maxPages) {
         const res = await api.list(cursor, 100)
         for (const item of res.data) {
           map.set(item.id, item.name || item.invoiceNumber || item.id)
         }
         cursor = res.cursor
         hasMore = res.has_more
+        page++
       }
       cache.set(typeSlug, map)
       version.value++
