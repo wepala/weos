@@ -243,6 +243,7 @@ async function loadResource() {
       file: s.file,
       label: s.file.replace('.mjs', ''),
     }))
+    // Load Dashboard screen inline if available for this type
   }
 }
 
