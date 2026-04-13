@@ -192,7 +192,7 @@ async function fetchChildResources(section: ChildSection) {
   try {
     const api = useResourceApi(section.slug)
     const refField = findReferenceField(section.slug)
-    const filters = refField ? { [refField]: { eq: id } } : undefined
+    const filters = refField ? { [refField]: { eq: id.value } } : undefined
     const res = await api.list(section.cursor, 100, '', '', filters)
     section.items = [...section.items, ...res.data]
     section.cursor = res.cursor
@@ -204,10 +204,15 @@ async function fetchChildResources(section: ChildSection) {
   }
 }
 
-onMounted(async () => {
+async function loadResource() {
+  loading.value = true
+  resource.value = null
+  childSections.value = []
+  screens.value = []
   if (!loaded.value) await fetchResourceTypes()
   try {
-    resource.value = await get(id)
+    const { get } = useResourceApi(typeSlug.value)
+    resource.value = await get(id.value)
   } finally {
     loading.value = false
   }
@@ -216,10 +221,16 @@ onMounted(async () => {
   }
   const manifestOk = await fetchManifest()
   if (manifestOk) {
-    screens.value = getAvailableScreens(typeSlug).map(s => ({
+    screens.value = getAvailableScreens(typeSlug.value).map(s => ({
       file: s.file,
       label: s.file.replace('.mjs', ''),
     }))
   }
-})
+}
+
+watch(
+  () => [typeSlug.value, id.value],
+  () => loadResource(),
+  { immediate: true },
+)
 </script>
