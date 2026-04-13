@@ -22,9 +22,23 @@
       @back="router.back()"
     >
       <template #extra>
-        <NuxtLink :to="`/resources/${typeSlug}/${id}/edit`">
-          <a-button type="primary">Edit</a-button>
-        </NuxtLink>
+        <a-space>
+          <a-dropdown v-if="screens.length">
+            <a-button>Views</a-button>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item v-for="s in screens" :key="s.file">
+                  <NuxtLink :to="`/resources/${typeSlug}/${id}/screens/${s.file.replace('.mjs', '')}`">
+                    {{ s.label }}
+                  </NuxtLink>
+                </a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
+          <NuxtLink :to="`/resources/${typeSlug}/${id}/edit`">
+            <a-button type="primary">Edit</a-button>
+          </NuxtLink>
+        </a-space>
       </template>
     </a-page-header>
     <a-spin v-if="loading" />
@@ -86,9 +100,11 @@ const { resourceTypes, getBySlug, fetchResourceTypes, loaded } = useResourceType
 const { get } = useResourceApi(typeSlug)
 const { schemaToFields, schemaToColumns } = useSchemaUtils()
 const { getChildren } = useSidebarSettings()
+const { fetchManifest, getAvailableScreens } = usePresetScreens()
 
 const resource = ref<any>(null)
 const loading = ref(true)
+const screens = ref<{ file: string; label: string }[]>([])
 
 const resourceType = computed(() => getBySlug(typeSlug))
 
@@ -196,6 +212,13 @@ onMounted(async () => {
   }
   if (resource.value) {
     initChildSections()
+  }
+  const manifestOk = await fetchManifest()
+  if (manifestOk) {
+    screens.value = getAvailableScreens(typeSlug).map(s => ({
+      file: s.file,
+      label: s.file.replace('.mjs', ''),
+    }))
   }
 })
 </script>

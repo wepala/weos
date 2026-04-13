@@ -80,9 +80,18 @@ func (h *PersonHandler) List(c echo.Context) error {
 	if limit <= 0 {
 		limit = 20
 	}
-	result, err := h.resourceService.List(
-		c.Request().Context(), "person", cursor, limit, repositories.SortOptions{},
-	)
+	filters := parseFilters(c)
+	var result repositories.PaginatedResponse[*entities.Resource]
+	var err error
+	if len(filters) > 0 {
+		result, err = h.resourceService.ListWithFilters(
+			c.Request().Context(), "person", filters, cursor, limit, repositories.SortOptions{},
+		)
+	} else {
+		result, err = h.resourceService.List(
+			c.Request().Context(), "person", cursor, limit, repositories.SortOptions{},
+		)
+	}
 	if err != nil {
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -103,6 +112,7 @@ func (h *PersonHandler) Update(c echo.Context) error {
 		"familyName": req.FamilyName,
 		"email":      req.Email,
 		"avatarURL":  req.AvatarURL,
+		"status":     req.Status,
 	})
 	entity, err := h.resourceService.Update(
 		c.Request().Context(),
