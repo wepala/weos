@@ -7,9 +7,9 @@
   <div>
     <!-- Period Navigation -->
     <div style="display: flex; justify-content: center; align-items: center; gap: 16px; margin-bottom: 12px">
-      <a-button :disabled="loading" size="small" @click="shiftPeriod(-1)">&larr;</a-button>
+      <a-button :disabled="loading" size="small" @click="shiftAndReload(-1)">&larr;</a-button>
       <strong style="min-width: 160px; text-align: center">{{ periodLabel }}</strong>
-      <a-button :disabled="loading" size="small" @click="shiftPeriod(1)">&rarr;</a-button>
+      <a-button :disabled="loading" size="small" @click="shiftAndReload(1)">&rarr;</a-button>
     </div>
 
     <a-spin v-if="loading" />
@@ -143,7 +143,8 @@ async function toggleAttendance(studentId: string, eventId: string) {
   const existing = records.value[key]
 
   if (existing?.id) {
-    const newStatus = existing.attendanceStatus === 'Present' ? 'Absent' : 'Present'
+    const isChecked = existing.attendanceStatus === 'Present' || existing.attendanceStatus === 'Late'
+    const newStatus = isChecked ? 'Absent' : 'Present'
     const old = existing.attendanceStatus
     existing.attendanceStatus = newStatus
     try {
@@ -169,6 +170,27 @@ async function toggleAttendance(studentId: string, eventId: string) {
   }
 }
 
+async function loadRecordsForPeriod() {
+  const visible = events.value.filter(e => {
+    const d = parseLocalDate(e.eventDate || e.startTime)
+    return d >= periodStart.value && d <= periodEnd.value
+  })
+  const results = await Promise.all(
+    visible.map(evt =>
+      listRecords('', 200, '', '', { educationEventId: { eq: evt.id } })
+        .then(r => r.data || [])
+        .catch(() => [])
+    )
+  )
+  const recs: Record<string, any> = { ...records.value }
+  for (const batch of results) {
+    for (const rec of batch) {
+      recs[`${rec.studentId}:${rec.educationEventId}`] = rec
+    }
+  }
+  records.value = recs
+}
+
 async function load() {
   loading.value = true
   try {
@@ -182,27 +204,17 @@ async function load() {
     enrollments.value = enrRes.data || []
 
     await preloadType('student', true)
-
-    // Load attendance records in parallel
-    const results = await Promise.all(
-      events.value.map(evt =>
-        listRecords('', 200, '', '', { educationEventId: { eq: evt.id } })
-          .then(r => r.data || [])
-          .catch(() => [])
-      )
-    )
-    const recs: Record<string, any> = {}
-    for (const batch of results) {
-      for (const rec of batch) {
-        recs[`${rec.studentId}:${rec.educationEventId}`] = rec
-      }
-    }
-    records.value = recs
+    await loadRecordsForPeriod()
   } catch (err) {
     console.error('[AttendanceGrid] load failed:', err)
   } finally {
     loading.value = false
   }
+}
+
+async function shiftAndReload(weeks: number) {
+  shiftPeriod(weeks)
+  await loadRecordsForPeriod()
 }
 
 onMounted(() => {
