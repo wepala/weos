@@ -80,7 +80,6 @@ var personFieldMap = map[string]string{
 	"family_name": "familyName",
 	"email":       "email",
 	"avatar_url":  "avatarURL",
-	"status":      "status",
 	"name":        "name",
 }
 
@@ -122,6 +121,11 @@ func (h *PersonHandler) Update(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
+	existing, err := h.resourceService.GetByID(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return respondError(c, http.StatusNotFound, "person not found")
+	}
+	existingFields, _ := application.ExtractResourceFields(existing)
 	fields := map[string]any{
 		"givenName":  req.GivenName,
 		"familyName": req.FamilyName,
@@ -130,6 +134,8 @@ func (h *PersonHandler) Update(c echo.Context) error {
 	}
 	if req.Status != nil {
 		fields["status"] = *req.Status
+	} else if s := application.StringField(existingFields, "status"); s != "" {
+		fields["status"] = s
 	}
 	data, _ := json.Marshal(fields)
 	entity, err := h.resourceService.Update(
