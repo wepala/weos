@@ -93,11 +93,10 @@
 <script setup lang="ts">
 const route = useRoute()
 const router = useRouter()
-const typeSlug = route.params.typeSlug as string
-const id = route.params.id as string
+const typeSlug = computed(() => route.params.typeSlug as string)
+const id = computed(() => route.params.id as string)
 
 const { resourceTypes, getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
-const { get } = useResourceApi(typeSlug)
 const { schemaToFields, schemaToColumns } = useSchemaUtils()
 const { getChildren } = useSidebarSettings()
 const { fetchManifest, getAvailableScreens } = usePresetScreens()
@@ -106,7 +105,7 @@ const resource = ref<any>(null)
 const loading = ref(true)
 const screens = ref<{ file: string; label: string }[]>([])
 
-const resourceType = computed(() => getBySlug(typeSlug))
+const resourceType = computed(() => getBySlug(typeSlug.value))
 
 const fields = computed(() => {
   const schema = resourceType.value?.schema
@@ -128,15 +127,16 @@ interface ChildSection {
 const childSections = ref<ChildSection[]>([])
 
 function discoverChildSlugs(): string[] {
+  const slug = typeSlug.value
   // First try sidebar settings
-  const configured = getChildren(typeSlug)
+  const configured = getChildren(slug)
   if (configured.length) return configured
   // Fallback: scan all resource types for x-resource-type references to this type
   const discovered: string[] = []
   for (const rt of resourceTypes.value) {
-    if (rt.slug === typeSlug || !rt.schema?.properties) continue
+    if (rt.slug === slug || !rt.schema?.properties) continue
     for (const prop of Object.values(rt.schema.properties) as any[]) {
-      if (prop['x-resource-type'] === typeSlug) {
+      if (prop['x-resource-type'] === slug) {
         discovered.push(rt.slug)
         break
       }
@@ -173,14 +173,15 @@ function initChildSections() {
 }
 
 function findReferenceField(childSlug: string): string | undefined {
+  const slug = typeSlug.value
   const childType = getBySlug(childSlug)
   if (!childType?.schema?.properties) return undefined
   // Check for x-resource-type annotation first
   for (const [key, prop] of Object.entries(childType.schema.properties) as [string, any][]) {
-    if (prop['x-resource-type'] === typeSlug) return key
+    if (prop['x-resource-type'] === slug) return key
   }
   // Fallback: look for a field named {camelCaseSlug}Id
-  const camelSlug = typeSlug.replace(/-([a-z])/g, (_: string, c: string) => c.toUpperCase())
+  const camelSlug = slug.replace(/-([a-z])/g, (_: string, c: string) => c.toUpperCase())
   const fallbackKey = camelSlug + 'Id'
   if (fallbackKey in childType.schema.properties) return fallbackKey
   return undefined

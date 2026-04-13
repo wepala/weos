@@ -55,6 +55,7 @@ func (h *PersonHandler) Create(c echo.Context) error {
 		"givenName":  req.GivenName,
 		"familyName": req.FamilyName,
 		"email":      req.Email,
+		"status":     "active",
 	})
 	entity, err := h.resourceService.Create(
 		c.Request().Context(),
@@ -141,7 +142,7 @@ func toPersonResponse(r *entities.Resource) PersonResponse {
 		Name:       application.StringField(fields, "name"),
 		Email:      application.StringField(fields, "email"),
 		AvatarURL:  application.StringField(fields, "avatarURL"),
-		Status:     r.Status(),
+		Status:     application.StringField(fields, "status"),
 		CreatedAt:  r.CreatedAt().Format(time.RFC3339),
 	}
 }

@@ -46,9 +46,9 @@
 <script setup lang="ts">
 const route = useRoute()
 const router = useRouter()
-const typeSlug = route.params.typeSlug as string
-const id = route.params.id as string
-const screenName = route.params.screenName as string
+const typeSlug = computed(() => route.params.typeSlug as string)
+const id = computed(() => route.params.id as string)
+const screenName = computed(() => route.params.screenName as string)
 
 const { fetchManifest, loadScreen } = usePresetScreens()
 const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
@@ -57,14 +57,17 @@ const screen = ref<{ fileName: string; component: any; meta: { name: string; lab
 const loading = ref(true)
 const error = ref<string | null>(null)
 
-const resourceType = computed(() => getBySlug(typeSlug))
+const resourceType = computed(() => getBySlug(typeSlug.value))
 const screenTitle = computed(() => {
-  const typeName = resourceType.value?.name || typeSlug
-  const label = screen.value?.meta?.label || screenName
+  const typeName = resourceType.value?.name || typeSlug.value
+  const label = screen.value?.meta?.label || screenName.value
   return `${typeName} — ${label}`
 })
 
-onMounted(async () => {
+async function loadCurrentScreen() {
+  loading.value = true
+  error.value = null
+  screen.value = null
   if (!loaded.value) await fetchResourceTypes()
   const manifestOk = await fetchManifest()
   if (!manifestOk) {
@@ -73,18 +76,25 @@ onMounted(async () => {
     return
   }
   try {
-    const fileName = screenName.endsWith('.mjs') ? screenName : `${screenName}.mjs`
-    const result = await loadScreen(typeSlug, fileName)
+    const name = screenName.value
+    const fileName = name.endsWith('.mjs') ? name : `${name}.mjs`
+    const result = await loadScreen(typeSlug.value, fileName)
     if (!result) {
       error.value = 'Screen not found'
     } else {
       screen.value = result
     }
   } catch (err) {
-    console.error(`[screenPage] loadScreen failed for ${typeSlug}/${screenName}:`, err)
+    console.error(`[screenPage] loadScreen failed for ${typeSlug.value}/${screenName.value}:`, err)
     error.value = 'Failed to load screen'
   } finally {
     loading.value = false
   }
-})
+}
+
+watch(
+  () => [typeSlug.value, id.value, screenName.value],
+  () => loadCurrentScreen(),
+  { immediate: true },
+)
 </script>
