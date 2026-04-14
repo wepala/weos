@@ -189,9 +189,15 @@ func TestUpdateResource_EdgesReconciled(t *testing.T) {
 
 	// Task should now be listed under project2, not project1.
 	taskUnderProject := func(pid string) bool {
+		t.Helper()
 		url := fmt.Sprintf("/api/task?_filter[project][eq]=%s", pid)
 		r := env.doRequest(t, "GET", url, "", "admin@weos.dev")
-		defer r.Body.Close()
+		// Note: readJSON closes r.Body, so we don't defer Close here.
+		// Assert status before parsing — a non-200 produces clearer output
+		// than a JSON-decode failure on an error envelope.
+		if r.StatusCode != http.StatusOK {
+			t.Fatalf("list by project %s: expected 200, got %d", pid, r.StatusCode)
+		}
 		result := readJSON(t, r)
 		rows, _ := result["data"].([]any)
 		for _, row := range rows {

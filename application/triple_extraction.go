@@ -123,9 +123,28 @@ func extractTriplesFromEdgesNode(
 		if !predicateSet[key] {
 			continue
 		}
-		// Unwrap {"@id": "..."} format.
-		if ref, ok := val.(map[string]any); ok {
-			if objectID, ok := ref["@id"].(string); ok && objectID != "" {
+		// Predicate value is either a single {"@id": "..."} ref or an array
+		// of such refs (multi-valued reference property). Each non-empty @id
+		// becomes a triple.
+		switch v := val.(type) {
+		case map[string]any:
+			if objectID, ok := v["@id"].(string); ok && objectID != "" {
+				triples = append(triples, repositories.Triple{
+					Subject:   subjectID,
+					Predicate: key,
+					Object:    objectID,
+				})
+			}
+		case []any:
+			for _, item := range v {
+				ref, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				objectID, ok := ref["@id"].(string)
+				if !ok || objectID == "" {
+					continue
+				}
 				triples = append(triples, repositories.Triple{
 					Subject:   subjectID,
 					Predicate: key,
@@ -140,6 +159,10 @@ func extractTriplesFromEdgesNode(
 // ExtractAndStripReferences extracts reference property values from data as triples
 // and removes the reference keys from the data. Returns the stripped data and
 // the extracted triples (with subject left empty — caller sets it).
+//
+// Prefer ExtractReferenceTriples when the caller doesn't need the stripped
+// data — it avoids the unmarshal/marshal round-trip that this function
+// performs solely to produce the stripped output.
 func ExtractAndStripReferences(
 	data json.RawMessage,
 	refProps []ReferencePropertyDef,
@@ -153,6 +176,47 @@ func ExtractAndStripReferences(
 		return nil, nil, fmt.Errorf("data must be a JSON object: %w", err)
 	}
 
+	refs := collectReferenceTriples(m, refProps)
+	for _, rp := range refProps {
+		delete(m, rp.PropertyName)
+	}
+
+	stripped, err := json.Marshal(m)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal stripped data: %w", err)
+	}
+	return stripped, refs, nil
+}
+
+// ExtractReferenceTriples decodes data and pulls out reference property values
+// as triples without modifying or re-marshaling the data. Use this in callers
+// that already pass the original data (refs intact) into BuildResourceGraph
+// and only need the triples for event sourcing — the stripped output that
+// ExtractAndStripReferences produces would just be discarded.
+//
+// Returned triples have empty Subject; the caller sets it.
+func ExtractReferenceTriples(
+	data json.RawMessage,
+	refProps []ReferencePropertyDef,
+) ([]repositories.Triple, error) {
+	if len(refProps) == 0 {
+		return nil, nil
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("data must be a JSON object: %w", err)
+	}
+	return collectReferenceTriples(m, refProps), nil
+}
+
+// collectReferenceTriples gathers triples from an already-decoded data map.
+// Shared by ExtractAndStripReferences and ExtractReferenceTriples so the
+// rules for which values count as references stay in one place.
+func collectReferenceTriples(
+	m map[string]any,
+	refProps []ReferencePropertyDef,
+) []repositories.Triple {
 	var refs []repositories.Triple
 	for _, rp := range refProps {
 		switch v := m[rp.PropertyName].(type) {
@@ -166,17 +230,9 @@ func ExtractAndStripReferences(
 					refs = append(refs, repositories.Triple{Predicate: rp.PredicateIRI, Object: s})
 				}
 			}
-		default:
-			continue
 		}
-		delete(m, rp.PropertyName)
 	}
-
-	stripped, err := json.Marshal(m)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal stripped data: %w", err)
-	}
-	return stripped, refs, nil
+	return refs
 }
 
 // AddEdgeToGraph adds a relationship edge to a JSON-LD @graph document.
@@ -226,9 +282,15 @@ func AddEdgeToGraph(
 	} else {
 		// Edges node exists. Either the predicate is absent (add it), a single
 		// ref (dedupe or promote to array), or an array (dedupe or append).
+		// A non-map at @graph[1] is corruption — silently overwriting it would
+		// destroy data the caller cannot see, so surface it as an error per
+		// the documented contract.
 		edgesNode, ok := graphArr[1].(map[string]any)
 		if !ok {
-			edgesNode = map[string]any{"@id": subjectID}
+			return nil, fmt.Errorf(
+				"@graph[1] is %T, want edges map[string]any; refusing to overwrite",
+				graphArr[1],
+			)
 		}
 		newRef := map[string]any{"@id": objectID}
 		switch existing := edgesNode[predicate].(type) {
@@ -490,11 +552,29 @@ func BuildResourceGraph(
 			continue // skip JSON-LD keywords from input
 		}
 		if refPropNames[key] {
-			// Reference property → edges node with {"@id": value} format.
-			if strVal, ok := val.(string); ok && strVal != "" {
-				predicateIRI := jsonld.ResolvePredicateIRI(key, vocab, contextMap)
-				edgesNode[predicateIRI] = map[string]any{"@id": strVal}
-				hasEdges = true
+			// Reference property → edges node. Strings become a single
+			// {"@id": value} ref; arrays of strings become an array of refs
+			// (schemas can declare x-resource-type on array properties, e.g.
+			// the mealplanning preset). Non-string / non-array-of-strings
+			// values are skipped — they aren't valid references.
+			predicateIRI := jsonld.ResolvePredicateIRI(key, vocab, contextMap)
+			switch v := val.(type) {
+			case string:
+				if v != "" {
+					edgesNode[predicateIRI] = map[string]any{"@id": v}
+					hasEdges = true
+				}
+			case []any:
+				refs := make([]any, 0, len(v))
+				for _, item := range v {
+					if s, ok := item.(string); ok && s != "" {
+						refs = append(refs, map[string]any{"@id": s})
+					}
+				}
+				if len(refs) > 0 {
+					edgesNode[predicateIRI] = refs
+					hasEdges = true
+				}
 			}
 		} else {
 			// Intrinsic property → entity node.

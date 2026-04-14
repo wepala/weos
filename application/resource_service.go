@@ -243,7 +243,9 @@ func (s *resourceService) Create(
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
 
 	// Extract reference triples for atomic UoW commit alongside the entity.
-	_, refs, err := ExtractAndStripReferences(data, refProps)
+	// BuildResourceGraph below consumes the original data (refs intact), so
+	// the stripping variant would just throw away its marshaled output.
+	refs, err := ExtractReferenceTriples(data, refProps)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse resource data: %w", err)
 	}
@@ -443,7 +445,9 @@ func (s *resourceService) Update(
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
 
 	// Extract reference triples for atomic UoW commit alongside the entity.
-	_, newRefs, err := ExtractAndStripReferences(data, refProps)
+	// BuildResourceGraph below consumes the original data (refs intact), so
+	// the stripping variant would just throw away its marshaled output.
+	newRefs, err := ExtractReferenceTriples(data, refProps)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse resource data: %w", err)
 	}

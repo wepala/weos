@@ -184,7 +184,9 @@ func TestAddEdgeToGraph_MultiValued(t *testing.T) {
 	}
 
 	var doc map[string]any
-	_ = json.Unmarshal(afterAdd, &doc)
+	if err := json.Unmarshal(afterAdd, &doc); err != nil {
+		t.Fatalf("unmarshal afterAdd: %v", err)
+	}
 	edges := doc["@graph"].([]any)[1].(map[string]any)
 	arr, ok := edges["https://schema.org/participant"].([]any)
 	if !ok {
@@ -225,7 +227,9 @@ func TestAddEdgeToGraph_Idempotent_ArrayBranch(t *testing.T) {
 	}
 
 	var doc map[string]any
-	_ = json.Unmarshal(afterReplay, &doc)
+	if err := json.Unmarshal(afterReplay, &doc); err != nil {
+		t.Fatalf("unmarshal afterReplay: %v", err)
+	}
 	edges := doc["@graph"].([]any)[1].(map[string]any)
 	arr, ok := edges["https://schema.org/participant"].([]any)
 	if !ok {
@@ -270,6 +274,94 @@ func TestAddEdgeToGraph_MalformedArrayEntry(t *testing.T) {
 
 	if _, err := AddEdgeToGraph(graph, "https://schema.org/participant", "stu-2", "enr-1"); err == nil {
 		t.Error("expected error for malformed array entry, got nil")
+	}
+}
+
+// TestBuildResourceGraph_ArrayRef pins handling of array-valued reference
+// properties. Schemas in this repo (e.g. mealplanning preset) declare
+// x-resource-type on array properties, and BuildResourceGraph must
+// materialize each entry as a {"@id": ...} ref so downstream readers
+// (EdgeValue, projection FK extraction) can see them in the edges node
+// without waiting for Triple replay.
+func TestBuildResourceGraph_ArrayRef(t *testing.T) {
+	t.Parallel()
+
+	// Treat studentId as an array-of-strings reference for this test.
+	data := json.RawMessage(`{
+		"studentId": ["stu-1", "stu-2", "stu-3"],
+		"paymentCadence": "per-term"
+	}`)
+
+	graph, err := BuildResourceGraph(data, enrollmentRefProps, "enr-arr", "Enrollment", enrollmentContext)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(graph, &doc); err != nil {
+		t.Fatalf("unmarshal graph: %v", err)
+	}
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok || len(graphArr) < 2 {
+		t.Fatalf("expected @graph with edges node, got %v", doc["@graph"])
+	}
+	edges, ok := graphArr[1].(map[string]any)
+	if !ok {
+		t.Fatalf("edges node is %T, want map", graphArr[1])
+	}
+	arr, ok := edges["https://schema.org/participant"].([]any)
+	if !ok {
+		t.Fatalf("expected array of refs, got %T", edges["https://schema.org/participant"])
+	}
+	if len(arr) != 3 {
+		t.Fatalf("expected 3 refs, got %d", len(arr))
+	}
+	for i, want := range []string{"stu-1", "stu-2", "stu-3"} {
+		ref, ok := arr[i].(map[string]any)
+		if !ok {
+			t.Errorf("entry %d is %T, want {@id} map", i, arr[i])
+			continue
+		}
+		if got, _ := ref["@id"].(string); got != want {
+			t.Errorf("entry %d @id = %q, want %q", i, got, want)
+		}
+	}
+}
+
+// TestExtractReferenceTriples mirrors the array case to ensure the lighter
+// helper used by Create/Update emits one triple per array entry without
+// performing the unmarshal/marshal round-trip that ExtractAndStripReferences
+// does to produce a stripped payload.
+func TestExtractReferenceTriples(t *testing.T) {
+	t.Parallel()
+
+	data := json.RawMessage(`{
+		"studentId": ["stu-1", "stu-2"],
+		"courseInstanceId": "ci-1",
+		"paymentCadence": "per-term"
+	}`)
+
+	refs, err := ExtractReferenceTriples(data, enrollmentRefProps)
+	if err != nil {
+		t.Fatalf("ExtractReferenceTriples: %v", err)
+	}
+	// Expect 2 student triples + 1 course-instance triple = 3.
+	if len(refs) != 3 {
+		t.Fatalf("got %d triples, want 3: %+v", len(refs), refs)
+	}
+	counts := map[string]int{}
+	for _, r := range refs {
+		counts[r.Predicate+"|"+r.Object]++
+	}
+	want := []string{
+		"https://schema.org/participant|stu-1",
+		"https://schema.org/participant|stu-2",
+		"https://schema.org/object|ci-1",
+	}
+	for _, key := range want {
+		if counts[key] != 1 {
+			t.Errorf("triple %q count = %d, want 1", key, counts[key])
+		}
 	}
 }
 
