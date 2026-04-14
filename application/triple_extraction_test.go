@@ -328,6 +328,77 @@ func TestBuildResourceGraph_ArrayRef(t *testing.T) {
 	}
 }
 
+// TestEdgeValues_ArrayRef pins the read-side counterpart of array-valued
+// reference properties. EdgeValue must keep working (returning the first @id
+// for legacy callers that expect a single string), and EdgeValues must
+// return every @id in order.
+func TestEdgeValues_ArrayRef(t *testing.T) {
+	t.Parallel()
+
+	data := json.RawMessage(`{
+		"studentId": ["stu-1", "stu-2", "stu-3"],
+		"paymentCadence": "per-term"
+	}`)
+
+	graph, err := BuildResourceGraph(data, enrollmentRefProps, "enr-arr-rd", "Enrollment", enrollmentContext)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+
+	// EdgeValue (single-string API) returns the first entry — preserves
+	// behavior for callers that only ever expected a scalar ref.
+	if got := EdgeValue(graph, enrollmentContext, "studentId"); got != "stu-1" {
+		t.Errorf("EdgeValue(studentId) = %q, want stu-1 (first entry)", got)
+	}
+
+	// EdgeValues returns every entry.
+	got := EdgeValues(graph, enrollmentContext, "studentId")
+	want := []string{"stu-1", "stu-2", "stu-3"}
+	if len(got) != len(want) {
+		t.Fatalf("EdgeValues len = %d, want %d (got %v)", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("EdgeValues[%d] = %q, want %q", i, got[i], w)
+		}
+	}
+}
+
+// TestFlattenGraph_ArrayRef verifies that array-form edges round-trip back
+// to a JSON array of ID strings under the original property name.
+func TestFlattenGraph_ArrayRef(t *testing.T) {
+	t.Parallel()
+
+	data := json.RawMessage(`{
+		"studentId": ["stu-1", "stu-2"],
+		"paymentCadence": "per-term"
+	}`)
+
+	graph, err := BuildResourceGraph(data, enrollmentRefProps, "enr-arr-flat", "Enrollment", enrollmentContext)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+
+	flat := FlattenGraph(graph, enrollmentContext)
+	var result map[string]any
+	if err := json.Unmarshal(flat, &result); err != nil {
+		t.Fatalf("unmarshal flat: %v", err)
+	}
+
+	arr, ok := result["studentId"].([]any)
+	if !ok {
+		t.Fatalf("flattened studentId = %T, want []any", result["studentId"])
+	}
+	if len(arr) != 2 {
+		t.Fatalf("flattened studentId len = %d, want 2", len(arr))
+	}
+	for i, want := range []string{"stu-1", "stu-2"} {
+		if got, _ := arr[i].(string); got != want {
+			t.Errorf("flattened studentId[%d] = %q, want %q", i, got, want)
+		}
+	}
+}
+
 // TestExtractReferenceTriples mirrors the array case to ensure the lighter
 // helper used by Create/Update emits one triple per array entry without
 // performing the unmarshal/marshal round-trip that ExtractAndStripReferences

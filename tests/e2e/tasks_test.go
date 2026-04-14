@@ -133,7 +133,9 @@ func TestCreateResource_EdgesReadableAfterCreate(t *testing.T) {
 	}`, projectID)
 	resp := env.doRequest(t, "POST", "/api/task", taskBody, "admin@weos.dev")
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create task: expected 201, got %d", resp.StatusCode)
+		// readJSON closes the body and surfaces the error envelope.
+		result := readJSON(t, resp)
+		t.Fatalf("create task: expected 201, got %d: %v", resp.StatusCode, result)
 	}
 	taskID := readEnvelopeData(t, resp)["id"].(string)
 
@@ -144,7 +146,8 @@ func TestCreateResource_EdgesReadableAfterCreate(t *testing.T) {
 	listURL := fmt.Sprintf("/api/task?_filter[project][eq]=%s", projectID)
 	listResp := env.doRequest(t, "GET", listURL, "", "admin@weos.dev")
 	if listResp.StatusCode != http.StatusOK {
-		t.Fatalf("list by project: expected 200, got %d", listResp.StatusCode)
+		result := readJSON(t, listResp)
+		t.Fatalf("list by project: expected 200, got %d: %v", listResp.StatusCode, result)
 	}
 	result := readJSON(t, listResp)
 	rows, _ := result["data"].([]any)
@@ -175,7 +178,8 @@ func TestUpdateResource_EdgesReconciled(t *testing.T) {
 	body := fmt.Sprintf(`{"name":"Movable Task","status":"open","project":%q}`, project1)
 	resp := env.doRequest(t, "POST", "/api/task", body, "admin@weos.dev")
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create task: expected 201, got %d", resp.StatusCode)
+		result := readJSON(t, resp)
+		t.Fatalf("create task: expected 201, got %d: %v", resp.StatusCode, result)
 	}
 	taskID := readEnvelopeData(t, resp)["id"].(string)
 
@@ -183,7 +187,8 @@ func TestUpdateResource_EdgesReconciled(t *testing.T) {
 	updateBody := fmt.Sprintf(`{"name":"Movable Task","status":"open","project":%q}`, project2)
 	upResp := env.doRequest(t, "PUT", "/api/task/"+taskID, updateBody, "admin@weos.dev")
 	if upResp.StatusCode != http.StatusOK {
-		t.Fatalf("update task: expected 200, got %d", upResp.StatusCode)
+		result := readJSON(t, upResp)
+		t.Fatalf("update task: expected 200, got %d: %v", upResp.StatusCode, result)
 	}
 	upResp.Body.Close()
 
@@ -192,13 +197,13 @@ func TestUpdateResource_EdgesReconciled(t *testing.T) {
 		t.Helper()
 		url := fmt.Sprintf("/api/task?_filter[project][eq]=%s", pid)
 		r := env.doRequest(t, "GET", url, "", "admin@weos.dev")
-		// Note: readJSON closes r.Body, so we don't defer Close here.
-		// Assert status before parsing — a non-200 produces clearer output
-		// than a JSON-decode failure on an error envelope.
-		if r.StatusCode != http.StatusOK {
-			t.Fatalf("list by project %s: expected 200, got %d", pid, r.StatusCode)
-		}
+		// readJSON consumes and closes the body. Calling it unconditionally
+		// here keeps the failure path from leaking the connection — we still
+		// inspect StatusCode after parsing for a clear error message.
 		result := readJSON(t, r)
+		if r.StatusCode != http.StatusOK {
+			t.Fatalf("list by project %s: expected 200, got %d: %v", pid, r.StatusCode, result)
+		}
 		rows, _ := result["data"].([]any)
 		for _, row := range rows {
 			m, _ := row.(map[string]any)

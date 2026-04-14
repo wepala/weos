@@ -472,7 +472,9 @@ func FlattenGraph(graphData, ldContext json.RawMessage) json.RawMessage {
 		flat[k] = v
 	}
 
-	// Merge edge values if edges node exists.
+	// Merge edge values if edges node exists. A single ref unwraps to a
+	// string; an array of refs unwraps to a []string so the flat output
+	// stays symmetric with the input shape that BuildResourceGraph accepted.
 	if len(graphArr) > 1 {
 		if edgesNode, ok := graphArr[1].(map[string]any); ok {
 			reverseMap := jsonld.BuildReverseMap(ldContext)
@@ -484,10 +486,19 @@ func FlattenGraph(graphData, ldContext json.RawMessage) json.RawMessage {
 				if !ok {
 					continue
 				}
-				if ref, ok := val.(map[string]any); ok {
-					if id, ok := ref["@id"].(string); ok {
-						flat[propName] = id
+				ids := collectEdgeIDs(val)
+				switch len(ids) {
+				case 0:
+					// Skip — no usable @id values.
+				case 1:
+					if _, isArr := val.([]any); isArr {
+						// Preserve array shape even when only one entry survives.
+						flat[propName] = ids
+					} else {
+						flat[propName] = ids[0]
 					}
+				default:
+					flat[propName] = ids
 				}
 			}
 		}
@@ -664,46 +675,95 @@ func ExtractEdgesNode(graphData json.RawMessage) json.RawMessage {
 // It resolves the property to its predicate IRI using the document's @context,
 // then looks up that predicate in the edges node and unwraps the {"@id": "..."} value.
 // Falls back to reading from flat data for legacy format.
+//
+// For multi-valued reference properties (where the edge is stored as an array
+// of refs), this returns the first @id. Use EdgeValues to read every entry.
 func EdgeValue(graphData, ldContext json.RawMessage, propertyName string) string {
+	values := EdgeValues(graphData, ldContext, propertyName)
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+// EdgeValues reads every reference value for the given property from a
+// JSON-LD @graph's edges node. Returns a single-element slice for the
+// scalar-edge case and one entry per ref for the array-edge case (which
+// BuildResourceGraph emits when the schema declares x-resource-type on an
+// array property).
+//
+// Falls back to reading the property directly for legacy flat data.
+// Returns an empty slice when the property is absent.
+func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []string {
 	var doc map[string]any
 	if json.Unmarshal(graphData, &doc) != nil {
-		return ""
+		return nil
 	}
 
 	// Check for @graph format.
 	graphArr, ok := doc["@graph"].([]any)
 	if !ok || len(graphArr) < 2 {
-		// Legacy flat format — read property directly.
-		if val, ok := doc[propertyName].(string); ok {
-			return val
+		// Legacy flat format — read property directly. Support both a single
+		// string and an array of strings for symmetry with the @graph case.
+		switch v := doc[propertyName].(type) {
+		case string:
+			if v == "" {
+				return nil
+			}
+			return []string{v}
+		case []any:
+			out := make([]string, 0, len(v))
+			for _, item := range v {
+				if s, ok := item.(string); ok && s != "" {
+					out = append(out, s)
+				}
+			}
+			return out
 		}
-		return ""
+		return nil
 	}
 
 	edgesNode, ok := graphArr[1].(map[string]any)
 	if !ok {
-		return ""
+		return nil
 	}
 
 	// Resolve the property name to its predicate IRI using the resource type's context.
 	vocab, contextMap := jsonld.ParseContext(ldContext)
 	predicateIRI := jsonld.ResolvePredicateIRI(propertyName, vocab, contextMap)
 
-	// Look up the predicate in the edges node.
 	edgeVal, exists := edgesNode[predicateIRI]
 	if !exists {
-		return ""
+		return nil
 	}
+	return collectEdgeIDs(edgeVal)
+}
 
-	// Unwrap {"@id": "..."} format.
-	if m, ok := edgeVal.(map[string]any); ok {
-		if id, ok := m["@id"].(string); ok {
-			return id
+// collectEdgeIDs unwraps an edge value (single ref, ref array, or bare
+// string) into the list of @id strings it contains. Centralized so EdgeValue,
+// EdgeValues, and FlattenGraph all interpret the edges node identically.
+func collectEdgeIDs(edgeVal any) []string {
+	switch v := edgeVal.(type) {
+	case map[string]any:
+		if id, ok := v["@id"].(string); ok && id != "" {
+			return []string{id}
+		}
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			ref, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if id, ok := ref["@id"].(string); ok && id != "" {
+				out = append(out, id)
+			}
+		}
+		return out
+	case string:
+		if v != "" {
+			return []string{v}
 		}
 	}
-	// Direct string value fallback.
-	if s, ok := edgeVal.(string); ok {
-		return s
-	}
-	return ""
+	return nil
 }
