@@ -144,11 +144,17 @@ func TestAddEdgeToGraph_Idempotent(t *testing.T) {
 	if err := json.Unmarshal(afterReplay, &doc); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	graphArr := doc["@graph"].([]any)
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok {
+		t.Fatalf("@graph is %T, want []any", doc["@graph"])
+	}
 	if len(graphArr) < 2 {
 		t.Fatalf("expected @graph with edges node, got %d elements", len(graphArr))
 	}
-	edges := graphArr[1].(map[string]any)
+	edges, ok := graphArr[1].(map[string]any)
+	if !ok {
+		t.Fatalf("edges node is %T, want map", graphArr[1])
+	}
 	ref, ok := edges["https://schema.org/participant"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected single {@id} ref after idempotent re-add, got %T: %v",
@@ -187,7 +193,14 @@ func TestAddEdgeToGraph_MultiValued(t *testing.T) {
 	if err := json.Unmarshal(afterAdd, &doc); err != nil {
 		t.Fatalf("unmarshal afterAdd: %v", err)
 	}
-	edges := doc["@graph"].([]any)[1].(map[string]any)
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok || len(graphArr) < 2 {
+		t.Fatalf("expected @graph with edges node, got %v", doc["@graph"])
+	}
+	edges, ok := graphArr[1].(map[string]any)
+	if !ok {
+		t.Fatalf("edges node is %T, want map", graphArr[1])
+	}
 	arr, ok := edges["https://schema.org/participant"].([]any)
 	if !ok {
 		t.Fatalf("expected array for multi-valued predicate, got %T", edges["https://schema.org/participant"])
@@ -230,7 +243,14 @@ func TestAddEdgeToGraph_Idempotent_ArrayBranch(t *testing.T) {
 	if err := json.Unmarshal(afterReplay, &doc); err != nil {
 		t.Fatalf("unmarshal afterReplay: %v", err)
 	}
-	edges := doc["@graph"].([]any)[1].(map[string]any)
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok || len(graphArr) < 2 {
+		t.Fatalf("expected @graph with edges node, got %v", doc["@graph"])
+	}
+	edges, ok := graphArr[1].(map[string]any)
+	if !ok {
+		t.Fatalf("edges node is %T, want map", graphArr[1])
+	}
 	arr, ok := edges["https://schema.org/participant"].([]any)
 	if !ok {
 		t.Fatalf("expected array, got %T", edges["https://schema.org/participant"])
@@ -325,6 +345,72 @@ func TestBuildResourceGraph_ArrayRef(t *testing.T) {
 		if got, _ := ref["@id"].(string); got != want {
 			t.Errorf("entry %d @id = %q, want %q", i, got, want)
 		}
+	}
+}
+
+// TestRemoveEdgeFromGraph_PreservesArrayShape pins that an array-valued
+// reference property stays an array even after deletions shrink it to a
+// single entry. Without this, FlattenGraph / EdgeValues would emit a
+// scalar for a property that's still semantically multi-valued, depending
+// purely on event-replay history.
+func TestRemoveEdgeFromGraph_PreservesArrayShape(t *testing.T) {
+	t.Parallel()
+
+	data := json.RawMessage(`{
+		"studentId": ["stu-1", "stu-2"],
+		"paymentCadence": "per-term"
+	}`)
+	graph, err := BuildResourceGraph(data, enrollmentRefProps, "enr-rm", "Enrollment", enrollmentContext)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+
+	// Remove one of the two refs — the result still belongs to a multi-valued
+	// reference property and should be a single-element array, not a scalar.
+	afterRemove, err := RemoveEdgeFromGraph(graph, "https://schema.org/participant", "stu-1")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(afterRemove, &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok || len(graphArr) < 2 {
+		t.Fatalf("expected @graph with edges node, got %v", doc["@graph"])
+	}
+	edges, ok := graphArr[1].(map[string]any)
+	if !ok {
+		t.Fatalf("edges node is %T, want map", graphArr[1])
+	}
+	arr, ok := edges["https://schema.org/participant"].([]any)
+	if !ok {
+		t.Fatalf("predicate value is %T after removal, want []any (shape must not flip to scalar)",
+			edges["https://schema.org/participant"])
+	}
+	if len(arr) != 1 {
+		t.Fatalf("array len = %d, want 1", len(arr))
+	}
+	ref, ok := arr[0].(map[string]any)
+	if !ok {
+		t.Fatalf("remaining entry is %T, want map", arr[0])
+	}
+	if got, _ := ref["@id"].(string); got != "stu-2" {
+		t.Errorf("remaining @id = %q, want stu-2", got)
+	}
+
+	// FlattenGraph must keep the array shape too.
+	flat := FlattenGraph(afterRemove, enrollmentContext)
+	var flatDoc map[string]any
+	if err := json.Unmarshal(flat, &flatDoc); err != nil {
+		t.Fatalf("unmarshal flat: %v", err)
+	}
+	flatArr, ok := flatDoc["studentId"].([]any)
+	if !ok {
+		t.Errorf("flattened studentId = %T, want []any (array shape must survive flatten)", flatDoc["studentId"])
+	} else if len(flatArr) != 1 {
+		t.Errorf("flattened studentId len = %d, want 1", len(flatArr))
 	}
 }
 

@@ -372,6 +372,10 @@ func RemoveEdgeFromGraph(
 	}
 
 	// Handle array-valued predicates: remove only the matching objectID.
+	// Preserve array shape even when the result shrinks to one entry —
+	// otherwise an array-valued reference property would silently "flip"
+	// to a scalar after deletions, and FlattenGraph / EdgeValues would
+	// emit a different shape for the same property depending on history.
 	if arr, ok := existing.([]any); ok {
 		filtered := make([]any, 0, len(arr))
 		for _, item := range arr {
@@ -382,12 +386,9 @@ func RemoveEdgeFromGraph(
 			}
 			filtered = append(filtered, item)
 		}
-		switch len(filtered) {
-		case 0:
+		if len(filtered) == 0 {
 			delete(edgesNode, predicate)
-		case 1:
-			edgesNode[predicate] = filtered[0] // unwrap single-element array
-		default:
+		} else {
 			edgesNode[predicate] = filtered
 		}
 	} else {
