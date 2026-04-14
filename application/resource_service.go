@@ -242,14 +242,15 @@ func (s *resourceService) Create(
 	entityID := identity.NewResource(cmd.TypeSlug)
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
 
-	// Strip reference properties from the data — resources are atomic.
-	// References are recorded as Triple events on the entity for atomic UoW commit.
-	strippedData, refs, err := ExtractAndStripReferences(data, refProps)
+	// Extract reference triples for atomic UoW commit alongside the entity.
+	// BuildResourceGraph below consumes the original data (refs intact), so
+	// the stripping variant would just throw away its marshaled output.
+	refs, err := ExtractReferenceTriples(data, refProps)
 	if err != nil {
-		return nil, fmt.Errorf("failed to strip references: %w", err)
+		return nil, fmt.Errorf("failed to parse resource data: %w", err)
 	}
 
-	graphData, err := BuildResourceGraph(strippedData, nil, entityID, rt.Name(), rt.Context())
+	graphData, err := BuildResourceGraph(data, refProps, entityID, rt.Name(), rt.Context())
 	if err != nil {
 		return nil, fmt.Errorf("failed to build resource graph: %w", err)
 	}
@@ -443,13 +444,15 @@ func (s *resourceService) Update(
 
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
 
-	// Strip reference properties — resources are atomic.
-	strippedData, newRefs, err := ExtractAndStripReferences(data, refProps)
+	// Extract reference triples for atomic UoW commit alongside the entity.
+	// BuildResourceGraph below consumes the original data (refs intact), so
+	// the stripping variant would just throw away its marshaled output.
+	newRefs, err := ExtractReferenceTriples(data, refProps)
 	if err != nil {
-		return nil, fmt.Errorf("failed to strip references: %w", err)
+		return nil, fmt.Errorf("failed to parse resource data: %w", err)
 	}
 
-	graphData, err := BuildResourceGraph(strippedData, nil, entity.GetID(), rt.Name(), rt.Context())
+	graphData, err := BuildResourceGraph(data, refProps, entity.GetID(), rt.Name(), rt.Context())
 	if err != nil {
 		return nil, fmt.Errorf("failed to build resource graph: %w", err)
 	}

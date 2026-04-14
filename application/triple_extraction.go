@@ -123,9 +123,28 @@ func extractTriplesFromEdgesNode(
 		if !predicateSet[key] {
 			continue
 		}
-		// Unwrap {"@id": "..."} format.
-		if ref, ok := val.(map[string]any); ok {
-			if objectID, ok := ref["@id"].(string); ok && objectID != "" {
+		// Predicate value is either a single {"@id": "..."} ref or an array
+		// of such refs (multi-valued reference property). Each non-empty @id
+		// becomes a triple.
+		switch v := val.(type) {
+		case map[string]any:
+			if objectID, ok := v["@id"].(string); ok && objectID != "" {
+				triples = append(triples, repositories.Triple{
+					Subject:   subjectID,
+					Predicate: key,
+					Object:    objectID,
+				})
+			}
+		case []any:
+			for _, item := range v {
+				ref, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				objectID, ok := ref["@id"].(string)
+				if !ok || objectID == "" {
+					continue
+				}
 				triples = append(triples, repositories.Triple{
 					Subject:   subjectID,
 					Predicate: key,
@@ -140,6 +159,10 @@ func extractTriplesFromEdgesNode(
 // ExtractAndStripReferences extracts reference property values from data as triples
 // and removes the reference keys from the data. Returns the stripped data and
 // the extracted triples (with subject left empty — caller sets it).
+//
+// Prefer ExtractReferenceTriples when the caller doesn't need the stripped
+// data — it avoids the unmarshal/marshal round-trip that this function
+// performs solely to produce the stripped output.
 func ExtractAndStripReferences(
 	data json.RawMessage,
 	refProps []ReferencePropertyDef,
@@ -153,6 +176,47 @@ func ExtractAndStripReferences(
 		return nil, nil, fmt.Errorf("data must be a JSON object: %w", err)
 	}
 
+	refs := collectReferenceTriples(m, refProps)
+	for _, rp := range refProps {
+		delete(m, rp.PropertyName)
+	}
+
+	stripped, err := json.Marshal(m)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal stripped data: %w", err)
+	}
+	return stripped, refs, nil
+}
+
+// ExtractReferenceTriples decodes data and pulls out reference property values
+// as triples without modifying or re-marshaling the data. Use this in callers
+// that already pass the original data (refs intact) into BuildResourceGraph
+// and only need the triples for event sourcing — the stripped output that
+// ExtractAndStripReferences produces would just be discarded.
+//
+// Returned triples have empty Subject; the caller sets it.
+func ExtractReferenceTriples(
+	data json.RawMessage,
+	refProps []ReferencePropertyDef,
+) ([]repositories.Triple, error) {
+	if len(refProps) == 0 {
+		return nil, nil
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("data must be a JSON object: %w", err)
+	}
+	return collectReferenceTriples(m, refProps), nil
+}
+
+// collectReferenceTriples gathers triples from an already-decoded data map.
+// Shared by ExtractAndStripReferences and ExtractReferenceTriples so the
+// rules for which values count as references stay in one place.
+func collectReferenceTriples(
+	m map[string]any,
+	refProps []ReferencePropertyDef,
+) []repositories.Triple {
 	var refs []repositories.Triple
 	for _, rp := range refProps {
 		switch v := m[rp.PropertyName].(type) {
@@ -166,23 +230,21 @@ func ExtractAndStripReferences(
 					refs = append(refs, repositories.Triple{Predicate: rp.PredicateIRI, Object: s})
 				}
 			}
-		default:
-			continue
 		}
-		delete(m, rp.PropertyName)
 	}
-
-	stripped, err := json.Marshal(m)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal stripped data: %w", err)
-	}
-	return stripped, refs, nil
+	return refs
 }
 
 // AddEdgeToGraph adds a relationship edge to a JSON-LD @graph document.
-// If an edge with the same predicate already exists, it is replaced.
-// If no edges node exists, one is created. If no @graph exists, the data is
-// wrapped as an entity node with a new edges node.
+// Multi-valued predicates accumulate into an array. Re-adding an edge that
+// already exists with the same (predicate, object) pair is a no-op — this
+// lets the Triple.Created projection replay edges already materialized in
+// Resource.Created's @graph body without duplicating them.
+// If no edges node exists, one is created. If no @graph exists, the data
+// is wrapped as an entity node with a new edges node.
+// Returns an error if the edges node contains a value of an unexpected
+// shape (not nil, not a map with @id, not a slice of such maps), since
+// silently overwriting would destroy data that the caller cannot see.
 func AddEdgeToGraph(
 	data json.RawMessage, predicate, objectID, subjectID string,
 ) (json.RawMessage, error) {
@@ -218,26 +280,69 @@ func AddEdgeToGraph(
 		}
 		graphArr = append(graphArr, edgesNode)
 	} else {
-		// Edges node exists — add the edge (accumulate into array for multi-valued predicates).
+		// Edges node exists. Either the predicate is absent (add it), a single
+		// ref (dedupe or promote to array), or an array (dedupe or append).
+		// A non-map at @graph[1] is corruption — silently overwriting it would
+		// destroy data the caller cannot see, so surface it as an error per
+		// the documented contract.
 		edgesNode, ok := graphArr[1].(map[string]any)
 		if !ok {
-			edgesNode = map[string]any{"@id": subjectID}
+			return nil, fmt.Errorf(
+				"@graph[1] is %T, want edges map[string]any; refusing to overwrite",
+				graphArr[1],
+			)
 		}
 		newRef := map[string]any{"@id": objectID}
-		if existing, exists := edgesNode[predicate]; exists {
-			if arr, ok := existing.([]any); ok {
-				edgesNode[predicate] = append(arr, newRef)
-			} else {
-				edgesNode[predicate] = []any{existing, newRef}
-			}
-		} else {
+		switch existing := edgesNode[predicate].(type) {
+		case nil:
 			edgesNode[predicate] = newRef
+		case map[string]any:
+			id, ok := existing["@id"].(string)
+			if !ok || id == "" {
+				return nil, fmt.Errorf("edge at predicate %q has malformed @id; refusing to overwrite", predicate)
+			}
+			if id == objectID {
+				break // already present — no-op
+			}
+			edgesNode[predicate] = []any{existing, newRef}
+		case []any:
+			found, err := containsEdgeRef(existing, objectID)
+			if err != nil {
+				return nil, fmt.Errorf("edge array at predicate %q: %w", predicate, err)
+			}
+			if found {
+				break // already present — no-op
+			}
+			edgesNode[predicate] = append(existing, newRef)
+		default:
+			return nil, fmt.Errorf("edge at predicate %q has unexpected type %T; refusing to overwrite", predicate, existing)
 		}
 		graphArr[1] = edgesNode
 	}
 
 	doc["@graph"] = graphArr
 	return json.Marshal(doc)
+}
+
+// containsEdgeRef reports whether any value in edgeList is a JSON-LD
+// reference ({"@id": objectID}) matching objectID. Returns an error if
+// any entry is not a well-formed ref map with a non-empty @id string,
+// so AddEdgeToGraph can surface corruption rather than silently skip it.
+func containsEdgeRef(edgeList []any, objectID string) (bool, error) {
+	for i, v := range edgeList {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return false, fmt.Errorf("entry %d is %T, want {\"@id\": string}", i, v)
+		}
+		id, ok := m["@id"].(string)
+		if !ok || id == "" {
+			return false, fmt.Errorf("entry %d has malformed @id", i)
+		}
+		if id == objectID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // RemoveEdgeFromGraph removes a specific relationship edge from a JSON-LD @graph document.
@@ -267,6 +372,10 @@ func RemoveEdgeFromGraph(
 	}
 
 	// Handle array-valued predicates: remove only the matching objectID.
+	// Preserve array shape even when the result shrinks to one entry —
+	// otherwise an array-valued reference property would silently "flip"
+	// to a scalar after deletions, and FlattenGraph / EdgeValues would
+	// emit a different shape for the same property depending on history.
 	if arr, ok := existing.([]any); ok {
 		filtered := make([]any, 0, len(arr))
 		for _, item := range arr {
@@ -277,12 +386,9 @@ func RemoveEdgeFromGraph(
 			}
 			filtered = append(filtered, item)
 		}
-		switch len(filtered) {
-		case 0:
+		if len(filtered) == 0 {
 			delete(edgesNode, predicate)
-		case 1:
-			edgesNode[predicate] = filtered[0] // unwrap single-element array
-		default:
+		} else {
 			edgesNode[predicate] = filtered
 		}
 	} else {
@@ -367,7 +473,9 @@ func FlattenGraph(graphData, ldContext json.RawMessage) json.RawMessage {
 		flat[k] = v
 	}
 
-	// Merge edge values if edges node exists.
+	// Merge edge values if edges node exists. A single ref unwraps to a
+	// string; an array of refs unwraps to a []string so the flat output
+	// stays symmetric with the input shape that BuildResourceGraph accepted.
 	if len(graphArr) > 1 {
 		if edgesNode, ok := graphArr[1].(map[string]any); ok {
 			reverseMap := jsonld.BuildReverseMap(ldContext)
@@ -379,10 +487,19 @@ func FlattenGraph(graphData, ldContext json.RawMessage) json.RawMessage {
 				if !ok {
 					continue
 				}
-				if ref, ok := val.(map[string]any); ok {
-					if id, ok := ref["@id"].(string); ok {
-						flat[propName] = id
+				ids := collectEdgeIDs(val)
+				switch len(ids) {
+				case 0:
+					// Skip — no usable @id values.
+				case 1:
+					if _, isArr := val.([]any); isArr {
+						// Preserve array shape even when only one entry survives.
+						flat[propName] = ids
+					} else {
+						flat[propName] = ids[0]
 					}
+				default:
+					flat[propName] = ids
 				}
 			}
 		}
@@ -447,11 +564,29 @@ func BuildResourceGraph(
 			continue // skip JSON-LD keywords from input
 		}
 		if refPropNames[key] {
-			// Reference property → edges node with {"@id": value} format.
-			if strVal, ok := val.(string); ok && strVal != "" {
-				predicateIRI := jsonld.ResolvePredicateIRI(key, vocab, contextMap)
-				edgesNode[predicateIRI] = map[string]any{"@id": strVal}
-				hasEdges = true
+			// Reference property → edges node. Strings become a single
+			// {"@id": value} ref; arrays of strings become an array of refs
+			// (schemas can declare x-resource-type on array properties, e.g.
+			// the mealplanning preset). Non-string / non-array-of-strings
+			// values are skipped — they aren't valid references.
+			predicateIRI := jsonld.ResolvePredicateIRI(key, vocab, contextMap)
+			switch v := val.(type) {
+			case string:
+				if v != "" {
+					edgesNode[predicateIRI] = map[string]any{"@id": v}
+					hasEdges = true
+				}
+			case []any:
+				refs := make([]any, 0, len(v))
+				for _, item := range v {
+					if s, ok := item.(string); ok && s != "" {
+						refs = append(refs, map[string]any{"@id": s})
+					}
+				}
+				if len(refs) > 0 {
+					edgesNode[predicateIRI] = refs
+					hasEdges = true
+				}
 			}
 		} else {
 			// Intrinsic property → entity node.
@@ -541,46 +676,95 @@ func ExtractEdgesNode(graphData json.RawMessage) json.RawMessage {
 // It resolves the property to its predicate IRI using the document's @context,
 // then looks up that predicate in the edges node and unwraps the {"@id": "..."} value.
 // Falls back to reading from flat data for legacy format.
+//
+// For multi-valued reference properties (where the edge is stored as an array
+// of refs), this returns the first @id. Use EdgeValues to read every entry.
 func EdgeValue(graphData, ldContext json.RawMessage, propertyName string) string {
+	values := EdgeValues(graphData, ldContext, propertyName)
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+// EdgeValues reads every reference value for the given property from a
+// JSON-LD @graph's edges node. Returns a single-element slice for the
+// scalar-edge case and one entry per ref for the array-edge case (which
+// BuildResourceGraph emits when the schema declares x-resource-type on an
+// array property).
+//
+// Falls back to reading the property directly for legacy flat data.
+// Returns an empty slice when the property is absent.
+func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []string {
 	var doc map[string]any
 	if json.Unmarshal(graphData, &doc) != nil {
-		return ""
+		return nil
 	}
 
 	// Check for @graph format.
 	graphArr, ok := doc["@graph"].([]any)
 	if !ok || len(graphArr) < 2 {
-		// Legacy flat format — read property directly.
-		if val, ok := doc[propertyName].(string); ok {
-			return val
+		// Legacy flat format — read property directly. Support both a single
+		// string and an array of strings for symmetry with the @graph case.
+		switch v := doc[propertyName].(type) {
+		case string:
+			if v == "" {
+				return nil
+			}
+			return []string{v}
+		case []any:
+			out := make([]string, 0, len(v))
+			for _, item := range v {
+				if s, ok := item.(string); ok && s != "" {
+					out = append(out, s)
+				}
+			}
+			return out
 		}
-		return ""
+		return nil
 	}
 
 	edgesNode, ok := graphArr[1].(map[string]any)
 	if !ok {
-		return ""
+		return nil
 	}
 
 	// Resolve the property name to its predicate IRI using the resource type's context.
 	vocab, contextMap := jsonld.ParseContext(ldContext)
 	predicateIRI := jsonld.ResolvePredicateIRI(propertyName, vocab, contextMap)
 
-	// Look up the predicate in the edges node.
 	edgeVal, exists := edgesNode[predicateIRI]
 	if !exists {
-		return ""
+		return nil
 	}
+	return collectEdgeIDs(edgeVal)
+}
 
-	// Unwrap {"@id": "..."} format.
-	if m, ok := edgeVal.(map[string]any); ok {
-		if id, ok := m["@id"].(string); ok {
-			return id
+// collectEdgeIDs unwraps an edge value (single ref, ref array, or bare
+// string) into the list of @id strings it contains. Centralized so EdgeValue,
+// EdgeValues, and FlattenGraph all interpret the edges node identically.
+func collectEdgeIDs(edgeVal any) []string {
+	switch v := edgeVal.(type) {
+	case map[string]any:
+		if id, ok := v["@id"].(string); ok && id != "" {
+			return []string{id}
+		}
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			ref, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if id, ok := ref["@id"].(string); ok && id != "" {
+				out = append(out, id)
+			}
+		}
+		return out
+	case string:
+		if v != "" {
+			return []string{v}
 		}
 	}
-	// Direct string value fallback.
-	if s, ok := edgeVal.(string); ok {
-		return s
-	}
-	return ""
+	return nil
 }
