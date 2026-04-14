@@ -135,8 +135,12 @@ func (h *PersonHandler) Update(c echo.Context) error {
 			return respondError(c, http.StatusNotFound, "person not found")
 		}
 		existingFields, _ := application.ExtractResourceFields(existing)
-		if s := application.StringField(existingFields, "status"); s != "" {
-			fields["status"] = s
+		status := application.StringField(existingFields, "status")
+		if status == "" {
+			status = existing.Status()
+		}
+		if status != "" {
+			fields["status"] = status
 		}
 	}
 	data, _ := json.Marshal(fields)

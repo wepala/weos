@@ -183,6 +183,48 @@ func TestPersonHandler_Update_OmitStatusPreservesExisting(t *testing.T) {
 	}
 }
 
+func TestPersonHandler_Update_OmitStatusFallsBackToEntityColumn(t *testing.T) {
+	t.Parallel()
+	// Simulate a legacy record: status lives in the entity column, but the
+	// JSON data payload does NOT include a status field.
+	existing := &entities.Resource{}
+	legacyData := `{"@graph":[{"@id":"urn:person:1","@type":"Person","givenName":"Jane"}]}`
+	if err := existing.Restore(
+		"urn:person:1", "person", "active",
+		json.RawMessage(legacyData), "", "", time.Unix(0, 0), 1,
+	); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	updated := makePersonWithStatus(t, "urn:person:1", "active")
+	svc := &stubPersonSvc{
+		getByIDEntity: existing,
+		updateEntity:  updated,
+	}
+	h := handlers.NewPersonHandler(svc)
+
+	e := echo.New()
+	body := `{"given_name":"Jane","family_name":"Doe","email":"j@example.com","avatar_url":""}`
+	req := httptest.NewRequest(http.MethodPut, "/api/persons/urn:person:1",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("urn:person:1")
+
+	if err := h.Update(c); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	var sent map[string]any
+	if err := json.Unmarshal(svc.updateData, &sent); err != nil {
+		t.Fatalf("unmarshal updateData: %v", err)
+	}
+	if sent["status"] != "active" {
+		t.Errorf("status = %v, want 'active' (should fall back to entity column for legacy records)", sent["status"])
+	}
+}
+
 func TestPersonHandler_Update_ProvidedStatusUpdates(t *testing.T) {
 	t.Parallel()
 	updated := makePersonWithStatus(t, "urn:person:1", "inactive")
