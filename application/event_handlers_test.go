@@ -8,6 +8,8 @@ import (
 
 	"weos/domain/entities"
 	"weos/domain/repositories"
+
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 )
 
 // stubProjMgr records which ProjectionManager methods were called.
@@ -182,4 +184,91 @@ type infraErrorRepo struct {
 
 func (r *infraErrorRepo) FindBySlug(_ context.Context, _ string) (*entities.ResourceType, error) {
 	return nil, r.err
+}
+
+// TestBuildStateFromTransaction_TripleReplayDoesNotDuplicate pins the
+// interaction between the issue #8 fix and projection replay. Resource.Created
+// now already carries an edges node (populated by BuildResourceGraph); the
+// subsequent Triple.Created event replays the same edge via AddEdgeToGraph.
+// The replay must be idempotent: the final state.Data must contain a single
+// ref (not a two-element array) so that extractEdgeColumns can read the FK.
+func TestBuildStateFromTransaction_TripleReplayDoesNotDuplicate(t *testing.T) {
+	t.Parallel()
+
+	const aggregateID = "urn:enrollment:test-1"
+	const predicate = "https://schema.org/participant"
+	const objectID = "urn:student:stu-1"
+
+	// Build a Resource.Created payload whose Data already has the edge —
+	// mirrors what resource_service now produces after the fix.
+	graphWithEdge := map[string]any{
+		"@graph": []any{
+			map[string]any{
+				"@id":            aggregateID,
+				"@type":          "Enrollment",
+				"paymentCadence": "monthly",
+			},
+			map[string]any{
+				"@id":     aggregateID,
+				predicate: map[string]any{"@id": objectID},
+			},
+		},
+	}
+	graphBytes, err := json.Marshal(graphWithEdge)
+	if err != nil {
+		t.Fatalf("marshal graph: %v", err)
+	}
+
+	createdPayload := map[string]any{
+		"TypeSlug":  "enrollment",
+		"Data":      json.RawMessage(graphBytes),
+		"CreatedBy": "test-agent",
+		"AccountID": "test-account",
+		"Timestamp": "2026-04-13T12:00:00Z",
+	}
+	triplePayload := map[string]any{
+		"predicate": predicate,
+		"object":    objectID,
+	}
+
+	txEvents := []domain.EventEnvelope[any]{
+		{
+			AggregateID: aggregateID,
+			EventType:   "Resource.Created",
+			SequenceNo:  1,
+			Payload:     createdPayload,
+		},
+		{
+			AggregateID: aggregateID,
+			EventType:   "Triple.Created",
+			SequenceNo:  2,
+			Payload:     triplePayload,
+		},
+	}
+
+	state := buildStateFromTransaction(
+		context.Background(), txEvents, aggregateID, 0, noopLogger{},
+	)
+
+	// Decode and assert the edge is a single map, not a two-entry array.
+	var doc map[string]any
+	if err := json.Unmarshal(state.Data, &doc); err != nil {
+		t.Fatalf("unmarshal state.Data: %v", err)
+	}
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok || len(graphArr) < 2 {
+		t.Fatalf("expected @graph with edges node, got %v", doc["@graph"])
+	}
+	edges, ok := graphArr[1].(map[string]any)
+	if !ok {
+		t.Fatalf("edges node is %T, want map", graphArr[1])
+	}
+	ref, ok := edges[predicate].(map[string]any)
+	if !ok {
+		t.Fatalf("predicate value is %T after replay, want a single {@id} map (not an array); this means idempotency regressed",
+			edges[predicate])
+	}
+	if got, _ := ref["@id"].(string); got != objectID {
+		t.Errorf("edge @id = %q, want %q", got, objectID)
+	}
 }

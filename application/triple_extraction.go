@@ -180,9 +180,15 @@ func ExtractAndStripReferences(
 }
 
 // AddEdgeToGraph adds a relationship edge to a JSON-LD @graph document.
-// If an edge with the same predicate already exists, it is replaced.
-// If no edges node exists, one is created. If no @graph exists, the data is
-// wrapped as an entity node with a new edges node.
+// Multi-valued predicates accumulate into an array. Re-adding an edge that
+// already exists with the same (predicate, object) pair is a no-op — this
+// lets the Triple.Created projection replay edges already materialized in
+// Resource.Created's @graph body without duplicating them.
+// If no edges node exists, one is created. If no @graph exists, the data
+// is wrapped as an entity node with a new edges node.
+// Returns an error if the edges node contains a value of an unexpected
+// shape (not nil, not a map with @id, not a slice of such maps), since
+// silently overwriting would destroy data that the caller cannot see.
 func AddEdgeToGraph(
 	data json.RawMessage, predicate, objectID, subjectID string,
 ) (json.RawMessage, error) {
@@ -218,26 +224,63 @@ func AddEdgeToGraph(
 		}
 		graphArr = append(graphArr, edgesNode)
 	} else {
-		// Edges node exists — add the edge (accumulate into array for multi-valued predicates).
+		// Edges node exists. Either the predicate is absent (add it), a single
+		// ref (dedupe or promote to array), or an array (dedupe or append).
 		edgesNode, ok := graphArr[1].(map[string]any)
 		if !ok {
 			edgesNode = map[string]any{"@id": subjectID}
 		}
 		newRef := map[string]any{"@id": objectID}
-		if existing, exists := edgesNode[predicate]; exists {
-			if arr, ok := existing.([]any); ok {
-				edgesNode[predicate] = append(arr, newRef)
-			} else {
-				edgesNode[predicate] = []any{existing, newRef}
-			}
-		} else {
+		switch existing := edgesNode[predicate].(type) {
+		case nil:
 			edgesNode[predicate] = newRef
+		case map[string]any:
+			id, ok := existing["@id"].(string)
+			if !ok || id == "" {
+				return nil, fmt.Errorf("edge at predicate %q has malformed @id; refusing to overwrite", predicate)
+			}
+			if id == objectID {
+				break // already present — no-op
+			}
+			edgesNode[predicate] = []any{existing, newRef}
+		case []any:
+			found, err := containsEdgeRef(existing, objectID)
+			if err != nil {
+				return nil, fmt.Errorf("edge array at predicate %q: %w", predicate, err)
+			}
+			if found {
+				break // already present — no-op
+			}
+			edgesNode[predicate] = append(existing, newRef)
+		default:
+			return nil, fmt.Errorf("edge at predicate %q has unexpected type %T; refusing to overwrite", predicate, existing)
 		}
 		graphArr[1] = edgesNode
 	}
 
 	doc["@graph"] = graphArr
 	return json.Marshal(doc)
+}
+
+// containsEdgeRef reports whether any value in edgeList is a JSON-LD
+// reference ({"@id": objectID}) matching objectID. Returns an error if
+// any entry is not a well-formed ref map with a non-empty @id string,
+// so AddEdgeToGraph can surface corruption rather than silently skip it.
+func containsEdgeRef(edgeList []any, objectID string) (bool, error) {
+	for i, v := range edgeList {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return false, fmt.Errorf("entry %d is %T, want {\"@id\": string}", i, v)
+		}
+		id, ok := m["@id"].(string)
+		if !ok || id == "" {
+			return false, fmt.Errorf("entry %d has malformed @id", i)
+		}
+		if id == objectID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // RemoveEdgeFromGraph removes a specific relationship edge from a JSON-LD @graph document.
