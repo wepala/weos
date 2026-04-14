@@ -1,7 +1,7 @@
 export default defineNuxtRouteMiddleware(async (to) => {
   // Auth check only runs client-side — during SSR the API proxy isn't available
   if (import.meta.server) return
-  if (to.path === '/login') return
+  if (to.path === '/login' || to.path === '/invite') return
 
   const { user, loading, fetchUser } = useAuth()
 
