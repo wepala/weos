@@ -609,7 +609,7 @@ async function handleBulkEnroll() {
     for (const student of allSelectedStudents.value) {
       const enrollmentData: Record<string, any> = {
         studentId: student.id,
-        courseInstanceId: id,
+        courseInstanceId: id.value,
         billingType: billingType.value,
         priceCurrency: priceCurrency.value || undefined,
         paymentCadence: resource.value?.paymentCadence || undefined,
