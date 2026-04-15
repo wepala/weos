@@ -151,7 +151,7 @@ func StaticFS() fs.FS { return staticFS }
 func SetStaticFS(fsys fs.FS) { /* ... */ }
 ```
 
-See [`docs/decisions/admin-index-override.md`](../decisions/admin-index-override.md)
+See [`docs/decisions/admin-index-override.md`]({% link decisions/admin-index-override.md %})
 for the override pattern thin-wrap binaries use.
 
 The SPA middleware serves these assets:

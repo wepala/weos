@@ -29,11 +29,11 @@ We need a way for a host binary to replace the admin's index without dragging in
 
 Verified during exploration. Any option must respect these.
 
-- **`web/embed.go:21`** — `var StaticFS embed.FS` is today a concrete `embed.FS`. Read from exactly one place.
-- **`internal/cli/serve.go:147-150`** — the single consumer:
+- **`web/embed.go`** — the web package exposes the admin asset filesystem via `StaticFS()` / `SetStaticFS` (after this ADR's implementation; the pre-implementation form was a directly-read `var StaticFS embed.FS`). The effective FS is still read from exactly one place.
+- **`internal/cli/serve.go`** — the single consumer reads that FS through the getter at config time:
   ```go
   e.Use(apimw.Static(apimw.StaticConfig{
-      Filesystem: web.StaticFS,
+      Filesystem: web.StaticFS(),
       Root:       "dist",
   }))
   ```

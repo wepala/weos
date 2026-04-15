@@ -35,8 +35,11 @@ import (
 // directive, narrows the embed pattern, or re-points staticFS to an
 // FS that doesn't include the admin shell — any of which would only
 // surface at runtime when serving /.
+//
+// Not parallel: other tests in this file mutate the package-level
+// staticFS via SetStaticFS. Marking this test parallel would create
+// a read/write race on staticFS under -race.
 func TestStaticFS_DefaultEmbed(t *testing.T) {
-	t.Parallel()
 	if _, err := fs.Stat(web.StaticFS(), "dist/index.html"); err != nil {
 		t.Fatalf("default StaticFS() should expose dist/index.html: %v", err)
 	}
