@@ -125,25 +125,46 @@ func TestSetStaticFS_LastWriteWins(t *testing.T) {
 // middleware (which would then panic with a less actionable error
 // during request serving). A host binary that hits this gets a clean
 // stack trace at the bug — the SetStaticFS call in main().
+//
+// Covers both bare-nil (literal `nil` passed via the fs.FS interface)
+// and typed-nil (a concrete nil pointer assigned to the fs.FS
+// interface variable — Go's `x == nil` on the interface is false in
+// this case, so the setter needs a reflection-based check).
 func TestSetStaticFS_Nil(t *testing.T) {
 	// MUST NOT be converted to t.Parallel — see TestSetStaticFS_RoundTripsToServedContent.
 	// (No cleanup needed; the panic prevents the assignment.)
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("SetStaticFS(nil) should panic, but returned normally")
-		}
-		msg, ok := r.(string)
-		if !ok {
-			t.Fatalf("panic value should be a string with a clear message; got %T: %v", r, r)
-		}
-		if !strings.Contains(msg, "nil") {
-			t.Errorf("panic message should mention nil; got %q", msg)
-		}
-	}()
+	assertPanics := func(t *testing.T, name string, call func()) {
+		t.Helper()
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatalf("%s: expected panic, returned normally", name)
+			}
+			msg, ok := r.(string)
+			if !ok {
+				t.Fatalf("%s: panic value should be a string; got %T: %v", name, r, r)
+			}
+			if !strings.Contains(msg, "nil") {
+				t.Errorf("%s: panic message should mention nil; got %q", name, msg)
+			}
+		}()
+		call()
+	}
 
-	web.SetStaticFS(nil)
+	t.Run("bare nil", func(t *testing.T) {
+		assertPanics(t, "SetStaticFS(nil)", func() { web.SetStaticFS(nil) })
+	})
+
+	t.Run("typed-nil pointer", func(t *testing.T) {
+		var p *fstest.MapFS // nil pointer to a concrete fs.FS implementer
+		assertPanics(t, "SetStaticFS(typed-nil *fstest.MapFS)", func() { web.SetStaticFS(p) })
+	})
+
+	t.Run("typed-nil map", func(t *testing.T) {
+		var m fstest.MapFS // nil map; fstest.MapFS is a map type
+		assertPanics(t, "SetStaticFS(typed-nil fstest.MapFS)", func() { web.SetStaticFS(m) })
+	})
 }
 
 // TestSetStaticFS_CleanupRestoresOriginal pins the t.Cleanup pattern

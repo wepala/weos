@@ -21,7 +21,7 @@ We need a way for a host binary to replace the admin's index without dragging in
 
 ### Why each naive approach fails
 
-- **Edit `services/core/web/admin/pages/index.vue` directly from ic-crm.** Requires ic-crm to touch `services/core`'s working tree at build time, which means every thin-wrap build dirties a different repo. Concurrent branch work in core is at risk and any Makefile failure mid-build leaves core in a modified state.
+- **Edit `web/admin/pages/index.vue` in this repo directly from ic-crm.** Requires ic-crm to touch this repo's working tree at build time, which means every thin-wrap build dirties a different repo. Concurrent branch work in core is at risk and any Makefile failure mid-build leaves core in a modified state.
 - **Swap only `dist/index.html` at serve time.** Nuxt's generated `index.html` is a 1-KB shell that imports hashed `_nuxt/*.js` chunks; the index route's component lives inside one of those chunks, not in the HTML. Swapping `index.html` alone does not change what renders at `/`.
 - **Fork the admin SPA into the thin-wrap.** Defeats the point of the thin-wrap pattern. Every admin-side improvement in core would then need to be manually reconciled in every product.
 
@@ -41,7 +41,7 @@ Verified during exploration. Any option must respect these.
 - **`api/middleware/static.go:73-81`** — SPA fallback: for any path that isn't `/api/*` and doesn't match a real file, the middleware rewrites the URL to `/` and serves `index.html` from the FS. This means any override mechanism that replaces the FS must ship a complete SPA tree (including `index.html` and the `_nuxt/` chunks).
 - **`web/admin/composables/usePresetScreens.ts:99-102`** — existing preset-screen dynamic-import pattern is Blob-URL + `import()` of a module fetched from an API endpoint. Already-proven in-tree.
 - **Preset `.mjs` files are hand-maintained** in Options API + string-template format. There is no Vite/SFC build in the education preset today (confirmed in `presets/weos-private-presets/education/screens/src/README.md`).
-- **`services/core/web/admin/nuxt.config.ts`** — no `extends` / layers config today; Nuxt layers are a greenfield option.
+- **`web/admin/nuxt.config.ts`** — no `extends` / layers config today; Nuxt layers are a greenfield option.
 
 ## Options
 
@@ -52,7 +52,7 @@ Verified during exploration. Any option must respect these.
 Expose the admin's static FS as a settable value on the `web` package. A host binary provides its own `fs.FS` at startup; the static middleware reads through it.
 
 **Core change (~5-10 LOC):**
-- `services/core/web/embed.go`: change the package-level var to an `fs.FS` typed accessor, and add a setter:
+- `web/embed.go`: change the package-level var to an `fs.FS` typed accessor, and add a setter:
   ```go
   var embeddedFS embed.FS // the //go:embed target
 
@@ -66,7 +66,7 @@ Expose the admin's static FS as a settable value on the `web` package. A host bi
   // Must be called before the serve command constructs the HTTP stack.
   func SetStaticFS(fsys fs.FS) { staticFS = fsys }
   ```
-- `services/core/internal/cli/serve.go:148`: read via `web.StaticFS()`.
+- `internal/cli/serve.go:148`: read via `web.StaticFS()`.
 - No middleware changes — `StaticConfig.Filesystem` is already `fs.FS`.
 
 **Host binary responsibilities:**
@@ -102,7 +102,7 @@ Keep the admin SPA single-sourced in core. Add a registration point for a single
 **Core change (~60-80 LOC across Go + Vue + TS):**
 - Registration point: `application.SetIndexComponent(fs.FS, filename string)` (or a method on a dedicated registry).
 - New handler `GET /api/admin/index-component` that serves the registered `.mjs` (404 if none).
-- Rewrite `services/core/web/admin/pages/index.vue`:
+- Rewrite `web/admin/pages/index.vue`:
   - Extract today's resource-types grid into a new `components/DefaultResourceGrid.vue`.
   - On mount, `$fetch('/api/admin/index-component')`. If a body comes back, Blob-URL + `import()` (copy the pattern from `usePresetScreens.ts:99-102`). Render the imported component via `<component :is="...">`.
   - If 404, render `<DefaultResourceGrid />`.
@@ -164,13 +164,13 @@ Included so the ADR records explicitly why "just overlay the files" doesn't work
 
 ### Option 4 — No core change; dirty overlay in the host build
 
-Host `make build` target copies its `Dashboard.vue` over `services/core/web/admin/pages/index.vue`, runs `nuxt generate` inside `services/core`, runs `go build` of the host, then reverts the core file.
+Host `make build` target copies its `Dashboard.vue` over this repo's `web/admin/pages/index.vue`, runs `nuxt generate` in this repo, runs `go build` of the host, then reverts the file.
 
 **Pros:**
 - Zero upstream change.
 
 **Cons:**
-- **Dirties `services/core`'s working tree on every host build.** Any concurrent branch work in core is at risk.
+- **Dirties this repo's working tree on every host build.** Any concurrent branch work in core is at risk.
 - **Fails open on Makefile errors.** If `nuxt generate` or `go build` fails between the copy and the revert, core is left in a modified state.
 - **Each host binary reinvents this dance.** Not one upstream mechanism but N brittle host-side scripts.
 - **Blocks sharing the admin among multiple products running in the same workspace.** Two wrappers trying to build concurrently race on core's `pages/index.vue`.
@@ -188,7 +188,7 @@ Included so the ADR records explicitly why "do nothing upstream" is not an optio
 | **Host needs Node/Nuxt build** | Yes (minimal — 1 layer project) | No | Yes (see Cons) | Yes (in core's tree) |
 | **Keeps `.vue` SFC authoring for the override** | Yes | No (Options API + string template) | Yes | Yes |
 | **Generalizes to N overridden pages** | Yes (just add more files to host layer) | No (one slot per rewrite) | N/A (doesn't work) | Yes (but with worse tradeoffs per page) |
-| **Touches `services/core`'s working tree at build time** | No | No | No | Yes — the core concern |
+| **Touches this repo's working tree at build time** | No | No | No | Yes — the core concern |
 | **Fetch-at-mount latency for `/`** | None (static) | Extra round-trip | None | None |
 | **Preserves thin-wrap boundary** | Yes | Yes | Yes | No |
 | **Idiomatic to the ecosystem** | Yes (Nuxt layers are the intended extension model) | Reinvents what layers already do | No | No |
@@ -223,10 +223,10 @@ The consequences depend on which option is chosen. Written conditionally so the 
 
 ## References
 
-- `services/core/web/embed.go` — current static FS declaration
-- `services/core/api/middleware/static.go` — static file serving + SPA fallback
-- `services/core/internal/cli/serve.go` — single consumer of `web.StaticFS`
-- `services/core/web/admin/composables/usePresetScreens.ts` — dynamic-import pattern reused by Option 2
-- `services/core/application/preset_registry.go` — existing preset contract (for comparison with the slot registration Option 2 would add)
+- `web/embed.go` — current static FS declaration
+- `api/middleware/static.go` — static file serving + SPA fallback
+- `internal/cli/serve.go` — single consumer of `web.StaticFS`
+- `web/admin/composables/usePresetScreens.ts` — dynamic-import pattern reused by Option 2
+- `application/preset_registry.go` — existing preset contract (for comparison with the slot registration Option 2 would add)
 - `services/ic-crm/web/admin/src/README.md` — the "blocked" note this ADR unblocks
 - [Nuxt Layers documentation](https://nuxt.com/docs/getting-started/layers) — the mechanism Option 1 depends on

@@ -18,6 +18,7 @@ package web
 import (
 	"embed"
 	"io/fs"
+	"reflect"
 )
 
 // embeddedAdmin holds the compiled admin SPA. Don't read this var
@@ -42,23 +43,45 @@ func StaticFS() fs.FS { return staticFS }
 //
 // Intended use: a thin-wrap host binary (e.g. services/ic-crm) embeds
 // its own Nuxt-layer dist and calls SetStaticFS in main() before
-// invoking the serve command. The replacement FS must be rooted to
-// expose `dist/` (matching the embedded layout and the StaticConfig.Root
-// the serve command passes to the middleware).
+// invoking the serve command. The replacement FS must contain a
+// `dist/` directory whose contents mirror the embedded admin layout
+// (serve.go passes `Root: "dist"` to the static middleware, which
+// calls `fs.Sub(fsys, "dist")` — so `dist/index.html` must be
+// readable under the FS root).
 //
 // Must be called before the serve command constructs the HTTP stack.
 // Once the static middleware is wired, it captures the FS at config
 // time — later SetStaticFS calls cannot reach already-running handlers.
 //
-// Panics if fsys is nil. A nil FS would crash the static middleware
-// with a less actionable error during request serving; failing fast
-// at the setter call site (in main()) gives a clear stack trace at
-// the point of the bug.
+// Panics if fsys is nil (bare-nil interface value, or a typed-nil
+// pointer/map/slice/chan/func stored in the fs.FS interface). A nil
+// FS would crash the static middleware with a less actionable error
+// during request serving; failing fast at the setter call site (in
+// main()) gives a clear stack trace at the point of the bug.
 //
 // See docs/decisions/admin-index-override.md for the design rationale.
 func SetStaticFS(fsys fs.FS) {
-	if fsys == nil {
-		panic("web.SetStaticFS: fsys is nil; pass a non-nil fs.FS rooted at dist/")
+	if isNilFS(fsys) {
+		panic("web.SetStaticFS: fsys is nil; pass a non-nil fs.FS containing a dist/ directory")
 	}
 	staticFS = fsys
+}
+
+// isNilFS reports whether fsys is untyped nil or a typed-nil value
+// stored in the fs.FS interface. Go's `x == nil` test on an interface
+// variable is false when the interface holds a typed nil pointer, map,
+// slice, chan, or func — so `fsys == nil` alone would let e.g.
+// `var p *myFS; SetStaticFS(p)` through even though p is nil and
+// would crash on first read. Reflection handles the typed-nil case.
+func isNilFS(fsys fs.FS) bool {
+	if fsys == nil {
+		return true
+	}
+	v := reflect.ValueOf(fsys)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
