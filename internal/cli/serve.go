@@ -145,7 +145,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	e.HideBanner = true
 
 	e.Use(apimw.Static(apimw.StaticConfig{
-		Filesystem: web.StaticFS,
+		Filesystem: web.StaticFS(),
 		Root:       "dist",
 	}))
 

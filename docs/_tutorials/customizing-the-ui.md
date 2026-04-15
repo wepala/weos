@@ -134,12 +134,25 @@ Themes control the visual appearance of your site:
 
 ## Static Asset Embedding
 
-The frontend assets are embedded at build time via `web/embed.go`:
+The frontend assets are embedded at build time via `web/embed.go`,
+which exposes them through a getter so a thin-wrap host binary can
+swap in its own SPA dist before the serve command runs:
 
 ```go
 //go:embed all:dist
-var StaticFS embed.FS
+var embeddedAdmin embed.FS
+
+var staticFS fs.FS = embeddedAdmin
+
+// StaticFS returns the active admin static filesystem.
+func StaticFS() fs.FS { return staticFS }
+
+// SetStaticFS replaces the FS — call from main() before serve.
+func SetStaticFS(fsys fs.FS) { /* ... */ }
 ```
+
+See [`docs/decisions/admin-index-override.md`]({% link decisions/admin-index-override.md %})
+for the override pattern thin-wrap binaries use.
 
 The SPA middleware serves these assets:
 - Requests to `/api/*` go to API handlers
