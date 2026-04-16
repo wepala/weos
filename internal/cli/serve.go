@@ -93,6 +93,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var inviteService *authapp.InviteService
 	var inviteRepo authrepos.InviteRepository
 	var db *gormlib.DB
+	var presetHandlers application.PresetHTTPHandlers
 
 	registry := presets.NewDefaultRegistry()
 
@@ -119,6 +120,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&inviteService),
 		fx.Populate(&inviteRepo),
 		fx.Populate(&db),
+		fx.Populate(&presetHandlers),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -388,6 +390,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.POST("/:typeSlug/:id/permissions", permHandler.Grant)
 	protected.GET("/:typeSlug/:id/permissions", permHandler.List)
 	protected.DELETE("/:typeSlug/:id/permissions/:agentId", permHandler.Revoke)
+
+	// Preset-contributed HTTP handlers. Registered before the dynamic /:typeSlug
+	// catch-all so preset routes aren't shadowed by it.
+	mountPresetHandlers(api, protected, presetHandlers, logger)
 
 	// Dynamic resource routes — MUST be registered after ALL static routes
 	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService, logger)
