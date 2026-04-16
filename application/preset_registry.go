@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"path"
 	"sort"
 	"strings"
@@ -44,8 +45,23 @@ type PresetSidebarConfig struct {
 	MenuGroups  map[string]string // slug -> parent slug for sidebar nesting
 }
 
+// PresetHTTPHandler describes one HTTP route contributed by a preset. The
+// Factory is invoked once at server start with the same BehaviorServices that
+// behavior factories receive, so handlers can close over real repositories
+// without depending on Fx directly.
+//
+// Path is relative to /api: a preset declaring Path "/leads/upload" mounts at
+// /api/leads/upload. Protected selects the auth-gated group; public handlers
+// land on the bare /api group and run without auth middleware.
+type PresetHTTPHandler struct {
+	Method    string // GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD
+	Path      string // relative to /api, e.g. "/leads/upload"
+	Factory   func(BehaviorServices) http.HandlerFunc
+	Protected bool // true => mount behind auth middleware
+}
+
 // PresetDefinition defines a named preset package that bundles resource types,
-// behaviors, screen components, and sidebar configuration.
+// behaviors, screen components, sidebar configuration, and HTTP routes.
 type PresetDefinition struct {
 	Name         string
 	Description  string
@@ -54,6 +70,7 @@ type PresetDefinition struct {
 	BehaviorMeta map[string]entities.BehaviorMeta // slug -> metadata for UI/config
 	Screens      fs.FS                            // optional embedded screen components
 	Sidebar      *PresetSidebarConfig             // optional sidebar defaults
+	Handlers     []PresetHTTPHandler              // optional HTTP routes mounted under /api
 	AutoInstall  bool                             // if true, types are auto-created at startup
 }
 
@@ -96,6 +113,9 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 		if factory == nil {
 			return fmt.Errorf("preset %q: behavior factory for slug %q is nil", def.Name, slug)
 		}
+	}
+	if err := validateHandlers(def); err != nil {
+		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -168,6 +188,11 @@ func (d PresetDefinition) clone() PresetDefinition {
 			meta[k] = v
 		}
 		d.BehaviorMeta = meta
+	}
+	if d.Handlers != nil {
+		handlers := make([]PresetHTTPHandler, len(d.Handlers))
+		copy(handlers, d.Handlers)
+		d.Handlers = handlers
 	}
 	if d.Sidebar != nil {
 		s := *d.Sidebar
@@ -277,6 +302,121 @@ func (r *PresetRegistry) Behaviors(services BehaviorServices) (ResourceBehaviorR
 		}
 	}
 	return behaviors, nil
+}
+
+// MountedHandler is a fully-resolved preset HTTP route, ready to mount on the
+// HTTP router. Source names the preset that contributed it, surfaced in
+// collision errors and startup logs.
+type MountedHandler struct {
+	Method    string
+	Path      string
+	Protected bool
+	Handler   http.HandlerFunc
+	Source    string
+}
+
+// validHTTPMethods is the allowlist for PresetHTTPHandler.Method. Uppercase
+// only — matches the constants in net/http. CONNECT and TRACE are omitted by
+// design: preset endpoints have no legitimate use for them.
+var validHTTPMethods = map[string]struct{}{
+	http.MethodGet:     {},
+	http.MethodPost:    {},
+	http.MethodPut:     {},
+	http.MethodPatch:   {},
+	http.MethodDelete:  {},
+	http.MethodOptions: {},
+	http.MethodHead:    {},
+}
+
+// validateHandlers enforces the per-preset invariants on PresetDefinition.Handlers:
+// non-empty path, known HTTP verb, non-nil factory, and no intra-preset duplicates
+// of "METHOD /path". Cross-preset collisions are detected later in Handlers().
+func validateHandlers(def PresetDefinition) error {
+	if len(def.Handlers) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(def.Handlers))
+	for i, h := range def.Handlers {
+		if h.Path == "" {
+			return fmt.Errorf("preset %q: handler[%d] path is empty", def.Name, i)
+		}
+		// A path without a leading slash silently produces a wrong route once
+		// concatenated with the /api group prefix (e.g. "leads" -> "/apileads").
+		if !strings.HasPrefix(h.Path, "/") {
+			return fmt.Errorf("preset %q: handler[%d] path %q must start with %q",
+				def.Name, i, h.Path, "/")
+		}
+		// Handler paths are documented as relative to the /api router group,
+		// so an already-prefixed "/api/leads" would mount at "/api/api/leads".
+		// Reject such paths so the runtime matches the documented contract.
+		if h.Path == "/api" || strings.HasPrefix(h.Path, "/api/") {
+			return fmt.Errorf("preset %q: handler[%d] path %q must be relative to %q, not include it",
+				def.Name, i, h.Path, "/api")
+		}
+		if _, ok := validHTTPMethods[h.Method]; !ok {
+			return fmt.Errorf("preset %q: handler[%d] method %q is not a known HTTP verb", def.Name, i, h.Method)
+		}
+		if h.Factory == nil {
+			return fmt.Errorf("preset %q: handler[%d] factory is nil", def.Name, i)
+		}
+		key := h.Method + " " + h.Path
+		if _, dup := seen[key]; dup {
+			return fmt.Errorf("preset %q: handler[%d] duplicates %q within the same preset", def.Name, i, key)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+// Handlers returns all preset-contributed HTTP routes, with each Factory
+// invoked once with the supplied services. Ordering is alphabetical by preset
+// name, preserving each preset's declared handler order. Returns an error if
+// any factory is nil or returns nil, or if two presets declare the same
+// "METHOD /path" — startup fails so the conflict can't go unnoticed.
+func (r *PresetRegistry) Handlers(services BehaviorServices) ([]MountedHandler, error) {
+	r.mu.RLock()
+	names := make([]string, 0, len(r.presets))
+	snapshot := make(map[string][]PresetHTTPHandler, len(r.presets))
+	for name, def := range r.presets {
+		names = append(names, name)
+		if len(def.Handlers) == 0 {
+			continue
+		}
+		copied := make([]PresetHTTPHandler, len(def.Handlers))
+		copy(copied, def.Handlers)
+		snapshot[name] = copied
+	}
+	r.mu.RUnlock()
+
+	sort.Strings(names)
+
+	var mounted []MountedHandler
+	source := make(map[string]string) // "METHOD /path" -> preset name
+	for _, name := range names {
+		for i, h := range snapshot[name] {
+			if h.Factory == nil {
+				return nil, fmt.Errorf("preset %q: handler[%d] factory is nil", name, i)
+			}
+			key := h.Method + " " + h.Path
+			if prev, ok := source[key]; ok {
+				return nil, fmt.Errorf("preset %q and preset %q both declare handler %q",
+					prev, name, key)
+			}
+			fn := h.Factory(services)
+			if fn == nil {
+				return nil, fmt.Errorf("preset %q: handler[%d] factory returned nil", name, i)
+			}
+			source[key] = name
+			mounted = append(mounted, MountedHandler{
+				Method:    h.Method,
+				Path:      h.Path,
+				Protected: h.Protected,
+				Handler:   fn,
+				Source:    name,
+			})
+		}
+	}
+	return mounted, nil
 }
 
 // validateFixtures checks that fixture data is well-formed at registration time.

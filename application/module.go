@@ -115,6 +115,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(newLazyResourceWriter),
 		fx.Provide(ProvideResourceBehaviorRegistry),
 		fx.Provide(ProvideBehaviorMetaRegistry),
+		fx.Provide(ProvidePresetHTTPHandlers),
 		fx.Provide(gorm.ProvideBehaviorSettingsRepository),
 
 		// Email sender
