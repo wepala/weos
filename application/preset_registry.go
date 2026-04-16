@@ -346,6 +346,13 @@ func validateHandlers(def PresetDefinition) error {
 			return fmt.Errorf("preset %q: handler[%d] path %q must start with %q",
 				def.Name, i, h.Path, "/")
 		}
+		// Handler paths are documented as relative to the /api router group,
+		// so an already-prefixed "/api/leads" would mount at "/api/api/leads".
+		// Reject such paths so the runtime matches the documented contract.
+		if h.Path == "/api" || strings.HasPrefix(h.Path, "/api/") {
+			return fmt.Errorf("preset %q: handler[%d] path %q must be relative to %q, not include it",
+				def.Name, i, h.Path, "/api")
+		}
 		if _, ok := validHTTPMethods[h.Method]; !ok {
 			return fmt.Errorf("preset %q: handler[%d] method %q is not a known HTTP verb", def.Name, i, h.Method)
 		}

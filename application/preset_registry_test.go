@@ -55,6 +55,30 @@ func TestPresetRegistry_AddRejectsHandlerWithoutLeadingSlash(t *testing.T) {
 	}
 }
 
+func TestPresetRegistry_AddRejectsHandlerPathWithAPIPrefix(t *testing.T) {
+	t.Parallel()
+	// Preset paths are documented as relative to the /api group. A preset
+	// that prefixes its path with "/api/" would silently mount at
+	// "/api/api/..." — reject it up front so the failure is loud.
+	cases := []string{"/api", "/api/", "/api/leads", "/api/leads/upload"}
+	for _, p := range cases {
+		p := p
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+			r := NewPresetRegistry()
+			err := r.Add(PresetDefinition{
+				Name: "p",
+				Handlers: []PresetHTTPHandler{
+					{Method: http.MethodGet, Path: p, Factory: okHandler},
+				},
+			})
+			if err == nil || !strings.Contains(err.Error(), `must be relative to "/api"`) {
+				t.Fatalf("expected /api-prefix error for %q, got %v", p, err)
+			}
+		})
+	}
+}
+
 func TestPresetRegistry_AddRejectsHandlerWithUnknownMethod(t *testing.T) {
 	t.Parallel()
 	r := NewPresetRegistry()
