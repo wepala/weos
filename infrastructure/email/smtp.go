@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"weos/domain/entities"
-	"weos/internal/config"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/internal/config"
 )
 
 const (

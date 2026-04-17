@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"weos/application"
-	"weos/domain/entities"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/domain/entities"
 
 	"github.com/labstack/echo/v4"
 )

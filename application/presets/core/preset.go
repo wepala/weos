@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"weos/application"
-	"weos/domain/entities"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/domain/entities"
 )
 
 // Register adds the core preset (Person, Organization) to the registry.

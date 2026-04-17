@@ -16,7 +16,7 @@
 package cli
 
 import (
-	"weos/internal/config"
+	"github.com/wepala/weos/internal/config"
 )
 
 // CLIConfig wraps the application config with CLI-specific settings.

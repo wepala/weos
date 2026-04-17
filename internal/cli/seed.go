@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"weos/application"
-	"weos/application/presets"
-	"weos/domain/entities"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/application/presets"
+	"github.com/wepala/weos/domain/entities"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"

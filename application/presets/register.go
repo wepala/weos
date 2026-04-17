@@ -3,14 +3,14 @@
 package presets
 
 import (
-	"weos/application"
-	"weos/application/presets/core"
-	"weos/application/presets/ecommerce"
-	"weos/application/presets/events"
-	"weos/application/presets/knowledge"
-	"weos/application/presets/mealplanning"
-	"weos/application/presets/tasks"
-	"weos/application/presets/website"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/application/presets/core"
+	"github.com/wepala/weos/application/presets/ecommerce"
+	"github.com/wepala/weos/application/presets/events"
+	"github.com/wepala/weos/application/presets/knowledge"
+	"github.com/wepala/weos/application/presets/mealplanning"
+	"github.com/wepala/weos/application/presets/tasks"
+	"github.com/wepala/weos/application/presets/website"
 )
 
 var customRegistrars []func(*application.PresetRegistry)

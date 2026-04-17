@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 
-	apimw "weos/api/middleware"
+	apimw "github.com/wepala/weos/api/middleware"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"

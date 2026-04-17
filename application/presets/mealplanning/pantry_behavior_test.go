@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"weos/application"
-	"weos/domain/entities"
-	"weos/domain/repositories"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/domain/repositories"
 )
 
 // stubResourceSvc is the backing data store for behavior tests. It records

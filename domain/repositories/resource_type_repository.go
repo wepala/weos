@@ -19,7 +19,7 @@ import (
 	"context"
 	"errors"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 )
 
 // ErrNotFound is returned when a requested entity does not exist.

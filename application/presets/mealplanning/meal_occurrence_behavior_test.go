@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"weos/application"
-	"weos/domain/entities"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/domain/entities"
 )
 
 // setupDepletionBehavior builds a stub-backed depletion behavior with

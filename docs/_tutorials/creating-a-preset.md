@@ -118,7 +118,7 @@ Open `application/presets/register.go` and add your preset's import and registra
 ```go
 import (
     // ... existing imports ...
-    "weos/application/presets/restaurant" // Add this import
+    "github.com/wepala/weos/application/presets/restaurant" // Add this import
 )
 
 func RegisterAll(r *application.PresetRegistry) {

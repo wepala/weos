@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"weos/internal/config"
+	"github.com/wepala/weos/internal/config"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authjwt "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/jwt"

@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"strings"
 
-	mcpserver "weos/internal/mcp"
+	mcpserver "github.com/wepala/weos/internal/mcp"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

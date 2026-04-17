@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"weos/infrastructure/storage"
+	"github.com/wepala/weos/infrastructure/storage"
 )
 
 func TestSanitizeFilename(t *testing.T) {

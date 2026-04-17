@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"weos/application"
+	"github.com/wepala/weos/application"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

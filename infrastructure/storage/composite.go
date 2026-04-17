@@ -21,8 +21,8 @@ import (
 	"io"
 	"os"
 
-	"weos/domain/entities"
-	"weos/domain/services"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/domain/services"
 
 	"github.com/segmentio/ksuid"
 )

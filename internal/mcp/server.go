@@ -9,9 +9,9 @@ import (
 	"strings"
 	"syscall"
 
-	"weos/application"
-	"weos/application/presets"
-	"weos/internal/config"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/application/presets"
+	"github.com/wepala/weos/internal/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/fx"

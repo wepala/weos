@@ -19,7 +19,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 )
 
 type ResourceType struct {

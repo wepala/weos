@@ -11,8 +11,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"weos/api/handlers"
-	"weos/domain/services"
+	"github.com/wepala/weos/api/handlers"
+	"github.com/wepala/weos/domain/services"
 
 	"github.com/labstack/echo/v4"
 )

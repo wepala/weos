@@ -23,7 +23,7 @@ import (
 	"net/url"
 	"strings"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	"github.com/gorilla/sessions"

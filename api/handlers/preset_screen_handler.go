@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"strings"
 
-	"weos/application"
+	"github.com/wepala/weos/application"
 
 	"github.com/labstack/echo/v4"
 )

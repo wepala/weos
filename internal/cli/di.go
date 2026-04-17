@@ -22,9 +22,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"weos/application"
-	"weos/application/presets"
-	"weos/internal/config"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/application/presets"
+	"github.com/wepala/weos/internal/config"
 
 	"go.uber.org/fx"
 )

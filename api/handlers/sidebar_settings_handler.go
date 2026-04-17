@@ -19,10 +19,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	apimw "weos/api/middleware"
-	"weos/domain/entities"
-	gormdb "weos/infrastructure/database/gorm"
-	"weos/infrastructure/models"
+	apimw "github.com/wepala/weos/api/middleware"
+	"github.com/wepala/weos/domain/entities"
+	gormdb "github.com/wepala/weos/infrastructure/database/gorm"
+	"github.com/wepala/weos/infrastructure/models"
 
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/labstack/echo/v4"

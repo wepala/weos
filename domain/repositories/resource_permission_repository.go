@@ -3,7 +3,7 @@ package repositories
 import (
 	"context"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 )
 
 // ResourcePermissionRepository manages instance-level resource permissions.
