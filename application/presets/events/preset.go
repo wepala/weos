@@ -1,7 +1,7 @@
 // Package events provides resource types for event management.
 package events
 
-import "weos/application"
+import "github.com/wepala/weos/application"
 
 // Register adds the events preset to the registry.
 func Register(registry *application.PresetRegistry) {

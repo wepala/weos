@@ -22,10 +22,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"weos/application"
-	"weos/application/presets"
-	"weos/domain/entities"
-	"weos/domain/repositories"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/application/presets"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/domain/repositories"
 )
 
 // Minimal interface-embedding stubs so this external test package can build a

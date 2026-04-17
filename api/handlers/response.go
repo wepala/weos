@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 
 	"github.com/labstack/echo/v4"
 )

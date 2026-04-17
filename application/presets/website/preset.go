@@ -1,7 +1,7 @@
 // Package website provides resource types for website structure and content.
 package website
 
-import "weos/application"
+import "github.com/wepala/weos/application"
 
 // Register adds the website preset to the registry.
 func Register(registry *application.PresetRegistry) {

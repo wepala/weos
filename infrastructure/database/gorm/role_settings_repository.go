@@ -20,7 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"weos/infrastructure/models"
+	"github.com/wepala/weos/infrastructure/models"
 
 	"gorm.io/gorm"
 )

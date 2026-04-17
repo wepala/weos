@@ -1,7 +1,7 @@
 // Package knowledge provides SKOS-based resource types for knowledge organization.
 package knowledge
 
-import "weos/application"
+import "github.com/wepala/weos/application"
 
 // Register adds the knowledge preset to the registry.
 func Register(registry *application.PresetRegistry) {

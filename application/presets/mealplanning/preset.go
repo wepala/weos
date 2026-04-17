@@ -18,8 +18,8 @@ package mealplanning
 import (
 	"encoding/json"
 
-	"weos/application"
-	"weos/domain/entities"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/domain/entities"
 )
 
 // Register adds the meal-planning preset to the registry.

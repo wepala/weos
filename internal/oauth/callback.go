@@ -21,7 +21,7 @@ import (
 	"net/url"
 	"time"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"

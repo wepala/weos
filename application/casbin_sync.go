@@ -19,7 +19,7 @@ import (
 	"errors"
 	"fmt"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authcasbin "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/casbin"

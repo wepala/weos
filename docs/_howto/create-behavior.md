@@ -14,7 +14,7 @@ This guide walks through creating a custom behavior that attaches domain logic t
 - A working WeOS development environment (`make build` succeeds)
 - A preset that defines the resource type you want to add behavior to (see [Creating a Preset]({% link _tutorials/creating-a-preset.md %}))
 
-> **Note:** This guide uses the module import path `weos/...`, which matches the current `go.mod` (`module weos`). If you are following older examples that show `github.com/wepala/weos/...`, use the import path that matches your checkout and `go.mod`.
+> **Note:** This guide uses the module import path `github.com/wepala/weos/...`, which matches the `go.mod` declaration (`module github.com/wepala/weos`).
 
 ## 1. Create the Behavior Struct
 
@@ -29,7 +29,7 @@ import (
     "fmt"
     "strings"
 
-    "weos/domain/entities"
+    "github.com/wepala/weos/domain/entities"
 )
 
 type blogPostBehavior struct {
@@ -85,8 +85,8 @@ In your preset's `Register` function, include the behavior in the `Behaviors` ma
 package blog
 
 import (
-    "weos/application"
-    "weos/domain/entities"
+    "github.com/wepala/weos/application"
+    "github.com/wepala/weos/domain/entities"
 )
 
 func Register(registry *application.PresetRegistry) {
@@ -139,9 +139,9 @@ Example (showing imports):
 
 ```go
 import (
-    "weos/application"
-    "weos/domain/entities"
-    "weos/domain/repositories"
+    "github.com/wepala/weos/application"
+    "github.com/wepala/weos/domain/entities"
+    "github.com/wepala/weos/domain/repositories"
 )
 
 type blogPostBehavior struct {
@@ -226,7 +226,7 @@ check that two behaviors aren't triggering each other indefinitely.
 Add your preset to the `RegisterAll` function in `application/presets/register.go`, which is where all built-in presets are registered. This function is called by `presets.NewDefaultRegistry()`, which is used by the CLI (`internal/cli/di.go`, `internal/cli/serve.go`) and the MCP server:
 
 ```go
-import "weos/application/presets/blog"
+import "github.com/wepala/weos/application/presets/blog"
 
 func RegisterAll(registry *application.PresetRegistry) {
     core.Register(registry)

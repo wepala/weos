@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"weos/application"
+	"github.com/wepala/weos/application"
 
 	"github.com/spf13/cobra"
 )

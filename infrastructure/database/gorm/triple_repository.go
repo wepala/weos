@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"weos/domain/repositories"
-	"weos/infrastructure/models"
+	"github.com/wepala/weos/domain/repositories"
+	"github.com/wepala/weos/infrastructure/models"
 
 	"go.uber.org/fx"
 	"gorm.io/gorm"

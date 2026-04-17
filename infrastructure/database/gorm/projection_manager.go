@@ -23,11 +23,11 @@ import (
 	"strings"
 	"sync"
 
-	"weos/domain/entities"
-	"weos/domain/repositories"
-	"weos/infrastructure/models"
-	"weos/pkg/jsonld"
-	"weos/pkg/utils"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/domain/repositories"
+	"github.com/wepala/weos/infrastructure/models"
+	"github.com/wepala/weos/pkg/jsonld"
+	"github.com/wepala/weos/pkg/utils"
 
 	"github.com/jinzhu/inflection"
 	"go.uber.org/fx"

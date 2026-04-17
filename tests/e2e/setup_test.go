@@ -11,12 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"weos/api/handlers"
-	apimw "weos/api/middleware"
-	"weos/application"
-	"weos/application/presets"
-	"weos/domain/entities"
-	"weos/internal/config"
+	"github.com/wepala/weos/api/handlers"
+	apimw "github.com/wepala/weos/api/middleware"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/application/presets"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/internal/config"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"

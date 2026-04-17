@@ -19,8 +19,8 @@ import (
 	"context"
 	"net/http"
 
-	apimw "weos/api/middleware"
-	"weos/domain/entities"
+	apimw "github.com/wepala/weos/api/middleware"
+	"github.com/wepala/weos/domain/entities"
 
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"

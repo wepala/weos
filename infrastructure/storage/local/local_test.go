@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"weos/domain/services"
-	"weos/infrastructure/storage/local"
+	"github.com/wepala/weos/domain/services"
+	"github.com/wepala/weos/infrastructure/storage/local"
 )
 
 type nopLogger struct{}

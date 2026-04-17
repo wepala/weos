@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"weos/pkg/jsonld"
+	"github.com/wepala/weos/pkg/jsonld"
 )
 
 func TestSubClassOf(t *testing.T) {

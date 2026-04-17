@@ -18,7 +18,7 @@ package application
 import (
 	"context"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 
 	"go.uber.org/fx"
 )

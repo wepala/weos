@@ -19,8 +19,8 @@ import (
 	"context"
 	"fmt"
 
-	"weos/domain/entities"
-	"weos/internal/config"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/internal/config"
 
 	"go.uber.org/fx"
 	"go.uber.org/zap"

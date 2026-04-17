@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"weos/domain/entities"
-	"weos/domain/repositories"
-	"weos/pkg/identity"
-	"weos/pkg/jsonld"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/domain/repositories"
+	"github.com/wepala/weos/pkg/identity"
+	"github.com/wepala/weos/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"

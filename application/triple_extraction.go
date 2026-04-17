@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"weos/domain/repositories"
-	"weos/pkg/jsonld"
+	"github.com/wepala/weos/domain/repositories"
+	"github.com/wepala/weos/pkg/jsonld"
 )
 
 // ReferencePropertyDef describes a JSON Schema property that references another resource.

@@ -1,8 +1,8 @@
 package gorm
 
 import (
-	"weos/domain/entities"
-	"weos/domain/repositories"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/domain/repositories"
 
 	"gorm.io/gorm"
 )

@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"weos/application"
-	"weos/domain/entities"
-	"weos/domain/repositories"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/domain/repositories"
 )
 
 // enforceSingleDefaultBehavior ensures only one pantry in the acting user's

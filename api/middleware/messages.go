@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"weos/domain/entities"
+	"github.com/wepala/weos/domain/entities"
 
 	"github.com/labstack/echo/v4"
 )

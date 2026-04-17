@@ -21,8 +21,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"weos/api/handlers"
-	"weos/application"
+	"github.com/wepala/weos/api/handlers"
+	"github.com/wepala/weos/application"
 
 	"github.com/labstack/echo/v4"
 )

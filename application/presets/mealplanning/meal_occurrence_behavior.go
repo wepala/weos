@@ -22,9 +22,9 @@ import (
 	"sort"
 	"sync"
 
-	"weos/application"
-	"weos/domain/entities"
-	"weos/domain/repositories"
+	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/domain/repositories"
 )
 
 // depletePantryOnCookBehavior decrements FoodItem quantities in the target
