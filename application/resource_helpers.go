@@ -3,7 +3,7 @@ package application
 import (
 	"encoding/json"
 
-	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // ExtractResourceFields parses intrinsic properties from a Resource's JSON-LD data.

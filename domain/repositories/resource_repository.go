@@ -20,7 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // ErrNoProjectionTable is returned by flat-projection reads when the target

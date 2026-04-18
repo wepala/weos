@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/wepala/weos/domain/entities"
-	"github.com/wepala/weos/domain/services"
-	"github.com/wepala/weos/infrastructure/storage"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/services"
+	"github.com/wepala/weos/v3/infrastructure/storage"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"

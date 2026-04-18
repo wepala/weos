@@ -19,7 +19,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/wepala/weos/infrastructure/models"
+	"github.com/wepala/weos/v3/infrastructure/models"
 
 	"gorm.io/gorm"
 )

@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wepala/weos/domain/repositories"
-	"github.com/wepala/weos/infrastructure/models"
-	"github.com/wepala/weos/pkg/utils"
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/infrastructure/models"
+	"github.com/wepala/weos/v3/pkg/utils"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"

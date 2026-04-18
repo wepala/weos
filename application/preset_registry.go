@@ -26,7 +26,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // PresetResourceType defines a single resource type within a preset.

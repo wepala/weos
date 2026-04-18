@@ -22,7 +22,7 @@
 // public entry point.
 package cli
 
-import internalcli "github.com/wepala/weos/internal/cli"
+import internalcli "github.com/wepala/weos/v3/internal/cli"
 
 // Execute runs the weos CLI root command.
 //

@@ -23,8 +23,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	apimw "github.com/wepala/weos/api/middleware"
-	"github.com/wepala/weos/web"
+	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/web"
 
 	"github.com/labstack/echo/v4"
 )

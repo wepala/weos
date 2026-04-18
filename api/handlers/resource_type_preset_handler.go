@@ -19,8 +19,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/wepala/weos/application"
-	"github.com/wepala/weos/domain/repositories"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"github.com/labstack/echo/v4"
 )

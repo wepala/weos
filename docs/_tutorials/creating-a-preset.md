@@ -38,7 +38,7 @@ package restaurant
 import (
     "encoding/json"
 
-    "github.com/wepala/weos/application"
+    "github.com/wepala/weos/v3/application"
 )
 
 func Register(registry *application.PresetRegistry) {
@@ -118,7 +118,7 @@ Open `application/presets/register.go` and add your preset's import and registra
 ```go
 import (
     // ... existing imports ...
-    "github.com/wepala/weos/application/presets/restaurant" // Add this import
+    "github.com/wepala/weos/v3/application/presets/restaurant" // Add this import
 )
 
 func RegisterAll(r *application.PresetRegistry) {

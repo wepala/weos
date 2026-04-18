@@ -5,7 +5,7 @@ import (
 	"embed"
 	"io/fs"
 
-	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/v3/application"
 )
 
 //go:embed screens/dist/*

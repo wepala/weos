@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wepala/weos/pkg/jsonld"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/ddd"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"

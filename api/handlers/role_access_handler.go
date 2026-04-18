@@ -19,11 +19,11 @@ import (
 	"encoding/json"
 	"net/http"
 
-	apimw "github.com/wepala/weos/api/middleware"
-	"github.com/wepala/weos/application"
-	"github.com/wepala/weos/domain/entities"
-	"github.com/wepala/weos/domain/repositories"
-	"github.com/wepala/weos/infrastructure/models"
+	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/infrastructure/models"
 
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"

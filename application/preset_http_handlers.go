@@ -19,8 +19,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wepala/weos/domain/entities"
-	"github.com/wepala/weos/domain/repositories"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 )
 
 // PresetHTTPHandlers is a distinct nominal type for the Fx-provided list of

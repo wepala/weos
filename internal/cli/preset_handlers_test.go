@@ -21,7 +21,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/v3/application"
 
 	"github.com/labstack/echo/v4"
 )

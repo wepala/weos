@@ -22,10 +22,10 @@ import (
 	"strconv"
 	"time"
 
-	apimw "github.com/wepala/weos/api/middleware"
-	"github.com/wepala/weos/application"
-	"github.com/wepala/weos/domain/entities"
-	"github.com/wepala/weos/pkg/jsonld"
+	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"

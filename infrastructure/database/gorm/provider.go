@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"strings"
 
-	weosmodels "github.com/wepala/weos/infrastructure/models"
-	"github.com/wepala/weos/internal/config"
-	"github.com/wepala/weos/internal/oauth"
+	weosmodels "github.com/wepala/weos/v3/infrastructure/models"
+	"github.com/wepala/weos/v3/internal/config"
+	"github.com/wepala/weos/v3/internal/oauth"
 
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
 	"go.uber.org/fx"

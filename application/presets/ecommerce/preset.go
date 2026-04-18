@@ -1,7 +1,7 @@
 // Package ecommerce provides resource types for e-commerce: products, offers, reviews, and services.
 package ecommerce
 
-import "github.com/wepala/weos/application"
+import "github.com/wepala/weos/v3/application"
 
 // Register adds the ecommerce preset to the registry.
 func Register(registry *application.PresetRegistry) {

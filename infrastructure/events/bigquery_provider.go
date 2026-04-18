@@ -7,7 +7,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/infrastructure"
 
-	"github.com/wepala/weos/internal/config"
+	"github.com/wepala/weos/v3/internal/config"
 )
 
 // ProvideBigQueryEventStore creates a BigQuery event store from config.

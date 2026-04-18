@@ -14,11 +14,11 @@ This guide walks through creating a custom behavior that attaches domain logic t
 - A working WeOS development environment (`make build` succeeds)
 - A preset that defines the resource type you want to add behavior to (see [Creating a Preset]({% link _tutorials/creating-a-preset.md %}))
 
-> **Note:** This guide uses the module import path `github.com/wepala/weos/...`, which matches the `go.mod` declaration (`module github.com/wepala/weos`).
+> **Note:** This guide uses the module import path `github.com/wepala/weos/v3/...`, which matches the `go.mod` declaration (`module github.com/wepala/weos/v3`).
 
 ## 1. Create the Behavior Struct
 
-In your preset package (e.g. `application/presets/blog/`), create a struct that embeds `entities.DefaultBehavior` and overrides the hooks you need. All imports use the module path from `go.mod` (currently `weos`):
+In your preset package (e.g. `application/presets/blog/`), create a struct that embeds `entities.DefaultBehavior` and overrides the hooks you need. All imports use the module path from `go.mod` (currently `weos/v3`):
 
 ```go
 package blog
@@ -29,7 +29,7 @@ import (
     "fmt"
     "strings"
 
-    "github.com/wepala/weos/domain/entities"
+    "github.com/wepala/weos/v3/domain/entities"
 )
 
 type blogPostBehavior struct {
@@ -85,8 +85,8 @@ In your preset's `Register` function, include the behavior in the `Behaviors` ma
 package blog
 
 import (
-    "github.com/wepala/weos/application"
-    "github.com/wepala/weos/domain/entities"
+    "github.com/wepala/weos/v3/application"
+    "github.com/wepala/weos/v3/domain/entities"
 )
 
 func Register(registry *application.PresetRegistry) {
@@ -139,9 +139,9 @@ Example (showing imports):
 
 ```go
 import (
-    "github.com/wepala/weos/application"
-    "github.com/wepala/weos/domain/entities"
-    "github.com/wepala/weos/domain/repositories"
+    "github.com/wepala/weos/v3/application"
+    "github.com/wepala/weos/v3/domain/entities"
+    "github.com/wepala/weos/v3/domain/repositories"
 )
 
 type blogPostBehavior struct {
@@ -226,7 +226,7 @@ check that two behaviors aren't triggering each other indefinitely.
 Add your preset to the `RegisterAll` function in `application/presets/register.go`, which is where all built-in presets are registered. This function is called by `presets.NewDefaultRegistry()`, which is used by the CLI (`internal/cli/di.go`, `internal/cli/serve.go`) and the MCP server:
 
 ```go
-import "github.com/wepala/weos/application/presets/blog"
+import "github.com/wepala/weos/v3/application/presets/blog"
 
 func RegisterAll(registry *application.PresetRegistry) {
     core.Register(registry)

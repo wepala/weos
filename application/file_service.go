@@ -15,7 +15,7 @@
 
 package application
 
-import "github.com/wepala/weos/domain/services"
+import "github.com/wepala/weos/v3/domain/services"
 
 // FileService is the application-layer alias for the domain FileService interface.
 type FileService = services.FileService

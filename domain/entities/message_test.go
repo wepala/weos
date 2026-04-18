@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 func TestContextWithMessages_AccumulatesMessages(t *testing.T) {

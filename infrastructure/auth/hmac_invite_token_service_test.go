@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wepala/weos/internal/config"
+	"github.com/wepala/weos/v3/internal/config"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth/application"
 	gojwt "github.com/golang-jwt/jwt/v5"

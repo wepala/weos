@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wepala/weos/domain/entities"
-	"github.com/wepala/weos/domain/repositories"
-	"github.com/wepala/weos/infrastructure/models"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/infrastructure/models"
 
 	"github.com/segmentio/ksuid"
 	"go.uber.org/fx"

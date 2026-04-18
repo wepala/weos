@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wepala/weos/internal/config"
+	"github.com/wepala/weos/v3/internal/config"
 )
 
 func TestNewSMTPSender_EmptyHost_ReturnsNil(t *testing.T) {

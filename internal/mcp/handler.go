@@ -21,7 +21,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wepala/weos/application"
+	"github.com/wepala/weos/v3/application"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )

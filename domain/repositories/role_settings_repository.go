@@ -18,7 +18,7 @@ package repositories
 import (
 	"context"
 
-	"github.com/wepala/weos/infrastructure/models"
+	"github.com/wepala/weos/v3/infrastructure/models"
 )
 
 // RoleSettingsRepository manages the configured role names.

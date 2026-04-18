@@ -21,8 +21,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/wepala/weos/domain/repositories"
-	"github.com/wepala/weos/infrastructure/models"
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/infrastructure/models"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/wepala/weos/application"
-	"github.com/wepala/weos/domain/entities"
-	"github.com/wepala/weos/pkg/jsonld"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

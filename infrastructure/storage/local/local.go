@@ -22,9 +22,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wepala/weos/domain/entities"
-	"github.com/wepala/weos/domain/services"
-	"github.com/wepala/weos/infrastructure/storage"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/services"
+	"github.com/wepala/weos/v3/infrastructure/storage"
 
 	"github.com/segmentio/ksuid"
 )

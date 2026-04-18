@@ -19,7 +19,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wepala/weos/internal/config"
+	"github.com/wepala/weos/v3/internal/config"
 
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/model/gemini"

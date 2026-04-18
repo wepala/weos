@@ -1,4 +1,4 @@
-module github.com/wepala/weos
+module github.com/wepala/weos/v3
 
 go 1.25.0
 

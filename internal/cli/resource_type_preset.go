@@ -20,7 +20,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wepala/weos/application/presets"
+	"github.com/wepala/weos/v3/application/presets"
 
 	"github.com/spf13/cobra"
 )

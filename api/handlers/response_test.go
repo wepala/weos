@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/wepala/weos/api/handlers"
-	apimw "github.com/wepala/weos/api/middleware"
-	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/v3/api/handlers"
+	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/domain/entities"
 
 	"github.com/labstack/echo/v4"
 )

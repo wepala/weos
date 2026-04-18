@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // Compile-time check: DefaultBehavior implements ResourceBehavior.

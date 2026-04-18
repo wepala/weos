@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wepala/weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 func setupScheduledMealBehavior(t *testing.T) (*scheduledMealBehavior, *stubResourceSvc) {
