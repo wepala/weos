@@ -3,13 +3,17 @@ package application
 import (
 	"context"
 
-	"weos/domain/entities"
-	"weos/domain/repositories"
-	"weos/infrastructure/database/gorm"
-	"weos/infrastructure/events"
-	"weos/infrastructure/logging"
-	"weos/internal/config"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/infrastructure/auth"
+	"github.com/wepala/weos/v3/infrastructure/database/gorm"
+	"github.com/wepala/weos/v3/infrastructure/email"
+	"github.com/wepala/weos/v3/infrastructure/events"
+	"github.com/wepala/weos/v3/infrastructure/logging"
+	storageprovider "github.com/wepala/weos/v3/infrastructure/storage/provider"
+	"github.com/wepala/weos/v3/internal/config"
 
+	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
@@ -20,11 +24,17 @@ import (
 
 // Module provides all application dependencies.
 // It accepts a Config parameter that must be provided by the calling application.
-func Module(cfg config.Config) fx.Option {
+func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
+	if registry == nil {
+		panic("application.Module: PresetRegistry must not be nil — use presets.NewDefaultRegistry()")
+	}
 	return fx.Module("application",
-		// Provide the config to all providers that need it
+		// Provide the config and preset registry to all providers
 		fx.Provide(func() config.Config {
 			return cfg
+		}),
+		fx.Provide(func() *PresetRegistry {
+			return registry
 		}),
 
 		// Logging providers
@@ -77,20 +87,50 @@ func Module(cfg config.Config) fx.Option {
 			return authgorm.NewAuthSessionRepository(db)
 		}),
 		fx.Provide(func(db *gormdb.DB) authrepos.AccountRepository { return authgorm.NewAccountRepository(db) }),
+		fx.Provide(func(db *gormdb.DB) authrepos.InviteRepository { return authgorm.NewInviteRepository(db) }),
 
 		// Auth infrastructure
 		fx.Provide(ProvideOAuthProviderRegistry),
 		fx.Provide(ProvideAuthorizationChecker),
 		fx.Provide(ProvideAuthenticationService),
 		fx.Provide(ProvideSessionManager),
+		fx.Provide(auth.ProvideInviteTokenService),
+		fx.Provide(func(
+			invites authrepos.InviteRepository,
+			agents authrepos.AgentRepository,
+			accounts authrepos.AccountRepository,
+			creds authrepos.CredentialRepository,
+			tokenSvc authapp.InviteTokenService,
+			logger entities.Logger,
+		) *authapp.InviteService {
+			return authapp.NewInviteService(invites, agents, accounts, creds, tokenSvc,
+				authapp.WithInviteLogger(logger),
+			)
+		}),
 
-		// Resource behavior registry (must come before ProvideResourceService)
+		// Resource behavior registries (must come before ProvideResourceService).
+		// The lazy resource writer breaks the construction cycle between
+		// ResourceService and ResourceBehaviorRegistry; WireResourceWriter
+		// (fx.Invoke below) installs the real service into it at startup.
+		fx.Provide(newLazyResourceWriter),
 		fx.Provide(ProvideResourceBehaviorRegistry),
+		fx.Provide(ProvideBehaviorMetaRegistry),
+		fx.Provide(ProvidePresetHTTPHandlers),
+		fx.Provide(gorm.ProvideBehaviorSettingsRepository),
+
+		// Email sender
+		fx.Provide(email.ProvideEmailSender),
 
 		// Service providers
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
 		fx.Provide(ProvideResourcePermissionService),
+		fx.Provide(storageprovider.ProvideFileService),
+
+		// Install the real ResourceService into the lazy writer proxy now that
+		// both exist. Behaviors close over the proxy at factory time; this
+		// invoke must run before any hook can be called.
+		fx.Invoke(WireResourceWriter),
 
 		// Subscribe event handlers (projections)
 		fx.Invoke(subscribeEventHandlers),

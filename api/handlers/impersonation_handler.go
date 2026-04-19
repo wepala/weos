@@ -19,8 +19,8 @@ import (
 	"context"
 	"net/http"
 
-	apimw "weos/api/middleware"
-	"weos/domain/entities"
+	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/domain/entities"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -65,16 +65,16 @@ type startImpersonationRequest struct {
 func (h *ImpersonationHandler) Start(c echo.Context) error {
 	var req startImpersonationRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 	if req.AgentID == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "agent_id is required"})
+		return respondError(c, http.StatusBadRequest, "agent_id is required")
 	}
 
 	ctx := c.Request().Context()
 	identity := auth.AgentFromCtx(ctx)
 	if identity == nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
+		return respondError(c, http.StatusUnauthorized, "not authenticated")
 	}
 
 	// The impersonation middleware may have already swapped the identity.
@@ -91,7 +91,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 	isAdmin, adminErr := apimw.IsAdmin(ctx, h.accountRepo)
 	if adminErr != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", adminErr)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
 		// Re-check with the real admin identity if impersonation is active.
@@ -105,26 +105,26 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 			isAdmin, adminErr = apimw.IsAdmin(adminCtx, h.accountRepo)
 			if adminErr != nil {
 				h.logger.Error(ctx, "failed to re-check admin status", "error", adminErr)
-				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+				return respondError(c, http.StatusInternalServerError, "authorization check failed")
 			}
 			if !isAdmin {
-				return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+				return respondError(c, http.StatusForbidden, "admin role required")
 			}
 		} else {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+			return respondError(c, http.StatusForbidden, "admin role required")
 		}
 	}
 
 	if req.AgentID == adminAgentID {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "cannot impersonate yourself"})
+		return respondError(c, http.StatusBadRequest, "cannot impersonate yourself")
 	}
 
 	target, err := h.agentRepo.FindByID(ctx, req.AgentID)
 	if err != nil || target == nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "user not found"})
+		return respondError(c, http.StatusNotFound, "user not found")
 	}
 	if target.Status() != "active" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "can only impersonate active users"})
+		return respondError(c, http.StatusBadRequest, "can only impersonate active users")
 	}
 
 	sess.Options = &sessions.Options{
@@ -139,7 +139,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 	sess.Values[apimw.KeyRealAccountID] = identity.ActiveAccountID
 
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create impersonation session"})
+		return respondError(c, http.StatusInternalServerError, "failed to create impersonation session")
 	}
 
 	h.logger.Info(ctx, "impersonation started",
@@ -149,7 +149,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 	)
 
 	name, email := h.resolveAgentInfo(ctx, req.AgentID)
-	return c.JSON(http.StatusOK, map[string]any{
+	return respond(c, http.StatusOK, map[string]any{
 		"impersonating": map[string]string{
 			"id":    req.AgentID,
 			"name":  name,
@@ -162,7 +162,7 @@ func (h *ImpersonationHandler) Start(c echo.Context) error {
 func (h *ImpersonationHandler) Stop(c echo.Context) error {
 	sess, err := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
 	if err != nil {
-		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+		return respond(c, http.StatusOK, map[string]string{"status": "ok"})
 	}
 
 	realAgentID, _ := sess.Values[apimw.KeyRealAgentID].(string)
@@ -179,7 +179,7 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 		delete(sess.Values, key)
 	}
 	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to clear impersonation session"})
+		return respondError(c, http.StatusInternalServerError, "failed to clear impersonation session")
 	}
 
 	if realAgentID != "" {
@@ -190,23 +190,23 @@ func (h *ImpersonationHandler) Stop(c echo.Context) error {
 		)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	return respond(c, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // Status returns the current impersonation state.
 func (h *ImpersonationHandler) Status(c echo.Context) error {
 	sess, err := h.store.Get(c.Request(), apimw.ImpersonationSessionName)
 	if err != nil {
-		return c.JSON(http.StatusOK, map[string]any{"active": false})
+		return respond(c, http.StatusOK, map[string]any{"active": false})
 	}
 
 	impersonatedAgentID, ok := sess.Values[apimw.KeyImpersonatedAgentID].(string)
 	if !ok || impersonatedAgentID == "" {
-		return c.JSON(http.StatusOK, map[string]any{"active": false})
+		return respond(c, http.StatusOK, map[string]any{"active": false})
 	}
 
 	name, email := h.resolveAgentInfo(c.Request().Context(), impersonatedAgentID)
-	return c.JSON(http.StatusOK, map[string]any{
+	return respond(c, http.StatusOK, map[string]any{
 		"active": true,
 		"user": map[string]string{
 			"id":    impersonatedAgentID,
@@ -244,7 +244,7 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 			if accountID != "" {
 				role, _ = h.accountRepo.FindMemberRole(ctx, accountID, agentID)
 			}
-			return c.JSON(http.StatusOK, map[string]any{
+			return respond(c, http.StatusOK, map[string]any{
 				"id":    agentID,
 				"name":  name,
 				"email": email,
@@ -262,7 +262,7 @@ func (h *ImpersonationHandler) Me(authHandlers *authhttp.AuthHandlers) echo.Hand
 			role, _ = h.accountRepo.FindMemberRole(ctx, accounts[0].GetID(), impersonatedAgentID)
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{
+		return respond(c, http.StatusOK, map[string]any{
 			"id":            impersonatedAgentID,
 			"name":          name,
 			"email":         email,

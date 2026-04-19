@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"os"
 
-	"weos/application"
-	"weos/domain/repositories"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"github.com/spf13/cobra"
 )

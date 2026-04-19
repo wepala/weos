@@ -19,8 +19,8 @@ import (
 	"context"
 	"net/http"
 
-	apimw "weos/api/middleware"
-	"weos/domain/entities"
+	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/domain/entities"
 
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -64,16 +64,16 @@ func (h *UserHandler) List(c echo.Context) error {
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	agents, err := h.agentRepo.FindAll(ctx, "", 100)
 	if err != nil {
 		h.logger.Error(ctx, "failed to list users", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list users"})
+		return respondError(c, http.StatusInternalServerError, "failed to list users")
 	}
 
 	accountID := h.defaultAccountID(ctx)
@@ -83,7 +83,7 @@ func (h *UserHandler) List(c echo.Context) error {
 		users = append(users, h.buildUserResponse(ctx, agent, accountID))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"data": users})
+	return respond(c, http.StatusOK, users)
 }
 
 // Get returns a single user by ID. Admin-only.
@@ -94,19 +94,19 @@ func (h *UserHandler) Get(c echo.Context) error {
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	agent, err := h.agentRepo.FindByID(ctx, id)
 	if err != nil || agent == nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "user not found"})
+		return respondError(c, http.StatusNotFound, "user not found")
 	}
 
 	accountID := h.defaultAccountID(ctx)
-	return c.JSON(http.StatusOK, h.buildUserResponse(ctx, agent, accountID))
+	return respond(c, http.StatusOK, h.buildUserResponse(ctx, agent, accountID))
 }
 
 type UpdateUserRequest struct {
@@ -122,30 +122,30 @@ func (h *UserHandler) Update(c echo.Context) error {
 	isAdmin, err := apimw.IsAdmin(ctx, h.accountRepo)
 	if err != nil {
 		h.logger.Error(ctx, "failed to check admin status", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	var req UpdateUserRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return respondError(c, http.StatusBadRequest, "invalid request")
 	}
 
 	agent, err := h.agentRepo.FindByID(ctx, id)
 	if err != nil || agent == nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "user not found"})
+		return respondError(c, http.StatusNotFound, "user not found")
 	}
 
 	if req.Name != "" && req.Name != agent.Name() {
 		if err := agent.UpdateName(req.Name); err != nil {
 			h.logger.Error(ctx, "failed to update user name", "error", err, "user_id", id)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update user"})
+			return respondError(c, http.StatusInternalServerError, "failed to update user")
 		}
 		if err := h.agentRepo.Save(ctx, agent); err != nil {
 			h.logger.Error(ctx, "failed to save user", "error", err, "user_id", id)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update user"})
+			return respondError(c, http.StatusInternalServerError, "failed to update user")
 		}
 	}
 
@@ -153,11 +153,11 @@ func (h *UserHandler) Update(c echo.Context) error {
 	if req.Role != "" && accountID != "" {
 		if err := h.accountRepo.SaveMember(ctx, accountID, id, req.Role); err != nil {
 			h.logger.Error(ctx, "failed to save user role", "error", err, "user_id", id)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update user role"})
+			return respondError(c, http.StatusInternalServerError, "failed to update user role")
 		}
 	}
 
-	return c.JSON(http.StatusOK, h.buildUserResponse(ctx, agent, accountID))
+	return respond(c, http.StatusOK, h.buildUserResponse(ctx, agent, accountID))
 }
 
 func (h *UserHandler) defaultAccountID(ctx context.Context) string {

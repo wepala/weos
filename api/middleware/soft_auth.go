@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"

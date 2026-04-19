@@ -17,9 +17,13 @@ package repositories
 
 import (
 	"context"
+	"errors"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
+
+// ErrNotFound is returned when a requested entity does not exist.
+var ErrNotFound = errors.New("not found")
 
 type ResourceTypeRepository interface {
 	Save(ctx context.Context, entity *entities.ResourceType) error

@@ -1,3 +1,5 @@
+import { forwardMessages } from './useApi'
+
 interface AuthUser {
   id: string
   name: string
@@ -9,14 +11,14 @@ interface AuthUser {
 }
 
 export function useAuth() {
+  const { request } = useApi()
   const user = useState<AuthUser | null>('auth-user', () => null)
   const loading = useState<boolean>('auth-loading', () => true)
   const isImpersonating = computed(() => !!user.value?.impersonating)
 
   async function fetchUser() {
     try {
-      const data = await $fetch<AuthUser>('/api/auth/me')
-      user.value = data
+      user.value = await request<AuthUser>('/api/auth/me')
     } catch (err) {
       console.error('[useAuth] fetchUser failed:', err)
       user.value = null
@@ -27,9 +29,9 @@ export function useAuth() {
 
   async function startImpersonation(agentId: string) {
     try {
-      await $fetch('/api/admin/impersonate', {
+      await request('/api/admin/impersonate', {
         method: 'POST',
-        body: { agent_id: agentId },
+        body: JSON.stringify({ agent_id: agentId }),
       })
       await fetchUser()
     } catch (err) {
@@ -40,7 +42,7 @@ export function useAuth() {
 
   async function stopImpersonation() {
     try {
-      await $fetch('/api/admin/stop-impersonation', { method: 'POST' })
+      await request('/api/admin/stop-impersonation', { method: 'POST' })
       await fetchUser()
     } catch (err) {
       console.error('[useAuth] stopImpersonation failed:', err)
@@ -51,6 +53,8 @@ export function useAuth() {
   async function logout() {
     try {
       await $fetch('/api/auth/logout', { method: 'POST' })
+    } catch (err: any) {
+      if (err?.data) forwardMessages(err.data)
     } finally {
       user.value = null
       navigateTo('/login')

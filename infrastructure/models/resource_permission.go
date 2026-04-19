@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // ResourcePermission is the GORM model for instance-level resource permissions.

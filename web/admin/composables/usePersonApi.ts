@@ -13,6 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { forwardMessages } from './useApi'
+import type { ApiMessage } from './useNotifications'
+
 interface Person {
   id: string
   given_name: string
@@ -28,6 +31,7 @@ interface PaginatedResponse<T> {
   data: T[]
   cursor: string
   has_more: boolean
+  messages?: ApiMessage[]
 }
 
 interface CreatePersonPayload {
@@ -45,35 +49,44 @@ interface UpdatePersonPayload {
 }
 
 export function usePersonApi() {
-  function listPersons(cursor = '', limit = 20) {
+  const { request } = useApi()
+
+  async function listPersons(cursor = '', limit = 20) {
     const params = new URLSearchParams()
     if (cursor) params.set('cursor', cursor)
     params.set('limit', String(limit))
-    return $fetch<PaginatedResponse<Person>>(
-      `/api/persons?${params}`,
-    )
+    try {
+      const res = await $fetch<PaginatedResponse<Person>>(
+        `/api/persons?${params}`,
+      )
+      forwardMessages(res)
+      return res
+    } catch (err: any) {
+      if (err?.data) forwardMessages(err.data)
+      throw err
+    }
   }
 
   function getPerson(id: string) {
-    return $fetch<Person>(`/api/persons/${id}`)
+    return request<Person>(`/api/persons/${id}`)
   }
 
   function createPerson(payload: CreatePersonPayload) {
-    return $fetch<Person>('/api/persons', {
+    return request<Person>('/api/persons', {
       method: 'POST',
-      body: payload,
+      body: JSON.stringify(payload),
     })
   }
 
   function updatePerson(id: string, payload: UpdatePersonPayload) {
-    return $fetch<Person>(`/api/persons/${id}`, {
+    return request<Person>(`/api/persons/${id}`, {
       method: 'PUT',
-      body: payload,
+      body: JSON.stringify(payload),
     })
   }
 
   function deletePerson(id: string) {
-    return $fetch(`/api/persons/${id}`, { method: 'DELETE' })
+    return request<void>(`/api/persons/${id}`, { method: 'DELETE' })
   }
 
   return {

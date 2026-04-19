@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import type { ApiMessage } from './useNotifications'
+
 export interface ResourceTypeInfo {
   id: string
   name: string
@@ -26,6 +28,7 @@ interface PaginatedResponse {
   data: ResourceTypeInfo[]
   cursor: string
   has_more: boolean
+  messages?: ApiMessage[]
 }
 
 export function useResourceTypeStore() {
@@ -35,6 +38,8 @@ export function useResourceTypeStore() {
   async function fetchResourceTypes() {
     try {
       const res = await $fetch<PaginatedResponse>('/api/resource-types?limit=100')
+      const { processApiMessages } = useNotifications()
+      processApiMessages(res.messages)
       resourceTypes.value = res.data
       loaded.value = true
     } catch {

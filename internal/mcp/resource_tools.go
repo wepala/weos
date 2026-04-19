@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"weos/application"
-	"weos/domain/entities"
-	"weos/domain/repositories"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

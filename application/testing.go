@@ -1,8 +1,8 @@
 package application
 
 import (
-	"weos/domain/entities"
-	"weos/domain/repositories"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 )
@@ -55,12 +55,66 @@ func NewResourceServiceForTest(
 		behaviors = make(ResourceBehaviorRegistry)
 	}
 	return &resourceService{
-		repo:       repo,
-		typeRepo:   typeRepo,
-		tripleRepo: tripleRepo,
-		eventStore: eventStore,
-		dispatcher: dispatcher,
-		logger:     logger,
-		behaviors:  behaviors,
+		repo:         repo,
+		typeRepo:     typeRepo,
+		tripleRepo:   tripleRepo,
+		eventStore:   eventStore,
+		dispatcher:   dispatcher,
+		logger:       logger,
+		behaviors:    behaviors,
+		behaviorMeta: make(BehaviorMetaRegistry),
+	}
+}
+
+// NewResourceServiceForTestWithSettings creates a ResourceService with
+// behavior settings support for tests that need account-scoped behavior config.
+func NewResourceServiceForTestWithSettings(
+	repo repositories.ResourceRepository,
+	typeRepo repositories.ResourceTypeRepository,
+	tripleRepo repositories.TripleRepository,
+	eventStore domain.EventStore,
+	dispatcher *domain.EventDispatcher,
+	logger entities.Logger,
+	behaviors ResourceBehaviorRegistry,
+	behaviorMeta BehaviorMetaRegistry,
+	behaviorSettings repositories.BehaviorSettingsRepository,
+) ResourceService {
+	if behaviors == nil {
+		behaviors = make(ResourceBehaviorRegistry)
+	}
+	if behaviorMeta == nil {
+		behaviorMeta = make(BehaviorMetaRegistry)
+	}
+	return &resourceService{
+		repo:             repo,
+		typeRepo:         typeRepo,
+		tripleRepo:       tripleRepo,
+		eventStore:       eventStore,
+		dispatcher:       dispatcher,
+		logger:           logger,
+		behaviors:        behaviors,
+		behaviorMeta:     behaviorMeta,
+		behaviorSettings: behaviorSettings,
+	}
+}
+
+// NewResourceTypeServiceForTest creates a ResourceTypeService without fx wiring.
+func NewResourceTypeServiceForTest(
+	repo repositories.ResourceTypeRepository,
+	projMgr repositories.ProjectionManager,
+	eventStore domain.EventStore,
+	dispatcher *domain.EventDispatcher,
+	registry *PresetRegistry,
+	logger entities.Logger,
+	resourceSvc ResourceService,
+) ResourceTypeService {
+	return &resourceTypeService{
+		repo:        repo,
+		projMgr:     projMgr,
+		eventStore:  eventStore,
+		dispatcher:  dispatcher,
+		registry:    registry,
+		logger:      logger,
+		resourceSvc: resourceSvc,
 	}
 }

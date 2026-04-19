@@ -19,10 +19,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	apimw "weos/api/middleware"
-	"weos/domain/entities"
-	gormdb "weos/infrastructure/database/gorm"
-	"weos/infrastructure/models"
+	apimw "github.com/wepala/weos/v3/api/middleware"
+	"github.com/wepala/weos/v3/domain/entities"
+	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
+	"github.com/wepala/weos/v3/infrastructure/models"
 
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/labstack/echo/v4"
@@ -70,10 +70,10 @@ func (h *SidebarSettingsHandler) Get(c echo.Context) error {
 	settings, err := h.repo.GetByRole(ctx, role)
 	if err != nil {
 		h.logger.Error(ctx, "failed to load sidebar settings", "error", err, "role", role)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load settings"})
+		return respondError(c, http.StatusInternalServerError, "failed to load settings")
 	}
 
-	return c.JSON(http.StatusOK, h.toResponse(settings))
+	return respond(c, http.StatusOK, h.toResponse(settings))
 }
 
 // Save updates sidebar settings. Admin-only.
@@ -81,15 +81,15 @@ func (h *SidebarSettingsHandler) Save(c echo.Context) error {
 	isAdmin, err := apimw.IsAdmin(c.Request().Context(), h.accountRepo)
 	if err != nil {
 		h.logger.Error(c.Request().Context(), "failed to check admin status", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
+		return respondError(c, http.StatusInternalServerError, "authorization check failed")
 	}
 	if !isAdmin {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "admin role required"})
+		return respondError(c, http.StatusForbidden, "admin role required")
 	}
 
 	var req sidebarSettingsRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return respondError(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	if req.HiddenSlugs == nil {
@@ -101,12 +101,12 @@ func (h *SidebarSettingsHandler) Save(c echo.Context) error {
 
 	hiddenJSON, err := json.Marshal(req.HiddenSlugs)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode settings"})
+		return respondError(c, http.StatusInternalServerError, "failed to encode settings")
 	}
 
 	groupsJSON, err := json.Marshal(req.MenuGroups)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode settings"})
+		return respondError(c, http.StatusInternalServerError, "failed to encode settings")
 	}
 
 	role := c.QueryParam("role")
@@ -121,10 +121,10 @@ func (h *SidebarSettingsHandler) Save(c echo.Context) error {
 
 	if err := h.repo.SaveByRole(c.Request().Context(), role, settings); err != nil {
 		h.logger.Error(c.Request().Context(), "failed to save sidebar settings", "error", err, "role", role)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to save settings"})
+		return respondError(c, http.StatusInternalServerError, "failed to save settings")
 	}
 
-	return c.JSON(http.StatusOK, sidebarSettingsResponse(req))
+	return respond(c, http.StatusOK, sidebarSettingsResponse(req))
 }
 
 func (h *SidebarSettingsHandler) toResponse(settings *models.SidebarSettings) sidebarSettingsResponse {

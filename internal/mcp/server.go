@@ -3,12 +3,15 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/signal"
+	"reflect"
 	"strings"
 	"syscall"
 
-	"weos/application"
-	"weos/internal/config"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/application/presets"
+	"github.com/wepala/weos/v3/internal/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/fx"
@@ -68,7 +71,7 @@ func ValidateServiceNames(names []string) error {
 	return nil
 }
 
-// resolveEnabled returns a set of enabled services. If the input is empty, all services are enabled.
+// resolveEnabled returns a set of enabled services. If the input is nil or empty, all services are enabled.
 func resolveEnabled(services []string) map[ServiceName]bool {
 	enabled := make(map[ServiceName]bool, len(AllServices))
 	if len(services) == 0 {
@@ -83,26 +86,23 @@ func resolveEnabled(services []string) map[ServiceName]bool {
 	return enabled
 }
 
-// Run starts the MCP server, registering only the tool groups listed in enabledServices.
-// If enabledServices is empty, all tool groups are registered.
-func Run(enabledServices []string) error {
-	cfg := loadConfig()
-
-	var resourceTypeService application.ResourceTypeService
-	var resourceService application.ResourceService
-
-	app := fx.New(
-		fx.NopLogger,
-		application.Module(cfg),
-		fx.Populate(&resourceTypeService),
-		fx.Populate(&resourceService),
-	)
-
-	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
-	defer startCancel()
-
-	if err := app.Start(startCtx); err != nil {
-		return fmt.Errorf("failed to start application: %w", err)
+// NewMCPServer creates a configured MCP server with the specified tool groups registered.
+// If enabledServices is nil or empty, all tool groups are registered.
+func NewMCPServer(
+	resourceTypeService application.ResourceTypeService,
+	resourceService application.ResourceService,
+	enabledServices []string,
+) (*mcp.Server, error) {
+	if isNilInterface(resourceTypeService) {
+		return nil, fmt.Errorf("resourceTypeService must not be nil")
+	}
+	if isNilInterface(resourceService) {
+		return nil, fmt.Errorf("resourceService must not be nil")
+	}
+	if len(enabledServices) > 0 {
+		if err := ValidateServiceNames(enabledServices); err != nil {
+			return nil, err
+		}
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{
@@ -127,17 +127,56 @@ func Run(enabledServices []string) error {
 		registerResourceTools(server, resourceService)
 	}
 
+	return server, nil
+}
+
+// Run starts the MCP server on stdio, registering only the tool groups listed in enabledServices.
+// If enabledServices is nil or empty, all tool groups are registered.
+func Run(enabledServices []string) error {
+	cfg := loadConfig()
+
+	var resourceTypeService application.ResourceTypeService
+	var resourceService application.ResourceService
+
+	app := fx.New(
+		fx.NopLogger,
+		application.Module(cfg, presets.NewDefaultRegistry()),
+		fx.Populate(&resourceTypeService),
+		fx.Populate(&resourceService),
+	)
+
+	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+	defer startCancel()
+
+	if err := app.Start(startCtx); err != nil {
+		return fmt.Errorf("failed to start application: %w", err)
+	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+		defer stopCancel()
+		if stopErr := app.Stop(stopCtx); stopErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to stop application: %v\n", stopErr)
+		}
+	}()
+
+	server, err := NewMCPServer(resourceTypeService, resourceService, enabledServices)
+	if err != nil {
+		return fmt.Errorf("failed to create MCP server: %w", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	err := server.Run(ctx, &mcp.StdioTransport{})
+	return server.Run(ctx, &mcp.StdioTransport{})
+}
 
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
-	defer stopCancel()
-
-	_ = app.Stop(stopCtx)
-
-	return err
+// isNilInterface returns true if v is nil or a typed-nil (interface wrapping a nil pointer).
+func isNilInterface(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	return rv.Kind() == reflect.Ptr && rv.IsNil()
 }
 
 func loadConfig() config.Config {

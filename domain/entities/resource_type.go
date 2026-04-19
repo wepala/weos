@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"weos/pkg/identity"
+	"github.com/wepala/weos/v3/pkg/identity"
 
 	"github.com/akeemphilbert/pericarp/pkg/ddd"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"

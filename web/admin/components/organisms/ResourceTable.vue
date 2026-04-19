@@ -41,8 +41,8 @@
           </a-popconfirm>
         </a-space>
       </template>
-      <template v-else-if="column.resourceType && text">
-        {{ resolve(column.resourceType, text) }}
+      <template v-else-if="column.displayKey && text">
+        {{ record[column.displayKey] || text }}
       </template>
       <template v-else-if="column.format && text">
         {{ formatDate(column.format, text) }}
@@ -68,8 +68,6 @@ defineEmits<{
   'load-more': []
 }>()
 
-const { preloadType, resolve } = useResourceLookup()
-
 function formatDate(format: string, value: string): string {
   const d = new Date(value)
   if (isNaN(d.getTime())) return value
@@ -82,16 +80,4 @@ const allColumns = computed(() => [
   ...props.columns,
   { title: 'Actions', key: 'actions', width: 250 },
 ])
-
-watch(
-  () => props.columns,
-  (cols) => {
-    const types = new Set<string>()
-    for (const col of cols) {
-      if (col.resourceType) types.add(col.resourceType)
-    }
-    for (const t of types) preloadType(t)
-  },
-  { immediate: true },
-)
 </script>

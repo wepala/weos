@@ -19,9 +19,23 @@
   <div>
     <div class="page-header">
       <h2>{{ resourceType?.name || typeSlug }}</h2>
-      <NuxtLink :to="`/resources/${typeSlug}/create`">
-        <a-button type="primary">Create {{ resourceType?.name || typeSlug }}</a-button>
-      </NuxtLink>
+      <a-space>
+        <a-dropdown v-if="screens.length">
+          <a-button>Views</a-button>
+          <template #overlay>
+            <a-menu>
+              <a-menu-item v-for="s in screens" :key="s.file">
+                <NuxtLink :to="`/resources/${typeSlug}/screens/${s.file.replace('.mjs', '')}`">
+                  {{ s.label }}
+                </NuxtLink>
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
+        <NuxtLink :to="`/resources/${typeSlug}/create`">
+          <a-button type="primary">Create {{ resourceType?.name || typeSlug }}</a-button>
+        </NuxtLink>
+      </a-space>
     </div>
     <div v-if="referenceFilters.length" style="margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap">
       <div v-for="rf in referenceFilters" :key="rf.field" style="min-width: 200px">
@@ -60,11 +74,13 @@ const typeSlug = route.params.typeSlug as string
 const { getBySlug, fetchResourceTypes, loaded } = useResourceTypeStore()
 const { list, remove } = useResourceApi(typeSlug)
 const { schemaToColumns } = useSchemaUtils()
+const { fetchManifest, getAvailableScreens } = usePresetScreens()
 
 const items = ref<any[]>([])
 const loading = ref(false)
 const hasMore = ref(false)
 const cursor = ref('')
+const screens = ref<{ file: string; label: string }[]>([])
 
 const resourceType = computed(() => getBySlug(typeSlug))
 
@@ -160,5 +176,12 @@ onMounted(async () => {
   if (!loaded.value) await fetchResourceTypes()
   await initReferenceFilters()
   await load()
+  const manifestOk = await fetchManifest()
+  if (manifestOk) {
+    screens.value = getAvailableScreens(typeSlug).map(s => ({
+      file: s.file,
+      label: s.file.replace('.mjs', ''),
+    }))
+  }
 })
 </script>

@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"weos/domain/entities"
-	"weos/domain/repositories"
-	"weos/pkg/identity"
-	"weos/pkg/jsonld"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/identity"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -21,6 +21,12 @@ import (
 type ResourceService interface {
 	Create(ctx context.Context, cmd CreateResourceCommand) (*entities.Resource, error)
 	GetByID(ctx context.Context, id string) (*entities.Resource, error)
+	// GetFlat returns a single resource as a flat projection row (camelCase keys),
+	// including denormalized _display columns for x-resource-type references.
+	// Used by detail views so the frontend can render reference names without a
+	// client-side ID→name lookup cache. Returns an error for types with no
+	// projection table; caller should fall back to GetByID.
+	GetFlat(ctx context.Context, typeSlug, id string) (map[string]any, error)
 	List(ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions) (
 		repositories.PaginatedResponse[*entities.Resource], error)
 	ListFlat(ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions) (
@@ -38,15 +44,49 @@ type ResourceService interface {
 }
 
 type resourceService struct {
-	repo        repositories.ResourceRepository
-	typeRepo    repositories.ResourceTypeRepository
-	tripleRepo  repositories.TripleRepository
-	permRepo    repositories.ResourcePermissionRepository
-	accountRepo authrepos.AccountRepository
-	eventStore  domain.EventStore
-	dispatcher  *domain.EventDispatcher
-	logger      entities.Logger
-	behaviors   ResourceBehaviorRegistry
+	repo             repositories.ResourceRepository
+	typeRepo         repositories.ResourceTypeRepository
+	tripleRepo       repositories.TripleRepository
+	permRepo         repositories.ResourcePermissionRepository
+	accountRepo      authrepos.AccountRepository
+	eventStore       domain.EventStore
+	dispatcher       *domain.EventDispatcher
+	logger           entities.Logger
+	behaviors        ResourceBehaviorRegistry
+	behaviorMeta     BehaviorMetaRegistry
+	behaviorSettings repositories.BehaviorSettingsRepository
+}
+
+// maxBehaviorRecursionDepth caps how deep a behavior cascade can go. Behaviors
+// can legitimately create/update/delete other resources (via
+// BehaviorServices.Writer), and those cross-resource writes run the target's
+// own behaviors, so cascades are expected (e.g. course-instance creates
+// education-events, which create attendance-records). A small depth limit
+// catches accidental cycles fast instead of blowing the stack or hanging on
+// exponential fan-out.
+const maxBehaviorRecursionDepth = 8
+
+type behaviorDepthKey struct{}
+
+// enterResourceCall increments the cascade depth counter in ctx and returns
+// the updated context. It fails if the depth would exceed
+// maxBehaviorRecursionDepth — an indicator of a cycle or runaway cascade.
+// On failure it returns the original (unchanged) ctx alongside the error so a
+// caller that forgets to guard the error still gets a usable context.
+//
+// Because context values are immutable, sibling writes from the same hook
+// each see the parent's depth N (not N+1 and N+2) — only true nesting
+// inflates the counter, which is the intended accounting.
+func enterResourceCall(ctx context.Context) (context.Context, error) {
+	depth, _ := ctx.Value(behaviorDepthKey{}).(int)
+	nextDepth := depth + 1
+	if depth >= maxBehaviorRecursionDepth {
+		return ctx, fmt.Errorf(
+			"resource behavior recursion depth reached max %d; attempted next depth %d would exceed it (likely cycle)",
+			maxBehaviorRecursionDepth, nextDepth,
+		)
+	}
+	return context.WithValue(ctx, behaviorDepthKey{}, nextDepth), nil
 }
 
 func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.ResourceType) entities.ResourceBehavior {
@@ -54,13 +94,17 @@ func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.Resource
 		return entities.DefaultBehavior{}
 	}
 
+	enabledSet := s.resolveEnabledBehaviors(ctx, rt.Slug())
+
 	var chain []entities.ResourceBehavior
 	visited := map[string]bool{rt.Slug(): true}
 	current := rt
 
 	for current != nil {
 		if b, ok := s.behaviors[current.Slug()]; ok {
-			chain = append(chain, b)
+			if s.isBehaviorEnabled(current.Slug(), enabledSet) {
+				chain = append(chain, b)
+			}
 		}
 		parentSlug := jsonld.SubClassOf(current.Context())
 		if parentSlug == "" || visited[parentSlug] {
@@ -86,34 +130,90 @@ func (s *resourceService) behaviorFor(ctx context.Context, rt *entities.Resource
 	}
 }
 
+// resolveEnabledBehaviors returns the set of enabled behavior slugs for the
+// given resource type in the caller's account context. Returns nil when no
+// account override exists (use preset defaults).
+func (s *resourceService) resolveEnabledBehaviors(ctx context.Context, typeSlug string) map[string]bool {
+	accountID := ""
+	if ident := auth.AgentFromCtx(ctx); ident != nil {
+		accountID = ident.ActiveAccountID
+	}
+	if accountID == "" {
+		return nil // no account context — use defaults
+	}
+	if s.behaviorSettings == nil {
+		return nil // no settings repo configured — use defaults
+	}
+
+	slugs, err := s.behaviorSettings.GetByAccountAndType(ctx, accountID, typeSlug)
+	if err != nil {
+		s.logger.Error(ctx, "failed to load behavior settings, using defaults",
+			"account", accountID, "type", typeSlug, "error", err)
+		return nil
+	}
+	if slugs == nil {
+		return nil // no override — use defaults
+	}
+
+	set := make(map[string]bool, len(slugs))
+	for _, slug := range slugs {
+		set[slug] = true
+	}
+	return set
+}
+
+// isBehaviorEnabled checks whether a behavior slug should be active.
+// Account overrides only apply to manageable behaviors.
+// Non-manageable behaviors always use preset defaults.
+// When no metadata exists for the slug, the behavior fires (backward compat).
+func (s *resourceService) isBehaviorEnabled(slug string, enabledSet map[string]bool) bool {
+	meta, ok := s.behaviorMeta[slug]
+	if !ok {
+		return true // no metadata — legacy behavior, always fire
+	}
+
+	if enabledSet != nil && meta.Manageable {
+		return enabledSet[slug]
+	}
+	return meta.Default
+}
+
 func ProvideResourceService(params struct {
 	fx.In
-	Repo        repositories.ResourceRepository
-	TypeRepo    repositories.ResourceTypeRepository
-	TripleRepo  repositories.TripleRepository
-	PermRepo    repositories.ResourcePermissionRepository
-	AccountRepo authrepos.AccountRepository
-	EventStore  domain.EventStore
-	Dispatcher  *domain.EventDispatcher
-	Logger      entities.Logger
-	Behaviors   ResourceBehaviorRegistry
+	Repo             repositories.ResourceRepository
+	TypeRepo         repositories.ResourceTypeRepository
+	TripleRepo       repositories.TripleRepository
+	PermRepo         repositories.ResourcePermissionRepository
+	AccountRepo      authrepos.AccountRepository
+	EventStore       domain.EventStore
+	Dispatcher       *domain.EventDispatcher
+	Logger           entities.Logger
+	Behaviors        ResourceBehaviorRegistry
+	BehaviorMeta     BehaviorMetaRegistry
+	BehaviorSettings repositories.BehaviorSettingsRepository
 }) ResourceService {
 	return &resourceService{
-		repo:        params.Repo,
-		typeRepo:    params.TypeRepo,
-		tripleRepo:  params.TripleRepo,
-		permRepo:    params.PermRepo,
-		accountRepo: params.AccountRepo,
-		eventStore:  params.EventStore,
-		dispatcher:  params.Dispatcher,
-		logger:      params.Logger,
-		behaviors:   params.Behaviors,
+		repo:             params.Repo,
+		typeRepo:         params.TypeRepo,
+		tripleRepo:       params.TripleRepo,
+		permRepo:         params.PermRepo,
+		accountRepo:      params.AccountRepo,
+		eventStore:       params.EventStore,
+		dispatcher:       params.Dispatcher,
+		logger:           params.Logger,
+		behaviors:        params.Behaviors,
+		behaviorMeta:     params.BehaviorMeta,
+		behaviorSettings: params.BehaviorSettings,
 	}
 }
 
 func (s *resourceService) Create(
 	ctx context.Context, cmd CreateResourceCommand,
 ) (*entities.Resource, error) {
+	ctx, err := enterResourceCall(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rt, err := s.typeRepo.FindBySlug(ctx, cmd.TypeSlug)
 	if err != nil {
 		return nil, fmt.Errorf("resource type %q not found: %w", cmd.TypeSlug, err)
@@ -142,14 +242,15 @@ func (s *resourceService) Create(
 	entityID := identity.NewResource(cmd.TypeSlug)
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
 
-	// Strip reference properties from the data — resources are atomic.
-	// References are recorded as Triple events on the entity for atomic UoW commit.
-	strippedData, refs, err := ExtractAndStripReferences(data, refProps)
+	// Extract reference triples for atomic UoW commit alongside the entity.
+	// BuildResourceGraph below consumes the original data (refs intact), so
+	// the stripping variant would just throw away its marshaled output.
+	refs, err := ExtractReferenceTriples(data, refProps)
 	if err != nil {
-		return nil, fmt.Errorf("failed to strip references: %w", err)
+		return nil, fmt.Errorf("failed to parse resource data: %w", err)
 	}
 
-	graphData, err := BuildResourceGraph(strippedData, nil, entityID, rt.Name(), rt.Context())
+	graphData, err := BuildResourceGraph(data, refProps, entityID, rt.Name(), rt.Context())
 	if err != nil {
 		return nil, fmt.Errorf("failed to build resource graph: %w", err)
 	}
@@ -271,6 +372,28 @@ func (s *resourceService) ListFlat(
 	return s.repo.FindAllByTypeFlat(ctx, typeSlug, cursor, limit, sort, s.buildVisibilityScope(ctx))
 }
 
+func (s *resourceService) GetFlat(
+	ctx context.Context, typeSlug, id string,
+) (map[string]any, error) {
+	// Reuse GetByID for the access check — centralizes ErrAccessDenied
+	// semantics so the flat path and entity path enforce ownership identically.
+	entity, err := s.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// Reject cross-type lookups: a URL like /resources/course/<id-of-a-product>
+	// must not leak a product row through the course projection table. Without
+	// this check, GetByID would approve access based on the product's ACL while
+	// FindFlatByID queries the wrong table, risking data bleed if IDs collide.
+	if entity.TypeSlug() != typeSlug {
+		return nil, fmt.Errorf(
+			"resource %q is of type %q, not %q: %w",
+			id, entity.TypeSlug(), typeSlug, repositories.ErrNotFound,
+		)
+	}
+	return s.repo.FindFlatByID(ctx, typeSlug, id)
+}
+
 func (s *resourceService) ListFlatWithFilters(
 	ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
 	cursor string, limit int, sort repositories.SortOptions,
@@ -290,6 +413,10 @@ func (s *resourceService) ListWithFilters(
 func (s *resourceService) Update(
 	ctx context.Context, cmd UpdateResourceCommand,
 ) (*entities.Resource, error) {
+	ctx, err := enterResourceCall(ctx)
+	if err != nil {
+		return nil, err
+	}
 	entity, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
 		return nil, err
@@ -317,13 +444,15 @@ func (s *resourceService) Update(
 
 	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
 
-	// Strip reference properties — resources are atomic.
-	strippedData, newRefs, err := ExtractAndStripReferences(data, refProps)
+	// Extract reference triples for atomic UoW commit alongside the entity.
+	// BuildResourceGraph below consumes the original data (refs intact), so
+	// the stripping variant would just throw away its marshaled output.
+	newRefs, err := ExtractReferenceTriples(data, refProps)
 	if err != nil {
-		return nil, fmt.Errorf("failed to strip references: %w", err)
+		return nil, fmt.Errorf("failed to parse resource data: %w", err)
 	}
 
-	graphData, err := BuildResourceGraph(strippedData, nil, entity.GetID(), rt.Name(), rt.Context())
+	graphData, err := BuildResourceGraph(data, refProps, entity.GetID(), rt.Name(), rt.Context())
 	if err != nil {
 		return nil, fmt.Errorf("failed to build resource graph: %w", err)
 	}
@@ -364,6 +493,10 @@ func (s *resourceService) Update(
 func (s *resourceService) Delete(
 	ctx context.Context, cmd DeleteResourceCommand,
 ) error {
+	ctx, err := enterResourceCall(ctx)
+	if err != nil {
+		return err
+	}
 	entity, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
 		return err

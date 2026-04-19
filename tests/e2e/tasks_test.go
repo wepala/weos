@@ -55,12 +55,12 @@ func TestCreateProject_Anonymous(t *testing.T) {
 		result := readJSON(t, resp)
 		t.Fatalf("expected 201, got %d: %v", resp.StatusCode, result)
 	}
-	result := readJSON(t, resp)
-	if result["id"] == nil || result["id"] == "" {
+	data := readEnvelopeData(t, resp)
+	if data["id"] == nil || data["id"] == "" {
 		t.Fatal("expected non-empty id")
 	}
-	if result["type_slug"] != "project" {
-		t.Fatalf("type_slug = %v, want project", result["type_slug"])
+	if data["type_slug"] != "project" {
+		t.Fatalf("type_slug = %v, want project", data["type_slug"])
 	}
 }
 
@@ -73,17 +73,17 @@ func TestCreateProject_Authenticated(t *testing.T) {
 		result := readJSON(t, resp)
 		t.Fatalf("expected 201, got %d: %v", resp.StatusCode, result)
 	}
-	result := readJSON(t, resp)
-	id := result["id"].(string)
+	data := readEnvelopeData(t, resp)
+	id := data["id"].(string)
 
 	// Verify admin can read it back
 	getResp := env.doRequest(t, "GET", "/api/project/"+id, "", "admin@weos.dev")
 	if getResp.StatusCode != http.StatusOK {
 		t.Fatalf("get project: expected 200, got %d", getResp.StatusCode)
 	}
-	getResult := readJSON(t, getResp)
-	if getResult["id"] != id {
-		t.Fatalf("got id %v, want %v", getResult["id"], id)
+	getData := readEnvelopeData(t, getResp)
+	if getData["id"] != id {
+		t.Fatalf("got id %v, want %v", getData["id"], id)
 	}
 }
 
@@ -106,8 +106,8 @@ func TestCreateTask_WithProjectReference(t *testing.T) {
 		result := readJSON(t, resp)
 		t.Fatalf("expected 201, got %d: %v", resp.StatusCode, result)
 	}
-	result := readJSON(t, resp)
-	taskID := result["id"].(string)
+	data := readEnvelopeData(t, resp)
+	taskID := data["id"].(string)
 
 	// Verify the task exists
 	getResp := env.doRequest(t, "GET", "/api/task/"+taskID, "", "admin@weos.dev")
@@ -115,6 +115,110 @@ func TestCreateTask_WithProjectReference(t *testing.T) {
 		t.Fatalf("get task: expected 200, got %d", getResp.StatusCode)
 	}
 	getResp.Body.Close()
+}
+
+// TestCreateResource_EdgesReadableAfterCreate verifies the exact regression
+// that issue #8 was filed against: after Create, the entity's @graph body
+// must contain the reference as an edge so EdgeValue (and the projection's
+// extractEdgeColumns) can find it. If BuildResourceGraph is ever called
+// with stripped data + nil refProps again, this test will catch it.
+func TestCreateResource_EdgesReadableAfterCreate(t *testing.T) {
+	env := setupTestEnv(t)
+
+	projectID := env.seedProjectForUser(t, "Edge Test Project", "admin@weos.dev")
+	taskBody := fmt.Sprintf(`{
+		"name": "Edge-Carrying Task",
+		"status": "open",
+		"project": %q
+	}`, projectID)
+	resp := env.doRequest(t, "POST", "/api/task", taskBody, "admin@weos.dev")
+	if resp.StatusCode != http.StatusCreated {
+		// readJSON closes the body and surfaces the error envelope.
+		result := readJSON(t, resp)
+		t.Fatalf("create task: expected 201, got %d: %v", resp.StatusCode, result)
+	}
+	taskID := readEnvelopeData(t, resp)["id"].(string)
+
+	// The fix-sensitive path: filtering tasks by the project reference exercises
+	// the projection's FK column, which is populated from the edges node of the
+	// entity's @graph. Before the fix, this column stayed NULL because
+	// BuildResourceGraph produced a @graph with no edges node.
+	listURL := fmt.Sprintf("/api/task?_filter[project][eq]=%s", projectID)
+	listResp := env.doRequest(t, "GET", listURL, "", "admin@weos.dev")
+	if listResp.StatusCode != http.StatusOK {
+		result := readJSON(t, listResp)
+		t.Fatalf("list by project: expected 200, got %d: %v", listResp.StatusCode, result)
+	}
+	result := readJSON(t, listResp)
+	rows, _ := result["data"].([]any)
+	found := false
+	for _, row := range rows {
+		m, _ := row.(map[string]any)
+		if id, _ := m["id"].(string); id == taskID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("task %s not returned by project filter — edges are not being stored on Create", taskID)
+	}
+}
+
+// TestUpdateResource_EdgesReconciled verifies the Update path stores edges
+// symmetrically to Create. Changing the project reference must be observable
+// through the FK-filtered list: the old reference no longer matches, the
+// new one does.
+func TestUpdateResource_EdgesReconciled(t *testing.T) {
+	env := setupTestEnv(t)
+
+	project1 := env.seedProjectForUser(t, "Update Test Project 1", "admin@weos.dev")
+	project2 := env.seedProjectForUser(t, "Update Test Project 2", "admin@weos.dev")
+
+	// Create a task in project1.
+	body := fmt.Sprintf(`{"name":"Movable Task","status":"open","project":%q}`, project1)
+	resp := env.doRequest(t, "POST", "/api/task", body, "admin@weos.dev")
+	if resp.StatusCode != http.StatusCreated {
+		result := readJSON(t, resp)
+		t.Fatalf("create task: expected 201, got %d: %v", resp.StatusCode, result)
+	}
+	taskID := readEnvelopeData(t, resp)["id"].(string)
+
+	// Re-point it to project2 via Update.
+	updateBody := fmt.Sprintf(`{"name":"Movable Task","status":"open","project":%q}`, project2)
+	upResp := env.doRequest(t, "PUT", "/api/task/"+taskID, updateBody, "admin@weos.dev")
+	if upResp.StatusCode != http.StatusOK {
+		result := readJSON(t, upResp)
+		t.Fatalf("update task: expected 200, got %d: %v", upResp.StatusCode, result)
+	}
+	upResp.Body.Close()
+
+	// Task should now be listed under project2, not project1.
+	taskUnderProject := func(pid string) bool {
+		t.Helper()
+		url := fmt.Sprintf("/api/task?_filter[project][eq]=%s", pid)
+		r := env.doRequest(t, "GET", url, "", "admin@weos.dev")
+		// readJSON consumes and closes the body. Calling it unconditionally
+		// here keeps the failure path from leaking the connection — we still
+		// inspect StatusCode after parsing for a clear error message.
+		result := readJSON(t, r)
+		if r.StatusCode != http.StatusOK {
+			t.Fatalf("list by project %s: expected 200, got %d: %v", pid, r.StatusCode, result)
+		}
+		rows, _ := result["data"].([]any)
+		for _, row := range rows {
+			m, _ := row.(map[string]any)
+			if id, _ := m["id"].(string); id == taskID {
+				return true
+			}
+		}
+		return false
+	}
+	if taskUnderProject(project1) {
+		t.Errorf("task still returned under original project after Update — stale edge not reconciled")
+	}
+	if !taskUnderProject(project2) {
+		t.Errorf("task not returned under new project after Update — new edge not stored")
+	}
 }
 
 func TestListProjects_Authenticated(t *testing.T) {
@@ -208,13 +312,16 @@ func TestOwnership_OtherUserDenied(t *testing.T) {
 	// Admin creates a project
 	projectID := env.seedProjectForUser(t, "Admin Private", "admin@weos.dev")
 
-	// Member tries to access it — should be denied
+	// Member tries to access it — should be denied with ErrorEnvelope
 	resp := env.doRequest(t, "GET", "/api/project/"+projectID, "", "member@weos.dev")
 	if resp.StatusCode != http.StatusForbidden {
 		result := readJSON(t, resp)
 		t.Fatalf("member access admin project: expected 403, got %d: %v", resp.StatusCode, result)
 	}
-	resp.Body.Close()
+	result := readJSON(t, resp)
+	if result["error"] == nil || result["error"] == "" {
+		t.Fatalf("expected 'error' key in 403 response, got: %v", result)
+	}
 }
 
 func TestOwnership_ListOnlyShowsOwnResources(t *testing.T) {
@@ -296,8 +403,8 @@ func TestFullWorkflow_ProjectsAndTasks(t *testing.T) {
 		result := readJSON(t, createProjResp)
 		t.Fatalf("step 1 create project: expected 201, got %d: %v", createProjResp.StatusCode, result)
 	}
-	projResult := readJSON(t, createProjResp)
-	projectID := projResult["id"].(string)
+	projData := readEnvelopeData(t, createProjResp)
+	projectID := projData["id"].(string)
 
 	// 2. Create tasks linked to the project
 	task1Body := fmt.Sprintf(`{"name":"Task Alpha","status":"open","priority":"high","dueDate":"2026-06-01","project":%q}`, projectID)
@@ -306,8 +413,8 @@ func TestFullWorkflow_ProjectsAndTasks(t *testing.T) {
 		result := readJSON(t, createTask1Resp)
 		t.Fatalf("step 2a create task: expected 201, got %d: %v", createTask1Resp.StatusCode, result)
 	}
-	task1Result := readJSON(t, createTask1Resp)
-	task1ID := task1Result["id"].(string)
+	task1Data := readEnvelopeData(t, createTask1Resp)
+	task1ID := task1Data["id"].(string)
 
 	task2Body := fmt.Sprintf(`{"name":"Task Beta","status":"in-progress","priority":"low","project":%q}`, projectID)
 	createTask2Resp := env.doRequest(t, "POST", "/api/task", task2Body, "admin@weos.dev")

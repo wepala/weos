@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"weos/application"
-	"weos/domain/entities"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/entities"
 
 	"github.com/labstack/echo/v4"
 )
@@ -39,20 +39,20 @@ func (h *ResourcePermissionHandler) Grant(c echo.Context) error {
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "failed to read request body"})
+		return respondError(c, http.StatusBadRequest, "failed to read request body")
 	}
 
 	var req grantRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return respondError(c, http.StatusBadRequest, "invalid JSON")
 	}
 	if req.AgentID == "" || len(req.Actions) == 0 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "agent_id and actions are required"})
+		return respondError(c, http.StatusBadRequest, "agent_id and actions are required")
 	}
 
 	actionsJSON, err := json.Marshal(req.Actions)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode actions"})
+		return respondError(c, http.StatusInternalServerError, "failed to encode actions")
 	}
 	cmd := application.GrantPermissionCommand{
 		ResourceID: resourceID,
@@ -62,12 +62,12 @@ func (h *ResourcePermissionHandler) Grant(c echo.Context) error {
 
 	if err := h.permService.Grant(c.Request().Context(), cmd); err != nil {
 		if errors.Is(err, entities.ErrAccessDenied) {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+			return respondForbidden(c)
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusCreated, map[string]string{"status": "granted"})
+	return respond(c, http.StatusCreated, map[string]string{"status": "granted"})
 }
 
 func (h *ResourcePermissionHandler) Revoke(c echo.Context) error {
@@ -81,9 +81,9 @@ func (h *ResourcePermissionHandler) Revoke(c echo.Context) error {
 
 	if err := h.permService.Revoke(c.Request().Context(), cmd); err != nil {
 		if errors.Is(err, entities.ErrAccessDenied) {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+			return respondForbidden(c)
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -95,9 +95,9 @@ func (h *ResourcePermissionHandler) List(c echo.Context) error {
 	perms, err := h.permService.ListForResource(c.Request().Context(), resourceID)
 	if err != nil {
 		if errors.Is(err, entities.ErrAccessDenied) {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "access denied"})
+			return respondForbidden(c)
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 
 	items := make([]permissionResponse, 0, len(perms))
@@ -111,5 +111,5 @@ func (h *ResourcePermissionHandler) List(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"data": items})
+	return respond(c, http.StatusOK, items)
 }

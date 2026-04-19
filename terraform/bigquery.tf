@@ -54,6 +54,12 @@ resource "google_bigquery_table" "events" {
       description = "Sequence number within the aggregate event stream"
     },
     {
+      name        = "transaction_id"
+      type        = "STRING"
+      mode        = "NULLABLE"
+      description = "Correlates events committed in the same UnitOfWork"
+    },
+    {
       name        = "payload"
       type        = "JSON"
       mode        = "NULLABLE"

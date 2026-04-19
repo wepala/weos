@@ -18,7 +18,7 @@ package main
 import (
 	"os"
 
-	"weos/internal/cli"
+	"github.com/wepala/weos/v3/internal/cli"
 
 	"github.com/joho/godotenv"
 )

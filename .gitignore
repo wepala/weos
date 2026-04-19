@@ -53,6 +53,9 @@ bin/
 # Dev seed manifest
 .dev-seed.json
 
+# Private preset registration (local only, build-tag-gated)
+application/presets/register_custom.go
+
 # Configuration files with secrets
 config/local.yaml
 config/secrets.yaml
@@ -67,9 +70,8 @@ newman/
 test-results/
 playwright-report/
 
-# Local Claude context (site-specific, not shared)
-.claude/local-context.md
-.claude/settings.local.json
+# Claude Code (agent workspace, not shared)
+.claude/
 .idea
 .run
 .nuxt/
@@ -80,3 +82,8 @@ web/frontend/.output
 web/frontend/node_modules/
 web/dist
 weos
+
+# Jekyll
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata

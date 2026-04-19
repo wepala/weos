@@ -32,7 +32,7 @@ import (
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/infrastructure"
 
-	bqevents "weos/infrastructure/events"
+	bqevents "github.com/wepala/weos/v3/infrastructure/events"
 )
 
 var eventsCmd = &cobra.Command{

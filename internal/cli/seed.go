@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"weos/application"
-	"weos/domain/entities"
+	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/application/presets"
+	"github.com/wepala/weos/v3/domain/entities"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
@@ -41,7 +42,7 @@ func runSeed(cmd *cobra.Command, _ []string) error {
 
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(appCfg),
+		application.Module(appCfg, presets.NewDefaultRegistry()),
 		fx.Populate(&authService),
 		fx.Populate(&accountRepo),
 		fx.Populate(&resourceTypeService),

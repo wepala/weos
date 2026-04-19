@@ -13,14 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { forwardMessages } from './useApi'
+import type { ApiMessage } from './useNotifications'
+
 interface PaginatedResponse<T> {
   data: T[]
   cursor: string
   has_more: boolean
+  messages?: ApiMessage[]
 }
 
 export function useResourceApi(typeSlug: string) {
-  function list(
+  const { request } = useApi()
+
+  async function list(
     cursor = '',
     limit = 20,
     sortBy = '',
@@ -39,31 +45,40 @@ export function useResourceApi(typeSlug: string) {
         }
       }
     }
-    return $fetch<PaginatedResponse<any>>(
-      `/api/${typeSlug}?${params}`,
-    )
+    // Paginated responses keep their top-level shape; forwardMessages
+    // processes any messages without unwrapping.
+    try {
+      const res = await $fetch<PaginatedResponse<any>>(
+        `/api/${typeSlug}?${params}`,
+      )
+      forwardMessages(res)
+      return res
+    } catch (err: any) {
+      if (err?.data) forwardMessages(err.data)
+      throw err
+    }
   }
 
   function get(id: string) {
-    return $fetch<any>(`/api/${typeSlug}/${id}`)
+    return request<any>(`/api/${typeSlug}/${id}`)
   }
 
   function create(data: Record<string, any>) {
-    return $fetch<any>(`/api/${typeSlug}`, {
+    return request<any>(`/api/${typeSlug}`, {
       method: 'POST',
-      body: data,
+      body: JSON.stringify(data),
     })
   }
 
   function update(id: string, data: Record<string, any>) {
-    return $fetch<any>(`/api/${typeSlug}/${id}`, {
+    return request<any>(`/api/${typeSlug}/${id}`, {
       method: 'PUT',
-      body: data,
+      body: JSON.stringify(data),
     })
   }
 
   function remove(id: string) {
-    return $fetch(`/api/${typeSlug}/${id}`, { method: 'DELETE' })
+    return request<void>(`/api/${typeSlug}/${id}`, { method: 'DELETE' })
   }
 
   return { list, get, create, update, remove }

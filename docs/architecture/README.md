@@ -1,3 +1,9 @@
+---
+title: Architecture
+layout: default
+nav_order: 5
+---
+
 # Architecture Documentation
 
 ## Clean Architecture

@@ -15,6 +15,8 @@
 
 export default defineNuxtConfig({
   ssr: false,
+  // Preset screens (.mjs) use string templates — requires the runtime compiler.
+  vue: { runtimeCompiler: true },
   modules: ['@ant-design-vue/nuxt'],
   components: [
     { path: '~/components', pathPrefix: false },

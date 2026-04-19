@@ -22,9 +22,25 @@ import (
 
 // OAuthConfig holds configuration for OAuth authentication.
 type OAuthConfig struct {
-	GoogleClientID     string
-	GoogleClientSecret string
-	FrontendURL        string
+	GoogleClientID      string
+	GoogleClientSecret  string
+	FrontendURL         string
+	BaseURL             string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
+	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
+	DynamicRegistration bool   // Enable OAuth Dynamic Client Registration (RFC 7591)
+}
+
+// SMTPConfig holds configuration for outbound email via SMTP.
+// An SMTPSender is created only when Host is set, From is set and parses as a
+// valid email address, and the configured port is accepted by the SMTP sender.
+// If Port is left empty, the SMTP sender uses the default port "587" (STARTTLS);
+// port "465" is rejected and will prevent SMTP from being enabled.
+type SMTPConfig struct {
+	Host     string // SMTP server hostname (required to enable email)
+	Port     string // SMTP server port; if empty, SMTPSender uses default "587"
+	Username string // SMTP auth username (optional — skips auth if empty)
+	Password string // SMTP auth password
+	From     string // Sender email address (required to enable email)
 }
 
 // Config holds the standard configuration used by all applications.
@@ -53,11 +69,42 @@ type Config struct {
 	// OAuth holds configuration for OAuth authentication.
 	OAuth OAuthConfig
 
+	// SMTP holds configuration for outbound email.
+	SMTP SMTPConfig
+
 	// BigQuery event store configuration.
 	// When BigQueryProjectID is set, events are dual-written to both the primary store and BigQuery.
 	BigQueryProjectID string
 	BigQueryDatasetID string
 	BigQueryTableID   string
+
+	// Storage holds configuration for file storage backends.
+	Storage StorageConfig
+}
+
+// StorageConfig holds configuration for pluggable file storage backends.
+// At most one cloud backend (GCS or S3) may be configured. If both are set,
+// the application will log a warning and use GCS as primary.
+type StorageConfig struct {
+	// LocalPath is the local filesystem directory for uploads.
+	// Default: "./uploads"
+	LocalPath string
+
+	// GCSBucket is the Google Cloud Storage bucket name.
+	// When set, the GCS backend is activated as the primary storage.
+	GCSBucket string
+
+	// S3Bucket is the AWS S3 bucket name.
+	// When set (and GCSBucket is empty), the S3 backend is activated as the primary storage.
+	S3Bucket string
+
+	// S3Region is the AWS region for the S3 bucket.
+	// Default: "us-east-1"
+	S3Region string
+
+	// MaxUploadBytes is the maximum allowed upload size in bytes.
+	// Default: 50 MB (52428800)
+	MaxUploadBytes int64
 }
 
 // OAuthEnabled returns true when Google OAuth credentials are configured.
@@ -121,6 +168,14 @@ func Default() Config {
 		LLM: LLMConfig{
 			GeminiModel: "gemini-2.0-flash",
 		},
+		OAuth: OAuthConfig{
+			DynamicRegistration: false,
+		},
+		Storage: StorageConfig{
+			LocalPath:      "./uploads",
+			S3Region:       "us-east-1",
+			MaxUploadBytes: 50 << 20, // 50 MB
+		},
 	}
 }
 
@@ -169,6 +224,20 @@ func (c *Config) LoadFromEnvironment() {
 		c.OAuth.FrontendURL = frontendURL
 	}
 
+	if baseURL := os.Getenv("BASE_URL"); baseURL != "" {
+		c.OAuth.BaseURL = baseURL
+	}
+
+	if jwtKey := os.Getenv("JWT_SIGNING_KEY"); jwtKey != "" {
+		c.OAuth.JWTSigningKey = jwtKey
+	}
+
+	if dynReg := os.Getenv("OAUTH_DYNAMIC_REGISTRATION"); dynReg != "" {
+		if enabled, err := strconv.ParseBool(dynReg); err == nil {
+			c.OAuth.DynamicRegistration = enabled
+		}
+	}
+
 	if bqProject := os.Getenv("BIGQUERY_PROJECT_ID"); bqProject != "" {
 		c.BigQueryProjectID = bqProject
 	}
@@ -177,5 +246,39 @@ func (c *Config) LoadFromEnvironment() {
 	}
 	if bqTable := os.Getenv("BIGQUERY_TABLE_ID"); bqTable != "" {
 		c.BigQueryTableID = bqTable
+	}
+
+	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {
+		c.SMTP.Host = smtpHost
+	}
+	if smtpPort := os.Getenv("SMTP_PORT"); smtpPort != "" {
+		c.SMTP.Port = smtpPort
+	}
+	if smtpUser := os.Getenv("SMTP_USERNAME"); smtpUser != "" {
+		c.SMTP.Username = smtpUser
+	}
+	if smtpPass := os.Getenv("SMTP_PASSWORD"); smtpPass != "" {
+		c.SMTP.Password = smtpPass
+	}
+	if smtpFrom := os.Getenv("SMTP_FROM"); smtpFrom != "" {
+		c.SMTP.From = smtpFrom
+	}
+
+	if v := os.Getenv("STORAGE_LOCAL_PATH"); v != "" {
+		c.Storage.LocalPath = v
+	}
+	if v := os.Getenv("STORAGE_GCS_BUCKET"); v != "" {
+		c.Storage.GCSBucket = v
+	}
+	if v := os.Getenv("STORAGE_S3_BUCKET"); v != "" {
+		c.Storage.S3Bucket = v
+	}
+	if v := os.Getenv("STORAGE_S3_REGION"); v != "" {
+		c.Storage.S3Region = v
+	}
+	if v := os.Getenv("STORAGE_MAX_UPLOAD_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			c.Storage.MaxUploadBytes = n
+		}
 	}
 }

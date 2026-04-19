@@ -18,8 +18,8 @@ package repositories
 import (
 	"context"
 
-	"weos/domain/entities"
-	"weos/infrastructure/models"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/infrastructure/models"
 )
 
 // RoleResourceAccessRepository manages the role-to-resource-type access configuration.

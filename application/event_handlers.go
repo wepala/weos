@@ -3,12 +3,13 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
-	"weos/domain/entities"
-	"weos/domain/repositories"
-	"weos/pkg/jsonld"
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
@@ -64,11 +65,13 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Save(ctx, entity); err != nil {
 				return err
 			}
-			if !jsonld.IsAbstract(p.Context) {
-				if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
-					logger.Error(ctx, "failed to create projection table",
-						"slug", p.Slug, "error", err)
-				}
+			// ensureProjection is idempotent (CREATE TABLE IF NOT EXISTS).
+			// If it fails and the event is retried, repo.Save will fail with a
+			// duplicate key, which the event dispatcher treats as already-processed.
+			if err := ensureProjection(ctx, repo, projMgr, p.Slug, p.Schema, p.Context); err != nil {
+				logger.Error(ctx, "failed to ensure projection for type",
+					"slug", p.Slug, "error", err)
+				return err
 			}
 			logger.Info(ctx, "projecting ResourceType.Created", "id", env.AggregateID)
 			return nil
@@ -93,11 +96,10 @@ func subscribeResourceTypeHandlers(
 			if err := repo.Update(ctx, existing); err != nil {
 				return err
 			}
-			if !jsonld.IsAbstract(p.Context) {
-				if err := projMgr.EnsureTable(ctx, p.Slug, p.Schema, p.Context); err != nil {
-					logger.Error(ctx, "failed to update projection table",
-						"slug", p.Slug, "error", err)
-				}
+			if err := ensureProjection(ctx, repo, projMgr, p.Slug, p.Schema, p.Context); err != nil {
+				logger.Error(ctx, "failed to ensure projection for type",
+					"slug", p.Slug, "error", err)
+				return err
 			}
 			logger.Info(ctx, "projecting ResourceType.Updated", "id", env.AggregateID)
 			return nil
@@ -112,6 +114,35 @@ func subscribeResourceTypeHandlers(
 			return repo.Delete(ctx, env.AggregateID)
 		},
 	)
+}
+
+// ensureProjection creates a projection table for the given type and, if the
+// type declares rdfs:subClassOf, also ensures the parent's table exists.
+// Every type (abstract or concrete) gets its own table. Ancestor tables are
+// populated at resource-event time via dual-projection in the repository.
+func ensureProjection(
+	ctx context.Context,
+	rtRepo repositories.ResourceTypeRepository,
+	projMgr repositories.ProjectionManager,
+	slug string,
+	schema, ldContext json.RawMessage,
+) error {
+	if err := projMgr.EnsureTable(ctx, slug, schema, ldContext); err != nil {
+		return err
+	}
+	// Also ensure ancestor tables exist for dual-projection.
+	parentSlug := jsonld.SubClassOf(ldContext)
+	if parentSlug == "" {
+		return nil
+	}
+	parent, err := rtRepo.FindBySlug(ctx, parentSlug)
+	if err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			return nil // parent not yet created; will be ensured when parent type arrives
+		}
+		return fmt.Errorf("failed to look up parent type %q: %w", parentSlug, err)
+	}
+	return projMgr.EnsureTable(ctx, parentSlug, parent.Schema(), parent.Context())
 }
 
 // --- Resource projection handlers ---

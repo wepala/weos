@@ -19,4 +19,60 @@
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
+  <div class="api-notifications" aria-live="polite" role="status">
+    <div
+      v-for="n in notifications"
+      :key="n.id"
+      :class="['api-notification', `api-notification--${n.type}`]"
+      :role="n.type === 'error' ? 'alert' : undefined"
+    >
+      {{ n.text }}
+      <button
+        type="button"
+        class="api-notification__close"
+        aria-label="Dismiss notification"
+        @click="removeNotification(n.id)"
+      >x</button>
+    </div>
+  </div>
 </template>
+
+<script setup lang="ts">
+const { notifications, removeNotification } = useNotifications()
+</script>
+
+<style scoped>
+.api-notifications {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 400px;
+}
+.api-notification {
+  padding: 10px 16px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.api-notification--success { background: #52c41a; }
+.api-notification--info { background: #1890ff; }
+.api-notification--warning { background: #faad14; color: #000; }
+.api-notification--error { background: #ff4d4f; }
+.api-notification__close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+</style>

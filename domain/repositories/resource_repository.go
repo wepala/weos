@@ -18,9 +18,15 @@ package repositories
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
-	"weos/domain/entities"
+	"github.com/wepala/weos/v3/domain/entities"
 )
+
+// ErrNoProjectionTable is returned by flat-projection reads when the target
+// type has no dedicated projection table. Callers use errors.Is to detect this
+// sentinel and fall back to the canonical entity path.
+var ErrNoProjectionTable = errors.New("no projection table for type")
 
 // SortOptions configures sorting for list queries.
 type SortOptions struct {
@@ -62,4 +68,10 @@ type ResourceRepository interface {
 	FindAllByTypeFlatWithFilters(ctx context.Context, typeSlug string, filters []FilterCondition,
 		cursor string, limit int, sort SortOptions, scope *VisibilityScope) (
 		PaginatedResponse[map[string]any], error)
+	// FindFlatByID returns a single flat projection row by ID, used for detail views.
+	// Returns an error wrapping ErrNoProjectionTable when no projection table exists
+	// for the type (caller should fall back to FindByID + JSON-LD simplification).
+	// Returns an error wrapping ErrNotFound when the projection table exists but the
+	// row is missing — detectable via errors.Is.
+	FindFlatByID(ctx context.Context, typeSlug, id string) (map[string]any, error)
 }

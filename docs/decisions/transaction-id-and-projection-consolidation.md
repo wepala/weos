@@ -1,8 +1,27 @@
+---
+title: "ADR: Transaction ID and Projection Consolidation"
+parent: Architecture Decision Records
+layout: default
+nav_order: 2
+---
+
 # ADR: Transaction ID on Events and Consolidated Projection Writes
 
-**Status:** Accepted — Implemented (fully consolidated: TripleService removed, all mutations through UoW + Resource.Published)  
+**Status:** Accepted — Implemented, **but implementation diverged from proposal** (see Implementation Note below)  
 **Date:** 2026-04-04  
 **Follows from:** [Event Handler Data Availability](event-handler-data-availability.md) (Accepted — Option 5)
+
+## Implementation Note (2026-04-19)
+
+The final pericarp implementation (`v0.0.0-20260404155656-110ff0f74cd7`) went with the **first-class `TransactionID` field** on `EventEnvelope` — the alternative considered below — rather than the Metadata JSONB approach this ADR proposed. Consequences:
+
+- `EventEnvelope.TransactionID string` is a real struct field, serialized to JSON as `transaction_id`.
+- The GORM `events` table has a `transaction_id` column with an index defined in the pericarp GORM model.
+- The BigQuery event store INSERTs and SELECTs include `transaction_id` as a dedicated column.
+- **WeOS consumers of pericarp must ensure their BigQuery event table schema includes `transaction_id STRING NULLABLE`** — otherwise dual-writes fail with `Column transaction_id is not present in table ...`. The Terraform schema in `terraform/bigquery.tf` has been updated accordingly.
+- Handlers read the ID via `env.TransactionID` directly — not `env.Metadata["transaction_id"]` as written below.
+
+The rest of this ADR (consolidated projection writes in `Resource.Published`) was implemented as proposed.
 
 ## Problem
 
