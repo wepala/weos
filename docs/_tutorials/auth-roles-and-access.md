@@ -25,10 +25,12 @@ Access control is enforced at two levels:
 1. **Role-based policies** — which resource types a role can read, modify, or delete
 2. **Resource-level permissions** — per-resource grants for specific users (ownership model)
 
-Actions use ODRL IRIs:
-- `http://www.w3.org/ns/odrl/2/read` — view resources
-- `http://www.w3.org/ns/odrl/2/modify` — create and update resources
-- `http://www.w3.org/ns/odrl/2/delete` — delete resources
+Actions use the ODRL compact CURIE form:
+- `odrl:read` — view resources
+- `odrl:modify` — create and update resources
+- `odrl:delete` — delete resources
+
+These match the strings stored in Casbin policies, so use the same form in role-access requests.
 
 ## Step 1: Seed Users and Roles
 
@@ -68,24 +70,24 @@ The response shows a map of roles to their permitted actions per resource type:
   "roles": {
     "admin": {
       "project": [
-        "http://www.w3.org/ns/odrl/2/read",
-        "http://www.w3.org/ns/odrl/2/modify",
-        "http://www.w3.org/ns/odrl/2/delete"
+        "odrl:read",
+        "odrl:modify",
+        "odrl:delete"
       ],
       "task": [
-        "http://www.w3.org/ns/odrl/2/read",
-        "http://www.w3.org/ns/odrl/2/modify",
-        "http://www.w3.org/ns/odrl/2/delete"
+        "odrl:read",
+        "odrl:modify",
+        "odrl:delete"
       ]
     },
     "editor": {
       "project": [
-        "http://www.w3.org/ns/odrl/2/read",
-        "http://www.w3.org/ns/odrl/2/modify"
+        "odrl:read",
+        "odrl:modify"
       ],
       "task": [
-        "http://www.w3.org/ns/odrl/2/read",
-        "http://www.w3.org/ns/odrl/2/modify"
+        "odrl:read",
+        "odrl:modify"
       ]
     }
   }
@@ -100,12 +102,12 @@ curl -X PUT http://localhost:8080/api/settings/role-access \
   -d '{
     "roles": {
       "admin": {
-        "project": ["http://www.w3.org/ns/odrl/2/read", "http://www.w3.org/ns/odrl/2/modify", "http://www.w3.org/ns/odrl/2/delete"],
-        "task": ["http://www.w3.org/ns/odrl/2/read", "http://www.w3.org/ns/odrl/2/modify", "http://www.w3.org/ns/odrl/2/delete"]
+        "project": ["odrl:read", "odrl:modify", "odrl:delete"],
+        "task": ["odrl:read", "odrl:modify", "odrl:delete"]
       },
       "viewer": {
-        "project": ["http://www.w3.org/ns/odrl/2/read"],
-        "task": ["http://www.w3.org/ns/odrl/2/read"]
+        "project": ["odrl:read"],
+        "task": ["odrl:read"]
       }
     }
   }'
@@ -149,7 +151,7 @@ curl -X POST http://localhost:8080/api/resources/PROJECT_ID/permissions \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "USER_AGENT_ID",
-    "actions": ["http://www.w3.org/ns/odrl/2/read"]
+    "actions": ["odrl:read"]
   }'
 
 # List permissions on a resource

@@ -22,18 +22,23 @@ import (
 	"github.com/wepala/weos/v3/domain/entities"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
+	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	authcasbin "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/casbin"
 	"github.com/labstack/echo/v4"
 )
 
-// methodToAction maps HTTP methods to ODRL action IRIs.
+// methodToAction maps HTTP methods to ODRL action identifiers. The values must
+// match the strings stored in Casbin policies (see SeedAdminPolicies and
+// SyncAccessMapToCasbin, both of which use authentities.Action*). Using the
+// literal full IRI here silently breaks admin/owner access because Casbin's
+// matcher compares action strings byte-for-byte.
 var methodToAction = map[string]string{
-	"GET":    "http://www.w3.org/ns/odrl/2/read",
-	"POST":   "http://www.w3.org/ns/odrl/2/modify",
-	"PUT":    "http://www.w3.org/ns/odrl/2/modify",
-	"PATCH":  "http://www.w3.org/ns/odrl/2/modify",
-	"DELETE": "http://www.w3.org/ns/odrl/2/delete",
+	"GET":    authentities.ActionRead,
+	"POST":   authentities.ActionModify,
+	"PUT":    authentities.ActionModify,
+	"PATCH":  authentities.ActionModify,
+	"DELETE": authentities.ActionDelete,
 }
 
 // AuthorizeResource returns Echo middleware that checks Casbin policies for
@@ -115,7 +120,7 @@ func AuthorizeResource(
 						"error", permErr, "role", role)
 					return c.JSON(http.StatusInternalServerError, map[string]string{"error": "authorization check failed"})
 				}
-				isRead := action == "http://www.w3.org/ns/odrl/2/read"
+				isRead := action == authentities.ActionRead
 				if len(perms) == 0 && isRead {
 					logger.Warn(ctx, "authorization: allowing unconfigured role read access",
 						"role", role, "action", action, "resource", typeSlug)
