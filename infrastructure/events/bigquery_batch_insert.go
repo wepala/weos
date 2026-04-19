@@ -67,7 +67,7 @@ func BatchInsertEvents(
 		tsP := fmt.Sprintf("ts_%d", i)
 
 		valuePlaceholders = append(valuePlaceholders,
-			fmt.Sprintf("(@%s, @%s, @%s, @%s, @%s, PARSE_JSON(@%s), PARSE_JSON(@%s), @%s)",
+			fmt.Sprintf("(@%s, @%s, @%s, @%s, @%s, @%s, @%s, @%s)",
 				idP, aggP, typeP, seqP, txP, payP, metaP, tsP))
 
 		params = append(params,

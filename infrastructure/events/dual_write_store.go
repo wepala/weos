@@ -2,9 +2,10 @@ package events
 
 import (
 	"context"
-	"log"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
+
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // DualWriteEventStore writes events to both a primary and secondary event store.
@@ -14,10 +15,11 @@ import (
 type DualWriteEventStore struct {
 	primary   domain.EventStore
 	secondary domain.EventStore
+	logger    entities.Logger
 }
 
-func NewDualWriteEventStore(primary, secondary domain.EventStore) *DualWriteEventStore {
-	return &DualWriteEventStore{primary: primary, secondary: secondary}
+func NewDualWriteEventStore(primary, secondary domain.EventStore, logger entities.Logger) *DualWriteEventStore {
+	return &DualWriteEventStore{primary: primary, secondary: secondary, logger: logger}
 }
 
 func (s *DualWriteEventStore) Append(
@@ -29,7 +31,8 @@ func (s *DualWriteEventStore) Append(
 	}
 	// Write to secondary with no version check (-1) since primary is the source of truth.
 	if err := s.secondary.Append(ctx, aggregateID, -1, events...); err != nil {
-		log.Printf("WARNING: BigQuery dual-write failed for %s: %v", aggregateID, err)
+		s.logger.Warn(ctx, "BigQuery dual-write failed",
+			"aggregateID", aggregateID, "eventCount", len(events), "error", err)
 	}
 	return nil
 }
