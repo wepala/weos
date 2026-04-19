@@ -62,7 +62,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 			lc.Append(fx.Hook{OnStop: func(_ context.Context) error { return bqStore.Close() }})
 			logger.Info(context.Background(), "BigQuery dual-write enabled",
 				"project", cfg.BigQueryProjectID, "dataset", cfg.BigQueryDatasetID)
-			return events.NewDualWriteEventStore(primary, bqStore)
+			return events.NewDualWriteEventStore(primary, bqStore, logger)
 		}),
 
 		// Session store provider (for pericarp auth integration)

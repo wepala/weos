@@ -61,15 +61,15 @@ resource "google_bigquery_table" "events" {
     },
     {
       name        = "payload"
-      type        = "JSON"
+      type        = "STRING"
       mode        = "NULLABLE"
-      description = "Event payload"
+      description = "Event payload (JSON-encoded string; use PARSE_JSON(payload) or JSON_VALUE for analytics)"
     },
     {
       name        = "metadata"
-      type        = "JSON"
+      type        = "STRING"
       mode        = "NULLABLE"
-      description = "Event metadata"
+      description = "Event metadata (JSON-encoded string; use PARSE_JSON(metadata) or JSON_VALUE for analytics)"
     },
     {
       name        = "created_at"
