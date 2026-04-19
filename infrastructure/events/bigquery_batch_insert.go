@@ -28,6 +28,10 @@ import (
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 )
 
+func nullableString(s string) bigquery.NullString {
+	return bigquery.NullString{StringVal: s, Valid: s != ""}
+}
+
 func fullTableID(projectID, datasetID, tableID string) string {
 	return fmt.Sprintf("`%s.%s.%s`", projectID, datasetID, tableID)
 }
@@ -57,19 +61,21 @@ func BatchInsertEvents(
 		aggP := fmt.Sprintf("agg_%d", i)
 		typeP := fmt.Sprintf("type_%d", i)
 		seqP := fmt.Sprintf("seq_%d", i)
+		txP := fmt.Sprintf("tx_%d", i)
 		payP := fmt.Sprintf("pay_%d", i)
 		metaP := fmt.Sprintf("meta_%d", i)
 		tsP := fmt.Sprintf("ts_%d", i)
 
 		valuePlaceholders = append(valuePlaceholders,
-			fmt.Sprintf("(@%s, @%s, @%s, @%s, PARSE_JSON(@%s), PARSE_JSON(@%s), @%s)",
-				idP, aggP, typeP, seqP, payP, metaP, tsP))
+			fmt.Sprintf("(@%s, @%s, @%s, @%s, @%s, PARSE_JSON(@%s), PARSE_JSON(@%s), @%s)",
+				idP, aggP, typeP, seqP, txP, payP, metaP, tsP))
 
 		params = append(params,
 			bigquery.QueryParameter{Name: idP, Value: event.ID},
 			bigquery.QueryParameter{Name: aggP, Value: event.AggregateID},
 			bigquery.QueryParameter{Name: typeP, Value: event.EventType},
 			bigquery.QueryParameter{Name: seqP, Value: event.SequenceNo},
+			bigquery.QueryParameter{Name: txP, Value: nullableString(event.TransactionID)},
 			bigquery.QueryParameter{Name: payP, Value: payloadJSON},
 			bigquery.QueryParameter{Name: metaP, Value: metadataJSON},
 			bigquery.QueryParameter{Name: tsP, Value: event.Created.UTC()},
@@ -77,7 +83,7 @@ func BatchInsertEvents(
 	}
 
 	querySQL := fmt.Sprintf(
-		"INSERT INTO %s (id, aggregate_id, event_type, sequence_no, payload, metadata, created_at) VALUES %s",
+		"INSERT INTO %s (id, aggregate_id, event_type, sequence_no, transaction_id, payload, metadata, created_at) VALUES %s",
 		fullTableID(projectID, datasetID, tableID),
 		strings.Join(valuePlaceholders, ", "),
 	)
