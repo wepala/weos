@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -227,6 +226,14 @@ func DefaultLinkRegistry() *LinkRegistry {
 // mismatch would silently leave the link dormant forever.
 var linkSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// linkPropertyNamePattern enforces lowerCamelCase for PropertyName: first
+// rune must be a lowercase letter, remaining runes are letters/digits only.
+// Without this a link could register "Guardian" while another registered
+// "guardian" — both CamelToSnake to "guardian" and silently collide in the
+// projection column. Underscores, hyphens, leading uppercase, and leading
+// digits are all rejected.
+var linkPropertyNamePattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*$`)
+
 // linkReservedPropertyNames rejects property names that would collide with
 // the projection table's standard columns — an ALTER TABLE ADD COLUMN for
 // any of these would fail at reconcile time. Rejecting at Add() surfaces the
@@ -270,14 +277,15 @@ func validateLinkDefinition(def PresetLinkDefinition) error {
 	if def.PropertyName == "" {
 		return fmt.Errorf("link definition: PropertyName is required")
 	}
-	if strings.ContainsRune(def.PropertyName, '_') {
-		// Two links like "guardianId" and "guardian_id" would dedup to different
-		// registry keys but share the same snake_case FK column, causing a
-		// silent ALTER TABLE collision later. Reject underscores so camelCase
-		// is the only accepted form and the (SourceType, PropertyName) registry
-		// key matches DB column uniqueness one-to-one.
+	if !linkPropertyNamePattern.MatchString(def.PropertyName) {
+		// Enforce lowerCamelCase end-to-end. Two links like "guardianId" and
+		// "guardian_id" — or "Guardian" and "guardian" — would dedup to
+		// different registry keys but share the same snake_case FK column,
+		// causing a silent ALTER TABLE collision later. Requiring a lowercase
+		// first rune and alphanumeric tail keeps the (SourceType, PropertyName)
+		// registry key one-to-one with the derived DB column name.
 		return fmt.Errorf(
-			"link definition: PropertyName %q must be camelCase (no underscores)",
+			"link definition: PropertyName %q must be lowerCamelCase (first rune lowercase letter, alphanumeric only)",
 			def.PropertyName,
 		)
 	}
