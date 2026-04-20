@@ -100,7 +100,7 @@ When both mechanisms declare the same `PropertyName`, **schema wins** — the co
 
 - **Late activation and historical rows.** Rows written before a link activates won't have `<prop>_display` populated. v1 ships with this limitation; a backfill job is a follow-up, mirroring how resource renames propagate today via `UpdateColumnByFK`.
 - **Type deletion while linked.** Not addressed in v1. Follow-up should block deletion of a resource type when any active link references it.
-- **Predicate collision with schemas.** Dedup on `PropertyName` with schema winning prevents silent data loss; a warning surfaces the conflict.
+- **Predicate collision with schemas.** Dedup on `PropertyName` is schema-first: when a schema property and a cross-preset link definition collide, the schema definition wins and the link definition is silently dropped.
 
 ## Alternatives Considered
 

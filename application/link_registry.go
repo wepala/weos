@@ -63,10 +63,11 @@ type PresetLinkDefinition struct {
 type LinkRegistry struct {
 	mu    sync.RWMutex
 	links []PresetLinkDefinition
-	// index prevents duplicate (SourceType, PropertyName) entries. The key is
-	// what's unique in the database — multiple links could legitimately target
-	// the same type, but only one can occupy a given property on a source.
-	index map[string]int // "source|property" -> index into links
+	// index prevents duplicate (SourceType, CamelToSnake(PropertyName))
+	// entries. The key is what's unique in the database — multiple links
+	// could legitimately target the same type, but only one can occupy a
+	// given derived snake_case property/column on a source.
+	index map[string]int // "source|snake_property" -> index into links
 }
 
 // NewLinkRegistry creates an empty registry.
@@ -210,9 +211,10 @@ var defaultLinkRegistry = NewLinkRegistry()
 // link — e.g. a lightweight "finance-education" integration package that
 // connects Invoice to Guardian without either preset depending on the other.
 //
-// Links declared inside a PresetDefinition.Links slice are merged into the
-// same registry via presets.RegisterAll, so the two entry points share one
-// source of truth.
+// Links declared inside a PresetDefinition.Links slice are collected through
+// preset registration separately; the runtime *LinkRegistry seen by the
+// application is assembled later by the DI wiring from both PresetRegistry
+// and DefaultLinkRegistry().
 func RegisterLink(def PresetLinkDefinition) error {
 	return defaultLinkRegistry.Add(def)
 }
