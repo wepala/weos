@@ -76,15 +76,19 @@ func NewLinkRegistry() *LinkRegistry {
 	}
 }
 
-// Add registers a link definition. If the (SourceType, PropertyName) pair is
-// already present, the new definition replaces the old one — last-writer-wins,
-// so a package-init RegisterLink that overrides a preset-declared link takes
-// effect without the caller needing to unregister first.
+// Add registers a link definition. If another definition already maps to
+// the same source type and derived FK column — i.e. the same
+// (SourceType, CamelToSnake(PropertyName)) pair — the new definition
+// replaces the old one (last-writer-wins), so a package-init RegisterLink
+// that overrides a preset-declared link takes effect without the caller
+// needing to unregister first. Keying on the snake_case form (not the raw
+// PropertyName) catches ambiguous camelCase spellings like "guardianId"
+// vs "guardianID" that both project to the same "guardian_id" column.
 func (r *LinkRegistry) Add(def PresetLinkDefinition) error {
 	if err := validateLinkDefinition(def); err != nil {
 		return err
 	}
-	key := def.SourceType + "|" + def.PropertyName
+	key := def.SourceType + "|" + utils.CamelToSnake(def.PropertyName)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if idx, ok := r.index[key]; ok {
