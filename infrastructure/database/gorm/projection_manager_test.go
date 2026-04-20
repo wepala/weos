@@ -638,3 +638,300 @@ func TestForwardReferences_NoXResourceTypeReturnsNil(t *testing.T) {
 		t.Errorf("expected nil forward refs for schema without x-resource-type, got %+v", fwd)
 	}
 }
+
+func TestRegisterLink_AddsColumnsAndRefs(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	// Both sides installed, no schema-declared link between them.
+	invoiceSchema := json.RawMessage(`{"type":"object","properties":{"amount":{"type":"number"}}}`)
+	guardianSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "invoice", invoiceSchema, nil); err != nil {
+		t.Fatalf("EnsureTable(invoice): %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "guardian", guardianSchema, nil); err != nil {
+		t.Fatalf("EnsureTable(guardian): %v", err)
+	}
+
+	if err := pm.RegisterLink(ctx, repositories.LinkReference{
+		SourceSlug: "invoice", PropertyName: "guardian",
+		TargetSlug: "guardian", DisplayProperty: "name",
+	}); err != nil {
+		t.Fatalf("RegisterLink: %v", err)
+	}
+
+	// Columns added via ALTER TABLE.
+	if !db.Migrator().HasColumn("invoices", "guardian") {
+		t.Error("expected invoices.guardian column to exist after RegisterLink")
+	}
+	if !db.Migrator().HasColumn("invoices", "guardian_display") {
+		t.Error("expected invoices.guardian_display column to exist after RegisterLink")
+	}
+	// Cached column set reflects the ALTER TABLE so subsequent writers via
+	// HasColumn see the new columns without hitting the migrator again.
+	if !pm.HasColumn("invoice", "guardian") {
+		t.Error("expected pm.HasColumn(invoice, guardian) after RegisterLink")
+	}
+
+	// Forward + reverse references recorded.
+	fwd := pm.ForwardReferences("invoice")
+	if len(fwd) != 1 || fwd[0].FKColumn != "guardian" || fwd[0].TargetTypeSlug != "guardian" {
+		t.Errorf("forward refs: got %+v", fwd)
+	}
+	rev := pm.ReverseReferences("guardian")
+	if len(rev) != 1 || rev[0].ReferencingTypeSlug != "invoice" {
+		t.Errorf("reverse refs: got %+v", rev)
+	}
+}
+
+func TestRegisterLink_Idempotent(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	if err := pm.EnsureTable(ctx, "invoice",
+		json.RawMessage(`{"type":"object","properties":{"amount":{"type":"number"}}}`), nil); err != nil {
+		t.Fatalf("EnsureTable(invoice): %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "guardian",
+		json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`), nil); err != nil {
+		t.Fatalf("EnsureTable(guardian): %v", err)
+	}
+
+	ref := repositories.LinkReference{
+		SourceSlug: "invoice", PropertyName: "guardian",
+		TargetSlug: "guardian", DisplayProperty: "name",
+	}
+	// Call twice — simulates a startup reconcile after a previous reconcile
+	// already activated the same link.
+	if err := pm.RegisterLink(ctx, ref); err != nil {
+		t.Fatalf("first RegisterLink: %v", err)
+	}
+	if err := pm.RegisterLink(ctx, ref); err != nil {
+		t.Fatalf("second RegisterLink: %v", err)
+	}
+
+	if got := len(pm.ForwardReferences("invoice")); got != 1 {
+		t.Errorf("expected 1 forward ref after idempotent calls, got %d", got)
+	}
+	if got := len(pm.ReverseReferences("guardian")); got != 1 {
+		t.Errorf("expected 1 reverse ref after idempotent calls, got %d", got)
+	}
+}
+
+func TestRegisterLink_SkipsWhenSourceNotInstalled(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	// Invoice type not installed — source table missing. RegisterLink must
+	// return nil (not error) so callers can safely run reconcile passes before
+	// all endpoints are installed.
+	if err := pm.RegisterLink(ctx, repositories.LinkReference{
+		SourceSlug: "invoice", PropertyName: "guardian",
+		TargetSlug: "guardian", DisplayProperty: "name",
+	}); err != nil {
+		t.Fatalf("RegisterLink should succeed silently when source missing, got: %v", err)
+	}
+	if got := pm.ForwardReferences("invoice"); got != nil {
+		t.Errorf("expected no forward refs when source missing, got %+v", got)
+	}
+}
+
+func TestRegisterLink_DefaultsDisplayPropertyToName(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	if err := pm.EnsureTable(ctx, "invoice",
+		json.RawMessage(`{"type":"object","properties":{"amount":{"type":"number"}}}`), nil); err != nil {
+		t.Fatalf("EnsureTable(invoice): %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "guardian",
+		json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`), nil); err != nil {
+		t.Fatalf("EnsureTable(guardian): %v", err)
+	}
+
+	// Pass empty displayProperty — defaults to "name" to match x-resource-type.
+	if err := pm.RegisterLink(ctx, repositories.LinkReference{
+		SourceSlug: "invoice", PropertyName: "guardian", TargetSlug: "guardian",
+	}); err != nil {
+		t.Fatalf("RegisterLink: %v", err)
+	}
+	fwd := pm.ForwardReferences("invoice")
+	if len(fwd) != 1 || fwd[0].DisplayProperty != "name" {
+		t.Errorf("expected default DisplayProperty=name, got %+v", fwd)
+	}
+}
+
+// TestRegisterLink_DisplayValuePropagatesViaReverseRef verifies the full
+// propagation contract: once a link is active, ReverseReferences on the
+// target returns an entry that would normally drive UpdateColumnByFK to
+// write the target's display property into the source's <prop>_display
+// column. The test uses UpdateColumnByFK directly — the ResourceService
+// handler that normally triggers it already exists and isn't this test's
+// responsibility — to pin that the underlying SQL path works end-to-end
+// for link-declared refs, not just schema-declared ones.
+func TestRegisterLink_DisplayValuePropagatesViaReverseRef(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	invoiceSchema := json.RawMessage(`{"type":"object","properties":{"amount":{"type":"number"}}}`)
+	guardianSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "invoice", invoiceSchema, nil); err != nil {
+		t.Fatalf("EnsureTable(invoice): %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "guardian", guardianSchema, nil); err != nil {
+		t.Fatalf("EnsureTable(guardian): %v", err)
+	}
+	if err := pm.RegisterLink(ctx, repositories.LinkReference{
+		SourceSlug: "invoice", PropertyName: "guardian",
+		TargetSlug: "guardian", DisplayProperty: "name",
+	}); err != nil {
+		t.Fatalf("RegisterLink: %v", err)
+	}
+
+	// Seed an invoice row whose `guardian` FK points at a guardian URN.
+	if err := db.Exec(
+		`INSERT INTO invoices (id, type_slug, status, amount, guardian) VALUES (?, 'invoice', 'active', 100, ?)`,
+		"urn:invoice:1", "urn:guardian:42",
+	).Error; err != nil {
+		t.Fatalf("seed invoice: %v", err)
+	}
+
+	// Reverse ref drives the SQL UPDATE. This is the path taken when the
+	// target's display property changes — handler loops over
+	// ReverseReferences("guardian") and issues UpdateColumnByFK for each.
+	revs := pm.ReverseReferences("guardian")
+	if len(revs) != 1 {
+		t.Fatalf("expected 1 reverse ref, got %d", len(revs))
+	}
+	rev := revs[0]
+	if err := pm.UpdateColumnByFK(ctx, rev.ReferencingTypeSlug,
+		rev.FKColumn, "urn:guardian:42", rev.DisplayColumn, "Alice Bellamy"); err != nil {
+		t.Fatalf("UpdateColumnByFK: %v", err)
+	}
+
+	var got string
+	if err := db.Raw(
+		`SELECT guardian_display FROM invoices WHERE id = ?`, "urn:invoice:1",
+	).Scan(&got).Error; err != nil {
+		t.Fatalf("read guardian_display: %v", err)
+	}
+	if got != "Alice Bellamy" {
+		t.Errorf("expected guardian_display = 'Alice Bellamy', got %q", got)
+	}
+}
+
+// stubLinkSource implements repositories.LinkSource for tests. Matches by
+// source slug and returns the preloaded refs so we can verify replay.
+type stubLinkSource struct {
+	bySource map[string][]repositories.LinkReference
+}
+
+func (s *stubLinkSource) LinkReferencesForSource(slug string) []repositories.LinkReference {
+	return s.bySource[slug]
+}
+
+// Regression guard: calling EnsureTable a second time after RegisterLink has
+// run must not wipe link-declared refs. Before the linkSource replay was
+// added, a schema edit (ResourceType.Updated) or a lazy EnsureTable would
+// clear forward/reverse maps and drop the link ref silently.
+func TestEnsureTable_ReplaysLinkRefsAfterClear(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	src := &stubLinkSource{bySource: map[string][]repositories.LinkReference{
+		"invoice": {{
+			SourceSlug: "invoice", PropertyName: "guardian",
+			TargetSlug: "guardian", DisplayProperty: "name",
+		}},
+	}}
+	pm := &projectionManager{db: db, logger: &testLogger{}, linkSource: src}
+	ctx := context.Background()
+
+	invoiceSchema := json.RawMessage(`{"type":"object","properties":{"amount":{"type":"number"}}}`)
+	guardianSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "invoice", invoiceSchema, nil); err != nil {
+		t.Fatalf("EnsureTable(invoice) #1: %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "guardian", guardianSchema, nil); err != nil {
+		t.Fatalf("EnsureTable(guardian): %v", err)
+	}
+	if err := pm.RegisterLink(ctx, repositories.LinkReference{
+		SourceSlug: "invoice", PropertyName: "guardian",
+		TargetSlug: "guardian", DisplayProperty: "name",
+	}); err != nil {
+		t.Fatalf("RegisterLink: %v", err)
+	}
+	if got := len(pm.ForwardReferences("invoice")); got != 1 {
+		t.Fatalf("pre-condition: expected 1 forward ref after RegisterLink, got %d", got)
+	}
+
+	// Simulate a schema edit (or a lazy EnsureTable) on invoice. Prior to the
+	// linkSource replay this was the bug: forwardRe[invoice] would be wiped.
+	if err := pm.EnsureTable(ctx, "invoice", invoiceSchema, nil); err != nil {
+		t.Fatalf("EnsureTable(invoice) #2: %v", err)
+	}
+	fwd := pm.ForwardReferences("invoice")
+	if len(fwd) != 1 || fwd[0].TargetTypeSlug != "guardian" {
+		t.Errorf("expected link-declared forward ref to survive re-EnsureTable, got %+v", fwd)
+	}
+	rev := pm.ReverseReferences("guardian")
+	if len(rev) != 1 || rev[0].ReferencingTypeSlug != "invoice" {
+		t.Errorf("expected link-declared reverse ref to survive re-EnsureTable, got %+v", rev)
+	}
+}
+
+func TestRegisterLink_CoexistsWithSchemaReference(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	// Task has a schema-declared x-resource-type reference to project.
+	taskSchema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"name":{"type":"string"},
+			"project":{"type":"string","x-resource-type":"project"}
+		}
+	}`)
+	if err := pm.EnsureTable(ctx, "task", taskSchema, nil); err != nil {
+		t.Fatalf("EnsureTable(task): %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "project",
+		json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`), nil); err != nil {
+		t.Fatalf("EnsureTable(project): %v", err)
+	}
+	if err := pm.EnsureTable(ctx, "user",
+		json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`), nil); err != nil {
+		t.Fatalf("EnsureTable(user): %v", err)
+	}
+
+	// External link adds a second reference on task.
+	if err := pm.RegisterLink(ctx, repositories.LinkReference{
+		SourceSlug: "task", PropertyName: "assignee",
+		TargetSlug: "user", DisplayProperty: "name",
+	}); err != nil {
+		t.Fatalf("RegisterLink: %v", err)
+	}
+
+	fwd := pm.ForwardReferences("task")
+	if len(fwd) != 2 {
+		t.Fatalf("expected 2 forward refs (schema + link), got %d: %+v", len(fwd), fwd)
+	}
+	targets := make(map[string]bool, len(fwd))
+	for _, f := range fwd {
+		targets[f.TargetTypeSlug] = true
+	}
+	if !targets["project"] || !targets["user"] {
+		t.Errorf("expected targets {project, user}, got %+v", targets)
+	}
+}

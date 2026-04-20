@@ -74,6 +74,10 @@ type projectionManager struct {
 	forwardRe   sync.Map   // referencingTypeSlug → []repositories.ForwardReference
 	reverseReMu sync.Mutex // guards reverseRe AND forwardRe writes (symmetric)
 	parentOf    sync.Map   // slug → parentSlug (from rdfs:subClassOf, for ancestor chain)
+	// linkSource replays link-declared refs after registerReverseReferences
+	// clears a slug's entries. Optional — nil means link refs are only set by
+	// RegisterLink and will be wiped on schema re-parse.
+	linkSource repositories.LinkSource
 }
 
 type ProjectionManagerResult struct {
@@ -83,13 +87,15 @@ type ProjectionManagerResult struct {
 
 func ProvideProjectionManager(params struct {
 	fx.In
-	DB     *gorm.DB
-	Logger entities.Logger
+	DB         *gorm.DB
+	Logger     entities.Logger
+	LinkSource repositories.LinkSource `optional:"true"`
 }) ProjectionManagerResult {
 	return ProjectionManagerResult{
 		ProjectionManager: &projectionManager{
-			db:     params.DB,
-			logger: params.Logger,
+			db:         params.DB,
+			logger:     params.Logger,
+			linkSource: params.LinkSource,
 		},
 	}
 }
@@ -117,6 +123,24 @@ func (pm *projectionManager) EnsureTable(
 	}
 	for _, col := range columns {
 		colSet[col.Name] = true
+	}
+	// Re-add previously activated link columns so a schema re-parse doesn't
+	// silently drop them from the cache. Schema-derived columns alone won't
+	// include RegisterLink-added FK/_display columns, but they still exist in
+	// the DB — only add what the migrator confirms, so we don't claim cached
+	// presence for a link that hasn't been activated yet.
+	if pm.linkSource != nil {
+		migrator := pm.db.Migrator()
+		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
+			colName := utils.CamelToSnake(ref.PropertyName)
+			displayCol := colName + "_display"
+			if migrator.HasColumn(tableName, colName) {
+				colSet[colName] = true
+			}
+			if migrator.HasColumn(tableName, displayCol) {
+				colSet[displayCol] = true
+			}
+		}
 	}
 	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
 	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
@@ -292,43 +316,81 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 	// Clear any prior entries that name this slug — schema may have changed.
 	pm.clearReferencesForSlugLocked(slug)
 
-	if len(schema) == 0 {
-		return
-	}
-	var s struct {
-		Properties map[string]struct {
-			XResourceType    string `json:"x-resource-type"`
-			XDisplayProperty string `json:"x-display-property"`
-		} `json:"properties"`
-	}
-	if json.Unmarshal(schema, &s) != nil {
-		return
+	// Track schema-declared refs by both PropertyName and derived FK column
+	// name so the link replay can skip any entry that would override either
+	// (schema wins on conflict). Keying on both catches a link that spells
+	// the property differently but derives to the same column.
+	schemaProps := make(map[string]bool)
+	schemaCols := make(map[string]bool)
+
+	if len(schema) > 0 {
+		var s struct {
+			Properties map[string]struct {
+				XResourceType    string `json:"x-resource-type"`
+				XDisplayProperty string `json:"x-display-property"`
+			} `json:"properties"`
+		}
+		if json.Unmarshal(schema, &s) == nil {
+			for propName, prop := range s.Properties {
+				if prop.XResourceType == "" {
+					continue
+				}
+				displayProp := prop.XDisplayProperty
+				if displayProp == "" {
+					displayProp = "name"
+				}
+				pm.registerRefLocked(slug, propName, prop.XResourceType, displayProp)
+				schemaProps[propName] = true
+				schemaCols[utils.CamelToSnake(propName)] = true
+			}
+		}
 	}
 
-	for propName, prop := range s.Properties {
-		if prop.XResourceType == "" {
-			continue
+	// Replay link-declared refs unconditionally — a re-parse with empty or
+	// unparseable schema must not silently wipe RegisterLink-declared refs,
+	// since they come from a separate source of truth. Any schema re-parse
+	// (EnsureTable via ResourceType.Updated, or the lazy HasProjectionTable
+	// path) would otherwise leave display propagation silently broken until
+	// the next Reconcile. Conflicting entries (same property or same derived
+	// column) are skipped — schema wins, matching the documented merge rule
+	// in ExtractReferencePropertiesWithLinks.
+	if pm.linkSource != nil {
+		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
+			if schemaProps[ref.PropertyName] || schemaCols[utils.CamelToSnake(ref.PropertyName)] {
+				continue
+			}
+			displayProp := ref.DisplayProperty
+			if displayProp == "" {
+				displayProp = "name"
+			}
+			pm.registerRefLocked(slug, ref.PropertyName, ref.TargetSlug, displayProp)
 		}
-		displayProp := prop.XDisplayProperty
-		if displayProp == "" {
-			displayProp = "name"
-		}
-		colName := utils.CamelToSnake(propName)
-		reverseRef := repositories.ReverseReference{
-			ReferencingTypeSlug: slug,
-			FKColumn:            colName,
-			DisplayColumn:       colName + "_display",
-			DisplayProperty:     displayProp,
-		}
-		forwardRef := repositories.ForwardReference{
-			FKColumn:        colName,
-			DisplayColumn:   colName + "_display",
-			TargetTypeSlug:  prop.XResourceType,
-			DisplayProperty: displayProp,
-		}
-		pm.appendReverseRefLocked(prop.XResourceType, reverseRef)
-		pm.appendForwardRefLocked(slug, forwardRef)
 	}
+}
+
+// registerRefLocked records one forward + one reverse reference entry for a
+// reference from sourceSlug.<propertyName> → targetSlug. Shared by
+// registerReverseReferences (schema-derived x-resource-type) and RegisterLink
+// (link-registry-derived) so both paths funnel through the same dedup
+// semantics. Caller must hold reverseReMu.
+func (pm *projectionManager) registerRefLocked(
+	sourceSlug, propertyName, targetSlug, displayProperty string,
+) {
+	colName := utils.CamelToSnake(propertyName)
+	reverseRef := repositories.ReverseReference{
+		ReferencingTypeSlug: sourceSlug,
+		FKColumn:            colName,
+		DisplayColumn:       colName + "_display",
+		DisplayProperty:     displayProperty,
+	}
+	forwardRef := repositories.ForwardReference{
+		FKColumn:        colName,
+		DisplayColumn:   colName + "_display",
+		TargetTypeSlug:  targetSlug,
+		DisplayProperty: displayProperty,
+	}
+	pm.appendReverseRefLocked(targetSlug, reverseRef)
+	pm.appendForwardRefLocked(sourceSlug, forwardRef)
 }
 
 // clearReferencesForSlugLocked removes every reference entry that names slug
@@ -419,6 +481,64 @@ func (pm *projectionManager) appendForwardRefLocked(
 	}
 	updated = append(updated, ref)
 	pm.forwardRe.Store(referencingSlug, updated)
+}
+
+// RegisterLink activates a cross-type link declared outside the source type's
+// schema. See the ProjectionManager interface docstring for semantics.
+//
+// Implementation: the method adds the FK + display columns via the existing
+// addMissingColumns path (idempotent — skips columns that already exist),
+// then records symmetric forward/reverse reference entries through the same
+// helpers used by x-resource-type schema parsing. This keeps schema-declared
+// and link-declared references indistinguishable to the rest of the system
+// (display propagation, triple extraction, UI rendering).
+//
+// If the source type has no projection table yet (RegisterLink called before
+// EnsureTable), the method returns nil and skips silently — the caller
+// (LinkActivator) re-runs the pass after each preset install, and the link
+// will activate the next time around when the source table exists.
+func (pm *projectionManager) RegisterLink(ctx context.Context, ref repositories.LinkReference) error {
+	if ref.SourceSlug == "" || ref.PropertyName == "" || ref.TargetSlug == "" {
+		return fmt.Errorf("RegisterLink: SourceSlug, PropertyName, TargetSlug are required")
+	}
+	displayProperty := ref.DisplayProperty
+	if displayProperty == "" {
+		displayProperty = "name"
+	}
+	if !pm.HasProjectionTable(ref.SourceSlug) {
+		// Source type not yet installed — activation deferred to next reconcile.
+		return nil
+	}
+	tableName := pm.TableName(ref.SourceSlug)
+	colName := utils.CamelToSnake(ref.PropertyName)
+	cols := []columnDef{
+		{Name: colName, SQLType: "TEXT"},
+		{Name: colName + "_display", SQLType: "VARCHAR(512)"},
+	}
+	if err := pm.addMissingColumns(ctx, tableName, cols); err != nil {
+		return fmt.Errorf("RegisterLink: add columns to %q: %w", tableName, err)
+	}
+	// Refresh cached column set so HasColumn reflects the ALTER TABLE. The
+	// columns map is read without a lock by HasColumn, so we copy-on-write
+	// into a fresh map and Store the new tableInfo rather than mutating the
+	// existing map in place (maps are not safe for concurrent read/write).
+	if v, ok := pm.tables.Load(ref.SourceSlug); ok {
+		if info, ok := v.(tableInfo); ok {
+			updatedColumns := make(map[string]bool, len(info.columns)+len(cols))
+			for name, exists := range info.columns {
+				updatedColumns[name] = exists
+			}
+			for _, col := range cols {
+				updatedColumns[col.Name] = true
+			}
+			info.columns = updatedColumns
+			pm.tables.Store(ref.SourceSlug, info)
+		}
+	}
+	pm.reverseReMu.Lock()
+	pm.registerRefLocked(ref.SourceSlug, ref.PropertyName, ref.TargetSlug, displayProperty)
+	pm.reverseReMu.Unlock()
+	return nil
 }
 
 func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {

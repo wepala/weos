@@ -112,6 +112,57 @@ The `x-display-property` extension specifies which property of the referenced ty
 
 This creates columns `project` (stores the project URN) and `project_display` (stores the project's name). When the project's name changes, the display value propagates automatically to all referencing resources.
 
+## Cross-Preset Links — Relationships Outside the Schema
+
+`x-resource-type` is convenient when both types live in the same preset (e.g. Task and Project in `tasks`). Across presets it creates a problem: if an Invoice schema embeds `guardianId` with `x-resource-type: guardian`, the `finance` preset now depends on the `education` preset even though neither should know about the other.
+
+**Link definitions** solve this by declaring relationships *outside* either type's schema:
+
+```go
+registry.MustAdd(application.PresetDefinition{
+    Name: "finance-education",
+    // No new types — this preset only contributes a link.
+    Links: []application.PresetLinkDefinition{
+        {
+            Name:            "invoice-guardian",
+            SourceType:      "invoice",
+            TargetType:      "guardian",
+            PropertyName:    "guardian",
+            DisplayProperty: "name",
+        },
+    },
+})
+```
+
+Packages that are not full presets can register link definitions the same way:
+
+```go
+func init() {
+    _ = application.RegisterLink(application.PresetLinkDefinition{
+        SourceType:   "invoice",
+        TargetType:   "guardian",
+        PropertyName: "guardian",
+    })
+}
+```
+
+### Activation semantics
+
+A link is **dormant** until both `SourceType` and `TargetType` exist as installed resource types. On every preset install — and once at startup — the `LinkActivator` reconciles the link registry against the installed set and activates any link whose endpoints are both present. Activation:
+
+1. Adds the FK column (`guardian TEXT`) and display column (`guardian_display VARCHAR(512)`) to the source type's projection table.
+2. Registers forward/reverse references so display-value propagation and triple extraction treat link-declared references identically to schema-declared ones.
+3. Is idempotent — repeated reconciles are safe.
+
+If only the `finance` preset is installed, the Invoice→Guardian link stays dormant and the Invoice projection table has no `guardian` column. Installing `education` later completes the pair and the columns appear on the next reconcile.
+
+### When to use which
+
+- **`x-resource-type` in the schema** — when source and target live in the same preset (or in a preset that explicitly owns both, like `tasks` owning Task and Project).
+- **`Links` / `RegisterLink`** — when the relationship spans presets, or when a third package wants to connect two existing presets without modifying either.
+
+Both mechanisms produce the same projection columns, the same triple events, and the same UI behavior — they differ only in where the relationship is declared.
+
 ## The Resource.Published Signal
 
 Because entity creation involves multiple events (Resource.Created + Triple.Created), event handlers that need the complete picture wait for the `Resource.Published` signal. This event fires after all creation events are committed, indicating that the resource's data and relationships are fully available.

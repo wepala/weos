@@ -48,7 +48,13 @@ func (r *installTestTypeRepo) FindByID(_ context.Context, id string) (*entities.
 func (r *installTestTypeRepo) FindAll(
 	_ context.Context, _ string, _ int,
 ) (repositories.PaginatedResponse[*entities.ResourceType], error) {
-	return repositories.PaginatedResponse[*entities.ResourceType]{}, nil
+	items := make([]*entities.ResourceType, 0, len(r.types))
+	for _, rt := range r.types {
+		items = append(items, rt)
+	}
+	return repositories.PaginatedResponse[*entities.ResourceType]{
+		Data: items, HasMore: false,
+	}, nil
 }
 
 func (r *installTestTypeRepo) Update(_ context.Context, _ *entities.ResourceType) error { return nil }
@@ -351,3 +357,173 @@ func (r *failingTypeRepo) FindAll(
 }
 func (r *failingTypeRepo) Update(context.Context, *entities.ResourceType) error { return nil }
 func (r *failingTypeRepo) Delete(context.Context, string) error                 { return nil }
+
+// End-to-end: a preset declaring both Types and Links → InstallPreset
+// creates the types, then the LinkActivator reconciles and asks the
+// ProjectionManager to RegisterLink for any link whose endpoints are both
+// installed. Covers the "finance-education integration" use case from #328.
+func TestInstallPreset_ActivatesCrossPresetLinkViaActivator(t *testing.T) {
+	t.Parallel()
+	// Two separate presets — one per type — plus a third "integration" preset
+	// that declares the link between them. Exactly the decoupling the issue
+	// describes: neither finance nor education knows about the other, and the
+	// link lives in a package that depends on both.
+	financePreset := PresetDefinition{
+		Name: "finance",
+		Types: []PresetResourceType{
+			{
+				Name: "Invoice", Slug: "invoice",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object","properties":{"amount":{"type":"number"}}}`),
+			},
+		},
+	}
+	educationPreset := PresetDefinition{
+		Name: "education",
+		Types: []PresetResourceType{
+			{
+				Name: "Guardian", Slug: "guardian",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`),
+			},
+		},
+	}
+	integrationPreset := PresetDefinition{
+		Name:  "finance-education",
+		Types: nil, // no types of its own — only the link.
+		Links: []PresetLinkDefinition{
+			{
+				Name: "invoice-guardian", SourceType: "invoice", TargetType: "guardian",
+				PropertyName: "guardian", DisplayProperty: "name",
+			},
+		},
+	}
+
+	registry := NewPresetRegistry()
+	registry.MustAdd(financePreset)
+	registry.MustAdd(educationPreset)
+	registry.MustAdd(integrationPreset)
+
+	// Build a link registry seeded from the presets — mirrors buildLinkRegistry.
+	links := NewLinkRegistry()
+	for _, def := range registry.List() {
+		for _, l := range def.Links {
+			if err := links.Add(l); err != nil {
+				t.Fatalf("Add link: %v", err)
+			}
+		}
+	}
+
+	repo := newInstallTestTypeRepo()
+	pm := &recordingProjMgr{}
+	activator, err := NewLinkActivator(links, pm, repo, noopLogger{})
+	if err != nil {
+		t.Fatalf("NewLinkActivator: %v", err)
+	}
+
+	// Helper builds a resourceTypeService wired with the activator and a
+	// dispatcher that projects Save events back into repo.
+	makeSvc := func() ResourceTypeService {
+		es := &stubEventStore{}
+		d := domain.NewEventDispatcher()
+		projMgrStub := &stubProjMgr{}
+		if err := SubscribeResourceTypeHandlers(d, repo, projMgrStub, noopLogger{}); err != nil {
+			t.Fatalf("SubscribeResourceTypeHandlers: %v", err)
+		}
+		return &resourceTypeService{
+			repo: repo, projMgr: projMgrStub, eventStore: es, dispatcher: d,
+			registry: registry, logger: noopLogger{}, resourceSvc: newFakeResourceSvc(),
+			linkActivator: activator,
+		}
+	}
+
+	ctx := context.Background()
+
+	// Install finance first — guardian isn't installed yet, so the link stays
+	// dormant even though finance's install triggers a reconcile.
+	svc := makeSvc()
+	if _, err := svc.InstallPreset(ctx, "finance", false); err != nil {
+		t.Fatalf("install finance: %v", err)
+	}
+	if pm.callCount() != 0 {
+		t.Fatalf("expected dormant link after finance only, got %d RegisterLink calls", pm.callCount())
+	}
+
+	// Installing education completes both endpoints — the reconcile during
+	// education's install should activate the invoice→guardian link.
+	if _, err := svc.InstallPreset(ctx, "education", false); err != nil {
+		t.Fatalf("install education: %v", err)
+	}
+	if pm.callCount() != 1 {
+		t.Fatalf("expected 1 RegisterLink call after both presets installed, got %d", pm.callCount())
+	}
+	call := pm.calls[0]
+	if call.SourceSlug != "invoice" || call.TargetSlug != "guardian" ||
+		call.PropertyName != "guardian" || call.DisplayProperty != "name" {
+		t.Errorf("unexpected link call: %+v", call)
+	}
+
+	// Installing the integration preset (which adds zero new types) runs a
+	// reconcile that finds the link already active; RegisterLink is called
+	// again but the ProjectionManager side dedups — covered elsewhere.
+	if _, err := svc.InstallPreset(ctx, "finance-education", false); err != nil {
+		t.Fatalf("install finance-education: %v", err)
+	}
+}
+
+// Reconcile failures inside InstallPreset must not be silently swallowed —
+// they surface on the result's Warnings slice so API/CLI callers can tell
+// the admin the install was partial.
+func TestInstallPreset_ReconcileFailureSurfacesAsWarning(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{
+		Name: "finance",
+		Types: []PresetResourceType{{
+			Name: "Invoice", Slug: "invoice",
+			Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+			Schema:  json.RawMessage(`{"type":"object","properties":{"amount":{"type":"number"}}}`),
+		}},
+		Links: []PresetLinkDefinition{{
+			SourceType: "invoice", TargetType: "invoice",
+			PropertyName: "parent", DisplayProperty: "name",
+		}},
+	})
+	links := NewLinkRegistry()
+	for _, def := range registry.List() {
+		for _, l := range def.Links {
+			_ = links.Add(l)
+		}
+	}
+
+	repo := newInstallTestTypeRepo()
+	// Force every RegisterLink call to fail.
+	pm := &recordingProjMgr{errors: map[string]error{"invoice": errors.New("boom")}}
+	activator, err := NewLinkActivator(links, pm, repo, noopLogger{})
+	if err != nil {
+		t.Fatalf("NewLinkActivator: %v", err)
+	}
+
+	es := &stubEventStore{}
+	d := domain.NewEventDispatcher()
+	projMgrStub := &stubProjMgr{}
+	if err := SubscribeResourceTypeHandlers(d, repo, projMgrStub, noopLogger{}); err != nil {
+		t.Fatalf("SubscribeResourceTypeHandlers: %v", err)
+	}
+	svc := &resourceTypeService{
+		repo: repo, projMgr: projMgrStub, eventStore: es, dispatcher: d,
+		registry: registry, logger: noopLogger{}, resourceSvc: newFakeResourceSvc(),
+		linkActivator: activator,
+	}
+
+	result, err := svc.InstallPreset(context.Background(), "finance", false)
+	if err != nil {
+		t.Fatalf("InstallPreset itself should not error: %v", err)
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatalf("expected reconcile failure to surface as a warning, got none")
+	}
+	if len(result.Created) != 1 {
+		t.Errorf("expected the type to still be created, got %+v", result.Created)
+	}
+}

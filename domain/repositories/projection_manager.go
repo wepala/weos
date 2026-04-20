@@ -69,6 +69,43 @@ type ProjectionManager interface {
 	// For "loan" with subClassOf "financial-instrument", returns ["financial-instrument"].
 	// Returns nil for types with no parent. Circular references are safely broken.
 	AncestorSlugs(slug string) []string
+
+	// RegisterLink activates a cross-type link declared outside a source type's
+	// schema (see application.PresetLinkDefinition). It adds the <PropertyName>
+	// FK column and sibling <PropertyName>_display column to the source type's
+	// projection table, then records the same ForwardReference/ReverseReference
+	// entries that x-resource-type properties produce — so downstream display
+	// propagation and triple extraction treat link-declared references
+	// identically to schema-declared ones.
+	//
+	// Idempotent: calling RegisterLink twice with the same LinkReference is a
+	// no-op after the first call (column exists + maps dedup on conflict).
+	// Returns an error only if the ALTER TABLE fails; callers that discover
+	// the source type doesn't exist yet (no projection table) should skip
+	// activation and retry after the source type is installed.
+	RegisterLink(ctx context.Context, ref LinkReference) error
+}
+
+// LinkReference is the cross-type-link equivalent of a ForwardReference,
+// carried into ProjectionManager.RegisterLink as a single value so callers
+// can't accidentally swap source and target slugs (both are strings, both
+// were positional in an earlier API). Empty DisplayProperty is treated as
+// "name" by the implementation.
+type LinkReference struct {
+	SourceSlug      string
+	PropertyName    string
+	TargetSlug      string
+	DisplayProperty string
+}
+
+// LinkSource lets ProjectionManager re-apply link-declared references whenever
+// it re-parses a source type's schema. A schema edit triggers EnsureTable,
+// which clears the slug's forward/reverse refs to drop stale entries — without
+// a LinkSource, link-declared refs would be wiped on every schema edit and
+// only restored on the next LinkActivator.Reconcile. Implemented by the
+// application's LinkRegistry; optional for the projection manager.
+type LinkSource interface {
+	LinkReferencesForSource(sourceSlug string) []LinkReference
 }
 
 // ReverseReference describes a resource type that references another via a FK column.
