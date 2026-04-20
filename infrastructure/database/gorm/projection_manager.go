@@ -124,6 +124,24 @@ func (pm *projectionManager) EnsureTable(
 	for _, col := range columns {
 		colSet[col.Name] = true
 	}
+	// Re-add previously activated link columns so a schema re-parse doesn't
+	// silently drop them from the cache. Schema-derived columns alone won't
+	// include RegisterLink-added FK/_display columns, but they still exist in
+	// the DB — only add what the migrator confirms, so we don't claim cached
+	// presence for a link that hasn't been activated yet.
+	if pm.linkSource != nil {
+		migrator := pm.db.Migrator()
+		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
+			colName := utils.CamelToSnake(ref.PropertyName)
+			displayCol := colName + "_display"
+			if migrator.HasColumn(tableName, colName) {
+				colSet[colName] = true
+			}
+			if migrator.HasColumn(tableName, displayCol) {
+				colSet[displayCol] = true
+			}
+		}
+	}
 	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
 	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
 		pm.parentOf.Store(slug, parentSlug)
