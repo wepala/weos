@@ -488,15 +488,20 @@ func (pm *projectionManager) RegisterLink(ctx context.Context, ref repositories.
 	if err := pm.addMissingColumns(ctx, tableName, cols); err != nil {
 		return fmt.Errorf("RegisterLink: add columns to %q: %w", tableName, err)
 	}
-	// Refresh cached column set so HasColumn reflects the ALTER TABLE.
+	// Refresh cached column set so HasColumn reflects the ALTER TABLE. The
+	// columns map is read without a lock by HasColumn, so we copy-on-write
+	// into a fresh map and Store the new tableInfo rather than mutating the
+	// existing map in place (maps are not safe for concurrent read/write).
 	if v, ok := pm.tables.Load(ref.SourceSlug); ok {
 		if info, ok := v.(tableInfo); ok {
-			if info.columns == nil {
-				info.columns = make(map[string]bool)
+			updatedColumns := make(map[string]bool, len(info.columns)+len(cols))
+			for name, exists := range info.columns {
+				updatedColumns[name] = exists
 			}
 			for _, col := range cols {
-				info.columns[col.Name] = true
+				updatedColumns[col.Name] = true
 			}
+			info.columns = updatedColumns
 			pm.tables.Store(ref.SourceSlug, info)
 		}
 	}

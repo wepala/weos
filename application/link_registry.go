@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/utils"
 )
 
 // PresetLinkDefinition declares a relationship between two resource types that
@@ -177,7 +178,7 @@ func (r *LinkRegistry) ByTarget(slug string) []PresetLinkDefinition {
 func (r *LinkRegistry) LinkReferencesForSource(sourceSlug string) []repositories.LinkReference {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var out []repositories.LinkReference
+	out := []repositories.LinkReference{}
 	for _, l := range r.links {
 		if l.SourceType != sourceSlug {
 			continue
@@ -228,18 +229,33 @@ var linkSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 // the projection table's standard columns — an ALTER TABLE ADD COLUMN for
 // any of these would fail at reconcile time. Rejecting at Add() surfaces the
 // mistake at registration instead of burying it in a log entry later.
+//
+// Both the raw PropertyName and its snake_case projection (the actual column
+// name) are checked, so "typeSlug", "type_slug", "createdAt", and "created_at"
+// all get rejected. JSON-LD reserved keys (@id, @type, @context) are also
+// rejected because they have special meaning in the serialized resource.
 var linkReservedPropertyNames = map[string]bool{
-	"id":         true,
-	"type":       true,
-	"typeSlug":   true,
-	"data":       true,
-	"status":     true,
-	"createdBy":  true,
-	"accountId":  true,
-	"sequenceNo": true,
-	"createdAt":  true,
-	"updatedAt":  true,
-	"deletedAt":  true,
+	"@id":         true,
+	"@type":       true,
+	"@context":    true,
+	"id":          true,
+	"type":        true,
+	"typeSlug":    true,
+	"type_slug":   true,
+	"data":        true,
+	"status":      true,
+	"createdBy":   true,
+	"created_by":  true,
+	"accountId":   true,
+	"account_id":  true,
+	"sequenceNo":  true,
+	"sequence_no": true,
+	"createdAt":   true,
+	"created_at":  true,
+	"updatedAt":   true,
+	"updated_at":  true,
+	"deletedAt":   true,
+	"deleted_at":  true,
 }
 
 func validateLinkDefinition(def PresetLinkDefinition) error {
@@ -258,7 +274,8 @@ func validateLinkDefinition(def PresetLinkDefinition) error {
 	if !linkSlugPattern.MatchString(def.TargetType) {
 		return fmt.Errorf("link definition: TargetType %q must be lowercase kebab-case", def.TargetType)
 	}
-	if linkReservedPropertyNames[def.PropertyName] {
+	if linkReservedPropertyNames[def.PropertyName] ||
+		linkReservedPropertyNames[utils.CamelToSnake(def.PropertyName)] {
 		return fmt.Errorf("link definition: PropertyName %q collides with a standard projection column", def.PropertyName)
 	}
 	return nil
