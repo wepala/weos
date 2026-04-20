@@ -46,8 +46,7 @@ func ProtectedResourceMetadata(baseURL, defaultResource string, knownResources m
 	baseURL = strings.TrimRight(baseURL, "/")
 	return func(c echo.Context) error {
 		path := c.Request().URL.Path
-		if path != WellKnownProtectedResourcePrefix &&
-			!strings.HasPrefix(path, WellKnownProtectedResourcePrefix+"/") {
+		if !IsProtectedResourceMetadataRequest(c.Request().Method, path) {
 			return echo.ErrNotFound
 		}
 		suffix := strings.TrimPrefix(path, WellKnownProtectedResourcePrefix)
