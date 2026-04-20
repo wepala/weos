@@ -22,13 +22,49 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// ProtectedResourceMetadata returns a handler for RFC 9728 metadata.
-// GET /.well-known/oauth-protected-resource
-func ProtectedResourceMetadata(baseURL string) echo.HandlerFunc {
+// WellKnownProtectedResourcePrefix is the RFC 9728 §3.1 well-known URI prefix; resource paths are appended as a suffix.
+const WellKnownProtectedResourcePrefix = "/.well-known/oauth-protected-resource"
+
+// IsProtectedResourceMetadataRequest reports whether the given HTTP method
+// and request path target the protected-resource metadata endpoint, in either
+// the bare or path-suffixed form per RFC 9728 §3.1.
+func IsProtectedResourceMetadataRequest(method, path string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	return path == WellKnownProtectedResourcePrefix ||
+		strings.HasPrefix(path, WellKnownProtectedResourcePrefix+"/")
+}
+
+// ProtectedResourceMetadata serves RFC 9728 §3.1 metadata at both the bare
+// well-known path and the path-suffixed form. defaultResource backs the bare
+// path; a non-empty suffix must match an entry in knownResources. Anything
+// else — unknown suffix, foreign path, or bare path with empty
+// defaultResource — returns 404 so the server doesn't advertise metadata for
+// resources it doesn't expose.
+func ProtectedResourceMetadata(baseURL, defaultResource string, knownResources map[string]bool) echo.HandlerFunc {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return func(c echo.Context) error {
+		path := c.Request().URL.Path
+		if path != WellKnownProtectedResourcePrefix &&
+			!strings.HasPrefix(path, WellKnownProtectedResourcePrefix+"/") {
+			return echo.ErrNotFound
+		}
+		suffix := strings.TrimPrefix(path, WellKnownProtectedResourcePrefix)
+		var resourcePath string
+		switch {
+		case suffix == "" || suffix == "/":
+			if defaultResource == "" {
+				return echo.ErrNotFound
+			}
+			resourcePath = defaultResource
+		case knownResources[suffix]:
+			resourcePath = suffix
+		default:
+			return echo.ErrNotFound
+		}
 		return c.JSON(http.StatusOK, map[string]any{
-			"resource":                 baseURL + "/api/mcp",
+			"resource":                 baseURL + resourcePath,
 			"authorization_servers":    []string{baseURL},
 			"scopes_supported":         SupportedScopesList,
 			"bearer_methods_supported": []string{"header"},

@@ -205,7 +205,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		codeRepo := weosoauth.NewAuthCodeRepository(db)
 		refreshRepo := weosoauth.NewRefreshTokenRepository(db)
 
-		prHandler := weosoauth.ProtectedResourceMetadata(baseURL)
+		const mcpResourcePath = "/api/mcp"
+		var defaultResource string
+		knownResources := map[string]bool{}
+		if serveViper.GetBool("enabled") {
+			defaultResource = mcpResourcePath
+			knownResources[mcpResourcePath] = true
+		}
+		prHandler := weosoauth.ProtectedResourceMetadata(baseURL, defaultResource, knownResources)
 		asHandler := weosoauth.AuthorizationServerMetadata(baseURL, appCfg.OAuth.DynamicRegistration)
 		regHandler := weosoauth.RegisterClient(clientRepo, appCfg.OAuth.DynamicRegistration)
 		authzHandler := weosoauth.Authorize(authService, sessionStore, clientRepo, codeRepo, logger, baseURL)
@@ -217,7 +224,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 				p := c.Request().URL.Path
 				m := c.Request().Method
 				switch {
-				case m == http.MethodGet && p == "/.well-known/oauth-protected-resource":
+				case weosoauth.IsProtectedResourceMetadataRequest(m, p):
 					return prHandler(c)
 				case m == http.MethodGet && p == "/.well-known/oauth-authorization-server":
 					return asHandler(c)
