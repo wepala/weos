@@ -57,6 +57,10 @@ func (s *stubProjMgr) AncestorSlugs(slug string) []string {
 
 func (s *stubProjMgr) HasColumn(_, _ string) bool { return false }
 
+func (s *stubProjMgr) RegisterLink(_ context.Context, _ repositories.LinkReference) error {
+	return nil
+}
+
 func makeRT(slug, ctxJSON string) *entities.ResourceType {
 	rt := &entities.ResourceType{}
 	_ = rt.Restore("id-"+slug, slug, slug, "desc", "active",

@@ -71,15 +71,27 @@ type PresetDefinition struct {
 	Screens      fs.FS                            // optional embedded screen components
 	Sidebar      *PresetSidebarConfig             // optional sidebar defaults
 	Handlers     []PresetHTTPHandler              // optional HTTP routes mounted under /api
-	AutoInstall  bool                             // if true, types are auto-created at startup
+	// Links declares cross-type relationships that live outside any resource
+	// type's schema. Each link activates when both SourceType and TargetType
+	// are installed — enabling a "finance-education" integration preset to
+	// link Invoice and Guardian without either preset depending on the other.
+	// See PresetLinkDefinition for semantics.
+	Links       []PresetLinkDefinition
+	AutoInstall bool // if true, types are auto-created at startup
 }
 
 // InstallPresetResult reports which types were created, updated, or skipped.
+// Warnings carries non-fatal issues encountered during install — primarily
+// link-activation failures, which don't prevent types from being created
+// but do mean link-declared FK columns are missing until the next
+// successful reconcile. Callers that want strict behavior can inspect this
+// field and escalate.
 type InstallPresetResult struct {
-	Created []string       `json:"created"`
-	Updated []string       `json:"updated,omitempty"`
-	Skipped []string       `json:"skipped"`
-	Seeded  map[string]int `json:"seeded,omitempty"` // slug -> count of fixtures created
+	Created  []string       `json:"created"`
+	Updated  []string       `json:"updated,omitempty"`
+	Skipped  []string       `json:"skipped"`
+	Seeded   map[string]int `json:"seeded,omitempty"` // slug -> count of fixtures created
+	Warnings []string       `json:"warnings,omitempty"`
 }
 
 // PresetRegistry holds all registered presets. Preset packages call Add() to register.
@@ -117,9 +129,37 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 	if err := validateHandlers(def); err != nil {
 		return err
 	}
+	if err := validatePresetLinks(def); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.presets[def.Name] = def
+	return nil
+}
+
+// validatePresetLinks enforces per-preset invariants on Links: each entry
+// must declare SourceType, TargetType, and PropertyName, and no two entries
+// within the same preset may share (SourceType, PropertyName) since that's
+// the uniqueness key the LinkRegistry dedups on.
+func validatePresetLinks(def PresetDefinition) error {
+	if len(def.Links) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(def.Links))
+	for i, l := range def.Links {
+		if err := validateLinkDefinition(l); err != nil {
+			return fmt.Errorf("preset %q: links[%d]: %w", def.Name, i, err)
+		}
+		key := l.SourceType + "|" + l.PropertyName
+		if _, dup := seen[key]; dup {
+			return fmt.Errorf(
+				"preset %q: links[%d] duplicates (source=%q, property=%q) within the preset",
+				def.Name, i, l.SourceType, l.PropertyName,
+			)
+		}
+		seen[key] = struct{}{}
+	}
 	return nil
 }
 
@@ -193,6 +233,11 @@ func (d PresetDefinition) clone() PresetDefinition {
 		handlers := make([]PresetHTTPHandler, len(d.Handlers))
 		copy(handlers, d.Handlers)
 		d.Handlers = handlers
+	}
+	if d.Links != nil {
+		links := make([]PresetLinkDefinition, len(d.Links))
+		copy(links, d.Links)
+		d.Links = links
 	}
 	if d.Sidebar != nil {
 		s := *d.Sidebar

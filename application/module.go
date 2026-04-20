@@ -121,6 +121,16 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Email sender
 		fx.Provide(email.ProvideEmailSender),
 
+		// LinkRegistry seeded from preset.Links + package-init RegisterLink calls.
+		// Both entry points converge here so the service wiring sees one
+		// authoritative registry. Also exposed as a repositories.LinkSource so
+		// the projection manager can replay link refs after schema re-parse.
+		fx.Provide(func(r *PresetRegistry, logger entities.Logger) *LinkRegistry {
+			return buildLinkRegistry(r, logger)
+		}),
+		fx.Provide(func(r *LinkRegistry) repositories.LinkSource { return r }),
+		fx.Provide(ProvideLinkActivator),
+
 		// Service providers
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
@@ -146,4 +156,54 @@ func ensureProjectionTables(params struct {
 	ProjMgr repositories.ProjectionManager
 }) error {
 	return params.ProjMgr.EnsureExistingTables(context.Background())
+}
+
+// buildLinkRegistry seeds a process-local LinkRegistry from two sources:
+// every link declared in a registered preset's PresetDefinition.Links slice,
+// and every link added to DefaultLinkRegistry() via application.RegisterLink
+// before the Fx container starts up. The same (SourceType, PropertyName)
+// key dedups within the registry — last write wins — so a preset-declared
+// link is effectively replaced if a package-init RegisterLink for the same
+// key runs later.
+func buildLinkRegistry(registry *PresetRegistry, logger entities.Logger) *LinkRegistry {
+	out := NewLinkRegistry()
+	if registry != nil {
+		for _, def := range registry.List() {
+			for _, link := range def.Links {
+				if err := out.Add(link); err != nil {
+					if logger != nil {
+						logger.Error(context.Background(),
+							"invalid preset link definition ignored",
+							"preset", def.Name, "error", err)
+					}
+				}
+			}
+		}
+	}
+	for _, link := range DefaultLinkRegistry().All() {
+		if err := out.Add(link); err != nil {
+			if logger != nil {
+				logger.Error(context.Background(),
+					"invalid RegisterLink definition ignored",
+					"error", err)
+			}
+		}
+	}
+	return out
+}
+
+// ProvideLinkActivator constructs the activator used to reconcile link
+// definitions after resource types are installed. It depends on the
+// ProjectionManager and the ResourceTypeRepository because activation needs
+// to know which types are installed (repo) and where to add FK columns
+// (projection manager). Returns an error (surfaced by Fx) if any dependency
+// is missing — preferable to a runtime panic in Reconcile.
+func ProvideLinkActivator(params struct {
+	fx.In
+	Registry *LinkRegistry
+	ProjMgr  repositories.ProjectionManager
+	TypeRepo repositories.ResourceTypeRepository
+	Logger   entities.Logger
+}) (*LinkActivator, error) {
+	return NewLinkActivator(params.Registry, params.ProjMgr, params.TypeRepo, params.Logger)
 }

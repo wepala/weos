@@ -55,6 +55,20 @@ type resourceService struct {
 	behaviors        ResourceBehaviorRegistry
 	behaviorMeta     BehaviorMetaRegistry
 	behaviorSettings repositories.BehaviorSettingsRepository
+	linkRegistry     *LinkRegistry
+}
+
+// referencePropsFor returns the merged list of schema-declared and
+// link-declared reference properties for the given resource type. Centralized
+// so Create/Update use the same rules — schema-declared refs always appear;
+// link-declared refs appear only if the registry has entries for this source
+// type (dormant links won't surface references the DB can't honor yet).
+func (s *resourceService) referencePropsFor(rt *entities.ResourceType) []ReferencePropertyDef {
+	var links []PresetLinkDefinition
+	if s.linkRegistry != nil {
+		links = s.linkRegistry.BySource(rt.Slug())
+	}
+	return ExtractReferencePropertiesWithLinks(rt.Schema(), rt.Context(), links)
 }
 
 // maxBehaviorRecursionDepth caps how deep a behavior cascade can go. Behaviors
@@ -191,6 +205,7 @@ func ProvideResourceService(params struct {
 	Behaviors        ResourceBehaviorRegistry
 	BehaviorMeta     BehaviorMetaRegistry
 	BehaviorSettings repositories.BehaviorSettingsRepository
+	LinkRegistry     *LinkRegistry `optional:"true"`
 }) ResourceService {
 	return &resourceService{
 		repo:             params.Repo,
@@ -204,6 +219,7 @@ func ProvideResourceService(params struct {
 		behaviors:        params.Behaviors,
 		behaviorMeta:     params.BehaviorMeta,
 		behaviorSettings: params.BehaviorSettings,
+		linkRegistry:     params.LinkRegistry,
 	}
 }
 
@@ -240,7 +256,7 @@ func (s *resourceService) Create(
 	}
 
 	entityID := identity.NewResource(cmd.TypeSlug)
-	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
+	refProps := s.referencePropsFor(rt)
 
 	// Extract reference triples for atomic UoW commit alongside the entity.
 	// BuildResourceGraph below consumes the original data (refs intact), so
@@ -442,7 +458,7 @@ func (s *resourceService) Update(
 		return nil, fmt.Errorf("schema validation failed: %w", err)
 	}
 
-	refProps := ExtractReferenceProperties(rt.Schema(), rt.Context())
+	refProps := s.referencePropsFor(rt)
 
 	// Extract reference triples for atomic UoW commit alongside the entity.
 	// BuildResourceGraph below consumes the original data (refs intact), so

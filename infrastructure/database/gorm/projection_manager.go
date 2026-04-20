@@ -74,6 +74,10 @@ type projectionManager struct {
 	forwardRe   sync.Map   // referencingTypeSlug → []repositories.ForwardReference
 	reverseReMu sync.Mutex // guards reverseRe AND forwardRe writes (symmetric)
 	parentOf    sync.Map   // slug → parentSlug (from rdfs:subClassOf, for ancestor chain)
+	// linkSource replays link-declared refs after registerReverseReferences
+	// clears a slug's entries. Optional — nil means link refs are only set by
+	// RegisterLink and will be wiped on schema re-parse.
+	linkSource repositories.LinkSource
 }
 
 type ProjectionManagerResult struct {
@@ -83,13 +87,15 @@ type ProjectionManagerResult struct {
 
 func ProvideProjectionManager(params struct {
 	fx.In
-	DB     *gorm.DB
-	Logger entities.Logger
+	DB         *gorm.DB
+	Logger     entities.Logger
+	LinkSource repositories.LinkSource `optional:"true"`
 }) ProjectionManagerResult {
 	return ProjectionManagerResult{
 		ProjectionManager: &projectionManager{
-			db:     params.DB,
-			logger: params.Logger,
+			db:         params.DB,
+			logger:     params.Logger,
+			linkSource: params.LinkSource,
 		},
 	}
 }
@@ -313,22 +319,48 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 		if displayProp == "" {
 			displayProp = "name"
 		}
-		colName := utils.CamelToSnake(propName)
-		reverseRef := repositories.ReverseReference{
-			ReferencingTypeSlug: slug,
-			FKColumn:            colName,
-			DisplayColumn:       colName + "_display",
-			DisplayProperty:     displayProp,
-		}
-		forwardRef := repositories.ForwardReference{
-			FKColumn:        colName,
-			DisplayColumn:   colName + "_display",
-			TargetTypeSlug:  prop.XResourceType,
-			DisplayProperty: displayProp,
-		}
-		pm.appendReverseRefLocked(prop.XResourceType, reverseRef)
-		pm.appendForwardRefLocked(slug, forwardRef)
+		pm.registerRefLocked(slug, propName, prop.XResourceType, displayProp)
 	}
+
+	// Replay link-declared refs. Without this, any schema re-parse (EnsureTable
+	// via ResourceType.Updated, or the lazy HasProjectionTable path) would wipe
+	// refs set by RegisterLink and the next Reconcile wouldn't run until the
+	// next InstallPreset or restart — display propagation for link-declared
+	// references would silently stop in the meantime.
+	if pm.linkSource != nil {
+		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
+			displayProp := ref.DisplayProperty
+			if displayProp == "" {
+				displayProp = "name"
+			}
+			pm.registerRefLocked(slug, ref.PropertyName, ref.TargetSlug, displayProp)
+		}
+	}
+}
+
+// registerRefLocked records one forward + one reverse reference entry for a
+// reference from sourceSlug.<propertyName> → targetSlug. Shared by
+// registerReverseReferences (schema-derived x-resource-type) and RegisterLink
+// (link-registry-derived) so both paths funnel through the same dedup
+// semantics. Caller must hold reverseReMu.
+func (pm *projectionManager) registerRefLocked(
+	sourceSlug, propertyName, targetSlug, displayProperty string,
+) {
+	colName := utils.CamelToSnake(propertyName)
+	reverseRef := repositories.ReverseReference{
+		ReferencingTypeSlug: sourceSlug,
+		FKColumn:            colName,
+		DisplayColumn:       colName + "_display",
+		DisplayProperty:     displayProperty,
+	}
+	forwardRef := repositories.ForwardReference{
+		FKColumn:        colName,
+		DisplayColumn:   colName + "_display",
+		TargetTypeSlug:  targetSlug,
+		DisplayProperty: displayProperty,
+	}
+	pm.appendReverseRefLocked(targetSlug, reverseRef)
+	pm.appendForwardRefLocked(sourceSlug, forwardRef)
 }
 
 // clearReferencesForSlugLocked removes every reference entry that names slug
@@ -419,6 +451,59 @@ func (pm *projectionManager) appendForwardRefLocked(
 	}
 	updated = append(updated, ref)
 	pm.forwardRe.Store(referencingSlug, updated)
+}
+
+// RegisterLink activates a cross-type link declared outside the source type's
+// schema. See the ProjectionManager interface docstring for semantics.
+//
+// Implementation: the method adds the FK + display columns via the existing
+// addMissingColumns path (idempotent — skips columns that already exist),
+// then records symmetric forward/reverse reference entries through the same
+// helpers used by x-resource-type schema parsing. This keeps schema-declared
+// and link-declared references indistinguishable to the rest of the system
+// (display propagation, triple extraction, UI rendering).
+//
+// If the source type has no projection table yet (RegisterLink called before
+// EnsureTable), the method returns nil and skips silently — the caller
+// (LinkActivator) re-runs the pass after each preset install, and the link
+// will activate the next time around when the source table exists.
+func (pm *projectionManager) RegisterLink(ctx context.Context, ref repositories.LinkReference) error {
+	if ref.SourceSlug == "" || ref.PropertyName == "" || ref.TargetSlug == "" {
+		return fmt.Errorf("RegisterLink: SourceSlug, PropertyName, TargetSlug are required")
+	}
+	displayProperty := ref.DisplayProperty
+	if displayProperty == "" {
+		displayProperty = "name"
+	}
+	if !pm.HasProjectionTable(ref.SourceSlug) {
+		// Source type not yet installed — activation deferred to next reconcile.
+		return nil
+	}
+	tableName := pm.TableName(ref.SourceSlug)
+	colName := utils.CamelToSnake(ref.PropertyName)
+	cols := []columnDef{
+		{Name: colName, SQLType: "TEXT"},
+		{Name: colName + "_display", SQLType: "VARCHAR(512)"},
+	}
+	if err := pm.addMissingColumns(ctx, tableName, cols); err != nil {
+		return fmt.Errorf("RegisterLink: add columns to %q: %w", tableName, err)
+	}
+	// Refresh cached column set so HasColumn reflects the ALTER TABLE.
+	if v, ok := pm.tables.Load(ref.SourceSlug); ok {
+		if info, ok := v.(tableInfo); ok {
+			if info.columns == nil {
+				info.columns = make(map[string]bool)
+			}
+			for _, col := range cols {
+				info.columns[col.Name] = true
+			}
+			pm.tables.Store(ref.SourceSlug, info)
+		}
+	}
+	pm.reverseReMu.Lock()
+	pm.registerRefLocked(ref.SourceSlug, ref.PropertyName, ref.TargetSlug, displayProperty)
+	pm.reverseReMu.Unlock()
+	return nil
 }
 
 func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {

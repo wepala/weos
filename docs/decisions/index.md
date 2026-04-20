@@ -16,3 +16,4 @@ Architecture Decision Records (ADRs) capture significant technical decisions mad
 | [Injecting Services into ResourceBehavior]({% link decisions/behavior-service-injection.md %}) | Accepted (Implemented) | 2026-04-07 |
 | [Cross-Resource Writes from ResourceBehavior Hooks]({% link decisions/behavior-resource-writer.md %}) | Accepted (Implemented) | 2026-04-07 |
 | [Admin Index Override for Thin-Wrap Binaries]({% link decisions/admin-index-override.md %}) | Proposed | 2026-04-14 |
+| [Cross-Preset Link Definitions]({% link decisions/cross-preset-link-definitions.md %}) | Accepted (Implemented) | 2026-04-19 |

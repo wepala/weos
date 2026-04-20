@@ -117,6 +117,7 @@ type resourceTypeService struct {
 	behaviorMeta     BehaviorMetaRegistry
 	behaviorSettings repositories.BehaviorSettingsRepository
 	accountRepo      authrepos.AccountRepository
+	linkActivator    *LinkActivator
 }
 
 func ProvideResourceTypeService(params struct {
@@ -132,6 +133,7 @@ func ProvideResourceTypeService(params struct {
 	BehaviorMeta     BehaviorMetaRegistry
 	BehaviorSettings repositories.BehaviorSettingsRepository
 	AccountRepo      authrepos.AccountRepository
+	LinkActivator    *LinkActivator `optional:"true"`
 }) ResourceTypeService {
 	return &resourceTypeService{
 		repo:             params.Repo,
@@ -145,6 +147,7 @@ func ProvideResourceTypeService(params struct {
 		behaviorMeta:     params.BehaviorMeta,
 		behaviorSettings: params.BehaviorSettings,
 		accountRepo:      params.AccountRepo,
+		linkActivator:    params.LinkActivator,
 	}
 }
 
@@ -287,6 +290,24 @@ func (s *resourceTypeService) InstallPreset(
 			s.seedFixtures(ctx, pt, result)
 		default:
 			return result, fmt.Errorf("failed to look up resource type %q: %w", pt.Slug, err)
+		}
+	}
+	// Reconcile any link definitions whose endpoints are now both present. This
+	// runs unconditionally because a newly installed type in *this* preset may
+	// also complete a link declared by a *different* preset (e.g. installing
+	// `education` can activate a finance→education link declared by a third
+	// integration package).
+	//
+	// A reconcile error doesn't roll back the install — the resource types are
+	// already persisted — but it does mean link-declared FK columns are
+	// missing. Record it on the result so API/CLI callers can surface the
+	// partial success instead of claiming the install is fully green.
+	if s.linkActivator != nil {
+		if rErr := s.linkActivator.Reconcile(ctx); rErr != nil {
+			s.logger.Error(ctx, "link reconciliation after InstallPreset failed",
+				"preset", presetName, "error", rErr)
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("link reconciliation failed: %s", rErr.Error()))
 		}
 	}
 	return result, nil

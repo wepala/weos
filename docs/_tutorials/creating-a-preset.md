@@ -166,6 +166,46 @@ Create a menu and a menu item:
   --data '{"name": "Grilled Salmon", "price": 24.99, "category": "main", "menu": "MENU_ID"}'
 ```
 
+## Linking to Types from Other Presets
+
+The `menu` property above uses `x-resource-type` — the right choice here because both `menu` and `menu-item` live inside this preset. When you need to link to a type that lives in *another* preset, embedding `x-resource-type` in your schema would force your preset to depend on theirs.
+
+For those cross-preset cases, declare the relationship as a **link definition** instead. Link definitions live outside any resource type's schema, so neither preset needs to know about the other:
+
+```go
+registry.MustAdd(application.PresetDefinition{
+    Name: "restaurant-payments",
+    // No types of its own — this preset's only job is to connect
+    // the `menu-item` type (from the restaurant preset) to the
+    // `invoice-line` type (from some billing preset).
+    Links: []application.PresetLinkDefinition{
+        {
+            Name:            "invoice-line-menu-item",
+            SourceType:      "invoice-line",
+            TargetType:      "menu-item",
+            PropertyName:    "menuItem",
+            DisplayProperty: "name",
+        },
+    },
+})
+```
+
+A link stays **dormant** until both `SourceType` and `TargetType` exist as installed resource types. Install one side alone and nothing happens; install both and the FK + `_display` columns appear on the source's projection table automatically.
+
+Any Go package can also register a link at init time without being a full preset:
+
+```go
+func init() {
+    _ = application.RegisterLink(application.PresetLinkDefinition{
+        SourceType:   "invoice-line",
+        TargetType:   "menu-item",
+        PropertyName: "menuItem",
+    })
+}
+```
+
+Use `x-resource-type` inside a preset; use `Links` / `RegisterLink` across presets. See [Atomic Models and Triples]({% link _explanation/atomic-models-and-triples.md %}#cross-preset-links--relationships-outside-the-schema) for the full story.
+
 ## What Happens Behind the Scenes
 
 When you install a preset, WeOS:

@@ -17,44 +17,92 @@ type ReferencePropertyDef struct {
 	DisplayProperty string // e.g. "name" — property on the target resource shown in lists
 }
 
-// ExtractReferenceProperties parses a JSON Schema and JSON-LD context to find properties
-// that reference other resources (marked with x-resource-type) and their predicate IRIs.
+// ExtractReferenceProperties parses a JSON Schema and JSON-LD context to find
+// properties that reference other resources (marked with x-resource-type).
+// Schema-only form: use when no LinkRegistry is available (pure parsers,
+// static analyzers). Call sites inside ResourceService go through
+// ExtractReferencePropertiesWithLinks so cross-preset links participate.
 func ExtractReferenceProperties(
 	schema json.RawMessage, ldContext json.RawMessage,
 ) []ReferencePropertyDef {
-	if len(schema) == 0 {
-		return nil
-	}
+	return ExtractReferencePropertiesWithLinks(schema, ldContext, nil)
+}
 
-	var s struct {
-		Properties map[string]struct {
-			XResourceType    string `json:"x-resource-type"`
-			XDisplayProperty string `json:"x-display-property"`
-		} `json:"properties"`
-	}
-	if json.Unmarshal(schema, &s) != nil || len(s.Properties) == 0 {
-		return nil
-	}
-
-	// Parse @context to resolve predicate IRIs.
+// ExtractReferencePropertiesWithLinks combines schema-declared x-resource-type
+// references with link-declared references from external PresetLinkDefinitions.
+// Both contribute to the same []ReferencePropertyDef downstream, so the write
+// path (BuildResourceGraph, ExtractReferenceTriples, projection FK/display
+// population) treats them identically.
+//
+// Merge rule: when both the schema and a link define a reference on the same
+// PropertyName, the schema wins. Schemas are closer to the type definition
+// and already validated by existing tests; a conflicting external link is
+// almost certainly a mistake, so we keep the predictable (schema) behavior.
+// Callers with a *LinkRegistry typically pass registry.BySource(typeSlug) as
+// externalLinks.
+func ExtractReferencePropertiesWithLinks(
+	schema, ldContext json.RawMessage,
+	externalLinks []PresetLinkDefinition,
+) []ReferencePropertyDef {
 	vocab, contextMap := jsonld.ParseContext(ldContext)
 
+	seen := make(map[string]struct{})
 	var defs []ReferencePropertyDef
-	for propName, prop := range s.Properties {
-		if prop.XResourceType == "" {
+
+	if len(schema) > 0 {
+		var s struct {
+			Properties map[string]struct {
+				XResourceType    string `json:"x-resource-type"`
+				XDisplayProperty string `json:"x-display-property"`
+			} `json:"properties"`
+		}
+		if json.Unmarshal(schema, &s) == nil {
+			for propName, prop := range s.Properties {
+				if prop.XResourceType == "" {
+					continue
+				}
+				displayProp := prop.XDisplayProperty
+				if displayProp == "" {
+					displayProp = "name"
+				}
+				defs = append(defs, ReferencePropertyDef{
+					PropertyName:    propName,
+					PredicateIRI:    jsonld.ResolvePredicateIRI(propName, vocab, contextMap),
+					TargetType:      prop.XResourceType,
+					DisplayProperty: displayProp,
+				})
+				seen[propName] = struct{}{}
+			}
+		}
+	}
+
+	for _, link := range externalLinks {
+		if link.PropertyName == "" || link.TargetType == "" {
 			continue
 		}
-		displayProp := prop.XDisplayProperty
+		if _, dup := seen[link.PropertyName]; dup {
+			// Schema already declares this property — schema wins.
+			continue
+		}
+		displayProp := link.DisplayProperty
 		if displayProp == "" {
 			displayProp = "name"
 		}
-		predicateIRI := jsonld.ResolvePredicateIRI(propName, vocab, contextMap)
+		predicateIRI := link.PredicateIRI
+		if predicateIRI == "" {
+			predicateIRI = jsonld.ResolvePredicateIRI(link.PropertyName, vocab, contextMap)
+		}
 		defs = append(defs, ReferencePropertyDef{
-			PropertyName:    propName,
+			PropertyName:    link.PropertyName,
 			PredicateIRI:    predicateIRI,
-			TargetType:      prop.XResourceType,
+			TargetType:      link.TargetType,
 			DisplayProperty: displayProp,
 		})
+		seen[link.PropertyName] = struct{}{}
+	}
+
+	if len(defs) == 0 {
+		return nil
 	}
 	return defs
 }

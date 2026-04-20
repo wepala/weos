@@ -557,3 +557,106 @@ func TestBuildResourceGraph_FlattenGraph_RoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// Schema-declared x-resource-type properties and external link definitions
+// should merge into a single []ReferencePropertyDef with schema winning on
+// conflicts.
+func TestExtractReferencePropertiesWithLinks_MergesSchemaAndExternal(t *testing.T) {
+	t.Parallel()
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"name":{"type":"string"},
+			"project":{"type":"string","x-resource-type":"project","x-display-property":"name"}
+		}
+	}`)
+	ctx := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	external := []PresetLinkDefinition{
+		{
+			SourceType: "task", TargetType: "user",
+			PropertyName: "assignee", DisplayProperty: "givenName",
+		},
+	}
+
+	defs := ExtractReferencePropertiesWithLinks(schema, ctx, external)
+	if len(defs) != 2 {
+		t.Fatalf("expected 2 defs (schema + link), got %d: %+v", len(defs), defs)
+	}
+	byProp := map[string]ReferencePropertyDef{}
+	for _, d := range defs {
+		byProp[d.PropertyName] = d
+	}
+	if byProp["project"].TargetType != "project" || byProp["project"].DisplayProperty != "name" {
+		t.Errorf("schema-derived def unexpected: %+v", byProp["project"])
+	}
+	if byProp["assignee"].TargetType != "user" || byProp["assignee"].DisplayProperty != "givenName" {
+		t.Errorf("link-derived def unexpected: %+v", byProp["assignee"])
+	}
+	if byProp["assignee"].PredicateIRI != "https://schema.org/assignee" {
+		t.Errorf("expected predicate resolved via @vocab, got %q", byProp["assignee"].PredicateIRI)
+	}
+}
+
+func TestExtractReferencePropertiesWithLinks_SchemaWinsOnConflict(t *testing.T) {
+	t.Parallel()
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"project":{"type":"string","x-resource-type":"project","x-display-property":"name"}
+		}
+	}`)
+	// External link redefines "project" to point at a different target.
+	external := []PresetLinkDefinition{
+		{
+			SourceType: "task", TargetType: "wrong-target",
+			PropertyName: "project", DisplayProperty: "title",
+		},
+	}
+	defs := ExtractReferencePropertiesWithLinks(schema, nil, external)
+	if len(defs) != 1 {
+		t.Fatalf("expected 1 def after dedup, got %d: %+v", len(defs), defs)
+	}
+	if defs[0].TargetType != "project" {
+		t.Errorf("expected schema to win (project), got %+v", defs[0])
+	}
+}
+
+func TestExtractReferencePropertiesWithLinks_NilSchemaReturnsExternalOnly(t *testing.T) {
+	t.Parallel()
+	ctx := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	external := []PresetLinkDefinition{
+		{SourceType: "invoice", TargetType: "guardian", PropertyName: "guardian"},
+	}
+	defs := ExtractReferencePropertiesWithLinks(nil, ctx, external)
+	if len(defs) != 1 || defs[0].TargetType != "guardian" {
+		t.Errorf("expected single link-only def, got %+v", defs)
+	}
+}
+
+func TestExtractReferencePropertiesWithLinks_LinkHonorsExplicitPredicate(t *testing.T) {
+	t.Parallel()
+	external := []PresetLinkDefinition{
+		{
+			SourceType: "invoice", TargetType: "guardian", PropertyName: "guardian",
+			PredicateIRI: "https://example.org/parent-of",
+		},
+	}
+	defs := ExtractReferencePropertiesWithLinks(nil, nil, external)
+	if len(defs) != 1 || defs[0].PredicateIRI != "https://example.org/parent-of" {
+		t.Errorf("expected explicit predicate preserved, got %+v", defs)
+	}
+}
+
+func TestExtractReferenceProperties_StillWorksWithoutLinks(t *testing.T) {
+	t.Parallel()
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"project":{"type":"string","x-resource-type":"project"}
+		}
+	}`)
+	defs := ExtractReferenceProperties(schema, nil)
+	if len(defs) != 1 || defs[0].TargetType != "project" {
+		t.Errorf("back-compat broken: %+v", defs)
+	}
+}

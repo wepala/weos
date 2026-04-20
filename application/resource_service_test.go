@@ -17,8 +17,11 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // TestEnterResourceCall_IncrementsBelowLimit verifies the happy path: depths
@@ -159,6 +162,74 @@ func TestResourceService_UpdateEnforcesDepthGuard(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "recursion depth") {
 		t.Errorf("Update error = %q, want contains 'recursion depth' (guard did not fire)", err.Error())
+	}
+}
+
+// TestResourceService_ReferencePropsFor_MergesLinkRegistry is the load-bearing
+// regression guard for the #328 feature: resourceService.Create and Update
+// call referencePropsFor(rt) to get the merged list of schema-declared and
+// link-declared refs, which downstream builds the @graph edges node and
+// extracts Triple.Created events. If this method stopped consulting
+// linkRegistry (e.g. a refactor that accidentally dropped the field from
+// Fx params), link-declared references would silently stop producing triples
+// — and end-to-end tests with real dispatchers would be the first to notice.
+//
+// Verifying the merge here pins the contract without needing the full
+// UnitOfWork/event-dispatch machinery. BuildResourceGraph +
+// ExtractReferenceTriples are already tested in triple_extraction_test.go
+// against the same []ReferencePropertyDef, so this test plus those form the
+// full chain.
+func TestResourceService_ReferencePropsFor_MergesLinkRegistry(t *testing.T) {
+	t.Parallel()
+	registry := NewLinkRegistry()
+	if err := registry.Add(PresetLinkDefinition{
+		SourceType: "invoice", TargetType: "guardian",
+		PropertyName: "guardian", DisplayProperty: "name",
+	}); err != nil {
+		t.Fatalf("Add link: %v", err)
+	}
+
+	rt := &entities.ResourceType{}
+	_ = rt.Restore("id-invoice", "Invoice", "invoice", "", "active",
+		json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+		json.RawMessage(`{"type":"object","properties":{"amount":{"type":"number"}}}`),
+		rt.CreatedAt(), 1)
+
+	svc := &resourceService{linkRegistry: registry}
+	refs := svc.referencePropsFor(rt)
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 link-derived reference, got %d: %+v", len(refs), refs)
+	}
+	got := refs[0]
+	if got.PropertyName != "guardian" || got.TargetType != "guardian" ||
+		got.DisplayProperty != "name" {
+		t.Errorf("unexpected ref: %+v", got)
+	}
+	if got.PredicateIRI != "https://schema.org/guardian" {
+		t.Errorf("expected predicate resolved via @vocab, got %q", got.PredicateIRI)
+	}
+}
+
+// When linkRegistry is nil (test paths that don't wire it), referencePropsFor
+// must still return schema-declared refs — no panic, no regression in the
+// pre-existing x-resource-type path.
+func TestResourceService_ReferencePropsFor_NilRegistryFallsBackToSchema(t *testing.T) {
+	t.Parallel()
+	rt := &entities.ResourceType{}
+	_ = rt.Restore("id-task", "Task", "task", "", "active",
+		json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+		json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"project":{"type":"string","x-resource-type":"project"}
+			}
+		}`),
+		rt.CreatedAt(), 1)
+
+	svc := &resourceService{linkRegistry: nil}
+	refs := svc.referencePropsFor(rt)
+	if len(refs) != 1 || refs[0].PropertyName != "project" {
+		t.Errorf("expected schema-derived ref to survive nil registry, got %+v", refs)
 	}
 }
 
