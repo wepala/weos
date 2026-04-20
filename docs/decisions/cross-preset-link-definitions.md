@@ -80,7 +80,7 @@ Reconcile loads installed type slugs from the repository, asks the registry `Act
 
 `ExtractReferencePropertiesWithLinks(schema, ldContext, externalLinks)` merges schema-derived refs with link-derived refs into one `[]ReferencePropertyDef`. The write path (`BuildResourceGraph`, `ExtractReferenceTriples`, projection FK/display population) consumes this list unchanged, so link-declared references produce the same triples and the same `@graph` edges node as schema-declared ones.
 
-When both mechanisms declare the same `PropertyName`, **schema wins** (link is dropped with a warning). Schemas are closer to the type definition, so a conflicting external link is almost always a mistake.
+When both mechanisms declare the same `PropertyName`, **schema wins** — the conflicting link is silently dropped from the merged list and from the `registerReverseReferences` replay. Schemas are closer to the type definition, so a conflicting external link is almost always a mistake; callers that need to surface the conflict can inspect the registry and compare against the schema before merging.
 
 ## Consequences
 

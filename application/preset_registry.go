@@ -27,6 +27,7 @@ import (
 	"sync"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/pkg/utils"
 )
 
 // PresetResourceType defines a single resource type within a preset.
@@ -140,8 +141,12 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 
 // validatePresetLinks enforces per-preset invariants on Links: each entry
 // must declare SourceType, TargetType, and PropertyName, and no two entries
-// within the same preset may share (SourceType, PropertyName) since that's
-// the uniqueness key the LinkRegistry dedups on.
+// within the same preset may share (SourceType, CamelToSnake(PropertyName))
+// since that's the actual DB column uniqueness key. validateLinkDefinition
+// already rejects underscores so raw PropertyName collisions and snake_case
+// column collisions can't diverge, but keying on the snake_case form here
+// keeps the dedup aligned with the DDL invariant even if that upstream rule
+// changes.
 func validatePresetLinks(def PresetDefinition) error {
 	if len(def.Links) == 0 {
 		return nil
@@ -151,7 +156,7 @@ func validatePresetLinks(def PresetDefinition) error {
 		if err := validateLinkDefinition(l); err != nil {
 			return fmt.Errorf("preset %q: links[%d]: %w", def.Name, i, err)
 		}
-		key := l.SourceType + "|" + l.PropertyName
+		key := l.SourceType + "|" + utils.CamelToSnake(l.PropertyName)
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf(
 				"preset %q: links[%d] duplicates (source=%q, property=%q) within the preset",

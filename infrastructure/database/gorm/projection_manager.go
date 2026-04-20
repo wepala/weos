@@ -316,6 +316,13 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 	// Clear any prior entries that name this slug — schema may have changed.
 	pm.clearReferencesForSlugLocked(slug)
 
+	// Track schema-declared refs by both PropertyName and derived FK column
+	// name so the link replay can skip any entry that would override either
+	// (schema wins on conflict). Keying on both catches a link that spells
+	// the property differently but derives to the same column.
+	schemaProps := make(map[string]bool)
+	schemaCols := make(map[string]bool)
+
 	if len(schema) > 0 {
 		var s struct {
 			Properties map[string]struct {
@@ -333,6 +340,8 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 					displayProp = "name"
 				}
 				pm.registerRefLocked(slug, propName, prop.XResourceType, displayProp)
+				schemaProps[propName] = true
+				schemaCols[utils.CamelToSnake(propName)] = true
 			}
 		}
 	}
@@ -342,9 +351,14 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 	// since they come from a separate source of truth. Any schema re-parse
 	// (EnsureTable via ResourceType.Updated, or the lazy HasProjectionTable
 	// path) would otherwise leave display propagation silently broken until
-	// the next Reconcile.
+	// the next Reconcile. Conflicting entries (same property or same derived
+	// column) are skipped — schema wins, matching the documented merge rule
+	// in ExtractReferencePropertiesWithLinks.
 	if pm.linkSource != nil {
 		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
+			if schemaProps[ref.PropertyName] || schemaCols[utils.CamelToSnake(ref.PropertyName)] {
+				continue
+			}
 			displayProp := ref.DisplayProperty
 			if displayProp == "" {
 				displayProp = "name"

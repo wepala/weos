@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -268,6 +269,17 @@ func validateLinkDefinition(def PresetLinkDefinition) error {
 	}
 	if def.PropertyName == "" {
 		return fmt.Errorf("link definition: PropertyName is required")
+	}
+	if strings.ContainsRune(def.PropertyName, '_') {
+		// Two links like "guardianId" and "guardian_id" would dedup to different
+		// registry keys but share the same snake_case FK column, causing a
+		// silent ALTER TABLE collision later. Reject underscores so camelCase
+		// is the only accepted form and the (SourceType, PropertyName) registry
+		// key matches DB column uniqueness one-to-one.
+		return fmt.Errorf(
+			"link definition: PropertyName %q must be camelCase (no underscores)",
+			def.PropertyName,
+		)
 	}
 	if !linkSlugPattern.MatchString(def.SourceType) {
 		return fmt.Errorf("link definition: SourceType %q must be lowercase kebab-case", def.SourceType)
