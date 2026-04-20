@@ -316,35 +316,33 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 	// Clear any prior entries that name this slug — schema may have changed.
 	pm.clearReferencesForSlugLocked(slug)
 
-	if len(schema) == 0 {
-		return
-	}
-	var s struct {
-		Properties map[string]struct {
-			XResourceType    string `json:"x-resource-type"`
-			XDisplayProperty string `json:"x-display-property"`
-		} `json:"properties"`
-	}
-	if json.Unmarshal(schema, &s) != nil {
-		return
+	if len(schema) > 0 {
+		var s struct {
+			Properties map[string]struct {
+				XResourceType    string `json:"x-resource-type"`
+				XDisplayProperty string `json:"x-display-property"`
+			} `json:"properties"`
+		}
+		if json.Unmarshal(schema, &s) == nil {
+			for propName, prop := range s.Properties {
+				if prop.XResourceType == "" {
+					continue
+				}
+				displayProp := prop.XDisplayProperty
+				if displayProp == "" {
+					displayProp = "name"
+				}
+				pm.registerRefLocked(slug, propName, prop.XResourceType, displayProp)
+			}
+		}
 	}
 
-	for propName, prop := range s.Properties {
-		if prop.XResourceType == "" {
-			continue
-		}
-		displayProp := prop.XDisplayProperty
-		if displayProp == "" {
-			displayProp = "name"
-		}
-		pm.registerRefLocked(slug, propName, prop.XResourceType, displayProp)
-	}
-
-	// Replay link-declared refs. Without this, any schema re-parse (EnsureTable
-	// via ResourceType.Updated, or the lazy HasProjectionTable path) would wipe
-	// refs set by RegisterLink and the next Reconcile wouldn't run until the
-	// next InstallPreset or restart — display propagation for link-declared
-	// references would silently stop in the meantime.
+	// Replay link-declared refs unconditionally — a re-parse with empty or
+	// unparseable schema must not silently wipe RegisterLink-declared refs,
+	// since they come from a separate source of truth. Any schema re-parse
+	// (EnsureTable via ResourceType.Updated, or the lazy HasProjectionTable
+	// path) would otherwise leave display propagation silently broken until
+	// the next Reconcile.
 	if pm.linkSource != nil {
 		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
 			displayProp := ref.DisplayProperty

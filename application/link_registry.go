@@ -41,9 +41,10 @@ import (
 //   - PropertyName is the attribute name on the source resource that carries
 //     the reference (e.g. "guardian"). This drives the FK column name and the
 //     predicate IRI derivation.
-//   - PredicateIRI, if empty, is resolved at activation time from the source
-//     type's @vocab + PropertyName via jsonld.ResolvePredicateIRI — the same
-//     rule used for schema-derived x-resource-type properties.
+//   - PredicateIRI, if empty, is derived later from the source type's JSON-LD
+//     context and PropertyName using the same rule as schema-derived
+//     x-resource-type properties; activation itself does not resolve or
+//     validate it.
 //   - DisplayProperty defaults to "name" when empty; it names the property on
 //     the target whose value is denormalized into <prop>_display.
 type PresetLinkDefinition struct {

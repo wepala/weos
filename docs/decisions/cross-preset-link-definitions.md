@@ -54,7 +54,6 @@ type PresetLinkDefinition struct {
     PropertyName    string // attribute on source (drives FK column name)
     PredicateIRI    string // optional; resolved from @vocab if empty
     DisplayProperty string // defaults to "name"
-    Multi           bool
 }
 
 // Links inside a preset — natural packaging for a "finance-education" integration preset.
