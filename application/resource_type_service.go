@@ -265,6 +265,13 @@ func (s *resourceTypeService) InstallPreset(
 				result.Skipped = append(result.Skipped, pt.Slug)
 				continue
 			}
+			// Skip the Update call when nothing actually changed — keeps repeated
+			// `--update` runs (and eventually restart-time auto-installs) from
+			// emitting a ResourceTypeUpdated event per type on every boot.
+			if presetMatchesResourceType(existing, pt) {
+				result.Unchanged = append(result.Unchanged, pt.Slug)
+				continue
+			}
 			_, uErr := s.Update(ctx, UpdateResourceTypeCommand{
 				ID:          existing.GetID(),
 				Name:        pt.Name,

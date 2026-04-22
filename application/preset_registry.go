@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -81,18 +82,57 @@ type PresetDefinition struct {
 	AutoInstall bool // if true, types are auto-created at startup
 }
 
-// InstallPresetResult reports which types were created, updated, or skipped.
-// Warnings carries non-fatal issues encountered during install — primarily
-// link-activation failures, which don't prevent types from being created
-// but do mean link-declared FK columns are missing until the next
-// successful reconcile. Callers that want strict behavior can inspect this
-// field and escalate.
+// InstallPresetResult reports which types were created, updated, unchanged, or
+// skipped. Unchanged differs from Skipped: Unchanged means update=true and the
+// preset matches what's stored (no event emitted), while Skipped means
+// update=false and the caller asked to leave existing types alone.
 type InstallPresetResult struct {
-	Created  []string       `json:"created"`
-	Updated  []string       `json:"updated,omitempty"`
-	Skipped  []string       `json:"skipped"`
-	Seeded   map[string]int `json:"seeded,omitempty"` // slug -> count of fixtures created
-	Warnings []string       `json:"warnings,omitempty"`
+	Created   []string       `json:"created"`
+	Updated   []string       `json:"updated,omitempty"`
+	Unchanged []string       `json:"unchanged,omitempty"`
+	Skipped   []string       `json:"skipped"`
+	Seeded    map[string]int `json:"seeded,omitempty"` // slug -> count of fixtures created
+	Warnings  []string       `json:"warnings,omitempty"`
+}
+
+// presetMatchesResourceType reports whether the preset's definition matches
+// the stored type. Slug is equal by construction (the lookup key); Status is
+// carried over on update and so is deliberately not compared.
+func presetMatchesResourceType(existing *entities.ResourceType, pt PresetResourceType) bool {
+	if existing.Name() != pt.Name {
+		return false
+	}
+	if existing.Description() != pt.Description {
+		return false
+	}
+	if !jsonEquivalent(existing.Context(), pt.Context) {
+		return false
+	}
+	return jsonEquivalent(existing.Schema(), pt.Schema)
+}
+
+// jsonEquivalent reports whether two json.RawMessage blobs decode to the same
+// JSON value, tolerating whitespace and key-order differences. Malformed JSON
+// on either side returns false so the caller routes to the non-match (update)
+// path, where downstream validation can reject the bad blob instead of it
+// being silently treated as equivalent to stored data.
+func jsonEquivalent(a, b json.RawMessage) bool {
+	aEmpty := len(a) == 0
+	bEmpty := len(b) == 0
+	if aEmpty && bEmpty {
+		return true
+	}
+	if aEmpty != bEmpty {
+		return false
+	}
+	var av, bv any
+	if err := json.Unmarshal(a, &av); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &bv); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
 }
 
 // PresetRegistry holds all registered presets. Preset packages call Add() to register.

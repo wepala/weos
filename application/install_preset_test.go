@@ -527,3 +527,351 @@ func TestInstallPreset_ReconcileFailureSurfacesAsWarning(t *testing.T) {
 		t.Errorf("expected the type to still be created, got %+v", result.Created)
 	}
 }
+
+// testPresetSingle lets update-path tests vary exactly one field at a time.
+func testPresetSingle(name, slug, desc, ctx, schema string) PresetDefinition {
+	return PresetDefinition{
+		Name: "single",
+		Types: []PresetResourceType{{
+			Name:        name,
+			Slug:        slug,
+			Description: desc,
+			Context:     json.RawMessage(ctx),
+			Schema:      json.RawMessage(schema),
+		}},
+	}
+}
+
+// countingUpdateSub lets tests assert the unchanged-path emits zero events.
+func countingUpdateSub(t *testing.T, d *domain.EventDispatcher) *int {
+	t.Helper()
+	count := 0
+	err := domain.Subscribe(d, "ResourceType.Updated",
+		func(_ context.Context, _ domain.EventEnvelope[entities.ResourceTypeUpdated]) error {
+			count++
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("Subscribe ResourceType.Updated: %v", err)
+	}
+	return &count
+}
+
+func TestInstallPreset_UpdateNoOpWhenUnchanged(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(testPresetSingle(
+		"Product", "product", "A product",
+		`{"@vocab":"https://schema.org/"}`,
+		`{"type":"object","properties":{"name":{"type":"string"}}}`,
+	))
+
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+
+	// First install creates the type.
+	svc := makeInstallTestService(repo, rSvc, registry)
+	first, err := svc.InstallPreset(context.Background(), "single", true)
+	if err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	if len(first.Created) != 1 {
+		t.Fatalf("expected 1 created on first install, got %+v", first.Created)
+	}
+
+	// Second install with update=true against the same preset should no-op.
+	// Build a fresh service so its dispatcher only sees events from this run.
+	es := &stubEventStore{}
+	d := domain.NewEventDispatcher()
+	pm := &stubProjMgr{}
+	if err := SubscribeResourceTypeHandlers(d, repo, pm, noopLogger{}); err != nil {
+		t.Fatalf("SubscribeResourceTypeHandlers: %v", err)
+	}
+	updateCount := countingUpdateSub(t, d)
+	svc2 := &resourceTypeService{
+		repo: repo, projMgr: pm, eventStore: es, dispatcher: d,
+		registry: registry, logger: noopLogger{}, resourceSvc: rSvc,
+	}
+
+	second, err := svc2.InstallPreset(context.Background(), "single", true)
+	if err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+	if len(second.Unchanged) != 1 || second.Unchanged[0] != "product" {
+		t.Fatalf("expected Unchanged=[product], got %+v", second.Unchanged)
+	}
+	if len(second.Updated) != 0 {
+		t.Fatalf("expected no Updated entries, got %+v", second.Updated)
+	}
+	if len(second.Created) != 0 {
+		t.Fatalf("expected no Created entries, got %+v", second.Created)
+	}
+	if *updateCount != 0 {
+		t.Fatalf("expected zero ResourceTypeUpdated events, got %d", *updateCount)
+	}
+
+	// Whitespace/key-order-only differences must still no-op end-to-end.
+	registry2 := NewPresetRegistry()
+	registry2.MustAdd(testPresetSingle(
+		"Product", "product", "A product",
+		`{ "@vocab" : "https://schema.org/" }`,
+		"{\n  \"properties\":{\"name\":{\"type\":\"string\"}},\n  \"type\":\"object\"\n}",
+	))
+	svc3 := &resourceTypeService{
+		repo: repo, projMgr: pm, eventStore: es, dispatcher: d,
+		registry: registry2, logger: noopLogger{}, resourceSvc: rSvc,
+	}
+	third, err := svc3.InstallPreset(context.Background(), "single", true)
+	if err != nil {
+		t.Fatalf("third install: %v", err)
+	}
+	if len(third.Unchanged) != 1 {
+		t.Fatalf("whitespace/key-order differences should not trigger update, got %+v", third)
+	}
+	if *updateCount != 0 {
+		t.Fatalf("expected still zero events after formatting-only diff, got %d", *updateCount)
+	}
+}
+
+func TestInstallPreset_UpdateWhenFieldChanges(t *testing.T) {
+	t.Parallel()
+
+	base := func() PresetDefinition {
+		return testPresetSingle(
+			"Product", "product", "A product",
+			`{"@vocab":"https://schema.org/"}`,
+			`{"type":"object","properties":{"name":{"type":"string"}}}`,
+		)
+	}
+
+	mutations := map[string]func(p *PresetResourceType){
+		"name":        func(p *PresetResourceType) { p.Name = "Widget" },
+		"description": func(p *PresetResourceType) { p.Description = "A widget" },
+		"context": func(p *PresetResourceType) {
+			p.Context = json.RawMessage(`{"@vocab":"https://example.com/"}`)
+		},
+		"schema": func(p *PresetResourceType) {
+			p.Schema = json.RawMessage(`{"type":"object","properties":{"sku":{"type":"string"}}}`)
+		},
+	}
+
+	for field, mutate := range mutations {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+
+			// Seed: create the resource type via a first install.
+			seedReg := NewPresetRegistry()
+			seedReg.MustAdd(base())
+			repo := newInstallTestTypeRepo()
+			rSvc := newFakeResourceSvc()
+			if _, err := makeInstallTestService(repo, rSvc, seedReg).
+				InstallPreset(context.Background(), "single", false); err != nil {
+				t.Fatalf("seed install: %v", err)
+			}
+
+			// Registry whose preset mutates just one field.
+			mutated := base()
+			mutate(&mutated.Types[0])
+			reg := NewPresetRegistry()
+			reg.MustAdd(mutated)
+
+			es := &stubEventStore{}
+			d := domain.NewEventDispatcher()
+			pm := &stubProjMgr{}
+			if err := SubscribeResourceTypeHandlers(d, repo, pm, noopLogger{}); err != nil {
+				t.Fatalf("SubscribeResourceTypeHandlers: %v", err)
+			}
+			updateCount := countingUpdateSub(t, d)
+			svc := &resourceTypeService{
+				repo: repo, projMgr: pm, eventStore: es, dispatcher: d,
+				registry: reg, logger: noopLogger{}, resourceSvc: rSvc,
+			}
+
+			res, err := svc.InstallPreset(context.Background(), "single", true)
+			if err != nil {
+				t.Fatalf("install with mutated %s: %v", field, err)
+			}
+			if len(res.Updated) != 1 || res.Updated[0] != "product" {
+				t.Fatalf("expected Updated=[product] when %s changed, got %+v", field, res)
+			}
+			if len(res.Unchanged) != 0 {
+				t.Fatalf("expected empty Unchanged when %s changed, got %+v", field, res.Unchanged)
+			}
+			if *updateCount != 1 {
+				t.Fatalf("expected exactly 1 ResourceTypeUpdated event when %s changed, got %d",
+					field, *updateCount)
+			}
+		})
+	}
+}
+
+func TestJSONEquivalent(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		a, b json.RawMessage
+		want bool
+	}{
+		{"both empty string", json.RawMessage(""), json.RawMessage(""), true},
+		{"both nil", nil, nil, true},
+		{"nil vs empty slice", nil, json.RawMessage{}, true},
+		{"one empty", json.RawMessage(""), json.RawMessage(`{"a":1}`), false},
+		{"null literal vs empty", json.RawMessage(`null`), json.RawMessage(""), false},
+		{"null literal vs null literal", json.RawMessage(`null`), json.RawMessage(`null`), true},
+		{"identical", json.RawMessage(`{"a":1}`), json.RawMessage(`{"a":1}`), true},
+		{"whitespace only", json.RawMessage(`{"a":1}`), json.RawMessage(`{ "a" : 1 }`), true},
+		{"key order", json.RawMessage(`{"a":1,"b":2}`), json.RawMessage(`{"b":2,"a":1}`), true},
+		{"value differs", json.RawMessage(`{"a":1}`), json.RawMessage(`{"a":2}`), false},
+		{"nested key order", json.RawMessage(`{"x":{"a":1,"b":2}}`), json.RawMessage(`{"x":{"b":2,"a":1}}`), true},
+		{"array order matters", json.RawMessage(`[1,2]`), json.RawMessage(`[2,1]`), false},
+		// Malformed JSON must never be treated as equivalent — force the
+		// non-match path so downstream validation runs (see jsonEquivalent).
+		{"malformed vs identical bytes", json.RawMessage(`{bad`), json.RawMessage(`{bad`), false},
+		{"malformed vs valid", json.RawMessage(`{bad`), json.RawMessage(`{"a":1}`), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := jsonEquivalent(tc.a, tc.b)
+			if got != tc.want {
+				t.Fatalf("jsonEquivalent(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+// Regression guard: update=false must route an existing matching type to
+// Skipped, never to Unchanged — Unchanged is reserved for the update=true
+// no-op path. Without this, a future refactor that reorders the cases in
+// InstallPreset would silently change semantics.
+func TestInstallPreset_UpdateFalseSkipsNotUnchanged(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(testPresetSingle(
+		"Product", "product", "A product",
+		`{"@vocab":"https://schema.org/"}`,
+		`{"type":"object","properties":{"name":{"type":"string"}}}`,
+	))
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+
+	svc := makeInstallTestService(repo, rSvc, registry)
+	if _, err := svc.InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("seed install: %v", err)
+	}
+	res, err := makeInstallTestService(repo, rSvc, registry).
+		InstallPreset(context.Background(), "single", false)
+	if err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0] != "product" {
+		t.Fatalf("expected Skipped=[product] with update=false, got %+v", res)
+	}
+	if len(res.Unchanged) != 0 {
+		t.Fatalf("update=false must never produce Unchanged, got %+v", res.Unchanged)
+	}
+}
+
+// A single install must correctly distribute types across Created, Updated,
+// and Unchanged in one pass — independent accumulation, no spillover.
+func TestInstallPreset_MixedBatchCreatesUpdatesAndUnchanged(t *testing.T) {
+	t.Parallel()
+
+	seedReg := NewPresetRegistry()
+	seedReg.MustAdd(PresetDefinition{
+		Name: "mix",
+		Types: []PresetResourceType{
+			{
+				Name: "Stable", Slug: "stable", Description: "won't change",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object"}`),
+			},
+			{
+				Name: "Mutating", Slug: "mutating", Description: "old desc",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object"}`),
+			},
+		},
+	})
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	if _, err := makeInstallTestService(repo, rSvc, seedReg).
+		InstallPreset(context.Background(), "mix", false); err != nil {
+		t.Fatalf("seed install: %v", err)
+	}
+
+	// Second preset: same "stable", mutated "mutating", brand-new "fresh".
+	reg := NewPresetRegistry()
+	reg.MustAdd(PresetDefinition{
+		Name: "mix",
+		Types: []PresetResourceType{
+			{
+				Name: "Stable", Slug: "stable", Description: "won't change",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object"}`),
+			},
+			{
+				Name: "Mutating", Slug: "mutating", Description: "new desc",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object"}`),
+			},
+			{
+				Name: "Fresh", Slug: "fresh", Description: "new",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object"}`),
+			},
+		},
+	})
+	res, err := makeInstallTestService(repo, rSvc, reg).
+		InstallPreset(context.Background(), "mix", true)
+	if err != nil {
+		t.Fatalf("mixed install: %v", err)
+	}
+	if len(res.Created) != 1 || res.Created[0] != "fresh" {
+		t.Fatalf("expected Created=[fresh], got %+v", res.Created)
+	}
+	if len(res.Updated) != 1 || res.Updated[0] != "mutating" {
+		t.Fatalf("expected Updated=[mutating], got %+v", res.Updated)
+	}
+	if len(res.Unchanged) != 1 || res.Unchanged[0] != "stable" {
+		t.Fatalf("expected Unchanged=[stable], got %+v", res.Unchanged)
+	}
+}
+
+// The Unchanged path must not touch Status — the comment on
+// presetMatchesResourceType says Status is carried over; pin that the
+// stored Status is still intact after a no-op install.
+func TestInstallPreset_UnchangedPreservesStatus(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(testPresetSingle(
+		"Product", "product", "A product",
+		`{"@vocab":"https://schema.org/"}`,
+		`{"type":"object"}`,
+	))
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	if _, err := makeInstallTestService(repo, rSvc, registry).
+		InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("seed install: %v", err)
+	}
+	// Stamp a non-default status on the stored entity to prove the no-op
+	// path doesn't clobber it.
+	stored := repo.types["product"]
+	if err := stored.Restore(
+		stored.GetID(), stored.Name(), stored.Slug(), stored.Description(),
+		"archived", stored.Context(), stored.Schema(),
+		stored.CreatedAt(), 99,
+	); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+
+	if _, err := makeInstallTestService(repo, rSvc, registry).
+		InstallPreset(context.Background(), "single", true); err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+	if got := repo.types["product"].Status(); got != "archived" {
+		t.Fatalf("Unchanged path must preserve Status, got %q", got)
+	}
+}
