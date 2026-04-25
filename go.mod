@@ -1,15 +1,16 @@
 module github.com/wepala/weos/v3
 
-go 1.25.0
+go 1.25.4
 
 require (
 	cloud.google.com/go/bigquery v1.74.0
 	cloud.google.com/go/storage v1.62.0
-	github.com/akeemphilbert/pericarp v0.0.0-20260404155656-110ff0f74cd7
+	github.com/akeemphilbert/pericarp v0.0.0-20260425205456-1a6eea6982e8
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.14
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.99.0
 	github.com/casbin/gorm-adapter/v3 v3.41.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/sessions v1.4.0
 	github.com/jinzhu/inflection v1.0.0
 	github.com/joho/godotenv v1.5.1
@@ -19,6 +20,7 @@ require (
 	github.com/segmentio/ksuid v1.0.4
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.21.0
+	github.com/wepala/weos-private-presets v0.1.1
 	go.uber.org/fx v1.23.0
 	go.uber.org/zap v1.27.0
 	google.golang.org/adk v0.6.0
@@ -80,7 +82,6 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/google/flatbuffers v23.5.26+incompatible // indirect

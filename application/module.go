@@ -88,6 +88,9 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		}),
 		fx.Provide(func(db *gormdb.DB) authrepos.AccountRepository { return authgorm.NewAccountRepository(db) }),
 		fx.Provide(func(db *gormdb.DB) authrepos.InviteRepository { return authgorm.NewInviteRepository(db) }),
+		fx.Provide(func(db *gormdb.DB) authrepos.PasswordCredentialRepository {
+			return authgorm.NewPasswordCredentialRepository(db)
+		}),
 
 		// Auth infrastructure
 		fx.Provide(ProvideOAuthProviderRegistry),

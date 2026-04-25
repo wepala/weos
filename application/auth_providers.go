@@ -42,20 +42,29 @@ func ProvideAuthorizationChecker(db *gorm.DB) (*authcasbin.CasbinAuthorizationCh
 
 func ProvideAuthenticationService(params struct {
 	fx.In
-	Registry     authapp.OAuthProviderRegistry
-	Agents       authrepos.AgentRepository
-	Credentials  authrepos.CredentialRepository
-	Sessions     authrepos.AuthSessionRepository
-	Accounts     authrepos.AccountRepository
-	AuthzChecker *authcasbin.CasbinAuthorizationChecker
+	Registry            authapp.OAuthProviderRegistry
+	Agents              authrepos.AgentRepository
+	Credentials         authrepos.CredentialRepository
+	Sessions            authrepos.AuthSessionRepository
+	Accounts            authrepos.AccountRepository
+	PasswordCredentials authrepos.PasswordCredentialRepository
+	AuthzChecker        *authcasbin.CasbinAuthorizationChecker
+	JWTService          authapp.JWTService `optional:"true"`
 }) authapp.AuthenticationService {
+	opts := []authapp.AuthServiceOption{
+		authapp.WithAuthorizationChecker(params.AuthzChecker),
+		authapp.WithPasswordCredentialRepository(params.PasswordCredentials),
+	}
+	if params.JWTService != nil {
+		opts = append(opts, authapp.WithJWTService(params.JWTService))
+	}
 	return authapp.NewDefaultAuthenticationService(
 		params.Registry,
 		params.Agents,
 		params.Credentials,
 		params.Sessions,
 		params.Accounts,
-		authapp.WithAuthorizationChecker(params.AuthzChecker),
+		opts...,
 	)
 }
 

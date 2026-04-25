@@ -184,6 +184,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
 
+	// Email + password account flow. Public routes — must reach the handler
+	// even when no session exists yet, so they sit outside the protected group.
+	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
+		AuthService:    authService,
+		SessionManager: sessionManager,
+		Logger:         logger,
+	})
+	api.POST("/auth/register", passwordAuthHandlers.Register)
+	api.POST("/auth/password-login", passwordAuthHandlers.Login)
+
 	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth.
 	baseURL := strings.TrimRight(appCfg.OAuth.BaseURL, "/")
 	if baseURL == "" {
