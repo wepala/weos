@@ -30,10 +30,10 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// PasswordAuthHandlerConfig wires the dependencies used by the password
-// register/login HTTP handlers. The same SessionManager and AuthService
-// instances powering the OAuth flows are reused so password sessions and
-// OAuth sessions share a single cookie and JWT lifecycle.
+// PasswordAuthHandlerConfig wires dependencies for the password
+// register/login endpoints. SessionManager and AuthService are shared
+// with the OAuth flow so a password-authed and an OAuth-authed request
+// are indistinguishable to downstream middleware.
 type PasswordAuthHandlerConfig struct {
 	AuthService     authapp.AuthenticationService
 	SessionManager  session.SessionManager
@@ -54,8 +54,13 @@ func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler 
 	if cfg.JWTCookieName == "" {
 		cfg.JWTCookieName = "pericarp_token"
 	}
+	// Cookie outlives the JWT's exp claim on purpose: BearerOrSession
+	// falls back to the gorilla session when the JWT is stale, so as long
+	// as the cookie is sent the browser still talks to a valid session
+	// for the full SessionDuration. A 15-min cookie would force a
+	// silent re-login on every page that takes longer than that.
 	if cfg.JWTCookieMaxAge == 0 {
-		cfg.JWTCookieMaxAge = 900
+		cfg.JWTCookieMaxAge = int(cfg.SessionDuration.Seconds())
 	}
 	return &PasswordAuthHandler{cfg: cfg}
 }
@@ -89,9 +94,6 @@ type authAccountResponse struct {
 	Name string `json:"name"`
 }
 
-// Register handles POST /api/auth/register. Mirrors the success branch of
-// pericarp's OAuth Callback: register → create auth session → set HTTP
-// session cookie → issue JWT cookie.
 func (h *PasswordAuthHandler) Register(c echo.Context) error {
 	var req registerRequest
 	if err := c.Bind(&req); err != nil {
@@ -103,11 +105,11 @@ func (h *PasswordAuthHandler) Register(c echo.Context) error {
 	}
 	displayName := strings.TrimSpace(req.DisplayName)
 	if displayName == "" {
-		// Fall back to the local-part of the email so the agent has a name
-		// even when the client doesn't supply one. RegisterPassword needs
-		// a non-empty display name to build the personal-account name.
-		if at := strings.Index(email, "@"); at > 0 {
-			displayName = email[:at]
+		// RegisterPassword requires a non-empty display name (it's used to
+		// build the personal-account name); the email's local-part is the
+		// least surprising default.
+		if local, _, ok := strings.Cut(email, "@"); ok && local != "" {
+			displayName = local
 		} else {
 			displayName = email
 		}
@@ -131,9 +133,6 @@ func (h *PasswordAuthHandler) Register(c echo.Context) error {
 	return h.completeAuth(c, agent, credential, account, email)
 }
 
-// Login handles POST /api/auth/password-login. Issues the same session/JWT
-// cookies as Register so a freshly-signed-up client and a returning client
-// look identical to downstream middleware.
 func (h *PasswordAuthHandler) Login(c echo.Context) error {
 	var req loginRequest
 	if err := c.Bind(&req); err != nil {
@@ -160,6 +159,26 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 	}
 
 	return h.completeAuth(c, agent, credential, account, email)
+}
+
+// Logout clears both the gorilla session cookie (delegated to pericarp's
+// Logout handler) and the JWT cookie set by completeAuth. Without
+// explicitly expiring the JWT cookie, BearerOrSession would keep
+// accepting it until its MaxAge elapses — so a sign-out endpoint that
+// only invalidates the session leaves an authenticated cookie pair.
+func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFunc) error {
+	w := c.Response().Writer
+	http.SetCookie(w, &http.Cookie{
+		Name:     h.cfg.JWTCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	oauthLogout(w, c.Request())
+	return nil
 }
 
 func (h *PasswordAuthHandler) completeAuth(
@@ -230,10 +249,8 @@ func (h *PasswordAuthHandler) completeAuth(
 
 func clientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		if comma := strings.Index(fwd, ","); comma >= 0 {
-			return strings.TrimSpace(fwd[:comma])
-		}
-		return strings.TrimSpace(fwd)
+		first, _, _ := strings.Cut(fwd, ",")
+		return strings.TrimSpace(first)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
