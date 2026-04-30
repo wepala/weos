@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestLoadFromEnvironment_SMTP(t *testing.T) {
 	t.Setenv("SMTP_HOST", "mail.example.com")
@@ -38,5 +41,36 @@ func TestLoadFromEnvironment_SMTP_NotSet(t *testing.T) {
 	}
 	if cfg.SMTP.Port != "" {
 		t.Fatalf("expected empty Port, got %s", cfg.SMTP.Port)
+	}
+}
+
+func TestLoadFromEnvironment_NetSuiteScopes(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		{"comma-separated", "rest_webservices,openid", []string{"rest_webservices", "openid"}},
+		{"space-separated", "rest_webservices openid", []string{"rest_webservices", "openid"}},
+		{"mixed with whitespace", " rest_webservices ,  openid\trestlets ", []string{"rest_webservices", "openid", "restlets"}},
+		{"single scope", "openid", []string{"openid"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("NETSUITE_SCOPES", tc.env)
+			cfg := Default()
+			cfg.LoadFromEnvironment()
+			if !reflect.DeepEqual(cfg.OAuth.NetSuiteScopes, tc.want) {
+				t.Fatalf("NetSuiteScopes = %#v, want %#v", cfg.OAuth.NetSuiteScopes, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadFromEnvironment_NetSuiteScopes_NotSet(t *testing.T) {
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+	if cfg.OAuth.NetSuiteScopes != nil {
+		t.Fatalf("expected nil NetSuiteScopes when env not set, got %#v", cfg.OAuth.NetSuiteScopes)
 	}
 }

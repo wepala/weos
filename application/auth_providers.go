@@ -22,12 +22,23 @@ func ProvideOAuthProviderRegistry(params struct {
 	Config config.Config
 }) authapp.OAuthProviderRegistry {
 	registry := make(authapp.OAuthProviderRegistry)
-	if params.Config.OAuthEnabled() {
-		google := providers.NewGoogle(providers.GoogleConfig{
-			ClientID:     params.Config.OAuth.GoogleClientID,
-			ClientSecret: params.Config.OAuth.GoogleClientSecret,
+	if !params.Config.OAuthEnabled() {
+		return registry
+	}
+	cfg := params.Config.OAuth
+	if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
+		registry["google"] = providers.NewGoogle(providers.GoogleConfig{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleClientSecret,
 		})
-		registry["google"] = google
+	}
+	if cfg.NetSuiteClientID != "" && cfg.NetSuiteClientSecret != "" && cfg.NetSuiteAccountID != "" {
+		registry["netsuite"] = providers.NewNetSuite(providers.NetSuiteConfig{
+			ClientID:     cfg.NetSuiteClientID,
+			ClientSecret: cfg.NetSuiteClientSecret,
+			AccountID:    cfg.NetSuiteAccountID,
+			Scopes:       cfg.NetSuiteScopes,
+		})
 	}
 	return registry
 }

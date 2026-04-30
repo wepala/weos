@@ -18,12 +18,32 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // OAuthConfig holds configuration for OAuth authentication.
+//
+// Provider credentials are independent — set whichever providers you
+// want available to the auth registry. OAuthEnabled returns true if at
+// least one provider is fully configured.
 type OAuthConfig struct {
-	GoogleClientID      string
-	GoogleClientSecret  string
+	GoogleClientID     string
+	GoogleClientSecret string
+
+	// NetSuite OAuth 2.0 (SuiteTalk REST). AccountID accepts the bare
+	// account number for production (e.g. "1234567") or the underscore
+	// suffix for sandboxes (e.g. "1234567_SB1") — pericarp derives the
+	// auth/token endpoints from it.
+	NetSuiteClientID     string
+	NetSuiteClientSecret string
+	NetSuiteAccountID    string
+	// NetSuiteScopes overrides pericarp's default scope list. Leave nil/empty
+	// to fall back to ["rest_webservices"]. Include "openid" when the binary
+	// needs to call NetSuite's userinfo endpoint — without it, the token
+	// exchange succeeds but the userinfo fetch returns 400 "Unable to
+	// authenticate", because NetSuite's userinfo is gated behind OIDC.
+	NetSuiteScopes []string
+
 	FrontendURL         string
 	BaseURL             string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
 	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
@@ -107,9 +127,17 @@ type StorageConfig struct {
 	MaxUploadBytes int64
 }
 
-// OAuthEnabled returns true when Google OAuth credentials are configured.
+// OAuthEnabled returns true when at least one OAuth provider is fully
+// configured. The auth registry is gated on this so a binary without
+// any provider creds doesn't expose half-wired login routes.
 func (c *Config) OAuthEnabled() bool {
-	return c.OAuth.GoogleClientID != "" && c.OAuth.GoogleClientSecret != ""
+	if c.OAuth.GoogleClientID != "" && c.OAuth.GoogleClientSecret != "" {
+		return true
+	}
+	if c.OAuth.NetSuiteClientID != "" && c.OAuth.NetSuiteClientSecret != "" && c.OAuth.NetSuiteAccountID != "" {
+		return true
+	}
+	return false
 }
 
 // LLMConfig holds configuration for LLM providers.
@@ -218,6 +246,24 @@ func (c *Config) LoadFromEnvironment() {
 
 	if clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET"); clientSecret != "" {
 		c.OAuth.GoogleClientSecret = clientSecret
+	}
+
+	if clientID := os.Getenv("NETSUITE_CLIENT_ID"); clientID != "" {
+		c.OAuth.NetSuiteClientID = clientID
+	}
+
+	if clientSecret := os.Getenv("NETSUITE_CLIENT_SECRET"); clientSecret != "" {
+		c.OAuth.NetSuiteClientSecret = clientSecret
+	}
+
+	if accountID := os.Getenv("NETSUITE_ACCOUNT_ID"); accountID != "" {
+		c.OAuth.NetSuiteAccountID = accountID
+	}
+
+	if scopes := os.Getenv("NETSUITE_SCOPES"); scopes != "" {
+		c.OAuth.NetSuiteScopes = strings.FieldsFunc(scopes, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t'
+		})
 	}
 
 	if frontendURL := os.Getenv("FRONTEND_URL"); frontendURL != "" {
