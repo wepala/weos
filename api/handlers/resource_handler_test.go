@@ -19,8 +19,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +48,12 @@ type stubResourceSvc struct {
 	byIDEntity *entities.Resource
 	byIDErr    error
 	byIDHit    int
+
+	createEntity *entities.Resource
+	createErr    error
+
+	updateEntity *entities.Resource
+	updateErr    error
 }
 
 func (s *stubResourceSvc) GetFlat(_ context.Context, _, _ string) (map[string]any, error) {
@@ -56,6 +64,14 @@ func (s *stubResourceSvc) GetFlat(_ context.Context, _, _ string) (map[string]an
 func (s *stubResourceSvc) GetByID(_ context.Context, _ string) (*entities.Resource, error) {
 	s.byIDHit++
 	return s.byIDEntity, s.byIDErr
+}
+
+func (s *stubResourceSvc) Create(_ context.Context, _ application.CreateResourceCommand) (*entities.Resource, error) {
+	return s.createEntity, s.createErr
+}
+
+func (s *stubResourceSvc) Update(_ context.Context, _ application.UpdateResourceCommand) (*entities.Resource, error) {
+	return s.updateEntity, s.updateErr
 }
 
 // stubTypeSvc returns a fixed resource type from GetBySlug and panics on
@@ -377,5 +393,87 @@ func TestResourceHandler_Get_JSONLD_TypeSlugMismatchReturns404(t *testing.T) {
 	}
 	if svc.flatHit != 0 {
 		t.Errorf("flatHit = %d, want 0 (JSON-LD requests must not call GetFlat)", svc.flatHit)
+	}
+}
+
+func newPostRequest(t *testing.T, body string) (echo.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/api/resources/course", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("typeSlug")
+	c.SetParamValues("course")
+	return c, rec
+}
+
+func newPutRequest(t *testing.T, body string) (echo.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPut, "/api/resources/course/urn:course:abc", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("typeSlug", "id")
+	c.SetParamValues("course", "urn:course:abc")
+	return c, rec
+}
+
+// TestResourceHandler_Create_ValidationErrorReturns400 verifies that a schema
+// validation failure surfaced from the resource service is mapped to 400, not
+// 500. The 500-default branch only fires for genuinely unexpected errors —
+// malformed user input must surface as a client error so callers (and CI
+// assertions in downstream services) can distinguish "you sent bad data" from
+// "the server crashed".
+func TestResourceHandler_Create_ValidationErrorReturns400(t *testing.T) {
+	svc := &stubResourceSvc{
+		createErr: fmt.Errorf("schema validation failed: missing property 'actorId': %w", application.ErrValidation),
+	}
+	h := newHandler(t, svc)
+
+	c, rec := newPostRequest(t, `{"theme":"dark"}`)
+	if err := h.Create(c); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400 (validation errors must be 4xx, not 500)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "actorId") {
+		t.Fatalf("body = %q, want underlying validation message preserved", rec.Body.String())
+	}
+}
+
+// TestResourceHandler_Create_UnexpectedErrorReturns500 verifies the default
+// branch — a non-validation, non-AccessDenied error still maps to 500 so
+// genuine server faults aren't reclassified as client errors.
+func TestResourceHandler_Create_UnexpectedErrorReturns500(t *testing.T) {
+	svc := &stubResourceSvc{createErr: errors.New("database is on fire")}
+	h := newHandler(t, svc)
+
+	c, rec := newPostRequest(t, `{"name":"x"}`)
+	if err := h.Create(c); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("code = %d, want 500", rec.Code)
+	}
+}
+
+func TestResourceHandler_Update_ValidationErrorReturns400(t *testing.T) {
+	svc := &stubResourceSvc{
+		updateErr: fmt.Errorf("schema validation failed: theme must be one of [light dark system]: %w", application.ErrValidation),
+	}
+	h := newHandler(t, svc)
+
+	c, rec := newPutRequest(t, `{"theme":"blue"}`)
+	if err := h.Update(c); err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "theme") {
+		t.Fatalf("body = %q, want underlying validation message preserved", rec.Body.String())
 	}
 }
