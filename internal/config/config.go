@@ -18,16 +18,42 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // OAuthConfig holds configuration for OAuth authentication.
+//
+// Provider credentials are independent — set whichever providers you
+// want available to the auth registry. OAuthEnabled returns true if at
+// least one provider is fully configured.
 type OAuthConfig struct {
-	GoogleClientID      string
-	GoogleClientSecret  string
+	GoogleClientID     string
+	GoogleClientSecret string
+
+	// NetSuite OAuth 2.0 (SuiteTalk REST). AccountID accepts the bare
+	// account number for production (e.g. "1234567") or the underscore
+	// suffix for sandboxes (e.g. "1234567_SB1") — pericarp derives the
+	// auth/token endpoints from it.
+	NetSuiteClientID     string
+	NetSuiteClientSecret string
+	NetSuiteAccountID    string
+	// NetSuiteScopes overrides pericarp's default scope list. Leave nil/empty
+	// to fall back to ["rest_webservices"]. Include "openid" when the binary
+	// needs to call NetSuite's userinfo endpoint — without it, the token
+	// exchange succeeds but the userinfo fetch returns 400 "Unable to
+	// authenticate", because NetSuite's userinfo is gated behind OIDC.
+	NetSuiteScopes []string
+
 	FrontendURL         string
 	BaseURL             string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
 	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
 	DynamicRegistration bool   // Enable OAuth Dynamic Client Registration (RFC 7591)
+
+	// DefaultProvider is the provider used by /api/auth/login when the
+	// caller doesn't pass a provider query param (the admin SPA does
+	// this). Empty means "auto-pick from the configured registry" —
+	// see DefaultOAuthProvider below.
+	DefaultProvider string
 }
 
 // SMTPConfig holds configuration for outbound email via SMTP.
@@ -62,6 +88,13 @@ type Config struct {
 
 	// SessionSecret is the secret key for session cookies.
 	SessionSecret string
+
+	// PasswordAuthEnabled toggles the email + password register/login
+	// endpoints. Off by default — enabling it without a non-default
+	// SessionSecret is a footgun because sessions become forgeable.
+	// Callers should ensure SessionSecret is set to a production-safe
+	// value before enabling password authentication.
+	PasswordAuthEnabled bool
 
 	// LLM holds configuration for LLM integrations.
 	LLM LLMConfig
@@ -107,9 +140,45 @@ type StorageConfig struct {
 	MaxUploadBytes int64
 }
 
-// OAuthEnabled returns true when Google OAuth credentials are configured.
+// OAuthEnabled returns true when at least one OAuth provider is fully
+// configured. The auth registry is gated on this so a binary without
+// any provider creds doesn't expose half-wired login routes.
 func (c *Config) OAuthEnabled() bool {
-	return c.OAuth.GoogleClientID != "" && c.OAuth.GoogleClientSecret != ""
+	if c.OAuth.GoogleClientID != "" && c.OAuth.GoogleClientSecret != "" {
+		return true
+	}
+	if c.OAuth.NetSuiteClientID != "" && c.OAuth.NetSuiteClientSecret != "" && c.OAuth.NetSuiteAccountID != "" {
+		return true
+	}
+	return false
+}
+
+// AuthEnabled returns true when any real authentication mechanism is
+// configured (OAuth provider or password endpoints). Drives whether the
+// API is mounted with RequireAuth or the dev-mode SoftAuth fallback —
+// without this, a password-only deployment would mount login endpoints
+// on top of routes that were still effectively unauthenticated.
+func (c *Config) AuthEnabled() bool {
+	return c.OAuthEnabled() || c.PasswordAuthEnabled
+}
+
+// DefaultOAuthProvider returns the provider name to use when the caller
+// of /api/auth/login doesn't pass a `provider` query param (the admin
+// SPA does this). Honors OAUTH_DEFAULT_PROVIDER when set, otherwise
+// auto-picks from the configured registry — preferring google for
+// backward-compat, then netsuite. Falls back to "google" so the
+// behavior is unchanged when nothing is configured.
+func (c *Config) DefaultOAuthProvider() string {
+	if c.OAuth.DefaultProvider != "" {
+		return c.OAuth.DefaultProvider
+	}
+	if c.OAuth.GoogleClientID != "" && c.OAuth.GoogleClientSecret != "" {
+		return "google"
+	}
+	if c.OAuth.NetSuiteClientID != "" && c.OAuth.NetSuiteClientSecret != "" && c.OAuth.NetSuiteAccountID != "" {
+		return "netsuite"
+	}
+	return "google"
 }
 
 // LLMConfig holds configuration for LLM providers.
@@ -204,6 +273,12 @@ func (c *Config) LoadFromEnvironment() {
 		c.SessionSecret = secret
 	}
 
+	if v := os.Getenv("PASSWORD_AUTH_ENABLED"); v != "" {
+		if enabled, err := strconv.ParseBool(v); err == nil {
+			c.PasswordAuthEnabled = enabled
+		}
+	}
+
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 		c.LLM.GeminiAPIKey = apiKey
 	}
@@ -218,6 +293,30 @@ func (c *Config) LoadFromEnvironment() {
 
 	if clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET"); clientSecret != "" {
 		c.OAuth.GoogleClientSecret = clientSecret
+	}
+
+	if clientID := os.Getenv("NETSUITE_CLIENT_ID"); clientID != "" {
+		c.OAuth.NetSuiteClientID = clientID
+	}
+
+	if clientSecret := os.Getenv("NETSUITE_CLIENT_SECRET"); clientSecret != "" {
+		c.OAuth.NetSuiteClientSecret = clientSecret
+	}
+
+	if accountID := os.Getenv("NETSUITE_ACCOUNT_ID"); accountID != "" {
+		c.OAuth.NetSuiteAccountID = accountID
+	}
+
+	if scopes := os.Getenv("NETSUITE_SCOPES"); strings.TrimSpace(scopes) != "" {
+		parsed := strings.FieldsFunc(scopes, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\t'
+		})
+		// Only override pericarp's default scope list if parsing actually
+		// produced something — a whitespace-only override (common in
+		// templated env files) would otherwise wipe the defaults.
+		if len(parsed) > 0 {
+			c.OAuth.NetSuiteScopes = parsed
+		}
 	}
 
 	if frontendURL := os.Getenv("FRONTEND_URL"); frontendURL != "" {
@@ -236,6 +335,10 @@ func (c *Config) LoadFromEnvironment() {
 		if enabled, err := strconv.ParseBool(dynReg); err == nil {
 			c.OAuth.DynamicRegistration = enabled
 		}
+	}
+
+	if provider := os.Getenv("OAUTH_DEFAULT_PROVIDER"); provider != "" {
+		c.OAuth.DefaultProvider = provider
 	}
 
 	if bqProject := os.Getenv("BIGQUERY_PROJECT_ID"); bqProject != "" {

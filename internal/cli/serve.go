@@ -54,6 +54,19 @@ import (
 
 var serveViper = viper.New()
 
+// customFxOptions are extra fx options merged into the serve command's fx graph.
+// Downstream binaries (e.g. weos-kulr) call RegisterFxOptions before Execute()
+// to plug in app-specific providers, invokes, or modules without forking
+// serve.go. Mirrors the process-global registration pattern used for presets.
+var customFxOptions []fx.Option
+
+// RegisterFxOptions appends fx options to be merged into the serve command's
+// fx graph. Must be called before Execute(). Reachable from downstream binaries
+// via the public re-export in pkg/cli.
+func RegisterFxOptions(opts ...fx.Option) {
+	customFxOptions = append(customFxOptions, opts...)
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the API server",
@@ -97,7 +110,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	registry := presets.NewDefaultRegistry()
 
-	app := fx.New(
+	fxOpts := []fx.Option{
 		fx.NopLogger,
 		application.Module(appCfg, registry),
 		fx.Provide(weosoauth.ProvideJWTService),
@@ -121,7 +134,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&inviteRepo),
 		fx.Populate(&db),
 		fx.Populate(&presetHandlers),
-	)
+	}
+	fxOpts = append(fxOpts, customFxOptions...)
+	app := fx.New(fxOpts...)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer startCancel()
@@ -163,7 +178,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		RedirectURI: authhttp.RedirectURIConfig{
 			CallbackPath: "/api/auth/callback",
 		},
-		DefaultProvider: "google",
+		DefaultProvider: appCfg.DefaultOAuthProvider(),
 		FrontendURL:     appCfg.OAuth.FrontendURL,
 		Logger:          logger,
 	})
@@ -177,12 +192,34 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	api.GET("/auth/login", echo.WrapHandler(http.HandlerFunc(authHandlers.Login)))
 	api.GET("/auth/callback", echo.WrapHandler(http.HandlerFunc(authHandlers.Callback)))
-	if appCfg.OAuthEnabled() {
+	if appCfg.AuthEnabled() {
 		api.GET("/auth/me", impersonationHandler.Me(authHandlers))
 	} else {
 		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))
 	}
-	api.POST("/auth/logout", echo.WrapHandler(http.HandlerFunc(authHandlers.Logout)))
+	// Email + password account flow. Public routes — must reach the handler
+	// even when no session exists yet, so they sit outside the protected group.
+	// Mirror the SessionManager's dev-default Secure flag (Secure=false when
+	// SESSION_SECRET is unset) so the JWT cookie is accepted in plain-HTTP
+	// local dev and stays Secure in any real deployment.
+	secureCookies := appCfg.SessionSecret != "change-me-in-production"
+	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
+		AuthService:    authService,
+		SessionManager: sessionManager,
+		SecureCookies:  secureCookies,
+		Logger:         logger,
+	})
+	if appCfg.PasswordAuthEnabled {
+		api.POST("/auth/register", passwordAuthHandlers.Register)
+		api.POST("/auth/password-login", passwordAuthHandlers.Login)
+	}
+
+	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
+	// JWT cookie issued by the password and OAuth flows. Routing through
+	// the password handler so a single endpoint is correct for both flows.
+	api.POST("/auth/logout", func(c echo.Context) error {
+		return passwordAuthHandlers.Logout(c, authHandlers.Logout)
+	})
 
 	// Derive a public base URL for OAuth metadata, JWT issuer, and bearer auth.
 	baseURL := strings.TrimRight(appCfg.OAuth.BaseURL, "/")
@@ -243,9 +280,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Protected API group — apply auth middleware when OAuth is configured
+	// Protected API group — apply real auth middleware when any
+	// authentication mechanism (OAuth or password) is configured. Falling
+	// back to SoftAuth only in fully-unconfigured dev mode keeps a password
+	// deployment from looking authenticated while protected routes remain
+	// effectively open.
 	protected := api.Group("")
-	if appCfg.OAuthEnabled() {
+	if appCfg.AuthEnabled() {
 		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
 		protected.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))

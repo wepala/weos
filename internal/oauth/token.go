@@ -191,7 +191,7 @@ func handleAuthCodeGrant(
 	}
 
 	accessToken, err := jwtService.IssueToken(
-		ctx, agent, accounts, authCode.AccountID)
+		ctx, agent, accounts, authCode.AccountID, nil)
 	if err != nil {
 		logger.Error(ctx, "oauth token: JWT issuance failed", "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
@@ -311,7 +311,7 @@ func handleRefreshGrant(
 	}
 
 	accessToken, err := jwtService.IssueToken(
-		ctx, agent, accounts, stored.AccountID)
+		ctx, agent, accounts, stored.AccountID, nil)
 	if err != nil {
 		logger.Error(ctx, "oauth refresh: JWT issuance failed", "error", err)
 		return c.JSON(http.StatusInternalServerError, tokenErrorResponse{
