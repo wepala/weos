@@ -84,9 +84,10 @@ type Config struct {
 	SessionSecret string
 
 	// PasswordAuthEnabled toggles the email + password register/login
-	// endpoints. Off by default — enabling it without a real SessionSecret
-	// is a footgun (sessions become forgeable), so the SessionSecret check
-	// in AuthEnabled keeps dev defaults in dev mode.
+	// endpoints. Off by default — enabling it without a non-default
+	// SessionSecret is a footgun because sessions become forgeable.
+	// Callers should ensure SessionSecret is set to a production-safe
+	// value before enabling password authentication.
 	PasswordAuthEnabled bool
 
 	// LLM holds configuration for LLM integrations.

@@ -192,7 +192,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	api.GET("/auth/login", echo.WrapHandler(http.HandlerFunc(authHandlers.Login)))
 	api.GET("/auth/callback", echo.WrapHandler(http.HandlerFunc(authHandlers.Callback)))
-	if appCfg.OAuthEnabled() {
+	if appCfg.AuthEnabled() {
 		api.GET("/auth/me", impersonationHandler.Me(authHandlers))
 	} else {
 		api.GET("/auth/me", handlers.DevMe(credentialRepo, agentRepo, accountRepo, logger))

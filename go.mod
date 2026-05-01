@@ -20,7 +20,6 @@ require (
 	github.com/segmentio/ksuid v1.0.4
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.21.0
-	github.com/wepala/weos-private-presets v0.1.1
 	go.uber.org/fx v1.23.0
 	go.uber.org/zap v1.27.0
 	google.golang.org/adk v0.6.0
