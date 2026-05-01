@@ -48,6 +48,12 @@ type OAuthConfig struct {
 	BaseURL             string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
 	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
 	DynamicRegistration bool   // Enable OAuth Dynamic Client Registration (RFC 7591)
+
+	// DefaultProvider is the provider used by /api/auth/login when the
+	// caller doesn't pass a provider query param (the admin SPA does
+	// this). Empty means "auto-pick from the configured registry" —
+	// see DefaultOAuthProvider below.
+	DefaultProvider string
 }
 
 // SMTPConfig holds configuration for outbound email via SMTP.
@@ -154,6 +160,25 @@ func (c *Config) OAuthEnabled() bool {
 // on top of routes that were still effectively unauthenticated.
 func (c *Config) AuthEnabled() bool {
 	return c.OAuthEnabled() || c.PasswordAuthEnabled
+}
+
+// DefaultOAuthProvider returns the provider name to use when the caller
+// of /api/auth/login doesn't pass a `provider` query param (the admin
+// SPA does this). Honors OAUTH_DEFAULT_PROVIDER when set, otherwise
+// auto-picks from the configured registry — preferring google for
+// backward-compat, then netsuite. Falls back to "google" so the
+// behavior is unchanged when nothing is configured.
+func (c *Config) DefaultOAuthProvider() string {
+	if c.OAuth.DefaultProvider != "" {
+		return c.OAuth.DefaultProvider
+	}
+	if c.OAuth.GoogleClientID != "" && c.OAuth.GoogleClientSecret != "" {
+		return "google"
+	}
+	if c.OAuth.NetSuiteClientID != "" && c.OAuth.NetSuiteClientSecret != "" && c.OAuth.NetSuiteAccountID != "" {
+		return "netsuite"
+	}
+	return "google"
 }
 
 // LLMConfig holds configuration for LLM providers.
@@ -310,6 +335,10 @@ func (c *Config) LoadFromEnvironment() {
 		if enabled, err := strconv.ParseBool(dynReg); err == nil {
 			c.OAuth.DynamicRegistration = enabled
 		}
+	}
+
+	if provider := os.Getenv("OAUTH_DEFAULT_PROVIDER"); provider != "" {
+		c.OAuth.DefaultProvider = provider
 	}
 
 	if bqProject := os.Getenv("BIGQUERY_PROJECT_ID"); bqProject != "" {

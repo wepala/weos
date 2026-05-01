@@ -75,6 +75,67 @@ func TestLoadFromEnvironment_NetSuiteScopes_NotSet(t *testing.T) {
 	}
 }
 
+func TestDefaultOAuthProvider(t *testing.T) {
+	tests := []struct {
+		name string
+		mut  func(*Config)
+		want string
+	}{
+		{
+			name: "explicit override wins",
+			mut: func(c *Config) {
+				c.OAuth.DefaultProvider = "netsuite"
+				c.OAuth.GoogleClientID = "g"
+				c.OAuth.GoogleClientSecret = "s"
+			},
+			want: "netsuite",
+		},
+		{
+			name: "google preferred when configured",
+			mut: func(c *Config) {
+				c.OAuth.GoogleClientID = "g"
+				c.OAuth.GoogleClientSecret = "s"
+				c.OAuth.NetSuiteClientID = "n"
+				c.OAuth.NetSuiteClientSecret = "ns"
+				c.OAuth.NetSuiteAccountID = "1234567"
+			},
+			want: "google",
+		},
+		{
+			name: "netsuite-only deployment",
+			mut: func(c *Config) {
+				c.OAuth.NetSuiteClientID = "n"
+				c.OAuth.NetSuiteClientSecret = "ns"
+				c.OAuth.NetSuiteAccountID = "1234567"
+			},
+			want: "netsuite",
+		},
+		{
+			name: "fallback when nothing configured",
+			mut:  func(*Config) {},
+			want: "google",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Default()
+			tc.mut(&cfg)
+			if got := cfg.DefaultOAuthProvider(); got != tc.want {
+				t.Fatalf("DefaultOAuthProvider() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadFromEnvironment_DefaultOAuthProvider(t *testing.T) {
+	t.Setenv("OAUTH_DEFAULT_PROVIDER", "netsuite")
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+	if cfg.OAuth.DefaultProvider != "netsuite" {
+		t.Fatalf("DefaultProvider = %q, want %q", cfg.OAuth.DefaultProvider, "netsuite")
+	}
+}
+
 // A whitespace-only override (common in templated env files) must not
 // wipe pericarp's default scope list — empty parsing keeps Scopes nil
 // so the default kicks in downstream.

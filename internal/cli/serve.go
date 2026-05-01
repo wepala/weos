@@ -178,7 +178,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		RedirectURI: authhttp.RedirectURIConfig{
 			CallbackPath: "/api/auth/callback",
 		},
-		DefaultProvider: "google",
+		DefaultProvider: appCfg.DefaultOAuthProvider(),
 		FrontendURL:     appCfg.OAuth.FrontendURL,
 		Logger:          logger,
 	})

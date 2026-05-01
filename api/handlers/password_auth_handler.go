@@ -223,9 +223,13 @@ func (h *PasswordAuthHandler) completeAuth(
 	}
 
 	// IssueIdentityToken is best-effort; an outage here must not block login.
+	// On error, drop the token entirely so the client doesn't see a JWT in
+	// the response body that has no matching cookie — that mismatch makes
+	// "logged in but no cookie" states harder to reason about.
 	tokenString, issueErr := h.cfg.AuthService.IssueIdentityToken(ctx, agent, activeAccountID)
 	if issueErr != nil {
 		h.cfg.Logger.Warn(ctx, "password auth: failed to issue identity token", "error", issueErr)
+		tokenString = ""
 	} else if tokenString != "" {
 		http.SetCookie(w, &http.Cookie{
 			Name:     h.cfg.JWTCookieName,

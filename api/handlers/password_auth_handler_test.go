@@ -323,7 +323,11 @@ func TestPasswordAuthHandler_Login_TokenIssuanceFailureStillSucceeds(t *testing.
 		verifyAgent:   newAgent(t, "agent-1", "alice"),
 		verifyCred:    newCredential(t),
 		sessionResult: newAuthSession(t),
-		tokenErr:      errors.New("jwt down"),
+		// Pericarp may still hand back a token alongside an error; the
+		// handler should drop both the cookie *and* the body token so the
+		// client doesn't see a JWT it can't actually use.
+		tokenString: "leaked.jwt.token",
+		tokenErr:    errors.New("jwt down"),
 	}
 	h := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    auth,
@@ -343,6 +347,18 @@ func TestPasswordAuthHandler_Login_TokenIssuanceFailureStillSucceeds(t *testing.
 	}
 	if cookie := findCookie(rec.Result().Cookies(), "pericarp_token"); cookie != nil && cookie.Value != "" {
 		t.Errorf("JWT cookie unexpectedly set: %q", cookie.Value)
+	}
+
+	var env struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if env.Data.Token != "" {
+		t.Errorf("response token = %q, want empty when issuance fails", env.Data.Token)
 	}
 }
 
