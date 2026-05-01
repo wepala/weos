@@ -54,6 +54,19 @@ import (
 
 var serveViper = viper.New()
 
+// customFxOptions are extra fx options merged into the serve command's fx graph.
+// Downstream binaries (e.g. weos-kulr) call RegisterFxOptions before Execute()
+// to plug in app-specific providers, invokes, or modules without forking
+// serve.go. Mirrors the process-global registration pattern used for presets.
+var customFxOptions []fx.Option
+
+// RegisterFxOptions appends fx options to be merged into the serve command's
+// fx graph. Must be called before Execute(). Reachable from downstream binaries
+// via the public re-export in pkg/cli.
+func RegisterFxOptions(opts ...fx.Option) {
+	customFxOptions = append(customFxOptions, opts...)
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the API server",
@@ -97,7 +110,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	registry := presets.NewDefaultRegistry()
 
-	app := fx.New(
+	fxOpts := []fx.Option{
 		fx.NopLogger,
 		application.Module(appCfg, registry),
 		fx.Provide(weosoauth.ProvideJWTService),
@@ -121,7 +134,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&inviteRepo),
 		fx.Populate(&db),
 		fx.Populate(&presetHandlers),
-	)
+	}
+	fxOpts = append(fxOpts, customFxOptions...)
+	app := fx.New(fxOpts...)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer startCancel()

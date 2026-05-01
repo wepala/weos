@@ -22,7 +22,10 @@
 // public entry point.
 package cli
 
-import internalcli "github.com/wepala/weos/v3/internal/cli"
+import (
+	internalcli "github.com/wepala/weos/v3/internal/cli"
+	"go.uber.org/fx"
+)
 
 // Execute runs the weos CLI root command.
 //
@@ -31,4 +34,12 @@ import internalcli "github.com/wepala/weos/v3/internal/cli"
 // custom presets they want to plug into the default registry.
 func Execute() error {
 	return internalcli.Execute()
+}
+
+// RegisterFxOptions appends fx options to be merged into the serve command's
+// fx graph. Use this from a downstream binary's main() to plug in app-specific
+// providers, invokes, or modules without forking serve.go. Must be called
+// before Execute().
+func RegisterFxOptions(opts ...fx.Option) {
+	internalcli.RegisterFxOptions(opts...)
 }
