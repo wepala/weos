@@ -76,6 +76,9 @@ func (h *ResourceHandler) Create(c echo.Context) error {
 		if errors.Is(err, entities.ErrAccessDenied) {
 			return respondForbidden(c)
 		}
+		if errors.Is(err, application.ErrValidation) {
+			return respondError(c, http.StatusBadRequest, err.Error())
+		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return respondWithResource(c, http.StatusCreated, entity)
@@ -287,6 +290,9 @@ func (h *ResourceHandler) Update(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, entities.ErrAccessDenied) {
 			return respondForbidden(c)
+		}
+		if errors.Is(err, application.ErrValidation) {
+			return respondError(c, http.StatusBadRequest, err.Error())
 		}
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}

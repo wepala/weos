@@ -641,7 +641,10 @@ func validateAgainstSchema(schema, data json.RawMessage) error {
 
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
-		return fmt.Errorf("invalid JSON data: %w", err)
+		return fmt.Errorf("invalid JSON data: %v: %w", err, ErrValidation)
 	}
-	return sch.Validate(v)
+	if err := sch.Validate(v); err != nil {
+		return fmt.Errorf("%v: %w", err, ErrValidation)
+	}
+	return nil
 }
