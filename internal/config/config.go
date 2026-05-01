@@ -282,10 +282,16 @@ func (c *Config) LoadFromEnvironment() {
 		c.OAuth.NetSuiteAccountID = accountID
 	}
 
-	if scopes := os.Getenv("NETSUITE_SCOPES"); scopes != "" {
-		c.OAuth.NetSuiteScopes = strings.FieldsFunc(scopes, func(r rune) bool {
+	if scopes := os.Getenv("NETSUITE_SCOPES"); strings.TrimSpace(scopes) != "" {
+		parsed := strings.FieldsFunc(scopes, func(r rune) bool {
 			return r == ',' || r == ' ' || r == '\t'
 		})
+		// Only override pericarp's default scope list if parsing actually
+		// produced something — a whitespace-only override (common in
+		// templated env files) would otherwise wipe the defaults.
+		if len(parsed) > 0 {
+			c.OAuth.NetSuiteScopes = parsed
+		}
 	}
 
 	if frontendURL := os.Getenv("FRONTEND_URL"); frontendURL != "" {

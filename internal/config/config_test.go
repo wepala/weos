@@ -74,3 +74,19 @@ func TestLoadFromEnvironment_NetSuiteScopes_NotSet(t *testing.T) {
 		t.Fatalf("expected nil NetSuiteScopes when env not set, got %#v", cfg.OAuth.NetSuiteScopes)
 	}
 }
+
+// A whitespace-only override (common in templated env files) must not
+// wipe pericarp's default scope list — empty parsing keeps Scopes nil
+// so the default kicks in downstream.
+func TestLoadFromEnvironment_NetSuiteScopes_WhitespaceOnly(t *testing.T) {
+	for _, value := range []string{" ", "\t", " , \t , ", ",,"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("NETSUITE_SCOPES", value)
+			cfg := Default()
+			cfg.LoadFromEnvironment()
+			if cfg.OAuth.NetSuiteScopes != nil {
+				t.Fatalf("expected nil NetSuiteScopes for whitespace-only env, got %#v", cfg.OAuth.NetSuiteScopes)
+			}
+		})
+	}
+}

@@ -17,7 +17,6 @@ package handlers
 
 import (
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -198,7 +197,7 @@ func (h *PasswordAuthHandler) completeAuth(
 
 	authSession, err := h.cfg.AuthService.CreateSession(
 		ctx, agent.GetID(), credential.GetID(),
-		clientIP(r), r.UserAgent(), h.cfg.SessionDuration,
+		c.RealIP(), r.UserAgent(), h.cfg.SessionDuration,
 	)
 	if err != nil {
 		h.cfg.Logger.Error(ctx, "password auth: session creation failed", "error", err)
@@ -251,14 +250,3 @@ func (h *PasswordAuthHandler) completeAuth(
 	})
 }
 
-func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		first, _, _ := strings.Cut(fwd, ",")
-		return strings.TrimSpace(first)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
