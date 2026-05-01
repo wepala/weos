@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -641,10 +642,10 @@ func validateAgainstSchema(schema, data json.RawMessage) error {
 
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
-		return fmt.Errorf("invalid JSON data: %v: %w", err, ErrValidation)
+		return errors.Join(ErrValidation, fmt.Errorf("invalid JSON data: %w", err))
 	}
 	if err := sch.Validate(v); err != nil {
-		return fmt.Errorf("%v: %w", err, ErrValidation)
+		return errors.Join(ErrValidation, err)
 	}
 	return nil
 }
