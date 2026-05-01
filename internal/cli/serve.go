@@ -199,13 +199,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	// Email + password account flow. Public routes — must reach the handler
 	// even when no session exists yet, so they sit outside the protected group.
+	// Mirror the SessionManager's dev-default Secure flag (Secure=false when
+	// SESSION_SECRET is unset) so the JWT cookie is accepted in plain-HTTP
+	// local dev and stays Secure in any real deployment.
+	secureCookies := appCfg.SessionSecret != "change-me-in-production"
 	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    authService,
 		SessionManager: sessionManager,
+		SecureCookies:  secureCookies,
 		Logger:         logger,
 	})
-	api.POST("/auth/register", passwordAuthHandlers.Register)
-	api.POST("/auth/password-login", passwordAuthHandlers.Login)
+	if appCfg.PasswordAuthEnabled {
+		api.POST("/auth/register", passwordAuthHandlers.Register)
+		api.POST("/auth/password-login", passwordAuthHandlers.Login)
+	}
 
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
 	// JWT cookie issued by the password and OAuth flows. Routing through
@@ -266,9 +273,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Protected API group — apply auth middleware when OAuth is configured
+	// Protected API group — apply real auth middleware when any
+	// authentication mechanism (OAuth or password) is configured. Falling
+	// back to SoftAuth only in fully-unconfigured dev mode keeps a password
+	// deployment from looking authenticated while protected routes remain
+	// effectively open.
 	protected := api.Group("")
-	if appCfg.OAuthEnabled() {
+	if appCfg.AuthEnabled() {
 		protected.Use(echo.WrapMiddleware(authhttp.RequireAuth(sessionManager, authService)))
 		protected.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
 		protected.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))

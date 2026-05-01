@@ -40,7 +40,12 @@ type PasswordAuthHandlerConfig struct {
 	SessionDuration time.Duration
 	JWTCookieName   string
 	JWTCookieMaxAge int
-	Logger          entities.Logger
+	// SecureCookies controls the Secure flag on the JWT cookie. Must match
+	// the session manager's setting (false in plain-HTTP local dev, true
+	// otherwise) — a mismatch means the browser drops one of the two
+	// cookies and auth never sticks.
+	SecureCookies bool
+	Logger        entities.Logger
 }
 
 type PasswordAuthHandler struct {
@@ -54,11 +59,10 @@ func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler 
 	if cfg.JWTCookieName == "" {
 		cfg.JWTCookieName = "pericarp_token"
 	}
-	// Cookie outlives the JWT's exp claim on purpose: BearerOrSession
-	// falls back to the gorilla session when the JWT is stale, so as long
-	// as the cookie is sent the browser still talks to a valid session
-	// for the full SessionDuration. A 15-min cookie would force a
-	// silent re-login on every page that takes longer than that.
+	// Keep the JWT cookie alive for the full session window so the browser
+	// keeps sending it during that period. Whether an expired JWT can fall
+	// back to a valid gorilla session is a property of the auth middleware
+	// on each route, not of this cookie's max age.
 	if cfg.JWTCookieMaxAge == 0 {
 		cfg.JWTCookieMaxAge = int(cfg.SessionDuration.Seconds())
 	}
@@ -162,10 +166,10 @@ func (h *PasswordAuthHandler) Login(c echo.Context) error {
 }
 
 // Logout clears both the gorilla session cookie (delegated to pericarp's
-// Logout handler) and the JWT cookie set by completeAuth. Without
-// explicitly expiring the JWT cookie, BearerOrSession would keep
-// accepting it until its MaxAge elapses — so a sign-out endpoint that
-// only invalidates the session leaves an authenticated cookie pair.
+// Logout handler) and the JWT cookie set by completeAuth. The JWT cookie
+// is currently informational on the server side (no middleware reads it)
+// but a SPA may attach it as a Bearer token, so an endpoint that only
+// invalidates the session would leave a still-presentable JWT.
 func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFunc) error {
 	w := c.Response().Writer
 	http.SetCookie(w, &http.Cookie{
@@ -174,7 +178,7 @@ func (h *PasswordAuthHandler) Logout(c echo.Context, oauthLogout http.HandlerFun
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.cfg.SecureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
 	oauthLogout(w, c.Request())
@@ -230,7 +234,7 @@ func (h *PasswordAuthHandler) completeAuth(
 			Path:     "/",
 			MaxAge:   h.cfg.JWTCookieMaxAge,
 			HttpOnly: true,
-			Secure:   true,
+			Secure:   h.cfg.SecureCookies,
 			SameSite: http.SameSiteLaxMode,
 		})
 	}

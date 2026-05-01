@@ -83,6 +83,12 @@ type Config struct {
 	// SessionSecret is the secret key for session cookies.
 	SessionSecret string
 
+	// PasswordAuthEnabled toggles the email + password register/login
+	// endpoints. Off by default — enabling it without a real SessionSecret
+	// is a footgun (sessions become forgeable), so the SessionSecret check
+	// in AuthEnabled keeps dev defaults in dev mode.
+	PasswordAuthEnabled bool
+
 	// LLM holds configuration for LLM integrations.
 	LLM LLMConfig
 
@@ -138,6 +144,15 @@ func (c *Config) OAuthEnabled() bool {
 		return true
 	}
 	return false
+}
+
+// AuthEnabled returns true when any real authentication mechanism is
+// configured (OAuth provider or password endpoints). Drives whether the
+// API is mounted with RequireAuth or the dev-mode SoftAuth fallback —
+// without this, a password-only deployment would mount login endpoints
+// on top of routes that were still effectively unauthenticated.
+func (c *Config) AuthEnabled() bool {
+	return c.OAuthEnabled() || c.PasswordAuthEnabled
 }
 
 // LLMConfig holds configuration for LLM providers.
@@ -230,6 +245,12 @@ func (c *Config) LoadFromEnvironment() {
 
 	if secret := os.Getenv("SESSION_SECRET"); secret != "" {
 		c.SessionSecret = secret
+	}
+
+	if v := os.Getenv("PASSWORD_AUTH_ENABLED"); v != "" {
+		if enabled, err := strconv.ParseBool(v); err == nil {
+			c.PasswordAuthEnabled = enabled
+		}
 	}
 
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
