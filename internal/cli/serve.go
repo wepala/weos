@@ -67,6 +67,32 @@ func RegisterFxOptions(opts ...fx.Option) {
 	customFxOptions = append(customFxOptions, opts...)
 }
 
+// EchoConfigurer is a downstream-binary hook for registering routes or
+// middleware on the HTTP server. Configurers are invoked after standard
+// middleware and routes are wired but before the server starts listening,
+// so a configurer can: add new GET/POST routes, attach e.Pre() middleware
+// that intercepts before the SPA static handler, or wrap existing groups.
+//
+// To override a static file shipped in the SPA's embed.FS (e.g. crossdeck's
+// /client-metadata.json which is served from web/app/public), the consumer
+// should remove the file from the embed.FS source so the static middleware
+// doesn't intercept the URL — registering the route alone is not enough
+// because static runs as middleware and short-circuits before routing.
+type EchoConfigurer func(e *echo.Echo)
+
+// customEchoConfigurers are downstream-binary echo extensions invoked from
+// runServe after the standard route wiring. Same process-global registration
+// pattern as customFxOptions.
+var customEchoConfigurers []EchoConfigurer
+
+// RegisterEchoConfigurer appends a configurer to be invoked against the
+// serve command's *echo.Echo instance after standard route wiring. Must be
+// called before Execute(). Reachable from downstream binaries via the
+// public re-export in pkg/cli.
+func RegisterEchoConfigurer(c EchoConfigurer) {
+	customEchoConfigurers = append(customEchoConfigurers, c)
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the API server",
@@ -442,6 +468,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Preset-contributed HTTP handlers. Registered before the dynamic /:typeSlug
 	// catch-all so preset routes aren't shadowed by it.
 	mountPresetHandlers(api, protected, presetHandlers, logger)
+
+	// Downstream-binary echo extensions. Same point in the lifecycle as
+	// preset handlers — after standard wiring, before the dynamic catch-all
+	// — so a configurer's e.GET("/foo") doesn't get shadowed by /:typeSlug.
+	for _, configure := range customEchoConfigurers {
+		configure(e)
+	}
 
 	// Dynamic resource routes — MUST be registered after ALL static routes
 	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService, logger)

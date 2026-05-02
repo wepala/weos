@@ -43,3 +43,23 @@ func Execute() error {
 func RegisterFxOptions(opts ...fx.Option) {
 	internalcli.RegisterFxOptions(opts...)
 }
+
+// EchoConfigurer is a downstream-binary hook for adding routes or middleware
+// to the HTTP server. Configurers receive the *echo.Echo instance after
+// standard middleware and routes are wired but before the server starts
+// listening. Use for service-specific endpoints that aren't generic enough
+// to belong upstream — e.g. an AT Protocol /client-metadata.json handler
+// that derives URLs from request Host instead of a baked-in domain.
+//
+// Note: the SPA static middleware short-circuits before routing for any URL
+// it has a file for. To override a path that exists in the static FS,
+// either remove the file from the FS source or attach the handler via
+// e.Pre(...) so it runs ahead of static.
+type EchoConfigurer = internalcli.EchoConfigurer
+
+// RegisterEchoConfigurer appends a configurer to be invoked against the
+// serve command's *echo.Echo instance after standard route wiring. Must be
+// called before Execute().
+func RegisterEchoConfigurer(c EchoConfigurer) {
+	internalcli.RegisterEchoConfigurer(c)
+}
