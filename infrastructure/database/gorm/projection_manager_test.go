@@ -150,6 +150,7 @@ func TestSchemaToColumns_InvalidJSON(t *testing.T) {
 
 type testLogger struct{}
 
+func (l *testLogger) Debug(_ context.Context, _ string, _ ...any) {}
 func (l *testLogger) Info(_ context.Context, _ string, _ ...any)  {}
 func (l *testLogger) Warn(_ context.Context, _ string, _ ...any)  {}
 func (l *testLogger) Error(_ context.Context, _ string, _ ...any) {}

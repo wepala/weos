@@ -80,6 +80,32 @@ type Config struct {
 
 	// Storage holds configuration for file storage backends.
 	Storage StorageConfig
+
+	// Oxigraph holds configuration for the optional knowledge-graph projection.
+	// When Oxigraph.URL is set, resource and triple events are mirrored to a
+	// SPARQL endpoint alongside the existing read-models, and the
+	// `knowledge-graph` MCP tool group is enabled.
+	Oxigraph OxigraphConfig
+}
+
+// OxigraphConfig holds configuration for the optional Oxigraph knowledge-graph
+// projection. WeOS speaks to Oxigraph over HTTP using the SPARQL 1.1 protocol
+// (you run `oxigraph serve` separately). Setting URL turns the feature on;
+// Enabled can override (e.g. set URL but keep disabled during staged rollout).
+type OxigraphConfig struct {
+	URL      string // e.g. http://localhost:7878 — empty disables the projection
+	Enabled  bool   // explicit override; auto-true when URL is set
+	Username string // optional HTTP basic auth
+	Password string
+	// QueryTimeout is the per-request timeout for SPARQL queries/updates.
+	// Default: 10s.
+	QueryTimeoutSeconds int
+}
+
+// Active reports whether the Oxigraph projection should run. URL is required;
+// Enabled defaults to true once URL is set, and can be flipped off via env var.
+func (o OxigraphConfig) Active() bool {
+	return o.URL != "" && o.Enabled
 }
 
 // StorageConfig holds configuration for pluggable file storage backends.
@@ -279,6 +305,27 @@ func (c *Config) LoadFromEnvironment() {
 	if v := os.Getenv("STORAGE_MAX_UPLOAD_BYTES"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 			c.Storage.MaxUploadBytes = n
+		}
+	}
+
+	if v := os.Getenv("OXIGRAPH_URL"); v != "" {
+		c.Oxigraph.URL = v
+		c.Oxigraph.Enabled = true
+	}
+	if v := os.Getenv("OXIGRAPH_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Oxigraph.Enabled = b
+		}
+	}
+	if v := os.Getenv("OXIGRAPH_USERNAME"); v != "" {
+		c.Oxigraph.Username = v
+	}
+	if v := os.Getenv("OXIGRAPH_PASSWORD"); v != "" {
+		c.Oxigraph.Password = v
+	}
+	if v := os.Getenv("OXIGRAPH_QUERY_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Oxigraph.QueryTimeoutSeconds = n
 		}
 	}
 }

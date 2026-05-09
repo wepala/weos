@@ -41,6 +41,7 @@ func (r *stubTypeRepo) Delete(context.Context, string) error                 { r
 // noopLogger implements entities.Logger as a no-op.
 type noopLogger struct{}
 
+func (noopLogger) Debug(context.Context, string, ...any) {}
 func (noopLogger) Info(context.Context, string, ...any)  {}
 func (noopLogger) Warn(context.Context, string, ...any)  {}
 func (noopLogger) Error(context.Context, string, ...any) {}

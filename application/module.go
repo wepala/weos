@@ -9,6 +9,7 @@ import (
 	"github.com/wepala/weos/v3/infrastructure/database/gorm"
 	"github.com/wepala/weos/v3/infrastructure/email"
 	"github.com/wepala/weos/v3/infrastructure/events"
+	"github.com/wepala/weos/v3/infrastructure/graph"
 	"github.com/wepala/weos/v3/infrastructure/logging"
 	storageprovider "github.com/wepala/weos/v3/infrastructure/storage/provider"
 	"github.com/wepala/weos/v3/internal/config"
@@ -80,6 +81,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(gorm.ProvideTripleRepository),
 		fx.Provide(gorm.ProvideResourcePermissionRepository),
 
+		// Optional knowledge-graph store (Oxigraph over SPARQL HTTP). When
+		// not configured, the provider returns a nop store so downstream
+		// projectors and MCP tools become silent no-ops.
+		fx.Provide(graph.ProvideKnowledgeGraphStore),
+
 		// Auth repositories (from pericarp)
 		fx.Provide(func(db *gormdb.DB) authrepos.AgentRepository { return authgorm.NewAgentRepository(db) }),
 		fx.Provide(func(db *gormdb.DB) authrepos.CredentialRepository { return authgorm.NewCredentialRepository(db) }),
@@ -147,6 +153,9 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 
 		// Subscribe event handlers (projections)
 		fx.Invoke(subscribeEventHandlers),
+		// Optional Oxigraph projector — registers no-op when the store is
+		// inactive, so leaving Oxigraph unconfigured costs nothing.
+		fx.Invoke(SubscribeKnowledgeGraphHandlers),
 
 		// Ensure built-in resource types and projection tables at startup
 		fx.Invoke(ensureBuiltInResourceTypes),
