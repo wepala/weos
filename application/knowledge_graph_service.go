@@ -78,12 +78,14 @@ type knowledgeGraphService struct {
 	logger entities.Logger
 }
 
-func (s *knowledgeGraphService) Active() bool { return s.store.Active() }
+func (s *knowledgeGraphService) Active() bool {
+	return s.store != nil && s.store.Active()
+}
 
 func (s *knowledgeGraphService) Query(
 	ctx context.Context, sparql string,
 ) (repositories.KGQueryResult, error) {
-	if !s.store.Active() {
+	if !s.Active() {
 		return repositories.KGQueryResult{}, ErrKGUnavailable
 	}
 	if sparql == "" {
@@ -96,12 +98,13 @@ func (s *knowledgeGraphService) Query(
 func (s *knowledgeGraphService) ExpandEntity(
 	ctx context.Context, iri string, depth int,
 ) ([]repositories.Triple, error) {
-	if !s.store.Active() {
+	if !s.Active() {
 		return nil, ErrKGUnavailable
 	}
-	if iri == "" {
-		return nil, fmt.Errorf("iri is required")
+	if err := validateIRI(iri); err != nil {
+		return nil, err
 	}
+	requested := depth
 	if depth <= 0 {
 		depth = 1
 	}
@@ -111,11 +114,18 @@ func (s *knowledgeGraphService) ExpandEntity(
 		// closure.
 		depth = 3
 	}
+	if requested != 0 && requested != depth {
+		s.logger.Debug(ctx, "kg expand depth clamped",
+			"requested", requested, "applied", depth)
+	}
 	q := buildExpandQuery(iri, depth)
 	s.logger.Debug(ctx, "kg expand entity", "iri", iri, "depth", depth)
 	res, err := s.store.Query(ctx, q)
 	if err != nil {
 		return nil, err
+	}
+	if res.Triples == nil {
+		return []repositories.Triple{}, nil
 	}
 	return res.Triples, nil
 }
@@ -123,12 +133,20 @@ func (s *knowledgeGraphService) ExpandEntity(
 func (s *knowledgeGraphService) SearchEntities(
 	ctx context.Context, q string, limit int,
 ) ([]repositories.KGTerm, error) {
-	if !s.store.Active() {
+	if !s.Active() {
 		return nil, ErrKGUnavailable
 	}
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return nil, fmt.Errorf("query string is required")
+	}
+	// Clamp pathological lengths so a runaway LLM call can't wedge SPARQL
+	// parsing on a multi-megabyte literal. 256 chars is well over what any
+	// realistic name/title search needs.
+	const maxQueryLen = 256
+	if len(q) > maxQueryLen {
+		q = q[:maxQueryLen]
+		s.logger.Debug(ctx, "kg search query truncated", "max", maxQueryLen)
 	}
 	if limit <= 0 {
 		limit = 20
@@ -143,10 +161,16 @@ func (s *knowledgeGraphService) SearchEntities(
 		return nil, err
 	}
 	out := make([]repositories.KGTerm, 0, len(res.Bindings))
+	missing := 0
 	for _, row := range res.Bindings {
 		if t, ok := row["s"]; ok {
 			out = append(out, t)
+			continue
 		}
+		missing++
+	}
+	if missing > 0 {
+		s.logger.Debug(ctx, "kg search dropped bindings without ?s", "missing", missing)
 	}
 	return out, nil
 }
@@ -154,11 +178,11 @@ func (s *knowledgeGraphService) SearchEntities(
 func (s *knowledgeGraphService) DescribeClass(
 	ctx context.Context, classIRI string, sampleInstances int,
 ) (ClassDescription, error) {
-	if !s.store.Active() {
+	if !s.Active() {
 		return ClassDescription{}, ErrKGUnavailable
 	}
-	if classIRI == "" {
-		return ClassDescription{}, fmt.Errorf("class iri is required")
+	if err := validateIRI(classIRI); err != nil {
+		return ClassDescription{}, err
 	}
 	if sampleInstances < 0 {
 		sampleInstances = 0
@@ -177,7 +201,7 @@ SELECT DISTINCT ?p WHERE {
 }`, formatIRI(classIRI))
 	predRes, err := s.store.Query(ctx, predQuery)
 	if err != nil {
-		return ClassDescription{}, err
+		return ClassDescription{}, fmt.Errorf("describe class: predicate query failed: %w", err)
 	}
 	out := ClassDescription{ClassIRI: classIRI}
 	for _, row := range predRes.Bindings {
@@ -193,7 +217,10 @@ SELECT ?s WHERE {
 } LIMIT %d`, formatIRI(classIRI), sampleInstances)
 		instRes, err := s.store.Query(ctx, instQuery)
 		if err != nil {
-			return out, err
+			// Predicates succeeded but instances failed — return zero-value
+			// to avoid the partial-state trap where a non-Go-aware caller
+			// reads `out` despite the error.
+			return ClassDescription{}, fmt.Errorf("describe class: instance query failed: %w", err)
 		}
 		for _, row := range instRes.Bindings {
 			if t, ok := row["s"]; ok {
@@ -209,61 +236,129 @@ SELECT ?s WHERE {
 func (s *knowledgeGraphService) FindPath(
 	ctx context.Context, from, to string, maxHops int,
 ) ([]repositories.Triple, error) {
-	if !s.store.Active() {
+	if !s.Active() {
 		return nil, ErrKGUnavailable
 	}
-	if from == "" || to == "" {
-		return nil, fmt.Errorf("both from and to iris are required")
+	if err := validateIRI(from); err != nil {
+		return nil, fmt.Errorf("from: %w", err)
+	}
+	if err := validateIRI(to); err != nil {
+		return nil, fmt.Errorf("to: %w", err)
 	}
 	if maxHops <= 0 {
 		maxHops = 4
 	}
 	if maxHops > 6 {
-		// Property-path queries with high length quickly become expensive;
-		// 6 is a soft ceiling that still covers most realistic chains.
+		// 6 is a soft ceiling that still covers most realistic chains;
+		// each hop adds another query so cost grows linearly.
 		maxHops = 6
 	}
-	q := buildFindPathQuery(from, to, maxHops)
 	s.logger.Debug(ctx, "kg find path", "from", from, "to", to, "hops", maxHops)
-	res, err := s.store.Query(ctx, q)
-	if err != nil {
-		return nil, err
+
+	// Iterate length 1..maxHops issuing a CONSTRUCT per length. Stop at
+	// the first non-empty result — that's the shortest path; longer ones
+	// would just add noise. Returns []Triple{} (not nil) when no path
+	// exists so the caller can distinguish "ran successfully, no path"
+	// from "didn't run at all".
+	for length := 1; length <= maxHops; length++ {
+		q := buildPathQueryForLength(from, to, length)
+		res, err := s.store.Query(ctx, q)
+		if err != nil {
+			return nil, fmt.Errorf("find path: length %d query failed: %w", length, err)
+		}
+		if len(res.Triples) > 0 {
+			s.logger.Debug(ctx, "kg find path: found", "length", length, "triples", len(res.Triples))
+			return res.Triples, nil
+		}
 	}
-	return res.Triples, nil
+	s.logger.Debug(ctx, "kg find path: no path within maxHops", "maxHops", maxHops)
+	return []repositories.Triple{}, nil
 }
 
 // --- SPARQL builders ---
 
-// formatIRI wraps an IRI in <...> for embedding into a SPARQL string. The
-// caller is responsible for not passing already-bracketed IRIs (we don't try
-// to be clever — that's the projector's job).
+// validateIRI rejects strings that contain characters forbidden in an IRIREF
+// (RFC 3987 / SPARQL grammar: control chars, `<>"{}|^\` and backtick, plus
+// whitespace). The application boundary is where SPARQL injection has to be
+// stopped — once formatIRI wraps it in <...>, an embedded `>` lets the LLM
+// terminate the IRI early and inject arbitrary query syntax.
+func validateIRI(iri string) error {
+	if iri == "" {
+		return fmt.Errorf("iri must not be empty")
+	}
+	const forbidden = "<>\"{}|^\\`"
+	for i := 0; i < len(iri); i++ {
+		c := iri[i]
+		if c <= 0x20 || c == 0x7f || strings.IndexByte(forbidden, c) >= 0 {
+			return fmt.Errorf("iri contains forbidden character at position %d", i)
+		}
+	}
+	return nil
+}
+
+// formatIRI wraps a validated IRI in <...> for embedding into a SPARQL
+// string. Callers MUST run validateIRI first; this function trusts its input.
 func formatIRI(iri string) string {
 	return "<" + iri + ">"
 }
 
-// buildExpandQuery returns a CONSTRUCT query for the one-hop neighborhood of
-// an entity. depth>1 walks outgoing predicates via property paths; this stays
-// simple (forward edges only) on purpose — a more general solution can come
-// later if the LLM needs reverse traversal.
+// buildExpandQuery returns a CONSTRUCT query for the N-hop forward
+// neighborhood of an entity. We use a UNION of triple-pattern chains rather
+// than a property-path quantifier (`{n,m}`) because the SPARQL 1.1 standard
+// only defines `*`/`+`/`?` quantifiers — `{n,m}` is a Jena extension that
+// Oxigraph rejects. UNION-of-chains is verbose but portable and lets the
+// returned CONSTRUCT include every triple on the path, not just terminal
+// edges.
 func buildExpandQuery(iri string, depth int) string {
-	if depth == 1 {
+	subj := formatIRI(iri)
+	if depth <= 1 {
 		return fmt.Sprintf(`
 CONSTRUCT { %s ?p ?o }
-WHERE     { %s ?p ?o }`, formatIRI(iri), formatIRI(iri))
+WHERE     { %s ?p ?o }`, subj, subj)
+	}
+	var construct, where strings.Builder
+	for i := 1; i <= depth; i++ {
+		if i > 1 {
+			construct.WriteString(" .\n  ")
+			where.WriteString("  UNION\n")
+		}
+		construct.WriteString(buildChainTriples(subj, "p", "x", i))
+		where.WriteString("  { ")
+		where.WriteString(buildChainTriples(subj, "p", "x", i))
+		where.WriteString(" }\n")
 	}
 	return fmt.Sprintf(`
-CONSTRUCT { ?s ?p ?o }
+CONSTRUCT { %s }
 WHERE {
-  %s (:|!:){0,%d} ?s .
-  ?s ?p ?o .
-}`, formatIRI(iri), depth-1)
+%s}`, construct.String(), where.String())
+}
+
+// buildChainTriples renders i chained triple patterns starting at `subj`,
+// using `?<predPrefix>1..i` for predicates and `?<varPrefix>1..i` for
+// intermediate/final variables. Both BGPs (CONSTRUCT and WHERE) need
+// identical patterns; we share the helper to keep them in sync.
+//
+// Example for i=2: `<urn:s> ?p1 ?x1 . ?x1 ?p2 ?x2`.
+func buildChainTriples(subj, predPrefix, varPrefix string, i int) string {
+	var sb strings.Builder
+	sb.WriteString(subj)
+	for n := 1; n <= i; n++ {
+		fmt.Fprintf(&sb, " ?%s%d ?%s%d", predPrefix, n, varPrefix, n)
+		if n < i {
+			fmt.Fprintf(&sb, " . ?%s%d", varPrefix, n)
+		}
+	}
+	return sb.String()
 }
 
 // buildSearchQuery returns a SELECT for IRIs with label-like predicates
-// matching the user query. CONTAINS+LCASE gives case-insensitive substring
-// matching against the major naming predicates.
+// matching the user query. We let the SPARQL engine's LCASE do the
+// case-folding on both sides — Go's strings.ToLower and SPARQL's LCASE
+// disagree on non-ASCII (Turkish dotless I, German ß), so applying both
+// would skip legitimate matches. The literal is escaped but its case is
+// preserved going in.
 func buildSearchQuery(q string, limit int) string {
-	escaped := escapeSPARQLLiteral(strings.ToLower(q))
+	escaped := escapeSPARQLLiteral(q)
 	return fmt.Sprintf(`
 SELECT DISTINCT ?s WHERE {
   ?s ?labelPred ?lbl .
@@ -274,23 +369,43 @@ SELECT DISTINCT ?s WHERE {
     <http://xmlns.com/foaf/0.1/name>,
     <http://purl.org/dc/terms/title>
   ))
-  FILTER(CONTAINS(LCASE(STR(?lbl)), "%s"))
+  FILTER(CONTAINS(LCASE(STR(?lbl)), LCASE("%s")))
 } LIMIT %d`, escaped, limit)
 }
 
-// buildFindPathQuery returns a CONSTRUCT that materializes the triples on a
-// path from `from` to `to` using the BIND/property-path approximation. This
-// returns *a* path (not necessarily shortest) — callers asked for "best
-// effort" not "optimal."
-func buildFindPathQuery(from, to string, maxHops int) string {
-	return fmt.Sprintf(`
-CONSTRUCT { ?s ?p ?o }
-WHERE {
-  %s (<>|!<>){1,%d} %s .
-  %s (<>|!<>)* ?s .
-  ?s ?p ?o .
-  ?o (<>|!<>)* %s .
-}`, formatIRI(from), maxHops, formatIRI(to), formatIRI(from), formatIRI(to))
+// buildPathQueryForLength returns a CONSTRUCT for a single chain length:
+// "is there a path of exactly N edges from `from` to `to`, and if so what
+// triples are on it?". The caller composes a full path-find by running this
+// for every length 1..maxHops and aggregating the triples — much cleaner
+// (and portable) than trying to express the union in one query, which
+// requires a CONSTRUCT template large enough to cover every chain length.
+//
+// Example length=2: matches `<from> ?p1 ?n1 . ?n1 ?p2 <to>` and returns
+// both triples in the CONSTRUCT.
+func buildPathQueryForLength(from, to string, length int) string {
+	fromIRI := formatIRI(from)
+	toIRI := formatIRI(to)
+	if length <= 1 {
+		return fmt.Sprintf(`
+CONSTRUCT { %s ?p1 %s }
+WHERE     { %s ?p1 %s }`, fromIRI, toIRI, fromIRI, toIRI)
+	}
+	var construct, where strings.Builder
+	construct.WriteString(fromIRI)
+	where.WriteString(fromIRI)
+	for n := 1; n <= length; n++ {
+		nodeStr := fmt.Sprintf("?n%d", n)
+		if n == length {
+			nodeStr = toIRI
+		}
+		fmt.Fprintf(&construct, " ?p%d %s", n, nodeStr)
+		fmt.Fprintf(&where, " ?p%d %s", n, nodeStr)
+		if n < length {
+			fmt.Fprintf(&construct, " . ?n%d", n)
+			fmt.Fprintf(&where, " . ?n%d", n)
+		}
+	}
+	return fmt.Sprintf("CONSTRUCT { %s } WHERE { %s }", construct.String(), where.String())
 }
 
 // escapeSPARQLLiteral escapes a string so it can be embedded inside a

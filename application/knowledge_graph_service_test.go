@@ -85,6 +85,11 @@ func TestKGService_ExpandEntity_BuildsCONSTRUCT(t *testing.T) {
 	if !strings.Contains(q, "<urn:product:1>") {
 		t.Errorf("expected wrapped IRI in query: %q", q)
 	}
+	// Single-hop must not use property-path quantifiers — the previous
+	// implementation used `{n,m}` which Oxigraph rejects. Lock that in.
+	if strings.Contains(q, "{0,") || strings.Contains(q, "{1,") {
+		t.Errorf("query uses property-path quantifier (Oxigraph rejects): %q", q)
+	}
 }
 
 func TestKGService_ExpandEntity_DepthClampedTo3(t *testing.T) {
@@ -92,13 +97,27 @@ func TestKGService_ExpandEntity_DepthClampedTo3(t *testing.T) {
 	store := &queryRecordingStore{active: true}
 	svc := newKGSvc(store)
 
-	// depth=99 should clamp; we verify by checking the {0,N} length in the
-	// generated SPARQL property path is 2 (=depth-1=3-1).
+	// depth=99 must clamp to 3. The new builder uses UNION-of-chains, so
+	// we verify clamping by counting `UNION` occurrences (depth-1 = 2).
 	if _, err := svc.ExpandEntity(context.Background(), "urn:x", 99); err != nil {
 		t.Fatalf("ExpandEntity: %v", err)
 	}
-	if !strings.Contains(store.queries[0], "{0,2}") {
-		t.Errorf("depth not clamped to 3: %q", store.queries[0])
+	q := store.queries[0]
+	if got := strings.Count(q, "UNION"); got != 2 {
+		t.Errorf("expected 2 UNIONs (depth=3 = 3 chains, 2 separators); got %d in %q", got, q)
+	}
+	if strings.Contains(q, "{0,") {
+		t.Errorf("query must not use property-path quantifier; got %q", q)
+	}
+}
+
+func TestKGService_ExpandEntity_RejectsMaliciousIRI(t *testing.T) {
+	t.Parallel()
+	svc := newKGSvc(&queryRecordingStore{active: true})
+
+	bad := "urn:x> ?p ?o } ; DROP ALL ; #"
+	if _, err := svc.ExpandEntity(context.Background(), bad, 1); err == nil {
+		t.Fatal("expected validation error on IRI with injection chars")
 	}
 }
 
@@ -168,6 +187,9 @@ func TestKGService_DescribeClass_FetchesInstancesWhenAsked(t *testing.T) {
 
 func TestKGService_FindPath_ReturnsTriplesFromStore(t *testing.T) {
 	t.Parallel()
+	// FindPath now iterates length 1..maxHops and stops at the first
+	// non-empty result. With a stub that always returns one triple, the
+	// first iteration (length=1) returns immediately.
 	store := &queryRecordingStore{
 		active:   true,
 		response: repositories.KGQueryResult{Triples: []repositories.Triple{{Subject: "a", Predicate: "p", Object: "b"}}},
@@ -181,6 +203,97 @@ func TestKGService_FindPath_ReturnsTriplesFromStore(t *testing.T) {
 	if len(triples) != 1 {
 		t.Fatalf("got %d triples, want 1", len(triples))
 	}
+	if len(store.queries) != 1 {
+		t.Errorf("expected exactly 1 query (short-circuit on first match); got %d", len(store.queries))
+	}
+	if strings.Contains(store.queries[0], "{1,") {
+		t.Errorf("path query must not use property-path quantifier; got %q", store.queries[0])
+	}
+}
+
+func TestKGService_FindPath_NoPathReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	// Empty Triples on every iteration → "no path within budget".
+	store := &queryRecordingStore{active: true}
+	svc := newKGSvc(store)
+
+	triples, err := svc.FindPath(context.Background(), "urn:a", "urn:b", 3)
+	if err != nil {
+		t.Fatalf("FindPath: %v", err)
+	}
+	if triples == nil {
+		t.Error("expected non-nil empty slice for 'no path found'")
+	}
+	if len(triples) != 0 {
+		t.Errorf("expected 0 triples; got %d", len(triples))
+	}
+	if len(store.queries) != 3 {
+		t.Errorf("expected 3 queries (one per length); got %d", len(store.queries))
+	}
+}
+
+func TestKGService_FindPath_RejectsMaliciousIRI(t *testing.T) {
+	t.Parallel()
+	svc := newKGSvc(&queryRecordingStore{active: true})
+
+	if _, err := svc.FindPath(context.Background(), "urn:a> } UNION { ?s ?p ?o", "urn:b", 1); err == nil {
+		t.Fatal("expected validation error on injected from IRI")
+	}
+	if _, err := svc.FindPath(context.Background(), "urn:a", "urn:b\"", 1); err == nil {
+		t.Fatal("expected validation error on injected to IRI")
+	}
+}
+
+func TestKGService_DescribeClass_RejectsMaliciousIRI(t *testing.T) {
+	t.Parallel()
+	svc := newKGSvc(&queryRecordingStore{active: true})
+
+	if _, err := svc.DescribeClass(context.Background(), "urn:c<injected", 0); err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestKGService_DescribeClass_AbortsOnInstanceQueryFailure(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	store := &errorOnSecondQueryStore{
+		queryRecordingStore: queryRecordingStore{active: true},
+		errOnCall:           &calls,
+	}
+	svc := newKGSvc(store)
+
+	desc, err := svc.DescribeClass(context.Background(), "urn:c", 5)
+	if err == nil {
+		t.Fatal("expected error from instance query failure")
+	}
+	// Critical: must not return partial state alongside error.
+	if len(desc.Predicates) != 0 || len(desc.Instances) != 0 {
+		t.Errorf("expected zero-value description on error; got %+v", desc)
+	}
+}
+
+// errorOnSecondQueryStore returns an error on the 2nd Query call only — used
+// to test DescribeClass's predicates-succeed-instances-fail path.
+type errorOnSecondQueryStore struct {
+	queryRecordingStore
+	errOnCall *int
+}
+
+func (e *errorOnSecondQueryStore) Query(_ context.Context, sparql string) (repositories.KGQueryResult, error) {
+	*e.errOnCall++
+	e.queries = append(e.queries, sparql)
+	if *e.errOnCall == 2 {
+		return repositories.KGQueryResult{}, errors.New("instance query boom")
+	}
+	// First call returns one binding so out.Predicates is populated before
+	// the second call wipes it (we want to assert it IS wiped).
+	val := true
+	_ = val
+	return repositories.KGQueryResult{
+		Bindings: []map[string]repositories.KGTerm{{
+			"p": {Type: repositories.KGTermIRI, Value: "https://schema.org/name"},
+		}},
+	}, nil
 }
 
 func TestKGService_RequiresArgs(t *testing.T) {
@@ -202,5 +315,47 @@ func TestKGService_RequiresArgs(t *testing.T) {
 	}
 	if _, err := svc.FindPath(ctx, "", "", 0); err == nil {
 		t.Error("FindPath(\"\", \"\") should error")
+	}
+}
+
+func TestValidateIRI(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		iri  string
+		want bool // true = should error
+	}{
+		{"empty", "", true},
+		{"valid urn", "urn:product:abc", false},
+		{"valid http", "https://schema.org/Person", false},
+		{"contains gt", "urn:x>", true},
+		{"contains lt", "urn:x<y", true},
+		{"contains quote", `urn:x"y`, true},
+		{"contains brace", "urn:x{y", true},
+		{"contains backslash", `urn:x\y`, true},
+		{"contains space", "urn:x y", true},
+		{"contains newline", "urn:x\ny", true},
+		{"contains tab", "urn:x\ty", true},
+		{"contains null", "urn:x\x00y", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateIRI(tc.iri)
+			if (err != nil) != tc.want {
+				t.Errorf("validateIRI(%q) err=%v, want error=%v", tc.iri, err, tc.want)
+			}
+		})
+	}
+}
+
+// Active() guard: nil store must not panic.
+func TestKGService_NilStoreDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	svc := &knowledgeGraphService{store: nil, logger: noopLogger{}}
+	if svc.Active() {
+		t.Error("nil store should report Active()=false")
+	}
+	if _, err := svc.Query(context.Background(), "ASK {}"); err != ErrKGUnavailable {
+		t.Errorf("nil store should return ErrKGUnavailable, got %v", err)
 	}
 }
