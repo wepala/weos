@@ -50,10 +50,13 @@ func (q *queryRecordingStore) IsEmpty(_ context.Context) (bool, error)   { retur
 type resourceFilterStub struct {
 	forbidden map[string]bool
 	calls     int
+	requested [][]string
 }
 
 func (r *resourceFilterStub) FilterAccessibleResourceIDs(_ context.Context, ids []string) ([]string, error) {
 	r.calls++
+	captured := append([]string(nil), ids...)
+	r.requested = append(r.requested, captured)
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
 		if !r.forbidden[id] {
@@ -662,15 +665,17 @@ func TestKGService_SearchEntities_FiltersForbiddenSubjects(t *testing.T) {
 	}
 }
 
-func TestKGService_FilterDoesNotGateOntologyOrPersonURNs(t *testing.T) {
+func TestKGService_FilterPassesNonGatedTermsThrough(t *testing.T) {
 	t.Parallel()
-	// Mix of gated resource URN, non-resource URN (urn:person:*), and
-	// ontology IRI. The filter must only ask about the gated one.
+	// Mix of a gated resource URN and a pure ontology IRI. Person/org URNs
+	// are gated alongside resources (PII), so they're tested separately in
+	// TestKGService_FilterGatesPersonURNs. Here we confirm that ontology
+	// IRIs are never sent to the permission filter at all — they're not
+	// resources and shouldn't generate a check.
 	store := &queryRecordingStore{
 		active: true,
 		response: repositories.KGQueryResult{Triples: []repositories.Triple{
 			{Subject: "urn:product:1", Predicate: "https://schema.org/name", Object: "Widget"},
-			{Subject: "urn:person:abc", Predicate: "https://schema.org/name", Object: "Alice"},
 			{Subject: "https://schema.org/Person", Predicate: "rdfs:label", Object: "Person"},
 		}},
 	}
@@ -681,7 +686,14 @@ func TestKGService_FilterDoesNotGateOntologyOrPersonURNs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpandEntity: %v", err)
 	}
-	if len(got) != 3 {
-		t.Errorf("non-gated subjects must pass through; got %d, want 3", len(got))
+	if len(got) != 2 {
+		t.Errorf("non-gated subjects must pass through; got %d, want 2", len(got))
+	}
+	for _, ids := range rsvc.requested {
+		for _, id := range ids {
+			if id == "https://schema.org/Person" {
+				t.Errorf("ontology IRI %q must not be sent to the permission filter", id)
+			}
+		}
 	}
 }

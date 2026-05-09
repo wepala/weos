@@ -662,8 +662,11 @@ func rowHasForbiddenIRI(row map[string]repositories.KGTerm, allowedSet map[strin
 }
 
 // uniqueGatedURNs returns the distinct gated resource URNs found in the
-// subject/object positions of `triples`. Duplicates and non-gated terms
-// (literals, ontology IRIs, blank nodes, person/org URNs) are skipped.
+// subject/object positions of `triples`. "Gated" here means anything
+// isGatedResourceURN treats as needing a permission check —
+// `urn:<typeSlug>:<ksuid>` resources plus `urn:person:*` / `urn:org:*`
+// (FOAF/vCard PII). Duplicates and truly non-gated terms (literals,
+// ontology IRIs, blank nodes, `urn:type:*`, `urn:theme:*`) are skipped.
 func uniqueGatedURNs(triples []repositories.Triple) []string {
 	seen := map[string]bool{}
 	var out []string

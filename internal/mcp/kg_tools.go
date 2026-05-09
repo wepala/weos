@@ -41,8 +41,13 @@ type KGTripleOutput struct {
 }
 
 type KGSparqlQueryOutput struct {
-	// Form is one of "select", "ask", "construct" — the LLM uses this to
-	// know which of the result fields to read.
+	// Form tells the LLM which result field to read. Possible values:
+	//   "select"    — read Vars + Bindings.
+	//   "ask"       — read Boolean.
+	//   "construct" — read Triples. DESCRIBE queries also surface as
+	//                 "construct" because both forms return a set of
+	//                 triples and the SPARQL Results JSON envelope makes
+	//                 them indistinguishable on the wire.
 	Form     string                  `json:"form"`
 	Vars     []string                `json:"vars,omitempty"`
 	Bindings []map[string]KGTermOutput `json:"bindings,omitempty"`
