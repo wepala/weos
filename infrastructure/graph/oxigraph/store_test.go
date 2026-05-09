@@ -84,6 +84,20 @@ func TestNewStore_RequiresEndpoint(t *testing.T) {
 	}
 }
 
+func TestNewStore_RejectsEndpointWithoutScheme(t *testing.T) {
+	cases := []string{
+		"localhost:7878",
+		"//localhost:7878",
+		"ftp://localhost:7878",
+		"http://",
+	}
+	for _, ep := range cases {
+		if _, err := NewStore(Options{Endpoint: ep}); err == nil {
+			t.Fatalf("NewStore(%q) succeeded; expected error", ep)
+		}
+	}
+}
+
 func TestStore_AddTriples_WritesInsertData(t *testing.T) {
 	fake := newFakeOxigraph(t)
 	store := newTestStore(t, fake.server.URL)

@@ -24,9 +24,10 @@ type ResourceService interface {
 	// caller is allowed to read. Used by the knowledge-graph permission
 	// filter to drop forbidden subjects/objects from query results before
 	// they leave the MCP server. Nil identity (system context) returns the
-	// input unchanged. Non-resource URNs (`urn:type:*`, `urn:person:*`,
-	// `urn:org:*`) and full ontology IRIs are passed through — they are
-	// not gated resources.
+	// input unchanged. `urn:person:*` and `urn:org:*` ARE gated alongside
+	// regular resources because they carry FOAF/vCard PII; `urn:type:*` /
+	// `urn:theme:*`, full ontology IRIs, blank nodes, and literals pass
+	// through unchanged.
 	FilterAccessibleResourceIDs(ctx context.Context, ids []string) ([]string, error)
 	Create(ctx context.Context, cmd CreateResourceCommand) (*entities.Resource, error)
 	GetByID(ctx context.Context, id string) (*entities.Resource, error)

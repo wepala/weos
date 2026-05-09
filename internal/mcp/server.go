@@ -91,9 +91,11 @@ func resolveEnabled(services []string) map[ServiceName]bool {
 // NewMCPServer creates a configured MCP server with the specified tool groups registered.
 // If enabledServices is nil or empty, all tool groups are registered.
 //
-// kgService may be nil — when nil (or wrapping an inactive store) the
-// knowledge-graph tools are still registered but each call returns a
-// "knowledge graph not configured" error so the LLM gets a clear signal.
+// kgService may be nil. When nil, the knowledge-graph tool group is omitted
+// entirely (calls surface as "tool not found"). When non-nil but wrapping an
+// inactive store (Oxigraph not configured), the tools ARE registered and each
+// call returns ErrKGUnavailable so the LLM gets a clear "knowledge graph not
+// configured" signal instead of a missing-tool error.
 func NewMCPServer(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,

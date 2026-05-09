@@ -47,14 +47,26 @@ type Options struct {
 	Logger              entities.Logger
 }
 
-// NewStore constructs a Store. Endpoint is required and must be a non-empty
-// HTTP(S) URL; QueryTimeoutSeconds <= 0 falls back to defaultTimeoutSec.
+// NewStore constructs a Store. Endpoint is required and must be an absolute
+// HTTP(S) URL with a host (e.g. http://localhost:7878). Scheme-less values
+// like "localhost:7878" are rejected here — url.Parse accepts them but the
+// HTTP client later fails opaquely with "missing protocol scheme".
+// QueryTimeoutSeconds <= 0 falls back to defaultTimeoutSec.
 func NewStore(opts Options) (*Store, error) {
 	if opts.Endpoint == "" {
 		return nil, fmt.Errorf("oxigraph: endpoint is required")
 	}
-	if _, err := url.Parse(opts.Endpoint); err != nil {
+	parsed, err := url.Parse(opts.Endpoint)
+	if err != nil {
 		return nil, fmt.Errorf("oxigraph: invalid endpoint %q: %w", opts.Endpoint, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf(
+			"oxigraph: endpoint %q must use http or https scheme", opts.Endpoint)
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf(
+			"oxigraph: endpoint %q is missing a host", opts.Endpoint)
 	}
 	timeout := opts.QueryTimeoutSeconds
 	if timeout <= 0 {

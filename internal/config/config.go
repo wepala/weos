@@ -90,11 +90,16 @@ type Config struct {
 
 // OxigraphConfig holds configuration for the optional Oxigraph knowledge-graph
 // projection. WeOS speaks to Oxigraph over HTTP using the SPARQL 1.1 protocol
-// (you run `oxigraph serve` separately). Setting URL turns the feature on;
-// Enabled can override (e.g. set URL but keep disabled during staged rollout).
+// (you run `oxigraph serve` separately). The projection runs only when both
+// URL and Enabled are set — see Active().
 type OxigraphConfig struct {
-	URL      string // e.g. http://localhost:7878 — empty disables the projection
-	Enabled  bool   // explicit override; auto-true when URL is set
+	URL string // e.g. http://localhost:7878 — empty disables the projection
+	// Enabled gates the projection independently of URL so operators can
+	// stage a rollout (set URL but keep Enabled=false). LoadFromEnvironment
+	// flips Enabled=true automatically when OXIGRAPH_URL is present so the
+	// common env-var path "just works"; programmatic callers (tests,
+	// embedders) must set both fields explicitly.
+	Enabled  bool
 	Username string // optional HTTP basic auth
 	Password string
 	// QueryTimeout is the per-request timeout for SPARQL queries/updates.
@@ -105,8 +110,9 @@ type OxigraphConfig struct {
 	Rebuild bool
 }
 
-// Active reports whether the Oxigraph projection should run. URL is required;
-// Enabled defaults to true once URL is set, and can be flipped off via env var.
+// Active reports whether the Oxigraph projection should run. Both URL and
+// Enabled must be set. LoadFromEnvironment auto-sets Enabled when
+// OXIGRAPH_URL is present; programmatic callers must set both explicitly.
 func (o OxigraphConfig) Active() bool {
 	return o.URL != "" && o.Enabled
 }
