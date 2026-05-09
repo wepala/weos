@@ -144,6 +144,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideResourceTypeService),
 		fx.Provide(ProvideResourceService),
 		fx.Provide(ProvideResourcePermissionService),
+		fx.Provide(ProvideKnowledgeGraphService),
 		fx.Provide(storageprovider.ProvideFileService),
 
 		// Install the real ResourceService into the lazy writer proxy now that

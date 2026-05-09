@@ -26,10 +26,11 @@ type DeletedOutput struct {
 type ServiceName string
 
 const (
-	ServicePerson       ServiceName = "person"
-	ServiceOrganization ServiceName = "organization"
-	ServiceResourceType ServiceName = "resource-type"
-	ServiceResource     ServiceName = "resource"
+	ServicePerson         ServiceName = "person"
+	ServiceOrganization   ServiceName = "organization"
+	ServiceResourceType   ServiceName = "resource-type"
+	ServiceResource       ServiceName = "resource"
+	ServiceKnowledgeGraph ServiceName = "knowledge-graph"
 )
 
 // AllServices is the ordered list of every available service.
@@ -38,6 +39,7 @@ var AllServices = []ServiceName{
 	ServiceOrganization,
 	ServiceResourceType,
 	ServiceResource,
+	ServiceKnowledgeGraph,
 }
 
 // ValidServiceNames returns the service names as strings (useful for help text).
@@ -88,9 +90,14 @@ func resolveEnabled(services []string) map[ServiceName]bool {
 
 // NewMCPServer creates a configured MCP server with the specified tool groups registered.
 // If enabledServices is nil or empty, all tool groups are registered.
+//
+// kgService may be nil — when nil (or wrapping an inactive store) the
+// knowledge-graph tools are still registered but each call returns a
+// "knowledge graph not configured" error so the LLM gets a clear signal.
 func NewMCPServer(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
+	kgService application.KnowledgeGraphService,
 	enabledServices []string,
 ) (*mcp.Server, error) {
 	if isNilInterface(resourceTypeService) {
@@ -126,6 +133,9 @@ func NewMCPServer(
 	if enabled[ServiceResource] {
 		registerResourceTools(server, resourceService)
 	}
+	if enabled[ServiceKnowledgeGraph] && !isNilInterface(kgService) {
+		registerKnowledgeGraphTools(server, kgService)
+	}
 
 	return server, nil
 }
@@ -137,12 +147,14 @@ func Run(enabledServices []string) error {
 
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
+	var kgService application.KnowledgeGraphService
 
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
+		fx.Populate(&kgService),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -159,7 +171,7 @@ func Run(enabledServices []string) error {
 		}
 	}()
 
-	server, err := NewMCPServer(resourceTypeService, resourceService, enabledServices)
+	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, enabledServices)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
