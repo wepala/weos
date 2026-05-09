@@ -61,8 +61,9 @@ type KGExpandEntityOutput struct {
 }
 
 type KGSearchEntitiesInput struct {
-	Q     string `json:"q" jsonschema:"case-insensitive substring matched against rdfs:label / schema:name / foaf:name / dcterms:title"`
-	Limit int    `json:"limit,omitempty" jsonschema:"max IRIs to return; 1-100, defaults to 20"`
+	Q        string `json:"q" jsonschema:"case-insensitive substring matched against rdfs:label / schema:name / foaf:name / dcterms:title"`
+	ClassIRI string `json:"class_iri,omitempty" jsonschema:"optional class IRI to restrict results to instances of that class (and subclasses)"`
+	Limit    int    `json:"limit,omitempty" jsonschema:"max IRIs to return; 1-100, defaults to 20"`
 }
 
 type KGSearchEntitiesOutput struct {
@@ -78,6 +79,12 @@ type KGDescribeClassOutput struct {
 	ClassIRI   string         `json:"class_iri"`
 	Predicates []string       `json:"predicates"`
 	Instances  []KGTermOutput `json:"instances,omitempty"`
+}
+
+type KGListClassesInput struct{}
+
+type KGListClassesOutput struct {
+	Classes []KGTermOutput `json:"classes"`
 }
 
 type KGFindPathInput struct {
@@ -180,7 +187,7 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input KGSearchEntitiesInput,
 	) (*mcp.CallToolResult, KGSearchEntitiesOutput, error) {
-		matches, err := svc.SearchEntities(ctx, input.Q, input.Limit)
+		matches, err := svc.SearchEntities(ctx, input.Q, input.ClassIRI, input.Limit)
 		if err != nil {
 			return nil, KGSearchEntitiesOutput{}, kgErr(err)
 		}
@@ -208,6 +215,25 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 		}
 		for _, t := range desc.Instances {
 			out.Instances = append(out.Instances, toKGTermOutput(t))
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "kg_list_classes",
+		Description: "List every class IRI declared in the knowledge graph (anything typed " +
+			"rdfs:Class or owl:Class). Useful for introspection — start here when you don't " +
+			"know what kinds of things the graph contains.",
+	}, func(
+		ctx context.Context, _ *mcp.CallToolRequest, _ KGListClassesInput,
+	) (*mcp.CallToolResult, KGListClassesOutput, error) {
+		classes, err := svc.ListClasses(ctx)
+		if err != nil {
+			return nil, KGListClassesOutput{}, kgErr(err)
+		}
+		out := KGListClassesOutput{Classes: make([]KGTermOutput, 0, len(classes))}
+		for _, c := range classes {
+			out.Classes = append(out.Classes, toKGTermOutput(c))
 		}
 		return nil, out, nil
 	})

@@ -8,6 +8,7 @@ import (
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
@@ -178,7 +179,10 @@ func projectResourcePublished(
 
 // projectResourceTypeOntology loads the JSON-LD `@context` of a resource type
 // into the knowledge graph so SPARQL queries can resolve the predicates and
-// classes that resources reference.
+// classes that resources reference. Also emits explicit ontology triples
+// (rdf:type, rdfs:subClassOf) so kg_describe_class can walk the subclass
+// chain even on engines that don't auto-extract them from the JSON-LD
+// document.
 func projectResourceTypeOntology(
 	ctx context.Context,
 	slug string,
@@ -192,6 +196,45 @@ func projectResourceTypeOntology(
 	logger.Debug(ctx, "kg projecting ResourceType ontology", "slug", slug)
 	if err := store.LoadOntology(ctx, "application/ld+json", rawContext); err != nil {
 		logger.Error(ctx, "kg failed to load resource type ontology",
+			"slug", slug, "error", err)
+	}
+	emitExplicitOntologyTriples(ctx, slug, rawContext, store, logger)
+}
+
+// emitExplicitOntologyTriples adds the canonical `rdf:type rdfs:Class` and
+// `rdfs:subClassOf <parent>` triples for a resource type, plus a
+// `rdfs:label` from the slug. Belt-and-suspenders to the JSON-LD load:
+// some serializers don't fully expand context-only declarations into
+// triples, and the description tools rely on these being concrete RDF.
+func emitExplicitOntologyTriples(
+	ctx context.Context,
+	slug string,
+	rawContext json.RawMessage,
+	store repositories.KnowledgeGraphStore,
+	logger entities.Logger,
+) {
+	classIRI := "urn:type:" + slug
+	triples := []repositories.Triple{
+		{
+			Subject:   classIRI,
+			Predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+			Object:    "http://www.w3.org/2000/01/rdf-schema#Class",
+		},
+		{
+			Subject:   classIRI,
+			Predicate: "http://www.w3.org/2000/01/rdf-schema#label",
+			Object:    fmt.Sprintf("%q", slug),
+		},
+	}
+	if parent := jsonld.SubClassOf(rawContext); parent != "" {
+		triples = append(triples, repositories.Triple{
+			Subject:   classIRI,
+			Predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+			Object:    "urn:type:" + parent,
+		})
+	}
+	if err := store.AddTriples(ctx, triples); err != nil {
+		logger.Error(ctx, "kg failed to emit explicit ontology triples",
 			"slug", slug, "error", err)
 	}
 }

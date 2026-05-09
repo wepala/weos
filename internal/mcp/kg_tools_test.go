@@ -21,8 +21,10 @@ type stubKGService struct {
 	queryReturned    repositories.KGQueryResult
 	queryErr         error
 	searchQ          string
+	searchClass      string
 	searchLimit      int
 	searchMatches    []repositories.KGTerm
+	listClasses      []repositories.KGTerm
 	describeIRI      string
 	describeSamples  int
 	describeReturned application.ClassDescription
@@ -39,9 +41,12 @@ func (s *stubKGService) ExpandEntity(_ context.Context, iri string, depth int) (
 	s.expandIRI, s.expandDepth = iri, depth
 	return s.expandTriples, nil
 }
-func (s *stubKGService) SearchEntities(_ context.Context, q string, limit int) ([]repositories.KGTerm, error) {
-	s.searchQ, s.searchLimit = q, limit
+func (s *stubKGService) SearchEntities(_ context.Context, q, classIRI string, limit int) ([]repositories.KGTerm, error) {
+	s.searchQ, s.searchClass, s.searchLimit = q, classIRI, limit
 	return s.searchMatches, nil
+}
+func (s *stubKGService) ListClasses(_ context.Context) ([]repositories.KGTerm, error) {
+	return s.listClasses, nil
 }
 func (s *stubKGService) DescribeClass(_ context.Context, iri string, n int) (application.ClassDescription, error) {
 	s.describeIRI, s.describeSamples = iri, n
@@ -52,7 +57,7 @@ func (s *stubKGService) FindPath(_ context.Context, from, to string, hops int) (
 	return s.findTriples, nil
 }
 
-func TestRegisterKnowledgeGraphTools_RegistersFiveTools(t *testing.T) {
+func TestRegisterKnowledgeGraphTools_RegistersAllTools(t *testing.T) {
 	t.Parallel()
 	server := gomcp.NewServer(&gomcp.Implementation{Name: "test"}, nil)
 	registerKnowledgeGraphTools(server, &stubKGService{active: true})
@@ -63,6 +68,7 @@ func TestRegisterKnowledgeGraphTools_RegistersFiveTools(t *testing.T) {
 		"kg_expand_entity",
 		"kg_search_entities",
 		"kg_describe_class",
+		"kg_list_classes",
 		"kg_find_path",
 	}
 	for _, want := range expected {

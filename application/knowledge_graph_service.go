@@ -49,8 +49,10 @@ type KnowledgeGraphService interface {
 
 	// SearchEntities returns IRIs whose label-like properties (rdfs:label,
 	// schema:name, foaf:name, dcterms:title) match q (case-insensitive
-	// substring). limit defaults to 20, capped at 100.
-	SearchEntities(ctx context.Context, q string, limit int) ([]repositories.KGTerm, error)
+	// substring). When classIRI is non-empty, results are restricted to
+	// instances of that class (subclasses included via rdfs:subClassOf*).
+	// limit defaults to 20, capped at 100.
+	SearchEntities(ctx context.Context, q, classIRI string, limit int) ([]repositories.KGTerm, error)
 
 	// DescribeClass returns the predicates and (optionally) example instances
 	// of a class IRI. Useful for LLM introspection — "what does foaf:Person
@@ -61,6 +63,12 @@ type KnowledgeGraphService interface {
 	// within maxHops. Returns nil triples when no path is found within the
 	// hop budget; nil error in that case (path-not-found is not an error).
 	FindPath(ctx context.Context, from, to string, maxHops int) ([]repositories.Triple, error)
+
+	// ListClasses returns the IRIs of every class declared in the graph
+	// (anything typed `rdfs:Class` or `owl:Class`). Useful for LLM
+	// introspection — "what kinds of things does this user's graph
+	// contain?".
+	ListClasses(ctx context.Context) ([]repositories.KGTerm, error)
 }
 
 // ClassDescription captures the metadata returned by DescribeClass.
@@ -182,7 +190,7 @@ func (s *knowledgeGraphService) ExpandEntity(
 }
 
 func (s *knowledgeGraphService) SearchEntities(
-	ctx context.Context, q string, limit int,
+	ctx context.Context, q, classIRI string, limit int,
 ) ([]repositories.KGTerm, error) {
 	if !s.Active() {
 		return nil, ErrKGUnavailable
@@ -190,6 +198,11 @@ func (s *knowledgeGraphService) SearchEntities(
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return nil, fmt.Errorf("query string is required")
+	}
+	if classIRI != "" {
+		if err := validateIRI(classIRI); err != nil {
+			return nil, fmt.Errorf("class iri: %w", err)
+		}
 	}
 	// Clamp pathological lengths so a runaway LLM call can't wedge SPARQL
 	// parsing on a multi-megabyte literal. 256 chars is well over what any
@@ -205,7 +218,7 @@ func (s *knowledgeGraphService) SearchEntities(
 	if limit > 100 {
 		limit = 100
 	}
-	sparql := buildSearchQuery(q, limit)
+	sparql := buildSearchQuery(q, classIRI, limit)
 	s.logger.Debug(ctx, "kg search entities", "q", q, "limit", limit)
 	res, err := s.store.Query(ctx, sparql)
 	if err != nil {
@@ -429,10 +442,20 @@ func buildChainTriples(subj, predPrefix, varPrefix string, i int) string {
 // disagree on non-ASCII (Turkish dotless I, German ß), so applying both
 // would skip legitimate matches. The literal is escaped but its case is
 // preserved going in.
-func buildSearchQuery(q string, limit int) string {
+//
+// When classIRI is non-empty, results are restricted to instances of that
+// class (or any rdfs:subClassOf descendant). Lets the LLM ask "find people
+// named Alice" without first listing every Person subclass.
+func buildSearchQuery(q, classIRI string, limit int) string {
 	escaped := escapeSPARQLLiteral(q)
+	classClause := ""
+	if classIRI != "" {
+		classClause = fmt.Sprintf(`
+  ?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>/<http://www.w3.org/2000/01/rdf-schema#subClassOf>* %s .`,
+			formatIRI(classIRI))
+	}
 	return fmt.Sprintf(`
-SELECT DISTINCT ?s WHERE {
+SELECT DISTINCT ?s WHERE {%s
   ?s ?labelPred ?lbl .
   FILTER(?labelPred IN (
     <http://www.w3.org/2000/01/rdf-schema#label>,
@@ -442,7 +465,7 @@ SELECT DISTINCT ?s WHERE {
     <http://purl.org/dc/terms/title>
   ))
   FILTER(CONTAINS(LCASE(STR(?lbl)), LCASE("%s")))
-} LIMIT %d`, escaped, limit)
+} LIMIT %d`, classClause, escaped, limit)
 }
 
 // buildPathQueryForLength returns a CONSTRUCT for a single chain length:
@@ -493,6 +516,37 @@ func escapeSPARQLLiteral(s string) string {
 		"\t", `\t`,
 	)
 	return r.Replace(s)
+}
+
+func (s *knowledgeGraphService) ListClasses(
+	ctx context.Context,
+) ([]repositories.KGTerm, error) {
+	if !s.Active() {
+		return nil, ErrKGUnavailable
+	}
+	// Anything typed rdfs:Class or owl:Class — covers both the explicit
+	// triples we emit (rdfs:Class) and ontology imports that use
+	// owl:Class. Distinct in case the same IRI carries both types.
+	q := `
+SELECT DISTINCT ?s WHERE {
+  ?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> ?cls .
+  FILTER(?cls IN (
+    <http://www.w3.org/2000/01/rdf-schema#Class>,
+    <http://www.w3.org/2002/07/owl#Class>
+  ))
+}`
+	res, err := s.store.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repositories.KGTerm, 0, len(res.Bindings))
+	for _, row := range res.Bindings {
+		if t, ok := row["s"]; ok {
+			out = append(out, t)
+		}
+	}
+	s.logger.Debug(ctx, "kg list classes", "count", len(out))
+	return out, nil
 }
 
 // --- Permission filtering ---

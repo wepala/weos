@@ -233,6 +233,46 @@ func TestSubscribeKnowledgeGraphHandlers_LoadsOntologyOnTypeCreated(t *testing.T
 	if len(store.loadedFormats) != 1 || store.loadedFormats[0] != "application/ld+json" {
 		t.Errorf("loaded formats = %v, want [application/ld+json]", store.loadedFormats)
 	}
+	// Explicit ontology triples (rdf:type rdfs:Class + rdfs:label) must be
+	// emitted alongside the JSON-LD load.
+	if len(store.addCalls) != 1 {
+		t.Fatalf("expected 1 AddTriples call for explicit ontology triples; got %d", len(store.addCalls))
+	}
+	hasClassTriple := false
+	for _, t := range store.addCalls[0] {
+		if t.Subject == "urn:type:product" &&
+			t.Predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" &&
+			t.Object == "http://www.w3.org/2000/01/rdf-schema#Class" {
+			hasClassTriple = true
+			break
+		}
+	}
+	if !hasClassTriple {
+		t.Errorf("missing rdf:type rdfs:Class triple: %+v", store.addCalls[0])
+	}
+}
+
+func TestEmitExplicitOntologyTriples_IncludesSubClassOfWhenDeclared(t *testing.T) {
+	t.Parallel()
+	store := &fakeKGStore{active: true}
+	rawCtx := []byte(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"thing"}`)
+
+	emitExplicitOntologyTriples(context.Background(), "product", rawCtx, store, noopLogger{})
+
+	if len(store.addCalls) != 1 {
+		t.Fatalf("expected one AddTriples call; got %d", len(store.addCalls))
+	}
+	hasSubClass := false
+	for _, tr := range store.addCalls[0] {
+		if tr.Predicate == "http://www.w3.org/2000/01/rdf-schema#subClassOf" &&
+			tr.Object == "urn:type:thing" {
+			hasSubClass = true
+			break
+		}
+	}
+	if !hasSubClass {
+		t.Errorf("expected rdfs:subClassOf triple targeting urn:type:thing; got %+v", store.addCalls[0])
+	}
 }
 
 func TestSubscribeKnowledgeGraphHandlers_RegistersBackfillHookWhenActive(t *testing.T) {

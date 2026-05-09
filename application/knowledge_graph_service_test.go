@@ -115,7 +115,7 @@ func TestKGService_InactiveStoreReturnsErrUnavailable(t *testing.T) {
 	if _, err := svc.ExpandEntity(ctx, "urn:x", 1); !errors.Is(err, ErrKGUnavailable) {
 		t.Errorf("ExpandEntity: got %v, want ErrKGUnavailable", err)
 	}
-	if _, err := svc.SearchEntities(ctx, "x", 0); !errors.Is(err, ErrKGUnavailable) {
+	if _, err := svc.SearchEntities(ctx, "x", "", 0); !errors.Is(err, ErrKGUnavailable) {
 		t.Errorf("SearchEntities: got %v, want ErrKGUnavailable", err)
 	}
 	if _, err := svc.DescribeClass(ctx, "urn:c", 0); !errors.Is(err, ErrKGUnavailable) {
@@ -185,7 +185,7 @@ func TestKGService_SearchEntities_EscapesQuoteAndLowercases(t *testing.T) {
 	store := &queryRecordingStore{active: true}
 	svc := newKGSvc(store)
 
-	if _, err := svc.SearchEntities(context.Background(), `she said "hi"`, 0); err != nil {
+	if _, err := svc.SearchEntities(context.Background(), `she said "hi"`, "", 0); err != nil {
 		t.Fatalf("SearchEntities: %v", err)
 	}
 	q := store.queries[0]
@@ -204,7 +204,7 @@ func TestKGService_SearchEntities_LimitClamped(t *testing.T) {
 	store := &queryRecordingStore{active: true}
 	svc := newKGSvc(store)
 
-	if _, err := svc.SearchEntities(context.Background(), "x", 9999); err != nil {
+	if _, err := svc.SearchEntities(context.Background(), "x", "", 9999); err != nil {
 		t.Fatalf("SearchEntities: %v", err)
 	}
 	if !strings.Contains(store.queries[0], "LIMIT 100") {
@@ -225,6 +225,55 @@ func TestKGService_DescribeClass_WalksSubClassOf(t *testing.T) {
 	}
 	if !strings.Contains(store.queries[0], "rdf-schema#subClassOf>*") {
 		t.Errorf("expected subClassOf property path: %q", store.queries[0])
+	}
+}
+
+func TestKGService_SearchEntities_ClassFilterAddsSubClassPath(t *testing.T) {
+	t.Parallel()
+	store := &queryRecordingStore{active: true}
+	svc := newKGSvc(store)
+
+	if _, err := svc.SearchEntities(context.Background(), "alice", "https://schema.org/Person", 0); err != nil {
+		t.Fatalf("SearchEntities: %v", err)
+	}
+	q := store.queries[0]
+	if !strings.Contains(q, "<https://schema.org/Person>") {
+		t.Errorf("class IRI missing from query: %q", q)
+	}
+	if !strings.Contains(q, "rdf-schema#subClassOf>*") {
+		t.Errorf("class filter must use subClassOf property path so subclasses match: %q", q)
+	}
+}
+
+func TestKGService_SearchEntities_RejectsMaliciousClassIRI(t *testing.T) {
+	t.Parallel()
+	svc := newKGSvc(&queryRecordingStore{active: true})
+
+	if _, err := svc.SearchEntities(context.Background(), "x", "urn:c<inj>", 0); err == nil {
+		t.Fatal("expected validation error on injected class IRI")
+	}
+}
+
+func TestKGService_ListClasses_ReturnsClassIRIs(t *testing.T) {
+	t.Parallel()
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Bindings: []map[string]repositories.KGTerm{
+			{"s": {Type: repositories.KGTermIRI, Value: "urn:type:product"}},
+			{"s": {Type: repositories.KGTermIRI, Value: "https://schema.org/Person"}},
+		}},
+	}
+	svc := newKGSvc(store)
+
+	classes, err := svc.ListClasses(context.Background())
+	if err != nil {
+		t.Fatalf("ListClasses: %v", err)
+	}
+	if len(classes) != 2 {
+		t.Fatalf("expected 2 classes; got %d", len(classes))
+	}
+	if !strings.Contains(store.queries[0], "rdf-schema#Class") || !strings.Contains(store.queries[0], "owl#Class") {
+		t.Errorf("query should match both rdfs:Class and owl:Class: %q", store.queries[0])
 	}
 }
 
@@ -366,7 +415,7 @@ func TestKGService_RequiresArgs(t *testing.T) {
 	if _, err := svc.ExpandEntity(ctx, "", 0); err == nil {
 		t.Error("ExpandEntity(\"\") should error")
 	}
-	if _, err := svc.SearchEntities(ctx, "  ", 0); err == nil {
+	if _, err := svc.SearchEntities(ctx, "  ", "", 0); err == nil {
 		t.Error("SearchEntities(blank) should error")
 	}
 	if _, err := svc.DescribeClass(ctx, "", 0); err == nil {
@@ -604,7 +653,7 @@ func TestKGService_SearchEntities_FiltersForbiddenSubjects(t *testing.T) {
 	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:product:secret": true}}
 	svc := newKGSvcWithResource(store, rsvc)
 
-	got, err := svc.SearchEntities(context.Background(), "any", 0)
+	got, err := svc.SearchEntities(context.Background(), "any", "", 0)
 	if err != nil {
 		t.Fatalf("SearchEntities: %v", err)
 	}
