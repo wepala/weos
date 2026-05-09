@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -332,10 +333,18 @@ func (s *resourceService) buildVisibilityScope(ctx context.Context) *repositorie
 // FilterAccessibleResourceIDs partitions ids into "gated resource URNs" and
 // "everything else", asks the repo for the readable subset of the gated
 // part, and returns the union with everything else preserved (ontology
-// IRIs, person/org/type URNs, blank nodes, literals — none of which are
-// gated by ResourcePermission). System context (nil identity) returns the
-// input unchanged. The repo path is a single SQL round-trip regardless of
-// input size, so the KG filter doesn't need to batch.
+// IRIs, type/theme URNs, blank nodes, literals — none of which are gated
+// by ResourcePermission). System context (nil identity) returns the input
+// unchanged. The repo path is a single SQL round-trip regardless of input
+// size, so the KG filter doesn't need to batch.
+//
+// Known divergence from checkInstanceAccess: the account-admin/owner
+// bypass is NOT applied here — an admin querying the knowledge graph
+// won't see colleague resources via the graph that they would see via
+// GetByID. This is the strict-but-safe direction (we never EXPOSE more
+// than we should). Reconciling requires reverse-looking-up admin
+// accounts for the agent, which the current AccountRepository surface
+// doesn't expose; revisit when that becomes available.
 func (s *resourceService) FilterAccessibleResourceIDs(
 	ctx context.Context, ids []string,
 ) ([]string, error) {
@@ -377,20 +386,25 @@ func partitionGatedResourceURNs(ids []string) (gated, passthrough []string) {
 	return gated, passthrough
 }
 
-// isGatedResourceURN reports whether id is a `urn:<typeSlug>:<ksuid>`
-// format with a non-reserved typeSlug. Mirrors the logic in
-// extractTypeSlugFromResourceID (application/triple_handler.go) but at
-// the URN form instead of slug.
+// isGatedResourceURN reports whether id is a URN that must pass the resource
+// permission filter before being shown to the caller. We gate everything
+// `identity.ExtractResourceTypeSlug` recognizes (`urn:<typeSlug>:<ksuid>`)
+// PLUS the `urn:person:*` and `urn:org:*` forms — those carry user PII
+// (FOAF data) and earlier versions of the filter let them slip through.
+// `urn:type:*` and `urn:theme:*` are configuration / system entities;
+// admin-only access is enforced upstream so we let them pass through.
 func isGatedResourceURN(id string) bool {
-	slug := identity.ExtractResourceTypeSlug(id)
-	if slug == "" {
-		return false
+	if identity.ExtractResourceTypeSlug(id) != "" {
+		return true
 	}
-	switch slug {
-	case "person", "org", "theme", "type":
-		return false
+	parts := strings.Split(id, ":")
+	if len(parts) == 3 && parts[0] == "urn" {
+		switch parts[1] {
+		case "person", "org":
+			return true
+		}
 	}
-	return true
+	return false
 }
 
 func (s *resourceService) checkInstanceAccess(

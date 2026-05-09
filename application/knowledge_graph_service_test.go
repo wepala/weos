@@ -9,6 +9,8 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 )
 
 // queryRecordingStore captures the SPARQL string that the service sends so
@@ -464,11 +466,129 @@ func TestKGService_ExpandEntity_HidesForbiddenObjectsButKeepsTriple(t *testing.T
 	if len(got) != 1 {
 		t.Fatalf("expected 1 triple (object hidden, not dropped); got %d", len(got))
 	}
-	if got[0].Object != "" {
-		t.Errorf("forbidden object not hidden; got %q", got[0].Object)
+	if got[0].Object != kgRedactedIRI {
+		t.Errorf("forbidden object not hidden with sentinel; got %q", got[0].Object)
 	}
 	if got[0].Predicate != "https://schema.org/owner" {
 		t.Errorf("predicate must be preserved so the LLM sees the relationship")
+	}
+}
+
+func TestKGService_FilterDropsRowWithForbiddenIRIInAnyVariable(t *testing.T) {
+	t.Parallel()
+	// Free-form Query() lets the LLM project arbitrary variable names.
+	// The filter must drop a row whose ?owner (not ?s) is a forbidden URN —
+	// otherwise renaming the projection variable bypasses the gate.
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Bindings: []map[string]repositories.KGTerm{
+			{"owner": {Type: repositories.KGTermIRI, Value: "urn:product:secret"}},
+			{"owner": {Type: repositories.KGTermIRI, Value: "urn:product:public"}},
+		}},
+	}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:product:secret": true}}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	res, err := svc.Query(context.Background(), "SELECT ?owner WHERE { ?x ?p ?owner }")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(res.Bindings) != 1 {
+		t.Fatalf("expected 1 row (forbidden IRI hidden in ?owner); got %d", len(res.Bindings))
+	}
+	if res.Bindings[0]["owner"].Value != "urn:product:public" {
+		t.Errorf("wrong row survived the filter: %+v", res.Bindings[0])
+	}
+}
+
+func TestKGService_ASKForcedFalseForNonSystemContext(t *testing.T) {
+	t.Parallel()
+	yes := true
+	store := &queryRecordingStore{
+		active:   true,
+		response: repositories.KGQueryResult{Boolean: &yes},
+	}
+	svc := newKGSvc(store)
+
+	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{
+		AgentID:         "agent-1",
+		ActiveAccountID: "acct-1",
+	})
+	res, err := svc.Query(ctx, "ASK { <urn:product:secret> ?p ?o }")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if res.Boolean == nil || *res.Boolean {
+		t.Errorf("non-system ASK must be forced to false; got %v", res.Boolean)
+	}
+}
+
+func TestKGService_ASKPassesThroughForSystemContext(t *testing.T) {
+	t.Parallel()
+	yes := true
+	store := &queryRecordingStore{
+		active:   true,
+		response: repositories.KGQueryResult{Boolean: &yes},
+	}
+	svc := newKGSvc(store)
+
+	// No agent in ctx → system context → ASK passes through unchanged.
+	res, err := svc.Query(context.Background(), "ASK {}")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if res.Boolean == nil || !*res.Boolean {
+		t.Errorf("system ASK must pass through unchanged; got %v", res.Boolean)
+	}
+}
+
+func TestKGService_FindPath_StopsAtFilteredEmptyToAvoidLengthOracle(t *testing.T) {
+	t.Parallel()
+	// At length=1 the store returns a triple connecting from→to but every
+	// triple involves a forbidden subject. Filter empties the result.
+	// We must NOT extend to length=2 — that would let an LLM probe path
+	// length via timing/response.
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Triples: []repositories.Triple{
+			{Subject: "urn:product:secret", Predicate: "p", Object: "urn:product:public"},
+		}},
+	}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:product:secret": true}}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	got, err := svc.FindPath(context.Background(), "urn:product:public", "urn:product:other", 4)
+	if err != nil {
+		t.Fatalf("FindPath: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("filtered-empty must return empty without extending; got %v", got)
+	}
+	if len(store.queries) != 1 {
+		t.Errorf("expected exactly 1 query before stopping; got %d (length oracle?)", len(store.queries))
+	}
+}
+
+func TestKGService_FilterGatesPersonURNs(t *testing.T) {
+	t.Parallel()
+	// urn:person:* carries FOAF data — must be filtered for non-system
+	// callers. resourceFilterStub returns the empty allowed-list because
+	// person URNs aren't in the resources table; that's the safe default.
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Triples: []repositories.Triple{
+			{Subject: "urn:person:alice", Predicate: "http://xmlns.com/foaf/0.1/name", Object: "Alice"},
+		}},
+	}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:person:alice": true}}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	got, err := svc.ExpandEntity(context.Background(), "urn:person:alice", 1)
+	if err != nil {
+		t.Fatalf("ExpandEntity: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("urn:person:* must be gated; got %+v", got)
 	}
 }
 

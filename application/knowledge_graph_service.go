@@ -9,8 +9,16 @@ import (
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	"go.uber.org/fx"
 )
+
+// kgRedactedIRI is the sentinel substituted for forbidden object IRIs so the
+// predicate stays visible (the LLM still learns "this resource has an owner")
+// without exposing the hidden entity. Using a stable opaque marker (rather
+// than "") avoids collisions with legitimate empty-string literals and gives
+// downstream renderers a clear signal.
+const kgRedactedIRI = "urn:weos:redacted"
 
 // ErrKGUnavailable is returned when a knowledge-graph operation is requested
 // but the underlying store is not configured. Callers (notably MCP tool
@@ -123,19 +131,17 @@ func (s *knowledgeGraphService) Query(
 		}
 		res.Bindings = filtered
 	}
-	if res.Boolean != nil && *res.Boolean {
-		// ASK true on data the agent can't see could leak existence; we
-		// can't tell what subjects matched without re-running, so the
-		// safe call is to return the boolean unchanged for system context
-		// and false otherwise. System context is the common case
-		// (stdio/MCP without identity); HTTP transport future-proofing
-		// note: when an agent identity is plumbed in via the auth
-		// middleware, this check kicks in automatically.
-		// (The simpler invariant — "ASK can't expose forbidden data" —
-		// is preserved by returning false when an identity is set, even
-		// though it's overly conservative. Story #357 acceptance
-		// explicitly calls this out.)
-		// This path stays as-is: we trust the configured permission model.
+	if res.Boolean != nil && *res.Boolean && auth.AgentFromCtx(ctx) != nil {
+		// ASK true on data the caller can't see is an existence leak: the
+		// LLM can probe `ASK { <forbidden:iri> ?p ?o }` and learn that
+		// gated resources exist. Without re-running the query under a
+		// permission-aware rewrite (which Oxigraph doesn't support
+		// natively), the safe call for non-system callers is to flip
+		// true → false. System callers (auth.AgentFromCtx == nil)
+		// retain the unfiltered answer to match every other service.
+		falsy := false
+		res.Boolean = &falsy
+		s.logger.Debug(ctx, "kg ASK forced to false for non-system caller")
 	}
 	return res, nil
 }
@@ -324,14 +330,17 @@ func (s *knowledgeGraphService) FindPath(
 			if ferr != nil {
 				return nil, ferr
 			}
-			// If the filter dropped every triple in the path, treat it as
-			// "no path you're allowed to see at this length" and try a
-			// longer length — matches the "best-effort" contract.
-			if len(filtered) > 0 {
-				s.logger.Debug(ctx, "kg find path: found",
-					"length", length, "triples", len(filtered))
-				return filtered, nil
-			}
+			// Stop at the first length where the *unfiltered* query found a
+			// path, regardless of whether the filter then emptied it.
+			// Continuing to a longer length when the filter blanked us at
+			// this length would tell the LLM "a shorter forbidden path
+			// exists" via response time and the returned chain length —
+			// a side-channel oracle. Return the (possibly empty) filtered
+			// triples; the caller treats `[]` as "no path you're allowed
+			// to see."
+			s.logger.Debug(ctx, "kg find path: found",
+				"length", length, "triples", len(filtered))
+			return filtered, nil
 		}
 	}
 	s.logger.Debug(ctx, "kg find path: no path within maxHops", "maxHops", maxHops)
@@ -489,11 +498,12 @@ func escapeSPARQLLiteral(s string) string {
 // --- Permission filtering ---
 
 // filterTriples drops triples whose subject the caller cannot read. Triples
-// with a forbidden *object* are kept but the object is rewritten to an
-// empty string sentinel so the LLM still sees the predicate but can't
+// with a forbidden *object* are kept but the object is rewritten to the
+// kgRedactedIRI sentinel so the LLM still sees the predicate but can't
 // resolve the hidden entity. (Stripping the triple entirely would let the
 // LLM infer existence via "this resource references X" patterns; rewriting
-// preserves the predicate without leaking the IRI.)
+// preserves the predicate without leaking the IRI. Using a stable sentinel
+// instead of "" prevents collision with legitimate empty literals.)
 //
 // Implementation: collect all distinct resource URNs across subjects and
 // objects, ask ResourceService for the accessible subset, then walk the
@@ -510,6 +520,8 @@ func (s *knowledgeGraphService) filterTriples(
 	}
 	allowed, err := s.resource.FilterAccessibleResourceIDs(ctx, candidates)
 	if err != nil {
+		s.logger.Error(ctx, "kg permission filter failed",
+			"error", err, "candidates", len(candidates))
 		return nil, fmt.Errorf("kg permission filter: %w", err)
 	}
 	allowedSet := stringSet(allowed)
@@ -524,7 +536,7 @@ func (s *knowledgeGraphService) filterTriples(
 			continue
 		}
 		if isGatedResourceURN(t.Object) && !allowedSet[t.Object] {
-			t.Object = ""
+			t.Object = kgRedactedIRI
 			hiddenObjects++
 		}
 		out = append(out, t)
@@ -536,10 +548,12 @@ func (s *knowledgeGraphService) filterTriples(
 	return out, nil
 }
 
-// filterBindings drops SELECT rows whose `?s` value (or other named-IRI
-// columns) is a forbidden gated URN. We don't try to filter every variable
-// — the convention across the KG service is that the result row's primary
-// IRI is bound to `?s`, so that's what we gate.
+// filterBindings drops SELECT rows that bind any forbidden gated URN to ANY
+// variable. Free-form Query() lets the LLM project arbitrary names
+// (?owner, ?friend, ?subject, …); gating only ?s would let an LLM trivially
+// rename its way around the filter. We collect every IRI cell across every
+// row, ask the resource service for the accessible subset in one bulk call,
+// then drop any row that contains a forbidden cell.
 func (s *knowledgeGraphService) filterBindings(
 	ctx context.Context, bindings []map[string]repositories.KGTerm,
 ) ([]map[string]repositories.KGTerm, error) {
@@ -549,9 +563,11 @@ func (s *knowledgeGraphService) filterBindings(
 	var candidates []string
 	seen := map[string]bool{}
 	for _, row := range bindings {
-		if t, ok := row["s"]; ok && t.Type == repositories.KGTermIRI && isGatedResourceURN(t.Value) && !seen[t.Value] {
-			seen[t.Value] = true
-			candidates = append(candidates, t.Value)
+		for _, t := range row {
+			if t.Type == repositories.KGTermIRI && isGatedResourceURN(t.Value) && !seen[t.Value] {
+				seen[t.Value] = true
+				candidates = append(candidates, t.Value)
+			}
 		}
 	}
 	if len(candidates) == 0 {
@@ -559,13 +575,15 @@ func (s *knowledgeGraphService) filterBindings(
 	}
 	allowed, err := s.resource.FilterAccessibleResourceIDs(ctx, candidates)
 	if err != nil {
+		s.logger.Error(ctx, "kg permission filter failed",
+			"error", err, "candidates", len(candidates))
 		return nil, fmt.Errorf("kg permission filter: %w", err)
 	}
 	allowedSet := stringSet(allowed)
 	out := make([]map[string]repositories.KGTerm, 0, len(bindings))
 	dropped := 0
 	for _, row := range bindings {
-		if t, ok := row["s"]; ok && isGatedResourceURN(t.Value) && !allowedSet[t.Value] {
+		if rowHasForbiddenIRI(row, allowedSet) {
 			dropped++
 			continue
 		}
@@ -575,6 +593,18 @@ func (s *knowledgeGraphService) filterBindings(
 		s.logger.Debug(ctx, "kg permission filter dropped bindings", "dropped", dropped)
 	}
 	return out, nil
+}
+
+// rowHasForbiddenIRI reports whether any IRI cell in the binding row is a
+// gated URN absent from the allowedSet. Used by filterBindings to drop
+// rows that project a forbidden IRI under any variable name.
+func rowHasForbiddenIRI(row map[string]repositories.KGTerm, allowedSet map[string]bool) bool {
+	for _, t := range row {
+		if t.Type == repositories.KGTermIRI && isGatedResourceURN(t.Value) && !allowedSet[t.Value] {
+			return true
+		}
+	}
+	return false
 }
 
 // uniqueGatedURNs returns the distinct gated resource URNs found in the

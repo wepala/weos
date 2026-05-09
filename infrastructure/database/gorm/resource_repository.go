@@ -568,9 +568,15 @@ func (r *ResourceRepository) FindByID(
 }
 
 // FindAccessibleIDs returns the subset of `ids` that pass the visibility
-// scope. A nil or admin scope returns the input unchanged. Implemented as a
-// single SQL `WHERE id IN (...) AND <scope>` round-trip so the
-// knowledge-graph filter doesn't issue per-id permission checks.
+// scope, matching the same rules `checkInstanceAccess` enforces:
+// `created_by = ?` OR explicit `read` grant in `resource_permissions` OR
+// pre-migration ownerless rows (`created_by = ''`). Account-admin/owner
+// bypass is applied by the caller (ResourceService), which has the
+// AccountRepository to evaluate it. A nil or admin scope returns the
+// input unchanged.
+//
+// Implemented as a single `WHERE id IN (...) AND <scope>` SQL round-trip so
+// the knowledge-graph filter doesn't issue per-id permission checks.
 func (r *ResourceRepository) FindAccessibleIDs(
 	ctx context.Context, ids []string, scope *repositories.VisibilityScope,
 ) ([]string, error) {
@@ -585,8 +591,11 @@ func (r *ResourceRepository) FindAccessibleIDs(
 	var rows []string
 	q := r.db.WithContext(ctx).
 		Table("resources").
-		Where("id IN ?", ids)
-	q = applyVisibilityScope(q, scope, "")
+		Where("id IN ?", ids).
+		Where(
+			"created_by = ? OR created_by = '' OR id IN (SELECT resource_id FROM resource_permissions WHERE agent_id = ? AND actions LIKE ?)",
+			scope.AgentID, scope.AgentID, `%"read"%`,
+		)
 	if err := q.Pluck("id", &rows).Error; err != nil {
 		return nil, fmt.Errorf("filter accessible ids: %w", err)
 	}
