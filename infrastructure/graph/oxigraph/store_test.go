@@ -339,6 +339,64 @@ func TestParseNTriples_HandlesEdgeCases(t *testing.T) {
 	}
 }
 
+// recordingLogger captures Debug calls so we can assert latency telemetry
+// fires; other levels are no-ops because the logger interface tests cover
+// them separately.
+type recordingLogger struct {
+	debugMessages []string
+	debugFields   [][]interface{}
+}
+
+func (r *recordingLogger) Debug(_ context.Context, msg string, fields ...interface{}) {
+	r.debugMessages = append(r.debugMessages, msg)
+	r.debugFields = append(r.debugFields, fields)
+}
+func (r *recordingLogger) Info(_ context.Context, _ string, _ ...interface{})  {}
+func (r *recordingLogger) Warn(_ context.Context, _ string, _ ...interface{})  {}
+func (r *recordingLogger) Error(_ context.Context, _ string, _ ...interface{}) {}
+
+func TestStore_Query_LogsLatencyAtDebug(t *testing.T) {
+	fake := newFakeOxigraph(t)
+	fake.replyWith("/query", http.StatusOK, mimeResultsJSON,
+		`{"head":{"vars":[]},"results":{"bindings":[]}}`)
+	rec := &recordingLogger{}
+	store, err := NewStore(Options{Endpoint: fake.server.URL, Logger: rec})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	if _, err := store.Query(context.Background(), "SELECT * WHERE { ?s ?p ?o }"); err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	found := false
+	for i, msg := range rec.debugMessages {
+		if msg == "oxigraph query" {
+			found = true
+			fields := rec.debugFields[i]
+			// Confirm form and elapsed_ms keys are present (positional kv).
+			hasForm, hasElapsed := false, false
+			for j := 0; j+1 < len(fields); j += 2 {
+				if fields[j] == "form" {
+					hasForm = true
+				}
+				if fields[j] == "elapsed_ms" {
+					hasElapsed = true
+				}
+			}
+			if !hasForm {
+				t.Error("expected form field in latency log")
+			}
+			if !hasElapsed {
+				t.Error("expected elapsed_ms field in latency log")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected 'oxigraph query' debug message; got %v", rec.debugMessages)
+	}
+}
+
 func TestStore_IsEmpty_NilBooleanReturnsError(t *testing.T) {
 	fake := newFakeOxigraph(t)
 	// Body has no `boolean` field — simulates an Oxigraph quirk or proxy

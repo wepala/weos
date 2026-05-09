@@ -121,10 +121,16 @@ func (s *Store) RemoveSubject(ctx context.Context, subject string) error {
 	return s.Update(ctx, q)
 }
 
-// Update executes an arbitrary SPARQL UPDATE.
+// Update executes an arbitrary SPARQL UPDATE. Latency logged at DEBUG.
 func (s *Store) Update(ctx context.Context, sparql string) error {
+	start := time.Now()
 	resp, err := s.do(ctx, http.MethodPost, "/update",
 		mimeSPARQLUpdate, "", []byte(sparql))
+	if s.logger != nil {
+		s.logger.Debug(ctx, "oxigraph update",
+			"elapsed_ms", time.Since(start).Milliseconds(),
+			"update_bytes", len(sparql))
+	}
 	if err != nil {
 		return err
 	}
@@ -139,14 +145,23 @@ func (s *Store) Update(ctx context.Context, sparql string) error {
 
 // Query executes a SPARQL query (SELECT / ASK / CONSTRUCT / DESCRIBE) and
 // normalizes the response into a KGQueryResult. The form is detected from the
-// query text (first non-PREFIX/non-comment keyword).
+// query text (first non-PREFIX/non-comment keyword). Latency is logged at
+// DEBUG (elapsed_ms field) so operators can spot slow queries when they
+// turn LOG_LEVEL up.
 func (s *Store) Query(ctx context.Context, sparql string) (repositories.KGQueryResult, error) {
 	form := detectQueryForm(sparql)
 	accept := mimeResultsJSON
 	if form == queryFormConstruct || form == queryFormDescribe {
 		accept = mimeNTriples
 	}
+	start := time.Now()
 	resp, err := s.do(ctx, http.MethodPost, "/query", mimeSPARQLQuery, accept, []byte(sparql))
+	if s.logger != nil {
+		s.logger.Debug(ctx, "oxigraph query",
+			"form", queryFormName(form),
+			"elapsed_ms", time.Since(start).Milliseconds(),
+			"query_bytes", len(sparql))
+	}
 	if err != nil {
 		return repositories.KGQueryResult{}, err
 	}
@@ -417,6 +432,21 @@ const (
 	queryFormConstruct
 	queryFormDescribe
 )
+
+// queryFormName returns a human-readable tag for a queryForm — used in
+// debug logs so operators see "select" instead of an opaque integer.
+func queryFormName(f queryForm) string {
+	switch f {
+	case queryFormAsk:
+		return "ask"
+	case queryFormConstruct:
+		return "construct"
+	case queryFormDescribe:
+		return "describe"
+	default:
+		return "select"
+	}
+}
 
 // detectQueryForm returns the high-level SPARQL form so we can pick the right
 // Accept header. We strip prefixes/comments and look at the first keyword.
