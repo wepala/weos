@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -83,6 +84,38 @@ type recordingLifecycle struct {
 }
 
 func (r *recordingLifecycle) Append(h fx.Hook) { r.hooks = append(r.hooks, h) }
+
+// fakeEventStore returns canned envelopes for GetEventsByTransactionID. Other
+// methods panic — Resource.Published is the only path that touches the store
+// during projection.
+type fakeEventStore struct {
+	tx     map[string][]domain.EventEnvelope[any]
+	getErr error
+}
+
+func (f *fakeEventStore) Append(_ context.Context, _ string, _ int, _ ...domain.EventEnvelope[any]) error {
+	panic("not used")
+}
+func (f *fakeEventStore) GetEvents(_ context.Context, _ string) ([]domain.EventEnvelope[any], error) {
+	panic("not used")
+}
+func (f *fakeEventStore) GetEventsFromVersion(_ context.Context, _ string, _ int) ([]domain.EventEnvelope[any], error) {
+	panic("not used")
+}
+func (f *fakeEventStore) GetEventsRange(_ context.Context, _ string, _, _ int) ([]domain.EventEnvelope[any], error) {
+	panic("not used")
+}
+func (f *fakeEventStore) GetEventByID(_ context.Context, _ string) (domain.EventEnvelope[any], error) {
+	panic("not used")
+}
+func (f *fakeEventStore) GetEventsByTransactionID(_ context.Context, txID string) ([]domain.EventEnvelope[any], error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return f.tx[txID], nil
+}
+func (f *fakeEventStore) Close() error                                       { return nil }
+func (f *fakeEventStore) GetCurrentVersion(_ context.Context, _ string) (int, error) { return 0, nil }
 
 func newProjectorParams(store repositories.KnowledgeGraphStore) SubscribeKnowledgeGraphHandlersParams {
 	return SubscribeKnowledgeGraphHandlersParams{
@@ -212,5 +245,103 @@ func TestSubscribeKnowledgeGraphHandlers_RegistersBackfillHookWhenActive(t *test
 	lc := params.Lifecycle.(*recordingLifecycle)
 	if len(lc.hooks) != 1 {
 		t.Fatalf("expected exactly 1 lifecycle hook (backfill); got %d", len(lc.hooks))
+	}
+}
+
+// projectResourcePublished is the most complex projector path; without these
+// tests a regression would silently corrupt the graph (stale data after edits,
+// or extra writes after deletes that the GORM projector handled separately).
+
+func TestProjectResourcePublished_LoadsDataAfterClearingPriorSubject(t *testing.T) {
+	t.Parallel()
+	store := &fakeKGStore{active: true}
+	es := &fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{
+		"tx-1": {{
+			AggregateID: "urn:product:1",
+			EventType:   "Resource.Created",
+			SequenceNo:  1,
+			Payload: map[string]any{
+				"TypeSlug":  "product",
+				"Data":      map[string]any{"@id": "urn:product:1", "name": "Widget"},
+				"CreatedBy": "agent-1",
+			},
+		}},
+	}}
+
+	env := domain.EventEnvelope[entities.ResourcePublished]{
+		AggregateID:   "urn:product:1",
+		EventType:     "Resource.Published",
+		TransactionID: "tx-1",
+		SequenceNo:    1,
+		Payload:       entities.ResourcePublished{}.With("product"),
+	}
+	projectResourcePublished(context.Background(), env, es, store, noopLogger{})
+
+	// Replace semantic: the projector must remove the prior subject before
+	// loading new data, so deleted properties don't linger.
+	if len(store.subjectsRemoved) != 1 || store.subjectsRemoved[0] != "urn:product:1" {
+		t.Errorf("subject remove order wrong: %v", store.subjectsRemoved)
+	}
+	if len(store.loadedFormats) != 1 || store.loadedFormats[0] != "application/ld+json" {
+		t.Errorf("loaded formats = %v, want [application/ld+json]", store.loadedFormats)
+	}
+}
+
+func TestProjectResourcePublished_EmptyTransactionIDLogsAndReturns(t *testing.T) {
+	t.Parallel()
+	store := &fakeKGStore{active: true}
+	es := &fakeEventStore{}
+
+	env := domain.EventEnvelope[entities.ResourcePublished]{
+		AggregateID: "urn:product:1",
+		EventType:   "Resource.Published",
+		// TransactionID intentionally empty
+	}
+	projectResourcePublished(context.Background(), env, es, store, noopLogger{})
+
+	if len(store.loadedFormats) != 0 || len(store.subjectsRemoved) != 0 {
+		t.Errorf("empty transaction id should produce no writes; got loads=%v removes=%v",
+			store.loadedFormats, store.subjectsRemoved)
+	}
+}
+
+func TestProjectResourcePublished_TransactionLoadErrorLogsAndReturns(t *testing.T) {
+	t.Parallel()
+	store := &fakeKGStore{active: true}
+	es := &fakeEventStore{getErr: errors.New("event store down")}
+
+	env := domain.EventEnvelope[entities.ResourcePublished]{
+		AggregateID:   "urn:product:1",
+		EventType:     "Resource.Published",
+		TransactionID: "tx-1",
+	}
+	projectResourcePublished(context.Background(), env, es, store, noopLogger{})
+
+	if len(store.loadedFormats) != 0 {
+		t.Errorf("event store error should suppress writes; got loads=%v", store.loadedFormats)
+	}
+}
+
+func TestProjectResourcePublished_DeleteShortCircuits(t *testing.T) {
+	t.Parallel()
+	store := &fakeKGStore{active: true}
+	es := &fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{
+		"tx-1": {{
+			AggregateID: "urn:product:1",
+			EventType:   "Resource.Deleted",
+			SequenceNo:  3,
+			Payload:     map[string]any{},
+		}},
+	}}
+
+	env := domain.EventEnvelope[entities.ResourcePublished]{
+		AggregateID:   "urn:product:1",
+		EventType:     "Resource.Published",
+		TransactionID: "tx-1",
+	}
+	projectResourcePublished(context.Background(), env, es, store, noopLogger{})
+
+	if len(store.loadedFormats) != 0 {
+		t.Errorf("delete envelope must not LoadOntology; got %v", store.loadedFormats)
 	}
 }

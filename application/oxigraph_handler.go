@@ -7,6 +7,7 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/internal/config"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"go.uber.org/fx"
@@ -25,6 +26,7 @@ type SubscribeKnowledgeGraphHandlersParams struct {
 	ResourceRepo repositories.ResourceRepository
 	TypeRepo     repositories.ResourceTypeRepository
 	TripleRepo   repositories.TripleRepository
+	Config       config.Config
 	Logger       entities.Logger
 }
 
@@ -119,7 +121,7 @@ func SubscribeKnowledgeGraphHandlers(p SubscribeKnowledgeGraphHandlersParams) er
 		return fmt.Errorf("kg resource type updated handler: %w", err)
 	}
 
-	registerKGBackfill(p)
+	registerKGBackfill(p, p.Config)
 	return nil
 }
 
@@ -160,7 +162,9 @@ func projectResourcePublished(
 	// the previous graph (covers properties that disappeared from the JSON-LD).
 	if err := store.RemoveSubject(ctx, env.AggregateID); err != nil {
 		logger.Error(ctx, "kg failed to clear prior subject", "id", env.AggregateID, "error", err)
-		// Continue: AddTriples below is idempotent at the RDF set level.
+		// Continue: LoadOntology below merges into the default graph, and
+		// RDF triples are a set, so a leftover prior triple at worst lingers
+		// until the next update — preferable to a partially-projected state.
 	}
 
 	if err := store.LoadOntology(ctx, "application/ld+json", state.Data); err != nil {

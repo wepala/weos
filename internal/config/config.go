@@ -100,6 +100,9 @@ type OxigraphConfig struct {
 	// QueryTimeout is the per-request timeout for SPARQL queries/updates.
 	// Default: 10s.
 	QueryTimeoutSeconds int
+	// Rebuild forces the startup backfill to clear and re-load the graph
+	// instead of skipping a populated store.
+	Rebuild bool
 }
 
 // Active reports whether the Oxigraph projection should run. URL is required;
@@ -326,6 +329,11 @@ func (c *Config) LoadFromEnvironment() {
 	if v := os.Getenv("OXIGRAPH_QUERY_TIMEOUT_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Oxigraph.QueryTimeoutSeconds = n
+		}
+	}
+	if v := os.Getenv("OXIGRAPH_REBUILD"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Oxigraph.Rebuild = b
 		}
 	}
 }

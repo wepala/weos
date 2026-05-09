@@ -274,17 +274,81 @@ func TestDetectQueryForm(t *testing.T) {
 
 func TestFormatTerm(t *testing.T) {
 	cases := []struct {
-		in, out string
+		name, in, out string
 	}{
-		{"urn:product:1", "<urn:product:1>"},
-		{"<urn:wrapped>", "<urn:wrapped>"},
-		{`"already a literal"`, `"already a literal"`},
-		{"_:b1", "_:b1"},
-		{"", `""`},
+		{"plain IRI", "urn:product:1", "<urn:product:1>"},
+		{"already bracketed", "<urn:wrapped>", "<urn:wrapped>"},
+		{"already quoted literal", `"already a literal"`, `"already a literal"`},
+		{"blank node", "_:b1", "_:b1"},
+		{"empty becomes empty literal", "", `""`},
+		// Defensive: a bare value starting with `_` but not `_:` falls through
+		// to the IRI branch; the wrapper must still produce a syntactically
+		// valid IRIREF, not be mistaken for a blank node.
+		{"underscore prefix is not a blank node", "_internal", "<_internal>"},
+		// SPARQL injection defense: characters forbidden in an IRIREF
+		// (RFC 3987 / SPARQL 1.1 grammar) must be percent-encoded so an
+		// adversarial @id can't break out of <...>.
+		{"injects > escaped", "http://x/a>b", "<http://x/a%3Eb>"},
+		{"injects < escaped", "http://x/a<b", "<http://x/a%3Cb>"},
+		{"injects quote escaped", `http://x/"q"`, "<http://x/%22q%22>"},
+		{"injects space escaped", "http://x/a b", "<http://x/a%20b>"},
+		{"injects newline escaped", "http://x/a\nb", "<http://x/a%0Ab>"},
 	}
 	for _, tc := range cases {
-		if got := formatTerm(tc.in); got != tc.out {
-			t.Errorf("formatTerm(%q) = %q, want %q", tc.in, got, tc.out)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formatTerm(tc.in); got != tc.out {
+				t.Errorf("formatTerm(%q) = %q, want %q", tc.in, got, tc.out)
+			}
+		})
+	}
+}
+
+func TestParseNTriples_HandlesEdgeCases(t *testing.T) {
+	body := []byte(
+		// blank-node subject
+		"_:b0 <https://schema.org/name> \"Anon\" .\n" +
+			// language-tagged literal
+			"<urn:product:1> <https://schema.org/name> \"hello\"@en .\n" +
+			// escaped quote inside literal
+			"<urn:product:1> <https://schema.org/description> \"He said \\\"hi\\\"\" .\n" +
+			// comment line
+			"# this is a comment\n" +
+			// blank line
+			"\n" +
+			// malformed line
+			"this is not a triple\n",
+	)
+	triples, skipped, sample := parseNTriples(body)
+	if len(triples) != 3 {
+		t.Fatalf("got %d triples, want 3 (blank-node + lang + escaped-quote)", len(triples))
+	}
+	if triples[0].Subject != "_:b0" {
+		t.Errorf("blank-node subject not preserved: %q", triples[0].Subject)
+	}
+	if triples[1].Object != `"hello"@en` {
+		t.Errorf("language tag dropped: %q", triples[1].Object)
+	}
+	if triples[2].Object != `"He said \"hi\""` {
+		t.Errorf("escaped quote handling wrong: %q", triples[2].Object)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1 (the malformed line)", skipped)
+	}
+	if sample == "" {
+		t.Error("expected a non-empty sample of the skipped line")
+	}
+}
+
+func TestStore_IsEmpty_NilBooleanReturnsError(t *testing.T) {
+	fake := newFakeOxigraph(t)
+	// Body has no `boolean` field — simulates an Oxigraph quirk or proxy
+	// stripping the field. We treat it as a protocol error so the backfill
+	// doesn't silently rebuild a populated graph.
+	fake.replyWith("/query", http.StatusOK, mimeResultsJSON, `{"head":{}}`)
+	store := newTestStore(t, fake.server.URL)
+
+	_, err := store.IsEmpty(context.Background())
+	if err == nil {
+		t.Fatal("expected error on missing boolean field; got nil")
 	}
 }

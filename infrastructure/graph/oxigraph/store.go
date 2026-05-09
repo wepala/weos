@@ -161,9 +161,10 @@ func (s *Store) Query(ctx context.Context, sparql string) (repositories.KGQueryR
 		return repositories.KGQueryResult{}, fmt.Errorf("oxigraph: read body: %w", err)
 	}
 	if form == queryFormConstruct || form == queryFormDescribe {
-		triples, perr := parseNTriples(body)
-		if perr != nil {
-			return repositories.KGQueryResult{}, perr
+		triples, skipped, sample := parseNTriples(body)
+		if skipped > 0 && s.logger != nil {
+			s.logger.Warn(ctx, "oxigraph: parser skipped malformed N-Triples lines",
+				"skipped", skipped, "sample", sample, "kept", len(triples))
 		}
 		return repositories.KGQueryResult{Triples: triples}, nil
 	}
@@ -200,14 +201,17 @@ func (s *Store) Clear(ctx context.Context) error {
 	return s.Update(ctx, "CLEAR DEFAULT")
 }
 
-// IsEmpty reports whether the default graph contains zero triples.
+// IsEmpty reports whether the default graph contains zero triples. A nil
+// Boolean from an ASK query is treated as a protocol error rather than a
+// silent "empty" so the backfill doesn't accidentally rebuild a populated
+// graph because Oxigraph returned a malformed response.
 func (s *Store) IsEmpty(ctx context.Context) (bool, error) {
 	res, err := s.Query(ctx, "ASK { ?s ?p ?o }")
 	if err != nil {
 		return false, err
 	}
 	if res.Boolean == nil {
-		return true, nil
+		return false, fmt.Errorf("oxigraph: ASK response missing boolean field")
 	}
 	return !*res.Boolean, nil
 }
@@ -281,10 +285,12 @@ func parseSPARQLJSON(body []byte) (repositories.KGQueryResult, error) {
 }
 
 // parseNTriples is a minimal N-Triples parser sufficient for CONSTRUCT/DESCRIBE
-// responses from Oxigraph. It does not fully validate against the spec; for
-// edge cases we let the SPARQL store stay authoritative.
-func parseNTriples(body []byte) ([]repositories.Triple, error) {
-	var triples []repositories.Triple
+// responses from Oxigraph. Returns the parsed triples, a count of malformed
+// lines that were dropped, and the first malformed line (truncated) as a
+// debugging sample. The caller decides whether to surface the skip count —
+// returning it explicitly avoids the silent-data-loss trap a bare `error`
+// return invited.
+func parseNTriples(body []byte) (triples []repositories.Triple, skipped int, sample string) {
 	for _, line := range strings.Split(string(body), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -292,25 +298,47 @@ func parseNTriples(body []byte) ([]repositories.Triple, error) {
 		}
 		line = strings.TrimSuffix(line, ".")
 		line = strings.TrimSpace(line)
-		s, rest, ok := splitNTriplesTerm(line)
+		t, ok := tryParseNTriplesLine(line)
 		if !ok {
+			skipped++
+			if sample == "" {
+				sample = truncate(line, 80)
+			}
 			continue
 		}
-		p, rest2, ok := splitNTriplesTerm(rest)
-		if !ok {
-			continue
-		}
-		o, _, ok := splitNTriplesTerm(rest2)
-		if !ok {
-			continue
-		}
-		triples = append(triples, repositories.Triple{
-			Subject:   unquoteTerm(s),
-			Predicate: unquoteTerm(p),
-			Object:    unquoteTerm(o),
-		})
+		triples = append(triples, t)
 	}
-	return triples, nil
+	return triples, skipped, sample
+}
+
+// tryParseNTriplesLine parses a single N-Triples line. Returns ok=false on
+// any structural problem; the caller counts and samples skips at the parser
+// level.
+func tryParseNTriplesLine(line string) (repositories.Triple, bool) {
+	s, rest, ok := splitNTriplesTerm(line)
+	if !ok {
+		return repositories.Triple{}, false
+	}
+	p, rest2, ok := splitNTriplesTerm(rest)
+	if !ok {
+		return repositories.Triple{}, false
+	}
+	o, _, ok := splitNTriplesTerm(rest2)
+	if !ok {
+		return repositories.Triple{}, false
+	}
+	return repositories.Triple{
+		Subject:   unquoteTerm(s),
+		Predicate: unquoteTerm(p),
+		Object:    unquoteTerm(o),
+	}, true
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // splitNTriplesTerm splits the next term off the front of an N-Triples line.
@@ -425,12 +453,13 @@ func formatTriple(t repositories.Triple) string {
 }
 
 // formatTerm wraps a term in the appropriate N-Triples syntax. Heuristic:
-// already-quoted/already-bracketed terms pass through; bare blank-node IDs
-// (`_:foo`) pass through; anything else is treated as an IRI and wrapped in
-// angle brackets, with double-quotes escaped if the value happens to be a
-// literal that the caller forgot to format. This covers the common case where
-// triples produced by `application/triple_extraction.go` carry bare IRI
-// strings.
+// already-bracketed `<iri>` and quoted `"literal"` terms pass through;
+// `_:bnode` blank nodes pass through; anything else is treated as a bare IRI
+// and percent-encoded per the SPARQL grammar (no spaces, control chars, or
+// `<>"{}|^\` allowed inside an IRIREF). This is the canonical formatter for
+// values produced by `application/triple_extraction.go`, which carry bare IRI
+// strings sourced from JSON-LD @id values — escaping here defends against
+// SPARQL injection if such an @id ever contains adversarial characters.
 func formatTerm(v string) string {
 	if v == "" {
 		return `""`
@@ -443,7 +472,36 @@ func formatTerm(v string) string {
 			return v
 		}
 	}
-	// Plain IRI — wrap in angle brackets. Escape any embedded > to keep the
-	// generated SPARQL syntactically valid.
-	return "<" + strings.ReplaceAll(v, ">", "%3E") + ">"
+	return "<" + escapeIRI(v) + ">"
+}
+
+// escapeIRI percent-encodes characters that would break an IRIREF in SPARQL
+// or N-Triples. The grammar (RFC 3987 / SPARQL 1.1) forbids 0x00–0x20,
+// `<`, `>`, `"`, `{`, `}`, `|`, `^`, `\`, and backtick inside `<...>`. We
+// percent-encode anything in that set instead of stripping so the resulting
+// IRI still round-trips back to the original via standard URL decoding.
+func escapeIRI(v string) string {
+	const forbidden = "<>\"{}|^\\`"
+	hasBad := false
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if c <= 0x20 || c == 0x7f || strings.IndexByte(forbidden, c) >= 0 {
+			hasBad = true
+			break
+		}
+	}
+	if !hasBad {
+		return v
+	}
+	var sb strings.Builder
+	sb.Grow(len(v) + 8)
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if c <= 0x20 || c == 0x7f || strings.IndexByte(forbidden, c) >= 0 {
+			fmt.Fprintf(&sb, "%%%02X", c)
+			continue
+		}
+		sb.WriteByte(c)
+	}
+	return sb.String()
 }
