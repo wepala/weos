@@ -74,4 +74,12 @@ type ResourceRepository interface {
 	// Returns an error wrapping ErrNotFound when the projection table exists but the
 	// row is missing — detectable via errors.Is.
 	FindFlatByID(ctx context.Context, typeSlug, id string) (map[string]any, error)
+
+	// FindAccessibleIDs returns the subset of `ids` that the caller is
+	// allowed to read under `scope`. Uses the same visibility rules as
+	// FindAllByType (creator OR explicit read grant). When scope is nil
+	// (system context) every input id is returned unchanged. Used by
+	// the knowledge-graph permission filter to drop forbidden subjects
+	// from query results in a single bulk DB call.
+	FindAccessibleIDs(ctx context.Context, ids []string, scope *VisibilityScope) ([]string, error)
 }

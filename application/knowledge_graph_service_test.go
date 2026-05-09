@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 )
 
@@ -41,8 +42,64 @@ func (q *queryRecordingStore) LoadOntology(_ context.Context, _ string, _ []byte
 func (q *queryRecordingStore) Clear(_ context.Context) error             { return nil }
 func (q *queryRecordingStore) IsEmpty(_ context.Context) (bool, error)   { return true, nil }
 
+// resourceFilterStub is a minimal ResourceService stub exposing only the
+// FilterAccessibleResourceIDs method that the KG permission filter calls.
+// `forbidden` lists the URNs that should be excluded from the allowed set.
+type resourceFilterStub struct {
+	forbidden map[string]bool
+	calls     int
+}
+
+func (r *resourceFilterStub) FilterAccessibleResourceIDs(_ context.Context, ids []string) ([]string, error) {
+	r.calls++
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !r.forbidden[id] {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+// The remaining ResourceService methods are unused by the KG service but
+// required by the interface; we panic to surface accidental coupling.
+func (r *resourceFilterStub) Create(context.Context, CreateResourceCommand) (*entities.Resource, error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) GetByID(context.Context, string) (*entities.Resource, error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) GetFlat(context.Context, string, string) (map[string]any, error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) List(context.Context, string, string, int, repositories.SortOptions) (repositories.PaginatedResponse[*entities.Resource], error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) ListFlat(context.Context, string, string, int, repositories.SortOptions) (repositories.PaginatedResponse[map[string]any], error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) ListByField(context.Context, string, string, string) (repositories.PaginatedResponse[*entities.Resource], error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) ListWithFilters(context.Context, string, []repositories.FilterCondition, string, int, repositories.SortOptions) (repositories.PaginatedResponse[*entities.Resource], error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) ListFlatWithFilters(context.Context, string, []repositories.FilterCondition, string, int, repositories.SortOptions) (repositories.PaginatedResponse[map[string]any], error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) Update(context.Context, UpdateResourceCommand) (*entities.Resource, error) {
+	panic("not used")
+}
+func (r *resourceFilterStub) Delete(context.Context, DeleteResourceCommand) error {
+	panic("not used")
+}
+
 func newKGSvc(store repositories.KnowledgeGraphStore) KnowledgeGraphService {
-	return &knowledgeGraphService{store: store, logger: noopLogger{}}
+	return newKGSvcWithResource(store, &resourceFilterStub{})
+}
+
+func newKGSvcWithResource(store repositories.KnowledgeGraphStore, rsvc ResourceService) KnowledgeGraphService {
+	return &knowledgeGraphService{store: store, resource: rsvc, logger: noopLogger{}}
 }
 
 func TestKGService_InactiveStoreReturnsErrUnavailable(t *testing.T) {
@@ -357,5 +414,105 @@ func TestKGService_NilStoreDoesNotPanic(t *testing.T) {
 	}
 	if _, err := svc.Query(context.Background(), "ASK {}"); err != ErrKGUnavailable {
 		t.Errorf("nil store should return ErrKGUnavailable, got %v", err)
+	}
+}
+
+// --- Permission filter ---
+
+func TestKGService_ExpandEntity_FiltersForbiddenSubjectsFromCONSTRUCTResults(t *testing.T) {
+	t.Parallel()
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Triples: []repositories.Triple{
+			{Subject: "urn:product:public", Predicate: "https://schema.org/name", Object: "Public"},
+			{Subject: "urn:product:secret", Predicate: "https://schema.org/name", Object: "Secret"},
+		}},
+	}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:product:secret": true}}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	got, err := svc.ExpandEntity(context.Background(), "urn:product:public", 1)
+	if err != nil {
+		t.Fatalf("ExpandEntity: %v", err)
+	}
+	if len(got) != 1 || got[0].Subject != "urn:product:public" {
+		t.Errorf("forbidden subject not filtered out; got %+v", got)
+	}
+	if rsvc.calls != 1 {
+		t.Errorf("expected 1 filter call (bulk); got %d", rsvc.calls)
+	}
+}
+
+func TestKGService_ExpandEntity_HidesForbiddenObjectsButKeepsTriple(t *testing.T) {
+	t.Parallel()
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Triples: []repositories.Triple{
+			// Both subject and object are gated URNs; subject is allowed,
+			// object is not. Triple stays but object becomes "" so the LLM
+			// can't resolve the hidden IRI.
+			{Subject: "urn:product:1", Predicate: "https://schema.org/owner", Object: "urn:product:secret"},
+		}},
+	}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:product:secret": true}}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	got, err := svc.ExpandEntity(context.Background(), "urn:product:1", 1)
+	if err != nil {
+		t.Fatalf("ExpandEntity: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 triple (object hidden, not dropped); got %d", len(got))
+	}
+	if got[0].Object != "" {
+		t.Errorf("forbidden object not hidden; got %q", got[0].Object)
+	}
+	if got[0].Predicate != "https://schema.org/owner" {
+		t.Errorf("predicate must be preserved so the LLM sees the relationship")
+	}
+}
+
+func TestKGService_SearchEntities_FiltersForbiddenSubjects(t *testing.T) {
+	t.Parallel()
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Bindings: []map[string]repositories.KGTerm{
+			{"s": {Type: repositories.KGTermIRI, Value: "urn:product:public"}},
+			{"s": {Type: repositories.KGTermIRI, Value: "urn:product:secret"}},
+		}},
+	}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:product:secret": true}}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	got, err := svc.SearchEntities(context.Background(), "any", 0)
+	if err != nil {
+		t.Fatalf("SearchEntities: %v", err)
+	}
+	if len(got) != 1 || got[0].Value != "urn:product:public" {
+		t.Errorf("forbidden subject leaked through search; got %+v", got)
+	}
+}
+
+func TestKGService_FilterDoesNotGateOntologyOrPersonURNs(t *testing.T) {
+	t.Parallel()
+	// Mix of gated resource URN, non-resource URN (urn:person:*), and
+	// ontology IRI. The filter must only ask about the gated one.
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Triples: []repositories.Triple{
+			{Subject: "urn:product:1", Predicate: "https://schema.org/name", Object: "Widget"},
+			{Subject: "urn:person:abc", Predicate: "https://schema.org/name", Object: "Alice"},
+			{Subject: "https://schema.org/Person", Predicate: "rdfs:label", Object: "Person"},
+		}},
+	}
+	rsvc := &resourceFilterStub{}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	got, err := svc.ExpandEntity(context.Background(), "urn:product:1", 1)
+	if err != nil {
+		t.Fatalf("ExpandEntity: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("non-gated subjects must pass through; got %d, want 3", len(got))
 	}
 }

@@ -567,6 +567,32 @@ func (r *ResourceRepository) FindByID(
 	return model.ToResource()
 }
 
+// FindAccessibleIDs returns the subset of `ids` that pass the visibility
+// scope. A nil or admin scope returns the input unchanged. Implemented as a
+// single SQL `WHERE id IN (...) AND <scope>` round-trip so the
+// knowledge-graph filter doesn't issue per-id permission checks.
+func (r *ResourceRepository) FindAccessibleIDs(
+	ctx context.Context, ids []string, scope *repositories.VisibilityScope,
+) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if scope == nil || scope.IsAdmin {
+		out := make([]string, len(ids))
+		copy(out, ids)
+		return out, nil
+	}
+	var rows []string
+	q := r.db.WithContext(ctx).
+		Table("resources").
+		Where("id IN ?", ids)
+	q = applyVisibilityScope(q, scope, "")
+	if err := q.Pluck("id", &rows).Error; err != nil {
+		return nil, fmt.Errorf("filter accessible ids: %w", err)
+	}
+	return rows, nil
+}
+
 // applyVisibilityScope adds ownership filtering to a query when a non-nil scope
 // is provided and the caller is not an admin.
 func applyVisibilityScope(query *gorm.DB, scope *repositories.VisibilityScope, tablePrefix string) *gorm.DB {

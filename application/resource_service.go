@@ -19,6 +19,14 @@ import (
 )
 
 type ResourceService interface {
+	// FilterAccessibleResourceIDs returns the subset of `ids` that the
+	// caller is allowed to read. Used by the knowledge-graph permission
+	// filter to drop forbidden subjects/objects from query results before
+	// they leave the MCP server. Nil identity (system context) returns the
+	// input unchanged. Non-resource URNs (`urn:type:*`, `urn:person:*`,
+	// `urn:org:*`) and full ontology IRIs are passed through — they are
+	// not gated resources.
+	FilterAccessibleResourceIDs(ctx context.Context, ids []string) ([]string, error)
 	Create(ctx context.Context, cmd CreateResourceCommand) (*entities.Resource, error)
 	GetByID(ctx context.Context, id string) (*entities.Resource, error)
 	// GetFlat returns a single resource as a flat projection row (camelCase keys),
@@ -319,6 +327,70 @@ func (s *resourceService) buildVisibilityScope(ctx context.Context) *repositorie
 		AccountID: identity.ActiveAccountID,
 		IsAdmin:   false, // per-user scoping: lists always filter by creator + permissions
 	}
+}
+
+// FilterAccessibleResourceIDs partitions ids into "gated resource URNs" and
+// "everything else", asks the repo for the readable subset of the gated
+// part, and returns the union with everything else preserved (ontology
+// IRIs, person/org/type URNs, blank nodes, literals — none of which are
+// gated by ResourcePermission). System context (nil identity) returns the
+// input unchanged. The repo path is a single SQL round-trip regardless of
+// input size, so the KG filter doesn't need to batch.
+func (s *resourceService) FilterAccessibleResourceIDs(
+	ctx context.Context, ids []string,
+) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	scope := s.buildVisibilityScope(ctx)
+	if scope == nil {
+		out := make([]string, len(ids))
+		copy(out, ids)
+		return out, nil
+	}
+	gated, passthrough := partitionGatedResourceURNs(ids)
+	if len(gated) == 0 {
+		return passthrough, nil
+	}
+	allowed, err := s.repo.FindAccessibleIDs(ctx, gated, scope)
+	if err != nil {
+		return nil, err
+	}
+	return append(passthrough, allowed...), nil
+}
+
+// partitionGatedResourceURNs separates ids into (gated, passthrough). A
+// gated id is a 3-part `urn:<typeSlug>:<ksuid>` whose typeSlug is not one
+// of the reserved non-resource prefixes (person/org/type/theme — these
+// follow Pericarp's own permission paths or are public ontology data).
+// Everything else (full IRIs, blank nodes, literals, reserved URNs) is
+// passthrough — the KG filter shouldn't try to gate ontology terms or
+// non-resource entities.
+func partitionGatedResourceURNs(ids []string) (gated, passthrough []string) {
+	for _, id := range ids {
+		if isGatedResourceURN(id) {
+			gated = append(gated, id)
+		} else {
+			passthrough = append(passthrough, id)
+		}
+	}
+	return gated, passthrough
+}
+
+// isGatedResourceURN reports whether id is a `urn:<typeSlug>:<ksuid>`
+// format with a non-reserved typeSlug. Mirrors the logic in
+// extractTypeSlugFromResourceID (application/triple_handler.go) but at
+// the URN form instead of slug.
+func isGatedResourceURN(id string) bool {
+	slug := identity.ExtractResourceTypeSlug(id)
+	if slug == "" {
+		return false
+	}
+	switch slug {
+	case "person", "org", "theme", "type":
+		return false
+	}
+	return true
 }
 
 func (s *resourceService) checkInstanceAccess(

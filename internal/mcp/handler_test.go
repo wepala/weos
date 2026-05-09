@@ -123,6 +123,10 @@ func (s *stubResourceService) Update(
 	return nil, nil
 }
 
+func (s *stubResourceService) FilterAccessibleResourceIDs(_ context.Context, ids []string) ([]string, error) {
+	return ids, nil
+}
+
 func (s *stubResourceService) Delete(_ context.Context, _ application.DeleteResourceCommand) error {
 	return nil
 }

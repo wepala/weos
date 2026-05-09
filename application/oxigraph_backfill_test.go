@@ -77,6 +77,9 @@ func (s *stubResourceRepoForBackfill) FindAllByTypeFlatWithFilters(_ context.Con
 func (s *stubResourceRepoForBackfill) FindFlatByID(_ context.Context, _, _ string) (map[string]any, error) {
 	panic("not used")
 }
+func (s *stubResourceRepoForBackfill) FindAccessibleIDs(_ context.Context, ids []string, _ *repositories.VisibilityScope) ([]string, error) {
+	return ids, nil
+}
 
 // failingKGStore extends fakeKGStore with a configurable LoadOntology error so
 // we can test the consecutive-failure abort path.

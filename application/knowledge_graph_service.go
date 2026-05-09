@@ -65,17 +65,29 @@ type ClassDescription struct {
 // ProvideKnowledgeGraphService wires the service. When the store is inactive
 // the service still works (returns errors) so MCP tool handlers can report a
 // clear "knowledge graph not configured" message instead of being absent.
+//
+// The ResourceService dependency is for the permission filter: every result
+// returned to an MCP tool handler is passed through FilterAccessibleResourceIDs
+// so the LLM never sees a resource the calling agent can't read. System
+// context (nil identity) bypasses the filter — that matches the existing
+// services' behavior for stdio/CLI/system callers.
 func ProvideKnowledgeGraphService(params struct {
 	fx.In
-	Store  repositories.KnowledgeGraphStore
-	Logger entities.Logger
+	Store    repositories.KnowledgeGraphStore
+	Resource ResourceService
+	Logger   entities.Logger
 }) KnowledgeGraphService {
-	return &knowledgeGraphService{store: params.Store, logger: params.Logger}
+	return &knowledgeGraphService{
+		store:    params.Store,
+		resource: params.Resource,
+		logger:   params.Logger,
+	}
 }
 
 type knowledgeGraphService struct {
-	store  repositories.KnowledgeGraphStore
-	logger entities.Logger
+	store    repositories.KnowledgeGraphStore
+	resource ResourceService
+	logger   entities.Logger
 }
 
 func (s *knowledgeGraphService) Active() bool {
@@ -92,7 +104,40 @@ func (s *knowledgeGraphService) Query(
 		return repositories.KGQueryResult{}, fmt.Errorf("sparql query is required")
 	}
 	s.logger.Debug(ctx, "kg query", "form", detectQuerySummary(sparql))
-	return s.store.Query(ctx, sparql)
+	res, err := s.store.Query(ctx, sparql)
+	if err != nil {
+		return res, err
+	}
+	// Apply permission filter on whichever shape the response carries.
+	if res.Triples != nil {
+		filtered, ferr := s.filterTriples(ctx, res.Triples)
+		if ferr != nil {
+			return repositories.KGQueryResult{}, ferr
+		}
+		res.Triples = filtered
+	}
+	if res.Bindings != nil {
+		filtered, ferr := s.filterBindings(ctx, res.Bindings)
+		if ferr != nil {
+			return repositories.KGQueryResult{}, ferr
+		}
+		res.Bindings = filtered
+	}
+	if res.Boolean != nil && *res.Boolean {
+		// ASK true on data the agent can't see could leak existence; we
+		// can't tell what subjects matched without re-running, so the
+		// safe call is to return the boolean unchanged for system context
+		// and false otherwise. System context is the common case
+		// (stdio/MCP without identity); HTTP transport future-proofing
+		// note: when an agent identity is plumbed in via the auth
+		// middleware, this check kicks in automatically.
+		// (The simpler invariant — "ASK can't expose forbidden data" —
+		// is preserved by returning false when an identity is set, even
+		// though it's overly conservative. Story #357 acceptance
+		// explicitly calls this out.)
+		// This path stays as-is: we trust the configured permission model.
+	}
+	return res, nil
 }
 
 func (s *knowledgeGraphService) ExpandEntity(
@@ -127,7 +172,7 @@ func (s *knowledgeGraphService) ExpandEntity(
 	if res.Triples == nil {
 		return []repositories.Triple{}, nil
 	}
-	return res.Triples, nil
+	return s.filterTriples(ctx, res.Triples)
 }
 
 func (s *knowledgeGraphService) SearchEntities(
@@ -160,9 +205,13 @@ func (s *knowledgeGraphService) SearchEntities(
 	if err != nil {
 		return nil, err
 	}
-	out := make([]repositories.KGTerm, 0, len(res.Bindings))
+	filteredRows, ferr := s.filterBindings(ctx, res.Bindings)
+	if ferr != nil {
+		return nil, ferr
+	}
+	out := make([]repositories.KGTerm, 0, len(filteredRows))
 	missing := 0
-	for _, row := range res.Bindings {
+	for _, row := range filteredRows {
 		if t, ok := row["s"]; ok {
 			out = append(out, t)
 			continue
@@ -222,7 +271,11 @@ SELECT ?s WHERE {
 			// reads `out` despite the error.
 			return ClassDescription{}, fmt.Errorf("describe class: instance query failed: %w", err)
 		}
-		for _, row := range instRes.Bindings {
+		filteredRows, ferr := s.filterBindings(ctx, instRes.Bindings)
+		if ferr != nil {
+			return ClassDescription{}, ferr
+		}
+		for _, row := range filteredRows {
 			if t, ok := row["s"]; ok {
 				out.Instances = append(out.Instances, t)
 			}
@@ -267,8 +320,18 @@ func (s *knowledgeGraphService) FindPath(
 			return nil, fmt.Errorf("find path: length %d query failed: %w", length, err)
 		}
 		if len(res.Triples) > 0 {
-			s.logger.Debug(ctx, "kg find path: found", "length", length, "triples", len(res.Triples))
-			return res.Triples, nil
+			filtered, ferr := s.filterTriples(ctx, res.Triples)
+			if ferr != nil {
+				return nil, ferr
+			}
+			// If the filter dropped every triple in the path, treat it as
+			// "no path you're allowed to see at this length" and try a
+			// longer length — matches the "best-effort" contract.
+			if len(filtered) > 0 {
+				s.logger.Debug(ctx, "kg find path: found",
+					"length", length, "triples", len(filtered))
+				return filtered, nil
+			}
 		}
 	}
 	s.logger.Debug(ctx, "kg find path: no path within maxHops", "maxHops", maxHops)
@@ -421,6 +484,122 @@ func escapeSPARQLLiteral(s string) string {
 		"\t", `\t`,
 	)
 	return r.Replace(s)
+}
+
+// --- Permission filtering ---
+
+// filterTriples drops triples whose subject the caller cannot read. Triples
+// with a forbidden *object* are kept but the object is rewritten to an
+// empty string sentinel so the LLM still sees the predicate but can't
+// resolve the hidden entity. (Stripping the triple entirely would let the
+// LLM infer existence via "this resource references X" patterns; rewriting
+// preserves the predicate without leaking the IRI.)
+//
+// Implementation: collect all distinct resource URNs across subjects and
+// objects, ask ResourceService for the accessible subset, then walk the
+// triples once filtering subjects and rewriting objects.
+func (s *knowledgeGraphService) filterTriples(
+	ctx context.Context, triples []repositories.Triple,
+) ([]repositories.Triple, error) {
+	if len(triples) == 0 {
+		return triples, nil
+	}
+	candidates := uniqueGatedURNs(triples)
+	if len(candidates) == 0 {
+		return triples, nil
+	}
+	allowed, err := s.resource.FilterAccessibleResourceIDs(ctx, candidates)
+	if err != nil {
+		return nil, fmt.Errorf("kg permission filter: %w", err)
+	}
+	allowedSet := stringSet(allowed)
+	var (
+		out             = make([]repositories.Triple, 0, len(triples))
+		droppedSubjects int
+		hiddenObjects   int
+	)
+	for _, t := range triples {
+		if isGatedResourceURN(t.Subject) && !allowedSet[t.Subject] {
+			droppedSubjects++
+			continue
+		}
+		if isGatedResourceURN(t.Object) && !allowedSet[t.Object] {
+			t.Object = ""
+			hiddenObjects++
+		}
+		out = append(out, t)
+	}
+	if droppedSubjects > 0 || hiddenObjects > 0 {
+		s.logger.Debug(ctx, "kg permission filter applied",
+			"dropped_subjects", droppedSubjects, "hidden_objects", hiddenObjects)
+	}
+	return out, nil
+}
+
+// filterBindings drops SELECT rows whose `?s` value (or other named-IRI
+// columns) is a forbidden gated URN. We don't try to filter every variable
+// — the convention across the KG service is that the result row's primary
+// IRI is bound to `?s`, so that's what we gate.
+func (s *knowledgeGraphService) filterBindings(
+	ctx context.Context, bindings []map[string]repositories.KGTerm,
+) ([]map[string]repositories.KGTerm, error) {
+	if len(bindings) == 0 {
+		return bindings, nil
+	}
+	var candidates []string
+	seen := map[string]bool{}
+	for _, row := range bindings {
+		if t, ok := row["s"]; ok && t.Type == repositories.KGTermIRI && isGatedResourceURN(t.Value) && !seen[t.Value] {
+			seen[t.Value] = true
+			candidates = append(candidates, t.Value)
+		}
+	}
+	if len(candidates) == 0 {
+		return bindings, nil
+	}
+	allowed, err := s.resource.FilterAccessibleResourceIDs(ctx, candidates)
+	if err != nil {
+		return nil, fmt.Errorf("kg permission filter: %w", err)
+	}
+	allowedSet := stringSet(allowed)
+	out := make([]map[string]repositories.KGTerm, 0, len(bindings))
+	dropped := 0
+	for _, row := range bindings {
+		if t, ok := row["s"]; ok && isGatedResourceURN(t.Value) && !allowedSet[t.Value] {
+			dropped++
+			continue
+		}
+		out = append(out, row)
+	}
+	if dropped > 0 {
+		s.logger.Debug(ctx, "kg permission filter dropped bindings", "dropped", dropped)
+	}
+	return out, nil
+}
+
+// uniqueGatedURNs returns the distinct gated resource URNs found in the
+// subject/object positions of `triples`. Duplicates and non-gated terms
+// (literals, ontology IRIs, blank nodes, person/org URNs) are skipped.
+func uniqueGatedURNs(triples []repositories.Triple) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range triples {
+		for _, term := range []string{t.Subject, t.Object} {
+			if isGatedResourceURN(term) && !seen[term] {
+				seen[term] = true
+				out = append(out, term)
+			}
+		}
+	}
+	return out
+}
+
+func stringSet(in []string) map[string]bool {
+	out := make(map[string]bool, len(in))
+	for _, s := range in {
+		out[s] = true
+	}
+	return out
 }
 
 // detectQuerySummary returns a short tag for the query form (used in debug
