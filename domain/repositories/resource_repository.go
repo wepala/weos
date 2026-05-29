@@ -76,10 +76,13 @@ type ResourceRepository interface {
 	FindFlatByID(ctx context.Context, typeSlug, id string) (map[string]any, error)
 
 	// FindAccessibleIDs returns the subset of `ids` that the caller is
-	// allowed to read under `scope`. Uses the same visibility rules as
-	// FindAllByType (creator OR explicit read grant). When scope is nil
-	// (system context) every input id is returned unchanged. Used by
-	// the knowledge-graph permission filter to drop forbidden subjects
-	// from query results in a single bulk DB call.
+	// allowed to read under `scope`: the creator (`created_by` = agent), rows
+	// with an explicit read grant, AND pre-migration ownerless rows
+	// (`created_by` = ''), which are treated as readable so the KG filter
+	// doesn't hide legacy data that predates ownership tracking.
+	// Implementations MUST include the ownerless case. When scope is nil
+	// (system context) or admin, every input id is returned unchanged. Used by
+	// the knowledge-graph permission filter to drop forbidden subjects from
+	// query results in a single bulk DB call.
 	FindAccessibleIDs(ctx context.Context, ids []string, scope *VisibilityScope) ([]string, error)
 }

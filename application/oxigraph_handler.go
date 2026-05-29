@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -106,7 +107,7 @@ func SubscribeKnowledgeGraphHandlers(p SubscribeKnowledgeGraphHandlersParams) er
 
 	if err := domain.Subscribe(p.Dispatcher, "ResourceType.Created",
 		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceTypeCreated]) error {
-			projectResourceTypeOntology(ctx, env.Payload.Slug, env.Payload.Context, p.Store, p.Logger)
+			projectResourceTypeOntology(ctx, env.Payload.Name, env.Payload.Slug, env.Payload.Context, p.Store, p.Logger)
 			return nil
 		},
 	); err != nil {
@@ -115,7 +116,7 @@ func SubscribeKnowledgeGraphHandlers(p SubscribeKnowledgeGraphHandlersParams) er
 
 	if err := domain.Subscribe(p.Dispatcher, "ResourceType.Updated",
 		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceTypeUpdated]) error {
-			projectResourceTypeOntology(ctx, env.Payload.Slug, env.Payload.Context, p.Store, p.Logger)
+			projectResourceTypeOntology(ctx, env.Payload.Name, env.Payload.Slug, env.Payload.Context, p.Store, p.Logger)
 			return nil
 		},
 	); err != nil {
@@ -185,7 +186,7 @@ func projectResourcePublished(
 // document.
 func projectResourceTypeOntology(
 	ctx context.Context,
-	slug string,
+	name, slug string,
 	rawContext json.RawMessage,
 	store repositories.KnowledgeGraphStore,
 	logger entities.Logger,
@@ -194,11 +195,46 @@ func projectResourceTypeOntology(
 		return
 	}
 	logger.Debug(ctx, "kg projecting ResourceType ontology", "slug", slug)
+	// Clear the class subject before reloading so an update replaces (rather
+	// than accumulates) its ontology triples — otherwise a changed
+	// rdfs:subClassOf leaves the old parent behind and makes class reasoning
+	// stale, the same way resource projections clear their subject first.
+	classIRI := resourceTypeClassIRI(name, slug, rawContext)
+	if err := store.RemoveSubject(ctx, classIRI); err != nil {
+		logger.Warn(ctx, "kg failed to clear prior resource type ontology",
+			"slug", slug, "class", classIRI, "error", err)
+	}
 	if err := store.LoadOntology(ctx, "application/ld+json", rawContext); err != nil {
 		logger.Error(ctx, "kg failed to load resource type ontology",
 			"slug", slug, "error", err)
 	}
-	emitExplicitOntologyTriples(ctx, slug, rawContext, store, logger)
+	emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger)
+}
+
+// resourceTypeClassIRI returns the RDF class IRI that resources of this type
+// are assigned as their rdf:type — the context @type expanded against @vocab,
+// exactly as BuildResourceGraph computes it (falling back to the type Name,
+// then the slug). kg_list_classes advertises this IRI and
+// kg_describe_class / kg_search_entities filter on it, so it MUST match what
+// resources carry. Types with no resolvable vocab fall back to
+// `urn:type:<slug>` so context-less types still get a stable class IRI.
+func resourceTypeClassIRI(name, slug string, rawContext json.RawMessage) string {
+	vocab, _ := jsonld.ParseContext(rawContext)
+	typeName := name
+	var ctx map[string]any
+	if json.Unmarshal(rawContext, &ctx) == nil {
+		if ct, ok := ctx["@type"].(string); ok && ct != "" {
+			typeName = ct
+		}
+	}
+	if typeName == "" {
+		typeName = slug
+	}
+	iri := jsonld.ExpandIRI(typeName, vocab, ctx)
+	if !strings.Contains(iri, "://") && !strings.HasPrefix(iri, "urn:") {
+		return "urn:type:" + slug
+	}
+	return iri
 }
 
 // emitExplicitOntologyTriples adds the canonical `rdf:type rdfs:Class` and
@@ -208,12 +244,17 @@ func projectResourceTypeOntology(
 // triples, and the description tools rely on these being concrete RDF.
 func emitExplicitOntologyTriples(
 	ctx context.Context,
-	slug string,
+	name, slug string,
 	rawContext json.RawMessage,
 	store repositories.KnowledgeGraphStore,
 	logger entities.Logger,
 ) {
-	classIRI := "urn:type:" + slug
+	// Declare the class under the SAME IRI resources are typed with (context
+	// @type expanded against @vocab), so kg_list_classes advertises a class
+	// that kg_describe_class / kg_search_entities can actually match against
+	// projected resources. Previously this used `urn:type:<slug>`, which no
+	// resource ever carried.
+	classIRI := resourceTypeClassIRI(name, slug, rawContext)
 	triples := []repositories.Triple{
 		{
 			Subject:   classIRI,
@@ -227,10 +268,16 @@ func emitExplicitOntologyTriples(
 		},
 	}
 	if parent := jsonld.SubClassOf(rawContext); parent != "" {
+		// Expand the parent against the same context so the subClassOf chain
+		// links to the parent's actual class IRI (kg_describe_class walks
+		// rdfs:subClassOf*).
+		vocab, _ := jsonld.ParseContext(rawContext)
+		var ctxMap map[string]any
+		_ = json.Unmarshal(rawContext, &ctxMap)
 		triples = append(triples, repositories.Triple{
 			Subject:   classIRI,
 			Predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf",
-			Object:    "urn:type:" + parent,
+			Object:    jsonld.ExpandIRI(parent, vocab, ctxMap),
 		})
 	}
 	if err := store.AddTriples(ctx, triples); err != nil {

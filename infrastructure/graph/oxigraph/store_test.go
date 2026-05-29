@@ -218,6 +218,25 @@ func TestStore_Query_ConstructParsesNTriples(t *testing.T) {
 	}
 }
 
+func TestStore_Query_EmptyConstructReturnsNonNilTriples(t *testing.T) {
+	fake := newFakeOxigraph(t)
+	fake.replyWith("/query", http.StatusOK, mimeNTriples, "")
+	store := newTestStore(t, fake.server.URL)
+
+	res, err := store.Query(context.Background(), "CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	// Must be a non-nil empty slice so the MCP adapter's resultForm() tags it
+	// as a graph (construct) result rather than misclassifying it as SELECT.
+	if res.Triples == nil {
+		t.Fatal("empty CONSTRUCT must return non-nil Triples slice")
+	}
+	if len(res.Triples) != 0 {
+		t.Errorf("expected 0 triples; got %d", len(res.Triples))
+	}
+}
+
 func TestStore_IsEmpty_TrueWhenAskFalse(t *testing.T) {
 	fake := newFakeOxigraph(t)
 	fake.replyWith("/query", http.StatusOK, mimeResultsJSON, `{"head":{},"boolean":false}`)

@@ -600,6 +600,10 @@ func TestKGService_ASKRejectedForScopedCaller(t *testing.T) {
 		"ASK { <urn:product:secret> ?p ?o }",
 		"ASK { ?s <https://schema.org/ssn> ?o }",
 		"ASK { schema:Person rdfs:subClassOf schema:Thing }",
+		// Prologue must not be a bypass: a PREFIX/BASE-prefixed ASK still
+		// has to be detected and rejected.
+		"PREFIX s: <https://schema.org/>\nASK { ?x s:ssn ?o }",
+		"# comment\nBASE <https://schema.org/>\nASK { ?x ?p ?o }",
 	} {
 		yes := true
 		store := &queryRecordingStore{active: true, response: repositories.KGQueryResult{Boolean: &yes}}
@@ -618,6 +622,8 @@ func TestKGService_AggregateSelectRejectedForScopedCaller(t *testing.T) {
 	for _, q := range []string{
 		"SELECT (COUNT(?s) AS ?count) WHERE { ?s ?p ?o }",
 		"SELECT ?p (SUM(?n) AS ?total) WHERE { ?s ?p ?n } GROUP BY ?p",
+		// Prologue must not be a bypass for aggregate detection either.
+		"PREFIX s: <https://schema.org/>\nSELECT (COUNT(?s) AS ?c) WHERE { ?s ?p ?o }",
 	} {
 		store := &queryRecordingStore{active: true}
 		svc := newKGSvc(store)
@@ -627,6 +633,54 @@ func TestKGService_AggregateSelectRejectedForScopedCaller(t *testing.T) {
 		if len(store.queries) != 0 {
 			t.Errorf("Query(%q): store must not be hit for a rejected aggregate; got %d queries", q, len(store.queries))
 		}
+	}
+}
+
+func TestKGService_ScopedSelectRequiresGatedIRIPerRow(t *testing.T) {
+	t.Parallel()
+	// Rows that surface no gated resource IRI (literal-only or predicate-only
+	// projections — the prefix-named-subject and bare-predicate leaks) must be
+	// dropped for scoped callers; a row that does bind a gated IRI is kept.
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Bindings: []map[string]repositories.KGTerm{
+			{"email": {Type: repositories.KGTermLiteral, Value: "a@b.com"}},          // literal only
+			{"p": {Type: repositories.KGTermIRI, Value: "https://schema.org/email"}}, // predicate only
+			{"s": {Type: repositories.KGTermIRI, Value: "urn:person:visible"}, // gated IRI present
+				"p": {Type: repositories.KGTermIRI, Value: "https://schema.org/email"}},
+		}},
+	}
+	svc := newKGSvc(store)
+
+	res, err := svc.Query(scopedCtx(), "SELECT ?email WHERE { ?s <https://schema.org/email> ?email }")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(res.Bindings) != 1 {
+		t.Fatalf("expected 1 surviving row (the one with a gated IRI); got %d: %+v", len(res.Bindings), res.Bindings)
+	}
+	if got := res.Bindings[0]["s"].Value; got != "urn:person:visible" {
+		t.Errorf("surviving row should be the gated-IRI one; got %q", got)
+	}
+}
+
+func TestKGService_SystemSelectKeepsLiteralOnlyRows(t *testing.T) {
+	t.Parallel()
+	// System callers (nil identity) are unaffected — literal-only rows pass.
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Bindings: []map[string]repositories.KGTerm{
+			{"email": {Type: repositories.KGTermLiteral, Value: "a@b.com"}},
+		}},
+	}
+	svc := newKGSvc(store)
+
+	res, err := svc.Query(context.Background(), "SELECT ?email WHERE { ?s <https://schema.org/email> ?email }")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(res.Bindings) != 1 {
+		t.Errorf("system caller must keep literal-only rows; got %d", len(res.Bindings))
 	}
 }
 

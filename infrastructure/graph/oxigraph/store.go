@@ -193,6 +193,13 @@ func (s *Store) Query(ctx context.Context, sparql string) (repositories.KGQueryR
 			s.logger.Warn(ctx, "oxigraph: parser skipped malformed N-Triples lines",
 				"skipped", skipped, "sample", sample, "kept", len(triples))
 		}
+		if triples == nil {
+			// An empty graph result must still be tagged as a graph form. The
+			// MCP adapter's resultForm() checks `Triples != nil` to distinguish
+			// CONSTRUCT/DESCRIBE from SELECT, so a nil slice would be
+			// misreported as a SELECT with no bindings.
+			triples = []repositories.Triple{}
+		}
 		return repositories.KGQueryResult{Triples: triples}, nil
 	}
 	return parseSPARQLJSON(body)

@@ -114,7 +114,7 @@ func (f *fakeEventStore) GetEventsByTransactionID(_ context.Context, txID string
 	}
 	return f.tx[txID], nil
 }
-func (f *fakeEventStore) Close() error                                       { return nil }
+func (f *fakeEventStore) Close() error                                               { return nil }
 func (f *fakeEventStore) GetCurrentVersion(_ context.Context, _ string) (int, error) { return 0, nil }
 
 func newProjectorParams(store repositories.KnowledgeGraphStore) SubscribeKnowledgeGraphHandlersParams {
@@ -238,9 +238,12 @@ func TestSubscribeKnowledgeGraphHandlers_LoadsOntologyOnTypeCreated(t *testing.T
 	if len(store.addCalls) != 1 {
 		t.Fatalf("expected 1 AddTriples call for explicit ontology triples; got %d", len(store.addCalls))
 	}
+	// The class is declared under the IRI resources are typed with — the
+	// context @type (here absent, so the slug) expanded against @vocab —
+	// NOT urn:type:product, which no resource carries.
 	hasClassTriple := false
 	for _, t := range store.addCalls[0] {
-		if t.Subject == "urn:type:product" &&
+		if t.Subject == "https://schema.org/product" &&
 			t.Predicate == "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" &&
 			t.Object == "http://www.w3.org/2000/01/rdf-schema#Class" {
 			hasClassTriple = true
@@ -252,26 +255,49 @@ func TestSubscribeKnowledgeGraphHandlers_LoadsOntologyOnTypeCreated(t *testing.T
 	}
 }
 
+func TestProjectResourceTypeOntology_ClearsClassSubjectBeforeReload(t *testing.T) {
+	t.Parallel()
+	store := &fakeKGStore{active: true}
+	rawCtx := []byte(`{"@vocab":"https://schema.org/","@type":"Product"}`)
+
+	projectResourceTypeOntology(context.Background(), "Product", "product", rawCtx, store, noopLogger{})
+
+	// The class subject (the IRI resources are typed with) must be cleared
+	// before reload so a changed subClassOf can't leave stale triples behind.
+	found := false
+	for _, s := range store.subjectsRemoved {
+		if s == "https://schema.org/Product" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected RemoveSubject(https://schema.org/Product) before reload; got %v", store.subjectsRemoved)
+	}
+}
+
 func TestEmitExplicitOntologyTriples_IncludesSubClassOfWhenDeclared(t *testing.T) {
 	t.Parallel()
 	store := &fakeKGStore{active: true}
 	rawCtx := []byte(`{"@vocab":"https://schema.org/","rdfs:subClassOf":"thing"}`)
 
-	emitExplicitOntologyTriples(context.Background(), "product", rawCtx, store, noopLogger{})
+	emitExplicitOntologyTriples(context.Background(), "Product", "product", rawCtx, store, noopLogger{})
 
 	if len(store.addCalls) != 1 {
 		t.Fatalf("expected one AddTriples call; got %d", len(store.addCalls))
 	}
+	// Parent is expanded against the same context so the subClassOf chain links
+	// to the parent's real class IRI (https://schema.org/thing), not a slug URN.
 	hasSubClass := false
 	for _, tr := range store.addCalls[0] {
 		if tr.Predicate == "http://www.w3.org/2000/01/rdf-schema#subClassOf" &&
-			tr.Object == "urn:type:thing" {
+			tr.Object == "https://schema.org/thing" {
 			hasSubClass = true
 			break
 		}
 	}
 	if !hasSubClass {
-		t.Errorf("expected rdfs:subClassOf triple targeting urn:type:thing; got %+v", store.addCalls[0])
+		t.Errorf("expected rdfs:subClassOf triple targeting https://schema.org/thing; got %+v", store.addCalls[0])
 	}
 }
 

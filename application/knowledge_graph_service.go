@@ -137,7 +137,11 @@ func (s *knowledgeGraphService) Query(
 		res.Triples = filtered
 	}
 	if res.Bindings != nil {
-		filtered, ferr := s.filterBindings(ctx, res.Bindings)
+		// Scoped callers: require a permission-filterable resource IRI in each
+		// returned row, so predicate/literal-only projections can't leak data
+		// from forbidden resources. System callers get rows unchanged.
+		requireGatedIRI := auth.AgentFromCtx(ctx) != nil
+		filtered, ferr := s.filterBindings(ctx, res.Bindings, requireGatedIRI)
 		if ferr != nil {
 			return repositories.KGQueryResult{}, ferr
 		}
@@ -278,7 +282,7 @@ func (s *knowledgeGraphService) SearchEntities(
 	if err != nil {
 		return nil, err
 	}
-	filteredRows, ferr := s.filterBindings(ctx, res.Bindings)
+	filteredRows, ferr := s.filterBindings(ctx, res.Bindings, false)
 	if ferr != nil {
 		return nil, ferr
 	}
@@ -328,7 +332,7 @@ SELECT DISTINCT ?s ?p WHERE {
 	if err != nil {
 		return ClassDescription{}, fmt.Errorf("describe class: predicate query failed: %w", err)
 	}
-	filteredPredRows, ferr := s.filterBindings(ctx, predRes.Bindings)
+	filteredPredRows, ferr := s.filterBindings(ctx, predRes.Bindings, false)
 	if ferr != nil {
 		return ClassDescription{}, ferr
 	}
@@ -353,7 +357,7 @@ SELECT ?s WHERE {
 			// reads `out` despite the error.
 			return ClassDescription{}, fmt.Errorf("describe class: instance query failed: %w", err)
 		}
-		filteredRows, ferr := s.filterBindings(ctx, instRes.Bindings)
+		filteredRows, ferr := s.filterBindings(ctx, instRes.Bindings, false)
 		if ferr != nil {
 			return ClassDescription{}, ferr
 		}
@@ -671,8 +675,17 @@ func (s *knowledgeGraphService) filterTriples(
 // rename its way around the filter. We collect every IRI cell across every
 // row, ask the resource service for the accessible subset in one bulk call,
 // then drop any row that contains a forbidden cell.
+//
+// When requireGatedIRI is set (free-form queries from scoped callers), a row
+// is ALSO dropped unless it contains at least one gated resource IRI. Without
+// this, a projection that returns only predicates or literals
+// (`SELECT ?email WHERE { ?s <https://schema.org/email> ?email }`, or a
+// prefix-named subject like `PREFIX r: <urn:product:> SELECT ?p WHERE
+// { r:secret ?p ?o }`) has no gated cell for the filter to catch and would
+// leak data derived from forbidden resources. Structured tools pass false —
+// they build their own shapes and legitimately return ontology rows.
 func (s *knowledgeGraphService) filterBindings(
-	ctx context.Context, bindings []map[string]repositories.KGTerm,
+	ctx context.Context, bindings []map[string]repositories.KGTerm, requireGatedIRI bool,
 ) ([]map[string]repositories.KGTerm, error) {
 	if len(bindings) == 0 {
 		return bindings, nil
@@ -687,20 +700,27 @@ func (s *knowledgeGraphService) filterBindings(
 			}
 		}
 	}
-	if len(candidates) == 0 {
+	if len(candidates) == 0 && !requireGatedIRI {
 		return bindings, nil
 	}
-	allowed, err := s.resource.FilterAccessibleResourceIDs(ctx, candidates)
-	if err != nil {
-		s.logger.Error(ctx, "kg permission filter failed",
-			"error", err, "candidates", len(candidates))
-		return nil, fmt.Errorf("kg permission filter: %w", err)
+	allowedSet := map[string]bool{}
+	if len(candidates) > 0 {
+		allowed, err := s.resource.FilterAccessibleResourceIDs(ctx, candidates)
+		if err != nil {
+			s.logger.Error(ctx, "kg permission filter failed",
+				"error", err, "candidates", len(candidates))
+			return nil, fmt.Errorf("kg permission filter: %w", err)
+		}
+		allowedSet = stringSet(allowed)
 	}
-	allowedSet := stringSet(allowed)
 	out := make([]map[string]repositories.KGTerm, 0, len(bindings))
 	dropped := 0
 	for _, row := range bindings {
 		if rowHasForbiddenIRI(row, allowedSet) {
+			dropped++
+			continue
+		}
+		if requireGatedIRI && !rowHasGatedIRI(row) {
 			dropped++
 			continue
 		}
@@ -710,6 +730,17 @@ func (s *knowledgeGraphService) filterBindings(
 		s.logger.Debug(ctx, "kg permission filter dropped bindings", "dropped", dropped)
 	}
 	return out, nil
+}
+
+// rowHasGatedIRI reports whether the row binds at least one gated resource IRI
+// (in any variable) — i.e. a value the permission filter can actually check.
+func rowHasGatedIRI(row map[string]repositories.KGTerm) bool {
+	for _, t := range row {
+		if t.Type == repositories.KGTermIRI && isGatedResourceURN(t.Value) {
+			return true
+		}
+	}
+	return false
 }
 
 // rowHasForbiddenIRI reports whether any IRI cell in the binding row is a
@@ -803,14 +834,33 @@ func bracketedIRIs(sparql string) []string {
 	return out
 }
 
-// detectQuerySummary returns a short tag for the query form (used in debug
-// logs only — keeps full SPARQL out of unstructured logs).
+// detectQuerySummary returns a short tag for the query form. It skips the
+// SPARQL prologue — comment lines and PREFIX/BASE declarations — before
+// reading the form keyword, mirroring the store's detectQueryForm. This
+// matters for the scoped-query guard: a caller must not be able to slip an
+// ASK or aggregate past the guard by prefixing it with `PREFIX`/`BASE`.
+// Anything that isn't ASK/CONSTRUCT/DESCRIBE is reported as SELECT (the
+// store's default), so the guard's aggregate check still applies.
 func detectQuerySummary(q string) string {
-	q = strings.TrimSpace(q)
-	for _, p := range []string{"SELECT", "ASK", "CONSTRUCT", "DESCRIBE"} {
-		if len(q) >= len(p) && strings.EqualFold(q[:len(p)], p) {
-			return p
+	for _, line := range strings.Split(q, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		upper := strings.ToUpper(line)
+		if strings.HasPrefix(upper, "PREFIX ") || strings.HasPrefix(upper, "BASE ") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(upper, "ASK"):
+			return "ASK"
+		case strings.HasPrefix(upper, "CONSTRUCT"):
+			return "CONSTRUCT"
+		case strings.HasPrefix(upper, "DESCRIBE"):
+			return "DESCRIBE"
+		default:
+			return "SELECT"
 		}
 	}
-	return "OTHER"
+	return "SELECT"
 }

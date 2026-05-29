@@ -146,7 +146,7 @@ func backfillResources(
 		if ctx.Err() != nil {
 			return loaded, failed
 		}
-		projectResourceTypeOntology(ctx, rt.Slug(), rt.Context(), p.Store, p.Logger)
+		projectResourceTypeOntology(ctx, rt.Name(), rt.Slug(), rt.Context(), p.Store, p.Logger)
 
 		cursor := ""
 		for {
