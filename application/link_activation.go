@@ -17,6 +17,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -77,10 +78,13 @@ func NewLinkActivator(
 // ProjectionManager.RegisterLink; they'll activate on a subsequent call
 // after the source is installed.
 //
-// Individual RegisterLink failures are logged and counted but don't stop
-// the pass — one bad link shouldn't block siblings. A final aggregate error
-// surfaces to the caller so InstallPreset / startup can escalate; per-link
-// errors are also available in logs for operator diagnosis.
+// Individual RegisterLink failures are logged and collected but don't stop
+// the pass — one bad link shouldn't block siblings. The returned error is
+// the errors.Join of every per-link failure, each wrapped with the
+// (source, target, property) triple so API/CLI callers reading
+// InstallPresetResult.Warnings can identify which link(s) failed without
+// needing log access. A Go 1.20+ errors.Is walk still finds the underlying
+// cause for each branch.
 func (a *LinkActivator) Reconcile(ctx context.Context) error {
 	installed, err := a.loadInstalledSlugs(ctx)
 	if err != nil {
@@ -88,7 +92,7 @@ func (a *LinkActivator) Reconcile(ctx context.Context) error {
 	}
 
 	active := a.registry.ActiveFor(installed)
-	var failed int
+	var failures []error
 	for _, link := range active {
 		err := a.projMgr.RegisterLink(ctx, repositories.LinkReference{
 			SourceSlug:      link.SourceType,
@@ -97,7 +101,11 @@ func (a *LinkActivator) Reconcile(ctx context.Context) error {
 			DisplayProperty: link.DisplayProperty,
 		})
 		if err != nil {
-			failed++
+			wrapped := fmt.Errorf(
+				"link activation failed (source=%q target=%q property=%q): %w",
+				link.SourceType, link.TargetType, link.PropertyName, err,
+			)
+			failures = append(failures, wrapped)
 			a.logger.Error(ctx, "link activation failed",
 				"source", link.SourceType, "target", link.TargetType,
 				"property", link.PropertyName, "error", err)
@@ -107,8 +115,11 @@ func (a *LinkActivator) Reconcile(ctx context.Context) error {
 			"source", link.SourceType, "target", link.TargetType,
 			"property", link.PropertyName)
 	}
-	if failed > 0 {
-		return fmt.Errorf("link activation: %d of %d links failed", failed, len(active))
+	if len(failures) > 0 {
+		return fmt.Errorf(
+			"link activation: %d of %d links failed: %w",
+			len(failures), len(active), errors.Join(failures...),
+		)
 	}
 	return nil
 }

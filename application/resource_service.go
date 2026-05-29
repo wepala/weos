@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -70,9 +71,11 @@ type resourceService struct {
 
 // referencePropsFor returns the merged list of schema-declared and
 // link-declared reference properties for the given resource type. Centralized
-// so Create/Update use the same rules — schema-declared refs always appear;
-// link-declared refs appear only if the registry has entries for this source
-// type (dormant links won't surface references the DB can't honor yet).
+// so Create/Update use the same rules. Every link registered against this
+// source slug is surfaced — including dormant ones whose target isn't
+// installed yet — so triple extraction is consistent regardless of install
+// order. The FK/display columns added by LinkActivator are a separate concern;
+// until they exist, only the triple is recorded.
 func (s *resourceService) referencePropsFor(rt *entities.ResourceType) []ReferencePropertyDef {
 	var links []PresetLinkDefinition
 	if s.linkRegistry != nil {
@@ -725,7 +728,10 @@ func validateAgainstSchema(schema, data json.RawMessage) error {
 
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
-		return fmt.Errorf("invalid JSON data: %w", err)
+		return errors.Join(ErrValidation, fmt.Errorf("invalid JSON data: %w", err))
 	}
-	return sch.Validate(v)
+	if err := sch.Validate(v); err != nil {
+		return errors.Join(ErrValidation, err)
+	}
+	return nil
 }

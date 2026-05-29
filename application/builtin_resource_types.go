@@ -67,10 +67,11 @@ func ensureBuiltInResourceTypes(params struct {
 	// both installed across the whole auto-install sequence.
 	//
 	// A reconcile error is returned so Fx's invoke machinery fails startup.
-	// Link activation is load-bearing for correct FK columns; booting a
-	// service with a silently-broken link graph is worse than refusing to
-	// start, since clients would see missing display values and write paths
-	// would skip triple creation for affected references.
+	// Link activation is load-bearing for correct FK/projection columns;
+	// booting a service with a silently-broken link graph is worse than
+	// refusing to start, since clients would see missing display values and
+	// other denormalized link projections even though triple extraction/linking
+	// can still occur for affected references.
 	if params.LinkActivator != nil {
 		if err := params.LinkActivator.Reconcile(ctx); err != nil {
 			params.Logger.Error(ctx, "terminal link reconcile failed", "error", err)

@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/utils"
 )
 
 // PresetLinkDefinition declares a relationship between two resource types that
@@ -40,9 +41,10 @@ import (
 //   - PropertyName is the attribute name on the source resource that carries
 //     the reference (e.g. "guardian"). This drives the FK column name and the
 //     predicate IRI derivation.
-//   - PredicateIRI, if empty, is resolved at activation time from the source
-//     type's @vocab + PropertyName via jsonld.ResolvePredicateIRI — the same
-//     rule used for schema-derived x-resource-type properties.
+//   - PredicateIRI, if empty, is derived later from the source type's JSON-LD
+//     context and PropertyName using the same rule as schema-derived
+//     x-resource-type properties; activation itself does not resolve or
+//     validate it.
 //   - DisplayProperty defaults to "name" when empty; it names the property on
 //     the target whose value is denormalized into <prop>_display.
 type PresetLinkDefinition struct {
@@ -61,10 +63,11 @@ type PresetLinkDefinition struct {
 type LinkRegistry struct {
 	mu    sync.RWMutex
 	links []PresetLinkDefinition
-	// index prevents duplicate (SourceType, PropertyName) entries. The key is
-	// what's unique in the database — multiple links could legitimately target
-	// the same type, but only one can occupy a given property on a source.
-	index map[string]int // "source|property" -> index into links
+	// index prevents duplicate (SourceType, CamelToSnake(PropertyName))
+	// entries. The key is what's unique in the database — multiple links
+	// could legitimately target the same type, but only one can occupy a
+	// given derived snake_case property/column on a source.
+	index map[string]int // "source|snake_property" -> index into links
 }
 
 // NewLinkRegistry creates an empty registry.
@@ -74,15 +77,19 @@ func NewLinkRegistry() *LinkRegistry {
 	}
 }
 
-// Add registers a link definition. If the (SourceType, PropertyName) pair is
-// already present, the new definition replaces the old one — last-writer-wins,
-// so a package-init RegisterLink that overrides a preset-declared link takes
-// effect without the caller needing to unregister first.
+// Add registers a link definition. If another definition already maps to
+// the same source type and derived FK column — i.e. the same
+// (SourceType, CamelToSnake(PropertyName)) pair — the new definition
+// replaces the old one (last-writer-wins), so a package-init RegisterLink
+// that overrides a preset-declared link takes effect without the caller
+// needing to unregister first. Keying on the snake_case form (not the raw
+// PropertyName) catches ambiguous camelCase spellings like "guardianId"
+// vs "guardianID" that both project to the same "guardian_id" column.
 func (r *LinkRegistry) Add(def PresetLinkDefinition) error {
 	if err := validateLinkDefinition(def); err != nil {
 		return err
 	}
-	key := def.SourceType + "|" + def.PropertyName
+	key := def.SourceType + "|" + utils.CamelToSnake(def.PropertyName)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if idx, ok := r.index[key]; ok {
@@ -177,7 +184,7 @@ func (r *LinkRegistry) ByTarget(slug string) []PresetLinkDefinition {
 func (r *LinkRegistry) LinkReferencesForSource(sourceSlug string) []repositories.LinkReference {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var out []repositories.LinkReference
+	out := []repositories.LinkReference{}
 	for _, l := range r.links {
 		if l.SourceType != sourceSlug {
 			continue
@@ -204,9 +211,10 @@ var defaultLinkRegistry = NewLinkRegistry()
 // link — e.g. a lightweight "finance-education" integration package that
 // connects Invoice to Guardian without either preset depending on the other.
 //
-// Links declared inside a PresetDefinition.Links slice are merged into the
-// same registry via presets.RegisterAll, so the two entry points share one
-// source of truth.
+// Links declared inside a PresetDefinition.Links slice are collected through
+// preset registration separately; the runtime *LinkRegistry seen by the
+// application is assembled later by the DI wiring from both PresetRegistry
+// and DefaultLinkRegistry().
 func RegisterLink(def PresetLinkDefinition) error {
 	return defaultLinkRegistry.Add(def)
 }
@@ -224,22 +232,45 @@ func DefaultLinkRegistry() *LinkRegistry {
 // mismatch would silently leave the link dormant forever.
 var linkSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// linkPropertyNamePattern enforces lowerCamelCase for PropertyName: first
+// rune must be a lowercase letter, remaining runes are letters/digits only.
+// Without this a link could register "Guardian" while another registered
+// "guardian" — both CamelToSnake to "guardian" and silently collide in the
+// projection column. Underscores, hyphens, leading uppercase, and leading
+// digits are all rejected.
+var linkPropertyNamePattern = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*$`)
+
 // linkReservedPropertyNames rejects property names that would collide with
 // the projection table's standard columns — an ALTER TABLE ADD COLUMN for
 // any of these would fail at reconcile time. Rejecting at Add() surfaces the
 // mistake at registration instead of burying it in a log entry later.
+//
+// Both the raw PropertyName and its snake_case projection (the actual column
+// name) are checked, so "typeSlug", "type_slug", "createdAt", and "created_at"
+// all get rejected. JSON-LD reserved keys (@id, @type, @context) are also
+// rejected because they have special meaning in the serialized resource.
 var linkReservedPropertyNames = map[string]bool{
-	"id":         true,
-	"type":       true,
-	"typeSlug":   true,
-	"data":       true,
-	"status":     true,
-	"createdBy":  true,
-	"accountId":  true,
-	"sequenceNo": true,
-	"createdAt":  true,
-	"updatedAt":  true,
-	"deletedAt":  true,
+	"@id":         true,
+	"@type":       true,
+	"@context":    true,
+	"id":          true,
+	"type":        true,
+	"typeSlug":    true,
+	"type_slug":   true,
+	"data":        true,
+	"status":      true,
+	"createdBy":   true,
+	"created_by":  true,
+	"accountId":   true,
+	"account_id":  true,
+	"sequenceNo":  true,
+	"sequence_no": true,
+	"createdAt":   true,
+	"created_at":  true,
+	"updatedAt":   true,
+	"updated_at":  true,
+	"deletedAt":   true,
+	"deleted_at":  true,
 }
 
 func validateLinkDefinition(def PresetLinkDefinition) error {
@@ -252,13 +283,26 @@ func validateLinkDefinition(def PresetLinkDefinition) error {
 	if def.PropertyName == "" {
 		return fmt.Errorf("link definition: PropertyName is required")
 	}
+	if !linkPropertyNamePattern.MatchString(def.PropertyName) {
+		// Enforce lowerCamelCase end-to-end. Two links like "guardianId" and
+		// "guardian_id" — or "Guardian" and "guardian" — would dedup to
+		// different registry keys but share the same snake_case FK column,
+		// causing a silent ALTER TABLE collision later. Requiring a lowercase
+		// first rune and alphanumeric tail keeps the (SourceType, PropertyName)
+		// registry key one-to-one with the derived DB column name.
+		return fmt.Errorf(
+			"link definition: PropertyName %q must be lowerCamelCase (first rune lowercase letter, alphanumeric only)",
+			def.PropertyName,
+		)
+	}
 	if !linkSlugPattern.MatchString(def.SourceType) {
 		return fmt.Errorf("link definition: SourceType %q must be lowercase kebab-case", def.SourceType)
 	}
 	if !linkSlugPattern.MatchString(def.TargetType) {
 		return fmt.Errorf("link definition: TargetType %q must be lowercase kebab-case", def.TargetType)
 	}
-	if linkReservedPropertyNames[def.PropertyName] {
+	if linkReservedPropertyNames[def.PropertyName] ||
+		linkReservedPropertyNames[utils.CamelToSnake(def.PropertyName)] {
 		return fmt.Errorf("link definition: PropertyName %q collides with a standard projection column", def.PropertyName)
 	}
 	return nil

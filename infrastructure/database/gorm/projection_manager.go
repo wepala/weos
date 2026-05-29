@@ -124,6 +124,24 @@ func (pm *projectionManager) EnsureTable(
 	for _, col := range columns {
 		colSet[col.Name] = true
 	}
+	// Re-add previously activated link columns so a schema re-parse doesn't
+	// silently drop them from the cache. Schema-derived columns alone won't
+	// include RegisterLink-added FK/_display columns, but they still exist in
+	// the DB — only add what the migrator confirms, so we don't claim cached
+	// presence for a link that hasn't been activated yet.
+	if pm.linkSource != nil {
+		migrator := pm.db.Migrator()
+		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
+			colName := utils.CamelToSnake(ref.PropertyName)
+			displayCol := colName + "_display"
+			if migrator.HasColumn(tableName, colName) {
+				colSet[colName] = true
+			}
+			if migrator.HasColumn(tableName, displayCol) {
+				colSet[displayCol] = true
+			}
+		}
+	}
 	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
 	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
 		pm.parentOf.Store(slug, parentSlug)
@@ -298,37 +316,49 @@ func (pm *projectionManager) registerReverseReferences(slug string, schema json.
 	// Clear any prior entries that name this slug — schema may have changed.
 	pm.clearReferencesForSlugLocked(slug)
 
-	if len(schema) == 0 {
-		return
-	}
-	var s struct {
-		Properties map[string]struct {
-			XResourceType    string `json:"x-resource-type"`
-			XDisplayProperty string `json:"x-display-property"`
-		} `json:"properties"`
-	}
-	if json.Unmarshal(schema, &s) != nil {
-		return
+	// Track schema-declared refs by both PropertyName and derived FK column
+	// name so the link replay can skip any entry that would override either
+	// (schema wins on conflict). Keying on both catches a link that spells
+	// the property differently but derives to the same column.
+	schemaProps := make(map[string]bool)
+	schemaCols := make(map[string]bool)
+
+	if len(schema) > 0 {
+		var s struct {
+			Properties map[string]struct {
+				XResourceType    string `json:"x-resource-type"`
+				XDisplayProperty string `json:"x-display-property"`
+			} `json:"properties"`
+		}
+		if json.Unmarshal(schema, &s) == nil {
+			for propName, prop := range s.Properties {
+				if prop.XResourceType == "" {
+					continue
+				}
+				displayProp := prop.XDisplayProperty
+				if displayProp == "" {
+					displayProp = "name"
+				}
+				pm.registerRefLocked(slug, propName, prop.XResourceType, displayProp)
+				schemaProps[propName] = true
+				schemaCols[utils.CamelToSnake(propName)] = true
+			}
+		}
 	}
 
-	for propName, prop := range s.Properties {
-		if prop.XResourceType == "" {
-			continue
-		}
-		displayProp := prop.XDisplayProperty
-		if displayProp == "" {
-			displayProp = "name"
-		}
-		pm.registerRefLocked(slug, propName, prop.XResourceType, displayProp)
-	}
-
-	// Replay link-declared refs. Without this, any schema re-parse (EnsureTable
-	// via ResourceType.Updated, or the lazy HasProjectionTable path) would wipe
-	// refs set by RegisterLink and the next Reconcile wouldn't run until the
-	// next InstallPreset or restart — display propagation for link-declared
-	// references would silently stop in the meantime.
+	// Replay link-declared refs unconditionally — a re-parse with empty or
+	// unparseable schema must not silently wipe RegisterLink-declared refs,
+	// since they come from a separate source of truth. Any schema re-parse
+	// (EnsureTable via ResourceType.Updated, or the lazy HasProjectionTable
+	// path) would otherwise leave display propagation silently broken until
+	// the next Reconcile. Conflicting entries (same property or same derived
+	// column) are skipped — schema wins, matching the documented merge rule
+	// in ExtractReferencePropertiesWithLinks.
 	if pm.linkSource != nil {
 		for _, ref := range pm.linkSource.LinkReferencesForSource(slug) {
+			if schemaProps[ref.PropertyName] || schemaCols[utils.CamelToSnake(ref.PropertyName)] {
+				continue
+			}
 			displayProp := ref.DisplayProperty
 			if displayProp == "" {
 				displayProp = "name"
@@ -488,15 +518,20 @@ func (pm *projectionManager) RegisterLink(ctx context.Context, ref repositories.
 	if err := pm.addMissingColumns(ctx, tableName, cols); err != nil {
 		return fmt.Errorf("RegisterLink: add columns to %q: %w", tableName, err)
 	}
-	// Refresh cached column set so HasColumn reflects the ALTER TABLE.
+	// Refresh cached column set so HasColumn reflects the ALTER TABLE. The
+	// columns map is read without a lock by HasColumn, so we copy-on-write
+	// into a fresh map and Store the new tableInfo rather than mutating the
+	// existing map in place (maps are not safe for concurrent read/write).
 	if v, ok := pm.tables.Load(ref.SourceSlug); ok {
 		if info, ok := v.(tableInfo); ok {
-			if info.columns == nil {
-				info.columns = make(map[string]bool)
+			updatedColumns := make(map[string]bool, len(info.columns)+len(cols))
+			for name, exists := range info.columns {
+				updatedColumns[name] = exists
 			}
 			for _, col := range cols {
-				info.columns[col.Name] = true
+				updatedColumns[col.Name] = true
 			}
+			info.columns = updatedColumns
 			pm.tables.Store(ref.SourceSlug, info)
 		}
 	}

@@ -54,7 +54,6 @@ type PresetLinkDefinition struct {
     PropertyName    string // attribute on source (drives FK column name)
     PredicateIRI    string // optional; resolved from @vocab if empty
     DisplayProperty string // defaults to "name"
-    Multi           bool
 }
 
 // Links inside a preset — natural packaging for a "finance-education" integration preset.
@@ -81,7 +80,7 @@ Reconcile loads installed type slugs from the repository, asks the registry `Act
 
 `ExtractReferencePropertiesWithLinks(schema, ldContext, externalLinks)` merges schema-derived refs with link-derived refs into one `[]ReferencePropertyDef`. The write path (`BuildResourceGraph`, `ExtractReferenceTriples`, projection FK/display population) consumes this list unchanged, so link-declared references produce the same triples and the same `@graph` edges node as schema-declared ones.
 
-When both mechanisms declare the same `PropertyName`, **schema wins** (link is dropped with a warning). Schemas are closer to the type definition, so a conflicting external link is almost always a mistake.
+When both mechanisms declare the same `PropertyName`, **schema wins** — the conflicting link is silently dropped from the merged list and from the `registerReverseReferences` replay. Schemas are closer to the type definition, so a conflicting external link is almost always a mistake; callers that need to surface the conflict can inspect the registry and compare against the schema before merging.
 
 ## Consequences
 
@@ -101,7 +100,7 @@ When both mechanisms declare the same `PropertyName`, **schema wins** (link is d
 
 - **Late activation and historical rows.** Rows written before a link activates won't have `<prop>_display` populated. v1 ships with this limitation; a backfill job is a follow-up, mirroring how resource renames propagate today via `UpdateColumnByFK`.
 - **Type deletion while linked.** Not addressed in v1. Follow-up should block deletion of a resource type when any active link references it.
-- **Predicate collision with schemas.** Dedup on `PropertyName` with schema winning prevents silent data loss; a warning surfaces the conflict.
+- **Predicate collision with schemas.** Dedup on `PropertyName` is schema-first: when a schema property and a cross-preset link definition collide, the schema definition wins and the link definition is silently dropped.
 
 ## Alternatives Considered
 

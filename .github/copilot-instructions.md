@@ -1,0 +1,79 @@
+# Copilot Code Review Instructions — WeOS Core
+
+## How to review
+
+You are reviewing PRs for a Go service that maintainers ship daily. **Comment only when you have HIGH confidence (>80%) that a real issue exists.** A wrong nit costs more than a missed nit — silence is acceptable, noise is not.
+
+Each comment must follow this shape:
+1. One sentence stating the problem.
+2. *(Optional, only if non-obvious)* One sentence on why it matters.
+3. A concrete fix — code snippet or specific action.
+
+If you cannot meet that bar, do not comment. Do not produce summaries, praise, or "consider"-style musings.
+
+## Project context
+
+- **Language / runtime:** Go 1.24+ (CI builds on 1.25), single binary at `cmd/weos/main.go` (CLI + HTTP + MCP).
+- **Architecture:** Event Sourcing / CQRS via pericarp (`BaseEntity`, `EventDispatcher`, `UnitOfWork`, `EventStore`); DI via Uber Fx; Echo v4 HTTP; GORM (auto-detects SQLite/Postgres); Cobra CLI; Zap logging; Gorilla Sessions; KSUID identifiers.
+- **Domain model:** Content is modeled as `ResourceType` + `Resource`. Creating a `ResourceType` auto-generates a projection table via `ProjectionManager`. The `data` column always holds the full JSON-LD blob; typed columns are query-optimization mirrors. Auth entities (User/Role/Account) stay in pericarp — they are **not** resource types.
+- **Layering:** API → Application → Domain ← Infrastructure. Dependencies point inward.
+- **Identity:** URNs — `urn:type:<slug>` for ResourceType, `urn:<typeSlug>:<ksuid>` for Resource.
+- **CI already runs:** `go build`, `go test -race -coverprofile`, `golangci-lint` (gofmt, goimports, errcheck, govet, ineffassign, staticcheck, unused, misspell). **Do not re-flag anything CI catches.**
+
+## What to flag (high priority)
+
+**Security & safety**
+- Secrets, tokens, JWTs, passwords, or session IDs logged or returned in responses.
+- Missing or weakened auth/authz on new endpoints; routes added outside the protected `/api` group without justification.
+- Cookies missing `Secure`, `HttpOnly`, or `SameSite` where the existing code sets them; hardcoded session/cookie defaults that should be config-driven (see `SESSION_SECRET`, OAuth provider config patterns).
+- Missing input validation at HTTP boundaries (request body, query, path params); SQL string concatenation outside GORM; path traversal in file/upload handlers.
+- Casbin policy / ODRL action IRI mismatches — actions enforced in code must match the seeded policies.
+- Trusting client-supplied IPs without `RealIP` middleware where rate limiting / auditing depends on it.
+
+**Correctness**
+- Persisting domain entities without `UnitOfWork` (violates "never persist entities directly").
+- Mutating events after creation, or event handlers that aren't idempotent under replay.
+- Goroutines / channels with leaked references, missing `ctx` cancellation, or race conditions (CI runs `-race` — only flag races CI cannot detect statically).
+- `nil` dereferences after type assertions or map lookups; ignored `error` returns on calls that can fail meaningfully (CI's errcheck catches most — only flag when errcheck is suppressed or the error is silently swallowed inside a wrapper).
+- Off-by-one or boundary errors in pagination (cursor handling in `domain/repositories/pagination.go`), slug derivation (hyphens→underscores, pluralization), or KSUID/URN parsing.
+- Dynamic projection-table SQL where column names are not safely quoted/whitelisted.
+
+**Architecture & conventions**
+- HTTP handlers returning raw `c.JSON(...)` instead of the envelope helpers in `api/handlers/response.go` (`respond`, `respondPaginated`, `respondError`, `respondRaw`, `respondForbidden`). The `/health` endpoint is the only documented exception.
+- Pre-serialized JSON-LD sent through `respond` (causes double-encoding) instead of `respondRaw`.
+- `respondError` callers stuffing the error into the `messages` array — that array is for context-accumulated warnings only.
+- Logger calls that don't use the `entities.Logger` variadic key-value form (`logger.Info(ctx, "msg", "key", val)`).
+- New repositories / services not registered in `application/module.go`, or providers that don't follow the `fx.In`/`fx.Out` pattern in `application/providers.go`.
+- New routes registered outside the `/api` group in `internal/cli/serve.go`.
+- Auth entities (User, Role, Account, etc.) modeled as resource types instead of staying in pericarp.
+
+**Linting limits worth flagging in review** (golangci-lint enforces these but reviewers should still call them out when intent matters):
+- Line length > 120, function > 100 lines / 50 statements, cyclomatic complexity > 15. If a function is at the limit *and* the logic is genuinely tangled, suggest a split — otherwise leave it.
+
+**Tests**
+- New exported behavior with no test in `*_test.go` (unit), `tests/integration/`, or `tests/e2e/`.
+- Tests that assert on log output instead of behavior, or tests that don't use `t.Helper()` / `t.Cleanup` where appropriate.
+- Mocks regenerated by hand instead of via `make mocks` (moqup).
+
+## What NOT to flag
+
+- Style, formatting, import ordering, naming nits — `gofmt`/`goimports`/golangci-lint own these.
+- Anything `staticcheck`, `govet`, `ineffassign`, `unused`, `errcheck`, `misspell` already report.
+- Missing AGPL license header on **test** files (intentionally not required) or on files where it already exists.
+- Suggestions to add comments / docstrings unless an exported symbol is genuinely ambiguous.
+- Refactoring suggestions without a concrete bug or architectural violation behind them.
+- "Consider extracting…" / "you could also…" — speculative cleanup is out of scope.
+- Pluralization or wording quibbles in user-facing strings unless they cause confusion.
+- Coverage percentage commentary — Codecov reports it.
+- Performance suggestions without a measurable hot path or benchmark to back them.
+- Dependency / `go.mod` churn when `go mod tidy` produced it.
+
+## Response format examples
+
+> The `register` handler returns the user's password hash in the JSON body. Drop `PasswordHash` from `authSuccessResponse` or use a sanitized DTO.
+
+> `ResourceRepository.Save` writes directly via GORM instead of going through `UnitOfWork`, so events aren't persisted on commit. Wrap the entity with `uow.Track(entity)` and call `uow.Commit(ctx)`.
+
+> The new `/admin/...` route is registered outside the `/api` group in `serve.go`, so the auth middleware doesn't apply. Move the route inside the `apiGroup` block or attach the middleware explicitly.
+
+If a finding does not fit that shape with that level of specificity, it isn't ready to post.

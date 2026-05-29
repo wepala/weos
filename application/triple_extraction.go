@@ -35,16 +35,28 @@ func ExtractReferenceProperties(
 // population) treats them identically.
 //
 // Merge rule: when both the schema and a link define a reference on the same
-// PropertyName, the schema wins. Schemas are closer to the type definition
-// and already validated by existing tests; a conflicting external link is
-// almost certainly a mistake, so we keep the predictable (schema) behavior.
+// PropertyName, the schema wins and the conflicting link is silently dropped.
+// The function returns no signal for the drop — callers that need to surface
+// conflicts should inspect the registry against the schema before calling.
 // Callers with a *LinkRegistry typically pass registry.BySource(typeSlug) as
 // externalLinks.
 func ExtractReferencePropertiesWithLinks(
 	schema, ldContext json.RawMessage,
 	externalLinks []PresetLinkDefinition,
 ) []ReferencePropertyDef {
-	vocab, contextMap := jsonld.ParseContext(ldContext)
+	// ParseContext unmarshals the entire @context — skip it when no
+	// references need predicate resolution. resolveVocab caches the lazy
+	// parse so a second reference doesn't re-parse.
+	var vocab string
+	var contextMap map[string]string
+	var contextParsed bool
+	resolveVocab := func() (string, map[string]string) {
+		if !contextParsed {
+			vocab, contextMap = jsonld.ParseContext(ldContext)
+			contextParsed = true
+		}
+		return vocab, contextMap
+	}
 
 	seen := make(map[string]struct{})
 	var defs []ReferencePropertyDef
@@ -65,9 +77,10 @@ func ExtractReferencePropertiesWithLinks(
 				if displayProp == "" {
 					displayProp = "name"
 				}
+				v, cm := resolveVocab()
 				defs = append(defs, ReferencePropertyDef{
 					PropertyName:    propName,
-					PredicateIRI:    jsonld.ResolvePredicateIRI(propName, vocab, contextMap),
+					PredicateIRI:    jsonld.ResolvePredicateIRI(propName, v, cm),
 					TargetType:      prop.XResourceType,
 					DisplayProperty: displayProp,
 				})
@@ -90,7 +103,8 @@ func ExtractReferencePropertiesWithLinks(
 		}
 		predicateIRI := link.PredicateIRI
 		if predicateIRI == "" {
-			predicateIRI = jsonld.ResolvePredicateIRI(link.PropertyName, vocab, contextMap)
+			v, cm := resolveVocab()
+			predicateIRI = jsonld.ResolvePredicateIRI(link.PropertyName, v, cm)
 		}
 		defs = append(defs, ReferencePropertyDef{
 			PropertyName:    link.PropertyName,

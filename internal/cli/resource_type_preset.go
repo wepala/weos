@@ -69,10 +69,14 @@ var presetInstallCmd = &cobra.Command{
 		if len(result.Updated) > 0 {
 			_, _ = fmt.Fprintf(os.Stdout, "Updated: %s\n", strings.Join(result.Updated, ", "))
 		}
+		if len(result.Unchanged) > 0 {
+			_, _ = fmt.Fprintf(os.Stdout, "Unchanged (definition matches): %s\n", strings.Join(result.Unchanged, ", "))
+		}
 		if len(result.Skipped) > 0 {
 			_, _ = fmt.Fprintf(os.Stdout, "Skipped (already exist): %s\n", strings.Join(result.Skipped, ", "))
 		}
-		if len(result.Created) == 0 && len(result.Updated) == 0 && len(result.Skipped) == 0 {
+		if len(result.Created) == 0 && len(result.Updated) == 0 &&
+			len(result.Unchanged) == 0 && len(result.Skipped) == 0 {
 			_, _ = fmt.Fprintln(os.Stdout, "Preset has no types to install")
 		}
 		return nil
