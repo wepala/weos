@@ -307,6 +307,15 @@ func TestFormatTerm(t *testing.T) {
 		{"injects quote escaped", `http://x/"q"`, "<http://x/%22q%22>"},
 		{"injects space escaped", "http://x/a b", "<http://x/a%20b>"},
 		{"injects newline escaped", "http://x/a\nb", "<http://x/a%0Ab>"},
+		// Preformatted-term validation: a value starting with `<` or `"` is
+		// passed through ONLY if it is a single well-formed term. An
+		// adversarial value that tries to close the term early and append
+		// extra SPARQL must be re-escaped, not trusted.
+		{"well-formed literal with lang passes through", `"hi"@en`, `"hi"@en`},
+		{"well-formed datatyped literal passes through", `"5"^^<http://www.w3.org/2001/XMLSchema#int>`, `"5"^^<http://www.w3.org/2001/XMLSchema#int>`},
+		{"IRI breakout re-escaped", "<urn:x> <p> <o> . <urn:evil", "<%3Curn:x%3E%20%3Cp%3E%20%3Co%3E%20.%20%3Curn:evil>"},
+		{"literal breakout re-escaped", `"evil" . <urn:x> <urn:p> <urn:o`, `"\"evil\" . <urn:x> <urn:p> <urn:o"`},
+		{"literal with bad suffix re-escaped", `"x" ; DROP`, `"\"x\" ; DROP"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

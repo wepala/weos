@@ -296,6 +296,36 @@ func TestKGService_DescribeClass_FetchesInstancesWhenAsked(t *testing.T) {
 	}
 }
 
+func TestKGService_DescribeClass_DropsPredicatesOnlyOnForbiddenInstances(t *testing.T) {
+	t.Parallel()
+	// Predicate query projects (?s, ?p). schema:name occurs on an accessible
+	// instance; schema:ssn occurs only on a forbidden one. After permission
+	// filtering, ssn must not be exposed.
+	store := &queryRecordingStore{
+		active: true,
+		response: repositories.KGQueryResult{Bindings: []map[string]repositories.KGTerm{
+			{"s": {Type: repositories.KGTermIRI, Value: "urn:person:visible"},
+				"p": {Type: repositories.KGTermIRI, Value: "https://schema.org/name"}},
+			{"s": {Type: repositories.KGTermIRI, Value: "urn:person:hidden"},
+				"p": {Type: repositories.KGTermIRI, Value: "https://schema.org/ssn"}},
+		}},
+	}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:person:hidden": true}}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	desc, err := svc.DescribeClass(scopedCtx(), "https://schema.org/Person", 0)
+	if err != nil {
+		t.Fatalf("DescribeClass: %v", err)
+	}
+	if len(desc.Predicates) != 1 || desc.Predicates[0] != "https://schema.org/name" {
+		t.Errorf("predicates = %v, want [https://schema.org/name] (ssn must be filtered out)", desc.Predicates)
+	}
+	// The predicate query must project ?s so the filter has a subject to gate.
+	if !strings.Contains(store.queries[0], "?s ?p") {
+		t.Errorf("predicate query must project ?s alongside ?p: %q", store.queries[0])
+	}
+}
+
 func TestKGService_FindPath_ReturnsTriplesFromStore(t *testing.T) {
 	t.Parallel()
 	// FindPath now iterates length 1..maxHops and stops at the first
@@ -553,49 +583,82 @@ func TestKGService_FilterDropsRowWithForbiddenIRIInAnyVariable(t *testing.T) {
 	}
 }
 
-func TestKGService_ASKForcedFalseForNonSystemContext(t *testing.T) {
-	t.Parallel()
-	yes := true
-	store := &queryRecordingStore{
-		active:   true,
-		response: repositories.KGQueryResult{Boolean: &yes},
-	}
-	svc := newKGSvc(store)
-
-	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{
+func scopedCtx() context.Context {
+	return auth.ContextWithAgent(context.Background(), &auth.Identity{
 		AgentID:         "agent-1",
 		ActiveAccountID: "acct-1",
 	})
-	res, err := svc.Query(ctx, "ASK { <urn:product:secret> ?p ?o }")
-	if err != nil {
-		t.Fatalf("Query: %v", err)
-	}
-	if res.Boolean == nil || *res.Boolean {
-		t.Errorf("non-system ASK must be forced to false; got %v", res.Boolean)
+}
+
+func TestKGService_ASKRejectedForScopedCaller(t *testing.T) {
+	t.Parallel()
+	// Both a gated-naming ASK and an unbound ontology-predicate ASK must be
+	// rejected for scoped callers — a bare boolean has no IRI for the
+	// post-filter to remove, so `ASK { ?s <https://schema.org/ssn> ?o }` would
+	// otherwise leak whether any (possibly forbidden) resource exists.
+	for _, q := range []string{
+		"ASK { <urn:product:secret> ?p ?o }",
+		"ASK { ?s <https://schema.org/ssn> ?o }",
+		"ASK { schema:Person rdfs:subClassOf schema:Thing }",
+	} {
+		yes := true
+		store := &queryRecordingStore{active: true, response: repositories.KGQueryResult{Boolean: &yes}}
+		svc := newKGSvc(store)
+		if _, err := svc.Query(scopedCtx(), q); !errors.Is(err, ErrKGQueryNotPermitted) {
+			t.Errorf("Query(%q): got %v, want ErrKGQueryNotPermitted", q, err)
+		}
+		if len(store.queries) != 0 {
+			t.Errorf("Query(%q): store must not be hit for a rejected ASK; got %d queries", q, len(store.queries))
+		}
 	}
 }
 
-func TestKGService_ASKPassesThroughForOntologyOnlyQuery(t *testing.T) {
+func TestKGService_AggregateSelectRejectedForScopedCaller(t *testing.T) {
 	t.Parallel()
-	yes := true
-	store := &queryRecordingStore{
-		active:   true,
-		response: repositories.KGQueryResult{Boolean: &yes},
+	for _, q := range []string{
+		"SELECT (COUNT(?s) AS ?count) WHERE { ?s ?p ?o }",
+		"SELECT ?p (SUM(?n) AS ?total) WHERE { ?s ?p ?n } GROUP BY ?p",
+	} {
+		store := &queryRecordingStore{active: true}
+		svc := newKGSvc(store)
+		if _, err := svc.Query(scopedCtx(), q); !errors.Is(err, ErrKGQueryNotPermitted) {
+			t.Errorf("Query(%q): got %v, want ErrKGQueryNotPermitted", q, err)
+		}
+		if len(store.queries) != 0 {
+			t.Errorf("Query(%q): store must not be hit for a rejected aggregate; got %d queries", q, len(store.queries))
+		}
 	}
-	svc := newKGSvc(store)
+}
 
-	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{
-		AgentID:         "agent-1",
-		ActiveAccountID: "acct-1",
-	})
-	// ASK names no gated resource URN → no existence leak → must pass through
-	// unchanged so ontology reasoning keeps working for non-system callers.
-	res, err := svc.Query(ctx, "ASK { <http://schema.org/Person> ?p ?o }")
-	if err != nil {
+func TestKGService_QueryNamingForbiddenURNRejectedForScopedCaller(t *testing.T) {
+	t.Parallel()
+	// A non-aggregate SELECT that names a forbidden resource leaks its
+	// predicates without ever projecting its IRI, so the guard refuses it.
+	store := &queryRecordingStore{active: true}
+	rsvc := &resourceFilterStub{forbidden: map[string]bool{"urn:product:secret": true}}
+	svc := newKGSvcWithResource(store, rsvc)
+
+	_, err := svc.Query(scopedCtx(), "SELECT ?p WHERE { <urn:product:secret> ?p ?o }")
+	if !errors.Is(err, ErrKGQueryNotPermitted) {
+		t.Fatalf("got %v, want ErrKGQueryNotPermitted", err)
+	}
+	if len(store.queries) != 0 {
+		t.Errorf("store must not be hit for a rejected query; got %d queries", len(store.queries))
+	}
+}
+
+func TestKGService_QueryNamingAccessibleURNAllowedForScopedCaller(t *testing.T) {
+	t.Parallel()
+	// Same shape, but the named resource is accessible → allowed through.
+	store := &queryRecordingStore{active: true}
+	rsvc := &resourceFilterStub{} // nothing forbidden
+	svc := newKGSvcWithResource(store, rsvc)
+
+	if _, err := svc.Query(scopedCtx(), "SELECT ?p WHERE { <urn:product:mine> ?p ?o }"); err != nil {
 		t.Fatalf("Query: %v", err)
 	}
-	if res.Boolean == nil || !*res.Boolean {
-		t.Errorf("ontology-only ASK must pass through unchanged; got %v", res.Boolean)
+	if len(store.queries) != 1 {
+		t.Errorf("accessible-URN query should reach the store; got %d queries", len(store.queries))
 	}
 }
 

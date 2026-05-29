@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -119,6 +120,9 @@ func (s *knowledgeGraphService) Query(
 	if sparql == "" {
 		return repositories.KGQueryResult{}, fmt.Errorf("sparql query is required")
 	}
+	if err := s.guardScopedQuery(ctx, sparql); err != nil {
+		return repositories.KGQueryResult{}, err
+	}
 	s.logger.Debug(ctx, "kg query", "form", detectQuerySummary(sparql))
 	res, err := s.store.Query(ctx, sparql)
 	if err != nil {
@@ -139,24 +143,69 @@ func (s *knowledgeGraphService) Query(
 		}
 		res.Bindings = filtered
 	}
-	if res.Boolean != nil && *res.Boolean && auth.AgentFromCtx(ctx) != nil &&
-		askReferencesGatedURN(sparql) {
-		// ASK true on a gated resource the caller can't see is an existence
-		// leak: the LLM can probe `ASK { <urn:product:secret> ?p ?o }` and
-		// learn that gated resources exist. Without re-running the query
-		// under a permission-aware rewrite (which Oxigraph doesn't support
-		// natively), the safe call for non-system callers is to flip
-		// true → false — but ONLY when the ASK actually names a gated
-		// resource URN. An ASK over ontology terms only (e.g.
-		// `ASK { schema:Person rdfs:subClassOf schema:Thing }`) carries no
-		// such leak, so we leave it untouched and ontology reasoning keeps
-		// working. System callers (auth.AgentFromCtx == nil) always retain
-		// the unfiltered answer to match every other service.
-		falsy := false
-		res.Boolean = &falsy
-		s.logger.Debug(ctx, "kg ASK forced to false: references gated resource URN")
-	}
+	// res.Boolean (ASK) needs no post-filtering here: guardScopedQuery rejects
+	// ASK for scoped callers (a bare boolean has no IRI for the filter to
+	// remove, so it can't be made safe after the fact). Only system callers
+	// reach this point with an ASK, and they get the unfiltered answer to
+	// match every other service.
 	return res, nil
+}
+
+// ErrKGQueryNotPermitted is returned when a scoped (non-system) caller submits
+// a free-form SPARQL query whose results cannot be permission-filtered after
+// execution. Post-execution filtering only works when forbidden data surfaces
+// as a gated IRI in the result rows; it cannot redact a bare boolean (ASK),
+// an aggregate literal (COUNT/SUM/…), or a row deliberately built to omit the
+// forbidden subject. Those shapes are refused for scoped callers. Row-
+// projecting SELECT/CONSTRUCT/DESCRIBE queries and the structured KG tools
+// (expand/search/describe/path) remain available. System callers (nil
+// identity) are unaffected.
+var ErrKGQueryNotPermitted = errors.New("knowledge graph query form not permitted for this caller")
+
+// guardScopedQuery rejects free-form SPARQL shapes that would leak forbidden
+// graph state past the post-execution permission filter. No-op for system
+// callers (nil identity).
+func (s *knowledgeGraphService) guardScopedQuery(ctx context.Context, sparql string) error {
+	if auth.AgentFromCtx(ctx) == nil {
+		return nil // system caller: full, unfiltered access
+	}
+	switch detectQuerySummary(sparql) {
+	case "ASK":
+		// A boolean answer carries no IRI for the post-filter to remove, so
+		// even an unbound pattern like `ASK { ?s <https://schema.org/ssn> ?o }`
+		// would leak whether any (possibly forbidden) resource exists.
+		return fmt.Errorf("%w: ASK queries are not available; project the entities "+
+			"you need with SELECT, or use the structured knowledge-graph tools", ErrKGQueryNotPermitted)
+	case "SELECT":
+		if isAggregateQuery(sparql) {
+			// Aggregates collapse rows into literals (COUNT, SUM, GROUP_CONCAT,
+			// …) with no gated IRI left to filter, leaking counts/derived facts
+			// about forbidden data.
+			return fmt.Errorf("%w: aggregate or GROUP BY queries are not available; "+
+				"project the underlying rows instead", ErrKGQueryNotPermitted)
+		}
+	}
+	// Refuse any query that explicitly names a gated resource the caller
+	// cannot read (e.g. `SELECT ?p WHERE { <urn:product:secret> ?p ?o }`,
+	// which would leak the predicates of a hidden resource without ever
+	// projecting its IRI). Forbidden and non-existent URNs are refused
+	// identically, so this is not an existence oracle.
+	named := gatedURNsInQuery(sparql)
+	if len(named) == 0 {
+		return nil
+	}
+	allowed, err := s.resource.FilterAccessibleResourceIDs(ctx, named)
+	if err != nil {
+		s.logger.Error(ctx, "kg query guard permission check failed", "error", err)
+		return fmt.Errorf("kg query guard: %w", err)
+	}
+	allowedSet := stringSet(allowed)
+	for _, u := range named {
+		if !allowedSet[u] {
+			return fmt.Errorf("%w: query references a resource you cannot access", ErrKGQueryNotPermitted)
+		}
+	}
+	return nil
 }
 
 func (s *knowledgeGraphService) ExpandEntity(
@@ -264,11 +313,14 @@ func (s *knowledgeGraphService) DescribeClass(
 		sampleInstances = 50
 	}
 
-	// Distinct predicates used by instances of the class. Property paths
-	// (`rdf:type/rdfs:subClassOf*`) walk the subclass chain so subclasses
-	// are included automatically.
+	// Distinct (subject, predicate) pairs used by instances of the class.
+	// Property paths (`rdf:type/rdfs:subClassOf*`) walk the subclass chain so
+	// subclasses are included automatically. We project ?s alongside ?p so the
+	// permission filter can drop predicates that occur ONLY on forbidden
+	// instances — collecting predicates without ?s would leak the existence of
+	// properties carried solely by resources the caller can't read.
 	predQuery := fmt.Sprintf(`
-SELECT DISTINCT ?p WHERE {
+SELECT DISTINCT ?s ?p WHERE {
   ?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>/<http://www.w3.org/2000/01/rdf-schema#subClassOf>* %s .
   ?s ?p ?o .
 }`, formatIRI(classIRI))
@@ -276,9 +328,15 @@ SELECT DISTINCT ?p WHERE {
 	if err != nil {
 		return ClassDescription{}, fmt.Errorf("describe class: predicate query failed: %w", err)
 	}
+	filteredPredRows, ferr := s.filterBindings(ctx, predRes.Bindings)
+	if ferr != nil {
+		return ClassDescription{}, ferr
+	}
 	out := ClassDescription{ClassIRI: classIRI}
-	for _, row := range predRes.Bindings {
-		if t, ok := row["p"]; ok {
+	predSeen := map[string]bool{}
+	for _, row := range filteredPredRows {
+		if t, ok := row["p"]; ok && t.Value != "" && !predSeen[t.Value] {
+			predSeen[t.Value] = true
 			out.Predicates = append(out.Predicates, t.Value)
 		}
 	}
@@ -694,17 +752,34 @@ func stringSet(in []string) map[string]bool {
 	return out
 }
 
-// askReferencesGatedURN reports whether the SPARQL text names an explicit
-// gated resource IRI (e.g. <urn:product:01H...>). Used to scope the ASK
-// existence-leak guard so it only fires when the query can actually probe a
-// gated resource; ontology-only ASK queries are left untouched.
-func askReferencesGatedURN(sparql string) bool {
+var (
+	// kgAggregateFuncRe matches a SPARQL aggregate function call. Lexical and
+	// deliberately broad — a false positive only refuses a scoped query (the
+	// safe direction), never leaks.
+	kgAggregateFuncRe = regexp.MustCompile(`(?i)\b(count|sum|avg|min|max|sample|group_concat)\s*\(`)
+	kgGroupByRe       = regexp.MustCompile(`(?i)\bgroup\s+by\b`)
+)
+
+// isAggregateQuery reports whether the SPARQL text uses an aggregate function
+// or GROUP BY, both of which collapse rows into literals that the gated-IRI
+// post-filter cannot inspect.
+func isAggregateQuery(sparql string) bool {
+	return kgAggregateFuncRe.MatchString(sparql) || kgGroupByRe.MatchString(sparql)
+}
+
+// gatedURNsInQuery returns the distinct gated resource URNs named explicitly
+// (as <...> IRIs) in the SPARQL text. Used by guardScopedQuery to refuse
+// queries that point at a resource the caller cannot read.
+func gatedURNsInQuery(sparql string) []string {
+	seen := map[string]bool{}
+	var out []string
 	for _, iri := range bracketedIRIs(sparql) {
-		if isGatedResourceURN(iri) {
-			return true
+		if isGatedResourceURN(iri) && !seen[iri] {
+			seen[iri] = true
+			out = append(out, iri)
 		}
 	}
-	return false
+	return out
 }
 
 // bracketedIRIs returns the contents of every `<...>` IRI reference in the

@@ -494,21 +494,41 @@ func formatTriple(t repositories.Triple) string {
 	return fmt.Sprintf("%s %s %s .", formatTerm(t.Subject), formatTerm(t.Predicate), formatTerm(t.Object))
 }
 
-// formatTerm wraps a term in the appropriate N-Triples syntax. Heuristic:
-// already-bracketed `<iri>` and quoted `"literal"` terms pass through;
-// `_:bnode` blank nodes pass through; anything else is treated as a bare IRI
-// and percent-encoded per the SPARQL grammar (no spaces, control chars, or
-// `<>"{}|^\` allowed inside an IRIREF). This is the canonical formatter for
-// values produced by `application/triple_extraction.go`, which carry bare IRI
-// strings sourced from JSON-LD @id values — escaping here defends against
-// SPARQL injection if such an @id ever contains adversarial characters.
+// iriForbiddenChars are the characters the IRIREF grammar (RFC 3987 /
+// SPARQL 1.1) forbids inside `<...>`. Shared by escapeIRI and
+// isWellFormedIRIRef so the two never drift.
+const iriForbiddenChars = "<>\"{}|^\\`"
+
+// formatTerm wraps a term in the appropriate N-Triples syntax.
+//   - A preformatted `<iri>` passes through ONLY if it is a single
+//     well-formed IRIREF (no characters that could close it early or break
+//     out into adjacent SPARQL); otherwise the whole value is escaped as a
+//     bare IRI.
+//   - A preformatted `"literal"` passes through ONLY if it is a single
+//     well-formed literal (optional @lang / ^^<datatype>); otherwise the
+//     whole value is re-escaped as an N-Triples literal.
+//   - `_:bnode` blank nodes pass through.
+//   - Anything else is treated as a bare IRI and percent-encoded.
+//
+// This is the canonical formatter for values produced by
+// `application/triple_extraction.go`, which carry bare strings sourced from
+// JSON-LD @id values. Validating the preformatted forms (rather than trusting
+// any leading `<` or `"`) defends against SPARQL injection when such a value
+// is adversarial — e.g. an @id of `<urn:x> <p> <o> . <urn:evil>`.
 func formatTerm(v string) string {
 	if v == "" {
 		return `""`
 	}
 	switch v[0] {
-	case '<', '"':
-		return v
+	case '<':
+		if isWellFormedIRIRef(v) {
+			return v
+		}
+	case '"':
+		if isWellFormedLiteral(v) {
+			return v
+		}
+		return formatLiteral(v)
 	case '_':
 		if strings.HasPrefix(v, "_:") {
 			return v
@@ -517,17 +537,114 @@ func formatTerm(v string) string {
 	return "<" + escapeIRI(v) + ">"
 }
 
+// isWellFormedIRIRef reports whether v is a single, fully-bracketed IRIREF
+// (`<...>`) whose interior contains no character that could terminate it early
+// or break out into adjacent SPARQL. Gate for passing a `<...>` term through
+// formatTerm unescaped.
+func isWellFormedIRIRef(v string) bool {
+	if len(v) < 2 || v[0] != '<' || v[len(v)-1] != '>' {
+		return false
+	}
+	inner := v[1 : len(v)-1]
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		if c <= 0x20 || c == 0x7f || strings.IndexByte(iriForbiddenChars, c) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// isWellFormedLiteral reports whether v is a single well-formed N-Triples
+// literal: an opening quote, backslash-escaped content with no raw control
+// chars or unescaped quotes, a closing quote, and an optional language tag
+// (@lang) or datatype (^^<iri>) suffix — with nothing trailing that could
+// break out into adjacent SPARQL.
+func isWellFormedLiteral(v string) bool {
+	if len(v) < 2 || v[0] != '"' {
+		return false
+	}
+	i := 1
+	for i < len(v) {
+		c := v[i]
+		switch {
+		case c == '\\':
+			if i+1 >= len(v) || strings.IndexByte(`tbnrf"\/uU`, v[i+1]) < 0 {
+				return false
+			}
+			i += 2
+			continue
+		case c == '"':
+			return isValidLiteralSuffix(v[i+1:])
+		case c < 0x20:
+			return false // raw control char (incl. newline) must be escaped
+		}
+		i++
+	}
+	return false // no closing quote
+}
+
+// isValidLiteralSuffix validates what may follow a literal's closing quote:
+// nothing, a `@language` tag, or a `^^<datatype>` IRI.
+func isValidLiteralSuffix(suffix string) bool {
+	switch {
+	case suffix == "":
+		return true
+	case suffix[0] == '@':
+		tag := suffix[1:]
+		if tag == "" {
+			return false
+		}
+		for i := 0; i < len(tag); i++ {
+			c := tag[i]
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+		return true
+	case strings.HasPrefix(suffix, "^^"):
+		return isWellFormedIRIRef(suffix[2:])
+	default:
+		return false
+	}
+}
+
+// formatLiteral renders v as an N-Triples string literal, escaping the
+// characters that would otherwise break out of the surrounding quotes.
+func formatLiteral(v string) string {
+	var sb strings.Builder
+	sb.Grow(len(v) + 2)
+	sb.WriteByte('"')
+	for i := 0; i < len(v); i++ {
+		switch c := v[i]; c {
+		case '"':
+			sb.WriteString(`\"`)
+		case '\\':
+			sb.WriteString(`\\`)
+		case '\n':
+			sb.WriteString(`\n`)
+		case '\r':
+			sb.WriteString(`\r`)
+		case '\t':
+			sb.WriteString(`\t`)
+		default:
+			sb.WriteByte(c)
+		}
+	}
+	sb.WriteByte('"')
+	return sb.String()
+}
+
 // escapeIRI percent-encodes characters that would break an IRIREF in SPARQL
 // or N-Triples. The grammar (RFC 3987 / SPARQL 1.1) forbids 0x00–0x20,
 // `<`, `>`, `"`, `{`, `}`, `|`, `^`, `\`, and backtick inside `<...>`. We
 // percent-encode anything in that set instead of stripping so the resulting
 // IRI still round-trips back to the original via standard URL decoding.
 func escapeIRI(v string) string {
-	const forbidden = "<>\"{}|^\\`"
 	hasBad := false
 	for i := 0; i < len(v); i++ {
 		c := v[i]
-		if c <= 0x20 || c == 0x7f || strings.IndexByte(forbidden, c) >= 0 {
+		if c <= 0x20 || c == 0x7f || strings.IndexByte(iriForbiddenChars, c) >= 0 {
 			hasBad = true
 			break
 		}
@@ -539,7 +656,7 @@ func escapeIRI(v string) string {
 	sb.Grow(len(v) + 8)
 	for i := 0; i < len(v); i++ {
 		c := v[i]
-		if c <= 0x20 || c == 0x7f || strings.IndexByte(forbidden, c) >= 0 {
+		if c <= 0x20 || c == 0x7f || strings.IndexByte(iriForbiddenChars, c) >= 0 {
 			fmt.Fprintf(&sb, "%%%02X", c)
 			continue
 		}
