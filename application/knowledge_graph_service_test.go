@@ -37,12 +37,12 @@ func (q *queryRecordingStore) Query(_ context.Context, sparql string) (repositor
 	q.queries = append(q.queries, sparql)
 	return q.response, q.err
 }
-func (q *queryRecordingStore) Update(_ context.Context, _ string) error             { return nil }
+func (q *queryRecordingStore) Update(_ context.Context, _ string) error { return nil }
 func (q *queryRecordingStore) LoadOntology(_ context.Context, _ string, _ []byte) error {
 	return nil
 }
-func (q *queryRecordingStore) Clear(_ context.Context) error             { return nil }
-func (q *queryRecordingStore) IsEmpty(_ context.Context) (bool, error)   { return true, nil }
+func (q *queryRecordingStore) Clear(_ context.Context) error           { return nil }
+func (q *queryRecordingStore) IsEmpty(_ context.Context) (bool, error) { return true, nil }
 
 // resourceFilterStub is a minimal ResourceService stub exposing only the
 // FilterAccessibleResourceIDs method that the KG permission filter calls.
@@ -572,6 +572,30 @@ func TestKGService_ASKForcedFalseForNonSystemContext(t *testing.T) {
 	}
 	if res.Boolean == nil || *res.Boolean {
 		t.Errorf("non-system ASK must be forced to false; got %v", res.Boolean)
+	}
+}
+
+func TestKGService_ASKPassesThroughForOntologyOnlyQuery(t *testing.T) {
+	t.Parallel()
+	yes := true
+	store := &queryRecordingStore{
+		active:   true,
+		response: repositories.KGQueryResult{Boolean: &yes},
+	}
+	svc := newKGSvc(store)
+
+	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{
+		AgentID:         "agent-1",
+		ActiveAccountID: "acct-1",
+	})
+	// ASK names no gated resource URN → no existence leak → must pass through
+	// unchanged so ontology reasoning keeps working for non-system callers.
+	res, err := svc.Query(ctx, "ASK { <http://schema.org/Person> ?p ?o }")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if res.Boolean == nil || !*res.Boolean {
+		t.Errorf("ontology-only ASK must pass through unchanged; got %v", res.Boolean)
 	}
 }
 

@@ -48,11 +48,11 @@ type KGSparqlQueryOutput struct {
 	//                 "construct" because both forms return a set of
 	//                 triples and the SPARQL Results JSON envelope makes
 	//                 them indistinguishable on the wire.
-	Form     string                  `json:"form"`
-	Vars     []string                `json:"vars,omitempty"`
+	Form     string                    `json:"form"`
+	Vars     []string                  `json:"vars,omitempty"`
 	Bindings []map[string]KGTermOutput `json:"bindings,omitempty"`
-	Boolean  *bool                   `json:"boolean,omitempty"`
-	Triples  []KGTripleOutput        `json:"triples,omitempty"`
+	Boolean  *bool                     `json:"boolean,omitempty"`
+	Triples  []KGTripleOutput          `json:"triples,omitempty"`
 }
 
 type KGExpandEntityInput struct {
@@ -264,7 +264,8 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 // message; other errors pass through untouched.
 func kgErr(err error) error {
 	if errors.Is(err, application.ErrKGUnavailable) {
-		return errors.New("knowledge graph not configured (set OXIGRAPH_URL to enable)")
+		return errors.New("knowledge graph not configured (set OXIGRAPH_URL and " +
+			"OXIGRAPH_ENABLED=true, and ensure the endpoint is reachable)")
 	}
 	return err
 }

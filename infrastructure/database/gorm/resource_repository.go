@@ -568,12 +568,13 @@ func (r *ResourceRepository) FindByID(
 }
 
 // FindAccessibleIDs returns the subset of `ids` that pass the visibility
-// scope, matching the same rules `checkInstanceAccess` enforces:
-// `created_by = ?` OR explicit `read` grant in `resource_permissions` OR
-// pre-migration ownerless rows (`created_by = ''`). Account-admin/owner
-// bypass is applied by the caller (ResourceService), which has the
-// AccountRepository to evaluate it. A nil or admin scope returns the
-// input unchanged.
+// scope: `created_by = ?` OR explicit `read` grant in `resource_permissions`
+// OR pre-migration ownerless rows (`created_by = ”`). Unlike
+// `checkInstanceAccess`, the caller (ResourceService.FilterAccessibleResourceIDs)
+// deliberately does NOT apply the account-admin/owner bypass here — the KG
+// filter is strict-but-safe, so an admin querying the graph sees only their
+// own and explicitly-shared resources. A nil or admin scope returns the input
+// unchanged (a nil scope means a system caller).
 //
 // Implemented as a single `WHERE id IN (...) AND <scope>` SQL round-trip so
 // the knowledge-graph filter doesn't issue per-id permission checks.

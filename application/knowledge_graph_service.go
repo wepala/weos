@@ -73,8 +73,8 @@ type KnowledgeGraphService interface {
 
 // ClassDescription captures the metadata returned by DescribeClass.
 type ClassDescription struct {
-	ClassIRI   string             `json:"class_iri"`
-	Predicates []string           `json:"predicates"`
+	ClassIRI   string                `json:"class_iri"`
+	Predicates []string              `json:"predicates"`
 	Instances  []repositories.KGTerm `json:"instances,omitempty"`
 }
 
@@ -139,17 +139,22 @@ func (s *knowledgeGraphService) Query(
 		}
 		res.Bindings = filtered
 	}
-	if res.Boolean != nil && *res.Boolean && auth.AgentFromCtx(ctx) != nil {
-		// ASK true on data the caller can't see is an existence leak: the
-		// LLM can probe `ASK { <forbidden:iri> ?p ?o }` and learn that
-		// gated resources exist. Without re-running the query under a
-		// permission-aware rewrite (which Oxigraph doesn't support
+	if res.Boolean != nil && *res.Boolean && auth.AgentFromCtx(ctx) != nil &&
+		askReferencesGatedURN(sparql) {
+		// ASK true on a gated resource the caller can't see is an existence
+		// leak: the LLM can probe `ASK { <urn:product:secret> ?p ?o }` and
+		// learn that gated resources exist. Without re-running the query
+		// under a permission-aware rewrite (which Oxigraph doesn't support
 		// natively), the safe call for non-system callers is to flip
-		// true → false. System callers (auth.AgentFromCtx == nil)
-		// retain the unfiltered answer to match every other service.
+		// true → false — but ONLY when the ASK actually names a gated
+		// resource URN. An ASK over ontology terms only (e.g.
+		// `ASK { schema:Person rdfs:subClassOf schema:Thing }`) carries no
+		// such leak, so we leave it untouched and ontology reasoning keeps
+		// working. System callers (auth.AgentFromCtx == nil) always retain
+		// the unfiltered answer to match every other service.
 		falsy := false
 		res.Boolean = &falsy
-		s.logger.Debug(ctx, "kg ASK forced to false for non-system caller")
+		s.logger.Debug(ctx, "kg ASK forced to false: references gated resource URN")
 	}
 	return res, nil
 }
@@ -685,6 +690,40 @@ func stringSet(in []string) map[string]bool {
 	out := make(map[string]bool, len(in))
 	for _, s := range in {
 		out[s] = true
+	}
+	return out
+}
+
+// askReferencesGatedURN reports whether the SPARQL text names an explicit
+// gated resource IRI (e.g. <urn:product:01H...>). Used to scope the ASK
+// existence-leak guard so it only fires when the query can actually probe a
+// gated resource; ontology-only ASK queries are left untouched.
+func askReferencesGatedURN(sparql string) bool {
+	for _, iri := range bracketedIRIs(sparql) {
+		if isGatedResourceURN(iri) {
+			return true
+		}
+	}
+	return false
+}
+
+// bracketedIRIs returns the contents of every `<...>` IRI reference in the
+// SPARQL text. It is a lexical scan, not a full SPARQL parse — sufficient for
+// spotting explicitly-named resource URNs, which is all the ASK guard needs.
+func bracketedIRIs(sparql string) []string {
+	var out []string
+	for {
+		open := strings.IndexByte(sparql, '<')
+		if open < 0 {
+			break
+		}
+		sparql = sparql[open+1:]
+		end := strings.IndexByte(sparql, '>')
+		if end < 0 {
+			break
+		}
+		out = append(out, sparql[:end])
+		sparql = sparql[end+1:]
 	}
 	return out
 }

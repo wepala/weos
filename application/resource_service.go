@@ -369,13 +369,12 @@ func (s *resourceService) FilterAccessibleResourceIDs(
 	return append(passthrough, allowed...), nil
 }
 
-// partitionGatedResourceURNs separates ids into (gated, passthrough). A
-// gated id is a 3-part `urn:<typeSlug>:<ksuid>` whose typeSlug is not one
-// of the reserved non-resource prefixes (person/org/type/theme — these
-// follow Pericarp's own permission paths or are public ontology data).
-// Everything else (full IRIs, blank nodes, literals, reserved URNs) is
-// passthrough — the KG filter shouldn't try to gate ontology terms or
-// non-resource entities.
+// partitionGatedResourceURNs separates ids into (gated, passthrough) using
+// isGatedResourceURN. Gated ids are `urn:<typeSlug>:<ksuid>` resources AND
+// the `urn:person:*` / `urn:org:*` forms (they carry FOAF/vCard PII). Only
+// configuration/system URNs (`urn:type:*`, `urn:theme:*`), full ontology
+// IRIs, blank nodes, and literals pass through — the KG filter shouldn't try
+// to gate ontology terms or public configuration entities.
 func partitionGatedResourceURNs(ids []string) (gated, passthrough []string) {
 	for _, id := range ids {
 		if isGatedResourceURN(id) {
