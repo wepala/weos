@@ -9,6 +9,7 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/sparql"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	"go.uber.org/fx"
@@ -834,33 +835,13 @@ func bracketedIRIs(sparql string) []string {
 	return out
 }
 
-// detectQuerySummary returns a short tag for the query form. It skips the
-// SPARQL prologue — comment lines and PREFIX/BASE declarations — before
-// reading the form keyword, mirroring the store's detectQueryForm. This
+// detectQuerySummary returns a short tag for the query form. It delegates to
+// sparql.DetectForm, which strips the prologue (comments + PREFIX/BASE,
+// including inline single-line prologues) before reading the keyword. This
 // matters for the scoped-query guard: a caller must not be able to slip an
 // ASK or aggregate past the guard by prefixing it with `PREFIX`/`BASE`.
-// Anything that isn't ASK/CONSTRUCT/DESCRIBE is reported as SELECT (the
-// store's default), so the guard's aggregate check still applies.
+// Sharing the helper with the store's detectQueryForm keeps the two from
+// drifting.
 func detectQuerySummary(q string) string {
-	for _, line := range strings.Split(q, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		upper := strings.ToUpper(line)
-		if strings.HasPrefix(upper, "PREFIX ") || strings.HasPrefix(upper, "BASE ") {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(upper, "ASK"):
-			return "ASK"
-		case strings.HasPrefix(upper, "CONSTRUCT"):
-			return "CONSTRUCT"
-		case strings.HasPrefix(upper, "DESCRIBE"):
-			return "DESCRIBE"
-		default:
-			return "SELECT"
-		}
-	}
-	return "SELECT"
+	return sparql.DetectForm(q)
 }

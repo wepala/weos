@@ -218,6 +218,28 @@ func TestStore_Query_ConstructParsesNTriples(t *testing.T) {
 	}
 }
 
+func TestStore_Query_InlinePrefixConstructUsesNTriplesAccept(t *testing.T) {
+	// A one-line query whose PREFIX prologue precedes CONSTRUCT on the same
+	// line must still be classified as CONSTRUCT and request N-Triples — not
+	// fall through to the SELECT/JSON Accept header.
+	fake := newFakeOxigraph(t)
+	fake.replyWith("/query", http.StatusOK, mimeNTriples,
+		"<urn:product:1> <https://schema.org/name> \"Widget\" .\n")
+	store := newTestStore(t, fake.server.URL)
+
+	res, err := store.Query(context.Background(),
+		"PREFIX s: <https://schema.org/> CONSTRUCT { ?x s:name ?n } WHERE { ?x s:name ?n }")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if fake.lastAccept != mimeNTriples {
+		t.Errorf("accept = %q, want %q (inline-prefix CONSTRUCT misclassified)", fake.lastAccept, mimeNTriples)
+	}
+	if len(res.Triples) != 1 {
+		t.Errorf("got %d triples, want 1", len(res.Triples))
+	}
+}
+
 func TestStore_Query_EmptyConstructReturnsNonNilTriples(t *testing.T) {
 	fake := newFakeOxigraph(t)
 	fake.replyWith("/query", http.StatusOK, mimeNTriples, "")

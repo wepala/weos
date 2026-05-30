@@ -136,6 +136,83 @@ func TestLoadFromEnvironment_DefaultOAuthProvider(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvironment_OxigraphURLAutoEnables(t *testing.T) {
+	t.Setenv("OXIGRAPH_URL", "http://localhost:7878")
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+
+	if cfg.Oxigraph.URL != "http://localhost:7878" {
+		t.Fatalf("URL = %q, want http://localhost:7878", cfg.Oxigraph.URL)
+	}
+	if !cfg.Oxigraph.Enabled {
+		t.Fatal("setting OXIGRAPH_URL must auto-enable the projection")
+	}
+	if !cfg.Oxigraph.Active() {
+		t.Fatal("Active() should be true when URL is set and auto-enabled")
+	}
+}
+
+func TestLoadFromEnvironment_OxigraphEnabledFalseOverridesURL(t *testing.T) {
+	// Staged-rollout path: URL configured but the projection explicitly held
+	// off. OXIGRAPH_ENABLED is parsed after the URL auto-enable, so it wins.
+	t.Setenv("OXIGRAPH_URL", "http://localhost:7878")
+	t.Setenv("OXIGRAPH_ENABLED", "false")
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+
+	if cfg.Oxigraph.URL != "http://localhost:7878" {
+		t.Fatalf("URL = %q, want it preserved", cfg.Oxigraph.URL)
+	}
+	if cfg.Oxigraph.Enabled {
+		t.Fatal("OXIGRAPH_ENABLED=false must override the URL auto-enable")
+	}
+	if cfg.Oxigraph.Active() {
+		t.Fatal("Active() must be false when Enabled is overridden to false")
+	}
+}
+
+func TestLoadFromEnvironment_OxigraphOptions(t *testing.T) {
+	t.Setenv("OXIGRAPH_URL", "http://localhost:7878")
+	t.Setenv("OXIGRAPH_USERNAME", "neo")
+	t.Setenv("OXIGRAPH_PASSWORD", "trinity")
+	t.Setenv("OXIGRAPH_QUERY_TIMEOUT_SECONDS", "15")
+	t.Setenv("OXIGRAPH_REBUILD", "true")
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+
+	if cfg.Oxigraph.Username != "neo" || cfg.Oxigraph.Password != "trinity" {
+		t.Errorf("creds = %q/%q, want neo/trinity", cfg.Oxigraph.Username, cfg.Oxigraph.Password)
+	}
+	if cfg.Oxigraph.QueryTimeoutSeconds != 15 {
+		t.Errorf("QueryTimeoutSeconds = %d, want 15", cfg.Oxigraph.QueryTimeoutSeconds)
+	}
+	if !cfg.Oxigraph.Rebuild {
+		t.Error("OXIGRAPH_REBUILD=true should set Rebuild")
+	}
+}
+
+func TestLoadFromEnvironment_OxigraphInvalidNumericIgnored(t *testing.T) {
+	// A non-numeric / non-positive timeout is ignored, leaving the default.
+	t.Setenv("OXIGRAPH_QUERY_TIMEOUT_SECONDS", "not-a-number")
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+	if cfg.Oxigraph.QueryTimeoutSeconds != 0 {
+		t.Errorf("invalid timeout should be ignored (kept default 0); got %d", cfg.Oxigraph.QueryTimeoutSeconds)
+	}
+}
+
+func TestLoadFromEnvironment_OxigraphNotSet(t *testing.T) {
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+	if cfg.Oxigraph.URL != "" || cfg.Oxigraph.Enabled {
+		t.Fatalf("unset Oxigraph env must leave URL empty and disabled; got %q/%v",
+			cfg.Oxigraph.URL, cfg.Oxigraph.Enabled)
+	}
+	if cfg.Oxigraph.Active() {
+		t.Fatal("Active() must be false when nothing is configured")
+	}
+}
+
 // A whitespace-only override (common in templated env files) must not
 // wipe pericarp's default scope list — empty parsing keeps Scopes nil
 // so the default kicks in downstream.

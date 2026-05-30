@@ -601,8 +601,10 @@ func TestKGService_ASKRejectedForScopedCaller(t *testing.T) {
 		"ASK { ?s <https://schema.org/ssn> ?o }",
 		"ASK { schema:Person rdfs:subClassOf schema:Thing }",
 		// Prologue must not be a bypass: a PREFIX/BASE-prefixed ASK still
-		// has to be detected and rejected.
+		// has to be detected and rejected — including the single-line form
+		// where the prologue and ASK share a line.
 		"PREFIX s: <https://schema.org/>\nASK { ?x s:ssn ?o }",
+		"PREFIX s: <https://schema.org/> ASK { ?x s:ssn ?o }",
 		"# comment\nBASE <https://schema.org/>\nASK { ?x ?p ?o }",
 	} {
 		yes := true

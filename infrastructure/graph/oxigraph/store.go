@@ -17,6 +17,7 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/sparql"
 )
 
 const (
@@ -468,29 +469,21 @@ func queryFormName(f queryForm) string {
 }
 
 // detectQueryForm returns the high-level SPARQL form so we can pick the right
-// Accept header. We strip prefixes/comments and look at the first keyword.
+// Accept header. It delegates to sparql.DetectForm, which strips the prologue
+// (comments + PREFIX/BASE, including inline single-line prologues) before
+// reading the keyword — so a one-line `PREFIX s: <...> CONSTRUCT { ... }` is
+// correctly classified as CONSTRUCT and gets the N-Triples Accept header.
 func detectQueryForm(q string) queryForm {
-	for _, line := range strings.Split(q, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		upper := strings.ToUpper(line)
-		if strings.HasPrefix(upper, "PREFIX ") || strings.HasPrefix(upper, "BASE ") {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(upper, "ASK"):
-			return queryFormAsk
-		case strings.HasPrefix(upper, "CONSTRUCT"):
-			return queryFormConstruct
-		case strings.HasPrefix(upper, "DESCRIBE"):
-			return queryFormDescribe
-		default:
-			return queryFormSelect
-		}
+	switch sparql.DetectForm(q) {
+	case "ASK":
+		return queryFormAsk
+	case "CONSTRUCT":
+		return queryFormConstruct
+	case "DESCRIBE":
+		return queryFormDescribe
+	default:
+		return queryFormSelect
 	}
-	return queryFormSelect
 }
 
 // --- Term formatting ---
