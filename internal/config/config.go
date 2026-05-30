@@ -113,6 +113,41 @@ type Config struct {
 
 	// Storage holds configuration for file storage backends.
 	Storage StorageConfig
+
+	// Oxigraph holds configuration for the optional knowledge-graph projection.
+	// When Oxigraph.URL is set, resource and triple events are mirrored to a
+	// SPARQL endpoint alongside the existing read-models, and the
+	// `knowledge-graph` MCP tool group is enabled.
+	Oxigraph OxigraphConfig
+}
+
+// OxigraphConfig holds configuration for the optional Oxigraph knowledge-graph
+// projection. WeOS speaks to Oxigraph over HTTP using the SPARQL 1.1 protocol
+// (you run `oxigraph serve` separately). The projection runs only when both
+// URL and Enabled are set — see Active().
+type OxigraphConfig struct {
+	URL string // e.g. http://localhost:7878 — empty disables the projection
+	// Enabled gates the projection independently of URL so operators can
+	// stage a rollout (set URL but keep Enabled=false). LoadFromEnvironment
+	// flips Enabled=true automatically when OXIGRAPH_URL is present so the
+	// common env-var path "just works"; programmatic callers (tests,
+	// embedders) must set both fields explicitly.
+	Enabled  bool
+	Username string // optional HTTP basic auth
+	Password string
+	// QueryTimeout is the per-request timeout for SPARQL queries/updates.
+	// Default: 10s.
+	QueryTimeoutSeconds int
+	// Rebuild forces the startup backfill to clear and re-load the graph
+	// instead of skipping a populated store.
+	Rebuild bool
+}
+
+// Active reports whether the Oxigraph projection should run. Both URL and
+// Enabled must be set. LoadFromEnvironment auto-sets Enabled when
+// OXIGRAPH_URL is present; programmatic callers must set both explicitly.
+func (o OxigraphConfig) Active() bool {
+	return o.URL != "" && o.Enabled
 }
 
 // StorageConfig holds configuration for pluggable file storage backends.
@@ -382,6 +417,32 @@ func (c *Config) LoadFromEnvironment() {
 	if v := os.Getenv("STORAGE_MAX_UPLOAD_BYTES"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 			c.Storage.MaxUploadBytes = n
+		}
+	}
+
+	if v := os.Getenv("OXIGRAPH_URL"); v != "" {
+		c.Oxigraph.URL = v
+		c.Oxigraph.Enabled = true
+	}
+	if v := os.Getenv("OXIGRAPH_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Oxigraph.Enabled = b
+		}
+	}
+	if v := os.Getenv("OXIGRAPH_USERNAME"); v != "" {
+		c.Oxigraph.Username = v
+	}
+	if v := os.Getenv("OXIGRAPH_PASSWORD"); v != "" {
+		c.Oxigraph.Password = v
+	}
+	if v := os.Getenv("OXIGRAPH_QUERY_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Oxigraph.QueryTimeoutSeconds = n
+		}
+	}
+	if v := os.Getenv("OXIGRAPH_REBUILD"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Oxigraph.Rebuild = b
 		}
 	}
 }

@@ -59,6 +59,7 @@ func TestValidServiceNames_ReturnsAll(t *testing.T) {
 	expected := map[string]bool{
 		"person": true, "organization": true,
 		"resource-type": true, "resource": true,
+		"knowledge-graph": true,
 	}
 	for _, n := range names {
 		if !expected[n] {

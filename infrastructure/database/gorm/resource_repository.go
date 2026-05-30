@@ -567,6 +567,42 @@ func (r *ResourceRepository) FindByID(
 	return model.ToResource()
 }
 
+// FindAccessibleIDs returns the subset of `ids` that pass the visibility
+// scope: `created_by = ?` OR explicit `read` grant in `resource_permissions`
+// OR pre-migration ownerless rows (`created_by = ”`). Unlike
+// `checkInstanceAccess`, the caller (ResourceService.FilterAccessibleResourceIDs)
+// deliberately does NOT apply the account-admin/owner bypass here — the KG
+// filter is strict-but-safe, so an admin querying the graph sees only their
+// own and explicitly-shared resources. A nil or admin scope returns the input
+// unchanged (a nil scope means a system caller).
+//
+// Implemented as a single `WHERE id IN (...) AND <scope>` SQL round-trip so
+// the knowledge-graph filter doesn't issue per-id permission checks.
+func (r *ResourceRepository) FindAccessibleIDs(
+	ctx context.Context, ids []string, scope *repositories.VisibilityScope,
+) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if scope == nil || scope.IsAdmin {
+		out := make([]string, len(ids))
+		copy(out, ids)
+		return out, nil
+	}
+	var rows []string
+	q := r.db.WithContext(ctx).
+		Table("resources").
+		Where("id IN ?", ids).
+		Where(
+			"created_by = ? OR created_by = '' OR id IN (SELECT resource_id FROM resource_permissions WHERE agent_id = ? AND actions LIKE ?)",
+			scope.AgentID, scope.AgentID, `%"read"%`,
+		)
+	if err := q.Pluck("id", &rows).Error; err != nil {
+		return nil, fmt.Errorf("filter accessible ids: %w", err)
+	}
+	return rows, nil
+}
+
 // applyVisibilityScope adds ownership filtering to a query when a non-nil scope
 // is provided and the caller is not an admin.
 func applyVisibilityScope(query *gorm.DB, scope *repositories.VisibilityScope, tablePrefix string) *gorm.DB {

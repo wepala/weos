@@ -93,6 +93,7 @@ func (s *stubTypeSvc) GetBySlug(_ context.Context, _ string) (*entities.Resource
 // noopHandlerLogger swallows log calls for handler tests that don't assert on logging.
 type noopHandlerLogger struct{}
 
+func (noopHandlerLogger) Debug(_ context.Context, _ string, _ ...any) {}
 func (noopHandlerLogger) Info(_ context.Context, _ string, _ ...any)  {}
 func (noopHandlerLogger) Warn(_ context.Context, _ string, _ ...any)  {}
 func (noopHandlerLogger) Error(_ context.Context, _ string, _ ...any) {}
