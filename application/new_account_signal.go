@@ -43,7 +43,9 @@ type newAccountSignalService struct {
 // incoming identity. The check is the same lookup FindOrCreateAgent does
 // internally as its first step, so a fresh row means this call is about to
 // create the account. Only the credential's existence determines the signal;
-// a lookup error is treated as "not found" (new) rather than masking the login.
+// the lookup error is discarded because the wrapped call immediately repeats
+// the same query and will surface any real DB error itself (failing the login
+// before the flag is ever consumed on the redirect path).
 //
 // The pre-check only runs when a caller installed a flag via WithNewAccountFlag,
 // keeping password and MCP login paths free of the extra query.

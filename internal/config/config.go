@@ -51,10 +51,16 @@ type OAuthConfig struct {
 	//
 	// Apple delivers the authorization code via an HTTP POST (response_mode=
 	// form_post), not a GET query string, so the /api/auth/callback route is
-	// registered for both methods. Note that the cross-site form POST only
-	// carries the flow-state session cookie when that cookie is SameSite=None;
-	// Secure — i.e. Apple sign-in requires the server to run over HTTPS with a
-	// real SESSION_SECRET in production.
+	// registered for both methods.
+	//
+	// KNOWN LIMITATION: Apple's callback is a cross-site top-level POST, on
+	// which the browser does NOT send a SameSite=Lax cookie. pericarp currently
+	// hardcodes the short-lived OAuth flow cookie to SameSite=Lax
+	// (flowCookieOptions in gorilla_session_manager.go), so the callback can't
+	// read the flow state and Apple sign-in won't complete in production until
+	// pericarp issues that cookie SameSite=None; Secure. Tracked as upstream
+	// follow-up; everything else for Apple (config, provider, form_post
+	// handling, new-account signal) is in place here.
 	AppleClientID   string
 	AppleTeamID     string
 	AppleKeyID      string
@@ -175,7 +181,7 @@ func (c *Config) OAuthEnabled() bool {
 // AppleConfigured reports whether all four Apple sign-in credentials are set.
 // Apple requires every field (Services ID, team, key id, and the .p8 key) to
 // sign the client-secret JWT, so a partial config is treated as "off".
-func (c *OAuthConfig) AppleConfigured() bool {
+func (c OAuthConfig) AppleConfigured() bool {
 	return c.AppleClientID != "" && c.AppleTeamID != "" && c.AppleKeyID != "" && c.ApplePrivateKey != ""
 }
 

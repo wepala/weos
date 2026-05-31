@@ -69,6 +69,11 @@ type redirectCapturingWriter struct {
 	wroteHeader bool
 }
 
+// The inner callback only uses Header/WriteHeader/Write (via http.Redirect and
+// a JSON error writer), so this minimal implementation is sufficient. The
+// assertion pins that contract and fails the build if the interface drifts.
+var _ http.ResponseWriter = (*redirectCapturingWriter)(nil)
+
 func (w *redirectCapturingWriter) Header() http.Header { return w.header }
 
 func (w *redirectCapturingWriter) WriteHeader(status int) {

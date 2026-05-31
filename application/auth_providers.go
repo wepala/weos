@@ -144,9 +144,10 @@ func ProvideAuthenticationService(params struct {
 		opts...,
 	)
 	// Decorate so the OAuth callback can tell first-time signups from returning
-	// logins (see new_account_signal.go). The decorator is inert unless a caller
-	// installs a flag pointer in the request context, so password/MCP flows are
-	// unaffected.
+	// logins (see new_account_signal.go). FindOrCreateAgent is only ever called
+	// from the OAuth callback path, and the decorator is additionally inert
+	// unless a caller installs a flag pointer in the request context — so
+	// password and MCP login flows are entirely unaffected.
 	return &newAccountSignalService{AuthenticationService: svc, credentials: params.Credentials}
 }
 

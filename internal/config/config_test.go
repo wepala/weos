@@ -111,6 +111,41 @@ func TestDefaultOAuthProvider(t *testing.T) {
 			want: "netsuite",
 		},
 		{
+			name: "apple-only deployment",
+			mut: func(c *Config) {
+				c.OAuth.AppleClientID = "app.finexity.web"
+				c.OAuth.AppleTeamID = "TEAM123"
+				c.OAuth.AppleKeyID = "KEY123"
+				c.OAuth.ApplePrivateKey = "pem"
+			},
+			want: "apple",
+		},
+		{
+			name: "google wins over apple",
+			mut: func(c *Config) {
+				c.OAuth.GoogleClientID = "g"
+				c.OAuth.GoogleClientSecret = "s"
+				c.OAuth.AppleClientID = "app.finexity.web"
+				c.OAuth.AppleTeamID = "TEAM123"
+				c.OAuth.AppleKeyID = "KEY123"
+				c.OAuth.ApplePrivateKey = "pem"
+			},
+			want: "google",
+		},
+		{
+			name: "netsuite wins over apple",
+			mut: func(c *Config) {
+				c.OAuth.NetSuiteClientID = "n"
+				c.OAuth.NetSuiteClientSecret = "ns"
+				c.OAuth.NetSuiteAccountID = "1234567"
+				c.OAuth.AppleClientID = "app.finexity.web"
+				c.OAuth.AppleTeamID = "TEAM123"
+				c.OAuth.AppleKeyID = "KEY123"
+				c.OAuth.ApplePrivateKey = "pem"
+			},
+			want: "netsuite",
+		},
+		{
 			name: "fallback when nothing configured",
 			mut:  func(*Config) {},
 			want: "google",
