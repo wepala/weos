@@ -5,7 +5,7 @@ go 1.25.4
 require (
 	cloud.google.com/go/bigquery v1.74.0
 	cloud.google.com/go/storage v1.62.1
-	github.com/akeemphilbert/pericarp v0.0.0-20260509154357-3c3c40d51e1e
+	github.com/akeemphilbert/pericarp v0.0.0-20260530154956-be9f770a2f1e
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.14
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.99.0

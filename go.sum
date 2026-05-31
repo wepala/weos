@@ -64,8 +64,8 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapp
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.55.0/go.mod h1:Mf6O40IAyB9zR/1J8nGDDPirZQQPbYJni8Yisy7NTMc=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
-github.com/akeemphilbert/pericarp v0.0.0-20260509154357-3c3c40d51e1e h1:/kXTEz9h9Qje32ku014Sy8c0PzMcmG61YUba4BMpj3Q=
-github.com/akeemphilbert/pericarp v0.0.0-20260509154357-3c3c40d51e1e/go.mod h1:XhYByCcu7T7RUjhCS5Avpcqr3YQpmEh041+tfGpEsoY=
+github.com/akeemphilbert/pericarp v0.0.0-20260530154956-be9f770a2f1e h1:kfFdWepyLOCFybrEVqtY96ju9ytIq2SlkPgGf/Tm4aA=
+github.com/akeemphilbert/pericarp v0.0.0-20260530154956-be9f770a2f1e/go.mod h1:XhYByCcu7T7RUjhCS5Avpcqr3YQpmEh041+tfGpEsoY=
 github.com/apache/arrow/go/v15 v15.0.2 h1:60IliRbiyTWCWjERBCkO1W4Qun9svcYoZrSLcyOsMLE=
 github.com/apache/arrow/go/v15 v15.0.2/go.mod h1:DGXsR3ajT524njufqf95822i+KTh+yea1jass9YXgjA=
 github.com/aws/aws-sdk-go-v2 v1.41.5 h1:dj5kopbwUsVUVFgO4Fi5BIT3t4WyqIDjGKCangnV/yY=
