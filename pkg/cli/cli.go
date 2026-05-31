@@ -43,3 +43,12 @@ func Execute() error {
 func RegisterFxOptions(opts ...fx.Option) {
 	internalcli.RegisterFxOptions(opts...)
 }
+
+// RegisterEchoConfigurer registers a function that customizes the serve
+// command's *echo.Echo after core and preset routes are wired and before the
+// dynamic resource catch-all. Use this from a downstream binary's main() (or an
+// init()) to add plain Echo routes without forking serve.go. Must be called
+// before Execute().
+func RegisterEchoConfigurer(c internalcli.EchoConfigurer) {
+	internalcli.RegisterEchoConfigurer(c)
+}

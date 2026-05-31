@@ -67,6 +67,25 @@ func RegisterFxOptions(opts ...fx.Option) {
 	customFxOptions = append(customFxOptions, opts...)
 }
 
+// EchoConfigurer customizes the serve command's *echo.Echo after the core and
+// preset routes are wired but before the dynamic /:typeSlug catch-all.
+type EchoConfigurer func(e *echo.Echo)
+
+// customEchoConfigurers are invoked in registration order during serve, after
+// the fx graph has started (so they can rely on any process-global a registered
+// fx.Invoke captured) and before the dynamic resource catch-all. Mirrors the
+// process-global registration pattern used for presets and fx options, and is
+// the HTTP-route equivalent of RegisterFxOptions for downstream binaries that
+// need to add plain Echo routes (e.g. crossdeck's OAuth and connections APIs).
+var customEchoConfigurers []EchoConfigurer
+
+// RegisterEchoConfigurer appends an Echo configurer. Must be called before
+// Execute(). Reachable from downstream binaries via the public re-export in
+// pkg/cli.
+func RegisterEchoConfigurer(c EchoConfigurer) {
+	customEchoConfigurers = append(customEchoConfigurers, c)
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the API server",
@@ -442,6 +461,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Preset-contributed HTTP handlers. Registered before the dynamic /:typeSlug
 	// catch-all so preset routes aren't shadowed by it.
 	mountPresetHandlers(api, protected, presetHandlers, logger)
+
+	// Downstream-binary Echo extensions (e.g. crossdeck's OAuth, connections,
+	// and client-metadata routes). Registered after core + preset routes but
+	// before the dynamic catch-all so custom routes aren't shadowed by
+	// /:typeSlug. Runs after app.Start, so configurers can rely on any
+	// process-global captured by a registered fx.Invoke.
+	for _, configure := range customEchoConfigurers {
+		configure(e)
+	}
 
 	// Dynamic resource routes — MUST be registered after ALL static routes
 	resourceHandler := handlers.NewResourceHandler(resourceService, resourceTypeService, logger)

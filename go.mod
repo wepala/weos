@@ -5,7 +5,7 @@ go 1.25.4
 require (
 	cloud.google.com/go/bigquery v1.74.0
 	cloud.google.com/go/storage v1.62.0
-	github.com/akeemphilbert/pericarp v0.0.0-20260430232129-e6b927b11fb7
+	github.com/akeemphilbert/pericarp v0.0.0-20260530154956-be9f770a2f1e
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.14
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.99.0
@@ -20,6 +20,7 @@ require (
 	github.com/segmentio/ksuid v1.0.4
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.21.0
+	github.com/wepala/weos-private-presets v0.1.1
 	go.uber.org/fx v1.23.0
 	go.uber.org/zap v1.27.0
 	google.golang.org/adk v0.6.0
