@@ -44,6 +44,22 @@ type OAuthConfig struct {
 	// authenticate", because NetSuite's userinfo is gated behind OIDC.
 	NetSuiteScopes []string
 
+	// Sign in with Apple. ClientID is the Apple Services ID (e.g.
+	// "app.finexity.web"), NOT the app bundle id. PrivateKey is the PEM
+	// contents of the .p8 key downloaded from the Apple Developer portal —
+	// pericarp's provider signs the client-secret JWT (ES256) from it.
+	//
+	// Apple delivers the authorization code via an HTTP POST (response_mode=
+	// form_post), not a GET query string, so the /api/auth/callback route is
+	// registered for both methods. Note that the cross-site form POST only
+	// carries the flow-state session cookie when that cookie is SameSite=None;
+	// Secure — i.e. Apple sign-in requires the server to run over HTTPS with a
+	// real SESSION_SECRET in production.
+	AppleClientID   string
+	AppleTeamID     string
+	AppleKeyID      string
+	ApplePrivateKey string
+
 	FrontendURL         string
 	BaseURL             string // Public URL for OAuth metadata/endpoints (e.g. https://example.com)
 	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
@@ -150,7 +166,17 @@ func (c *Config) OAuthEnabled() bool {
 	if c.OAuth.NetSuiteClientID != "" && c.OAuth.NetSuiteClientSecret != "" && c.OAuth.NetSuiteAccountID != "" {
 		return true
 	}
+	if c.OAuth.AppleConfigured() {
+		return true
+	}
 	return false
+}
+
+// AppleConfigured reports whether all four Apple sign-in credentials are set.
+// Apple requires every field (Services ID, team, key id, and the .p8 key) to
+// sign the client-secret JWT, so a partial config is treated as "off".
+func (c *OAuthConfig) AppleConfigured() bool {
+	return c.AppleClientID != "" && c.AppleTeamID != "" && c.AppleKeyID != "" && c.ApplePrivateKey != ""
 }
 
 // AuthEnabled returns true when any real authentication mechanism is
@@ -177,6 +203,9 @@ func (c *Config) DefaultOAuthProvider() string {
 	}
 	if c.OAuth.NetSuiteClientID != "" && c.OAuth.NetSuiteClientSecret != "" && c.OAuth.NetSuiteAccountID != "" {
 		return "netsuite"
+	}
+	if c.OAuth.AppleConfigured() {
+		return "apple"
 	}
 	return "google"
 }
@@ -317,6 +346,26 @@ func (c *Config) LoadFromEnvironment() {
 		if len(parsed) > 0 {
 			c.OAuth.NetSuiteScopes = parsed
 		}
+	}
+
+	if clientID := os.Getenv("APPLE_CLIENT_ID"); clientID != "" {
+		c.OAuth.AppleClientID = clientID
+	}
+
+	if teamID := os.Getenv("APPLE_TEAM_ID"); teamID != "" {
+		c.OAuth.AppleTeamID = teamID
+	}
+
+	if keyID := os.Getenv("APPLE_KEY_ID"); keyID != "" {
+		c.OAuth.AppleKeyID = keyID
+	}
+
+	if privateKey := os.Getenv("APPLE_PRIVATE_KEY"); privateKey != "" {
+		// .p8 contents are multi-line PEM. When supplied through a single-line
+		// env var (the usual case for CI/secret managers) the newlines arrive
+		// escaped as the two characters "\n" — restore them so the ES256
+		// signer can parse the PEM block.
+		c.OAuth.ApplePrivateKey = strings.ReplaceAll(privateKey, "\\n", "\n")
 	}
 
 	if frontendURL := os.Getenv("FRONTEND_URL"); frontendURL != "" {

@@ -42,6 +42,20 @@ func ProvideOAuthProviderRegistry(params struct {
 			Scopes:       cfg.NetSuiteScopes,
 		})}
 	}
+	if cfg.AppleConfigured() {
+		// Apple's ID token omits the user's name except on the very first
+		// authorization (and even then only in the form_post body, which the
+		// token exchange doesn't surface), so DisplayName is effectively always
+		// empty. Wrap in displayNameFallback for the same reason as NetSuite —
+		// otherwise FindOrCreateAgent rejects the empty name and the browser
+		// sees the opaque "failed to find or create agent".
+		registry["apple"] = &displayNameFallback{OAuthProvider: providers.NewApple(providers.AppleConfig{
+			ClientID:   cfg.AppleClientID,
+			TeamID:     cfg.AppleTeamID,
+			KeyID:      cfg.AppleKeyID,
+			PrivateKey: cfg.ApplePrivateKey,
+		})}
+	}
 	return registry
 }
 
@@ -121,7 +135,7 @@ func ProvideAuthenticationService(params struct {
 			opts = append(opts, authapp.WithEventDispatcher(params.EventDispatcher))
 		}
 	}
-	return authapp.NewDefaultAuthenticationService(
+	svc := authapp.NewDefaultAuthenticationService(
 		params.Registry,
 		params.Agents,
 		params.Credentials,
@@ -129,6 +143,11 @@ func ProvideAuthenticationService(params struct {
 		params.Accounts,
 		opts...,
 	)
+	// Decorate so the OAuth callback can tell first-time signups from returning
+	// logins (see new_account_signal.go). The decorator is inert unless a caller
+	// installs a flag pointer in the request context, so password/MCP flows are
+	// unaffected.
+	return &newAccountSignalService{AuthenticationService: svc, credentials: params.Credentials}
 }
 
 func ProvideSessionManager(params struct {

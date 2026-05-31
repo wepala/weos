@@ -210,7 +210,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 
 	api.GET("/auth/login", echo.WrapHandler(http.HandlerFunc(authHandlers.Login)))
-	api.GET("/auth/callback", echo.WrapHandler(http.HandlerFunc(authHandlers.Callback)))
+	// Wrapped so the callback handles Apple's form_post (POST) and appends
+	// ?new_account=1 for first-time signups. Registered for both GET (Google,
+	// NetSuite) and POST (Apple). See authCallbackHandler.
+	callback := authCallbackHandler(authHandlers.Callback)
+	api.GET("/auth/callback", callback)
+	api.POST("/auth/callback", callback)
 	if appCfg.AuthEnabled() {
 		api.GET("/auth/me", impersonationHandler.Me(authHandlers))
 	} else {
