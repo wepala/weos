@@ -41,6 +41,7 @@ type stubTypes struct {
 
 type stubLogger struct{}
 
+func (stubLogger) Debug(context.Context, string, ...any) {}
 func (stubLogger) Info(context.Context, string, ...any)  {}
 func (stubLogger) Warn(context.Context, string, ...any)  {}
 func (stubLogger) Error(context.Context, string, ...any) {}

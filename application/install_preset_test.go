@@ -155,6 +155,9 @@ func (f *fakeResourceSvc) Update(context.Context, UpdateResourceCommand) (*entit
 	return nil, nil //nolint:nilnil
 }
 func (f *fakeResourceSvc) Delete(context.Context, DeleteResourceCommand) error { return nil }
+func (f *fakeResourceSvc) FilterAccessibleResourceIDs(_ context.Context, ids []string) ([]string, error) {
+	return ids, nil
+}
 
 // --- helpers ---
 

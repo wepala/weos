@@ -38,6 +38,13 @@ func NewZapLogger(logger *zap.Logger) entities.Logger {
 	}
 }
 
+// Debug logs a debug-level message. Output appears only when LOG_LEVEL=debug
+// (Zap development config); at higher levels these calls are dropped cheaply.
+func (z *ZapLogger) Debug(_ context.Context, msg string, fields ...interface{}) {
+	zapFields := z.convertFields(fields...)
+	z.logger.Debug(msg, zapFields...)
+}
+
 // Info logs an informational message with optional key-value fields.
 func (z *ZapLogger) Info(_ context.Context, msg string, fields ...interface{}) {
 	zapFields := z.convertFields(fields...)

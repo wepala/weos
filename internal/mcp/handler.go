@@ -27,13 +27,15 @@ import (
 )
 
 // NewHTTPHandler returns an http.Handler that serves the MCP protocol over
-// Streamable HTTP with all tool groups enabled.
+// Streamable HTTP with all tool groups enabled. kgService may be nil — if so
+// the knowledge-graph tools are not registered (and not advertised).
 func NewHTTPHandler(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
+	kgService application.KnowledgeGraphService,
 	logger *slog.Logger,
 ) (http.Handler, error) {
-	server, err := NewMCPServer(resourceTypeService, resourceService, nil)
+	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP server: %w", err)
 	}

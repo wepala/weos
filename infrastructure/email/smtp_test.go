@@ -125,6 +125,7 @@ type testLogger struct {
 	warnings []string
 }
 
+func (l *testLogger) Debug(_ context.Context, _ string, _ ...interface{}) {}
 func (l *testLogger) Info(_ context.Context, _ string, _ ...interface{})  {}
 func (l *testLogger) Error(_ context.Context, _ string, _ ...interface{}) {}
 func (l *testLogger) Warn(_ context.Context, msg string, _ ...interface{}) {

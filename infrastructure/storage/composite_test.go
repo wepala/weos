@@ -15,6 +15,7 @@ import (
 
 type nopLogger struct{}
 
+func (nopLogger) Debug(_ context.Context, _ string, _ ...interface{}) {}
 func (nopLogger) Info(_ context.Context, _ string, _ ...interface{})  {}
 func (nopLogger) Warn(_ context.Context, _ string, _ ...interface{})  {}
 func (nopLogger) Error(_ context.Context, _ string, _ ...interface{}) {}

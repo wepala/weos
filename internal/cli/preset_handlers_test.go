@@ -28,6 +28,7 @@ import (
 
 type silentLogger struct{}
 
+func (silentLogger) Debug(context.Context, string, ...any) {}
 func (silentLogger) Info(context.Context, string, ...any)  {}
 func (silentLogger) Warn(context.Context, string, ...any)  {}
 func (silentLogger) Error(context.Context, string, ...any) {}

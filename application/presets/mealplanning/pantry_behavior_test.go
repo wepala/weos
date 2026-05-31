@@ -181,6 +181,10 @@ func (*stubRepo) FindFlatByID(context.Context, string, string) (map[string]any, 
 	return nil, nil
 }
 
+func (*stubRepo) FindAccessibleIDs(_ context.Context, ids []string, _ *repositories.VisibilityScope) ([]string, error) {
+	return ids, nil
+}
+
 func matchesAllFilters(row map[string]any, filters []repositories.FilterCondition) bool {
 	for _, f := range filters {
 		if f.Operator != "eq" {
@@ -318,6 +322,7 @@ func TestEnforceSingleDefault_NilServiceSafe(t *testing.T) {
 // noopLogger is a no-op entities.Logger for tests.
 type noopLogger struct{}
 
+func (noopLogger) Debug(context.Context, string, ...any) {}
 func (noopLogger) Info(context.Context, string, ...any)  {}
 func (noopLogger) Warn(context.Context, string, ...any)  {}
 func (noopLogger) Error(context.Context, string, ...any) {}

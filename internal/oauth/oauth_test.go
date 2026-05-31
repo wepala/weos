@@ -40,6 +40,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 type noopLogger struct{}
 
+func (noopLogger) Debug(context.Context, string, ...any) {}
 func (noopLogger) Info(context.Context, string, ...any)  {}
 func (noopLogger) Warn(context.Context, string, ...any)  {}
 func (noopLogger) Error(context.Context, string, ...any) {}
