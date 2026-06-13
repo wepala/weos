@@ -529,5 +529,10 @@ func loadServeConfig() config.Config {
 			appCfg.Server.Port = port
 		}
 	}
+	// The long-lived server process runs the background subscribers; short-lived
+	// CLI commands leave this false (unless WORKER_RUN_IN_PROCESS overrode it).
+	if os.Getenv("WORKER_RUN_IN_PROCESS") == "" {
+		appCfg.Worker.RunInProcess = true
+	}
 	return appCfg
 }

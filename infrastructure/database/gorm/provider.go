@@ -58,7 +58,7 @@ func ProvideGormDB(params struct {
 			return GormDBResult{}, fmt.Errorf("failed to connect to PostgreSQL database: %w", err)
 		}
 	} else {
-		db, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		db, err = gorm.Open(sqlite.Open(sqliteDSNWithWorkerPragmas(dsn)), &gorm.Config{})
 		if err != nil {
 			return GormDBResult{}, fmt.Errorf("failed to connect to SQLite database: %w", err)
 		}
@@ -97,4 +97,43 @@ func ProvideGormDB(params struct {
 		GormDB: db,
 		SQLDB:  sqlDB,
 	}, nil
+}
+
+// sqliteDSNWithWorkerPragmas augments a file-based SQLite DSN with the pragmas
+// the background subscriber runtime needs to coexist with the synchronous write
+// path. Background workers add concurrent writers (batch transactions plus the
+// request-path appends), and SQLite allows only one writer at a time:
+//
+//   - _journal_mode=WAL lets the workers' feed reads run concurrently with a
+//     write transaction instead of blocking on it.
+//   - _busy_timeout makes a writer wait for the lock instead of failing
+//     immediately with "database is locked".
+//   - _txlock=immediate takes the write lock at BEGIN so concurrent writers
+//     serialize cleanly via busy_timeout rather than erroring on a deferred
+//     lock upgrade mid-transaction.
+//
+// In-memory databases (tests) are left untouched — WAL is not meaningful there
+// and they are single-connection. Any pragma the caller already set in the DSN
+// is preserved.
+func sqliteDSNWithWorkerPragmas(dsn string) string {
+	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
+		return dsn
+	}
+	pragmas := []struct{ key, param string }{
+		{"_journal_mode", "_journal_mode=WAL"},
+		{"_busy_timeout", "_busy_timeout=5000"},
+		{"_txlock", "_txlock=immediate"},
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	for _, p := range pragmas {
+		if strings.Contains(dsn, p.key+"=") {
+			continue
+		}
+		dsn += sep + p.param
+		sep = "&"
+	}
+	return dsn
 }

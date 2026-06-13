@@ -17,7 +17,6 @@ import (
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
-	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/gorilla/sessions"
 	"go.uber.org/fx"
 	gormdb "gorm.io/gorm"
@@ -48,23 +47,14 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Database providers
 		fx.Provide(gorm.ProvideGormDB),
 
-		// Event store provider (with optional BigQuery dual-write)
+		// Event store provider, then a single decorator that composes the
+		// optional BigQuery dual-write with the background-subscriber wake wrap.
+		// fx allows only one decoration of a given type per module, so both
+		// wraps live in one function (innermost first): BigQuery dual-write,
+		// then NotifyingEventStore so a commit through the actual store writers
+		// use wakes the subscribers.
 		fx.Provide(gorm.ProvideEventStore),
-		fx.Decorate(func(lc fx.Lifecycle, primary domain.EventStore, cfg config.Config, logger entities.Logger) domain.EventStore {
-			if cfg.BigQueryProjectID == "" {
-				return primary
-			}
-			bqStore, err := events.ProvideBigQueryEventStore(cfg)
-			if err != nil || bqStore == nil {
-				logger.Error(context.Background(), "failed to create BigQuery event store, using primary only",
-					"error", err)
-				return primary
-			}
-			lc.Append(fx.Hook{OnStop: func(_ context.Context) error { return bqStore.Close() }})
-			logger.Info(context.Background(), "BigQuery dual-write enabled",
-				"project", cfg.BigQueryProjectID, "dataset", cfg.BigQueryDatasetID)
-			return events.NewDualWriteEventStore(primary, bqStore, logger)
-		}),
+		fx.Decorate(decorateEventStore),
 
 		// Session store provider (for pericarp auth integration)
 		fx.Provide(func(cfg config.Config) sessions.Store {
@@ -161,6 +151,12 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Ensure built-in resource types and projection tables at startup
 		fx.Invoke(ensureBuiltInResourceTypes),
 		fx.Invoke(ensureProjectionTables),
+
+		// Background subscriber runtime (epic #365): checkpoint/parking stores,
+		// the Manager, and the lifecycle hook that runs/drains workers. Always
+		// constructed; only runs background processing when
+		// WorkerConfig.RunInProcess is set (the serve command enables it).
+		WorkerModule(),
 	)
 }
 
