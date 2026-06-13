@@ -211,6 +211,43 @@ func (m *Manager) Subscriber(name string) (*subscriptions.Subscriber, error) {
 	return m.buildSubscriber(g, nil)
 }
 
+// ParkedEvents returns parked (poison) events for one subscriber, or across all
+// registered subscribers when subscriber is empty. The result is flat; each
+// ParkedEvent carries its own Subscriber. Backs `weos worker parked list`.
+func (m *Manager) ParkedEvents(ctx context.Context, subscriber string) ([]subscriptions.ParkedEvent, error) {
+	names := m.Names()
+	if subscriber != "" {
+		if _, ok := m.byName[subscriber]; !ok {
+			return nil, fmt.Errorf("unknown subscriber %q (known: %v)", subscriber, names)
+		}
+		names = []string{subscriber}
+	}
+	var all []subscriptions.ParkedEvent
+	for _, name := range names {
+		sub, err := m.Subscriber(name)
+		if err != nil {
+			return nil, err
+		}
+		parked, err := sub.ListParked(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list parked events for %q: %w", name, err)
+		}
+		all = append(all, parked...)
+	}
+	return all, nil
+}
+
+// ReplayParked re-runs the handler for one parked event of a subscriber and
+// clears the row on success (a failed replay leaves it parked). Backs
+// `weos worker parked replay`.
+func (m *Manager) ReplayParked(ctx context.Context, subscriber, eventID string) error {
+	sub, err := m.Subscriber(subscriber)
+	if err != nil {
+		return err
+	}
+	return sub.ReplayParked(ctx, eventID)
+}
+
 // Start launches every registered subscriber as a background worker, plus the
 // wake source (Postgres listener) and the lag reporter. It returns immediately;
 // the workers run until Stop. Calling Start twice is a no-op.

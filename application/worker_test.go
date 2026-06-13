@@ -378,6 +378,18 @@ func (l *capturingLogger) field(msg, key string) (any, bool) {
 	return nil, false
 }
 
+// hasLevel reports whether a line with the given level and message was recorded.
+func (l *capturingLogger) hasLevel(level, msg string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, ln := range l.lines {
+		if ln.level == level && ln.msg == msg {
+			return true
+		}
+	}
+	return false
+}
+
 // sqliteWorkerConfig returns a Config on the (non-Postgres) SQLite worker path
 // with a tight poll interval and lag logging disabled, suitable for tests.
 func sqliteWorkerConfig() config.Config {
@@ -682,6 +694,185 @@ func TestNewManager_RejectsInvalidGroups(t *testing.T) {
 				t.Fatalf("expected NewManager to reject %s", name)
 			}
 		})
+	}
+}
+
+// TestManager_ListReplayAndLogParked covers the operator-facing surface
+// (story #368): a parked event is listed, replaying it after the cause is fixed
+// clears the row and applies the event, and parking is logged at error level
+// (suitable for alerting).
+func TestManager_ListReplayAndLogParked(t *testing.T) {
+	env := newWorkerTestEnv(t)
+	rec := &capturingLogger{}
+	var failing atomic.Bool
+	failing.Store(true)
+	var applied int64
+	handler := func(ctx context.Context, event domain.EventEnvelope[any]) error {
+		if event.Position == 2 && failing.Load() {
+			return fmt.Errorf("temporary failure on position 2")
+		}
+		return projectionHandler(&applied)(ctx, event)
+	}
+	group := SubscriberGroup{
+		Name:    "grp",
+		Handler: handler,
+		Options: []subscriptions.SubscriberOption{
+			subscriptions.WithMaxRetries(1),
+			subscriptions.WithRetryBackoff(time.Millisecond, 2*time.Millisecond),
+		},
+	}
+
+	cfg := sqliteWorkerConfig()
+	m, err := NewManager(ManagerParams{
+		EventStore:  env.eventStore,
+		Checkpoints: env.checkpoints,
+		Parking:     env.parking,
+		Notifier:    subscriptions.NewInProcessNotifier(),
+		Config:      cfg,
+		Logger:      rec,
+		Groups:      []SubscriberGroup{group},
+	})
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+
+	env.appendEvents(t, 0, 3)
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	waitForCount(t, env, 2) // positions 1 and 3 apply; 2 parks
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	// AC: parking surfaces in logs at error level (for alerting).
+	if v, ok := rec.field("event parked after retries exhausted", "subscriber"); !ok || v != "grp" {
+		t.Fatalf("expected an error-level parked log for subscriber 'grp', got %v (present=%v)", v, ok)
+	}
+	if !rec.hasLevel("error", "event parked after retries exhausted") {
+		t.Fatalf("parked event must be logged at error level")
+	}
+
+	// AC: list parked events.
+	parked, err := m.ParkedEvents(context.Background(), "")
+	if err != nil {
+		t.Fatalf("parked events: %v", err)
+	}
+	if len(parked) != 1 || parked[0].Position != 2 || parked[0].Subscriber != "grp" {
+		t.Fatalf("expected one parked event (pos 2, subscriber grp), got %+v", parked)
+	}
+	if _, err := m.ParkedEvents(context.Background(), "nope"); err == nil {
+		t.Fatalf("expected error listing parked events for unknown subscriber")
+	}
+
+	// Replaying before the cause is fixed must fail and leave the row parked,
+	// so an operator does not believe a still-poison event was cleared.
+	if err := m.ReplayParked(context.Background(), "grp", parked[0].EventID); err == nil {
+		t.Fatalf("expected replay to fail while the handler still fails")
+	}
+	stillParked, err := m.ParkedEvents(context.Background(), "grp")
+	if err != nil {
+		t.Fatalf("parked after failed replay: %v", err)
+	}
+	if len(stillParked) != 1 || stillParked[0].Position != 2 {
+		t.Fatalf("a failed replay must leave the event parked, got %+v", stillParked)
+	}
+
+	// AC: replay after the cause is fixed clears the row and applies the event.
+	failing.Store(false)
+	if err := m.ReplayParked(context.Background(), "grp", parked[0].EventID); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	after, err := m.ParkedEvents(context.Background(), "grp")
+	if err != nil {
+		t.Fatalf("parked after replay: %v", err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("expected no parked events after successful replay, got %+v", after)
+	}
+	var hasTwo int64
+	if err := env.db.Raw(`SELECT COUNT(*) FROM worker_projection WHERE position = 2`).Scan(&hasTwo).Error; err != nil {
+		t.Fatalf("query position 2: %v", err)
+	}
+	if hasTwo != 1 {
+		t.Fatalf("replayed event should have applied position 2 to the projection")
+	}
+}
+
+// TestManager_ParkedEventsAggregatesAcrossSubscribers covers the multi-group
+// path of ParkedEvents: an empty subscriber filter returns every group's parked
+// events flat, each carrying its own Subscriber, while a filter returns only
+// that group's.
+func TestManager_ParkedEventsAggregatesAcrossSubscribers(t *testing.T) {
+	env := newWorkerTestEnv(t)
+	if err := env.db.Exec(
+		`CREATE TABLE proj_a (position INTEGER PRIMARY KEY, aggregate_id TEXT)`,
+	).Error; err != nil {
+		t.Fatalf("create proj_a: %v", err)
+	}
+	if err := env.db.Exec(
+		`CREATE TABLE proj_b (position INTEGER PRIMARY KEY, aggregate_id TEXT)`,
+	).Error; err != nil {
+		t.Fatalf("create proj_b: %v", err)
+	}
+
+	fastPark := []subscriptions.SubscriberOption{
+		subscriptions.WithMaxRetries(1),
+		subscriptions.WithRetryBackoff(time.Millisecond, 2*time.Millisecond),
+	}
+	// "a" poisons position 2, "b" poisons position 4 — distinct rows per group.
+	groupA := SubscriberGroup{Name: "a", Handler: tableHandler("proj_a", 2), Options: fastPark}
+	groupB := SubscriberGroup{Name: "b", Handler: tableHandler("proj_b", 4), Options: fastPark}
+
+	m, err := NewManager(ManagerParams{
+		EventStore:  env.eventStore,
+		Checkpoints: env.checkpoints,
+		Parking:     env.parking,
+		Notifier:    subscriptions.NewInProcessNotifier(),
+		Config:      sqliteWorkerConfig(),
+		Groups:      []SubscriberGroup{groupA, groupB},
+	})
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+
+	env.appendEvents(t, 0, 5)
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	// Each group applies 4 of 5 (one poisoned position each).
+	waitForTableCount(t, env.db, "proj_a", 4, 5*time.Second)
+	waitForTableCount(t, env.db, "proj_b", 4, 5*time.Second)
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	all, err := m.ParkedEvents(context.Background(), "")
+	if err != nil {
+		t.Fatalf("aggregate parked: %v", err)
+	}
+	bySub := map[string]subscriptions.ParkedEvent{}
+	for _, p := range all {
+		bySub[p.Subscriber] = p
+	}
+	if len(all) != 2 || len(bySub) != 2 {
+		t.Fatalf("expected one parked event per subscriber (2 total, distinct), got %+v", all)
+	}
+	if bySub["a"].Position != 2 || bySub["b"].Position != 4 {
+		t.Fatalf("parked positions/subscribers mismatched: %+v", bySub)
+	}
+
+	// Filtering returns only that subscriber's parked events.
+	onlyA, err := m.ParkedEvents(context.Background(), "a")
+	if err != nil {
+		t.Fatalf("filter a: %v", err)
+	}
+	if len(onlyA) != 1 || onlyA[0].Subscriber != "a" {
+		t.Fatalf("expected only subscriber 'a' rows, got %+v", onlyA)
 	}
 }
 
