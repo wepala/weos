@@ -58,6 +58,9 @@ func ProvideOxigraphGroup(p OxigraphGroupParams) []SubscriberGroup {
 	return []SubscriberGroup{{
 		Name:    "oxigraph",
 		Handler: oxigraphHandler(p.EventStore, p.Store, p.TypeRepo, p.Logger),
+		// `worker checkpoint reset oxigraph --truncate` (and OXIGRAPH_REBUILD)
+		// clear the whole graph so the replay rebuilds it from empty.
+		Truncate: p.Store.Clear,
 	}}
 }
 

@@ -96,14 +96,22 @@ type workerManagerParams struct {
 // groups. It does not start processing — runWorkerManager wires that into the
 // Fx lifecycle.
 func ProvideWorkerManager(p workerManagerParams) (*Manager, error) {
+	var rebuild []string
+	// OXIGRAPH_REBUILD is now a checkpoint reset: the serving process resets the
+	// oxigraph checkpoint at startup so its catch-up replays history into a
+	// freshly-cleared graph — the same replay mechanism as recovery and the CLI.
+	if p.Config.Oxigraph.Active() && p.Config.Oxigraph.Rebuild {
+		rebuild = append(rebuild, "oxigraph")
+	}
 	return NewManager(ManagerParams{
-		EventStore:  p.EventStore,
-		Checkpoints: p.Checkpoints,
-		Parking:     p.Parking,
-		Notifier:    p.Notifier,
-		Config:      p.Config,
-		Logger:      p.Logger,
-		Groups:      p.Groups,
+		EventStore:     p.EventStore,
+		Checkpoints:    p.Checkpoints,
+		Parking:        p.Parking,
+		Notifier:       p.Notifier,
+		Config:         p.Config,
+		Logger:         p.Logger,
+		Groups:         p.Groups,
+		RebuildOnStart: rebuild,
 	})
 }
 

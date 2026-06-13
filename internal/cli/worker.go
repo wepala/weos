@@ -63,10 +63,31 @@ var workerParkedReplayCmd = &cobra.Command{
 	RunE:  runWorkerParkedReplay,
 }
 
+var workerCheckpointCmd = &cobra.Command{
+	Use:   "checkpoint",
+	Short: "Manage subscriber checkpoints",
+}
+
+var workerCheckpointResetCmd = &cobra.Command{
+	Use:   "reset <subscriber>",
+	Short: "Reset a subscriber's checkpoint to 0 so it replays all history",
+	Long: `Resets the subscriber's checkpoint to 0; on its next run it replays the
+whole event history — the one mechanism for rebuild, recovery, and backfill.
+Replay is incremental and resumable (interrupting and restarting continues from
+where it left off). With --truncate, the subscriber's projection is cleared
+first so the replay rebuilds it from empty.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runWorkerCheckpointReset,
+}
+
 func init() {
 	workerParkedListCmd.Flags().String("subscriber", "", "limit to a single subscriber")
 	workerParkedCmd.AddCommand(workerParkedListCmd, workerParkedReplayCmd)
-	workerCmd.AddCommand(workerParkedCmd)
+
+	workerCheckpointResetCmd.Flags().Bool("truncate", false, "clear the subscriber's projection before replay")
+	workerCheckpointCmd.AddCommand(workerCheckpointResetCmd)
+
+	workerCmd.AddCommand(workerParkedCmd, workerCheckpointCmd)
 	rootCmd.AddCommand(workerCmd)
 }
 
@@ -139,6 +160,23 @@ func runWorkerParkedReplay(cmd *cobra.Command, args []string) error {
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "Replayed event %s on subscriber %s; parked row cleared.\n",
 			eventID, subscriber)
+		return nil
+	})
+}
+
+func runWorkerCheckpointReset(cmd *cobra.Command, args []string) error {
+	subscriber := args[0]
+	truncate, _ := cmd.Flags().GetBool("truncate")
+	return withWorkerManager(cmd, func(ctx context.Context, m *application.Manager) error {
+		if err := m.ResetCheckpoint(ctx, subscriber, truncate); err != nil {
+			return err
+		}
+		msg := "checkpoint reset to 0"
+		if truncate {
+			msg = "projection cleared and " + msg
+		}
+		_, _ = fmt.Fprintf(os.Stdout,
+			"Subscriber %s: %s. It will replay history on its next run.\n", subscriber, msg)
 		return nil
 	})
 }

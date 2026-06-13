@@ -43,12 +43,12 @@ type KnowledgeGraphStore interface {
 	// type, e.g. "text/turtle", "application/n-triples", "application/ld+json".
 	LoadOntology(ctx context.Context, format string, body []byte) error
 
-	// Clear removes every triple in the default graph. Used by the backfill
-	// rebuild path.
+	// Clear removes every triple in the default graph. Used by the oxigraph
+	// subscriber's checkpoint-reset rebuild path (worker checkpoint reset
+	// --truncate / OXIGRAPH_REBUILD) to clear the graph before replay.
 	Clear(ctx context.Context) error
 
 	// IsEmpty reports whether the default graph has zero triples.
-	// Used by the backfill startup hook to decide whether to replay.
 	IsEmpty(ctx context.Context) (bool, error)
 }
 

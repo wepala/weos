@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -156,6 +157,61 @@ func newTestManager(t *testing.T, env *workerTestEnv, group SubscriberGroup) *Ma
 		t.Fatalf("new manager: %v", err)
 	}
 	return m
+}
+
+// newTestManagerWithGroups builds a Manager over the test env with the given
+// groups and optional rebuild-on-start list.
+func newTestManagerWithGroups(
+	t *testing.T, env *workerTestEnv, groups []SubscriberGroup, rebuild []string,
+) *Manager {
+	t.Helper()
+	m, err := NewManager(ManagerParams{
+		EventStore:     env.eventStore,
+		Checkpoints:    env.checkpoints,
+		Parking:        env.parking,
+		Notifier:       subscriptions.NewInProcessNotifier(),
+		Config:         sqliteWorkerConfig(),
+		Groups:         groups,
+		RebuildOnStart: rebuild,
+	})
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	return m
+}
+
+// runManagerUntil starts the manager, polls cond until it holds (or times out),
+// then drains it — a complete, deterministic run.
+func runManagerUntil(t *testing.T, m *Manager, cond func() bool) {
+	t.Helper()
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && !cond() {
+		time.Sleep(15 * time.Millisecond)
+	}
+	stopManager(t, m)
+	if !cond() {
+		t.Fatalf("condition not met before manager drained")
+	}
+}
+
+func stopManager(t *testing.T, m *Manager) {
+	t.Helper()
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.Stop(stopCtx); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+}
+
+// runFreshManagerUntil builds a brand-new Manager (no rebuild list, so no
+// re-truncate) over the env and one group, then runs it to cond — a stand-in
+// for a restarted process resuming work.
+func runFreshManagerUntil(t *testing.T, env *workerTestEnv, group SubscriberGroup, cond func() bool) {
+	t.Helper()
+	runManagerUntil(t, newTestManagerWithGroups(t, env, []SubscriberGroup{group}, nil), cond)
 }
 
 // waitForCount polls until the projection table reaches want rows or the
@@ -873,6 +929,189 @@ func TestManager_ParkedEventsAggregatesAcrossSubscribers(t *testing.T) {
 	}
 	if len(onlyA) != 1 || onlyA[0].Subscriber != "a" {
 		t.Fatalf("expected only subscriber 'a' rows, got %+v", onlyA)
+	}
+}
+
+// TestManager_ResetCheckpointWithTruncateRebuilds covers story #371: resetting a
+// subscriber's checkpoint (with --truncate) clears the projection and makes the
+// subscriber replay history from event 0, rebuilding it.
+func TestManager_ResetCheckpointWithTruncateRebuilds(t *testing.T) {
+	env := newWorkerTestEnv(t)
+	var applied int64
+	group := SubscriberGroup{
+		Name:    "projection",
+		Handler: projectionHandler(&applied),
+		Truncate: func(_ context.Context) error {
+			return env.db.Exec(`DELETE FROM worker_projection`).Error
+		},
+	}
+	m := newTestManagerWithGroups(t, env, []SubscriberGroup{group}, nil)
+
+	env.appendEvents(t, 0, 5)
+	runManagerUntil(t, m, func() bool { return env.projectionCount(t) >= 5 })
+
+	if pos, _ := env.checkpoints.Position(context.Background(), "projection"); pos != 5 {
+		t.Fatalf("checkpoint before reset = %d, want 5", pos)
+	}
+
+	// Reset with truncate: the projection is cleared and the checkpoint returns
+	// to 0.
+	if err := m.ResetCheckpoint(context.Background(), "projection", true); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if env.projectionCount(t) != 0 {
+		t.Fatalf("truncate should have cleared the projection")
+	}
+	if pos, _ := env.checkpoints.Position(context.Background(), "projection"); pos != 0 {
+		t.Fatalf("checkpoint after reset = %d, want 0", pos)
+	}
+
+	// Replay rebuilds the projection from event 0.
+	m2 := newTestManagerWithGroups(t, env, []SubscriberGroup{group}, nil)
+	runManagerUntil(t, m2, func() bool { return env.projectionCount(t) >= 5 })
+	if env.projectionCount(t) != 5 {
+		t.Fatalf("replay should have rebuilt all 5 rows, got %d", env.projectionCount(t))
+	}
+}
+
+func TestManager_ResetCheckpoint_RejectsTruncateWithoutAction(t *testing.T) {
+	t.Parallel()
+	env := newWorkerTestEnv(t)
+	// Group with no Truncate action.
+	m := newTestManager(t, env, SubscriberGroup{Name: "projection", Handler: projectionHandler(new(int64))})
+	if err := m.ResetCheckpoint(context.Background(), "projection", true); err == nil {
+		t.Fatalf("expected --truncate to be rejected for a group with no Truncate action")
+	}
+	// Reset without truncate is fine.
+	if err := m.ResetCheckpoint(context.Background(), "projection", false); err != nil {
+		t.Fatalf("reset without truncate: %v", err)
+	}
+	if err := m.ResetCheckpoint(context.Background(), "nope", false); err == nil {
+		t.Fatalf("expected error for unknown subscriber")
+	}
+}
+
+// TestManager_RebuildOnStartReplays proves OXIGRAPH_REBUILD's new form: a group
+// named in RebuildOnStart has its checkpoint reset (and projection truncated)
+// before the workers launch, so the catch-up replays history.
+func TestManager_RebuildOnStartReplays(t *testing.T) {
+	env := newWorkerTestEnv(t)
+	var applied int64
+	mkGroup := func() SubscriberGroup {
+		return SubscriberGroup{
+			Name:    "projection",
+			Handler: projectionHandler(&applied),
+			Truncate: func(_ context.Context) error {
+				return env.db.Exec(`DELETE FROM worker_projection`).Error
+			},
+		}
+	}
+
+	// First run processes 4 events; checkpoint reaches 4.
+	env.appendEvents(t, 0, 4)
+	m1 := newTestManagerWithGroups(t, env, []SubscriberGroup{mkGroup()}, nil)
+	runManagerUntil(t, m1, func() bool { return env.projectionCount(t) >= 4 })
+
+	// A new manager with rebuild-on-start must truncate + replay all 4, not
+	// merely resume (which would apply nothing new).
+	atomic.StoreInt64(&applied, 0)
+	m2 := newTestManagerWithGroups(t, env, []SubscriberGroup{mkGroup()}, []string{"projection"})
+	runManagerUntil(t, m2, func() bool { return atomic.LoadInt64(&applied) >= 4 })
+
+	if got := atomic.LoadInt64(&applied); got != 4 {
+		t.Fatalf("rebuild should have replayed all 4 events, applied=%d", got)
+	}
+	if env.projectionCount(t) != 4 {
+		t.Fatalf("rebuilt projection should have 4 rows, got %d", env.projectionCount(t))
+	}
+}
+
+// TestManager_ReplayIsResumable proves story #371's "incremental and resumable"
+// guarantee: an interrupted replay continues from its last committed checkpoint
+// on restart — it neither restarts from 0 nor re-truncates the partial rebuild.
+func TestManager_ReplayIsResumable(t *testing.T) {
+	env := newWorkerTestEnv(t)
+	var applied int64
+	var failTail atomic.Bool
+	handler := func(ctx context.Context, event domain.EventEnvelope[any]) error {
+		// Stall the back half of the feed so the first manager commits only the
+		// first batch, then we interrupt it.
+		if event.Position >= 4 && failTail.Load() {
+			return fmt.Errorf("tail not ready")
+		}
+		return projectionHandler(&applied)(ctx, event)
+	}
+	group := SubscriberGroup{
+		Name:    "projection",
+		Handler: handler,
+		Options: []subscriptions.SubscriberOption{
+			subscriptions.WithBatchSize(3), // batch boundary at position 3
+			// Long backoff so position 4 is still retrying (not parked) when we stop.
+			subscriptions.WithMaxRetries(10),
+			subscriptions.WithRetryBackoff(500*time.Millisecond, time.Second),
+		},
+		Truncate: func(_ context.Context) error { return env.db.Exec(`DELETE FROM worker_projection`).Error },
+	}
+
+	// Seed 6 events and fully project them, then reset+truncate to set up a rebuild.
+	env.appendEvents(t, 0, 6)
+	failTail.Store(false)
+	runFreshManagerUntil(t, env, group, func() bool { return env.projectionCount(t) >= 6 })
+	if err := newTestManagerWithGroups(t, env, []SubscriberGroup{group}, nil).
+		ResetCheckpoint(context.Background(), "projection", true); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	// Interrupt the replay after the first batch (positions 1-3 committed).
+	failTail.Store(true)
+	atomic.StoreInt64(&applied, 0)
+	runFreshManagerUntil(t, env, group, func() bool { return env.projectionCount(t) >= 3 })
+	if pos, _ := env.checkpoints.Position(context.Background(), "projection"); pos != 3 {
+		t.Fatalf("interrupted replay checkpoint = %d, want 3", pos)
+	}
+
+	// Resume (no rebuild list → no re-truncate): it must continue from 3 to 6,
+	// not re-apply 1-3 (the position PRIMARY KEY would error) or re-clear them.
+	failTail.Store(false)
+	runFreshManagerUntil(t, env, group, func() bool { return env.projectionCount(t) >= 6 })
+	if got := env.projectionCount(t); got != 6 {
+		t.Fatalf("resumed replay rows = %d, want 6 (no restart-from-0, no re-truncate)", got)
+	}
+	var distinct int64
+	if err := env.db.Raw(`SELECT COUNT(DISTINCT position) FROM worker_projection`).Scan(&distinct).Error; err != nil {
+		t.Fatalf("distinct: %v", err)
+	}
+	if distinct != 6 {
+		t.Fatalf("distinct positions = %d, want 6", distinct)
+	}
+}
+
+// TestProvideWorkerManager_OxigraphRebuildWiring covers the config→rebuild seam:
+// OXIGRAPH_REBUILD only schedules a rebuild when the store is actually active.
+func TestProvideWorkerManager_OxigraphRebuildWiring(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		oxi  config.OxigraphConfig
+		want []string
+	}{
+		{"active and rebuild", config.OxigraphConfig{URL: "http://x", Enabled: true, Rebuild: true}, []string{"oxigraph"}},
+		{"rebuild but disabled", config.OxigraphConfig{URL: "http://x", Enabled: false, Rebuild: true}, nil},
+		{"active but no rebuild", config.OxigraphConfig{URL: "http://x", Enabled: true, Rebuild: false}, nil},
+		{"neither", config.OxigraphConfig{}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Oxigraph = tc.oxi
+			m, err := ProvideWorkerManager(workerManagerParams{Config: cfg})
+			if err != nil {
+				t.Fatalf("provide: %v", err)
+			}
+			if !reflect.DeepEqual(m.rebuildOnStart, tc.want) {
+				t.Fatalf("rebuildOnStart = %v, want %v", m.rebuildOnStart, tc.want)
+			}
+		})
 	}
 }
 

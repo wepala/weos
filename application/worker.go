@@ -51,6 +51,12 @@ type SubscriberGroup struct {
 	// Options are per-group overrides appended after the Manager's defaults
 	// (e.g. a smaller batch size for an expensive handler).
 	Options []subscriptions.SubscriberOption
+	// Truncate optionally clears the group's projection so a checkpoint reset
+	// rebuilds it from empty (e.g. the Oxigraph store's Clear). nil means the
+	// group has no separate projection to clear — display-values, for instance,
+	// writes denormalized columns into other types' rows rather than owning a
+	// table — and `worker checkpoint reset --truncate` reports that.
+	Truncate func(context.Context) error
 }
 
 // WakeSource hands out wake channels so idle subscribers react to new commits
@@ -78,8 +84,9 @@ type Manager struct {
 	logger      entities.Logger
 	slog        *slog.Logger
 
-	groups []SubscriberGroup
-	byName map[string]SubscriberGroup
+	groups         []SubscriberGroup
+	byName         map[string]SubscriberGroup
+	rebuildOnStart []string // groups to reset+truncate before launching
 
 	mu      sync.Mutex
 	cancel  context.CancelFunc
@@ -97,6 +104,10 @@ type ManagerParams struct {
 	Config      config.Config
 	Logger      entities.Logger
 	Groups      []SubscriberGroup
+	// RebuildOnStart names groups whose checkpoint is reset (and projection
+	// truncated) before the workers launch — the OXIGRAPH_REBUILD path, now
+	// expressed as a checkpoint reset so there is one replay mechanism.
+	RebuildOnStart []string
 }
 
 // NewManager validates the group set and constructs the runtime. It does not
@@ -121,17 +132,18 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		logger = noopWorkerLogger{}
 	}
 	return &Manager{
-		eventStore:  p.EventStore,
-		checkpoints: p.Checkpoints,
-		parking:     p.Parking,
-		notifier:    p.Notifier,
-		cfg:         p.Config.Worker,
-		postgres:    p.Config.IsPostgres(),
-		dsn:         p.Config.DatabaseDSN,
-		logger:      logger,
-		slog:        subscriberSlog(logger),
-		groups:      p.Groups,
-		byName:      byName,
+		eventStore:     p.EventStore,
+		checkpoints:    p.Checkpoints,
+		parking:        p.Parking,
+		notifier:       p.Notifier,
+		cfg:            p.Config.Worker,
+		postgres:       p.Config.IsPostgres(),
+		dsn:            p.Config.DatabaseDSN,
+		logger:         logger,
+		slog:           subscriberSlog(logger),
+		groups:         p.Groups,
+		byName:         byName,
+		rebuildOnStart: p.RebuildOnStart,
 	}, nil
 }
 
@@ -248,6 +260,33 @@ func (m *Manager) ReplayParked(ctx context.Context, subscriber, eventID string) 
 	return sub.ReplayParked(ctx, eventID)
 }
 
+// ResetCheckpoint resets a subscriber's checkpoint to 0 so it replays all
+// history — the one mechanism for rebuild, recovery, and backfill. When
+// truncate is set, the group's projection is cleared first (so the replay
+// repopulates from empty); a group with no Truncate action rejects --truncate.
+// Replay is incremental and resumable: it uses the same batch/checkpoint cycle
+// as live processing, so interrupting and restarting continues from where it
+// left off. Backs `weos worker checkpoint reset`.
+func (m *Manager) ResetCheckpoint(ctx context.Context, subscriber string, truncate bool) error {
+	g, ok := m.byName[subscriber]
+	if !ok {
+		return fmt.Errorf("unknown subscriber %q (known: %v)", subscriber, m.Names())
+	}
+	if truncate {
+		if g.Truncate == nil {
+			return fmt.Errorf("subscriber %q has no projection to truncate; reset without --truncate", subscriber)
+		}
+		if err := g.Truncate(ctx); err != nil {
+			return fmt.Errorf("truncate projection for %q: %w", subscriber, err)
+		}
+	}
+	sub, err := m.buildSubscriber(g, nil)
+	if err != nil {
+		return err
+	}
+	return sub.ResetCheckpoint(ctx, 0)
+}
+
 // Start launches every registered subscriber as a background worker, plus the
 // wake source (Postgres listener) and the lag reporter. It returns immediately;
 // the workers run until Stop. Calling Start twice is a no-op.
@@ -261,6 +300,19 @@ func (m *Manager) Start(_ context.Context) error {
 	// Fx start-timeout context — they run until Stop cancels them.
 	runCtx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
+
+	// Rebuild requested groups before launching: reset their checkpoint to 0
+	// (and truncate their projection) so the initial catch-up replays history
+	// from the start. Doing it here — before the subscriber loop launches —
+	// avoids racing a clear against the worker's own writes.
+	for _, name := range m.rebuildOnStart {
+		m.logger.Info(runCtx, "worker: rebuilding projection from event 0", "subscriber", name)
+		if err := m.ResetCheckpoint(runCtx, name, true); err != nil {
+			// Never fail startup over a rebuild — log and continue; the
+			// subscriber still runs from its existing checkpoint.
+			m.logger.Error(runCtx, "worker: rebuild reset failed", "subscriber", name, "error", err)
+		}
+	}
 
 	wake := m.startWakeSource(runCtx)
 
