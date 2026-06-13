@@ -73,6 +73,18 @@ func (s *DualWriteEventStore) GetCurrentVersion(
 	return s.primary.GetCurrentVersion(ctx, aggregateID)
 }
 
+// ReadAfter delegates to the primary store, which owns the global ordered feed.
+func (s *DualWriteEventStore) ReadAfter(
+	ctx context.Context, afterPosition int64, limit int,
+) ([]domain.EventEnvelope[any], error) {
+	return s.primary.ReadAfter(ctx, afterPosition, limit)
+}
+
+// HeadPosition delegates to the primary store, which owns the global ordered feed.
+func (s *DualWriteEventStore) HeadPosition(ctx context.Context) (int64, error) {
+	return s.primary.HeadPosition(ctx)
+}
+
 func (s *DualWriteEventStore) Close() error {
 	pErr := s.primary.Close()
 	sErr := s.secondary.Close()

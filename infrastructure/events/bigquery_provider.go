@@ -5,14 +5,13 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/bigquery"
-	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/infrastructure"
 
 	"github.com/wepala/weos/v3/internal/config"
 )
 
 // ProvideBigQueryEventStore creates a BigQuery event store from config.
 // Returns nil if BigQuery is not configured.
-func ProvideBigQueryEventStore(cfg config.Config) (*infrastructure.BigQueryEventStore, error) {
+func ProvideBigQueryEventStore(cfg config.Config) (*BigQueryEventStore, error) {
 	if cfg.BigQueryProjectID == "" {
 		return nil, nil
 	}
@@ -32,7 +31,7 @@ func ProvideBigQueryEventStore(cfg config.Config) (*infrastructure.BigQueryEvent
 		tableID = "events"
 	}
 
-	return infrastructure.NewBigQueryEventStore(
+	return NewBigQueryEventStore(
 		client, cfg.BigQueryProjectID, datasetID, tableID,
 	), nil
 }

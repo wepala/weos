@@ -116,6 +116,14 @@ func (f *fakeEventStore) GetEventsByTransactionID(_ context.Context, txID string
 }
 func (f *fakeEventStore) Close() error                                               { return nil }
 func (f *fakeEventStore) GetCurrentVersion(_ context.Context, _ string) (int, error) { return 0, nil }
+func (f *fakeEventStore) ReadAfter(
+	_ context.Context, _ int64, _ int,
+) ([]domain.EventEnvelope[any], error) {
+	return nil, domain.ErrGlobalOrderingNotSupported
+}
+func (f *fakeEventStore) HeadPosition(_ context.Context) (int64, error) {
+	return 0, domain.ErrGlobalOrderingNotSupported
+}
 
 func newProjectorParams(store repositories.KnowledgeGraphStore) SubscribeKnowledgeGraphHandlersParams {
 	return SubscribeKnowledgeGraphHandlersParams{
