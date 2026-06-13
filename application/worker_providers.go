@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/wepala/weos/v3/domain/entities"
-	"github.com/wepala/weos/v3/infrastructure/events"
 	"github.com/wepala/weos/v3/internal/config"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
@@ -117,6 +116,14 @@ func AsSubscriberGroup(constructor any) any {
 	return fx.Annotate(constructor, fx.ResultTags(subscriberGroupTag))
 }
 
+// AsSubscriberGroups tags a constructor returning []SubscriberGroup so its
+// elements are flattened into the "subscriber_groups" value group. Use it for
+// providers that contribute zero or more groups depending on configuration
+// (e.g. an Oxigraph group only when the store is active).
+func AsSubscriberGroups(constructor any) any {
+	return fx.Annotate(constructor, fx.ResultTags(`group:"subscriber_groups,flatten"`))
+}
+
 // runWorkerManager wires the Manager into the Fx lifecycle. Background
 // processing only starts when WorkerConfig.RunInProcess is set (the serve
 // command enables it); otherwise the Manager is still constructed — so CLI
@@ -131,33 +138,6 @@ func runWorkerManager(lc fx.Lifecycle, m *Manager, cfg config.Config, logger ent
 		OnStart: m.Start,
 		OnStop:  m.Stop,
 	})
-}
-
-// decorateEventStore composes the event-store decorations into one function
-// (fx permits only one decoration of a type per module): the optional BigQuery
-// dual-write wraps the primary store innermost, then DecorateNotifyingEventStore
-// wraps that so subscriber wake-ups fire on the store writers actually use.
-func decorateEventStore(
-	lc fx.Lifecycle,
-	primary domain.EventStore,
-	notifier *subscriptions.InProcessNotifier,
-	cfg config.Config,
-	logger entities.Logger,
-) domain.EventStore {
-	store := primary
-	if cfg.BigQueryProjectID != "" {
-		bqStore, err := events.ProvideBigQueryEventStore(cfg)
-		if err != nil || bqStore == nil {
-			logger.Error(context.Background(), "failed to create BigQuery event store, using primary only",
-				"error", err)
-		} else {
-			lc.Append(fx.Hook{OnStop: func(_ context.Context) error { return bqStore.Close() }})
-			logger.Info(context.Background(), "BigQuery dual-write enabled",
-				"project", cfg.BigQueryProjectID, "dataset", cfg.BigQueryDatasetID)
-			store = events.NewDualWriteEventStore(store, bqStore, logger)
-		}
-	}
-	return DecorateNotifyingEventStore(store, notifier, cfg)
 }
 
 // DecorateNotifyingEventStore wraps the event store so each successful Append

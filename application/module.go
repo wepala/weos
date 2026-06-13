@@ -47,14 +47,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// Database providers
 		fx.Provide(gorm.ProvideGormDB),
 
-		// Event store provider, then a single decorator that composes the
-		// optional BigQuery dual-write with the background-subscriber wake wrap.
-		// fx allows only one decoration of a given type per module, so both
-		// wraps live in one function (innermost first): BigQuery dual-write,
-		// then NotifyingEventStore so a commit through the actual store writers
-		// use wakes the subscribers.
+		// Event store provider, decorated so a commit wakes the background
+		// subscribers: on SQLite via NotifyingEventStore + the in-process
+		// notifier, on Postgres a pass-through (the store NOTIFYs itself).
 		fx.Provide(gorm.ProvideEventStore),
-		fx.Decorate(decorateEventStore),
+		fx.Decorate(DecorateNotifyingEventStore),
 
 		// Session store provider (for pericarp auth integration)
 		fx.Provide(func(cfg config.Config) sessions.Store {
@@ -142,11 +139,10 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// invoke must run before any hook can be called.
 		fx.Invoke(WireResourceWriter),
 
-		// Subscribe event handlers (projections)
+		// Subscribe the synchronous, critical read-model projections (resource,
+		// resource-type, triple) — the SPA depends on these being written before
+		// the POST returns.
 		fx.Invoke(subscribeEventHandlers),
-		// Optional Oxigraph projector — registers no-op when the store is
-		// inactive, so leaving Oxigraph unconfigured costs nothing.
-		fx.Invoke(SubscribeKnowledgeGraphHandlers),
 
 		// Ensure built-in resource types and projection tables at startup
 		fx.Invoke(ensureBuiltInResourceTypes),
@@ -157,6 +153,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// constructed; only runs background processing when
 		// WorkerConfig.RunInProcess is set (the serve command enables it).
 		WorkerModule(),
+		// Peripheral handlers run as background subscriber groups, off the write
+		// path: Oxigraph knowledge-graph sync (only when configured) and
+		// reverse-reference display-value denormalization.
+		fx.Provide(AsSubscriberGroups(ProvideOxigraphGroup)),
+		fx.Provide(AsSubscriberGroups(ProvideDisplayValuesGroup)),
 	)
 }
 

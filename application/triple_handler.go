@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -73,6 +74,12 @@ func propagateDisplayValues(
 		return nil
 	}
 
+	// Attempt every reference, but surface any failure: this now runs in the
+	// "display-values" subscriber group, where returning nil would advance the
+	// checkpoint past the event and leave the denormalized columns permanently
+	// stale. Returning an error lets the subscriber retry (the bulk column
+	// update is idempotent on replay) and, after bounded retries, park it.
+	var errs []error
 	for _, ref := range reverseRefs {
 		val, ok := node[ref.DisplayProperty]
 		if !ok {
@@ -84,9 +91,10 @@ func propagateDisplayValues(
 		); err != nil {
 			logger.Error(ctx, "failed to propagate display value",
 				"referencingType", ref.ReferencingTypeSlug, "column", ref.DisplayColumn, "error", err)
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // extractTypeSlugFromResourceID extracts the type slug from a resource URN.

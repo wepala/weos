@@ -128,12 +128,6 @@ type Config struct {
 	// SMTP holds configuration for outbound email.
 	SMTP SMTPConfig
 
-	// BigQuery event store configuration.
-	// When BigQueryProjectID is set, events are dual-written to both the primary store and BigQuery.
-	BigQueryProjectID string
-	BigQueryDatasetID string
-	BigQueryTableID   string
-
 	// Storage holds configuration for file storage backends.
 	Storage StorageConfig
 
@@ -205,8 +199,10 @@ type OxigraphConfig struct {
 	// QueryTimeout is the per-request timeout for SPARQL queries/updates.
 	// Default: 10s.
 	QueryTimeoutSeconds int
-	// Rebuild forces the startup backfill to clear and re-load the graph
-	// instead of skipping a populated store.
+	// Rebuild requests a full graph rebuild on startup. The Oxigraph projector
+	// now runs as a checkpointed subscriber whose initial catch-up backfills the
+	// graph, so a rebuild is "reset the oxigraph checkpoint to 0" — wired to this
+	// flag in story #371.
 	Rebuild bool
 }
 
@@ -483,16 +479,6 @@ func (c *Config) LoadFromEnvironment() {
 
 	if provider := os.Getenv("OAUTH_DEFAULT_PROVIDER"); provider != "" {
 		c.OAuth.DefaultProvider = provider
-	}
-
-	if bqProject := os.Getenv("BIGQUERY_PROJECT_ID"); bqProject != "" {
-		c.BigQueryProjectID = bqProject
-	}
-	if bqDataset := os.Getenv("BIGQUERY_DATASET_ID"); bqDataset != "" {
-		c.BigQueryDatasetID = bqDataset
-	}
-	if bqTable := os.Getenv("BIGQUERY_TABLE_ID"); bqTable != "" {
-		c.BigQueryTableID = bqTable
 	}
 
 	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {

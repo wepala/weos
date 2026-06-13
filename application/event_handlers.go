@@ -32,7 +32,7 @@ func subscribeEventHandlers(params struct {
 		return fmt.Errorf("resource type handlers: %w", err)
 	}
 	if err := subscribeResourceHandlers(
-		params.Dispatcher, params.EventStore, params.ResourceRepo, params.ProjMgr, params.Logger,
+		params.Dispatcher, params.EventStore, params.ResourceRepo, params.Logger,
 	); err != nil {
 		return fmt.Errorf("resource handlers: %w", err)
 	}
@@ -151,7 +151,6 @@ func subscribeResourceHandlers(
 	d *domain.EventDispatcher,
 	eventStore domain.EventStore,
 	repo repositories.ResourceRepository,
-	projMgr repositories.ProjectionManager,
 	logger entities.Logger,
 ) error {
 	// Resource.Published handles the final projection write for resource creation, updates,
@@ -159,7 +158,7 @@ func subscribeResourceHandlers(
 	// including graph edges, then writes a single projection row.
 	if err := domain.Subscribe(d, "Resource.Published",
 		func(ctx context.Context, env domain.EventEnvelope[entities.ResourcePublished]) error {
-			return handleResourcePublished(ctx, env, eventStore, repo, projMgr, logger)
+			return handleResourcePublished(ctx, env, eventStore, repo, logger)
 		},
 	); err != nil {
 		return err
@@ -258,7 +257,6 @@ func handleResourcePublished(
 	env domain.EventEnvelope[entities.ResourcePublished],
 	eventStore domain.EventStore,
 	repo repositories.ResourceRepository,
-	projMgr repositories.ProjectionManager,
 	logger entities.Logger,
 ) error {
 	txID := env.TransactionID
@@ -297,10 +295,10 @@ func handleResourcePublished(
 		}
 		logger.Info(ctx, "projecting Resource.Published (create)",
 			"id", env.AggregateID, "transactionID", txID, "sequenceNo", state.MaxSeq)
-		if err := repo.Save(ctx, entity); err != nil {
-			return err
-		}
-		return propagateDisplayValues(ctx, env.AggregateID, state.Data, projMgr, logger)
+		// Reverse-reference display-value propagation runs asynchronously in the
+		// "display-values" subscriber group (see peripheral_groups.go), so it no
+		// longer adds latency to — or can fail — the user's write.
+		return repo.Save(ctx, entity)
 	}
 
 	// Update: read existing resource for fields not in the transaction events.
@@ -317,10 +315,9 @@ func handleResourcePublished(
 	}
 	logger.Info(ctx, "projecting Resource.Published (update)",
 		"id", env.AggregateID, "transactionID", txID, "sequenceNo", state.MaxSeq)
-	if err := repo.Update(ctx, existing); err != nil {
-		return err
-	}
-	return propagateDisplayValues(ctx, env.AggregateID, state.Data, projMgr, logger)
+	// Reverse-reference display-value propagation runs asynchronously in the
+	// "display-values" subscriber group (see peripheral_groups.go).
+	return repo.Update(ctx, existing)
 }
 
 // marshalField re-marshals a deserialized JSON value back to json.RawMessage.

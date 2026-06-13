@@ -8,191 +8,84 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
-	"github.com/wepala/weos/v3/internal/config"
 	"github.com/wepala/weos/v3/pkg/jsonld"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
-	"go.uber.org/fx"
 )
 
-// SubscribeKnowledgeGraphHandlersParams bundles the dependencies of the
-// optional Oxigraph projector. Lifecycle is injected so the projector can also
-// drive the startup backfill (see oxigraph_backfill.go).
-type SubscribeKnowledgeGraphHandlersParams struct {
-	fx.In
-
-	Lifecycle    fx.Lifecycle
-	Dispatcher   *domain.EventDispatcher
-	EventStore   domain.EventStore
-	Store        repositories.KnowledgeGraphStore
-	ResourceRepo repositories.ResourceRepository
-	TypeRepo     repositories.ResourceTypeRepository
-	TripleRepo   repositories.TripleRepository
-	Config       config.Config
-	Logger       entities.Logger
-}
-
-// SubscribeKnowledgeGraphHandlers wires the Oxigraph projector to the same
-// events the existing `triples`/projection handlers consume. When the store is
-// not active (Oxigraph not configured), this is a no-op so the application
-// boots normally without the optional dependency.
+// The Oxigraph projector mirrors resource/triple/type events into a SPARQL
+// knowledge graph. It runs as a background checkpointed subscriber group (see
+// peripheral_groups.go) rather than synchronously on the write path: a failure
+// here never fails a user's request, and the subscriber retries — and, after
+// bounded retries, parks — a persistently failing event. The projection helpers
+// below therefore return errors (so the subscriber can retry/park) instead of
+// swallowing them as the old synchronous handlers did.
 //
-// Failures inside individual handlers log at ERROR but do not propagate to
-// the dispatcher — Oxigraph is an additive read-model and must never block
-// the canonical write path.
-func SubscribeKnowledgeGraphHandlers(p SubscribeKnowledgeGraphHandlersParams) error {
-	if !p.Store.Active() {
-		p.Logger.Debug(context.Background(),
-			"knowledge graph: store inactive, skipping projector subscription")
-		return nil
-	}
-	p.Logger.Info(context.Background(),
-		"knowledge graph: subscribing Oxigraph projector to resource/triple/type events")
+// On first run the subscriber's checkpoint is 0, so it replays the whole event
+// history into the graph — the backfill is just the initial catch-up, not a
+// separate mechanism.
 
-	if err := domain.Subscribe(p.Dispatcher, "Triple.Created",
-		func(ctx context.Context, env domain.EventEnvelope[entities.TripleCreated]) error {
-			t := env.Payload
-			p.Logger.Debug(ctx, "kg projecting Triple.Created",
-				"subject", t.Subject, "predicate", t.Predicate, "object", t.Object)
-			if err := p.Store.AddTriples(ctx, []repositories.Triple{
-				{Subject: t.Subject, Predicate: t.Predicate, Object: t.Object},
-			}); err != nil {
-				p.Logger.Error(ctx, "kg failed to project Triple.Created",
-					"subject", t.Subject, "predicate", t.Predicate, "error", err)
-			}
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("kg triple created handler: %w", err)
-	}
-
-	if err := domain.Subscribe(p.Dispatcher, "Triple.Deleted",
-		func(ctx context.Context, env domain.EventEnvelope[entities.TripleDeleted]) error {
-			t := env.Payload
-			p.Logger.Debug(ctx, "kg projecting Triple.Deleted",
-				"subject", t.Subject, "predicate", t.Predicate, "object", t.Object)
-			if err := p.Store.RemoveTriples(ctx, []repositories.Triple{
-				{Subject: t.Subject, Predicate: t.Predicate, Object: t.Object},
-			}); err != nil {
-				p.Logger.Error(ctx, "kg failed to project Triple.Deleted",
-					"subject", t.Subject, "predicate", t.Predicate, "error", err)
-			}
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("kg triple deleted handler: %w", err)
-	}
-
-	if err := domain.Subscribe(p.Dispatcher, "Resource.Published",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourcePublished]) error {
-			projectResourcePublished(ctx, env, p.EventStore, p.Store, p.Logger)
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("kg resource published handler: %w", err)
-	}
-
-	if err := domain.Subscribe(p.Dispatcher, "Resource.Deleted",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceDeleted]) error {
-			p.Logger.Debug(ctx, "kg projecting Resource.Deleted", "id", env.AggregateID)
-			if err := p.Store.RemoveSubject(ctx, env.AggregateID); err != nil {
-				p.Logger.Error(ctx, "kg failed to project Resource.Deleted",
-					"id", env.AggregateID, "error", err)
-			}
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("kg resource deleted handler: %w", err)
-	}
-
-	if err := domain.Subscribe(p.Dispatcher, "ResourceType.Created",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceTypeCreated]) error {
-			projectResourceTypeOntology(ctx, env.Payload.Name, env.Payload.Slug, env.Payload.Context, p.Store, p.Logger)
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("kg resource type created handler: %w", err)
-	}
-
-	if err := domain.Subscribe(p.Dispatcher, "ResourceType.Updated",
-		func(ctx context.Context, env domain.EventEnvelope[entities.ResourceTypeUpdated]) error {
-			projectResourceTypeOntology(ctx, env.Payload.Name, env.Payload.Slug, env.Payload.Context, p.Store, p.Logger)
-			return nil
-		},
-	); err != nil {
-		return fmt.Errorf("kg resource type updated handler: %w", err)
-	}
-
-	registerKGBackfill(p, p.Config)
-	return nil
-}
-
-// projectResourcePublished replays the transaction events for a Resource.Published
-// envelope, builds the full JSON-LD state, and pushes it into the knowledge
-// graph. We reuse buildStateFromTransaction so the projection sees the same
-// data the GORM projection writes — including all edges.
+// projectResourcePublished replays the transaction for a Resource.Published
+// event, rebuilds the full JSON-LD state, and replaces the subject in the graph.
+// It reuses buildStateFromTransaction so the projection sees exactly the data
+// the GORM projection writes, including all edges. Returns an error so a
+// transient graph failure is retried by the subscriber.
 func projectResourcePublished(
 	ctx context.Context,
-	env domain.EventEnvelope[entities.ResourcePublished],
+	event domain.EventEnvelope[any],
 	eventStore domain.EventStore,
 	store repositories.KnowledgeGraphStore,
 	logger entities.Logger,
-) {
-	if env.TransactionID == "" {
-		logger.Error(ctx, "kg Resource.Published has empty transaction id",
-			"id", env.AggregateID)
-		return
+) error {
+	if event.TransactionID == "" {
+		return fmt.Errorf("kg: Resource.Published for %s has empty transaction id", event.AggregateID)
 	}
-	txEvents, err := eventStore.GetEventsByTransactionID(ctx, env.TransactionID)
+	txEvents, err := eventStore.GetEventsByTransactionID(ctx, event.TransactionID)
 	if err != nil {
-		logger.Error(ctx, "kg failed to load transaction for Resource.Published",
-			"id", env.AggregateID, "error", err)
-		return
+		return fmt.Errorf("kg: load transaction for %s: %w", event.AggregateID, err)
 	}
-	state := buildStateFromTransaction(ctx, txEvents, env.AggregateID, env.SequenceNo, logger)
+	state := buildStateFromTransaction(ctx, txEvents, event.AggregateID, event.SequenceNo, logger)
 
 	if state.IsDelete {
-		logger.Debug(ctx, "kg skipping Resource.Published (delete)", "id", env.AggregateID)
-		return
+		logger.Debug(ctx, "kg skipping Resource.Published (delete)", "id", event.AggregateID)
+		return nil
 	}
 	if state.Data == nil {
-		logger.Error(ctx, "kg Resource.Published produced no data", "id", env.AggregateID)
-		return
+		return fmt.Errorf("kg: Resource.Published for %s produced no data", event.AggregateID)
 	}
 
-	// Drop any prior projection for this subject so an update fully replaces
-	// the previous graph (covers properties that disappeared from the JSON-LD).
-	if err := store.RemoveSubject(ctx, env.AggregateID); err != nil {
-		logger.Error(ctx, "kg failed to clear prior subject", "id", env.AggregateID, "error", err)
-		// Continue: LoadOntology below merges into the default graph, and
-		// RDF triples are a set, so a leftover prior triple at worst lingers
-		// until the next update — preferable to a partially-projected state.
+	// Drop any prior projection for this subject so an update fully replaces the
+	// previous graph (covers properties that disappeared from the JSON-LD).
+	if err := store.RemoveSubject(ctx, event.AggregateID); err != nil {
+		// Continue: LoadOntology below merges into the default graph and RDF
+		// triples are a set, so a leftover prior triple at worst lingers until
+		// the next update — preferable to failing the whole event over a clear.
+		logger.Warn(ctx, "kg failed to clear prior subject", "id", event.AggregateID, "error", err)
 	}
 
 	if err := store.LoadOntology(ctx, "application/ld+json", state.Data); err != nil {
-		logger.Error(ctx, "kg failed to load resource JSON-LD",
-			"id", env.AggregateID, "error", err)
-		return
+		return fmt.Errorf("kg: load resource JSON-LD for %s: %w", event.AggregateID, err)
 	}
 	logger.Debug(ctx, "kg projected Resource.Published",
-		"id", env.AggregateID, "transactionID", env.TransactionID)
+		"id", event.AggregateID, "transactionID", event.TransactionID)
+	return nil
 }
 
 // projectResourceTypeOntology loads the JSON-LD `@context` of a resource type
 // into the knowledge graph so SPARQL queries can resolve the predicates and
-// classes that resources reference. Also emits explicit ontology triples
-// (rdf:type, rdfs:subClassOf) so kg_describe_class can walk the subclass
-// chain even on engines that don't auto-extract them from the JSON-LD
-// document.
+// classes that resources reference. It also emits explicit ontology triples
+// (rdf:type, rdfs:subClassOf) so kg_describe_class can walk the subclass chain
+// even on engines that don't auto-extract them from the JSON-LD document.
+// Returns an error so the subscriber can retry a transient graph failure.
 func projectResourceTypeOntology(
 	ctx context.Context,
 	name, slug string,
 	rawContext json.RawMessage,
 	store repositories.KnowledgeGraphStore,
 	logger entities.Logger,
-) {
+) error {
 	if len(rawContext) == 0 {
-		return
+		return nil
 	}
 	logger.Debug(ctx, "kg projecting ResourceType ontology", "slug", slug)
 	// Clear the class subject before reloading so an update replaces (rather
@@ -205,10 +98,9 @@ func projectResourceTypeOntology(
 			"slug", slug, "class", classIRI, "error", err)
 	}
 	if err := store.LoadOntology(ctx, "application/ld+json", rawContext); err != nil {
-		logger.Error(ctx, "kg failed to load resource type ontology",
-			"slug", slug, "error", err)
+		return fmt.Errorf("kg: load resource type ontology for %s: %w", slug, err)
 	}
-	emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger)
+	return emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger)
 }
 
 // resourceTypeClassIRI returns the RDF class IRI that resources of this type
@@ -238,22 +130,21 @@ func resourceTypeClassIRI(name, slug string, rawContext json.RawMessage) string 
 }
 
 // emitExplicitOntologyTriples adds the canonical `rdf:type rdfs:Class` and
-// `rdfs:subClassOf <parent>` triples for a resource type, plus a
-// `rdfs:label` from the slug. Belt-and-suspenders to the JSON-LD load:
-// some serializers don't fully expand context-only declarations into
-// triples, and the description tools rely on these being concrete RDF.
+// `rdfs:subClassOf <parent>` triples for a resource type, plus a `rdfs:label`
+// from the slug. Belt-and-suspenders to the JSON-LD load: some serializers
+// don't fully expand context-only declarations into triples, and the
+// description tools rely on these being concrete RDF.
 func emitExplicitOntologyTriples(
 	ctx context.Context,
 	name, slug string,
 	rawContext json.RawMessage,
 	store repositories.KnowledgeGraphStore,
 	logger entities.Logger,
-) {
+) error {
 	// Declare the class under the SAME IRI resources are typed with (context
 	// @type expanded against @vocab), so kg_list_classes advertises a class
 	// that kg_describe_class / kg_search_entities can actually match against
-	// projected resources. Previously this used `urn:type:<slug>`, which no
-	// resource ever carried.
+	// projected resources.
 	classIRI := resourceTypeClassIRI(name, slug, rawContext)
 	triples := []repositories.Triple{
 		{
@@ -283,5 +174,7 @@ func emitExplicitOntologyTriples(
 	if err := store.AddTriples(ctx, triples); err != nil {
 		logger.Error(ctx, "kg failed to emit explicit ontology triples",
 			"slug", slug, "error", err)
+		return fmt.Errorf("kg: emit ontology triples for %s: %w", slug, err)
 	}
+	return nil
 }
