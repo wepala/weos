@@ -253,4 +253,3 @@ func (h *PasswordAuthHandler) completeAuth(
 		ExpiresAt: authSession.ExpiresAt(),
 	})
 }
-

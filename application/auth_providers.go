@@ -114,9 +114,9 @@ func ProvideAuthenticationService(params struct {
 	Accounts            authrepos.AccountRepository
 	PasswordCredentials authrepos.PasswordCredentialRepository
 	AuthzChecker        *authcasbin.CasbinAuthorizationChecker
-	EventStore          esdomain.EventStore         `optional:"true"`
-	EventDispatcher     *esdomain.EventDispatcher   `optional:"true"`
-	JWTService          authapp.JWTService          `optional:"true"`
+	EventStore          esdomain.EventStore       `optional:"true"`
+	EventDispatcher     *esdomain.EventDispatcher `optional:"true"`
+	JWTService          authapp.JWTService        `optional:"true"`
 }) authapp.AuthenticationService {
 	opts := []authapp.AuthServiceOption{
 		authapp.WithAuthorizationChecker(params.AuthzChecker),

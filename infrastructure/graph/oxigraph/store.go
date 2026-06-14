@@ -147,7 +147,7 @@ func (s *Store) Update(ctx context.Context, sparql string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("oxigraph update failed: %s: %s", resp.Status, body)
@@ -178,7 +178,7 @@ func (s *Store) Query(ctx context.Context, sparql string) (repositories.KGQueryR
 	if err != nil {
 		return repositories.KGQueryResult{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return repositories.KGQueryResult{}, fmt.Errorf(
@@ -219,7 +219,7 @@ func (s *Store) LoadOntology(ctx context.Context, format string, body []byte) er
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("oxigraph load failed: %s: %s", resp.Status, respBody)
@@ -597,7 +597,8 @@ func isValidLiteralSuffix(suffix string) bool {
 		}
 		for i := 0; i < len(tag); i++ {
 			c := tag[i]
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			valid := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-'
+			if !valid {
 				return false
 			}
 		}

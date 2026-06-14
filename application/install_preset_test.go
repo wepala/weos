@@ -94,7 +94,15 @@ func (s *stubEventStore) GetEventsByTransactionID(
 	return nil, nil
 }
 func (s *stubEventStore) GetCurrentVersion(_ context.Context, _ string) (int, error) { return 0, nil }
-func (s *stubEventStore) Close() error                                               { return nil }
+func (s *stubEventStore) ReadAfter(
+	_ context.Context, _ int64, _ int,
+) ([]domain.EventEnvelope[any], error) {
+	return nil, domain.ErrGlobalOrderingNotSupported
+}
+func (s *stubEventStore) HeadPosition(_ context.Context) (int64, error) {
+	return 0, domain.ErrGlobalOrderingNotSupported
+}
+func (s *stubEventStore) Close() error { return nil }
 
 // fakeResourceSvc records Create calls and can be configured to fail.
 type fakeResourceSvc struct {

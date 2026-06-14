@@ -25,10 +25,9 @@ func SubscribeResourceHandlers(
 	d *domain.EventDispatcher,
 	eventStore domain.EventStore,
 	repo repositories.ResourceRepository,
-	projMgr repositories.ProjectionManager,
 	logger entities.Logger,
 ) error {
-	return subscribeResourceHandlers(d, eventStore, repo, projMgr, logger)
+	return subscribeResourceHandlers(d, eventStore, repo, logger)
 }
 
 // SubscribeTripleHandlers exports the subscription for tests.

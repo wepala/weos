@@ -19,6 +19,8 @@ type stubProjMgr struct {
 	tables         map[string]bool
 	ancestorMap    map[string][]string
 	reverseRefs    map[string][]repositories.ReverseReference
+	fkUpdates      []fkUpdate
+	updateErr      error
 }
 
 func (s *stubProjMgr) EnsureTable(_ context.Context, slug string, _, _ json.RawMessage) error {
@@ -39,8 +41,20 @@ func (s *stubProjMgr) UpdateColumn(context.Context, string, string, string, any)
 	return nil
 }
 
-func (s *stubProjMgr) UpdateColumnByFK(context.Context, string, string, string, string, any) error {
-	return nil
+// fkUpdate records a single UpdateColumnByFK call for assertions.
+type fkUpdate struct {
+	typeSlug   string
+	fkColumn   string
+	fkValue    string
+	displayCol string
+	displayVal any
+}
+
+func (s *stubProjMgr) UpdateColumnByFK(
+	_ context.Context, typeSlug, fkColumn, fkValue, displayCol string, displayVal any,
+) error {
+	s.fkUpdates = append(s.fkUpdates, fkUpdate{typeSlug, fkColumn, fkValue, displayCol, displayVal})
+	return s.updateErr
 }
 
 func (s *stubProjMgr) ReverseReferences(slug string) []repositories.ReverseReference {

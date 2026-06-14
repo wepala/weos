@@ -64,6 +64,9 @@ func (r *ResourceTypeRepository) FindByID(
 	err := r.db.WithContext(ctx).
 		Where("id = ? AND deleted_at IS NULL", id).First(&model).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("resource type %q: %w", id, repositories.ErrNotFound)
+		}
 		return nil, fmt.Errorf("failed to find resource type: %w", err)
 	}
 	return model.ToResourceType()

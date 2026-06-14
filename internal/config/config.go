@@ -19,6 +19,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // OAuthConfig holds configuration for OAuth authentication.
@@ -127,12 +128,6 @@ type Config struct {
 	// SMTP holds configuration for outbound email.
 	SMTP SMTPConfig
 
-	// BigQuery event store configuration.
-	// When BigQueryProjectID is set, events are dual-written to both the primary store and BigQuery.
-	BigQueryProjectID string
-	BigQueryDatasetID string
-	BigQueryTableID   string
-
 	// Storage holds configuration for file storage backends.
 	Storage StorageConfig
 
@@ -141,6 +136,50 @@ type Config struct {
 	// SPARQL endpoint alongside the existing read-models, and the
 	// `knowledge-graph` MCP tool group is enabled.
 	Oxigraph OxigraphConfig
+
+	// Worker holds configuration for the background subscriber runtime that
+	// runs peripheral event handlers (knowledge-graph sync, denormalization)
+	// off checkpointed feeds, isolated from the synchronous write path.
+	Worker WorkerConfig
+}
+
+// WorkerConfig tunes the background subscriber runtime (epic #365). Subscribers
+// process the event store's global feed asynchronously off named checkpoints,
+// recovering from crashes by resuming at their last committed position. These
+// knobs control batching, polling, retry/backoff, and whether the workers run
+// inside this process.
+type WorkerConfig struct {
+	// RunInProcess controls whether background subscribers run in this
+	// process. The `serve` command sets it true so workers run alongside the
+	// API; short-lived CLI commands leave it false so they can inspect or
+	// reset checkpoints and parked events without starting processing.
+	RunInProcess bool
+	// BatchSize is how many events a subscriber reads per cycle. Default 100.
+	BatchSize int
+	// PollInterval is how long an idle subscriber waits before re-checking the
+	// feed; it is also the retry delay after a failed batch (per-event poison
+	// retries use RetryBackoff instead). Default 1s.
+	PollInterval time.Duration
+	// MaxRetries is how many times a failing handler is retried per event
+	// (after the initial attempt) before the event is parked. Default 5.
+	MaxRetries int
+	// RetryBackoff is the first retry delay; it doubles per attempt up to
+	// MaxRetryBackoff. Defaults 100ms and 5s.
+	RetryBackoff    time.Duration
+	MaxRetryBackoff time.Duration
+	// LagLogInterval is how often each subscriber's checkpoint lag is logged.
+	// Zero disables lag logging. Default 30s.
+	LagLogInterval time.Duration
+}
+
+// IsPostgres reports whether the configured DSN targets PostgreSQL. Mirrors the
+// driver detection in the GORM provider so the worker runtime can choose the
+// right wake mechanism (Postgres LISTEN/NOTIFY vs in-process notifier).
+func (c Config) IsPostgres() bool {
+	dsn := c.DatabaseDSN
+	return strings.HasPrefix(dsn, "host=") ||
+		strings.Contains(dsn, "postgres://") ||
+		strings.Contains(dsn, "postgresql://")
 }
 
 // OxigraphConfig holds configuration for the optional Oxigraph knowledge-graph
@@ -160,8 +199,10 @@ type OxigraphConfig struct {
 	// QueryTimeout is the per-request timeout for SPARQL queries/updates.
 	// Default: 10s.
 	QueryTimeoutSeconds int
-	// Rebuild forces the startup backfill to clear and re-load the graph
-	// instead of skipping a populated store.
+	// Rebuild requests a full graph rebuild on startup. The Oxigraph projector
+	// now runs as a checkpointed subscriber whose initial catch-up backfills the
+	// graph, so a rebuild is "reset the oxigraph checkpoint to 0" — wired to this
+	// flag in story #371.
 	Rebuild bool
 }
 
@@ -315,6 +356,15 @@ func Default() Config {
 			S3Region:       "us-east-1",
 			MaxUploadBytes: 50 << 20, // 50 MB
 		},
+		Worker: WorkerConfig{
+			RunInProcess:    false,
+			BatchSize:       100,
+			PollInterval:    time.Second,
+			MaxRetries:      5,
+			RetryBackoff:    100 * time.Millisecond,
+			MaxRetryBackoff: 5 * time.Second,
+			LagLogInterval:  30 * time.Second,
+		},
 	}
 }
 
@@ -431,16 +481,6 @@ func (c *Config) LoadFromEnvironment() {
 		c.OAuth.DefaultProvider = provider
 	}
 
-	if bqProject := os.Getenv("BIGQUERY_PROJECT_ID"); bqProject != "" {
-		c.BigQueryProjectID = bqProject
-	}
-	if bqDataset := os.Getenv("BIGQUERY_DATASET_ID"); bqDataset != "" {
-		c.BigQueryDatasetID = bqDataset
-	}
-	if bqTable := os.Getenv("BIGQUERY_TABLE_ID"); bqTable != "" {
-		c.BigQueryTableID = bqTable
-	}
-
 	if smtpHost := os.Getenv("SMTP_HOST"); smtpHost != "" {
 		c.SMTP.Host = smtpHost
 	}
@@ -498,6 +538,47 @@ func (c *Config) LoadFromEnvironment() {
 	if v := os.Getenv("OXIGRAPH_REBUILD"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			c.Oxigraph.Rebuild = b
+		}
+	}
+
+	c.loadWorkerFromEnvironment()
+}
+
+// loadWorkerFromEnvironment reads the WORKER_* tunables. It deliberately does
+// NOT read WORKER_RUN_IN_PROCESS: whether this process runs the background
+// subscribers is decided per-command (the serve command opts in via
+// loadServeConfig), not globally here. Reading it here would let any
+// short-lived CLI command that builds the Fx graph (resource, person, …)
+// accidentally start workers when the var is set in a shared environment.
+func (c *Config) loadWorkerFromEnvironment() {
+	if v := os.Getenv("WORKER_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.BatchSize = n
+		}
+	}
+	if v := os.Getenv("WORKER_POLL_INTERVAL_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.PollInterval = time.Duration(n) * time.Millisecond
+		}
+	}
+	if v := os.Getenv("WORKER_MAX_RETRIES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			c.Worker.MaxRetries = n
+		}
+	}
+	if v := os.Getenv("WORKER_RETRY_BACKOFF_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.RetryBackoff = time.Duration(n) * time.Millisecond
+		}
+	}
+	if v := os.Getenv("WORKER_MAX_RETRY_BACKOFF_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.MaxRetryBackoff = time.Duration(n) * time.Millisecond
+		}
+	}
+	if v := os.Getenv("WORKER_LAG_LOG_INTERVAL_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			c.Worker.LagLogInterval = time.Duration(n) * time.Second
 		}
 	}
 }

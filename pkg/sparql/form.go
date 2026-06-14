@@ -83,5 +83,6 @@ func hasKeyword(s, kw string) bool {
 		return true
 	}
 	c := s[len(kw)]
-	return !(c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_')
+	isWordChar := c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
+	return !isWordChar
 }
