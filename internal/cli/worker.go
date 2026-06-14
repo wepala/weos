@@ -35,11 +35,15 @@ var workerCmd = &cobra.Command{
 	Use:   "worker",
 	Short: "Inspect and operate the background event subscribers",
 	Long: `Manage the background subscriber runtime: list and replay parked
-(poison) events that a handler could not process after exhausting its retries.
+(poison) events that a handler could not process after exhausting its retries,
+and reset checkpoints to rebuild a projection.
 
-These commands do not start the background workers — they operate on the shared
-checkpoint and parked-event tables, so they are safe to run while a server is
-processing.`,
+These commands do not start the background workers themselves. The parked-event
+inspection/replay and a plain "checkpoint reset" only touch the checkpoint and
+parked-event tables, so they are safe to run while a server is processing.
+"checkpoint reset --truncate" is the exception — it clears the projection table,
+which races with a live subscriber or the API still writing it; run it with the
+server stopped (or the affected group otherwise idle).`,
 }
 
 var workerParkedCmd = &cobra.Command{
@@ -75,7 +79,9 @@ var workerCheckpointResetCmd = &cobra.Command{
 whole event history — the one mechanism for rebuild, recovery, and backfill.
 Replay is incremental and resumable (interrupting and restarting continues from
 where it left off). With --truncate, the subscriber's projection is cleared
-first so the replay rebuilds it from empty.`,
+first so the replay rebuilds it from empty; because that delete races with any
+live subscriber or API write to the same table, run --truncate only with the
+server stopped (or the affected group otherwise idle).`,
 	Args: cobra.ExactArgs(1),
 	RunE: runWorkerCheckpointReset,
 }
