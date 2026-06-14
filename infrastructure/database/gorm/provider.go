@@ -18,7 +18,10 @@ package gorm
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"os"
 	"strings"
+	"time"
 
 	weosmodels "github.com/wepala/weos/v3/infrastructure/models"
 	"github.com/wepala/weos/v3/internal/config"
@@ -29,7 +32,30 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
+
+// gormConfig returns the shared GORM config. The logger writes to stderr, never
+// stdout: the `weos mcp` stdio transport speaks JSON-RPC over stdout, and any
+// stray write there corrupts the protocol stream. (GORM's default logger logs
+// to stdout — which silently breaks stdio MCP clients.) RecordNotFound is
+// ignored because the repositories map it to a domain not-found error as normal
+// control flow, so it is not worth logging.
+func gormConfig() *gorm.Config {
+	return &gorm.Config{
+		Logger: gormlogger.New(
+			// No "\r\n" prefix (GORM's default uses one, which prepends a blank
+			// line to every entry) — keep stderr log lines clean.
+			log.New(os.Stderr, "", log.LstdFlags),
+			gormlogger.Config{
+				SlowThreshold:             200 * time.Millisecond,
+				LogLevel:                  gormlogger.Warn,
+				IgnoreRecordNotFoundError: true,
+				Colorful:                  false,
+			},
+		),
+	}
+}
 
 // GormDBResult holds the GORM database connection results.
 type GormDBResult struct {
@@ -53,12 +79,12 @@ func ProvideGormDB(params struct {
 	// PostgreSQL DSNs typically start with "host=" or contain "postgres://"
 	// SQLite DSNs are file paths or "file:" URIs
 	if strings.HasPrefix(dsn, "host=") || strings.Contains(dsn, "postgres://") || strings.Contains(dsn, "postgresql://") {
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		db, err = gorm.Open(postgres.Open(dsn), gormConfig())
 		if err != nil {
 			return GormDBResult{}, fmt.Errorf("failed to connect to PostgreSQL database: %w", err)
 		}
 	} else {
-		db, err = gorm.Open(sqlite.Open(sqliteDSNWithWorkerPragmas(dsn)), &gorm.Config{})
+		db, err = gorm.Open(sqlite.Open(sqliteDSNWithWorkerPragmas(dsn)), gormConfig())
 		if err != nil {
 			return GormDBResult{}, fmt.Errorf("failed to connect to SQLite database: %w", err)
 		}

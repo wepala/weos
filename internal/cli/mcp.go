@@ -42,7 +42,11 @@ Examples:
   weos mcp --services website --services page # same, repeated flag syntax
   MCP_SERVICES=organization weos mcp         # env var override`,
 		strings.Join(mcpserver.ValidServiceNames(), ", ")),
-	RunE: runMCP,
+	// This command is a long-running stdio server, not an interactive CLI. On a
+	// runtime error, printing the full usage/help text would be noise on the
+	// client's stderr and misleading, so suppress it and surface only the error.
+	SilenceUsage: true,
+	RunE:         runMCP,
 }
 
 func init() {
