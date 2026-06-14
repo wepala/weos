@@ -3,6 +3,7 @@ package config
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestLoadFromEnvironment_SMTP(t *testing.T) {
@@ -251,6 +252,57 @@ func TestLoadFromEnvironment_OxigraphNotSet(t *testing.T) {
 // A whitespace-only override (common in templated env files) must not
 // wipe pericarp's default scope list — empty parsing keeps Scopes nil
 // so the default kicks in downstream.
+func TestLoadFromEnvironment_WorkerTunables(t *testing.T) {
+	t.Setenv("WORKER_RUN_IN_PROCESS", "true")
+	t.Setenv("WORKER_BATCH_SIZE", "250")
+	t.Setenv("WORKER_POLL_INTERVAL_MS", "500")
+	t.Setenv("WORKER_MAX_RETRIES", "9")
+	t.Setenv("WORKER_RETRY_BACKOFF_MS", "200")
+	t.Setenv("WORKER_MAX_RETRY_BACKOFF_MS", "8000")
+	t.Setenv("WORKER_LAG_LOG_INTERVAL_SECONDS", "60")
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+
+	w := cfg.Worker
+	if !w.RunInProcess {
+		t.Error("WORKER_RUN_IN_PROCESS=true should set RunInProcess")
+	}
+	if w.BatchSize != 250 {
+		t.Errorf("BatchSize = %d, want 250", w.BatchSize)
+	}
+	if w.PollInterval != 500*time.Millisecond {
+		t.Errorf("PollInterval = %s, want 500ms", w.PollInterval)
+	}
+	if w.MaxRetries != 9 {
+		t.Errorf("MaxRetries = %d, want 9", w.MaxRetries)
+	}
+	if w.RetryBackoff != 200*time.Millisecond {
+		t.Errorf("RetryBackoff = %s, want 200ms", w.RetryBackoff)
+	}
+	if w.MaxRetryBackoff != 8*time.Second {
+		t.Errorf("MaxRetryBackoff = %s, want 8s", w.MaxRetryBackoff)
+	}
+	if w.LagLogInterval != 60*time.Second {
+		t.Errorf("LagLogInterval = %s, want 60s", w.LagLogInterval)
+	}
+}
+
+// Unset/invalid backoff overrides must leave the Default() values intact so
+// operators who tune nothing keep pericarp's 100ms→5s backoff curve.
+func TestLoadFromEnvironment_WorkerBackoffDefaultsPreserved(t *testing.T) {
+	t.Setenv("WORKER_RETRY_BACKOFF_MS", "0")        // non-positive: ignored
+	t.Setenv("WORKER_MAX_RETRY_BACKOFF_MS", "nope") // non-numeric: ignored
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+
+	if cfg.Worker.RetryBackoff != 100*time.Millisecond {
+		t.Errorf("RetryBackoff = %s, want default 100ms", cfg.Worker.RetryBackoff)
+	}
+	if cfg.Worker.MaxRetryBackoff != 5*time.Second {
+		t.Errorf("MaxRetryBackoff = %s, want default 5s", cfg.Worker.MaxRetryBackoff)
+	}
+}
+
 func TestLoadFromEnvironment_NetSuiteScopes_WhitespaceOnly(t *testing.T) {
 	for _, value := range []string{" ", "\t", " , \t , ", ",,"} {
 		t.Run(value, func(t *testing.T) {

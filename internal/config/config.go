@@ -568,6 +568,16 @@ func (c *Config) loadWorkerFromEnvironment() {
 			c.Worker.MaxRetries = n
 		}
 	}
+	if v := os.Getenv("WORKER_RETRY_BACKOFF_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.RetryBackoff = time.Duration(n) * time.Millisecond
+		}
+	}
+	if v := os.Getenv("WORKER_MAX_RETRY_BACKOFF_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Worker.MaxRetryBackoff = time.Duration(n) * time.Millisecond
+		}
+	}
 	if v := os.Getenv("WORKER_LAG_LOG_INTERVAL_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			c.Worker.LagLogInterval = time.Duration(n) * time.Second
