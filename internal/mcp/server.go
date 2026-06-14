@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"reflect"
@@ -179,6 +180,15 @@ func Run(enabledServices []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
+	// Custom tools registered by downstream binaries run on every
+	// transport; the stdio path applies them here. The logger writes to
+	// stderr (slog's default), so it never corrupts the stdout protocol
+	// channel.
+	applyConfigurers(server, ConfigurerDeps{
+		ResourceService:     resourceService,
+		ResourceTypeService: resourceTypeService,
+		Logger:              slog.Default(),
+	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
