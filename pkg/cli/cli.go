@@ -66,6 +66,6 @@ type MCPConfigurerDeps = mcpserver.ConfigurerDeps
 // to expose a custom, non-CRUD tool — e.g. one that writes through a
 // behavior pipeline rather than directly to projection tables. Must be
 // called before Execute(). Mirrors RegisterEchoConfigurer for HTTP.
-func RegisterMCPConfigurer(c func(server *mcp.Server, deps mcpserver.ConfigurerDeps)) {
+func RegisterMCPConfigurer(c func(server *mcp.Server, deps MCPConfigurerDeps)) {
 	mcpserver.RegisterMCPConfigurer(c)
 }
