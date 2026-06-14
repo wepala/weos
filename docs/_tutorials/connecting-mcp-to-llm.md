@@ -26,7 +26,7 @@ The server exposes five tool groups:
 - **organization** — create, get, list, update, delete organizations
 - **resource-type** — create, get, list, update, delete resource types; list and install presets; list and set behaviors
 - **resource** — create, get, list, update, delete resources of any type
-- **knowledge-graph** — search entities, describe classes, expand entities, find paths, run SPARQL queries (registered only when a knowledge-graph store is configured)
+- **knowledge-graph** — search entities, describe classes, expand entities, find paths, run SPARQL queries (the tools are always available; if no knowledge-graph store is configured, each call returns a "knowledge graph not configured" error)
 
 You can enable only specific tool groups:
 
@@ -195,7 +195,7 @@ You can also set this via the `MCP_SERVICES` environment variable:
 | `kg_find_path` | from, to, max_hops? | Find a path between two entities |
 | `kg_sparql_query` | query | Run a SPARQL 1.1 query |
 
-Knowledge-graph tools are registered only when a knowledge-graph store (e.g. Oxigraph) is configured.
+Knowledge-graph tools are always registered. When no knowledge-graph store (e.g. Oxigraph) is configured, each call returns a "knowledge graph not configured" error instead of the tools being absent.
 
 See [MCP Tools Reference]({% link _reference/mcp-tools.md %}) for complete input/output schemas.
 

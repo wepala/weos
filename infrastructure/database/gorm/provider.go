@@ -44,7 +44,9 @@ import (
 func gormConfig() *gorm.Config {
 	return &gorm.Config{
 		Logger: gormlogger.New(
-			log.New(os.Stderr, "\r\n", log.LstdFlags),
+			// No "\r\n" prefix (GORM's default uses one, which prepends a blank
+			// line to every entry) — keep stderr log lines clean.
+			log.New(os.Stderr, "", log.LstdFlags),
 			gormlogger.Config{
 				SlowThreshold:             200 * time.Millisecond,
 				LogLevel:                  gormlogger.Warn,
