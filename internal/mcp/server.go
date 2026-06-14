@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"reflect"
@@ -181,7 +183,27 @@ func Run(enabledServices []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	return server.Run(ctx, &mcp.StdioTransport{})
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && !isCleanShutdown(ctx, err) {
+		return err
+	}
+	return nil
+}
+
+// isCleanShutdown reports whether err is the normal end of a stdio MCP session
+// rather than a real failure. A desktop client ends the session by closing the
+// server's stdin (surfaces as io.EOF) or by signaling the process
+// (SIGINT/SIGTERM, which cancels ctx). The SDK reports a closed stdin as an
+// "...server is closing: EOF" error whose cause is joined with %v, so io.EOF is
+// not in the chain — fall back to matching that message for the case where EOF
+// arrives mid-handshake.
+func isCleanShutdown(ctx context.Context, err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		return true
+	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	return strings.Contains(err.Error(), "server is closing")
 }
 
 // isNilInterface returns true if v is nil or a typed-nil (interface wrapping a nil pointer).

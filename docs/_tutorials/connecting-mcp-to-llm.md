@@ -21,11 +21,12 @@ In this tutorial you'll start the MCP server, connect it to Claude Desktop, and 
 
 WeOS's MCP server uses **stdio transport** — it communicates via standard input/output. The LLM client launches the `weos mcp` process and communicates with it through stdin/stdout.
 
-The server exposes four tool groups:
+The server exposes five tool groups:
 - **person** — create, get, list, update, delete persons
 - **organization** — create, get, list, update, delete organizations
-- **resource-type** — create, get, list, update, delete resource types; list and install presets
+- **resource-type** — create, get, list, update, delete resource types; list and install presets; list and set behaviors
 - **resource** — create, get, list, update, delete resources of any type
+- **knowledge-graph** — search entities, describe classes, expand entities, find paths, run SPARQL queries (registered only when a knowledge-graph store is configured)
 
 You can enable only specific tool groups:
 
@@ -180,11 +181,21 @@ You can also set this via the `MCP_SERVICES` environment variable:
 | `resource_type_delete` | id | Delete a resource type |
 | `resource_type_preset_list` | (none) | List available presets |
 | `resource_type_preset_install` | name, update? | Install a preset |
+| `resource_type_behavior_list` | type_slug | List a resource type's behaviors and their enabled state |
+| `resource_type_behavior_set` | type_slug, slugs | Set which behaviors are enabled for a resource type |
 | `resource_create` | type_slug, data | Create a resource |
 | `resource_get` | id | Get a resource |
 | `resource_list` | type_slug, cursor?, limit?, sort_by?, sort_order? | List resources |
 | `resource_update` | id, data | Update a resource |
 | `resource_delete` | id | Delete a resource |
+| `kg_search_entities` | q, class_iri?, limit? | Search knowledge-graph entities by label/name |
+| `kg_list_classes` | (none) | List classes in the knowledge graph |
+| `kg_describe_class` | class_iri, sample_instances? | Describe a class: its predicates and example instances |
+| `kg_expand_entity` | iri, depth? | Expand an entity's relationships |
+| `kg_find_path` | from, to, max_hops? | Find a path between two entities |
+| `kg_sparql_query` | query | Run a SPARQL 1.1 query |
+
+Knowledge-graph tools are registered only when a knowledge-graph store (e.g. Oxigraph) is configured.
 
 See [MCP Tools Reference]({% link _reference/mcp-tools.md %}) for complete input/output schemas.
 
