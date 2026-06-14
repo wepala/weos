@@ -34,8 +34,11 @@ import (
 // ConfigurerDeps exposes the services a custom MCP tool needs. It is the
 // subset of the MCP server's wiring that is safe and useful to hand to
 // downstream tools. Logger may be nil (configurers should fall back to a
-// default); it writes to stderr so it never corrupts the stdio protocol
-// channel.
+// default). Its destination depends on the transport: the stdio path
+// supplies a stderr logger (so it can't corrupt the stdout protocol
+// channel), while the HTTP path passes through the caller-provided
+// logger, which may write elsewhere — a tool needing a specific
+// destination should not assume one.
 type ConfigurerDeps struct {
 	ResourceService     application.ResourceService
 	ResourceTypeService application.ResourceTypeService

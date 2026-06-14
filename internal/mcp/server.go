@@ -181,13 +181,14 @@ func Run(enabledServices []string) error {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
 	// Custom tools registered by downstream binaries run on every
-	// transport; the stdio path applies them here. The logger writes to
-	// stderr (slog's default), so it never corrupts the stdout protocol
-	// channel.
+	// transport; the stdio path applies them here. Use an explicit stderr
+	// logger rather than slog.Default(): the default can be redirected to
+	// stdout by downstream code, which would corrupt the stdio MCP
+	// protocol stream.
 	applyConfigurers(server, ConfigurerDeps{
 		ResourceService:     resourceService,
 		ResourceTypeService: resourceTypeService,
-		Logger:              slog.Default(),
+		Logger:              slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
