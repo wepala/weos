@@ -400,8 +400,11 @@ func (m *Manager) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		// The run context is already canceled; workers will exit once their
 		// in-flight batch drains. Report the timeout so a stuck handler is
-		// visible rather than silently extending shutdown.
-		m.running = false
+		// visible rather than silently extending shutdown. Leave m.running
+		// true: the goroutines are still draining on m.wg, so flipping it
+		// false would let a later Start launch a duplicate set of subscribers
+		// in the same process. Holding it true keeps Start a no-op and lets
+		// Stop be retried — it returns cleanly once the in-flight batch drains.
 		return fmt.Errorf("worker: shutdown timed out before all subscribers drained: %w", ctx.Err())
 	}
 }
