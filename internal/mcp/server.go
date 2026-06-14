@@ -190,12 +190,24 @@ func Run(enabledServices []string) error {
 }
 
 // isCleanShutdown reports whether err is the normal end of a stdio MCP session
-// rather than a real failure. A desktop client ends the session by closing the
-// server's stdin (surfaces as io.EOF) or by signaling the process
-// (SIGINT/SIGTERM, which cancels ctx). The SDK reports a closed stdin as an
-// "...server is closing: EOF" error whose cause is joined with %v, so io.EOF is
-// not in the chain — fall back to matching that message for the case where EOF
-// arrives mid-handshake.
+// rather than a real failure, so the caller can exit 0 instead of surfacing it.
+// Two signals count as clean:
+//
+//   - ctx was canceled — the process got SIGINT/SIGTERM and server.Run returned
+//     ctx.Err(). This is the common interactive-shutdown path.
+//   - the client closed stdin mid-handshake — the SDK returns an error whose
+//     message is "server is closing: EOF". The EOF cause is joined with %v (not
+//     %w), so errors.Is(err, io.EOF) can't see it; we match the message but also
+//     require the EOF cause, so a non-EOF transport failure wrapped in the same
+//     "server is closing" prefix (e.g. a broken pipe) still propagates as a real
+//     error rather than being mistaken for a clean exit.
+//
+// Note: a clean stdin EOF on an already-established session does NOT reach here.
+// The SDK's jsonrpc2 wait() swallows a bare io.EOF read error and server.Run
+// returns nil, which the caller treats as success before calling this. The
+// errors.Is(io.EOF) check below is only defensive cover for wrapped-EOF variants.
+//
+// Verified against modelcontextprotocol/go-sdk v1.4.1.
 func isCleanShutdown(ctx context.Context, err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 		return true
@@ -203,7 +215,8 @@ func isCleanShutdown(ctx context.Context, err error) bool {
 	if errors.Is(err, io.EOF) {
 		return true
 	}
-	return strings.Contains(err.Error(), "server is closing")
+	msg := err.Error()
+	return strings.Contains(msg, "server is closing") && strings.Contains(msg, "EOF")
 }
 
 // isNilInterface returns true if v is nil or a typed-nil (interface wrapping a nil pointer).

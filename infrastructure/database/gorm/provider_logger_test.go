@@ -54,8 +54,8 @@ func TestGormConfig_LogsToStderrNotStdout(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	// A query against a missing table is a real error GORM logs at Error level
-	// (unlike RecordNotFound, which gormConfig ignores). This is the kind of
-	// write that would otherwise land on stdout.
+	// (unlike RecordNotFound, which gormConfig ignores) — forcing the logger to
+	// emit so we can see which stream it writes to.
 	_ = db.Exec("SELECT * FROM table_that_does_not_exist").Error
 
 	restore()
@@ -64,8 +64,14 @@ func TestGormConfig_LogsToStderrNotStdout(t *testing.T) {
 	outBytes, _ := io.ReadAll(outR)
 	errBytes, _ := io.ReadAll(errR)
 
+	// Two complementary regressions are covered:
+	//   - The stderr assertion fires if gormConfig were reverted to the bare
+	//     &gorm.Config{}: GORM's default logger captured the real os.Stdout at
+	//     package init (before this swap), so nothing reaches the piped stderr.
+	//   - The stdout assertion fires if gormConfig itself were changed to build
+	//     its logger over os.Stdout: it captures the swapped stdout at call time.
 	if len(outBytes) != 0 {
-		t.Errorf("GORM wrote to stdout (corrupts stdio MCP protocol):\n%s", outBytes)
+		t.Errorf("GORM logger wrote to stdout (corrupts stdio MCP protocol):\n%s", outBytes)
 	}
 	if !strings.Contains(string(errBytes), "table_that_does_not_exist") {
 		t.Errorf("expected the GORM error log on stderr, got: %q", errBytes)

@@ -42,8 +42,11 @@ func TestIsCleanShutdown(t *testing.T) {
 		{"plain io.EOF", live, io.EOF, true},
 		{"wrapped io.EOF", live, fmt.Errorf("read: %w", io.EOF), true},
 		// The SDK joins the EOF cause with %v, so io.EOF is not in the chain —
-		// the "server is closing" message is the only signal.
+		// the "server is closing" message plus an EOF cause is the only signal.
 		{"server is closing: EOF (%v-joined)", live, errors.New("server is closing: EOF"), true},
+		// A non-EOF transport failure wrapped in the same prefix is NOT clean:
+		// it must propagate so a broken session exits non-zero, not 0.
+		{"server is closing: non-EOF propagates", live, errors.New("server is closing: broken pipe"), false},
 		{"real failure", live, errors.New("database is locked"), false},
 	}
 	for _, tc := range cases {
