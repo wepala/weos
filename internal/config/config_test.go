@@ -253,6 +253,9 @@ func TestLoadFromEnvironment_OxigraphNotSet(t *testing.T) {
 // wipe pericarp's default scope list — empty parsing keeps Scopes nil
 // so the default kicks in downstream.
 func TestLoadFromEnvironment_WorkerTunables(t *testing.T) {
+	// WORKER_RUN_IN_PROCESS is deliberately NOT read by LoadFromEnvironment so
+	// short-lived CLI commands can't be made to start workers via the env; only
+	// the serve command honors it. Set it here to prove it has no effect.
 	t.Setenv("WORKER_RUN_IN_PROCESS", "true")
 	t.Setenv("WORKER_BATCH_SIZE", "250")
 	t.Setenv("WORKER_POLL_INTERVAL_MS", "500")
@@ -264,8 +267,8 @@ func TestLoadFromEnvironment_WorkerTunables(t *testing.T) {
 	cfg.LoadFromEnvironment()
 
 	w := cfg.Worker
-	if !w.RunInProcess {
-		t.Error("WORKER_RUN_IN_PROCESS=true should set RunInProcess")
+	if w.RunInProcess {
+		t.Error("LoadFromEnvironment must NOT read WORKER_RUN_IN_PROCESS (serve owns that decision)")
 	}
 	if w.BatchSize != 250 {
 		t.Errorf("BatchSize = %d, want 250", w.BatchSize)

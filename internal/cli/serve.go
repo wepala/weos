@@ -529,10 +529,16 @@ func loadServeConfig() config.Config {
 			appCfg.Server.Port = port
 		}
 	}
-	// The long-lived server process runs the background subscribers; short-lived
-	// CLI commands leave this false (unless WORKER_RUN_IN_PROCESS overrode it).
-	if os.Getenv("WORKER_RUN_IN_PROCESS") == "" {
-		appCfg.Worker.RunInProcess = true
+	// The long-lived server process runs the background subscribers by default.
+	// Operators running a separate dedicated worker can set
+	// WORKER_RUN_IN_PROCESS=false to keep this serve process API-only. This is
+	// the only place the var is honored — short-lived CLI commands never start
+	// workers regardless of the environment.
+	appCfg.Worker.RunInProcess = true
+	if v := os.Getenv("WORKER_RUN_IN_PROCESS"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			appCfg.Worker.RunInProcess = b
+		}
 	}
 	return appCfg
 }

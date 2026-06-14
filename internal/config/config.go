@@ -544,15 +544,13 @@ func (c *Config) LoadFromEnvironment() {
 	c.loadWorkerFromEnvironment()
 }
 
-// loadWorkerFromEnvironment reads the WORKER_* tunables. RunInProcess is
-// normally set programmatically (the serve command enables it), but an env
-// override lets operators run a dedicated worker process.
+// loadWorkerFromEnvironment reads the WORKER_* tunables. It deliberately does
+// NOT read WORKER_RUN_IN_PROCESS: whether this process runs the background
+// subscribers is decided per-command (the serve command opts in via
+// loadServeConfig), not globally here. Reading it here would let any
+// short-lived CLI command that builds the Fx graph (resource, person, …)
+// accidentally start workers when the var is set in a shared environment.
 func (c *Config) loadWorkerFromEnvironment() {
-	if v := os.Getenv("WORKER_RUN_IN_PROCESS"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			c.Worker.RunInProcess = b
-		}
-	}
 	if v := os.Getenv("WORKER_BATCH_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Worker.BatchSize = n
