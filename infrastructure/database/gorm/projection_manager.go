@@ -29,6 +29,7 @@ import (
 	"github.com/wepala/weos/v3/pkg/jsonld"
 	"github.com/wepala/weos/v3/pkg/utils"
 
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
 	"github.com/jinzhu/inflection"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
@@ -211,12 +212,26 @@ func (pm *projectionManager) HasColumn(slug, column string) bool {
 	return false
 }
 
+// writeDB returns the gorm handle a projection write must use. When a
+// subscriber's batch transaction is in the context (pericarp injects it via
+// HandlerContext), the write joins that transaction so it runs on the same
+// connection — otherwise, under SQLite, a handler write on a pooled
+// connection deadlocks against the batch's own write lock. Outside a batch
+// (request-path writes, DDL, startup) TxFromContext is nil and we fall back
+// to the pooled handle.
+func (pm *projectionManager) writeDB(ctx context.Context) *gorm.DB {
+	if tx := subscriptions.TxFromContext(ctx); tx != nil {
+		return tx.WithContext(ctx)
+	}
+	return pm.db.WithContext(ctx)
+}
+
 func (pm *projectionManager) UpdateColumn(ctx context.Context, typeSlug, resourceID, column string, value any) error {
 	if !pm.HasProjectionTable(typeSlug) {
 		return nil
 	}
 	tableName := pm.TableName(typeSlug)
-	if err := pm.db.WithContext(ctx).Table(tableName).
+	if err := pm.writeDB(ctx).Table(tableName).
 		Where("id = ?", resourceID).Update(column, value).Error; err != nil {
 		return err
 	}
@@ -231,7 +246,7 @@ func (pm *projectionManager) UpdateColumn(ctx context.Context, typeSlug, resourc
 			continue
 		}
 		aTable := pm.TableName(ancestorSlug)
-		if err := pm.db.WithContext(ctx).Table(aTable).
+		if err := pm.writeDB(ctx).Table(aTable).
 			Where("id = ?", resourceID).Update(column, value).Error; err != nil {
 			return err
 		}
@@ -246,7 +261,7 @@ func (pm *projectionManager) UpdateColumnByFK(
 		return nil
 	}
 	tableName := pm.TableName(typeSlug)
-	return pm.db.WithContext(ctx).Table(tableName).
+	return pm.writeDB(ctx).Table(tableName).
 		Where(fkColumn+" = ?", fkValue).
 		Update(targetColumn, targetValue).Error
 }
