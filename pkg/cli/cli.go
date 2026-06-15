@@ -24,7 +24,10 @@ package cli
 
 import (
 	internalcli "github.com/wepala/weos/v3/internal/cli"
+	mcpserver "github.com/wepala/weos/v3/internal/mcp"
 	"go.uber.org/fx"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Execute runs the weos CLI root command.
@@ -51,4 +54,18 @@ func RegisterFxOptions(opts ...fx.Option) {
 // before Execute().
 func RegisterEchoConfigurer(c internalcli.EchoConfigurer) {
 	internalcli.RegisterEchoConfigurer(c)
+}
+
+// MCPConfigurerDeps re-exports the dependency bundle handed to a custom
+// MCP tool configurer (see RegisterMCPConfigurer).
+type MCPConfigurerDeps = mcpserver.ConfigurerDeps
+
+// RegisterMCPConfigurer registers a function that adds custom tools to
+// the MCP server, on every transport (stdio and Streamable HTTP), after
+// the built-in tool groups. Use this from a downstream binary's init()
+// to expose a custom, non-CRUD tool — e.g. one that writes through a
+// behavior pipeline rather than directly to projection tables. Must be
+// called before Execute(). Mirrors RegisterEchoConfigurer for HTTP.
+func RegisterMCPConfigurer(c func(server *mcp.Server, deps MCPConfigurerDeps)) {
+	mcpserver.RegisterMCPConfigurer(c)
 }

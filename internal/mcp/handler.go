@@ -39,6 +39,13 @@ func NewHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP server: %w", err)
 	}
+	// Custom tools registered by downstream binaries run on every
+	// transport; the HTTP path applies them here.
+	applyConfigurers(server, ConfigurerDeps{
+		ResourceService:     resourceService,
+		ResourceTypeService: resourceTypeService,
+		Logger:              logger,
+	})
 	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
 		return server
 	}, &gomcp.StreamableHTTPOptions{
