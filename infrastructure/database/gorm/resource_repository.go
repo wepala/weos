@@ -442,6 +442,18 @@ func (r *ResourceRepository) lookupDisplayFromProjection(
 		return "", false, nil
 	}
 	tableName := r.projMgr.TableName(ref.TargetTypeSlug)
+	// A genuine resource projection always carries the standard account_id
+	// column. If the physical table doesn't, this type's projection-table name
+	// collides with a non-resource system table (e.g. the abstract `agent` type
+	// projects to `agents`, which is weos's auth identity table) or the
+	// projection never materialized — there are no resource rows to resolve, and
+	// the scoped query below would reference columns the physical table lacks
+	// (the "no such column: account_id" failure). Treat it as a clean miss so
+	// the caller falls back to the canonical path and persists a NULL display,
+	// rather than logging a write-path error on every such reference.
+	if !r.db.Migrator().HasColumn(tableName, "account_id") {
+		return "", false, nil
+	}
 	query := r.db.WithContext(ctx).Table(tableName).
 		Select(displayCol).
 		Where("id = ?", fkVal)
