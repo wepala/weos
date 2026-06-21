@@ -737,6 +737,49 @@ func makeTestResourceForAccount(t *testing.T, id, typeSlug, dataJSON, accountID 
 	return e
 }
 
+// TestLookupDisplayFromProjection_CollidingSystemTable_ReturnsCleanMiss is the
+// regression test for the auth-table collision: a resource type whose
+// projection-table name collides with a non-resource system table (the canonical
+// case is the abstract `agent` type, whose table name `agents` is weos's auth
+// identity table). The cached projection metadata claims the standard
+// account_id column, but the physical table lacks it, so a scoped display lookup
+// would fail with "no such column: account_id". The lookup must instead return a
+// clean miss (no error) so the write proceeds with a NULL display rather than
+// logging an error on every such reference.
+func TestLookupDisplayFromProjection_CollidingSystemTable_ReturnsCleanMiss(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	// Physical table shaped like weos's auth `agents` table: id + name, NO
+	// account_id (nor the resource-scoping columns).
+	if err := db.Exec(`CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT)`).Error; err != nil {
+		t.Fatalf("create colliding table: %v", err)
+	}
+	// Cached metadata claims a normal resource projection (incl. account_id),
+	// mirroring EnsureTable stamping the standard columns into the cache.
+	pm.tables.Store("agent", tableInfo{
+		name:    "agents",
+		columns: map[string]bool{"id": true, "name": true, "account_id": true},
+	})
+	repo := &ResourceRepository{db: db, projMgr: pm, logger: &testLogger{}}
+
+	ref := repositories.ForwardReference{
+		FKColumn: "receiver", DisplayColumn: "receiver_display",
+		TargetTypeSlug: "agent", DisplayProperty: "name",
+	}
+	// A non-nil scope is what triggers the account_id clause that would fail.
+	scope := &repositories.VisibilityScope{AccountID: "acct-1", AgentID: "agent-1"}
+
+	val, found, err := repo.lookupDisplayFromProjection(
+		context.Background(), ref, "urn:autonomous-agent:x", scope)
+	if err != nil {
+		t.Fatalf("colliding system table should be a clean miss, got error: %v", err)
+	}
+	if found || val != "" {
+		t.Errorf("want unresolved (NULL display), got found=%v val=%q", found, val)
+	}
+}
+
 // TestSaveToProjection_CrossAccountReference_DisplayStaysNull is the security
 // regression test for the cross-account display leak. A user in account A
 // references a course in account B by id. The lookup must NOT denormalize the
