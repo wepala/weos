@@ -42,7 +42,7 @@ type ListResourcesInput struct {
 type ResourceOutput struct {
 	ID        string    `json:"id"`
 	TypeSlug  string    `json:"type_slug"`
-	Data      any       `json:"data"`
+	Data      any       `json:"data" jsonschema:"resource data as JSON-LD object"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 }
