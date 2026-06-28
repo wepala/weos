@@ -27,6 +27,15 @@ func rawJSON(v any) (json.RawMessage, error) {
 	return json.RawMessage(b), nil
 }
 
+// valueOr returns v unless it is empty, in which case it returns fallback. Used
+// for patch-style updates where an omitted string means "leave unchanged".
+func valueOr(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
 // rawContextAndSchema converts the free-form context and schema inputs into
 // json.RawMessage for a service command, attributing any error to its field.
 func rawContextAndSchema(contextVal, schemaVal any) (json.RawMessage, json.RawMessage, error) {
@@ -55,9 +64,11 @@ type CreateResourceTypeInput struct {
 	Schema      any    `json:"schema,omitempty" jsonschema:"JSON Schema for validation (object)"`
 }
 
+// On update only ID is required; every other field is optional and, when
+// omitted, left unchanged (patch semantics applied in the handler).
 type UpdateResourceTypeInput struct {
 	ID          string `json:"id" jsonschema:"resource type ID (URN)"`
-	Name        string `json:"name" jsonschema:"resource type display name"`
+	Name        string `json:"name,omitempty" jsonschema:"resource type display name"`
 	Slug        string `json:"slug,omitempty" jsonschema:"URL slug"`
 	Description string `json:"description,omitempty" jsonschema:"resource type description"`
 	Context     any    `json:"context,omitempty" jsonschema:"JSON-LD context (string, array, or object)"`
@@ -198,15 +209,34 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input UpdateResourceTypeInput,
 	) (*mcp.CallToolResult, ResourceTypeOutput, error) {
-		contextRaw, schemaRaw, err := rawContextAndSchema(input.Context, input.Schema)
+		// Patch semantics: the service does a full replace, so load the current
+		// type and keep any field the caller omits. Otherwise updating one field
+		// (e.g. description) would clear the slug — which the service then
+		// rejects as empty — or silently wipe the context/schema (issue #382 review).
+		existing, err := svc.GetByID(ctx, input.ID)
 		if err != nil {
 			return nil, ResourceTypeOutput{}, err
 		}
-		entity, err := svc.Update(ctx, application.UpdateResourceTypeCommand{
-			ID: input.ID, Name: input.Name, Slug: input.Slug,
-			Description: input.Description, Context: contextRaw,
-			Schema: schemaRaw, Status: input.Status,
-		})
+		cmd := application.UpdateResourceTypeCommand{
+			ID:          input.ID,
+			Name:        valueOr(input.Name, existing.Name()),
+			Slug:        valueOr(input.Slug, existing.Slug()),
+			Description: valueOr(input.Description, existing.Description()),
+			Status:      valueOr(input.Status, existing.Status()),
+			Context:     existing.Context(),
+			Schema:      existing.Schema(),
+		}
+		if input.Context != nil {
+			if cmd.Context, err = rawJSON(input.Context); err != nil {
+				return nil, ResourceTypeOutput{}, fmt.Errorf("invalid context: %w", err)
+			}
+		}
+		if input.Schema != nil {
+			if cmd.Schema, err = rawJSON(input.Schema); err != nil {
+				return nil, ResourceTypeOutput{}, fmt.Errorf("invalid schema: %w", err)
+			}
+		}
+		entity, err := svc.Update(ctx, cmd)
 		if err != nil {
 			return nil, ResourceTypeOutput{}, err
 		}

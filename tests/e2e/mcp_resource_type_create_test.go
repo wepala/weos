@@ -52,6 +52,8 @@ func initResourceTypeCreateScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I create the resource type "([^"]*)" over MCP$`, w.iCreateResourceType)
 	sc.Step(`^the resource type "([^"]*)" is created$`, w.theResourceTypeIsCreated)
 	sc.Step(`^a "([^"]*)" resource can be created with:$`, w.aResourceCanBeCreatedWith)
+	sc.Step(`^I update the resource type "([^"]*)" with description "([^"]*)"$`, w.iUpdateResourceTypeDescription)
+	sc.Step(`^the resource type "([^"]*)" still requires a "([^"]*)" property$`, w.theResourceTypeStillRequires)
 }
 
 func (w *mcpWorld) theJSONLDContext(doc *godog.DocString) error {
@@ -106,4 +108,41 @@ func (w *mcpWorld) aResourceCanBeCreatedWith(ctx context.Context, slug string, d
 		return fmt.Errorf("expected the new type to be usable, but resource_create failed: %s", textOf(res))
 	}
 	return nil
+}
+
+func (w *mcpWorld) iUpdateResourceTypeDescription(ctx context.Context, _, description string) error {
+	m, err := w.resultMap() // the just-created type, carrying its id
+	if err != nil {
+		return err
+	}
+	id, _ := m["id"].(string)
+	args := fmt.Sprintf(`{"id":%q,"description":%q}`, id, description)
+	res, err := w.client.CallTool(ctx, &mcp.CallToolParams{
+		Name: "resource_type_update", Arguments: json.RawMessage(args),
+	})
+	w.lastResult = res
+	w.lastErr = err
+	w.lastText = textOf(res)
+	return nil
+}
+
+func (w *mcpWorld) theResourceTypeStillRequires(_, prop string) error {
+	if err := w.theCallSucceeds(); err != nil {
+		return err
+	}
+	m, err := w.resultMap()
+	if err != nil {
+		return err
+	}
+	schema, ok := m["schema"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("update cleared the schema (issue #382 review): %s", w.lastText)
+	}
+	required, _ := schema["required"].([]any)
+	for _, r := range required {
+		if s, _ := r.(string); s == prop {
+			return nil
+		}
+	}
+	return fmt.Errorf("expected schema to still require %q after update; got: %s", prop, w.lastText)
 }
