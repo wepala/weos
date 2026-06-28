@@ -115,14 +115,17 @@ func toResourceTypeOutput(e *entities.ResourceType) ResourceTypeOutput {
 }
 
 // jsonValue decodes a stored json.RawMessage into a value for structured MCP
-// output. Empty input yields nil (the field is omitted).
+// output. Empty input yields nil (the field is omitted). Stored context/schema
+// is validated on write, so a decode failure here is not expected; if it ever
+// happens we surface the raw JSON as a string rather than silently dropping it,
+// so corrupted data is visible to the caller instead of hidden.
 func jsonValue(raw json.RawMessage) any {
 	if len(raw) == 0 {
 		return nil
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil
+		return string(raw)
 	}
 	return v
 }
