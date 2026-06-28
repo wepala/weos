@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.99.0
 	github.com/casbin/gorm-adapter/v3 v3.41.0
+	github.com/cucumber/godog v0.15.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gorilla/sessions v1.4.0
 	github.com/jinzhu/inflection v1.0.0
@@ -65,6 +66,8 @@ require (
 	github.com/casbin/govaluate v1.10.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5 // indirect
+	github.com/cucumber/gherkin/go/v26 v26.2.0 // indirect
+	github.com/cucumber/messages/go/v21 v21.0.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.36.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.0 // indirect
@@ -77,6 +80,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
+	github.com/gofrs/uuid v4.3.1+incompatible // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -88,6 +92,9 @@ require (
 	github.com/googleapis/gax-go/v2 v2.21.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
+	github.com/hashicorp/go-memdb v1.3.4 // indirect
+	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
