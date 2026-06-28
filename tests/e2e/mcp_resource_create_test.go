@@ -53,6 +53,7 @@ type mcpWorld struct {
 	tmpDir  string
 	client  *mcp.ClientSession
 	srvSess *mcp.ServerSession
+	cancel  context.CancelFunc
 	rts     application.ResourceTypeService
 
 	lastResult *mcp.CallToolResult
@@ -88,7 +89,7 @@ func initResourceCreateScenario(sc *godog.ScenarioContext) {
 
 // --- Background ---
 
-func (w *mcpWorld) aCleanKnowledgeGraph(ctx context.Context) error {
+func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 	cfg := config.Default()
 	dir, err := os.MkdirTemp("", "weos-mcp-e2e-")
 	if err != nil {
@@ -97,6 +98,12 @@ func (w *mcpWorld) aCleanKnowledgeGraph(ctx context.Context) error {
 	w.tmpDir = dir
 	cfg.DatabaseDSN = filepath.Join(dir, "test.db") + "?_journal_mode=WAL&_busy_timeout=5000"
 	cfg.LogLevel = "error"
+
+	// Both MCP sessions must outlive any single step, so anchor them to a
+	// scenario-scoped context (canceled in teardown) rather than the per-step
+	// context godog passes in.
+	sessCtx, cancel := context.WithCancel(context.Background())
+	w.cancel = cancel
 
 	var rts application.ResourceTypeService
 	var rs application.ResourceService
@@ -107,8 +114,8 @@ func (w *mcpWorld) aCleanKnowledgeGraph(ctx context.Context) error {
 		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Populate(&rts, &rs, &kg),
 	)
-	startCtx, cancel := context.WithTimeout(ctx, fx.DefaultTimeout)
-	defer cancel()
+	startCtx, startCancel := context.WithTimeout(sessCtx, fx.DefaultTimeout)
+	defer startCancel()
 	if err := app.Start(startCtx); err != nil {
 		return fmt.Errorf("failed to start app: %w", err)
 	}
@@ -118,15 +125,19 @@ func (w *mcpWorld) aCleanKnowledgeGraph(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to build MCP server: %w", err)
 	}
-	clientT, serverT := mcp.NewInMemoryTransports()
-	srvSess, err := server.Connect(ctx, serverT, nil)
+	// NewInMemoryTransports returns symmetric net.Pipe ends; the SDK convention
+	// (see internal/mcp/handler_test.go) names the first end the server's.
+	// Server.Connect returns immediately — the session reader runs in the
+	// background and is reaped by ServerSession.Close in teardown.
+	serverT, clientT := mcp.NewInMemoryTransports()
+	srvSess, err := server.Connect(sessCtx, serverT, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect server session: %w", err)
 	}
 	w.srvSess = srvSess
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "e2e", Version: "0.0.1"}, nil)
-	clientSess, err := client.Connect(ctx, clientT, nil)
+	clientSess, err := client.Connect(sessCtx, clientT, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect client session: %w", err)
 	}
@@ -321,11 +332,17 @@ func (w *mcpWorld) resultMap() (map[string]any, error) {
 }
 
 func (w *mcpWorld) teardown() {
+	// Close the client first (the server end then sees EOF), reap the server
+	// session goroutine via Close, then cancel the scenario context as a
+	// belt-and-suspenders guard against any lingering session goroutine.
 	if w.client != nil {
 		_ = w.client.Close()
 	}
 	if w.srvSess != nil {
 		_ = w.srvSess.Close()
+	}
+	if w.cancel != nil {
+		w.cancel()
 	}
 	if w.app != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
