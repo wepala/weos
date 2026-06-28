@@ -13,14 +13,19 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// Data is map[string]any (not any): an `any` field infers an empty schema that marshals to
+// `true`, which omits `"type":"object"` from the input schema — so MCP clients send `data` as a
+// JSON string and the server then validates a string against the type's object schema and fails
+// ("got string, want object"). map[string]any infers `{"type":"object", ...}`, so the client
+// sends an object. (weos issue #382, input side.)
 type CreateResourceInput struct {
-	TypeSlug string `json:"type_slug" jsonschema:"resource type slug"`
-	Data     any    `json:"data" jsonschema:"resource data as JSON object"`
+	TypeSlug string         `json:"type_slug" jsonschema:"resource type slug"`
+	Data     map[string]any `json:"data" jsonschema:"resource data as JSON object"`
 }
 
 type UpdateResourceInput struct {
-	ID   string `json:"id" jsonschema:"resource ID (URN)"`
-	Data any    `json:"data" jsonschema:"updated resource data as JSON object"`
+	ID   string         `json:"id" jsonschema:"resource ID (URN)"`
+	Data map[string]any `json:"data" jsonschema:"updated resource data as JSON object"`
 }
 
 type DeleteResourceInput struct {
