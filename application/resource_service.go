@@ -17,6 +17,7 @@ import (
 	esapp "github.com/akeemphilbert/pericarp/pkg/eventsourcing/application"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 	"go.uber.org/fx"
 )
 
@@ -707,6 +708,22 @@ func (s *resourceService) reconcileTriples(
 	return nil
 }
 
+// schemaResourceID is a stable, in-memory identifier for the compiled schema.
+// It is an absolute URI so the validator never resolves a relative name against
+// the process working directory — doing so leaked a host file path (e.g.
+// file:///…/schema.json#) into error messages (issue #381).
+const schemaResourceID = "mem://weos/resource-schema"
+
+// validationError is a client-input validation failure carrying a clean,
+// caller-facing message. It satisfies errors.Is(err, ErrValidation) so callers
+// (e.g. HTTP handlers) still map it to a 4xx, while Error() stays human-readable
+// and free of validator internals or host paths (issue #381).
+type validationError struct{ msg string }
+
+func (e *validationError) Error() string { return e.msg }
+
+func (e *validationError) Is(target error) bool { return target == ErrValidation }
+
 func validateAgainstSchema(schema, data json.RawMessage) error {
 	if len(schema) == 0 {
 		return nil
@@ -718,20 +735,115 @@ func validateAgainstSchema(schema, data json.RawMessage) error {
 	}
 
 	c := jsonschema.NewCompiler()
-	if err := c.AddResource("schema.json", schemaDoc); err != nil {
+	if err := c.AddResource(schemaResourceID, schemaDoc); err != nil {
 		return fmt.Errorf("invalid schema: %w", err)
 	}
-	sch, err := c.Compile("schema.json")
+	sch, err := c.Compile(schemaResourceID)
 	if err != nil {
 		return fmt.Errorf("failed to compile schema: %w", err)
 	}
 
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
-		return errors.Join(ErrValidation, fmt.Errorf("invalid JSON data: %w", err))
+		return &validationError{msg: fmt.Sprintf("data is not valid JSON: %v", err)}
 	}
 	if err := sch.Validate(v); err != nil {
-		return errors.Join(ErrValidation, err)
+		var ve *jsonschema.ValidationError
+		if errors.As(err, &ve) {
+			return &validationError{msg: humanizeSchemaError(ve)}
+		}
+		// Defensive: an unexpected validator error still reads as a validation
+		// failure to the caller, without leaking internals.
+		return &validationError{msg: "data does not match the resource type schema"}
 	}
 	return nil
+}
+
+// humanizeSchemaError turns a JSON Schema validation failure into a concise,
+// actionable message that names the offending field (rooted at the "data"
+// argument) and summarizes each violation — never the raw library rendering.
+func humanizeSchemaError(ve *jsonschema.ValidationError) string {
+	violations := collectSchemaViolations(ve)
+	switch len(violations) {
+	case 0:
+		return "data does not match the resource type schema"
+	case 1:
+		return violations[0]
+	default:
+		return "data does not match the resource type schema: " + strings.Join(violations, "; ")
+	}
+}
+
+// collectSchemaViolations flattens the validation-error tree to its leaf causes
+// and renders each as a short, field-qualified sentence (deduplicated).
+func collectSchemaViolations(ve *jsonschema.ValidationError) []string {
+	var out []string
+	seen := make(map[string]bool)
+	var walk func(e *jsonschema.ValidationError)
+	walk = func(e *jsonschema.ValidationError) {
+		if len(e.Causes) > 0 {
+			for _, c := range e.Causes {
+				walk(c)
+			}
+			return
+		}
+		msg := describeSchemaViolation(e)
+		if !seen[msg] {
+			seen[msg] = true
+			out = append(out, msg)
+		}
+	}
+	walk(ve)
+	return out
+}
+
+func describeSchemaViolation(e *jsonschema.ValidationError) string {
+	field := dataFieldRef(e.InstanceLocation)
+	switch k := e.ErrorKind.(type) {
+	case *kind.Type:
+		return fmt.Sprintf("%s must be %s, but got %s", field, wantTypePhrase(k.Want), k.Got)
+	case *kind.Required:
+		if len(k.Missing) == 1 {
+			return fmt.Sprintf("%s is missing required property %q", field, k.Missing[0])
+		}
+		return fmt.Sprintf("%s is missing required properties: %s", field, strings.Join(k.Missing, ", "))
+	case *kind.Enum:
+		return fmt.Sprintf("%s must be one of %s", field, enumValues(k.Want))
+	default:
+		keyword := "schema"
+		if path := e.ErrorKind.KeywordPath(); len(path) > 0 {
+			keyword = path[0]
+		}
+		return fmt.Sprintf("%s does not satisfy the %q constraint", field, keyword)
+	}
+}
+
+// dataFieldRef renders a JSON instance location as a caller-facing reference
+// rooted at the "data" argument: [] -> "data", ["name"] -> "data.name".
+func dataFieldRef(loc []string) string {
+	if len(loc) == 0 {
+		return "data"
+	}
+	var b strings.Builder
+	b.WriteString("data")
+	for _, seg := range loc {
+		b.WriteByte('.')
+		b.WriteString(seg)
+	}
+	return b.String()
+}
+
+func wantTypePhrase(want []string) string {
+	if len(want) == 1 && want[0] == "object" {
+		return "a JSON object"
+	}
+	return strings.Join(want, " or ")
+}
+
+func enumValues(want []any) string {
+	parts := make([]string, 0, len(want))
+	for _, v := range want {
+		parts = append(parts, fmt.Sprintf("%v", v))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }

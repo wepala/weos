@@ -22,7 +22,6 @@ Feature: Create a resource via the MCP resource_create tool
     And the returned resource data has name "Summarize Inbox"
     And fetching the returned resource by its identifier returns the same capability
 
-  @wip
   Scenario: Creating a capability with a string payload returns a clear validation error
     When I call resource_create for type "capability" with the data:
       """
