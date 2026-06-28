@@ -55,6 +55,9 @@ type mcpWorld struct {
 	cancel  context.CancelFunc
 	rts     application.ResourceTypeService
 
+	pendingContext string
+	pendingSchema  string
+
 	lastResult *mcp.CallToolResult
 	lastErr    error
 	lastText   string

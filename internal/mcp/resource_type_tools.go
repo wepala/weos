@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/wepala/weos/v3/application"
@@ -12,22 +13,56 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// rawJSON converts a free-form MCP input value (decoded from JSON) back into a
+// json.RawMessage for a service command. A nil value yields a nil message, which
+// the service treats as "field absent".
+func rawJSON(v any) (json.RawMessage, error) {
+	if v == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}
+
+// rawContextAndSchema converts the free-form context and schema inputs into
+// json.RawMessage for a service command, attributing any error to its field.
+func rawContextAndSchema(contextVal, schemaVal any) (json.RawMessage, json.RawMessage, error) {
+	contextRaw, err := rawJSON(contextVal)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid context: %w", err)
+	}
+	schemaRaw, err := rawJSON(schemaVal)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid schema: %w", err)
+	}
+	return contextRaw, schemaRaw, nil
+}
+
+// Context and Schema are typed `any` (not json.RawMessage): the MCP SDK infers
+// json.RawMessage — a []byte — as a JSON array/null, so an object argument is
+// rejected at input validation before the handler runs (issue #382). `any`
+// infers as free-form JSON, which correctly accepts an object Schema and a
+// JSON-LD Context that may be a string, array, or object. The handler marshals
+// them back to json.RawMessage for the service command.
 type CreateResourceTypeInput struct {
-	Name        string          `json:"name" jsonschema:"resource type display name"`
-	Slug        string          `json:"slug" jsonschema:"URL-friendly identifier"`
-	Description string          `json:"description,omitempty" jsonschema:"resource type description"`
-	Context     json.RawMessage `json:"context,omitempty" jsonschema:"JSON-LD context"`
-	Schema      json.RawMessage `json:"schema,omitempty" jsonschema:"JSON Schema for validation"`
+	Name        string `json:"name" jsonschema:"resource type display name"`
+	Slug        string `json:"slug" jsonschema:"URL-friendly identifier"`
+	Description string `json:"description,omitempty" jsonschema:"resource type description"`
+	Context     any    `json:"context,omitempty" jsonschema:"JSON-LD context (string, array, or object)"`
+	Schema      any    `json:"schema,omitempty" jsonschema:"JSON Schema for validation (object)"`
 }
 
 type UpdateResourceTypeInput struct {
-	ID          string          `json:"id" jsonschema:"resource type ID (URN)"`
-	Name        string          `json:"name" jsonschema:"resource type display name"`
-	Slug        string          `json:"slug,omitempty" jsonschema:"URL slug"`
-	Description string          `json:"description,omitempty" jsonschema:"resource type description"`
-	Context     json.RawMessage `json:"context,omitempty" jsonschema:"JSON-LD context"`
-	Schema      json.RawMessage `json:"schema,omitempty" jsonschema:"JSON Schema for validation"`
-	Status      string          `json:"status,omitempty" jsonschema:"status (active or archived)"`
+	ID          string `json:"id" jsonschema:"resource type ID (URN)"`
+	Name        string `json:"name" jsonschema:"resource type display name"`
+	Slug        string `json:"slug,omitempty" jsonschema:"URL slug"`
+	Description string `json:"description,omitempty" jsonschema:"resource type description"`
+	Context     any    `json:"context,omitempty" jsonschema:"JSON-LD context (string, array, or object)"`
+	Schema      any    `json:"schema,omitempty" jsonschema:"JSON Schema for validation (object)"`
+	Status      string `json:"status,omitempty" jsonschema:"status (active or archived)"`
 }
 
 type DeleteResourceTypeInput struct {
@@ -44,15 +79,20 @@ type ListResourceTypesInput struct {
 	IncludeAll bool   `json:"includeAll,omitempty" jsonschema:"include value object and abstract types (hidden from navigation by default)"`
 }
 
+// Context and Schema are typed `any` for the same reason as the input structs:
+// the MCP SDK validates structured output against the inferred schema, and a
+// json.RawMessage field infers as a JSON array/null — so returning an object
+// context/schema would fail output validation (issue #382). toResourceTypeOutput
+// decodes the stored json.RawMessage into a value.
 type ResourceTypeOutput struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Slug        string          `json:"slug"`
-	Description string          `json:"description,omitempty"`
-	Context     json.RawMessage `json:"context,omitempty"`
-	Schema      json.RawMessage `json:"schema,omitempty"`
-	Status      string          `json:"status"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Description string    `json:"description,omitempty"`
+	Context     any       `json:"context,omitempty"`
+	Schema      any       `json:"schema,omitempty"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type ListResourceTypesOutput struct {
@@ -67,11 +107,24 @@ func toResourceTypeOutput(e *entities.ResourceType) ResourceTypeOutput {
 		Name:        e.Name(),
 		Slug:        e.Slug(),
 		Description: e.Description(),
-		Context:     e.Context(),
-		Schema:      e.Schema(),
+		Context:     jsonValue(e.Context()),
+		Schema:      jsonValue(e.Schema()),
 		Status:      e.Status(),
 		CreatedAt:   e.CreatedAt(),
 	}
+}
+
+// jsonValue decodes a stored json.RawMessage into a value for structured MCP
+// output. Empty input yields nil (the field is omitted).
+func jsonValue(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil
+	}
+	return v
 }
 
 func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeService) {
@@ -81,9 +134,13 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input CreateResourceTypeInput,
 	) (*mcp.CallToolResult, ResourceTypeOutput, error) {
+		contextRaw, schemaRaw, err := rawContextAndSchema(input.Context, input.Schema)
+		if err != nil {
+			return nil, ResourceTypeOutput{}, err
+		}
 		entity, err := svc.Create(ctx, application.CreateResourceTypeCommand{
 			Name: input.Name, Slug: input.Slug, Description: input.Description,
-			Context: input.Context, Schema: input.Schema,
+			Context: contextRaw, Schema: schemaRaw,
 		})
 		if err != nil {
 			return nil, ResourceTypeOutput{}, err
@@ -138,10 +195,14 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input UpdateResourceTypeInput,
 	) (*mcp.CallToolResult, ResourceTypeOutput, error) {
+		contextRaw, schemaRaw, err := rawContextAndSchema(input.Context, input.Schema)
+		if err != nil {
+			return nil, ResourceTypeOutput{}, err
+		}
 		entity, err := svc.Update(ctx, application.UpdateResourceTypeCommand{
 			ID: input.ID, Name: input.Name, Slug: input.Slug,
-			Description: input.Description, Context: input.Context,
-			Schema: input.Schema, Status: input.Status,
+			Description: input.Description, Context: contextRaw,
+			Schema: schemaRaw, Status: input.Status,
 		})
 		if err != nil {
 			return nil, ResourceTypeOutput{}, err
