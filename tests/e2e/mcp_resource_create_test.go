@@ -20,11 +20,10 @@ import (
 )
 
 // TestMCPResourceCreate runs the resource_create MCP-tool acceptance scenarios
-// against a freshly booted application with a clean SQLite database. The @wip
-// scenarios are quarantined (they encode behavior the app does not yet meet) and
-// are excluded by default; run them on demand to see the open defect with:
-//
-//	GODOG_TAGS=@wip go test ./tests/e2e/ -run TestMCPResourceCreate -v
+// against a freshly booted application with a clean SQLite database. All
+// scenarios are part of the regression suite; the @wip tag is honored so a
+// future scenario can be quarantined without changing this runner. Filter on
+// demand with: GODOG_TAGS=@wip go test ./tests/e2e/ -run TestMCPResourceCreate -v
 func TestMCPResourceCreate(t *testing.T) {
 	tags := "~@wip"
 	if override := os.Getenv("GODOG_TAGS"); override != "" {
@@ -55,6 +54,9 @@ type mcpWorld struct {
 	srvSess *mcp.ServerSession
 	cancel  context.CancelFunc
 	rts     application.ResourceTypeService
+
+	pendingContext string
+	pendingSchema  string
 
 	lastResult *mcp.CallToolResult
 	lastErr    error
