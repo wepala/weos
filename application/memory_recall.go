@@ -81,7 +81,10 @@ func (r *memoryRecall) Recall(ctx context.Context, q RecallQuery) ([]RecalledFac
 	if limit > maxRecallLimit {
 		limit = maxRecallLimit
 	}
-	working, err := r.working.RecentFacts(ctx, limit)
+	// The about filter runs inside the projection query; keyword stays a
+	// best-effort in-memory filter over the freshness window (no substring
+	// operator on the flat store) — the graph side matches it completely.
+	working, err := r.working.RecentFacts(ctx, q.About, limit)
 	if err != nil {
 		return nil, err
 	}

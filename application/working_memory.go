@@ -50,14 +50,20 @@ type RecalledFact struct {
 // Reads never block on any checkpoint.
 type WorkingMemory interface {
 	// RecentFacts returns the newest non-superseded facts from the SQL
-	// projection, freshest first. limit <= 0 uses the default working-set size.
-	RecentFacts(ctx context.Context, limit int) ([]RecalledFact, error)
+	// projection, freshest first. A non-empty about restricts to facts about
+	// that entity INSIDE the query — filtering after the limit would silently
+	// drop matches once other facts crowd the freshness window. limit <= 0
+	// uses the default working-set size.
+	RecentFacts(ctx context.Context, about string, limit int) ([]RecalledFact, error)
 }
 
 // factFlatLister is the narrow slice of ResourceService the working set reads
 // through.
 type factFlatLister interface {
 	ListFlat(ctx context.Context, typeSlug, cursor string, limit int, sort repositories.SortOptions) (
+		repositories.PaginatedResponse[map[string]any], error)
+	ListFlatWithFilters(ctx context.Context, typeSlug string, filters []repositories.FilterCondition,
+		cursor string, limit int, sort repositories.SortOptions) (
 		repositories.PaginatedResponse[map[string]any], error)
 }
 
@@ -71,12 +77,20 @@ func NewWorkingMemory(service ResourceService) WorkingMemory {
 	return &workingMemory{facts: service}
 }
 
-func (w *workingMemory) RecentFacts(ctx context.Context, limit int) ([]RecalledFact, error) {
+func (w *workingMemory) RecentFacts(ctx context.Context, about string, limit int) ([]RecalledFact, error) {
 	if limit <= 0 {
 		limit = defaultWorkingSetSize
 	}
-	page, err := w.facts.ListFlat(ctx, "fact", "", limit,
-		repositories.SortOptions{SortBy: "updatedAt", SortOrder: "desc"})
+	sort := repositories.SortOptions{SortBy: "updatedAt", SortOrder: "desc"}
+	var page repositories.PaginatedResponse[map[string]any]
+	var err error
+	if about != "" {
+		page, err = w.facts.ListFlatWithFilters(ctx, "fact",
+			[]repositories.FilterCondition{{Field: "about", Operator: "eq", Value: about}},
+			"", limit, sort)
+	} else {
+		page, err = w.facts.ListFlat(ctx, "fact", "", limit, sort)
+	}
 	if err != nil {
 		// No projection table means the memory preset isn't installed — an
 		// empty working set, not a failure.

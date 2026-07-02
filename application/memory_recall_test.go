@@ -24,10 +24,12 @@ func (f *fakeKGQuery) Query(_ context.Context, sparql string) (repositories.KGQu
 }
 
 type fakeWorkingMemory struct {
-	facts []RecalledFact
+	facts     []RecalledFact
+	lastAbout string
 }
 
-func (f *fakeWorkingMemory) RecentFacts(_ context.Context, _ int) ([]RecalledFact, error) {
+func (f *fakeWorkingMemory) RecentFacts(_ context.Context, about string, _ int) ([]RecalledFact, error) {
+	f.lastAbout = about
 	return f.facts, nil
 }
 
@@ -92,6 +94,9 @@ func TestMemoryRecall_FiltersApplyToBothStores(t *testing.T) {
 	}
 	if len(facts) != 1 || facts[0].ID != "urn:fact:1" {
 		t.Fatalf("facts = %+v, want only the matching working fact", facts)
+	}
+	if wm.lastAbout != "urn:person:akeem" {
+		t.Errorf("working-set about = %q — the filter must be pushed into the projection query", wm.lastAbout)
 	}
 	if !strings.Contains(kg.lastQuery, `FILTER(STR(?about) = "urn:person:akeem")`) {
 		t.Errorf("about filter missing from SPARQL:\n%s", kg.lastQuery)

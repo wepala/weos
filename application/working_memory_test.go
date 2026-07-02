@@ -9,10 +9,11 @@ import (
 )
 
 type fakeFlatLister struct {
-	rows      []map[string]any
-	err       error
-	lastLimit int
-	lastSort  repositories.SortOptions
+	rows        []map[string]any
+	err         error
+	lastLimit   int
+	lastSort    repositories.SortOptions
+	lastFilters []repositories.FilterCondition
 }
 
 func (f *fakeFlatLister) ListFlat(
@@ -20,6 +21,17 @@ func (f *fakeFlatLister) ListFlat(
 ) (repositories.PaginatedResponse[map[string]any], error) {
 	f.lastLimit = limit
 	f.lastSort = sort
+	f.lastFilters = nil
+	return repositories.PaginatedResponse[map[string]any]{Data: f.rows}, f.err
+}
+
+func (f *fakeFlatLister) ListFlatWithFilters(
+	_ context.Context, _ string, filters []repositories.FilterCondition,
+	_ string, limit int, sort repositories.SortOptions,
+) (repositories.PaginatedResponse[map[string]any], error) {
+	f.lastLimit = limit
+	f.lastSort = sort
+	f.lastFilters = filters
 	return repositories.PaginatedResponse[map[string]any]{Data: f.rows}, f.err
 }
 
@@ -34,7 +46,7 @@ func TestWorkingMemory_RecentFactsExcludesSuperseded(t *testing.T) {
 	}}
 	wm := &workingMemory{facts: lister}
 
-	facts, err := wm.RecentFacts(context.Background(), 0)
+	facts, err := wm.RecentFacts(context.Background(), "", 0)
 	if err != nil {
 		t.Fatalf("RecentFacts: %v", err)
 	}
@@ -65,12 +77,38 @@ func TestWorkingMemory_NoProjectionTableIsEmptyNotError(t *testing.T) {
 	lister := &fakeFlatLister{err: fmt.Errorf("list: %w", repositories.ErrNoProjectionTable)}
 	wm := &workingMemory{facts: lister}
 
-	facts, err := wm.RecentFacts(context.Background(), 5)
+	facts, err := wm.RecentFacts(context.Background(), "", 5)
 	if err != nil {
 		t.Fatalf("RecentFacts must treat a missing fact table as empty, got: %v", err)
 	}
 	if len(facts) != 0 {
 		t.Errorf("facts = %d, want 0", len(facts))
+	}
+}
+
+func TestWorkingMemory_AboutFilterRunsInsideTheQuery(t *testing.T) {
+	t.Parallel()
+
+	lister := &fakeFlatLister{rows: []map[string]any{
+		{"id": "urn:fact:1", "statement": "about akeem", "about": "urn:person:akeem"},
+	}}
+	wm := &workingMemory{facts: lister}
+
+	facts, err := wm.RecentFacts(context.Background(), "urn:person:akeem", 5)
+	if err != nil {
+		t.Fatalf("RecentFacts: %v", err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("facts = %d, want 1", len(facts))
+	}
+	// The filter must reach the projection query — filtering after the limit
+	// would silently drop matches once other facts crowd the window.
+	if len(lister.lastFilters) != 1 {
+		t.Fatalf("filters = %+v, want the about eq condition pushed into the query", lister.lastFilters)
+	}
+	f := lister.lastFilters[0]
+	if f.Field != "about" || f.Operator != "eq" || f.Value != "urn:person:akeem" {
+		t.Errorf("filter = %+v", f)
 	}
 }
 
