@@ -141,6 +141,57 @@ func TestOrchestrator_RecorderFailureDoesNotFailTurn(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_ConverseStreamEmitsTextWidgetsDone(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "streamed"}, session.InMemoryService(), testLogger{})
+
+	var types []string
+	err := o.ConverseStream(context.Background(), "c1", "u1", "q", func(e entities.AgentEvent) {
+		types = append(types, e.Type)
+	})
+	if err != nil {
+		t.Fatalf("ConverseStream: %v", err)
+	}
+	want := []string{entities.AgentEventText, entities.AgentEventWidgets, entities.AgentEventDone}
+	if len(types) != len(want) {
+		t.Fatalf("event types = %v, want %v", types, want)
+	}
+	for i := range want {
+		if types[i] != want[i] {
+			t.Errorf("event %d = %q, want %q", i, types[i], want[i])
+		}
+	}
+}
+
+func TestOrchestrator_HistoryReturnsTurns(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "the answer"}, session.InMemoryService(), testLogger{})
+	if _, err := o.Converse(context.Background(), "conv-h", "u1", "the question"); err != nil {
+		t.Fatalf("Converse: %v", err)
+	}
+
+	history, err := o.History(context.Background(), "conv-h", "u1")
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if len(history) < 2 {
+		t.Fatalf("expected at least user+agent messages, got %+v", history)
+	}
+	if history[0].Role != "user" || history[0].Text != "the question" {
+		t.Errorf("first message = %+v", history[0])
+	}
+	last := history[len(history)-1]
+	if last.Role != "agent" || last.Widgets == nil {
+		t.Errorf("last message = %+v", last)
+	}
+}
+
+func TestOrchestrator_HistoryUnknownConversationIsEmpty(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "x"}, session.InMemoryService(), testLogger{})
+	history, err := o.History(context.Background(), "never-started", "u1")
+	if err != nil || len(history) != 0 {
+		t.Fatalf("expected empty history, got %v / %v", history, err)
+	}
+}
+
 func TestOrchestrator_SkillSourceErrorSurfaces(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "x"}, session.InMemoryService(), testLogger{})
 	o.SetSkillSource(func(context.Context) ([]entities.SkillDefinition, error) {

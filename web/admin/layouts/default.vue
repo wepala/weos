@@ -30,6 +30,9 @@
         <a-menu-item key="dashboard">
           <NuxtLink to="/">Dashboard</NuxtLink>
         </a-menu-item>
+        <a-menu-item key="agent">
+          <NuxtLink to="/agent">Agent</NuxtLink>
+        </a-menu-item>
         <SidebarMenuItem v-for="item in menuStructure" :key="item.key" :item="item" />
         <template v-if="isAdminOrOwner">
           <a-menu-item key="users">
@@ -63,6 +66,9 @@
       >
         <a-menu-item key="dashboard">
           <NuxtLink to="/">Dashboard</NuxtLink>
+        </a-menu-item>
+        <a-menu-item key="agent">
+          <NuxtLink to="/agent">Agent</NuxtLink>
         </a-menu-item>
         <SidebarMenuItem v-for="item in menuStructure" :key="item.key" :item="item" />
         <template v-if="isAdminOrOwner">

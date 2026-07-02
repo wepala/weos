@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -30,6 +31,7 @@ import (
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
 
@@ -131,15 +133,97 @@ func (o *Orchestrator) Configured() bool {
 func (o *Orchestrator) Converse(
 	ctx context.Context, conversationID, userID, message string,
 ) (widgets.Response, error) {
+	var out widgets.Response
+	err := o.ConverseStream(ctx, conversationID, userID, message, func(e entities.AgentEvent) {
+		if e.Type == entities.AgentEventWidgets && e.Widgets != nil {
+			out = *e.Widgets
+		}
+	})
+	return out, err
+}
+
+// EventSink receives the events of one streamed turn.
+type EventSink func(entities.AgentEvent)
+
+// ConverseStream runs one turn, emitting text deltas as the model produces
+// them, an input_requested event when a mutating tool awaits the user's
+// confirmation, and finally the validated widgets plus done.
+func (o *Orchestrator) ConverseStream(
+	ctx context.Context, conversationID, userID, message string, emit EventSink,
+) error {
+	content := &genai.Content{Parts: []*genai.Part{{Text: message}}, Role: genai.RoleUser}
+	return o.runTurn(ctx, conversationID, userID, content, message, emit)
+}
+
+// ResumeConfirmation answers a pending tool confirmation (per the ADK
+// tool-confirmation protocol) and streams the rest of the turn. The pending
+// call lives in the durable session, so a confirmation survives refreshes
+// and restarts.
+func (o *Orchestrator) ResumeConfirmation(
+	ctx context.Context, conversationID, userID, callID string, confirmed bool, emit EventSink,
+) error {
+	content := &genai.Content{
+		Role: genai.RoleUser,
+		Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{
+			Name:     toolconfirmation.FunctionCallName,
+			ID:       callID,
+			Response: map[string]any{"confirmed": confirmed},
+		}}},
+	}
+	episode := "[approved a pending action]"
+	if !confirmed {
+		episode = "[rejected a pending action]"
+	}
+	return o.runTurn(ctx, conversationID, userID, content, episode, emit)
+}
+
+// History returns the conversation so far, oldest first. A conversation
+// that does not exist yet has an empty history.
+func (o *Orchestrator) History(ctx context.Context, conversationID, userID string) ([]entities.AgentMessage, error) {
 	if !o.Configured() {
-		return widgets.Response{}, ErrNotConfigured
+		return nil, ErrNotConfigured
+	}
+	resp, err := o.sessions.Get(ctx, &session.GetRequest{
+		AppName:   OrchestratorAppName,
+		UserID:    userID,
+		SessionID: conversationID,
+	})
+	if err != nil {
+		// Missing session simply means the conversation hasn't started.
+		o.logger.Debug(ctx, "no session history", "conversationID", conversationID, "error", err.Error())
+		return []entities.AgentMessage{}, nil
+	}
+	var history []entities.AgentMessage
+	for event := range resp.Session.Events().All() {
+		text := textFromEvent(event)
+		if text == "" {
+			continue
+		}
+		if event.Content != nil && event.Content.Role == genai.RoleUser {
+			history = append(history, entities.AgentMessage{Role: "user", Text: text})
+			continue
+		}
+		parsed := widgets.Parse(text)
+		history = append(history, entities.AgentMessage{Role: "agent", Widgets: &parsed})
+	}
+	return history, nil
+}
+
+// runTurn drives the runner for one inbound content (a user message or a
+// confirmation response) and emits the turn's events.
+func (o *Orchestrator) runTurn(
+	ctx context.Context, conversationID, userID string,
+	content *genai.Content, episodeMessage string, emit EventSink,
+) error {
+	if !o.Configured() {
+		return ErrNotConfigured
 	}
 	root, err := o.buildRoot(ctx)
 	if err != nil {
-		return widgets.Response{}, err
+		return err
 	}
 	if err := o.ensureSession(ctx, userID, conversationID); err != nil {
-		return widgets.Response{}, err
+		return err
 	}
 	r, err := runner.New(runner.Config{
 		AppName:        OrchestratorAppName,
@@ -147,16 +231,57 @@ func (o *Orchestrator) Converse(
 		SessionService: o.sessions,
 	})
 	if err != nil {
-		return widgets.Response{}, fmt.Errorf("create runner: %w", err)
+		return fmt.Errorf("create runner: %w", err)
 	}
-	text, err := RunUserTurn(ctx, r, userID, conversationID, message)
-	if err != nil {
-		return widgets.Response{}, err
+
+	var out strings.Builder
+	for event, err := range r.Run(ctx, userID, conversationID, content, agent.RunConfig{}) {
+		if err != nil {
+			return fmt.Errorf("run agent: %w", err)
+		}
+		o.emitConfirmationRequests(ctx, event, emit)
+		if text := textFromEvent(event); text != "" {
+			out.WriteString(text)
+			emit(entities.AgentEvent{Type: entities.AgentEventText, Text: text})
+		}
 	}
-	o.recordEpisode(ctx, conversationID, userID, message, text)
+
+	text := out.String()
+	if episodeMessage != "" && text != "" {
+		o.recordEpisode(ctx, conversationID, userID, episodeMessage, text)
+	}
 	// Server-side validation: whatever the model produced renders — contract
 	// JSON passes through, anything else degrades to markdown.
-	return widgets.Parse(text), nil
+	resp := widgets.Parse(text)
+	emit(entities.AgentEvent{Type: entities.AgentEventWidgets, Widgets: &resp})
+	emit(entities.AgentEvent{Type: entities.AgentEventDone})
+	return nil
+}
+
+// emitConfirmationRequests surfaces any pending tool confirmations in the
+// event as input_requested events the client can answer.
+func (o *Orchestrator) emitConfirmationRequests(ctx context.Context, event *session.Event, emit EventSink) {
+	if event == nil || event.Content == nil {
+		return
+	}
+	for _, p := range event.Content.Parts {
+		if p == nil || p.FunctionCall == nil || p.FunctionCall.Name != toolconfirmation.FunctionCallName {
+			continue
+		}
+		out := entities.AgentEvent{Type: entities.AgentEventInputRequested, CallID: p.FunctionCall.ID}
+		if orig, err := toolconfirmation.OriginalCallFrom(p.FunctionCall); err == nil && orig != nil {
+			out.Tool = orig.Name
+			out.Args = orig.Args
+		} else if err != nil {
+			o.logger.Error(ctx, "malformed tool confirmation request", "error", err.Error())
+		}
+		if tc, ok := p.FunctionCall.Args["toolConfirmation"].(map[string]any); ok {
+			if hint, ok := tc["hint"].(string); ok {
+				out.Hint = hint
+			}
+		}
+		emit(out)
+	}
 }
 
 // recordEpisode persists the completed turn as episodic memory; failures are
@@ -253,18 +378,4 @@ func (o *Orchestrator) ensureSession(ctx context.Context, userID, conversationID
 		return fmt.Errorf("ensure session %q: get: %v; create: %w", conversationID, getErr, createErr)
 	}
 	return nil
-}
-
-// RunUserTurn feeds one user message through a runner and returns the
-// concatenated text of the response events.
-func RunUserTurn(ctx context.Context, r *runner.Runner, userID, sessionID, message string) (string, error) {
-	msg := &genai.Content{Parts: []*genai.Part{{Text: message}}, Role: genai.RoleUser}
-	var out []byte
-	for event, err := range r.Run(ctx, userID, sessionID, msg, agent.RunConfig{}) {
-		if err != nil {
-			return "", fmt.Errorf("run agent: %w", err)
-		}
-		out = append(out, textFromEvent(event)...)
-	}
-	return string(out), nil
 }

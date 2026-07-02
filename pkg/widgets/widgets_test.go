@@ -84,6 +84,26 @@ func TestParse_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestParse_CardURLSchemeFiltered(t *testing.T) {
+	raw := `{"schemaVersion":1,"widgets":[
+		{"type":"card","title":"ok","url":"https://example.com/x"},
+		{"type":"card","title":"evil","url":"javascript:alert(1)"},
+		{"type":"card","title":"data","url":"data:text/html,x"}
+	]}`
+	resp := Parse(raw)
+	if resp.Widgets[0].URL != "https://example.com/x" {
+		t.Errorf("https URL must survive: %+v", resp.Widgets[0])
+	}
+	for _, w := range resp.Widgets[1:] {
+		if w.URL != "" {
+			t.Errorf("non-http(s)/mailto URL must be dropped, got %q on %q", w.URL, w.Title)
+		}
+		if w.Type != TypeCard {
+			t.Errorf("card with a bad URL stays a card: %+v", w)
+		}
+	}
+}
+
 func TestFromText(t *testing.T) {
 	resp := FromText("hello")
 	if len(resp.Widgets) != 1 || resp.Widgets[0].Type != TypeMarkdown || resp.Widgets[0].Markdown != "hello" {

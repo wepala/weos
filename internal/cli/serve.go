@@ -453,15 +453,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 		// The in-app agent shares this exact tool surface (epic #397): the
 		// skill registry validates allowlists against it, the coordinator's
-		// direct tools are its read-only subset, and each conversation turn
-		// opens a toolset session under the caller's identity.
+		// direct tools are its read-only subset, each conversation turn opens
+		// a toolset session under the caller's identity, and every mutating
+		// tool call pauses for the user's confirmation in the chat.
 		skillRegistry.SetKnownTools(mcpserver.KnownTools(mcpSrv))
 		readOnlyTools, roErr := mcpserver.ReadOnlyToolNames(context.Background(), mcpSrv)
 		if roErr != nil {
 			return fmt.Errorf("failed to list read-only tools for the agent: %w", roErr)
 		}
+		confirmMutations, cmErr := mcpserver.MutatingConfirmationProvider(context.Background(), mcpSrv)
+		if cmErr != nil {
+			return fmt.Errorf("failed to build the agent confirmation provider: %w", cmErr)
+		}
 		orchestrator.SetToolsetFactory(
-			mcpserver.AgentToolsetFactory(mcpSrv, mcpserver.AgentToolsetConfig{}), readOnlyTools,
+			mcpserver.AgentToolsetFactory(mcpSrv, mcpserver.AgentToolsetConfig{
+				RequireConfirmationProvider: confirmMutations,
+			}), readOnlyTools,
 		)
 		// MCP gets its own group with BearerOrSession auth when OAuth is enabled.
 		mcpGroup := api.Group("")
@@ -475,6 +482,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		mcpGroup.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 		mcpGroup.Any("/mcp", echo.WrapHandler(mcpHandler))
 		mcpGroup.Any("/mcp/*", echo.WrapHandler(mcpHandler))
+
+		// In-app agent chat rides the same auth stack as MCP.
+		agentHandler := handlers.NewAgentHandler(orchestrator, logger)
+		mcpGroup.POST("/agent/conversations/:conversationID/messages", agentHandler.SendMessage)
+		mcpGroup.POST("/agent/conversations/:conversationID/confirmations/:callID", agentHandler.Confirm)
+		mcpGroup.GET("/agent/conversations/:conversationID", agentHandler.History)
 		logger.Info(context.Background(), "MCP server enabled", "path", "/api/mcp")
 	} else {
 		logger.Info(context.Background(), "MCP server disabled via configuration")

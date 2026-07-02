@@ -18,6 +18,8 @@ package application
 import (
 	"context"
 
+	appagents "github.com/wepala/weos/v3/application/agents"
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/pkg/widgets"
 )
 
@@ -25,15 +27,26 @@ import (
 // API handlers and CLI commands consume this interface; the ADK-backed
 // implementation lives in application/agents and never leaks provider types
 // through it.
+//
+// For every method taking a ctx: it must carry the caller's identity (tool
+// authorization reads it) and must be request-scoped (e.g. the HTTP request
+// context) — tool sessions live exactly as long as ctx.
 type ConversationalAgent interface {
-	// Configured reports whether an LLM is configured; when false, Converse
-	// returns a clear not-configured error and the UI should say so.
+	// Configured reports whether an LLM is configured; when false, the other
+	// methods return a clear not-configured error and the UI should say so.
 	Configured() bool
-	// Converse runs one turn and returns the response as the versioned
-	// widget contract (pkg/widgets). conversationID identifies the durable
-	// conversation (multi-turn context); ctx must carry the caller's
-	// identity, which tool authorization reads, and must be request-scoped
-	// (e.g. the HTTP request context) — tool sessions live exactly as long
-	// as ctx.
+	// Converse runs one turn synchronously and returns the response as the
+	// versioned widget contract (pkg/widgets).
 	Converse(ctx context.Context, conversationID, userID, message string) (widgets.Response, error)
+	// ConverseStream runs one turn, emitting text deltas, any pending tool
+	// confirmation (input_requested), then widgets and done.
+	ConverseStream(ctx context.Context, conversationID, userID, message string, emit appagents.EventSink) error
+	// ResumeConfirmation answers a pending mutating-tool confirmation and
+	// streams the rest of the turn. Pending confirmations live in the
+	// durable session, so they survive refreshes and restarts.
+	ResumeConfirmation(
+		ctx context.Context, conversationID, userID, callID string, confirmed bool, emit appagents.EventSink,
+	) error
+	// History returns the conversation so far, oldest first.
+	History(ctx context.Context, conversationID, userID string) ([]entities.AgentMessage, error)
 }

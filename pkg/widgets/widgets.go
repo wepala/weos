@@ -24,6 +24,7 @@ package widgets
 
 import (
 	"encoding/json"
+	"net/url"
 	"strings"
 )
 
@@ -148,9 +149,25 @@ func parseWidget(raw json.RawMessage) Widget {
 		if w.Title == "" && w.Body == "" {
 			return degrade(raw)
 		}
-		return Widget{Type: TypeCard, Title: w.Title, Body: w.Body, URL: w.URL, Fields: w.Fields}
+		return Widget{Type: TypeCard, Title: w.Title, Body: w.Body, URL: safeURL(w.URL), Fields: w.Fields}
 	default:
 		return degrade(raw)
+	}
+}
+
+// safeURL keeps only http(s) and mailto links. Model output is derived from
+// untrusted content, so a javascript:/data: URL here would be script
+// execution in the renderer's origin — the URL is dropped, the card stays.
+func safeURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "mailto":
+		return u.String()
+	default:
+		return ""
 	}
 }
 

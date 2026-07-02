@@ -117,6 +117,25 @@ func KnownTools(server *mcp.Server) func(context.Context) (map[string]bool, erro
 	}
 }
 
+// MutatingConfirmationProvider returns a per-call decider that requires a
+// human-in-the-loop confirmation for every tool NOT annotated read-only —
+// the mutation flag declared alongside each tool (#399) is what gates
+// writes behind user approval in the chat.
+func MutatingConfirmationProvider(ctx context.Context, server *mcp.Server) (func(string, any) bool, error) {
+	tools, err := serverTools(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	readOnly := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		readOnly[t.Name] = t.Annotations != nil && t.Annotations.ReadOnlyHint
+	}
+	// Fail closed: anything not explicitly annotated read-only — including
+	// unannotated downstream tools and names unknown to this snapshot —
+	// requires confirmation.
+	return func(toolName string, _ any) bool { return !readOnly[toolName] }, nil
+}
+
 // ReadOnlyToolNames returns the names of every registered tool annotated
 // read-only — the coordinator's direct toolset for requests no skill
 // matches.
