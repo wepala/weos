@@ -4,6 +4,7 @@ package presets
 
 import (
 	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/application/presets/agents"
 	"github.com/wepala/weos/v3/application/presets/core"
 	"github.com/wepala/weos/v3/application/presets/ecommerce"
 	"github.com/wepala/weos/v3/application/presets/events"
@@ -37,6 +38,7 @@ func RegisterAll(registry *application.PresetRegistry) {
 	knowledge.Register(registry)
 	mealplanning.Register(registry)
 	memory.Register(registry)
+	agents.Register(registry)
 	for _, r := range customRegistrars {
 		r(registry)
 	}

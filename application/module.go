@@ -174,6 +174,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(gorm.ProvideLexicalIndex),
 		fx.Provide(AsSubscriberGroups(ProvideLexicalGroup)),
 		fx.Provide(NewLexicalSearch),
+		// In-app agent skills (epic #397): declarative agent-skill resources
+		// loaded into a registry the orchestrator builds sub-agents from;
+		// invalidated on skill resource events so changes apply live.
+		fx.Provide(NewSkillRegistry),
+		fx.Invoke(subscribeSkillRegistry),
 	)
 }
 
