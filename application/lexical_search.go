@@ -37,7 +37,7 @@ var ErrLexicalUnavailable = errors.New(
 	"lexical search unavailable: no FTS5 index and no knowledge graph configured")
 
 // LexicalSearch finds resources by keyword. FTS5-first; on installations
-// without FTS5 (PostgreSQL, SQLite builds lacking the sqlite_fts5 tag) it
+// without FTS5 (PostgreSQL — the pure-Go SQLite driver always has it) it
 // degrades to the knowledge graph's label search.
 type LexicalSearch interface {
 	// Search returns matches plus the mode that produced them

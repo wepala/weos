@@ -98,7 +98,7 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 		return err
 	}
 	w.tmpDir = dir
-	cfg.DatabaseDSN = filepath.Join(dir, "test.db") + "?_journal_mode=WAL&_busy_timeout=5000"
+	cfg.DatabaseDSN = filepath.Join(dir, "test.db") // ProvideGormDB adds the worker pragmas
 	cfg.LogLevel = "error"
 
 	// Both MCP sessions must outlive any single step, so anchor them to a

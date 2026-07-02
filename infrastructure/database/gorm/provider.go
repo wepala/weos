@@ -28,9 +28,12 @@ import (
 	"github.com/wepala/weos/v3/internal/oauth"
 
 	authgorm "github.com/akeemphilbert/pericarp/pkg/auth/infrastructure/database/gorm"
+	// The pure-Go SQLite driver (no cgo) so cross-compiled builds work and
+	// FTS5 is unconditionally available — the cgo driver only ships FTS5
+	// behind the sqlite_fts5 build tag.
+	"github.com/glebarez/sqlite"
 	"go.uber.org/fx"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
@@ -130,24 +133,26 @@ func ProvideGormDB(params struct {
 // path. Background workers add concurrent writers (batch transactions plus the
 // request-path appends), and SQLite allows only one writer at a time:
 //
-//   - _journal_mode=WAL lets the workers' feed reads run concurrently with a
+//   - journal_mode(WAL) lets the workers' feed reads run concurrently with a
 //     write transaction instead of blocking on it.
-//   - _busy_timeout makes a writer wait for the lock instead of failing
+//   - busy_timeout makes a writer wait for the lock instead of failing
 //     immediately with "database is locked".
 //   - _txlock=immediate takes the write lock at BEGIN so concurrent writers
 //     serialize cleanly via busy_timeout rather than erroring on a deferred
 //     lock upgrade mid-transaction.
 //
-// In-memory databases (tests) are left untouched — WAL is not meaningful there
-// and they are single-connection. Any pragma the caller already set in the DSN
-// is preserved.
+// Pragmas use the glebarez/modernc DSN form — repeated
+// `_pragma=name(value)` query parameters — not the cgo driver's `_name=value`
+// form. In-memory databases (tests) are left untouched — WAL is not meaningful
+// there and they are single-connection. Any pragma the caller already set in
+// the DSN is preserved.
 func sqliteDSNWithWorkerPragmas(dsn string) string {
 	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
 		return dsn
 	}
 	pragmas := []struct{ key, param string }{
-		{"_journal_mode", "_journal_mode=WAL"},
-		{"_busy_timeout", "_busy_timeout=5000"},
+		{"journal_mode", "_pragma=journal_mode(WAL)"},
+		{"busy_timeout", "_pragma=busy_timeout(5000)"},
 		{"_txlock", "_txlock=immediate"},
 	}
 	sep := "?"
@@ -155,7 +160,7 @@ func sqliteDSNWithWorkerPragmas(dsn string) string {
 		sep = "&"
 	}
 	for _, p := range pragmas {
-		if strings.Contains(dsn, p.key+"=") {
+		if strings.Contains(dsn, p.key) {
 			continue
 		}
 		dsn += sep + p.param

@@ -25,7 +25,7 @@ import (
 	"github.com/wepala/weos/v3/infrastructure/models"
 	"github.com/wepala/weos/v3/pkg/utils"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 

@@ -25,6 +25,41 @@ func factType(t *testing.T) application.PresetResourceType {
 	return application.PresetResourceType{}
 }
 
+func TestRegister_NoteIsTheOnlyConsolidationInput(t *testing.T) {
+	t.Parallel()
+
+	registry := application.NewPresetRegistry()
+	Register(registry)
+	preset, ok := registry.Get("memory")
+	if !ok {
+		t.Fatal("memory preset not registered")
+	}
+	var note *application.PresetResourceType
+	for i := range preset.Types {
+		if preset.Types[i].Slug == "note" {
+			note = &preset.Types[i]
+		}
+	}
+	if note == nil {
+		t.Fatal("note type not found — the memory preset must define its own episodic input")
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(note.Schema, &schema); err != nil {
+		t.Fatalf("note schema is not valid JSON: %v", err)
+	}
+
+	eligible := registry.ConsolidationEligible()
+	if !eligible["note"] {
+		t.Errorf("note must be consolidation-eligible; eligible = %v", eligible)
+	}
+	if eligible["fact"] || eligible["playbook"] {
+		t.Errorf("memory types must never be consolidation-eligible; eligible = %v", eligible)
+	}
+	if len(eligible) != 1 {
+		t.Errorf("memory preset must declare exactly its episodic input; eligible = %v", eligible)
+	}
+}
+
 func TestRegister_FactPresetShape(t *testing.T) {
 	t.Parallel()
 

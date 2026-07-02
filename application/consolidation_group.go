@@ -40,9 +40,9 @@ import (
 // stamps on the facts it records.
 const consolidationAttribution = "weos:consolidation"
 
-// memoryTypeSlugs are the semantic/procedural memory types themselves. The
-// consolidation policy never consolidates them — facts about facts would loop
-// the subscriber back onto its own output.
+// memoryTypeSlugs are the semantic/procedural memory types themselves. They
+// are never consolidation-eligible, even when a preset (incorrectly) declares
+// them — facts about facts would loop the subscriber back onto its own output.
 var memoryTypeSlugs = map[string]bool{"fact": true, "playbook": true}
 
 // factStore is the narrow slice of ResourceService the consolidation policy
@@ -80,34 +80,53 @@ type ConsolidationGroupParams struct {
 	Extractor  entities.FactExtractor `optional:"true"`
 	Service    ResourceService
 	TypeRepo   repositories.ResourceTypeRepository
+	Registry   *PresetRegistry
 	Logger     entities.Logger
 }
 
 // ProvideConsolidationGroup contributes the "consolidation" subscriber group
-// when a fact extractor is available, and nothing otherwise. Like the oxigraph
-// group it runs off the write path with its own checkpoint, so consolidation
-// lag or failure never stalls a user's request, and a checkpoint reset replays
-// history through the same handler.
+// when a fact extractor is available AND at least one registered preset
+// declares a consolidation-eligible resource type, and nothing otherwise.
+// Like the oxigraph group it runs off the write path with its own checkpoint,
+// so consolidation lag or failure never stalls a user's request, and a
+// checkpoint reset replays history through the same handler.
+//
+// The group starts at the feed head on its first ever run (StartAtHead):
+// installing the memory preset on an instance with existing domain history
+// must not trigger an LLM pass over the whole event log. Backfill stays an
+// explicit operation — `worker checkpoint reset consolidation`.
 func ProvideConsolidationGroup(p ConsolidationGroupParams) []SubscriberGroup {
 	if p.Extractor == nil {
 		p.Logger.Debug(context.Background(),
 			"consolidation: no fact extractor, consolidation subscriber not registered")
 		return nil
 	}
+	eligible := p.Registry.ConsolidationEligible()
+	if len(eligible) == 0 {
+		p.Logger.Info(context.Background(),
+			"consolidation: no preset declares consolidation-eligible resource types, "+
+				"consolidation subscriber not registered")
+		return nil
+	}
 	return []SubscriberGroup{{
-		Name:    "consolidation",
-		Handler: consolidationHandler(p.EventStore, p.Extractor, p.Service, p.TypeRepo, p.Logger),
+		Name:        "consolidation",
+		Handler:     consolidationHandler(p.EventStore, p.Extractor, p.Service, p.TypeRepo, eligible, p.Logger),
+		StartAtHead: true,
 	}}
 }
 
 // consolidationHandler distills episodic Resource.Published events into fact
-// resources. Idempotence under checkpoint replay comes from dedup on the
+// resources, for resource types a preset explicitly declared eligible.
+// Structured domain types are already semantic memory (typed data plus graph
+// projection), so eligibility is an allowlist: anything undeclared is skipped.
+// Idempotence under checkpoint replay comes from dedup on the
 // prov:wasDerivedFrom source event IDs already recorded on existing facts.
 func consolidationHandler(
 	eventStore domain.EventStore,
 	extractor entities.FactExtractor,
 	store factStore,
 	typeRepo repositories.ResourceTypeRepository,
+	eligible map[string]bool,
 	logger entities.Logger,
 ) subscriptions.Handler {
 	return func(ctx context.Context, event domain.EventEnvelope[any]) error {
@@ -120,11 +139,13 @@ func consolidationHandler(
 		}
 		state := buildStateFromTransaction(ctx, txEvents, event.AggregateID, event.SequenceNo, logger)
 		// The transaction state's slug is only populated by Resource.Created;
-		// update transactions carry it on the published signal instead. The
-		// memory-type guard must hold on BOTH paths, or supersession updates
-		// would loop the subscriber back onto its own output.
+		// update transactions carry it on the published signal instead. Both
+		// guards must hold on BOTH paths: the allowlist keeps structured
+		// domain updates out, and the memory-type check stays a hard invariant
+		// even if a preset declared fact/playbook eligible — supersession
+		// updates would otherwise loop the subscriber back onto its own output.
 		typeSlug := publishedTypeSlug(event.Payload, state.TypeSlug)
-		if state.IsDelete || state.Data == nil || memoryTypeSlugs[typeSlug] {
+		if state.IsDelete || state.Data == nil || !eligible[typeSlug] || memoryTypeSlugs[typeSlug] {
 			return nil
 		}
 		factCtx, err := factTypeContext(ctx, typeRepo)

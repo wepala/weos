@@ -6,15 +6,14 @@ RUN npm ci
 COPY web/admin/ ./
 RUN npx nuxt generate
 
-# Stage 2: Build Go binary
+# Stage 2: Build Go binary (pure Go — the glebarez SQLite driver needs no cgo)
 FROM golang:1.25-alpine AS builder
-RUN apk add --no-cache gcc musl-dev
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/web/admin/.output/public/ ./web/dist/
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o /weos ./cmd/weos
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /weos ./cmd/weos
 
 # Stage 3: Minimal runtime
 FROM alpine:3.20

@@ -11,9 +11,8 @@ import (
 	gormlib "gorm.io/gorm"
 )
 
-// fts5TestDB opens an in-memory SQLite with FTS5 support. The project's
-// default driver (mattn without the sqlite_fts5 tag) lacks the module, so the
-// pure-Go glebarez driver — already a module dependency — exercises the real
+// fts5TestDB opens an in-memory SQLite with FTS5 support via the pure-Go
+// glebarez driver — the same driver production uses — exercising the real
 // FTS5 SQL these methods emit.
 func fts5TestDB(t *testing.T) *gormlib.DB {
 	t.Helper()

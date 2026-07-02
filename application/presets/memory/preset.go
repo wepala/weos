@@ -1,5 +1,6 @@
-// Package memory provides resource types for agent memory: consolidated facts
-// distilled from episodic events, carrying PROV-O provenance and supersession.
+// Package memory provides resource types for agent memory: episodic notes,
+// plus consolidated facts distilled from them carrying PROV-O provenance and
+// supersession, and playbooks with event-sourced outcome counters.
 package memory
 
 import (
@@ -59,6 +60,23 @@ const playbookSchema = `{"type":"object","properties":{` +
 	`"failureCount":{"type":"integer","minimum":0}` +
 	`},"required":["name"]}`
 
+// noteContext models the preset's episodic input: unstructured free-text
+// observations (meeting notes, conversation fragments, things an agent was
+// told). Notes are the only memory-preset type consolidation reads FROM —
+// structured domain types already state their knowledge as typed resources
+// and graph triples, so distilling facts from them would only duplicate it.
+const noteContext = `{"@vocab":"https://schema.org/",` +
+	`"@type":"NoteDigitalDocument",` +
+	`"name":"https://schema.org/name",` +
+	`"content":"https://schema.org/text",` +
+	`"about":"https://schema.org/about"}`
+
+const noteSchema = `{"type":"object","properties":{` +
+	`"name":{"type":"string","description":"Optional short title"},` +
+	`"content":{"type":"string","description":"Free-text episodic content to distill facts from"},` +
+	`"about":{"type":"string","description":"Optional URN of the entity this note concerns"}` +
+	`},"required":["content"]}`
+
 // Register adds the memory preset to the registry.
 //
 // The fact type models CoALA-style semantic memory: each fact is an ordinary
@@ -78,7 +96,14 @@ func Register(registry *application.PresetRegistry) {
 			application.NewPresetType("Playbook", "playbook",
 				"A learned procedure with event-sourced success/failure counters",
 				playbookContext, playbookSchema),
+			application.NewPresetType("Note", "note",
+				"A free-text episodic note; the unstructured input memory consolidation distills facts from",
+				noteContext, noteSchema),
 		},
+		// Notes are the preset's own episodic input. Consolidation is
+		// allowlist-only: nothing is eligible unless a preset declares it, and
+		// the memory types themselves (fact, playbook) can never be.
+		Consolidates: []string{"note"},
 		Behaviors: map[string]application.BehaviorFactory{
 			"fact":     FactBehavior,
 			"playbook": PlaybookBehavior,

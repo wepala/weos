@@ -29,6 +29,12 @@ const testFactSchema = `{"type":"object","properties":{` +
 	`"wasRevisionOf":{"type":"string","x-resource-type":"fact","x-display-property":"statement"},` +
 	`"invalidatedAtTime":{"type":"string","format":"date-time"}},"required":["statement"]}`
 
+// testEligible is the allowlist the handler tests run with: "note" mirrors
+// the memory preset's own episodic input declaration.
+func testEligible() map[string]bool {
+	return map[string]bool{"note": true}
+}
+
 type fakeExtractor struct {
 	calls      int
 	lastObs    entities.EpisodeObservation
@@ -142,7 +148,7 @@ func TestConsolidationHandler_RecordsFactFromEpisode(t *testing.T) {
 	}}
 	store := &fakeFactStore{}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -178,16 +184,41 @@ func TestConsolidationHandler_RecordsFactFromEpisode(t *testing.T) {
 func TestConsolidationHandler_SkipsMemoryTypes(t *testing.T) {
 	t.Parallel()
 
+	// The allowlist here (incorrectly) declares the memory types eligible;
+	// the hard invariant must still keep the subscriber off its own output.
 	published, tx := episode("fact", "urn:fact:1", "tx1", "ev1")
 	extractor := &fakeExtractor{}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
-		extractor, &fakeFactStore{}, factTypeRepo(t), noopLogger{})
+		extractor, &fakeFactStore{}, factTypeRepo(t),
+		map[string]bool{"fact": true, "playbook": true}, noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
 	}
 	if extractor.calls != 0 {
 		t.Errorf("extractor called %d times for a fact episode, want 0 (no self-loop)", extractor.calls)
+	}
+}
+
+func TestConsolidationHandler_SkipsUndeclaredTypes(t *testing.T) {
+	t.Parallel()
+
+	// Structured domain data is already semantic memory — an event for a type
+	// no preset declared must never reach the extractor (no LLM call).
+	published, tx := episode("transaction", "urn:transaction:1", "tx1", "ev1")
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{Statement: "should never happen"}}}
+	store := &fakeFactStore{}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if extractor.calls != 0 {
+		t.Errorf("extractor called %d times for an undeclared type, want 0", extractor.calls)
+	}
+	if len(store.creates) != 0 {
+		t.Errorf("creates = %d, want 0", len(store.creates))
 	}
 }
 
@@ -222,12 +253,14 @@ func TestConsolidationHandler_SkipsMemoryTypeUpdates(t *testing.T) {
 	t.Parallel()
 
 	// A supersession invalidates the predecessor via Update — that commit's
-	// own Resource.Published must not loop the subscriber onto the fact.
+	// own Resource.Published must not loop the subscriber onto the fact,
+	// even when the allowlist (incorrectly) declares the memory types.
 	published, tx := updateEpisode("fact", "urn:fact:old", "tx9", "ev9")
 	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{Statement: "fact about a fact"}}}
 	store := &fakeFactStore{}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx9": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t),
+		map[string]bool{"fact": true, "playbook": true}, noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -247,7 +280,7 @@ func TestConsolidationHandler_ConsolidatesNonMemoryUpdates(t *testing.T) {
 	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{Statement: "note evolved"}}}
 	store := &fakeFactStore{}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx9": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -281,7 +314,7 @@ func TestConsolidationHandler_DedupCrossEntityCandidateOnReplay(t *testing.T) {
 	}}}
 	store := &fakeFactStore{facts: map[string][]*entities.Resource{"urn:person:x": {crossEntity}}}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -307,7 +340,7 @@ func TestConsolidationHandler_DedupOnReplay(t *testing.T) {
 	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{Statement: "dup"}}}
 	store := &fakeFactStore{facts: map[string][]*entities.Resource{"urn:note:1": {existing}}}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -336,7 +369,7 @@ func TestConsolidationHandler_SupersedesInvalidatesPredecessorFirst(t *testing.T
 	}}}
 	store := &fakeFactStore{facts: map[string][]*entities.Resource{"urn:note:1": {old}}}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -376,7 +409,7 @@ func TestConsolidationHandler_ClampsOutOfRangeConfidence(t *testing.T) {
 	}}
 	store := &fakeFactStore{}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -410,7 +443,7 @@ func TestConsolidationHandler_IgnoresHallucinatedSupersedesID(t *testing.T) {
 	}}}
 	store := &fakeFactStore{}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -445,7 +478,7 @@ func TestConsolidationHandler_ExcludesSupersededFromExtractorContext(t *testing.
 	extractor := &fakeExtractor{}
 	store := &fakeFactStore{facts: map[string][]*entities.Resource{"urn:note:1": {invalidated, active}}}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
-		extractor, store, factTypeRepo(t), noopLogger{})
+		extractor, store, factTypeRepo(t), testEligible(), noopLogger{})
 
 	if err := h(context.Background(), published); err != nil {
 		t.Fatalf("handler: %v", err)
@@ -460,9 +493,64 @@ func TestProvideConsolidationGroup_NoExtractorRegistersNothing(t *testing.T) {
 
 	groups := ProvideConsolidationGroup(ConsolidationGroupParams{
 		Extractor: nil,
+		Registry:  NewPresetRegistry(),
 		Logger:    noopLogger{},
 	})
 	if groups != nil {
 		t.Fatalf("expected no group without an extractor, got %+v", groups)
+	}
+}
+
+func TestProvideConsolidationGroup_NoDeclaredTypesRegistersNothing(t *testing.T) {
+	t.Parallel()
+
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{Name: "structured", Types: []PresetResourceType{
+		NewPresetType("Transaction", "transaction", "typed domain data", "", ""),
+	}})
+	groups := ProvideConsolidationGroup(ConsolidationGroupParams{
+		Extractor: &fakeExtractor{},
+		Registry:  registry,
+		Logger:    noopLogger{},
+	})
+	if groups != nil {
+		t.Fatalf("expected no group when no preset declares eligible types, got %+v", groups)
+	}
+}
+
+func TestProvideConsolidationGroup_DeclaredTypesRegisterStartAtHeadGroup(t *testing.T) {
+	t.Parallel()
+
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{Name: "memoryish", Consolidates: []string{"note"}})
+	groups := ProvideConsolidationGroup(ConsolidationGroupParams{
+		Extractor: &fakeExtractor{},
+		Registry:  registry,
+		Logger:    noopLogger{},
+	})
+	if len(groups) != 1 || groups[0].Name != "consolidation" {
+		t.Fatalf("groups = %+v, want one consolidation group", groups)
+	}
+	if !groups[0].StartAtHead {
+		t.Error("consolidation group must start at the feed head — installing memory " +
+			"on an instance with history must not trigger a backfill LLM pass")
+	}
+}
+
+func TestConsolidationEligible_StripsMemoryTypes(t *testing.T) {
+	t.Parallel()
+
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{Name: "a", Consolidates: []string{"note", "fact", ""}})
+	registry.MustAdd(PresetDefinition{Name: "b", Consolidates: []string{"playbook", "transcript"}})
+	eligible := registry.ConsolidationEligible()
+	want := map[string]bool{"note": true, "transcript": true}
+	if len(eligible) != len(want) {
+		t.Fatalf("eligible = %v, want %v", eligible, want)
+	}
+	for slug := range want {
+		if !eligible[slug] {
+			t.Errorf("eligible missing %q: %v", slug, eligible)
+		}
 	}
 }

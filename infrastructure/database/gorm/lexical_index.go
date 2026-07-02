@@ -29,9 +29,10 @@ import (
 
 // ProvideLexicalIndex supplies the FTS5-backed lexical index on SQLite, and an
 // inactive index otherwise. On PostgreSQL FTS5 parity is explicitly out of
-// scope (epic #386); on SQLite builds without the sqlite_fts5 build tag the
-// virtual-table creation fails and the index degrades the same way — lexical
-// search then falls back to graph label search.
+// scope (epic #386). The pure-Go SQLite driver (glebarez/modernc) compiles
+// FTS5 in unconditionally — no build tag — so on SQLite the virtual table is
+// always available; a creation failure still degrades to graph label search
+// rather than failing startup.
 func ProvideLexicalIndex(db *gorm.DB, cfg config.Config, logger entities.Logger) repositories.LexicalIndex {
 	ctx := context.Background()
 	if cfg.IsPostgres() {
@@ -42,7 +43,7 @@ func ProvideLexicalIndex(db *gorm.DB, cfg config.Config, logger entities.Logger)
 		"CREATE VIRTUAL TABLE IF NOT EXISTS resource_search USING fts5(content, id UNINDEXED, type_slug UNINDEXED)",
 	).Error
 	if err != nil {
-		logger.Info(ctx, "sqlite FTS5 unavailable (build without the sqlite_fts5 tag?); "+
+		logger.Info(ctx, "sqlite FTS5 virtual table creation failed; "+
 			"lexical index disabled, memory_search falls back to graph label search", "error", err)
 		return nopLexicalIndex{}
 	}

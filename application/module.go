@@ -170,7 +170,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(NewWorkingMemory),
 		// Lexical recall (epic #386): FTS5 index over resource text literals,
 		// maintained by a checkpointed subscriber; search degrades to graph
-		// label search where FTS5 is unavailable (PostgreSQL, untagged builds).
+		// label search where FTS5 is unavailable (PostgreSQL).
 		fx.Provide(gorm.ProvideLexicalIndex),
 		fx.Provide(AsSubscriberGroups(ProvideLexicalGroup)),
 		fx.Provide(NewLexicalSearch),

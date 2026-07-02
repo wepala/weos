@@ -18,6 +18,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
@@ -26,6 +27,7 @@ import (
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // subscriberGroupTag is the Fx value-group name through which providers
@@ -43,6 +45,7 @@ func WorkerModule() fx.Option {
 	return fx.Options(
 		fx.Provide(ProvideInProcessNotifier),
 		fx.Provide(ProvideCheckpointStore),
+		fx.Provide(ProvideEnsureCheckpoint),
 		fx.Provide(ProvideParkingLot),
 		fx.Provide(ProvideWorkerManager),
 		fx.Invoke(runWorkerManager),
@@ -67,6 +70,28 @@ func ProvideCheckpointStore(db *gorm.DB) (subscriptions.CheckpointStore, error) 
 	return store, nil
 }
 
+// ProvideEnsureCheckpoint supplies the create-if-missing checkpoint primitive
+// behind SubscriberGroup.StartAtHead. It writes the same subscriber_checkpoints
+// table the GORM checkpoint store owns (pericarp exports the model), with an
+// insert that does nothing when the row exists — so it can never move a
+// checkpoint, only seed a brand-new one.
+func ProvideEnsureCheckpoint(db *gorm.DB) EnsureCheckpointFunc {
+	return func(ctx context.Context, subscriber string, position int64) error {
+		err := db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "subscriber"}},
+			DoNothing: true,
+		}).Create(&subscriptions.GormCheckpointModel{
+			Subscriber: subscriber,
+			Position:   position,
+			UpdatedAt:  time.Now(),
+		}).Error
+		if err != nil {
+			return fmt.Errorf("ensure checkpoint for %q at %d: %w", subscriber, position, err)
+		}
+		return nil
+	}
+}
+
 // ProvideParkingLot supplies the GORM parking lot, auto-migrating the
 // parked_events table. Poison events that exhaust their retries land here so
 // the events behind them keep flowing; operators list and replay them via the
@@ -85,6 +110,7 @@ type workerManagerParams struct {
 	fx.In
 	EventStore  domain.EventStore
 	Checkpoints subscriptions.CheckpointStore
+	Ensure      EnsureCheckpointFunc
 	Parking     subscriptions.ParkingLot
 	Notifier    *subscriptions.InProcessNotifier
 	Config      config.Config
@@ -104,14 +130,15 @@ func ProvideWorkerManager(p workerManagerParams) (*Manager, error) {
 		rebuild = append(rebuild, "oxigraph")
 	}
 	return NewManager(ManagerParams{
-		EventStore:     p.EventStore,
-		Checkpoints:    p.Checkpoints,
-		Parking:        p.Parking,
-		Notifier:       p.Notifier,
-		Config:         p.Config,
-		Logger:         p.Logger,
-		Groups:         p.Groups,
-		RebuildOnStart: rebuild,
+		EventStore:       p.EventStore,
+		Checkpoints:      p.Checkpoints,
+		Parking:          p.Parking,
+		Notifier:         p.Notifier,
+		Config:           p.Config,
+		Logger:           p.Logger,
+		Groups:           p.Groups,
+		RebuildOnStart:   rebuild,
+		EnsureCheckpoint: p.Ensure,
 	})
 }
 
