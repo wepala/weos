@@ -9,6 +9,7 @@ import (
 	"github.com/wepala/weos/v3/application/presets/events"
 	"github.com/wepala/weos/v3/application/presets/knowledge"
 	"github.com/wepala/weos/v3/application/presets/mealplanning"
+	"github.com/wepala/weos/v3/application/presets/memory"
 	"github.com/wepala/weos/v3/application/presets/tasks"
 	"github.com/wepala/weos/v3/application/presets/website"
 )
@@ -35,6 +36,7 @@ func RegisterAll(registry *application.PresetRegistry) {
 	events.Register(registry)
 	knowledge.Register(registry)
 	mealplanning.Register(registry)
+	memory.Register(registry)
 	for _, r := range customRegistrars {
 		r(registry)
 	}

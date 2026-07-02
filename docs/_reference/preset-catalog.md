@@ -119,6 +119,18 @@ Behaviors: `pantry` (enforce single default), `scheduled-meal` (generate meal oc
 
 ---
 
+## memory
+
+**Auto-install:** No
+
+| Type | Slug | @type | Properties |
+|------|------|-------|------------|
+| Fact | `fact` | mem:Fact | `statement`\*, `about`, `confidence` (number), `attributedTo`, `generatedAtTime` (format: date-time), `wasDerivedFrom` (array), `wasRevisionOf` (ref→fact), `invalidatedAtTime` (format: date-time) |
+
+Facts carry PROV-O provenance: `wasDerivedFrom` holds source event IDs, `wasRevisionOf` links a superseding fact to its predecessor, and `invalidatedAtTime` marks a fact as superseded (recall queries exclude it; history stays replayable).
+
+---
+
 \* = required property
 
 ## JSON Schema Extensions
