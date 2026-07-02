@@ -27,6 +27,31 @@ import (
 	"google.golang.org/genai"
 )
 
+// defaultMemoryTools are available to every skill without an allowlist
+// entry: the in-app agent is grounded by the same memory a third-party AI
+// gets over MCP, and skills record playbook outcomes after using one. The
+// names are pinned by the annotation inventory test in internal/mcp.
+var defaultMemoryTools = []string{"memory_recall", "memory_search", "playbook_record_outcome"}
+
+// memoryGuidance is the recall-first brief every agent carries.
+const memoryGuidance = `
+Before deriving an answer from raw data, recall consolidated memory: memory_recall for facts, memory_search for names and identifiers. Prefer recalled facts over re-deriving them.
+When a learned playbook guided what you did, record whether it worked with playbook_record_outcome.`
+
+// skillToolNames is the skill's effective allowlist: its declared tools plus
+// the memory defaults, deduplicated.
+func skillToolNames(def entities.SkillDefinition) []string {
+	names := make([]string, 0, len(def.Tools)+len(defaultMemoryTools))
+	seen := make(map[string]bool, len(def.Tools)+len(defaultMemoryTools))
+	for _, t := range append(append([]string{}, def.Tools...), defaultMemoryTools...) {
+		if !seen[t] {
+			seen[t] = true
+			names = append(names, t)
+		}
+	}
+	return names
+}
+
 // widgetOutputInstruction is appended to every agent's instructions so
 // replies land in the widget contract (pkg/widgets). Emission is
 // instruction-driven because Gemini cannot combine a forced response schema
@@ -101,15 +126,17 @@ func BuildSkillAgent(def entities.SkillDefinition, m model.LLM, toolset tool.Too
 		Name:        def.Name,
 		Description: def.Description,
 		Model:       m,
-		Instruction: def.Instructions + "\n" + widgetOutputInstruction,
+		Instruction: def.Instructions + "\n" + memoryGuidance + "\n" + widgetOutputInstruction,
 		Mode:        mode,
 	}
-	if toolset != nil && len(def.Tools) > 0 {
+	if toolset != nil {
+		// Every skill gets the memory defaults on top of its allowlist.
 		cfg.Toolsets = []tool.Toolset{
-			tool.FilterToolset(toolset, tool.AllowedToolsPredicate(def.Tools)),
+			tool.FilterToolset(toolset, tool.AllowedToolsPredicate(skillToolNames(def))),
 		}
 	} else {
-		// Tool-less skills can have the contract enforced at the model level.
+		// Without a tool surface the contract can be enforced at the model
+		// level instead (a response schema excludes tool calling on Gemini).
 		cfg.GenerateContentConfig = &genai.GenerateContentConfig{
 			ResponseSchema:   widgetResponseSchema,
 			ResponseMIMEType: "application/json",

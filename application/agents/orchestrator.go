@@ -52,13 +52,19 @@ type SkillSource func(ctx context.Context) ([]entities.SkillDefinition, error)
 // sharing one across users.
 type ToolsetFactory func(ctx context.Context) (tool.Toolset, error)
 
+// EpisodeRecorder persists one completed turn as episodic memory (the
+// application layer records it as a note resource, which is the type #386
+// background consolidation distills facts from). Recording failures must
+// never fail the turn — the orchestrator logs and moves on.
+type EpisodeRecorder func(ctx context.Context, conversationID, userID, message, reply string) error
+
 // orchestratorInstruction is the root coordinator's standing brief. Routing
 // is LLM-driven over the skills' descriptions via ADK's transfer mechanism.
 const orchestratorInstruction = `You are the coordinator for this WeOS app.
 Route each user request to the sub-agent (skill) whose description best matches, by transferring to it.
 If no skill fits, answer directly using your read-only tools (memory recall, knowledge-graph search).
 Ground every answer in what the tools returned; when you cannot help, say so plainly instead of inventing data.
-` + widgetOutputInstruction
+` + memoryGuidance + widgetOutputInstruction
 
 // Orchestrator is the in-app agent: a Chat-mode coordinator that routes each
 // request to the right skill sub-agent, built fresh from the current skill
@@ -74,6 +80,7 @@ type Orchestrator struct {
 	skills       SkillSource
 	toolsets     ToolsetFactory
 	defaultTools []string
+	recorder     EpisodeRecorder
 }
 
 // NewOrchestrator assembles the orchestrator. model and sessions may be nil
@@ -99,6 +106,14 @@ func (o *Orchestrator) SetToolsetFactory(f ToolsetFactory, defaultTools []string
 	defer o.mu.Unlock()
 	o.toolsets = f
 	o.defaultTools = defaultTools
+}
+
+// SetEpisodeRecorder wires turn recording (called from the application
+// layer's fx wiring).
+func (o *Orchestrator) SetEpisodeRecorder(r EpisodeRecorder) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.recorder = r
 }
 
 // Configured reports whether the in-app agent can serve conversations.
@@ -138,9 +153,25 @@ func (o *Orchestrator) Converse(
 	if err != nil {
 		return widgets.Response{}, err
 	}
+	o.recordEpisode(ctx, conversationID, userID, message, text)
 	// Server-side validation: whatever the model produced renders — contract
 	// JSON passes through, anything else degrades to markdown.
 	return widgets.Parse(text), nil
+}
+
+// recordEpisode persists the completed turn as episodic memory; failures are
+// logged, never surfaced — remembering must not break answering.
+func (o *Orchestrator) recordEpisode(ctx context.Context, conversationID, userID, message, reply string) {
+	o.mu.RLock()
+	recorder := o.recorder
+	o.mu.RUnlock()
+	if recorder == nil {
+		return
+	}
+	if err := recorder(ctx, conversationID, userID, message, reply); err != nil {
+		o.logger.Error(ctx, "failed to record conversation episode",
+			"conversationID", conversationID, "error", err.Error())
+	}
 }
 
 // buildRoot assembles the coordinator with one sub-agent per loaded skill.

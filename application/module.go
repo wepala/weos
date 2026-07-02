@@ -186,7 +186,12 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// command once the MCP server exists.
 		fx.Provide(infraagents.ProvideOrchestrator),
 		fx.Provide(func(o *appagents.Orchestrator) ConversationalAgent { return o }),
-		fx.Invoke(func(o *appagents.Orchestrator, r *SkillRegistry) { o.SetSkillSource(r.Skills) }),
+		fx.Invoke(func(o *appagents.Orchestrator, r *SkillRegistry, rs ResourceService) {
+			o.SetSkillSource(r.Skills)
+			// Completed turns become note resources — the episodic memory
+			// that #386 consolidation distills facts from.
+			o.SetEpisodeRecorder(RecordAgentTurn(rs))
+		}),
 	)
 }
 

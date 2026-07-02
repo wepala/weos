@@ -114,6 +114,33 @@ func TestOrchestrator_ConverseMultiTurnSharesSession(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_RecordsEpisodePerTurn(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "reply text"}, session.InMemoryService(), testLogger{})
+	var got []string
+	o.SetEpisodeRecorder(func(_ context.Context, conversationID, userID, message, reply string) error {
+		got = []string{conversationID, userID, message, reply}
+		return nil
+	})
+
+	if _, err := o.Converse(context.Background(), "conv9", "u9", "the question"); err != nil {
+		t.Fatalf("Converse: %v", err)
+	}
+	if len(got) != 4 || got[0] != "conv9" || got[1] != "u9" || got[2] != "the question" ||
+		!strings.Contains(got[3], "reply text") {
+		t.Fatalf("recorded episode = %v", got)
+	}
+}
+
+func TestOrchestrator_RecorderFailureDoesNotFailTurn(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	o.SetEpisodeRecorder(func(context.Context, string, string, string, string) error {
+		return errors.New("memory store down")
+	})
+	if _, err := o.Converse(context.Background(), "c", "u", "m"); err != nil {
+		t.Fatalf("recording failure must not fail the turn: %v", err)
+	}
+}
+
 func TestOrchestrator_SkillSourceErrorSurfaces(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "x"}, session.InMemoryService(), testLogger{})
 	o.SetSkillSource(func(context.Context) ([]entities.SkillDefinition, error) {

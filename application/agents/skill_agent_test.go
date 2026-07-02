@@ -49,6 +49,25 @@ func TestBuildSkillAgent_SingleTurnMode(t *testing.T) {
 	}
 }
 
+func TestSkillToolNames_IncludesMemoryDefaults(t *testing.T) {
+	def := skillDef()
+	def.Tools = []string{"kg_search_entities", "memory_recall"} // one overlap with the defaults
+	names := skillToolNames(def)
+
+	want := map[string]bool{
+		"kg_search_entities": true, "memory_recall": true,
+		"memory_search": true, "playbook_record_outcome": true,
+	}
+	if len(names) != len(want) {
+		t.Fatalf("tool names = %v, want exactly %v (deduplicated)", names, want)
+	}
+	for _, n := range names {
+		if !want[n] {
+			t.Errorf("unexpected tool %q", n)
+		}
+	}
+}
+
 func TestBuildSkillAgent_RejectsInvalidDefinition(t *testing.T) {
 	def := skillDef()
 	def.Instructions = ""
