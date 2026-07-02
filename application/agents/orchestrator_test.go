@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/pkg/widgets"
 
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/session"
@@ -99,8 +100,11 @@ func TestOrchestrator_ConverseMultiTurnSharesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Converse: %v", err)
 	}
-	if !strings.Contains(out, "answer") {
-		t.Errorf("Converse output = %q, want it to contain %q", out, "answer")
+	// The scripted model answers plain text, so the contract's fallback must
+	// wrap it in a single markdown widget.
+	if len(out.Widgets) != 1 || out.Widgets[0].Type != widgets.TypeMarkdown ||
+		!strings.Contains(out.Widgets[0].Markdown, "answer") {
+		t.Errorf("Converse output = %+v, want one markdown widget containing %q", out, "answer")
 	}
 
 	// Second turn reuses the existing session — ensureSession must not fail

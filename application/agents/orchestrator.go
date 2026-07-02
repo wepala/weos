@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/pkg/widgets"
 
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
@@ -56,7 +57,8 @@ type ToolsetFactory func(ctx context.Context) (tool.Toolset, error)
 const orchestratorInstruction = `You are the coordinator for this WeOS app.
 Route each user request to the sub-agent (skill) whose description best matches, by transferring to it.
 If no skill fits, answer directly using your read-only tools (memory recall, knowledge-graph search).
-Ground every answer in what the tools returned; when you cannot help, say so plainly instead of inventing data.`
+Ground every answer in what the tools returned; when you cannot help, say so plainly instead of inventing data.
+` + widgetOutputInstruction
 
 // Orchestrator is the in-app agent: a Chat-mode coordinator that routes each
 // request to the right skill sub-agent, built fresh from the current skill
@@ -111,16 +113,18 @@ func (o *Orchestrator) Configured() bool {
 // request-scoped: the per-turn toolset session lives exactly as long as
 // ctx, so a non-cancellable context would leak an in-memory MCP session
 // per turn.
-func (o *Orchestrator) Converse(ctx context.Context, conversationID, userID, message string) (string, error) {
+func (o *Orchestrator) Converse(
+	ctx context.Context, conversationID, userID, message string,
+) (widgets.Response, error) {
 	if !o.Configured() {
-		return "", ErrNotConfigured
+		return widgets.Response{}, ErrNotConfigured
 	}
 	root, err := o.buildRoot(ctx)
 	if err != nil {
-		return "", err
+		return widgets.Response{}, err
 	}
 	if err := o.ensureSession(ctx, userID, conversationID); err != nil {
-		return "", err
+		return widgets.Response{}, err
 	}
 	r, err := runner.New(runner.Config{
 		AppName:        OrchestratorAppName,
@@ -128,9 +132,15 @@ func (o *Orchestrator) Converse(ctx context.Context, conversationID, userID, mes
 		SessionService: o.sessions,
 	})
 	if err != nil {
-		return "", fmt.Errorf("create runner: %w", err)
+		return widgets.Response{}, fmt.Errorf("create runner: %w", err)
 	}
-	return RunUserTurn(ctx, r, userID, conversationID, message)
+	text, err := RunUserTurn(ctx, r, userID, conversationID, message)
+	if err != nil {
+		return widgets.Response{}, err
+	}
+	// Server-side validation: whatever the model produced renders — contract
+	// JSON passes through, anything else degrades to markdown.
+	return widgets.Parse(text), nil
 }
 
 // buildRoot assembles the coordinator with one sub-agent per loaded skill.

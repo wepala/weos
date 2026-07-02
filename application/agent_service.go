@@ -15,7 +15,11 @@
 
 package application
 
-import "context"
+import (
+	"context"
+
+	"github.com/wepala/weos/v3/pkg/widgets"
+)
 
 // ConversationalAgent is the provider-agnostic surface of the in-app agent.
 // API handlers and CLI commands consume this interface; the ADK-backed
@@ -25,10 +29,11 @@ type ConversationalAgent interface {
 	// Configured reports whether an LLM is configured; when false, Converse
 	// returns a clear not-configured error and the UI should say so.
 	Configured() bool
-	// Converse runs one turn. conversationID identifies the durable
+	// Converse runs one turn and returns the response as the versioned
+	// widget contract (pkg/widgets). conversationID identifies the durable
 	// conversation (multi-turn context); ctx must carry the caller's
 	// identity, which tool authorization reads, and must be request-scoped
 	// (e.g. the HTTP request context) — tool sessions live exactly as long
 	// as ctx.
-	Converse(ctx context.Context, conversationID, userID, message string) (string, error)
+	Converse(ctx context.Context, conversationID, userID, message string) (widgets.Response, error)
 }
