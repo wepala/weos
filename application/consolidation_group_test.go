@@ -1,0 +1,328 @@
+package application
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
+
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
+)
+
+// testFactContext / testFactSchema mirror the memory preset's fact type. The
+// application package cannot import presets/memory (it imports application),
+// so the shape is replicated here; the memory preset's own tests pin the real
+// artifact.
+const testFactContext = `{"@vocab":"https://schema.org/",` +
+	`"mem":"https://weos.org/vocab/memory#","@type":"mem:Fact",` +
+	`"statement":"https://schema.org/text","about":"https://schema.org/about",` +
+	`"wasDerivedFrom":"http://www.w3.org/ns/prov#wasDerivedFrom",` +
+	`"wasRevisionOf":"http://www.w3.org/ns/prov#wasRevisionOf",` +
+	`"invalidatedAtTime":"http://www.w3.org/ns/prov#invalidatedAtTime"}`
+
+const testFactSchema = `{"type":"object","properties":{` +
+	`"statement":{"type":"string"},"about":{"type":"string"},` +
+	`"wasDerivedFrom":{"type":"array","items":{"type":"string"}},` +
+	`"wasRevisionOf":{"type":"string","x-resource-type":"fact","x-display-property":"statement"},` +
+	`"invalidatedAtTime":{"type":"string","format":"date-time"}},"required":["statement"]}`
+
+type fakeExtractor struct {
+	calls      int
+	lastObs    entities.EpisodeObservation
+	lastFacts  []entities.ExistingFact
+	candidates []entities.FactCandidate
+	err        error
+}
+
+func (f *fakeExtractor) ExtractFacts(
+	_ context.Context, obs entities.EpisodeObservation, related []entities.ExistingFact,
+) ([]entities.FactCandidate, error) {
+	f.calls++
+	f.lastObs = obs
+	f.lastFacts = related
+	return f.candidates, f.err
+}
+
+type fakeFactStore struct {
+	listed  []*entities.Resource
+	creates []CreateResourceCommand
+	updates []UpdateResourceCommand
+	order   []string
+}
+
+func (f *fakeFactStore) Create(_ context.Context, cmd CreateResourceCommand) (*entities.Resource, error) {
+	f.creates = append(f.creates, cmd)
+	f.order = append(f.order, "create")
+	return nil, nil
+}
+
+func (f *fakeFactStore) Update(_ context.Context, cmd UpdateResourceCommand) (*entities.Resource, error) {
+	f.updates = append(f.updates, cmd)
+	f.order = append(f.order, "update")
+	return nil, nil
+}
+
+func (f *fakeFactStore) ListByField(
+	_ context.Context, _, _, _ string,
+) (repositories.PaginatedResponse[*entities.Resource], error) {
+	return repositories.PaginatedResponse[*entities.Resource]{Data: f.listed}, nil
+}
+
+// testFact builds a fact resource whose data went through the real
+// BuildResourceGraph, mirroring what ResourceService persists.
+func testFact(t *testing.T, id string, flat map[string]any) *entities.Resource {
+	t.Helper()
+	raw, err := json.Marshal(flat)
+	if err != nil {
+		t.Fatalf("marshal fact data: %v", err)
+	}
+	refProps := ExtractReferenceProperties(
+		json.RawMessage(testFactSchema), json.RawMessage(testFactContext))
+	graph, err := BuildResourceGraph(raw, refProps, id, "Fact", json.RawMessage(testFactContext))
+	if err != nil {
+		t.Fatalf("build fact graph: %v", err)
+	}
+	res, err := new(entities.Resource).With(id, "fact", graph, "", "")
+	if err != nil {
+		t.Fatalf("build fact resource: %v", err)
+	}
+	return res
+}
+
+func factTypeRepo(t *testing.T) *kgTypeRepo {
+	t.Helper()
+	rt, err := new(entities.ResourceType).With("Fact", "fact", "test fact type",
+		json.RawMessage(testFactContext), json.RawMessage(testFactSchema))
+	if err != nil {
+		t.Fatalf("build fact type: %v", err)
+	}
+	return &kgTypeRepo{rt: rt}
+}
+
+// episode returns a Resource.Published envelope plus the transaction events
+// behind it, for a resource of the given type. Payloads are map[string]any
+// with PascalCase keys — background subscribers always see store-deserialized
+// maps, never the original typed structs (see buildStateFromTransaction).
+func episode(typeSlug, aggregateID, txID, createdEventID string) (
+	domain.EventEnvelope[any], []domain.EventEnvelope[any],
+) {
+	created := domain.EventEnvelope[any]{
+		ID:            createdEventID,
+		EventType:     "Resource.Created",
+		AggregateID:   aggregateID,
+		SequenceNo:    1,
+		TransactionID: txID,
+		Payload: map[string]any{
+			"TypeSlug": typeSlug,
+			"Data":     map[string]any{"@id": aggregateID, "name": "episodic thing"},
+		},
+	}
+	published := domain.EventEnvelope[any]{
+		ID:            createdEventID + "-pub",
+		EventType:     "Resource.Published",
+		AggregateID:   aggregateID,
+		SequenceNo:    2,
+		TransactionID: txID,
+		Payload:       map[string]any{"TypeSlug": typeSlug},
+	}
+	return published, []domain.EventEnvelope[any]{created, published}
+}
+
+func TestConsolidationHandler_RecordsFactFromEpisode(t *testing.T) {
+	t.Parallel()
+
+	published, tx := episode("note", "urn:note:1", "tx1", "ev1")
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{
+		{Statement: "Akeem keeps meeting notes in WeOS", Confidence: 0.8},
+	}}
+	store := &fakeFactStore{}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if extractor.calls != 1 {
+		t.Fatalf("extractor calls = %d, want 1", extractor.calls)
+	}
+	if got := extractor.lastObs.EventIDs; len(got) != 1 || got[0] != "urn:event:ev1" {
+		t.Errorf("observation event IDs = %v, want [urn:event:ev1]", got)
+	}
+	if len(store.creates) != 1 {
+		t.Fatalf("creates = %d, want 1", len(store.creates))
+	}
+	var data map[string]any
+	if err := json.Unmarshal(store.creates[0].Data, &data); err != nil {
+		t.Fatalf("unmarshal created fact: %v", err)
+	}
+	if data["statement"] != "Akeem keeps meeting notes in WeOS" {
+		t.Errorf("statement = %v", data["statement"])
+	}
+	if data["about"] != "urn:note:1" {
+		t.Errorf("about = %v, want the observed resource URN", data["about"])
+	}
+	derived, _ := data["wasDerivedFrom"].([]any)
+	if len(derived) != 1 || derived[0] != "urn:event:ev1" {
+		t.Errorf("wasDerivedFrom = %v, want [urn:event:ev1]", data["wasDerivedFrom"])
+	}
+	if _, has := data["wasRevisionOf"]; has {
+		t.Error("wasRevisionOf must be absent when nothing is superseded")
+	}
+}
+
+func TestConsolidationHandler_SkipsMemoryTypes(t *testing.T) {
+	t.Parallel()
+
+	published, tx := episode("fact", "urn:fact:1", "tx1", "ev1")
+	extractor := &fakeExtractor{}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, &fakeFactStore{}, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if extractor.calls != 0 {
+		t.Errorf("extractor called %d times for a fact episode, want 0 (no self-loop)", extractor.calls)
+	}
+}
+
+func TestConsolidationHandler_DedupOnReplay(t *testing.T) {
+	t.Parallel()
+
+	published, tx := episode("note", "urn:note:1", "tx1", "ev1")
+	existing := testFact(t, "urn:fact:prior", map[string]any{
+		"statement":      "already distilled",
+		"about":          "urn:note:1",
+		"wasDerivedFrom": []string{"urn:event:ev1"},
+	})
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{Statement: "dup"}}}
+	store := &fakeFactStore{listed: []*entities.Resource{existing}}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if extractor.calls != 0 {
+		t.Errorf("extractor called %d times on replay, want 0 (dedup on wasDerivedFrom)", extractor.calls)
+	}
+	if len(store.creates) != 0 {
+		t.Errorf("creates = %d on replay, want 0", len(store.creates))
+	}
+}
+
+func TestConsolidationHandler_SupersedesInvalidatesPredecessorFirst(t *testing.T) {
+	t.Parallel()
+
+	published, tx := episode("note", "urn:note:1", "tx1", "ev2")
+	old := testFact(t, "urn:fact:old", map[string]any{
+		"statement":      "Akeem works Mondays from home",
+		"about":          "urn:note:1",
+		"wasDerivedFrom": []string{"urn:event:ev1"},
+	})
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{
+		Statement:    "Akeem works Mondays from the office",
+		Confidence:   0.9,
+		SupersedesID: "urn:fact:old",
+	}}}
+	store := &fakeFactStore{listed: []*entities.Resource{old}}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if got := strings.Join(store.order, ","); got != "update,create" {
+		t.Fatalf("write order = %s, want update,create (invalidate predecessor first)", got)
+	}
+	if store.updates[0].ID != "urn:fact:old" {
+		t.Errorf("updated ID = %s, want urn:fact:old", store.updates[0].ID)
+	}
+	var oldData map[string]any
+	if err := json.Unmarshal(store.updates[0].Data, &oldData); err != nil {
+		t.Fatalf("unmarshal invalidation update: %v", err)
+	}
+	if oldData["invalidatedAtTime"] == nil || oldData["invalidatedAtTime"] == "" {
+		t.Error("invalidatedAtTime not set on superseded fact")
+	}
+	if oldData["statement"] != "Akeem works Mondays from home" {
+		t.Error("invalidation update dropped existing fields — Update is full-replace")
+	}
+	var newData map[string]any
+	if err := json.Unmarshal(store.creates[0].Data, &newData); err != nil {
+		t.Fatalf("unmarshal new fact: %v", err)
+	}
+	if newData["wasRevisionOf"] != "urn:fact:old" {
+		t.Errorf("wasRevisionOf = %v, want urn:fact:old", newData["wasRevisionOf"])
+	}
+}
+
+func TestConsolidationHandler_IgnoresHallucinatedSupersedesID(t *testing.T) {
+	t.Parallel()
+
+	published, tx := episode("note", "urn:note:1", "tx1", "ev1")
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{
+		Statement:    "some new fact",
+		SupersedesID: "urn:fact:never-shown-to-model",
+	}}}
+	store := &fakeFactStore{}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if len(store.updates) != 0 {
+		t.Errorf("updates = %d, want 0 — hallucinated URN must not invalidate anything", len(store.updates))
+	}
+	var data map[string]any
+	if err := json.Unmarshal(store.creates[0].Data, &data); err != nil {
+		t.Fatalf("unmarshal created fact: %v", err)
+	}
+	if _, has := data["wasRevisionOf"]; has {
+		t.Error("wasRevisionOf must be dropped for an unknown supersedesId")
+	}
+}
+
+func TestConsolidationHandler_ExcludesSupersededFromExtractorContext(t *testing.T) {
+	t.Parallel()
+
+	published, tx := episode("note", "urn:note:1", "tx1", "ev3")
+	invalidated := testFact(t, "urn:fact:dead", map[string]any{
+		"statement":         "outdated",
+		"about":             "urn:note:1",
+		"wasDerivedFrom":    []string{"urn:event:ev1"},
+		"invalidatedAtTime": "2026-01-01T00:00:00Z",
+	})
+	active := testFact(t, "urn:fact:live", map[string]any{
+		"statement":      "current",
+		"about":          "urn:note:1",
+		"wasDerivedFrom": []string{"urn:event:ev2"},
+	})
+	extractor := &fakeExtractor{}
+	store := &fakeFactStore{listed: []*entities.Resource{invalidated, active}}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if len(extractor.lastFacts) != 1 || extractor.lastFacts[0].ID != "urn:fact:live" {
+		t.Errorf("extractor context = %+v, want only the non-superseded fact", extractor.lastFacts)
+	}
+}
+
+func TestProvideConsolidationGroup_NoExtractorRegistersNothing(t *testing.T) {
+	t.Parallel()
+
+	groups := ProvideConsolidationGroup(ConsolidationGroupParams{
+		Extractor: nil,
+		Logger:    noopLogger{},
+	})
+	if groups != nil {
+		t.Fatalf("expected no group without an extractor, got %+v", groups)
+	}
+}

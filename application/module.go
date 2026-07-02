@@ -5,6 +5,7 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	infraagents "github.com/wepala/weos/v3/infrastructure/agents"
 	"github.com/wepala/weos/v3/infrastructure/auth"
 	"github.com/wepala/weos/v3/infrastructure/database/gorm"
 	"github.com/wepala/weos/v3/infrastructure/email"
@@ -158,6 +159,12 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// reverse-reference display-value denormalization.
 		fx.Provide(AsSubscriberGroups(ProvideOxigraphGroup)),
 		fx.Provide(AsSubscriberGroups(ProvideDisplayValuesGroup)),
+		// Memory consolidation (epic #386): the BYOK LLM port (ADK/Gemini when
+		// configured, nil otherwise) and the background policy that distills
+		// episodic events into fact resources with PROV-O provenance.
+		fx.Provide(infraagents.ProvideADKConfig),
+		fx.Provide(ProvideFactExtractor),
+		fx.Provide(AsSubscriberGroups(ProvideConsolidationGroup)),
 	)
 }
 
