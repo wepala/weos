@@ -118,8 +118,18 @@ func (w *toolAnnotationWorld) everyToolIsAnnotated() error {
 		return fmt.Errorf("no tools advertised")
 	}
 	for name, t := range w.tools {
-		if t.Annotations == nil {
+		a := t.Annotations
+		if a == nil {
 			return fmt.Errorf("tool %q declares no annotations", name)
+		}
+		// The hints the epic's confirmation gating depends on must be
+		// explicit, not defaulted: closed-world on every tool, and a
+		// destructive-vs-additive declaration on every mutating tool.
+		if a.OpenWorldHint == nil || *a.OpenWorldHint {
+			return fmt.Errorf("tool %q must explicitly declare a closed world (OpenWorldHint=false)", name)
+		}
+		if !a.ReadOnlyHint && a.DestructiveHint == nil {
+			return fmt.Errorf("mutating tool %q must declare DestructiveHint explicitly", name)
 		}
 	}
 	return nil
