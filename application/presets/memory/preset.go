@@ -38,6 +38,27 @@ const factSchema = `{"type":"object","properties":{` +
 	`"description":"Set when a newer fact supersedes this one; superseded facts are excluded from recall"}` +
 	`},"required":["statement"]}`
 
+// playbookContext models procedural memory: a learned procedure whose
+// success/failure record accrues via events. Counters live in the custom
+// memory vocabulary; ranking by them is deferred until signal density
+// justifies it (epic #386 boundary).
+const playbookContext = `{"@vocab":"https://schema.org/",` +
+	`"mem":"https://weos.org/vocab/memory#",` +
+	`"@type":"mem:Playbook",` +
+	`"trigger":"https://weos.org/vocab/memory#triggerCondition",` +
+	`"steps":"https://weos.org/vocab/memory#steps",` +
+	`"successCount":"https://weos.org/vocab/memory#successCount",` +
+	`"failureCount":"https://weos.org/vocab/memory#failureCount"}`
+
+const playbookSchema = `{"type":"object","properties":{` +
+	`"name":{"type":"string","description":"Short name of the procedure"},` +
+	`"description":{"type":"string"},` +
+	`"trigger":{"type":"string","description":"The situation in which to reach for this playbook"},` +
+	`"steps":{"type":"array","items":{"type":"string"},"description":"Ordered procedure steps"},` +
+	`"successCount":{"type":"integer","minimum":0},` +
+	`"failureCount":{"type":"integer","minimum":0}` +
+	`},"required":["name"]}`
+
 // Register adds the memory preset to the registry.
 //
 // The fact type models CoALA-style semantic memory: each fact is an ordinary
@@ -54,15 +75,26 @@ func Register(registry *application.PresetRegistry) {
 			application.NewPresetType("Fact", "fact",
 				"An agent-consolidated statement distilled from episodic events, with PROV-O provenance",
 				factContext, factSchema),
+			application.NewPresetType("Playbook", "playbook",
+				"A learned procedure with event-sourced success/failure counters",
+				playbookContext, playbookSchema),
 		},
 		Behaviors: map[string]application.BehaviorFactory{
-			"fact": FactBehavior,
+			"fact":     FactBehavior,
+			"playbook": PlaybookBehavior,
 		},
 		BehaviorMeta: map[string]entities.BehaviorMeta{
 			"fact": {
 				Slug:        "fact",
 				DisplayName: "Fact provenance signals",
 				Description: "Records Fact.Recorded and Fact.Superseded signal events when facts are committed",
+				Default:     true,
+				Manageable:  false,
+			},
+			"playbook": {
+				Slug:        "playbook",
+				DisplayName: "Playbook outcome signals",
+				Description: "Records Playbook.Confirmed and Playbook.Rejected signal events for agent verdicts",
 				Default:     true,
 				Manageable:  false,
 			},

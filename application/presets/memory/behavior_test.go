@@ -72,6 +72,70 @@ func TestFactBehavior_RecordsFactRecorded(t *testing.T) {
 	}
 }
 
+func playbookResource(t *testing.T, id string, flat map[string]any) *entities.Resource {
+	t.Helper()
+	raw, err := json.Marshal(flat)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	graph, err := application.BuildResourceGraph(raw, nil, id, "Playbook", json.RawMessage(playbookContext))
+	if err != nil {
+		t.Fatalf("build graph: %v", err)
+	}
+	res, err := new(entities.Resource).With(id, "playbook", graph, "", "")
+	if err != nil {
+		t.Fatalf("build resource: %v", err)
+	}
+	return res
+}
+
+func TestPlaybookBehavior_RecordsSignalOnlyWithOutcomeMarker(t *testing.T) {
+	t.Parallel()
+
+	res := playbookResource(t, "urn:playbook:1", map[string]any{"name": "deploy", "successCount": 1})
+	b := PlaybookBehavior(application.BehaviorServices{})
+
+	// Plain edit: no marker, no signal.
+	if err := b.BeforeUpdateCommit(context.Background(), res); err != nil {
+		t.Fatalf("BeforeUpdateCommit: %v", err)
+	}
+	if n := len(res.GetUncommittedEvents()); n != 1 { // only the ResourceCreated from With()
+		t.Fatalf("events after plain edit = %d, want 1 (no signal without marker)", n)
+	}
+
+	ctx := entities.WithPlaybookOutcome(context.Background(), entities.PlaybookOutcomeConfirmed, "worked")
+	if err := b.BeforeUpdateCommit(ctx, res); err != nil {
+		t.Fatalf("BeforeUpdateCommit with marker: %v", err)
+	}
+	var confirmed entities.PlaybookConfirmed
+	found := false
+	for _, e := range res.GetUncommittedEvents() {
+		if p, ok := e.Payload.(entities.PlaybookConfirmed); ok {
+			confirmed, found = p, true
+		}
+	}
+	if !found {
+		t.Fatal("no Playbook.Confirmed event recorded")
+	}
+	if confirmed.PlaybookID != "urn:playbook:1" || confirmed.Note != "worked" {
+		t.Errorf("event = %+v", confirmed)
+	}
+
+	ctx = entities.WithPlaybookOutcome(context.Background(), entities.PlaybookOutcomeRejected, "misled")
+	if err := b.BeforeUpdateCommit(ctx, res); err != nil {
+		t.Fatalf("BeforeUpdateCommit rejected: %v", err)
+	}
+	foundRejected := false
+	for _, e := range res.GetUncommittedEvents() {
+		if _, ok := e.Payload.(entities.PlaybookRejected); ok {
+			foundRejected = true
+		}
+	}
+	if !foundRejected {
+		t.Fatal("no Playbook.Rejected event recorded")
+	}
+}
+
 func TestFactBehavior_RecordsFactSupersededForRevisions(t *testing.T) {
 	t.Parallel()
 

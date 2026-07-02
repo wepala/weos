@@ -74,3 +74,39 @@ func (b *factBehavior) BeforeCreateCommit(_ context.Context, resource *entities.
 	}
 	return nil
 }
+
+// playbookBehavior records Playbook.Confirmed / Playbook.Rejected signal
+// events when an update commit carries the outcome marker set by
+// PlaybookService.RecordOutcome. Plain edits carry no marker and record no
+// signal.
+type playbookBehavior struct {
+	entities.DefaultBehavior
+}
+
+// PlaybookBehavior constructs the playbook behavior.
+func PlaybookBehavior(_ application.BehaviorServices) entities.ResourceBehavior {
+	return &playbookBehavior{}
+}
+
+// BeforeUpdateCommit records the outcome signal atomically with the
+// counter-bearing update.
+func (b *playbookBehavior) BeforeUpdateCommit(ctx context.Context, resource *entities.Resource) error {
+	outcome, note, ok := entities.PlaybookOutcomeFromCtx(ctx)
+	if !ok {
+		return nil
+	}
+	now := time.Now()
+	switch outcome {
+	case entities.PlaybookOutcomeConfirmed:
+		ev := entities.PlaybookConfirmed{PlaybookID: resource.GetID(), Note: note, Timestamp: now}
+		if err := resource.RecordEvent(ev, ev.EventType()); err != nil {
+			return fmt.Errorf("playbook behavior: record Playbook.Confirmed: %w", err)
+		}
+	case entities.PlaybookOutcomeRejected:
+		ev := entities.PlaybookRejected{PlaybookID: resource.GetID(), Note: note, Timestamp: now}
+		if err := resource.RecordEvent(ev, ev.EventType()); err != nil {
+			return fmt.Errorf("playbook behavior: record Playbook.Rejected: %w", err)
+		}
+	}
+	return nil
+}

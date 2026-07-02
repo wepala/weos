@@ -34,6 +34,7 @@ const (
 	ServiceResourceType   ServiceName = "resource-type"
 	ServiceResource       ServiceName = "resource"
 	ServiceKnowledgeGraph ServiceName = "knowledge-graph"
+	ServiceMemory         ServiceName = "memory"
 )
 
 // AllServices is the ordered list of every available service.
@@ -43,6 +44,7 @@ var AllServices = []ServiceName{
 	ServiceResourceType,
 	ServiceResource,
 	ServiceKnowledgeGraph,
+	ServiceMemory,
 }
 
 // ValidServiceNames returns the service names as strings (useful for help text).
@@ -140,6 +142,12 @@ func NewMCPServer(
 	}
 	if enabled[ServiceKnowledgeGraph] && !isNilInterface(kgService) {
 		registerKnowledgeGraphTools(server, kgService)
+	}
+	if enabled[ServiceMemory] {
+		// The playbook service is a thin stateless wrapper over the resource
+		// service, so it is constructed here rather than threaded through
+		// every NewMCPServer caller.
+		registerMemoryTools(server, application.NewPlaybookService(resourceService))
 	}
 
 	return server, nil

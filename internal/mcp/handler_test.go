@@ -182,8 +182,9 @@ func TestNewMCPServer_AllServices(t *testing.T) {
 
 	names := toolNames(t, server)
 
-	// All 4 service groups should be registered (24 tools total).
-	expectedPrefixes := []string{"person_", "organization_", "resource_type_", "resource_"}
+	// All 5 always-on service groups should be registered (25 tools total;
+	// knowledge-graph is omitted because kgService is nil here).
+	expectedPrefixes := []string{"person_", "organization_", "resource_type_", "resource_", "playbook_"}
 	for _, prefix := range expectedPrefixes {
 		found := false
 		for _, name := range names {
@@ -197,8 +198,8 @@ func TestNewMCPServer_AllServices(t *testing.T) {
 		}
 	}
 
-	if len(names) != 24 {
-		t.Errorf("expected 24 tools, got %d: %v", len(names), names)
+	if len(names) != 25 {
+		t.Errorf("expected 25 tools, got %d: %v", len(names), names)
 	}
 }
 
