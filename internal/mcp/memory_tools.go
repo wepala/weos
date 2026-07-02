@@ -90,6 +90,7 @@ func registerMemoryTools(
 		Description: "Recall consolidated facts from semantic memory. Superseded facts are always " +
 			"excluded, and facts written this turn are included even before the knowledge graph " +
 			"catches up. Use kg_sparql_query for free-form graph queries instead.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, in MemoryRecallInput,
 	) (*mcp.CallToolResult, MemoryRecallOutput, error) {
@@ -114,6 +115,7 @@ func registerMemorySearchTool(server *mcp.Server, search application.LexicalSear
 			"(proper nouns, identifiers) via SQLite FTS5, degrading to graph label search where FTS5 " +
 			"is unavailable. Superseded facts are never indexed. Use memory_recall for structured " +
 			"fact recall.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, in MemorySearchInput,
 	) (*mcp.CallToolResult, MemorySearchOutput, error) {
@@ -138,6 +140,7 @@ func registerPlaybookTools(server *mcp.Server, playbooks application.PlaybookSer
 		Description: "Record whether a playbook (learned procedure) worked after using it: " +
 			"confirmed increments its success counter, rejected its failure counter. " +
 			"The verdict is event-sourced (Playbook.Confirmed / Playbook.Rejected).",
+		Annotations: annAdditive(false),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, in PlaybookOutcomeInput,
 	) (*mcp.CallToolResult, PlaybookOutcomeOutput, error) {

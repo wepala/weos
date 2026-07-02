@@ -75,6 +75,7 @@ func registerPersonTools(server *mcp.Server, svc application.ResourceService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "person_create",
 		Description: "Create a new person.",
+		Annotations: annAdditive(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CreatePersonInput) (*mcp.CallToolResult, PersonOutput, error) {
 		data, _ := json.Marshal(map[string]any{
 			"givenName": input.GivenName, "familyName": input.FamilyName, "email": input.Email,
@@ -89,6 +90,7 @@ func registerPersonTools(server *mcp.Server, svc application.ResourceService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "person_get",
 		Description: "Get a person by ID.",
+		Annotations: annReadOnly(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input GetPersonInput) (*mcp.CallToolResult, PersonOutput, error) {
 		entity, err := svc.GetByID(ctx, input.ID)
 		if err != nil {
@@ -100,6 +102,7 @@ func registerPersonTools(server *mcp.Server, svc application.ResourceService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "person_list",
 		Description: "List all persons with cursor-based pagination.",
+		Annotations: annReadOnly(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ListPersonsInput) (*mcp.CallToolResult, ListPersonsOutput, error) {
 		limit := input.Limit
 		if limit <= 0 {
@@ -123,6 +126,7 @@ func registerPersonTools(server *mcp.Server, svc application.ResourceService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "person_update",
 		Description: "Update an existing person.",
+		Annotations: annDestructive(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input UpdatePersonInput) (*mcp.CallToolResult, PersonOutput, error) {
 		data, _ := json.Marshal(map[string]any{
 			"givenName": input.GivenName, "familyName": input.FamilyName,
@@ -138,6 +142,7 @@ func registerPersonTools(server *mcp.Server, svc application.ResourceService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "person_delete",
 		Description: "Delete a person by ID.",
+		Annotations: annDestructive(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeletePersonInput) (*mcp.CallToolResult, DeletedOutput, error) {
 		if err := svc.Delete(ctx, application.DeleteResourceCommand{ID: input.ID}); err != nil {
 			return nil, DeletedOutput{}, err

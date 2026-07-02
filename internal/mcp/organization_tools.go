@@ -75,6 +75,7 @@ func registerOrganizationTools(server *mcp.Server, svc application.ResourceServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "organization_create",
 		Description: "Create a new organization.",
+		Annotations: annAdditive(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input CreateOrganizationInput) (*mcp.CallToolResult, OrganizationOutput, error) {
 		data, _ := json.Marshal(map[string]any{
 			"name": input.Name, "slug": input.Slug,
@@ -89,6 +90,7 @@ func registerOrganizationTools(server *mcp.Server, svc application.ResourceServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "organization_get",
 		Description: "Get an organization by ID.",
+		Annotations: annReadOnly(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input GetOrganizationInput) (*mcp.CallToolResult, OrganizationOutput, error) {
 		entity, err := svc.GetByID(ctx, input.ID)
 		if err != nil {
@@ -100,6 +102,7 @@ func registerOrganizationTools(server *mcp.Server, svc application.ResourceServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "organization_list",
 		Description: "List all organizations with cursor-based pagination.",
+		Annotations: annReadOnly(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input ListOrganizationsInput) (*mcp.CallToolResult, ListOrganizationsOutput, error) {
 		limit := input.Limit
 		if limit <= 0 {
@@ -123,6 +126,7 @@ func registerOrganizationTools(server *mcp.Server, svc application.ResourceServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "organization_update",
 		Description: "Update an existing organization.",
+		Annotations: annDestructive(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input UpdateOrganizationInput) (*mcp.CallToolResult, OrganizationOutput, error) {
 		data, _ := json.Marshal(map[string]any{
 			"name": input.Name, "slug": input.Slug,
@@ -138,6 +142,7 @@ func registerOrganizationTools(server *mcp.Server, svc application.ResourceServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "organization_delete",
 		Description: "Delete an organization by ID.",
+		Annotations: annDestructive(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input DeleteOrganizationInput) (*mcp.CallToolResult, DeletedOutput, error) {
 		if err := svc.Delete(ctx, application.DeleteResourceCommand{ID: input.ID}); err != nil {
 			return nil, DeletedOutput{}, err

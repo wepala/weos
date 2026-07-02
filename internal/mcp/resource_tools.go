@@ -74,6 +74,7 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_create",
 		Description: "Create a new resource of a given type. Data is validated against the type's JSON Schema if defined.",
+		Annotations: annAdditive(false),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input CreateResourceInput,
 	) (*mcp.CallToolResult, ResourceOutput, error) {
@@ -93,6 +94,7 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_get",
 		Description: "Get a resource by ID. Returns full JSON-LD data.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input GetResourceInput,
 	) (*mcp.CallToolResult, ResourceOutput, error) {
@@ -106,6 +108,7 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_list",
 		Description: "List resources of a given type with cursor-based pagination.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input ListResourcesInput,
 	) (*mcp.CallToolResult, ListResourcesOutput, error) {
@@ -132,6 +135,7 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_update",
 		Description: "Update an existing resource. Data is re-validated against the type's JSON Schema.",
+		Annotations: annDestructive(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input UpdateResourceInput,
 	) (*mcp.CallToolResult, ResourceOutput, error) {
@@ -151,6 +155,7 @@ func registerResourceTools(server *mcp.Server, svc application.ResourceService) 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_delete",
 		Description: "Delete a resource by ID.",
+		Annotations: annDestructive(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input DeleteResourceInput,
 	) (*mcp.CallToolResult, DeletedOutput, error) {

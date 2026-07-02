@@ -151,6 +151,7 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 		Description: "Execute a SPARQL 1.1 query (SELECT/ASK/CONSTRUCT/DESCRIBE) against the " +
 			"knowledge graph. Use kg_expand_entity or kg_search_entities for common patterns; " +
 			"reach for this tool when those don't fit.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input KGSparqlQueryInput,
 	) (*mcp.CallToolResult, KGSparqlQueryOutput, error) {
@@ -174,6 +175,7 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 		Name: "kg_expand_entity",
 		Description: "Return the one-hop (or multi-hop) neighborhood of an entity as triples. " +
 			"Use to learn what predicates and connected entities exist for a known IRI.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input KGExpandEntityInput,
 	) (*mcp.CallToolResult, KGExpandEntityOutput, error) {
@@ -189,6 +191,7 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 		Description: "Find entities by name. Substring-matches against rdfs:label, schema:name, " +
 			"foaf:name, and dcterms:title (case-insensitive). Returns IRIs to feed into " +
 			"kg_expand_entity or kg_describe_class.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input KGSearchEntitiesInput,
 	) (*mcp.CallToolResult, KGSearchEntitiesOutput, error) {
@@ -207,6 +210,7 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 		Name: "kg_describe_class",
 		Description: "Describe a class IRI: the predicates its instances use, plus optional " +
 			"example instances. Walks rdfs:subClassOf so subclasses are included automatically.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input KGDescribeClassInput,
 	) (*mcp.CallToolResult, KGDescribeClassOutput, error) {
@@ -229,6 +233,7 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 		Description: "List every class IRI declared in the knowledge graph (anything typed " +
 			"rdfs:Class or owl:Class). Useful for introspection — start here when you don't " +
 			"know what kinds of things the graph contains.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, _ KGListClassesInput,
 	) (*mcp.CallToolResult, KGListClassesOutput, error) {
@@ -247,6 +252,7 @@ func registerKnowledgeGraphTools(server *mcp.Server, svc application.KnowledgeGr
 		Name: "kg_find_path",
 		Description: "Find a path of triples connecting two IRIs within max_hops. Best-effort " +
 			"(may not be the shortest path); empty triples = no path within budget.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input KGFindPathInput,
 	) (*mcp.CallToolResult, KGFindPathOutput, error) {

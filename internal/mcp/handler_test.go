@@ -131,8 +131,9 @@ func (s *stubResourceService) Delete(_ context.Context, _ application.DeleteReso
 	return nil
 }
 
-// toolNames connects to an MCP server via in-memory transport and returns the registered tool names.
-func toolNames(t *testing.T, server *gomcp.Server) []string {
+// listTools connects to an MCP server via in-memory transport and returns the
+// registered tools with their full metadata.
+func listTools(t *testing.T, server *gomcp.Server) []*gomcp.Tool {
 	t.Helper()
 	serverTransport, clientTransport := gomcp.NewInMemoryTransports()
 
@@ -156,18 +157,24 @@ func toolNames(t *testing.T, server *gomcp.Server) []string {
 		t.Fatalf("list tools: %v", err)
 	}
 
-	names := make([]string, len(result.Tools))
-	for i, tool := range result.Tools {
-		names[i] = tool.Name
-	}
-	sort.Strings(names)
-
 	// Cancel context and wait for server goroutine to finish.
 	cancel()
 	if sErr := <-serverErr; sErr != nil && sErr != context.Canceled {
 		t.Errorf("server connect error: %v", sErr)
 	}
 
+	return result.Tools
+}
+
+// toolNames returns the sorted names of the server's registered tools.
+func toolNames(t *testing.T, server *gomcp.Server) []string {
+	t.Helper()
+	tools := listTools(t, server)
+	names := make([]string, len(tools))
+	for i, tool := range tools {
+		names[i] = tool.Name
+	}
+	sort.Strings(names)
 	return names
 }
 
