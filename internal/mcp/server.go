@@ -144,10 +144,16 @@ func NewMCPServer(
 		registerKnowledgeGraphTools(server, kgService)
 	}
 	if enabled[ServiceMemory] {
-		// The playbook service is a thin stateless wrapper over the resource
-		// service, so it is constructed here rather than threaded through
-		// every NewMCPServer caller.
-		registerMemoryTools(server, application.NewPlaybookService(resourceService))
+		// The memory services are thin stateless wrappers over services this
+		// constructor already receives, so they are built here rather than
+		// threaded through every NewMCPServer caller. A nil kgService means
+		// recall serves from the working set alone.
+		kg := kgService
+		if isNilInterface(kgService) {
+			kg = nil
+		}
+		recall := application.NewMemoryRecall(kg, application.NewWorkingMemory(resourceService))
+		registerMemoryTools(server, application.NewPlaybookService(resourceService), recall)
 	}
 
 	return server, nil

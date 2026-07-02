@@ -32,7 +32,7 @@ func TestWorkingMemory_RecentFactsExcludesSuperseded(t *testing.T) {
 		{"id": "urn:fact:old", "statement": "outdated belief",
 			"invalidatedAtTime": "2026-07-01T00:00:00Z"},
 	}}
-	wm := &workingMemory{facts: lister, logger: noopLogger{}}
+	wm := &workingMemory{facts: lister}
 
 	facts, err := wm.RecentFacts(context.Background(), 0)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestWorkingMemory_NoProjectionTableIsEmptyNotError(t *testing.T) {
 	t.Parallel()
 
 	lister := &fakeFlatLister{err: fmt.Errorf("list: %w", repositories.ErrNoProjectionTable)}
-	wm := &workingMemory{facts: lister, logger: noopLogger{}}
+	wm := &workingMemory{facts: lister}
 
 	facts, err := wm.RecentFacts(context.Background(), 5)
 	if err != nil {

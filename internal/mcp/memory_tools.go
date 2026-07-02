@@ -39,8 +39,48 @@ type PlaybookOutcomeOutput struct {
 	FailureCount int    `json:"failureCount"`
 }
 
+// MemoryRecallInput is a structured recall query over semantic memory.
+type MemoryRecallInput struct {
+	About   string `json:"about,omitempty" jsonschema:"only facts about this entity URN"`
+	Keyword string `json:"keyword,omitempty" jsonschema:"case-insensitive substring of the fact statement"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"max facts to return (default 20, max 100)"`
+	//nolint:lll // jsonschema description
+	IncludeProvenance bool `json:"includeProvenance,omitempty" jsonschema:"include the prov:wasDerivedFrom source event IDs behind each fact"`
+}
+
+// MemoryRecallOutput lists the recalled facts.
+type MemoryRecallOutput struct {
+	Facts []application.RecalledFact `json:"facts"`
+}
+
 // registerMemoryTools registers the agent-memory tool group.
-func registerMemoryTools(server *mcp.Server, playbooks application.PlaybookService) {
+func registerMemoryTools(
+	server *mcp.Server, playbooks application.PlaybookService, recall application.MemoryRecall,
+) {
+	registerPlaybookTools(server, playbooks)
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "memory_recall",
+		Description: "Recall consolidated facts from semantic memory. Superseded facts are always " +
+			"excluded, and facts written this turn are included even before the knowledge graph " +
+			"catches up. Use kg_sparql_query for free-form graph queries instead.",
+	}, func(
+		ctx context.Context, _ *mcp.CallToolRequest, in MemoryRecallInput,
+	) (*mcp.CallToolResult, MemoryRecallOutput, error) {
+		facts, err := recall.Recall(ctx, application.RecallQuery{
+			About:             in.About,
+			Keyword:           in.Keyword,
+			Limit:             in.Limit,
+			IncludeProvenance: in.IncludeProvenance,
+		})
+		if err != nil {
+			return nil, MemoryRecallOutput{}, err
+		}
+		return nil, MemoryRecallOutput{Facts: facts}, nil
+	})
+}
+
+// registerPlaybookTools registers the playbook outcome tool.
+func registerPlaybookTools(server *mcp.Server, playbooks application.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "playbook_record_outcome",
 		Description: "Record whether a playbook (learned procedure) worked after using it: " +

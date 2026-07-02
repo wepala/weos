@@ -17,12 +17,10 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
-	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
-
-	"go.uber.org/fx"
 )
 
 // defaultWorkingSetSize bounds how many recent facts the working set surfaces.
@@ -38,6 +36,8 @@ type RecalledFact struct {
 	AttributedTo    string  `json:"attributedTo,omitempty"`
 	GeneratedAtTime string  `json:"generatedAtTime,omitempty"`
 	WasRevisionOf   string  `json:"wasRevisionOf,omitempty"`
+	// DerivedFrom holds the prov:wasDerivedFrom source event IDs.
+	DerivedFrom []string `json:"wasDerivedFrom,omitempty"`
 	// Source is "working" for facts read from the synchronous SQL projection
 	// (may not be in the graph yet) or "graph" for knowledge-graph results.
 	Source string `json:"source,omitempty"`
@@ -62,20 +62,13 @@ type factFlatLister interface {
 }
 
 type workingMemory struct {
-	facts  factFlatLister
-	logger entities.Logger
+	facts factFlatLister
 }
 
-// WorkingMemoryParams bundles the working memory's dependencies.
-type WorkingMemoryParams struct {
-	fx.In
-	Service ResourceService
-	Logger  entities.Logger
-}
-
-// ProvideWorkingMemory supplies the WorkingMemory read model.
-func ProvideWorkingMemory(p WorkingMemoryParams) WorkingMemory {
-	return &workingMemory{facts: p.Service, logger: p.Logger}
+// NewWorkingMemory builds the working-memory read model over the resource
+// service's flat projection reads.
+func NewWorkingMemory(service ResourceService) WorkingMemory {
+	return &workingMemory{facts: service}
 }
 
 func (w *workingMemory) RecentFacts(ctx context.Context, limit int) ([]RecalledFact, error) {
@@ -117,6 +110,13 @@ func recalledFactFromRow(row map[string]any) RecalledFact {
 		f.Confidence = c
 	case int64:
 		f.Confidence = float64(c)
+	}
+	// The array column arrives as its stored JSON text.
+	if raw, ok := row["wasDerivedFrom"].(string); ok && raw != "" {
+		var sources []string
+		if err := json.Unmarshal([]byte(raw), &sources); err == nil {
+			f.DerivedFrom = sources
+		}
 	}
 	return f
 }
