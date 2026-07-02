@@ -118,7 +118,12 @@ func consolidationHandler(
 			return err
 		}
 		state := buildStateFromTransaction(ctx, txEvents, event.AggregateID, event.SequenceNo, logger)
-		if state.IsDelete || state.Data == nil || memoryTypeSlugs[state.TypeSlug] {
+		// The transaction state's slug is only populated by Resource.Created;
+		// update transactions carry it on the published signal instead. The
+		// memory-type guard must hold on BOTH paths, or supersession updates
+		// would loop the subscriber back onto its own output.
+		typeSlug := publishedTypeSlug(event.Payload, state.TypeSlug)
+		if state.IsDelete || state.Data == nil || memoryTypeSlugs[typeSlug] {
 			return nil
 		}
 		factCtx, err := factTypeContext(ctx, typeRepo)
@@ -137,7 +142,7 @@ func consolidationHandler(
 		obs := entities.EpisodeObservation{
 			EventIDs:   episodeEventURNs(txEvents, event),
 			ResourceID: event.AggregateID,
-			TypeSlug:   state.TypeSlug,
+			TypeSlug:   typeSlug,
 			Data:       state.Data,
 		}
 		if alreadyConsolidated(related, obs.EventIDs) {
@@ -150,12 +155,30 @@ func consolidationHandler(
 			return fmt.Errorf("consolidation: extract facts for %s: %w", event.AggregateID, err)
 		}
 		for _, c := range candidates {
-			if err := recordCandidate(ctx, store, c, obs, related, logger); err != nil {
+			if err := recordCandidate(ctx, store, factCtx, c, obs, related, logger); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
+}
+
+// publishedTypeSlug reads the type slug from a Resource.Published payload —
+// present on both create and update transactions, unlike the transaction
+// state's slug, which only Resource.Created populates. Background subscribers
+// see store-deserialized map payloads; the typed case covers direct dispatch.
+func publishedTypeSlug(payload any, fallback string) string {
+	switch p := payload.(type) {
+	case map[string]any:
+		if s, ok := p["TypeSlug"].(string); ok && s != "" {
+			return s
+		}
+	case entities.ResourcePublished:
+		if p.TypeSlug != "" {
+			return p.TypeSlug
+		}
+	}
+	return fallback
 }
 
 // factView is a parsed snapshot of an existing fact resource.
@@ -288,6 +311,7 @@ func episodeEventURNs(txEvents []domain.EventEnvelope[any], published domain.Eve
 func recordCandidate(
 	ctx context.Context,
 	store factStore,
+	factCtx json.RawMessage,
 	c entities.FactCandidate,
 	obs entities.EpisodeObservation,
 	related []factView,
@@ -295,6 +319,22 @@ func recordCandidate(
 ) error {
 	if strings.TrimSpace(c.Statement) == "" {
 		return nil
+	}
+	about := c.About
+	if about == "" {
+		about = obs.ResourceID
+	}
+	if about != obs.ResourceID {
+		// The episode-level dedup only sees facts about the observed resource.
+		// A candidate about another entity needs its own replay check, or a
+		// checkpoint reset would re-record it under the other about.
+		other, err := relatedFacts(ctx, store, factCtx, about)
+		if err != nil {
+			return err
+		}
+		if alreadyConsolidated(other, obs.EventIDs) {
+			return nil
+		}
 	}
 	supersedes := findRelated(related, c.SupersedesID)
 	if c.SupersedesID != "" && supersedes == nil {
@@ -307,10 +347,6 @@ func recordCandidate(
 		if err := invalidateFact(ctx, store, supersedes, now); err != nil {
 			return err
 		}
-	}
-	about := c.About
-	if about == "" {
-		about = obs.ResourceID
 	}
 	data := map[string]any{
 		"statement":       c.Statement,

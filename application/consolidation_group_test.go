@@ -47,7 +47,9 @@ func (f *fakeExtractor) ExtractFacts(
 }
 
 type fakeFactStore struct {
-	listed  []*entities.Resource
+	// facts holds existing fact resources keyed by the `about` field value
+	// ListByField filters on.
+	facts   map[string][]*entities.Resource
 	creates []CreateResourceCommand
 	updates []UpdateResourceCommand
 	order   []string
@@ -66,9 +68,9 @@ func (f *fakeFactStore) Update(_ context.Context, cmd UpdateResourceCommand) (*e
 }
 
 func (f *fakeFactStore) ListByField(
-	_ context.Context, _, _, _ string,
+	_ context.Context, _, _, fieldValue string,
 ) (repositories.PaginatedResponse[*entities.Resource], error) {
-	return repositories.PaginatedResponse[*entities.Resource]{Data: f.listed}, nil
+	return repositories.PaginatedResponse[*entities.Resource]{Data: f.facts[fieldValue]}, nil
 }
 
 // testFact builds a fact resource whose data went through the real
@@ -189,6 +191,110 @@ func TestConsolidationHandler_SkipsMemoryTypes(t *testing.T) {
 	}
 }
 
+// updateEpisode builds an update-only transaction: Resource.Updated +
+// Resource.Published, no Resource.Created. The transaction state's TypeSlug is
+// empty on this path — only the published payload carries the slug.
+func updateEpisode(typeSlug, aggregateID, txID, eventID string) (
+	domain.EventEnvelope[any], []domain.EventEnvelope[any],
+) {
+	updated := domain.EventEnvelope[any]{
+		ID:            eventID,
+		EventType:     "Resource.Updated",
+		AggregateID:   aggregateID,
+		SequenceNo:    3,
+		TransactionID: txID,
+		Payload: map[string]any{
+			"Data": map[string]any{"@id": aggregateID, "statement": "edited"},
+		},
+	}
+	published := domain.EventEnvelope[any]{
+		ID:            eventID + "-pub",
+		EventType:     "Resource.Published",
+		AggregateID:   aggregateID,
+		SequenceNo:    4,
+		TransactionID: txID,
+		Payload:       map[string]any{"TypeSlug": typeSlug},
+	}
+	return published, []domain.EventEnvelope[any]{updated, published}
+}
+
+func TestConsolidationHandler_SkipsMemoryTypeUpdates(t *testing.T) {
+	t.Parallel()
+
+	// A supersession invalidates the predecessor via Update — that commit's
+	// own Resource.Published must not loop the subscriber onto the fact.
+	published, tx := updateEpisode("fact", "urn:fact:old", "tx9", "ev9")
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{Statement: "fact about a fact"}}}
+	store := &fakeFactStore{}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx9": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if extractor.calls != 0 {
+		t.Errorf("extractor called %d times for a fact UPDATE episode, want 0 (no self-loop)", extractor.calls)
+	}
+	if len(store.creates) != 0 {
+		t.Errorf("creates = %d, want 0", len(store.creates))
+	}
+}
+
+func TestConsolidationHandler_ConsolidatesNonMemoryUpdates(t *testing.T) {
+	t.Parallel()
+
+	published, tx := updateEpisode("note", "urn:note:1", "tx9", "ev9")
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{Statement: "note evolved"}}}
+	store := &fakeFactStore{}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx9": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if extractor.calls != 1 {
+		t.Fatalf("extractor calls = %d, want 1 — update episodes must consolidate", extractor.calls)
+	}
+	if extractor.lastObs.TypeSlug != "note" {
+		t.Errorf("observation TypeSlug = %q, want note (from published payload)", extractor.lastObs.TypeSlug)
+	}
+	if len(store.creates) != 1 {
+		t.Errorf("creates = %d, want 1", len(store.creates))
+	}
+}
+
+func TestConsolidationHandler_DedupCrossEntityCandidateOnReplay(t *testing.T) {
+	t.Parallel()
+
+	// A prior run recorded a fact ABOUT ANOTHER ENTITY (urn:person:x) from
+	// this episode's event. The episode-level dedup (scoped to the observed
+	// resource) misses it; the per-candidate check must catch it on replay.
+	published, tx := episode("note", "urn:note:1", "tx1", "ev1")
+	crossEntity := testFact(t, "urn:fact:person", map[string]any{
+		"statement":      "the person mentioned prefers espresso",
+		"about":          "urn:person:x",
+		"wasDerivedFrom": []string{"urn:event:ev1"},
+	})
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{
+		Statement: "the person mentioned prefers espresso",
+		About:     "urn:person:x",
+	}}}
+	store := &fakeFactStore{facts: map[string][]*entities.Resource{"urn:person:x": {crossEntity}}}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if extractor.calls != 1 {
+		t.Fatalf("extractor calls = %d, want 1 (episode-level dedup can't see the cross-entity fact)",
+			extractor.calls)
+	}
+	if len(store.creates) != 0 {
+		t.Errorf("creates = %d, want 0 — replay must not re-record the cross-entity fact", len(store.creates))
+	}
+}
+
 func TestConsolidationHandler_DedupOnReplay(t *testing.T) {
 	t.Parallel()
 
@@ -199,7 +305,7 @@ func TestConsolidationHandler_DedupOnReplay(t *testing.T) {
 		"wasDerivedFrom": []string{"urn:event:ev1"},
 	})
 	extractor := &fakeExtractor{candidates: []entities.FactCandidate{{Statement: "dup"}}}
-	store := &fakeFactStore{listed: []*entities.Resource{existing}}
+	store := &fakeFactStore{facts: map[string][]*entities.Resource{"urn:note:1": {existing}}}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
 		extractor, store, factTypeRepo(t), noopLogger{})
 
@@ -228,7 +334,7 @@ func TestConsolidationHandler_SupersedesInvalidatesPredecessorFirst(t *testing.T
 		Confidence:   0.9,
 		SupersedesID: "urn:fact:old",
 	}}}
-	store := &fakeFactStore{listed: []*entities.Resource{old}}
+	store := &fakeFactStore{facts: map[string][]*entities.Resource{"urn:note:1": {old}}}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
 		extractor, store, factTypeRepo(t), noopLogger{})
 
@@ -303,7 +409,7 @@ func TestConsolidationHandler_ExcludesSupersededFromExtractorContext(t *testing.
 		"wasDerivedFrom": []string{"urn:event:ev2"},
 	})
 	extractor := &fakeExtractor{}
-	store := &fakeFactStore{listed: []*entities.Resource{invalidated, active}}
+	store := &fakeFactStore{facts: map[string][]*entities.Resource{"urn:note:1": {invalidated, active}}}
 	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
 		extractor, store, factTypeRepo(t), noopLogger{})
 
