@@ -172,7 +172,7 @@ func toolNames(t *testing.T, server *gomcp.Server) []string {
 }
 
 func TestNewMCPServer_AllServices(t *testing.T) {
-	server, err := NewMCPServer(&stubResourceTypeService{}, &stubResourceService{}, nil, nil)
+	server, err := NewMCPServer(&stubResourceTypeService{}, &stubResourceService{}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -182,8 +182,11 @@ func TestNewMCPServer_AllServices(t *testing.T) {
 
 	names := toolNames(t, server)
 
-	// All 4 service groups should be registered (24 tools total).
-	expectedPrefixes := []string{"person_", "organization_", "resource_type_", "resource_"}
+	// All 5 always-on service groups should be registered (26 tools total;
+	// knowledge-graph is omitted because kgService is nil here).
+	expectedPrefixes := []string{
+		"person_", "organization_", "resource_type_", "resource_", "playbook_", "memory_",
+	}
 	for _, prefix := range expectedPrefixes {
 		found := false
 		for _, name := range names {
@@ -197,13 +200,13 @@ func TestNewMCPServer_AllServices(t *testing.T) {
 		}
 	}
 
-	if len(names) != 24 {
-		t.Errorf("expected 24 tools, got %d: %v", len(names), names)
+	if len(names) != 26 {
+		t.Errorf("expected 26 tools, got %d: %v", len(names), names)
 	}
 }
 
 func TestNewMCPServer_Subset(t *testing.T) {
-	server, err := NewMCPServer(&stubResourceTypeService{}, &stubResourceService{}, nil, []string{"person"})
+	server, err := NewMCPServer(&stubResourceTypeService{}, &stubResourceService{}, nil, nil, []string{"person"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -222,7 +225,7 @@ func TestNewMCPServer_Subset(t *testing.T) {
 
 func TestNewMCPServer_ResourceTypeIncludesPresets(t *testing.T) {
 	server, err := NewMCPServer(
-		&stubResourceTypeService{}, &stubResourceService{}, nil, []string{"resource-type"},
+		&stubResourceTypeService{}, &stubResourceService{}, nil, nil, []string{"resource-type"},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -243,21 +246,21 @@ func TestNewMCPServer_ResourceTypeIncludesPresets(t *testing.T) {
 }
 
 func TestNewMCPServer_NilResourceTypeService(t *testing.T) {
-	_, err := NewMCPServer(nil, &stubResourceService{}, nil, nil)
+	_, err := NewMCPServer(nil, &stubResourceService{}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for nil resourceTypeService")
 	}
 }
 
 func TestNewMCPServer_NilResourceService(t *testing.T) {
-	_, err := NewMCPServer(&stubResourceTypeService{}, nil, nil, nil)
+	_, err := NewMCPServer(&stubResourceTypeService{}, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for nil resourceService")
 	}
 }
 
 func TestNewHTTPHandler_ReturnsHandler(t *testing.T) {
-	handler, err := NewHTTPHandler(&stubResourceTypeService{}, &stubResourceService{}, nil, nil)
+	handler, err := NewHTTPHandler(&stubResourceTypeService{}, &stubResourceService{}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,7 +270,7 @@ func TestNewHTTPHandler_ReturnsHandler(t *testing.T) {
 }
 
 func TestNewHTTPHandler_AcceptsMCPRequest(t *testing.T) {
-	handler, err := NewHTTPHandler(&stubResourceTypeService{}, &stubResourceService{}, nil, nil)
+	handler, err := NewHTTPHandler(&stubResourceTypeService{}, &stubResourceService{}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -294,7 +297,7 @@ func TestNewHTTPHandler_AcceptsMCPRequest(t *testing.T) {
 }
 
 func TestNewHTTPHandler_NilServices(t *testing.T) {
-	_, err := NewHTTPHandler(nil, nil, nil, nil)
+	_, err := NewHTTPHandler(nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for nil services")
 	}

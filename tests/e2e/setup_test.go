@@ -46,7 +46,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	// Use a temp file SQLite DB per test for proper WAL mode support.
 	// In-memory shared cache has concurrency issues with event dispatch.
 	tmpDir := t.TempDir()
-	cfg.DatabaseDSN = filepath.Join(tmpDir, "test.db") + "?_journal_mode=WAL&_busy_timeout=5000"
+	cfg.DatabaseDSN = filepath.Join(tmpDir, "test.db") // ProvideGormDB adds the worker pragmas
 	cfg.LogLevel = "error"
 
 	var resourceTypeService application.ResourceTypeService

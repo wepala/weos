@@ -119,6 +119,21 @@ Behaviors: `pantry` (enforce single default), `scheduled-meal` (generate meal oc
 
 ---
 
+## memory
+
+**Auto-install:** No
+
+| Type | Slug | @type | Properties |
+|------|------|-------|------------|
+| Fact | `fact` | mem:Fact | `statement`\*, `about`, `confidence` (number), `attributedTo`, `generatedAtTime` (format: date-time), `wasDerivedFrom` (array), `wasRevisionOf` (ref→fact), `invalidatedAtTime` (format: date-time) |
+| Playbook | `playbook` | mem:Playbook | `name`\*, `description`, `trigger`, `steps` (array), `successCount` (integer), `failureCount` (integer) |
+
+Facts carry PROV-O provenance: `wasDerivedFrom` holds source event IDs, `wasRevisionOf` links a superseding fact to its predecessor, and `invalidatedAtTime` marks a fact as superseded (recall queries exclude it; history stays replayable). Playbook counters accrue only via `Playbook.Confirmed` / `Playbook.Rejected` events (the `playbook_record_outcome` MCP tool) — never direct writes.
+
+Behaviors: `fact` (provenance signal events), `playbook` (outcome signal events).
+
+---
+
 \* = required property
 
 ## JSON Schema Extensions

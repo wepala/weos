@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -131,7 +131,7 @@ func readOwnerName(t *testing.T, db *gorm.DB) string {
 func newWALTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := "file:" + filepath.Join(t.TempDir(), "guardrail.db") +
-		"?_journal_mode=WAL&_busy_timeout=2000&_txlock=immediate"
+		"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(2000)&_txlock=immediate"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open wal db: %v", err)

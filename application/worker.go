@@ -57,6 +57,16 @@ type SubscriberGroup struct {
 	// writes denormalized columns into other types' rows rather than owning a
 	// table — and `worker checkpoint reset --truncate` reports that.
 	Truncate func(context.Context) error
+	// StartAtHead initializes a group that has never run before at the
+	// current feed head instead of position 0, so enabling it on an instance
+	// with existing history does not replay that history through the handler.
+	// Only a missing checkpoint row is initialized — an existing row is never
+	// moved, so an explicit `worker checkpoint reset` (which creates the row
+	// at 0) remains the opt-in backfill path. Groups whose head
+	// initialization fails are not started that run (fail closed): for an
+	// expensive handler like consolidation, silently falling back to a
+	// full-history replay is worse than sitting out one process lifetime.
+	StartAtHead bool
 }
 
 // WakeSource hands out wake channels so idle subscribers react to new commits
@@ -68,6 +78,14 @@ type WakeSource interface {
 	Subscribe() <-chan struct{}
 }
 
+// EnsureCheckpointFunc creates the named subscriber's checkpoint row at the
+// given position only when no row exists yet; an existing row — including one
+// an operator explicitly reset to 0 — is never moved. It backs
+// SubscriberGroup.StartAtHead. The pericarp CheckpointStore interface cannot
+// express this (Position returns 0 both for "unknown" and "reset to 0"), so
+// the gorm layer provides it against the checkpoint table directly.
+type EnsureCheckpointFunc func(ctx context.Context, subscriber string, position int64) error
+
 // Manager owns the background subscriber runtime: it builds a pericarp
 // Subscriber per registered group, runs them as crash-safe workers, drains
 // them on shutdown, and periodically reports checkpoint lag. The same Manager
@@ -78,6 +96,7 @@ type Manager struct {
 	checkpoints subscriptions.CheckpointStore
 	parking     subscriptions.ParkingLot
 	notifier    WakeSource // in-process notifier; used for the SQLite wake path
+	ensure      EnsureCheckpointFunc
 	cfg         config.WorkerConfig
 	postgres    bool
 	dsn         string
@@ -108,6 +127,9 @@ type ManagerParams struct {
 	// truncated) before the workers launch — the OXIGRAPH_REBUILD path, now
 	// expressed as a checkpoint reset so there is one replay mechanism.
 	RebuildOnStart []string
+	// EnsureCheckpoint backs SubscriberGroup.StartAtHead. nil is only valid
+	// when no group sets StartAtHead — such a group would then never start.
+	EnsureCheckpoint EnsureCheckpointFunc
 }
 
 // NewManager validates the group set and constructs the runtime. It does not
@@ -136,6 +158,7 @@ func NewManager(p ManagerParams) (*Manager, error) {
 		checkpoints:    p.Checkpoints,
 		parking:        p.Parking,
 		notifier:       p.Notifier,
+		ensure:         p.EnsureCheckpoint,
 		cfg:            p.Config.Worker,
 		postgres:       p.Config.IsPostgres(),
 		dsn:            p.Config.DatabaseDSN,
@@ -301,6 +324,12 @@ func (m *Manager) Start(_ context.Context) error {
 	runCtx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 
+	// Initialize StartAtHead groups before launching, so a group that has
+	// never run begins at the feed head instead of replaying all history. A
+	// group whose initialization fails is skipped this run — see
+	// SubscriberGroup.StartAtHead.
+	skip := m.initStartAtHeadGroups(runCtx)
+
 	// Rebuild requested groups before launching: reset their checkpoint to 0
 	// (and truncate their projection) so the initial catch-up replays history
 	// from the start. Doing it here — before the subscriber loop launches —
@@ -317,6 +346,9 @@ func (m *Manager) Start(_ context.Context) error {
 	wake := m.startWakeSource(runCtx)
 
 	for _, g := range m.groups {
+		if skip[g.Name] {
+			continue
+		}
 		var ch <-chan struct{}
 		if wake != nil {
 			ch = wake.Subscribe()
@@ -348,6 +380,38 @@ func (m *Manager) Start(_ context.Context) error {
 	m.logger.Info(runCtx, "worker: background subscribers started",
 		"groups", m.Names(), "postgres", m.postgres)
 	return nil
+}
+
+// initStartAtHeadGroups creates the checkpoint row at the current feed head
+// for every StartAtHead group that has never run before (an existing row is
+// never moved — see EnsureCheckpointFunc). It returns the names of groups
+// whose initialization failed; those must not be launched this run, because
+// their first Acquire would create the checkpoint at 0 and replay all history
+// through a handler that was explicitly declared too expensive for that.
+func (m *Manager) initStartAtHeadGroups(ctx context.Context) map[string]bool {
+	skip := make(map[string]bool)
+	for _, g := range m.groups {
+		if !g.StartAtHead {
+			continue
+		}
+		if err := m.initCheckpointAtHead(ctx, g.Name); err != nil {
+			m.logger.Error(ctx, "worker: checkpoint head initialization failed; "+
+				"subscriber will not start this run", "subscriber", g.Name, "error", err)
+			skip[g.Name] = true
+		}
+	}
+	return skip
+}
+
+func (m *Manager) initCheckpointAtHead(ctx context.Context, name string) error {
+	if m.ensure == nil {
+		return fmt.Errorf("no EnsureCheckpoint wired for StartAtHead group %q", name)
+	}
+	head, err := m.eventStore.HeadPosition(ctx)
+	if err != nil {
+		return fmt.Errorf("read feed head: %w", err)
+	}
+	return m.ensure(ctx, name, head)
 }
 
 // startWakeSource picks and runs the wake mechanism for the current database:

@@ -109,6 +109,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 	var kgService application.KnowledgeGraphService
+	var lexicalSearch application.LexicalSearch
 	var resourcePermService application.ResourcePermissionService
 	var fileService application.FileService
 	var authService authapp.AuthenticationService
@@ -137,6 +138,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
+		fx.Populate(&lexicalSearch),
 		fx.Populate(&resourcePermService),
 		fx.Populate(&fileService),
 		fx.Populate(&authService),
@@ -437,7 +439,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// MCP routes — registered before dynamic catch-all
 	if serveViper.GetBool("enabled") {
 		mcpHandler, mcpErr := mcpserver.NewHTTPHandler(
-			resourceTypeService, resourceService, kgService, slog.Default(),
+			resourceTypeService, resourceService, kgService, lexicalSearch, slog.Default(),
 		)
 		if mcpErr != nil {
 			return fmt.Errorf("failed to create MCP handler: %w", mcpErr)

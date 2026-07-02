@@ -137,6 +137,9 @@ func (e *Resource) ApplyEvent(
 	case ResourcePublished:
 		// Signal event — triggers consolidated projection write. No entity state change.
 		return nil
+	case FactRecorded, FactSuperseded, PlaybookConfirmed, PlaybookRejected:
+		// Memory signal events — carry provenance for subscribers. No entity state change.
+		return nil
 	default:
 		return fmt.Errorf("unknown event type: %T", envelope.Payload)
 	}

@@ -34,6 +34,7 @@ const (
 	ServiceResourceType   ServiceName = "resource-type"
 	ServiceResource       ServiceName = "resource"
 	ServiceKnowledgeGraph ServiceName = "knowledge-graph"
+	ServiceMemory         ServiceName = "memory"
 )
 
 // AllServices is the ordered list of every available service.
@@ -43,6 +44,7 @@ var AllServices = []ServiceName{
 	ServiceResourceType,
 	ServiceResource,
 	ServiceKnowledgeGraph,
+	ServiceMemory,
 }
 
 // ValidServiceNames returns the service names as strings (useful for help text).
@@ -103,6 +105,7 @@ func NewMCPServer(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
 	kgService application.KnowledgeGraphService,
+	lexicalSearch application.LexicalSearch,
 	enabledServices []string,
 ) (*mcp.Server, error) {
 	if isNilInterface(resourceTypeService) {
@@ -141,6 +144,24 @@ func NewMCPServer(
 	if enabled[ServiceKnowledgeGraph] && !isNilInterface(kgService) {
 		registerKnowledgeGraphTools(server, kgService)
 	}
+	if enabled[ServiceMemory] {
+		// The playbook and recall services are thin stateless wrappers over
+		// services this constructor already receives, so they are built here
+		// rather than threaded through every NewMCPServer caller. A nil
+		// kgService means recall serves from the working set alone. The
+		// lexical search needs the FTS5 index and IS threaded in; when nil
+		// (tests, minimal wiring) memory_search is simply not registered.
+		kg := kgService
+		if isNilInterface(kgService) {
+			kg = nil
+		}
+		recall := application.NewMemoryRecall(kg, application.NewWorkingMemory(resourceService))
+		var search application.LexicalSearch
+		if !isNilInterface(lexicalSearch) {
+			search = lexicalSearch
+		}
+		registerMemoryTools(server, application.NewPlaybookService(resourceService), recall, search)
+	}
 
 	return server, nil
 }
@@ -153,6 +174,7 @@ func Run(enabledServices []string) error {
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 	var kgService application.KnowledgeGraphService
+	var lexicalSearch application.LexicalSearch
 
 	app := fx.New(
 		fx.NopLogger,
@@ -160,6 +182,7 @@ func Run(enabledServices []string) error {
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
+		fx.Populate(&lexicalSearch),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -176,7 +199,7 @@ func Run(enabledServices []string) error {
 		}
 	}()
 
-	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, enabledServices)
+	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, enabledServices)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}

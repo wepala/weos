@@ -96,19 +96,19 @@ type ListResourceTypesInput struct {
 // context/schema would fail output validation (issue #382). toResourceTypeOutput
 // decodes the stored json.RawMessage into a value.
 type ResourceTypeOutput struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	Description string    `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description,omitempty"`
 	// A jsonschema description tag is required on these `any` fields: without it the inferred
 	// schema is empty and marshals to the boolean schema `true`, which MCP clients reject as an
 	// invalid property schema (dropping the whole tool list). With a tag it marshals to
 	// {"description": ...} — a valid, permissive object schema that still accepts the polymorphic
 	// stored value (string | array | object). (weos issue #382, output side.)
-	Context     any       `json:"context,omitempty" jsonschema:"JSON-LD context (string, array, or object)"`
-	Schema      any       `json:"schema,omitempty" jsonschema:"JSON Schema for validation (object)"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
+	Context   any       `json:"context,omitempty" jsonschema:"JSON-LD context (string, array, or object)"`
+	Schema    any       `json:"schema,omitempty" jsonschema:"JSON Schema for validation (object)"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type ListResourceTypesOutput struct {

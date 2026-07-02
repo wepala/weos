@@ -25,7 +25,9 @@ func TestSqliteDSNWithWorkerPragmas(t *testing.T) {
 
 	t.Run("adds all pragmas to a bare file DSN", func(t *testing.T) {
 		got := sqliteDSNWithWorkerPragmas("weos.db")
-		for _, want := range []string{"_journal_mode=WAL", "_busy_timeout=5000", "_txlock=immediate"} {
+		for _, want := range []string{
+			"_pragma=journal_mode(WAL)", "_pragma=busy_timeout(5000)", "_txlock=immediate",
+		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("expected %q in %q", want, got)
 			}
@@ -36,16 +38,18 @@ func TestSqliteDSNWithWorkerPragmas(t *testing.T) {
 	})
 
 	t.Run("preserves existing query params and caller pragmas", func(t *testing.T) {
-		got := sqliteDSNWithWorkerPragmas("file:weos.db?_foreign_keys=1&_journal_mode=DELETE")
+		got := sqliteDSNWithWorkerPragmas(
+			"file:weos.db?_pragma=foreign_keys(1)&_pragma=journal_mode(DELETE)")
 		// Caller's journal mode must be respected (not overridden to WAL).
-		if strings.Contains(got, "_journal_mode=WAL") {
-			t.Errorf("should not override caller's _journal_mode, got %q", got)
+		if strings.Contains(got, "journal_mode(WAL)") {
+			t.Errorf("should not override caller's journal_mode, got %q", got)
 		}
-		if !strings.Contains(got, "_foreign_keys=1") {
+		if !strings.Contains(got, "_pragma=foreign_keys(1)") {
 			t.Errorf("should preserve existing params, got %q", got)
 		}
 		// The missing pragmas are still appended with '&'.
-		if !strings.Contains(got, "_busy_timeout=5000") || !strings.Contains(got, "_txlock=immediate") {
+		if !strings.Contains(got, "_pragma=busy_timeout(5000)") ||
+			!strings.Contains(got, "_txlock=immediate") {
 			t.Errorf("expected missing pragmas appended, got %q", got)
 		}
 	})

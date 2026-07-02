@@ -31,7 +31,7 @@ import (
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/infrastructure"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -44,7 +44,7 @@ type workerTestEnv struct {
 	parking     subscriptions.ParkingLot
 }
 
-func newWorkerTestEnv(t *testing.T) *workerTestEnv {
+func newWorkerTestEnv(t testing.TB) *workerTestEnv {
 	t.Helper()
 	// A file-backed DB (not :memory:) so every pooled connection sees the same
 	// schema and rows — :memory: gives each connection its own empty database.
@@ -54,7 +54,7 @@ func newWorkerTestEnv(t *testing.T) *workerTestEnv {
 	// instead of erroring with "database is locked" on lock upgrade. This
 	// mirrors the pragmas the production SQLite provider applies.
 	dsn := filepath.Join(t.TempDir(), "worker_test.db") +
-		"?_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate"
+		"?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -82,14 +82,14 @@ func newWorkerTestEnv(t *testing.T) *workerTestEnv {
 
 // appendEvents writes n events, one per fresh aggregate (expectedVersion 0), so
 // they receive global positions startPos+1 .. startPos+n.
-func (e *workerTestEnv) appendEvents(t *testing.T, startPos, n int) {
+func (e *workerTestEnv) appendEvents(t testing.TB, startPos, n int) {
 	t.Helper()
 	e.appendEventsTo(t, e.eventStore, startPos, n)
 }
 
 // appendEventsTo is appendEvents against a specific store — used to write
 // through a NotifyingEventStore so the wake path fires.
-func (e *workerTestEnv) appendEventsTo(t *testing.T, store domain.EventStore, startPos, n int) {
+func (e *workerTestEnv) appendEventsTo(t testing.TB, store domain.EventStore, startPos, n int) {
 	t.Helper()
 	for i := 1; i <= n; i++ {
 		pos := startPos + i
@@ -108,7 +108,7 @@ func (e *workerTestEnv) appendEventsTo(t *testing.T, store domain.EventStore, st
 	}
 }
 
-func (e *workerTestEnv) projectionCount(t *testing.T) int {
+func (e *workerTestEnv) projectionCount(t testing.TB) int {
 	t.Helper()
 	var count int64
 	if err := e.db.Raw(`SELECT COUNT(*) FROM worker_projection`).Scan(&count).Error; err != nil {
@@ -162,7 +162,7 @@ func newTestManager(t *testing.T, env *workerTestEnv, group SubscriberGroup) *Ma
 // newTestManagerWithGroups builds a Manager over the test env with the given
 // groups and optional rebuild-on-start list.
 func newTestManagerWithGroups(
-	t *testing.T, env *workerTestEnv, groups []SubscriberGroup, rebuild []string,
+	t testing.TB, env *workerTestEnv, groups []SubscriberGroup, rebuild []string,
 ) *Manager {
 	t.Helper()
 	m, err := NewManager(ManagerParams{
@@ -182,7 +182,7 @@ func newTestManagerWithGroups(
 
 // runManagerUntil starts the manager, polls cond until it holds (or times out),
 // then drains it — a complete, deterministic run.
-func runManagerUntil(t *testing.T, m *Manager, cond func() bool) {
+func runManagerUntil(t testing.TB, m *Manager, cond func() bool) {
 	t.Helper()
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
@@ -197,7 +197,7 @@ func runManagerUntil(t *testing.T, m *Manager, cond func() bool) {
 	}
 }
 
-func stopManager(t *testing.T, m *Manager) {
+func stopManager(t testing.TB, m *Manager) {
 	t.Helper()
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -1116,3 +1116,100 @@ func TestProvideWorkerManager_OxigraphRebuildWiring(t *testing.T) {
 }
 
 var _ entities.Logger = (*capturingLogger)(nil)
+
+// newStartAtHeadManager builds a Manager over the env with one StartAtHead
+// group and the given checkpoint initializer (nil exercises fail-closed).
+func newStartAtHeadManager(
+	t *testing.T, env *workerTestEnv, group SubscriberGroup, ensure EnsureCheckpointFunc,
+) *Manager {
+	t.Helper()
+	m, err := NewManager(ManagerParams{
+		EventStore:       env.eventStore,
+		Checkpoints:      env.checkpoints,
+		Parking:          env.parking,
+		Notifier:         subscriptions.NewInProcessNotifier(),
+		Config:           sqliteWorkerConfig(),
+		Groups:           []SubscriberGroup{group},
+		EnsureCheckpoint: ensure,
+	})
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	return m
+}
+
+// TestManager_StartAtHeadSkipsHistoryOnFirstRun proves the backfill-safety
+// guarantee: a StartAtHead group that has never run begins at the feed head,
+// so pre-existing history is never replayed through its handler — only events
+// committed after it started are processed.
+func TestManager_StartAtHeadSkipsHistoryOnFirstRun(t *testing.T) {
+	env := newWorkerTestEnv(t)
+	env.appendEvents(t, 0, 5) // history from before the group existed
+
+	var applied int64
+	group := SubscriberGroup{
+		Name: "head-start", Handler: projectionHandler(&applied), StartAtHead: true,
+	}
+	m := newStartAtHeadManager(t, env, group, ProvideEnsureCheckpoint(env.db))
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	env.appendEvents(t, 5, 3) // live events after the group started
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && env.projectionCount(t) < 3 {
+		time.Sleep(15 * time.Millisecond)
+	}
+	stopManager(t, m)
+
+	if got := env.projectionCount(t); got != 3 {
+		t.Fatalf("projection rows = %d, want 3 — history must not be replayed", got)
+	}
+	var minPos int64
+	if err := env.db.Raw(`SELECT MIN(position) FROM worker_projection`).Scan(&minPos).Error; err != nil {
+		t.Fatalf("min position: %v", err)
+	}
+	if minPos <= 5 {
+		t.Fatalf("min projected position = %d, want > 5 (only post-start events)", minPos)
+	}
+}
+
+// TestManager_StartAtHeadRespectsExplicitReset: an operator's explicit
+// checkpoint reset (the opt-in backfill path) creates the row, so head
+// initialization must leave it alone and the group replays history.
+func TestManager_StartAtHeadRespectsExplicitReset(t *testing.T) {
+	env := newWorkerTestEnv(t)
+	env.appendEvents(t, 0, 4)
+	if err := env.checkpoints.Reset(context.Background(), "head-start", 0); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	var applied int64
+	group := SubscriberGroup{
+		Name: "head-start", Handler: projectionHandler(&applied), StartAtHead: true,
+	}
+	m := newStartAtHeadManager(t, env, group, ProvideEnsureCheckpoint(env.db))
+	runManagerUntil(t, m, func() bool { return env.projectionCount(t) >= 4 })
+}
+
+// TestManager_StartAtHeadFailsClosedWithoutInitializer: if the checkpoint
+// cannot be seeded at the head, the group must not start at all — starting
+// anyway would create the checkpoint at 0 and replay all history through a
+// handler explicitly marked too expensive for that.
+func TestManager_StartAtHeadFailsClosedWithoutInitializer(t *testing.T) {
+	env := newWorkerTestEnv(t)
+	env.appendEvents(t, 0, 3)
+
+	var applied int64
+	group := SubscriberGroup{
+		Name: "head-start", Handler: projectionHandler(&applied), StartAtHead: true,
+	}
+	m := newStartAtHeadManager(t, env, group, nil)
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond) // several poll intervals
+	stopManager(t, m)
+	if got := env.projectionCount(t); got != 0 {
+		t.Fatalf("projection rows = %d, want 0 — group must not run without head init", got)
+	}
+}

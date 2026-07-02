@@ -80,6 +80,16 @@ type PresetDefinition struct {
 	// See PresetLinkDefinition for semantics.
 	Links       []PresetLinkDefinition
 	AutoInstall bool // if true, types are auto-created at startup
+	// Consolidates lists resource type slugs whose resources carry
+	// unstructured episodic content (notes, transcripts, captured web pages,
+	// free-text observations) that memory consolidation should distill facts
+	// from. Structured domain types are already semantic memory — their typed
+	// data and graph projection state the knowledge directly — so running LLM
+	// fact-extraction over them would only duplicate it at BYOK cost; leave
+	// them undeclared. Nothing is eligible by default, and a preset may
+	// declare slugs a companion preset defines. Memory types themselves
+	// (fact, playbook) are never eligible regardless of declarations.
+	Consolidates []string
 }
 
 // InstallPresetResult reports which types were created, updated, unchanged, or
@@ -238,6 +248,27 @@ func (r *PresetRegistry) List() []PresetDefinition {
 	return result
 }
 
+// ConsolidationEligible returns the union of resource type slugs the
+// registered presets declare consolidation-eligible (PresetDefinition.
+// Consolidates). Memory type slugs are stripped as a hard invariant — a
+// preset that (incorrectly) declares fact or playbook never loops the
+// consolidation subscriber onto its own output. An empty set means
+// consolidation has nothing to process, which is the correct default.
+func (r *PresetRegistry) ConsolidationEligible() map[string]bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	eligible := make(map[string]bool)
+	for _, def := range r.presets {
+		for _, slug := range def.Consolidates {
+			if slug == "" || memoryTypeSlugs[slug] {
+				continue
+			}
+			eligible[slug] = true
+		}
+	}
+	return eligible
+}
+
 // clone returns a deep copy of the definition, so callers cannot mutate registry internals.
 func (d PresetDefinition) clone() PresetDefinition {
 	if d.Types != nil {
@@ -283,6 +314,11 @@ func (d PresetDefinition) clone() PresetDefinition {
 		links := make([]PresetLinkDefinition, len(d.Links))
 		copy(links, d.Links)
 		d.Links = links
+	}
+	if d.Consolidates != nil {
+		consolidates := make([]string, len(d.Consolidates))
+		copy(consolidates, d.Consolidates)
+		d.Consolidates = consolidates
 	}
 	if d.Sidebar != nil {
 		s := *d.Sidebar
