@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -355,8 +356,12 @@ func recordCandidate(
 		"generatedAtTime": now,
 		"wasDerivedFrom":  obs.EventIDs,
 	}
+	// Never trust model-supplied numbers blindly: the fact schema bounds
+	// confidence to [0,1], and an out-of-range value would fail validation on
+	// every retry and stall the subscriber. NaN and negatives fail the > 0
+	// comparison; the ceiling is clamped.
 	if c.Confidence > 0 {
-		data["confidence"] = c.Confidence
+		data["confidence"] = math.Min(c.Confidence, 1)
 	}
 	if supersedes != nil {
 		data["wasRevisionOf"] = supersedes.ID

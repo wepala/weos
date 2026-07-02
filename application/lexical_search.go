@@ -18,6 +18,8 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/repositories"
 )
@@ -77,5 +79,48 @@ func (s *lexicalSearch) Search(
 	for _, t := range terms {
 		hits = append(hits, repositories.LexicalHit{ID: t.Value})
 	}
+	hits, err = s.dropSupersededFacts(ctx, hits)
+	if err != nil {
+		return nil, "", err
+	}
 	return hits, LexicalModeGraphLabels, nil
+}
+
+// dropSupersededFacts upholds the "superseded facts are never returned"
+// guarantee on the fallback path: SearchEntities knows nothing about
+// prov:invalidatedAtTime, so any fact hits are checked against the graph and
+// invalidated ones removed.
+func (s *lexicalSearch) dropSupersededFacts(
+	ctx context.Context, hits []repositories.LexicalHit,
+) ([]repositories.LexicalHit, error) {
+	var factIDs []string
+	for _, h := range hits {
+		if strings.HasPrefix(h.ID, "urn:fact:") {
+			factIDs = append(factIDs, h.ID)
+		}
+	}
+	if len(factIDs) == 0 {
+		return hits, nil
+	}
+	var b strings.Builder
+	b.WriteString("SELECT ?f WHERE { VALUES ?f {")
+	for _, id := range factIDs {
+		fmt.Fprintf(&b, " <%s>", id)
+	}
+	fmt.Fprintf(&b, " } ?f <%s> ?invalidated }", factInvalidatedAtIRI)
+	res, err := s.kg.Query(ctx, b.String())
+	if err != nil {
+		return nil, fmt.Errorf("lexical search: supersession check: %w", err)
+	}
+	invalidated := make(map[string]bool, len(res.Bindings))
+	for _, row := range res.Bindings {
+		invalidated[row["f"].Value] = true
+	}
+	kept := hits[:0]
+	for _, h := range hits {
+		if !invalidated[h.ID] {
+			kept = append(kept, h)
+		}
+	}
+	return kept, nil
 }

@@ -366,6 +366,40 @@ func TestConsolidationHandler_SupersedesInvalidatesPredecessorFirst(t *testing.T
 	}
 }
 
+func TestConsolidationHandler_ClampsOutOfRangeConfidence(t *testing.T) {
+	t.Parallel()
+
+	published, tx := episode("note", "urn:note:1", "tx1", "ev1")
+	extractor := &fakeExtractor{candidates: []entities.FactCandidate{
+		{Statement: "over-confident", Confidence: 1.7},
+		{Statement: "under-confident", Confidence: -0.4},
+	}}
+	store := &fakeFactStore{}
+	h := consolidationHandler(&fakeEventStore{tx: map[string][]domain.EventEnvelope[any]{"tx1": tx}},
+		extractor, store, factTypeRepo(t), noopLogger{})
+
+	if err := h(context.Background(), published); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if len(store.creates) != 2 {
+		t.Fatalf("creates = %d, want 2", len(store.creates))
+	}
+	var over, under map[string]any
+	if err := json.Unmarshal(store.creates[0].Data, &over); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if err := json.Unmarshal(store.creates[1].Data, &under); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got, _ := over["confidence"].(float64); got != 1 {
+		t.Errorf("confidence = %v, want clamped to 1 — out-of-range fails schema validation on every retry",
+			over["confidence"])
+	}
+	if _, has := under["confidence"]; has {
+		t.Errorf("negative confidence must be omitted, got %v", under["confidence"])
+	}
+}
+
 func TestConsolidationHandler_IgnoresHallucinatedSupersedesID(t *testing.T) {
 	t.Parallel()
 
