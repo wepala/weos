@@ -26,9 +26,44 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// NewConfiguredServer builds the MCP server with all tool groups enabled and
+// every downstream configurer applied — the complete tool surface both
+// transports and the in-app agent toolset share. kgService may be nil — if
+// so the knowledge-graph tools are not registered (and not advertised).
+func NewConfiguredServer(
+	resourceTypeService application.ResourceTypeService,
+	resourceService application.ResourceService,
+	kgService application.KnowledgeGraphService,
+	lexicalSearch application.LexicalSearch,
+	logger *slog.Logger,
+) (*gomcp.Server, error) {
+	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP server: %w", err)
+	}
+	// Custom tools registered by downstream binaries run on every
+	// transport; apply them before anything consumes the server.
+	applyConfigurers(server, ConfigurerDeps{
+		ResourceService:     resourceService,
+		ResourceTypeService: resourceTypeService,
+		Logger:              logger,
+	})
+	return server, nil
+}
+
+// HandlerForServer serves an already-configured MCP server over Streamable
+// HTTP.
+func HandlerForServer(server *gomcp.Server, logger *slog.Logger) http.Handler {
+	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
+		return server
+	}, &gomcp.StreamableHTTPOptions{
+		Logger:         logger,
+		SessionTimeout: 30 * time.Minute,
+	})
+}
+
 // NewHTTPHandler returns an http.Handler that serves the MCP protocol over
-// Streamable HTTP with all tool groups enabled. kgService may be nil — if so
-// the knowledge-graph tools are not registered (and not advertised).
+// Streamable HTTP with all tool groups enabled.
 func NewHTTPHandler(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
@@ -36,21 +71,9 @@ func NewHTTPHandler(
 	lexicalSearch application.LexicalSearch,
 	logger *slog.Logger,
 ) (http.Handler, error) {
-	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, nil)
+	server, err := NewConfiguredServer(resourceTypeService, resourceService, kgService, lexicalSearch, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create MCP server: %w", err)
+		return nil, err
 	}
-	// Custom tools registered by downstream binaries run on every
-	// transport; the HTTP path applies them here.
-	applyConfigurers(server, ConfigurerDeps{
-		ResourceService:     resourceService,
-		ResourceTypeService: resourceTypeService,
-		Logger:              logger,
-	})
-	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
-		return server
-	}, &gomcp.StreamableHTTPOptions{
-		Logger:         logger,
-		SessionTimeout: 30 * time.Minute,
-	}), nil
+	return HandlerForServer(server, logger), nil
 }

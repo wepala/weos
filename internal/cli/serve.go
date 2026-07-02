@@ -31,6 +31,7 @@ import (
 	"github.com/wepala/weos/v3/api/handlers"
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/application"
+	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/application/presets"
 	"github.com/wepala/weos/v3/domain/entities"
 	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
@@ -128,6 +129,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var inviteRepo authrepos.InviteRepository
 	var db *gormlib.DB
 	var presetHandlers application.PresetHTTPHandlers
+	var orchestrator *appagents.Orchestrator
+	var skillRegistry *application.SkillRegistry
 
 	registry := presets.NewDefaultRegistry()
 
@@ -135,6 +138,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.NopLogger,
 		application.Module(appCfg, registry),
 		fx.Provide(weosoauth.ProvideJWTService),
+		fx.Populate(&orchestrator),
+		fx.Populate(&skillRegistry),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
@@ -438,12 +443,26 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// MCP routes — registered before dynamic catch-all
 	if serveViper.GetBool("enabled") {
-		mcpHandler, mcpErr := mcpserver.NewHTTPHandler(
+		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
 			resourceTypeService, resourceService, kgService, lexicalSearch, slog.Default(),
 		)
 		if mcpErr != nil {
-			return fmt.Errorf("failed to create MCP handler: %w", mcpErr)
+			return fmt.Errorf("failed to create MCP server: %w", mcpErr)
 		}
+		mcpHandler := mcpserver.HandlerForServer(mcpSrv, slog.Default())
+
+		// The in-app agent shares this exact tool surface (epic #397): the
+		// skill registry validates allowlists against it, the coordinator's
+		// direct tools are its read-only subset, and each conversation turn
+		// opens a toolset session under the caller's identity.
+		skillRegistry.SetKnownTools(mcpserver.KnownTools(mcpSrv))
+		readOnlyTools, roErr := mcpserver.ReadOnlyToolNames(context.Background(), mcpSrv)
+		if roErr != nil {
+			return fmt.Errorf("failed to list read-only tools for the agent: %w", roErr)
+		}
+		orchestrator.SetToolsetFactory(
+			mcpserver.AgentToolsetFactory(mcpSrv, mcpserver.AgentToolsetConfig{}), readOnlyTools,
+		)
 		// MCP gets its own group with BearerOrSession auth when OAuth is enabled.
 		mcpGroup := api.Group("")
 		if appCfg.OAuthEnabled() {

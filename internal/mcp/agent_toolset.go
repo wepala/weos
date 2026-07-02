@@ -65,3 +65,71 @@ func NewAgentToolset(ctx context.Context, server *mcp.Server, cfg AgentToolsetCo
 	}
 	return ts, nil
 }
+
+// AgentToolsetFactory returns a factory that opens a fresh toolset session
+// per call. The orchestrator calls it once per conversation turn with the
+// caller's authenticated context, so tool authorization always sees the
+// right identity.
+func AgentToolsetFactory(server *mcp.Server, cfg AgentToolsetConfig) func(context.Context) (tool.Toolset, error) {
+	return func(ctx context.Context) (tool.Toolset, error) {
+		return NewAgentToolset(ctx, server, cfg)
+	}
+}
+
+// serverTools lists the server's registered tools over a short-lived
+// in-memory session.
+func serverTools(ctx context.Context, server *mcp.Server) ([]*mcp.Tool, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, serverTransport, nil); err != nil {
+		return nil, fmt.Errorf("connect in-memory MCP server: %w", err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "weos-internal", Version: "0.1.0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect tool-listing client: %w", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	res, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list tools: %w", err)
+	}
+	return res.Tools, nil
+}
+
+// KnownTools returns a lister of the server's registered tool names — the
+// skill registry uses it to reject skills whose allowlist references a tool
+// that does not exist.
+func KnownTools(server *mcp.Server) func(context.Context) (map[string]bool, error) {
+	return func(ctx context.Context) (map[string]bool, error) {
+		tools, err := serverTools(ctx, server)
+		if err != nil {
+			return nil, err
+		}
+		names := make(map[string]bool, len(tools))
+		for _, t := range tools {
+			names[t.Name] = true
+		}
+		return names, nil
+	}
+}
+
+// ReadOnlyToolNames returns the names of every registered tool annotated
+// read-only — the coordinator's direct toolset for requests no skill
+// matches.
+func ReadOnlyToolNames(ctx context.Context, server *mcp.Server) ([]string, error) {
+	tools, err := serverTools(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, t := range tools {
+		if t.Annotations != nil && t.Annotations.ReadOnlyHint {
+			names = append(names, t.Name)
+		}
+	}
+	return names, nil
+}

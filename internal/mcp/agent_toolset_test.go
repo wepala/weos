@@ -98,6 +98,37 @@ func TestNewAgentToolset_MCPParity(t *testing.T) {
 	}
 }
 
+func TestKnownToolsAndReadOnlyNames(t *testing.T) {
+	server := fullServer(t)
+	ctx := context.Background()
+
+	known, err := KnownTools(server)(ctx)
+	if err != nil {
+		t.Fatalf("KnownTools: %v", err)
+	}
+	if len(known) != 33 {
+		t.Fatalf("expected 33 known tools, got %d", len(known))
+	}
+	if !known["resource_create"] || !known["memory_recall"] {
+		t.Errorf("known tools missing expected names: %v", known)
+	}
+
+	readOnly, err := ReadOnlyToolNames(ctx, server)
+	if err != nil {
+		t.Fatalf("ReadOnlyToolNames: %v", err)
+	}
+	roSet := make(map[string]bool, len(readOnly))
+	for _, n := range readOnly {
+		roSet[n] = true
+	}
+	if !roSet["memory_recall"] || !roSet["kg_search_entities"] {
+		t.Errorf("read-only set missing expected names: %v", readOnly)
+	}
+	if roSet["resource_create"] || roSet["resource_delete"] {
+		t.Errorf("mutating tools leaked into the read-only set: %v", readOnly)
+	}
+}
+
 // TestNewMCPServer_ToolAnnotations is the authoritative read-only/mutating
 // inventory. Every tool must carry explicit annotations; downstream consumers
 // (HITL confirmation for in-app agents) key off ReadOnlyHint.
