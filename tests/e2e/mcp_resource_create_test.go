@@ -206,7 +206,10 @@ func (w *mcpWorld) theCallFailsWithValidationError() error {
 	if err := w.theCallFails(); err != nil {
 		return err
 	}
-	if !strings.Contains(strings.ToLower(w.errMessage()), "validation") {
+	// "validat" covers both the tool's own "validation" errors and the MCP
+	// SDK's protocol-level "validating \"arguments\"" rejection, which now
+	// fires before the handler for non-object payloads.
+	if !strings.Contains(strings.ToLower(w.errMessage()), "validat") {
 		return fmt.Errorf("expected a validation error, got: %s", w.errMessage())
 	}
 	return nil
@@ -270,9 +273,17 @@ func (w *mcpWorld) fetchReturnsSame(ctx context.Context) error {
 
 func (w *mcpWorld) errorStatesArgumentMustBeObject(arg string) error {
 	msg := strings.ToLower(w.errMessage())
-	if strings.Contains(msg, strings.ToLower(arg)) && strings.Contains(msg, "object") &&
-		(strings.Contains(msg, "must") || strings.Contains(msg, "expected") || strings.Contains(msg, "should")) {
-		return nil
+	if !strings.Contains(msg, strings.ToLower(arg)) || !strings.Contains(msg, "object") {
+		return fmt.Errorf("expected an error telling the caller the %q argument must be a JSON object, got: %s",
+			arg, w.errMessage())
+	}
+	// The tool's own message says the argument "must be" an object; the MCP
+	// SDK's earlier protocol-level rejection says it "want"s an object. Both
+	// clearly point the caller at the fix.
+	for _, phrasing := range []string{"must", "expected", "should", "want"} {
+		if strings.Contains(msg, phrasing) {
+			return nil
+		}
 	}
 	return fmt.Errorf("expected an error telling the caller the %q argument must be a JSON object, got: %s",
 		arg, w.errMessage())
