@@ -18,6 +18,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
@@ -149,10 +150,15 @@ func registerPlaybookTools(server *mcp.Server, playbooks application.PlaybookSer
 			SuccessCount int `json:"successCount"`
 			FailureCount int `json:"failureCount"`
 		}
-		if err := json.Unmarshal(application.ExtractEntityNode(res.Data()), &node); err == nil {
-			out.SuccessCount = node.SuccessCount
-			out.FailureCount = node.FailureCount
+		if err := json.Unmarshal(application.ExtractEntityNode(res.Data()), &node); err != nil {
+			// Never report 0/0 counters that may be wrong. The verdict IS
+			// recorded at this point — say so explicitly, so the caller does
+			// not retry and double-count.
+			return nil, PlaybookOutcomeOutput{}, fmt.Errorf(
+				"outcome was recorded on %s, but reading back its counters failed: %w", in.ID, err)
 		}
+		out.SuccessCount = node.SuccessCount
+		out.FailureCount = node.FailureCount
 		return nil, out, nil
 	})
 }
