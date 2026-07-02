@@ -165,6 +165,9 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(infraagents.ProvideADKConfig),
 		fx.Provide(ProvideFactExtractor),
 		fx.Provide(AsSubscriberGroups(ProvideConsolidationGroup)),
+		// Working memory: just-written facts read from the synchronous SQL
+		// projection so recall sees them before the graph checkpoint catches up.
+		fx.Provide(ProvideWorkingMemory),
 	)
 }
 
