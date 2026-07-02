@@ -33,9 +33,10 @@ func NewHTTPHandler(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
 	kgService application.KnowledgeGraphService,
+	lexicalSearch application.LexicalSearch,
 	logger *slog.Logger,
 ) (http.Handler, error) {
-	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, nil)
+	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP server: %w", err)
 	}

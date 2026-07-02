@@ -105,6 +105,7 @@ func NewMCPServer(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
 	kgService application.KnowledgeGraphService,
+	lexicalSearch application.LexicalSearch,
 	enabledServices []string,
 ) (*mcp.Server, error) {
 	if isNilInterface(resourceTypeService) {
@@ -144,16 +145,22 @@ func NewMCPServer(
 		registerKnowledgeGraphTools(server, kgService)
 	}
 	if enabled[ServiceMemory] {
-		// The memory services are thin stateless wrappers over services this
-		// constructor already receives, so they are built here rather than
-		// threaded through every NewMCPServer caller. A nil kgService means
-		// recall serves from the working set alone.
+		// The playbook and recall services are thin stateless wrappers over
+		// services this constructor already receives, so they are built here
+		// rather than threaded through every NewMCPServer caller. A nil
+		// kgService means recall serves from the working set alone. The
+		// lexical search needs the FTS5 index and IS threaded in; when nil
+		// (tests, minimal wiring) memory_search is simply not registered.
 		kg := kgService
 		if isNilInterface(kgService) {
 			kg = nil
 		}
 		recall := application.NewMemoryRecall(kg, application.NewWorkingMemory(resourceService))
-		registerMemoryTools(server, application.NewPlaybookService(resourceService), recall)
+		var search application.LexicalSearch
+		if !isNilInterface(lexicalSearch) {
+			search = lexicalSearch
+		}
+		registerMemoryTools(server, application.NewPlaybookService(resourceService), recall, search)
 	}
 
 	return server, nil
@@ -167,6 +174,7 @@ func Run(enabledServices []string) error {
 	var resourceTypeService application.ResourceTypeService
 	var resourceService application.ResourceService
 	var kgService application.KnowledgeGraphService
+	var lexicalSearch application.LexicalSearch
 
 	app := fx.New(
 		fx.NopLogger,
@@ -174,6 +182,7 @@ func Run(enabledServices []string) error {
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
+		fx.Populate(&lexicalSearch),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -190,7 +199,7 @@ func Run(enabledServices []string) error {
 		}
 	}()
 
-	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, enabledServices)
+	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, enabledServices)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}

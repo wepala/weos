@@ -123,7 +123,7 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 	}
 	w.app = app
 
-	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil)
+	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build MCP server: %w", err)
 	}

@@ -90,7 +90,7 @@ func TestNewMCPServer_KnowledgeGraphServiceOptional(t *testing.T) {
 	// Passing nil kgService must not break server creation; the tools just
 	// don't appear. (Mirrors how downstream callers like the HTTP handler
 	// can opt out.)
-	server, err := NewMCPServer(&stubResourceTypeService{}, &stubResourceService{}, nil, nil)
+	server, err := NewMCPServer(&stubResourceTypeService{}, &stubResourceService{}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewMCPServer with nil KG: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestNewMCPServer_KnowledgeGraphServiceOptional(t *testing.T) {
 func TestNewMCPServer_KnowledgeGraphRegisteredWhenServiceProvided(t *testing.T) {
 	t.Parallel()
 	server, err := NewMCPServer(
-		&stubResourceTypeService{}, &stubResourceService{}, &stubKGService{active: true}, nil,
+		&stubResourceTypeService{}, &stubResourceService{}, &stubKGService{active: true}, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("NewMCPServer: %v", err)

@@ -53,11 +53,37 @@ type MemoryRecallOutput struct {
 	Facts []application.RecalledFact `json:"facts"`
 }
 
+// MemorySearchInput finds resources by keyword (lexical matching).
+type MemorySearchInput struct {
+	Query string `json:"query" jsonschema:"keywords to match against resource text (proper nouns, identifiers)"`
+	Limit int    `json:"limit,omitempty" jsonschema:"max results (default 20, max 100)"`
+}
+
+// MemorySearchHit is one lexical match.
+type MemorySearchHit struct {
+	ID       string `json:"id"`
+	TypeSlug string `json:"typeSlug,omitempty"`
+	Snippet  string `json:"snippet,omitempty"`
+}
+
+// MemorySearchOutput lists lexical matches and the mode that produced them.
+type MemorySearchOutput struct {
+	Results []MemorySearchHit `json:"results"`
+	// Mode is "fts5" (full text) or "graph-labels" (degraded label search).
+	Mode string `json:"mode"`
+}
+
 // registerMemoryTools registers the agent-memory tool group.
 func registerMemoryTools(
-	server *mcp.Server, playbooks application.PlaybookService, recall application.MemoryRecall,
+	server *mcp.Server,
+	playbooks application.PlaybookService,
+	recall application.MemoryRecall,
+	search application.LexicalSearch,
 ) {
 	registerPlaybookTools(server, playbooks)
+	if search != nil {
+		registerMemorySearchTool(server, search)
+	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "memory_recall",
 		Description: "Recall consolidated facts from semantic memory. Superseded facts are always " +
@@ -76,6 +102,31 @@ func registerMemoryTools(
 			return nil, MemoryRecallOutput{}, err
 		}
 		return nil, MemoryRecallOutput{Facts: facts}, nil
+	})
+}
+
+// registerMemorySearchTool registers lexical search over resource text.
+func registerMemorySearchTool(server *mcp.Server, search application.LexicalSearch) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "memory_search",
+		Description: "Find memories and resources by keyword — lexical matching over resource text " +
+			"(proper nouns, identifiers) via SQLite FTS5, degrading to graph label search where FTS5 " +
+			"is unavailable. Superseded facts are never indexed. Use memory_recall for structured " +
+			"fact recall.",
+	}, func(
+		ctx context.Context, _ *mcp.CallToolRequest, in MemorySearchInput,
+	) (*mcp.CallToolResult, MemorySearchOutput, error) {
+		hits, mode, err := search.Search(ctx, in.Query, in.Limit)
+		if err != nil {
+			return nil, MemorySearchOutput{}, err
+		}
+		out := MemorySearchOutput{Mode: mode, Results: make([]MemorySearchHit, 0, len(hits))}
+		for _, h := range hits {
+			out.Results = append(out.Results, MemorySearchHit{
+				ID: h.ID, TypeSlug: h.TypeSlug, Snippet: h.Snippet,
+			})
+		}
+		return nil, out, nil
 	})
 }
 
