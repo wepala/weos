@@ -72,8 +72,8 @@ defineProps<{ widgets: AgentWidget[] }>()
 // links render — a javascript:/data: URL from a steered model must never
 // become a clickable link in the admin origin.
 function safeUrl(url?: string): string {
-  if (!url) return ''
-  return /^(https?:|mailto:)/i.test(url.trim()) ? url : ''
+  const trimmed = url?.trim() ?? ''
+  return /^(https?:|mailto:)/i.test(trimmed) ? trimmed : ''
 }
 
 function tableColumns(widget: AgentWidget) {

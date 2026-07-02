@@ -441,7 +441,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	})
 
-	// MCP routes — registered before dynamic catch-all
+	// MCP + in-app agent routes — registered before dynamic catch-all. Both
+	// share one auth stack (BearerOrSession under OAuth, SoftAuth in dev).
+	mcpGroup := api.Group("")
+	if appCfg.OAuthEnabled() {
+		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
+		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL))
+		mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+	} else {
+		mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
+	}
+	mcpGroup.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
+
+	// The in-app agent is independent of the MCP transport flag: with MCP
+	// disabled it still chats, just tool-less (the orchestrator degrades).
+	agentHandler := handlers.NewAgentHandler(orchestrator, logger)
+	mcpGroup.POST("/agent/conversations/:conversationID/messages", agentHandler.SendMessage)
+	mcpGroup.POST("/agent/conversations/:conversationID/confirmations/:callID", agentHandler.Confirm)
+	mcpGroup.GET("/agent/conversations/:conversationID", agentHandler.History)
+
 	if serveViper.GetBool("enabled") {
 		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
 			resourceTypeService, resourceService, kgService, lexicalSearch, slog.Default(),
@@ -470,24 +488,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 				RequireConfirmationProvider: confirmMutations,
 			}), readOnlyTools,
 		)
-		// MCP gets its own group with BearerOrSession auth when OAuth is enabled.
-		mcpGroup := api.Group("")
-		if appCfg.OAuthEnabled() {
-			sessionAuth := authhttp.RequireAuth(sessionManager, authService)
-			mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL))
-			mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
-		} else {
-			mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
-		}
-		mcpGroup.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 		mcpGroup.Any("/mcp", echo.WrapHandler(mcpHandler))
 		mcpGroup.Any("/mcp/*", echo.WrapHandler(mcpHandler))
-
-		// In-app agent chat rides the same auth stack as MCP.
-		agentHandler := handlers.NewAgentHandler(orchestrator, logger)
-		mcpGroup.POST("/agent/conversations/:conversationID/messages", agentHandler.SendMessage)
-		mcpGroup.POST("/agent/conversations/:conversationID/confirmations/:callID", agentHandler.Confirm)
-		mcpGroup.GET("/agent/conversations/:conversationID", agentHandler.History)
 		logger.Info(context.Background(), "MCP server enabled", "path", "/api/mcp")
 	} else {
 		logger.Info(context.Background(), "MCP server disabled via configuration")

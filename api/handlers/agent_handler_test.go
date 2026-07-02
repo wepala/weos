@@ -139,6 +139,22 @@ func TestAgentHandler_ConfirmResumesTurn(t *testing.T) {
 	}
 }
 
+func TestAgentHandler_ConfirmRequiresExplicitDecision(t *testing.T) {
+	agent := &fakeAgent{configured: true}
+	h := NewAgentHandler(agent, nopLogger{})
+
+	rec := agentRequest(t, h.Confirm, http.MethodPost,
+		"/agent/conversations/c1/confirmations/call-9", `{}`,
+		"conversationID", "c1", "callID", "call-9")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("omitted confirmed must be 400, not a silent rejection; got %d", rec.Code)
+	}
+	if agent.gotCallID != "" {
+		t.Error("ResumeConfirmation must not run without an explicit decision")
+	}
+}
+
 func TestAgentHandler_History(t *testing.T) {
 	resp := widgets.FromText("past answer")
 	agent := &fakeAgent{configured: true, history: []entities.AgentMessage{

@@ -62,16 +62,18 @@ func (h *AgentHandler) SendMessage(c echo.Context) error {
 // It answers a pending mutating-tool confirmation and streams the rest of
 // the turn.
 func (h *AgentHandler) Confirm(c echo.Context) error {
+	// Pointer bool: a body that omits "confirmed" must be a 400, not a
+	// silent rejection of the pending call.
 	var body struct {
-		Confirmed bool `json:"confirmed"`
+		Confirmed *bool `json:"confirmed"`
 	}
-	if err := c.Bind(&body); err != nil {
+	if err := c.Bind(&body); err != nil || body.Confirmed == nil {
 		return respondError(c, http.StatusBadRequest, "confirmed is required")
 	}
 	return h.stream(c, func(emit appagents.EventSink) error {
 		return h.agent.ResumeConfirmation(
 			c.Request().Context(), c.Param("conversationID"), userIDFrom(c),
-			c.Param("callID"), body.Confirmed, emit,
+			c.Param("callID"), *body.Confirmed, emit,
 		)
 	})
 }
