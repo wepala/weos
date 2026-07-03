@@ -14,6 +14,7 @@ import (
 	"github.com/wepala/weos/v3/internal/config"
 	mcpserver "github.com/wepala/weos/v3/internal/mcp"
 
+	pericarpdomain "github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 	"github.com/cucumber/godog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.uber.org/fx"
@@ -54,6 +55,9 @@ type mcpWorld struct {
 	srvSess *mcp.ServerSession
 	cancel  context.CancelFunc
 	rts     application.ResourceTypeService
+	// eventStore backs direct event seeding (episodic recall scenarios need
+	// controlled occurred-at timestamps the entity API never exposes).
+	eventStore pericarpdomain.EventStore
 
 	pendingContext string
 	pendingSchema  string
@@ -110,11 +114,13 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 	var rts application.ResourceTypeService
 	var rs application.ResourceService
 	var kg application.KnowledgeGraphService
+	var episodic application.EpisodicRecall
+	var eventStore pericarpdomain.EventStore
 
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
-		fx.Populate(&rts, &rs, &kg),
+		fx.Populate(&rts, &rs, &kg, &episodic, &eventStore),
 	)
 	startCtx, startCancel := context.WithTimeout(sessCtx, fx.DefaultTimeout)
 	defer startCancel()
@@ -122,8 +128,9 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 		return fmt.Errorf("failed to start app: %w", err)
 	}
 	w.app = app
+	w.eventStore = eventStore
 
-	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, nil)
+	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, episodic, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build MCP server: %w", err)
 	}
@@ -147,6 +154,16 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 
 	// Stash the type service so the next Background step can seed the schema.
 	w.rts = rts
+	return nil
+}
+
+func (w *mcpWorld) presetIsInstalled(ctx context.Context, name string) error {
+	if w.rts == nil {
+		return fmt.Errorf("application not booted")
+	}
+	if _, err := w.rts.InstallPreset(ctx, name, true); err != nil {
+		return fmt.Errorf("failed to install %q preset: %w", name, err)
+	}
 	return nil
 }
 

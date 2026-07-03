@@ -75,16 +75,6 @@ func initMemoryRecallScenario(sc *godog.ScenarioContext) {
 		w.playbookOutcomeReports)
 }
 
-func (w *memoryWorld) presetIsInstalled(ctx context.Context, name string) error {
-	if w.rts == nil {
-		return fmt.Errorf("application not booted")
-	}
-	if _, err := w.rts.InstallPreset(ctx, name, true); err != nil {
-		return fmt.Errorf("failed to install %q preset: %w", name, err)
-	}
-	return nil
-}
-
 // createFact records a fact through the same MCP tool an agent would use and
 // returns its URN.
 func (w *memoryWorld) createFact(ctx context.Context, data map[string]any) (string, error) {

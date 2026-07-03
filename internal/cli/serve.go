@@ -111,6 +111,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var resourceService application.ResourceService
 	var kgService application.KnowledgeGraphService
 	var lexicalSearch application.LexicalSearch
+	var episodicRecall application.EpisodicRecall
 	var resourcePermService application.ResourcePermissionService
 	var fileService application.FileService
 	var authService authapp.AuthenticationService
@@ -144,6 +145,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
 		fx.Populate(&lexicalSearch),
+		fx.Populate(&episodicRecall),
 		fx.Populate(&resourcePermService),
 		fx.Populate(&fileService),
 		fx.Populate(&authService),
@@ -462,7 +464,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	if serveViper.GetBool("enabled") {
 		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
-			resourceTypeService, resourceService, kgService, lexicalSearch, slog.Default(),
+			resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall, slog.Default(),
 		)
 		if mcpErr != nil {
 			return fmt.Errorf("failed to create MCP server: %w", mcpErr)

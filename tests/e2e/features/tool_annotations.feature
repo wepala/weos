@@ -21,3 +21,7 @@ Feature: Tool annotations advertise what mutates
   Scenario: Every advertised tool carries an explicit annotation
     When I list the server's tools
     Then every tool declares whether it is read-only or mutating
+
+  Scenario: The episodic_recall tool is advertised as read-only
+    When I list the server's tools
+    Then the tool "episodic_recall" is advertised as read-only

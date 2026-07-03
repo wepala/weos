@@ -53,7 +53,8 @@ func (stubLexicalSearch) Search(context.Context, string, int) ([]repositories.Le
 func fullServer(t *testing.T) *gomcp.Server {
 	t.Helper()
 	server, err := NewMCPServer(
-		&stubResourceTypeService{}, &stubResourceService{}, &stubKGService{active: true}, stubLexicalSearch{}, nil,
+		&stubResourceTypeService{}, &stubResourceService{}, &stubKGService{active: true}, stubLexicalSearch{},
+		nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("NewMCPServer: %v", err)
