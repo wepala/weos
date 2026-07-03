@@ -31,6 +31,7 @@ import (
 	"github.com/wepala/weos/v3/api/handlers"
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/application"
+	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/application/presets"
 	"github.com/wepala/weos/v3/domain/entities"
 	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
@@ -128,6 +129,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var inviteRepo authrepos.InviteRepository
 	var db *gormlib.DB
 	var presetHandlers application.PresetHTTPHandlers
+	var orchestrator *appagents.Orchestrator
+	var skillRegistry *application.SkillRegistry
 
 	registry := presets.NewDefaultRegistry()
 
@@ -135,6 +138,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.NopLogger,
 		application.Module(appCfg, registry),
 		fx.Provide(weosoauth.ProvideJWTService),
+		fx.Populate(&orchestrator),
+		fx.Populate(&skillRegistry),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
@@ -436,24 +441,53 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	})
 
-	// MCP routes — registered before dynamic catch-all
+	// MCP + in-app agent routes — registered before dynamic catch-all. Both
+	// share one auth stack (BearerOrSession under OAuth, SoftAuth in dev).
+	mcpGroup := api.Group("")
+	if appCfg.OAuthEnabled() {
+		sessionAuth := authhttp.RequireAuth(sessionManager, authService)
+		mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL))
+		mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+	} else {
+		mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
+	}
+	mcpGroup.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
+
+	// The in-app agent is independent of the MCP transport flag: with MCP
+	// disabled it still chats, just tool-less (the orchestrator degrades).
+	agentHandler := handlers.NewAgentHandler(orchestrator, logger)
+	mcpGroup.POST("/agent/conversations/:conversationID/messages", agentHandler.SendMessage)
+	mcpGroup.POST("/agent/conversations/:conversationID/confirmations/:callID", agentHandler.Confirm)
+	mcpGroup.GET("/agent/conversations/:conversationID", agentHandler.History)
+
 	if serveViper.GetBool("enabled") {
-		mcpHandler, mcpErr := mcpserver.NewHTTPHandler(
+		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
 			resourceTypeService, resourceService, kgService, lexicalSearch, slog.Default(),
 		)
 		if mcpErr != nil {
-			return fmt.Errorf("failed to create MCP handler: %w", mcpErr)
+			return fmt.Errorf("failed to create MCP server: %w", mcpErr)
 		}
-		// MCP gets its own group with BearerOrSession auth when OAuth is enabled.
-		mcpGroup := api.Group("")
-		if appCfg.OAuthEnabled() {
-			sessionAuth := authhttp.RequireAuth(sessionManager, authService)
-			mcpGroup.Use(apimw.BearerOrSession(jwtService, sessionAuth, baseURL))
-			mcpGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
-		} else {
-			mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
+		mcpHandler := mcpserver.HandlerForServer(mcpSrv, slog.Default())
+
+		// The in-app agent shares this exact tool surface (epic #397): the
+		// skill registry validates allowlists against it, the coordinator's
+		// direct tools are its read-only subset, each conversation turn opens
+		// a toolset session under the caller's identity, and every mutating
+		// tool call pauses for the user's confirmation in the chat.
+		skillRegistry.SetKnownTools(mcpserver.KnownTools(mcpSrv))
+		readOnlyTools, roErr := mcpserver.ReadOnlyToolNames(context.Background(), mcpSrv)
+		if roErr != nil {
+			return fmt.Errorf("failed to list read-only tools for the agent: %w", roErr)
 		}
-		mcpGroup.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
+		confirmMutations, cmErr := mcpserver.MutatingConfirmationProvider(context.Background(), mcpSrv)
+		if cmErr != nil {
+			return fmt.Errorf("failed to build the agent confirmation provider: %w", cmErr)
+		}
+		orchestrator.SetToolsetFactory(
+			mcpserver.AgentToolsetFactory(mcpSrv, mcpserver.AgentToolsetConfig{
+				RequireConfirmationProvider: confirmMutations,
+			}), readOnlyTools,
+		)
 		mcpGroup.Any("/mcp", echo.WrapHandler(mcpHandler))
 		mcpGroup.Any("/mcp/*", echo.WrapHandler(mcpHandler))
 		logger.Info(context.Background(), "MCP server enabled", "path", "/api/mcp")

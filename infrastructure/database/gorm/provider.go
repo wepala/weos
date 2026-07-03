@@ -75,22 +75,9 @@ func ProvideGormDB(params struct {
 	Config config.Config
 }) (GormDBResult, error) {
 	dsn := params.Config.DatabaseDSN
-	var db *gorm.DB
-	var err error
-
-	// Detect database type from DSN
-	// PostgreSQL DSNs typically start with "host=" or contain "postgres://"
-	// SQLite DSNs are file paths or "file:" URIs
-	if strings.HasPrefix(dsn, "host=") || strings.Contains(dsn, "postgres://") || strings.Contains(dsn, "postgresql://") {
-		db, err = gorm.Open(postgres.Open(dsn), gormConfig())
-		if err != nil {
-			return GormDBResult{}, fmt.Errorf("failed to connect to PostgreSQL database: %w", err)
-		}
-	} else {
-		db, err = gorm.Open(sqlite.Open(sqliteDSNWithWorkerPragmas(dsn)), gormConfig())
-		if err != nil {
-			return GormDBResult{}, fmt.Errorf("failed to connect to SQLite database: %w", err)
-		}
+	db, err := gorm.Open(DialectorForDSN(dsn), gormConfig())
+	if err != nil {
+		return GormDBResult{}, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	sqlDB, err := db.DB()
@@ -126,6 +113,19 @@ func ProvideGormDB(params struct {
 		GormDB: db,
 		SQLDB:  sqlDB,
 	}, nil
+}
+
+// DialectorForDSN detects the database driver from the DSN the same way the
+// main DB provider does: PostgreSQL DSNs start with "host=" or contain a
+// postgres:// URI; everything else is treated as SQLite (file path or file:
+// URI, with the worker pragmas applied). Consumers that need their own GORM
+// connection to the configured database (e.g. the ADK session service) use
+// this so driver selection never diverges.
+func DialectorForDSN(dsn string) gorm.Dialector {
+	if strings.HasPrefix(dsn, "host=") || strings.Contains(dsn, "postgres://") || strings.Contains(dsn, "postgresql://") {
+		return postgres.Open(dsn)
+	}
+	return sqlite.Open(sqliteDSNWithWorkerPragmas(dsn))
 }
 
 // sqliteDSNWithWorkerPragmas augments a file-based SQLite DSN with the pragmas

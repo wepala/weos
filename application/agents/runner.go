@@ -20,10 +20,10 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/model"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -41,7 +41,7 @@ var responseSchemaKey = &responseSchemaKeyType{}
 // response schema from context (when set by RunAgent) to the LLM request so
 // the model returns structured output.
 func ApplyResponseSchemaFromContext(
-	ctx agent.CallbackContext, req *model.LLMRequest,
+	ctx agent.Context, req *model.LLMRequest,
 ) (*model.LLMResponse, error) {
 	schema := ctx.Value(responseSchemaKey)
 	if schema == nil {

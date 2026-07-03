@@ -47,6 +47,7 @@ func registerResourceTypePresetTools(server *mcp.Server, svc application.Resourc
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_preset_list",
 		Description: "List available resource type presets and their included types.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, _ PresetListInput,
 	) (*mcp.CallToolResult, PresetListOutput, error) {
@@ -83,6 +84,8 @@ func registerResourceTypePresetTools(server *mcp.Server, svc application.Resourc
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_preset_install",
 		Description: "Install a resource type preset. By default skips types that already exist; set update=true to sync them with the preset definition.",
+		// Destructive because update=true overwrites existing type definitions.
+		Annotations: annDestructive(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input PresetInstallInput,
 	) (*mcp.CallToolResult, PresetInstallOutput, error) {
@@ -133,6 +136,7 @@ func registerBehaviorTools(server *mcp.Server, svc application.ResourceTypeServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_behavior_list",
 		Description: "List available behaviors for a resource type with their enabled state in the current account.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input BehaviorListInput,
 	) (*mcp.CallToolResult, BehaviorListOutput, error) {
@@ -146,6 +150,7 @@ func registerBehaviorTools(server *mcp.Server, svc application.ResourceTypeServi
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_behavior_set",
 		Description: "Set which manageable behaviors are enabled for a resource type in the current account.",
+		Annotations: annDestructive(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input BehaviorSetInput,
 	) (*mcp.CallToolResult, BehaviorSetOutput, error) {

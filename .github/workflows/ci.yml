@@ -7,10 +7,43 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  build:
+  # web/dist is not checked in; //go:embed all:dist requires it to exist,
+  # so every Go job downloads the SPA built here (mirrors the Dockerfile).
+  frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/admin/package-lock.json
+
+      - name: Build admin SPA
+        working-directory: web/admin
+        run: |
+          npm ci
+          npx nuxt generate
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-dist
+          path: web/admin/.output/public
+
+  build:
+    runs-on: ubuntu-latest
+    needs: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download admin SPA
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-dist
+          path: web/dist
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -22,8 +55,15 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    needs: frontend
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download admin SPA
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-dist
+          path: web/dist
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -53,8 +93,15 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    needs: frontend
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download admin SPA
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-dist
+          path: web/dist
 
       - name: Set up Go
         uses: actions/setup-go@v5

@@ -150,6 +150,7 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_create",
 		Description: "Create a new resource type with JSON-LD context and optional JSON Schema.",
+		Annotations: annAdditive(false),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input CreateResourceTypeInput,
 	) (*mcp.CallToolResult, ResourceTypeOutput, error) {
@@ -170,6 +171,7 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_get",
 		Description: "Get a resource type by ID.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input GetResourceTypeInput,
 	) (*mcp.CallToolResult, ResourceTypeOutput, error) {
@@ -183,6 +185,7 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_list",
 		Description: "List all resource types with cursor-based pagination.",
+		Annotations: annReadOnly(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input ListResourceTypesInput,
 	) (*mcp.CallToolResult, ListResourceTypesOutput, error) {
@@ -211,6 +214,7 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_update",
 		Description: "Update an existing resource type.",
+		Annotations: annDestructive(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input UpdateResourceTypeInput,
 	) (*mcp.CallToolResult, ResourceTypeOutput, error) {
@@ -251,6 +255,7 @@ func registerResourceTypeTools(server *mcp.Server, svc application.ResourceTypeS
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "resource_type_delete",
 		Description: "Delete a resource type by ID.",
+		Annotations: annDestructive(),
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input DeleteResourceTypeInput,
 	) (*mcp.CallToolResult, DeletedOutput, error) {

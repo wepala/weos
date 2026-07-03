@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 
+	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	infraagents "github.com/wepala/weos/v3/infrastructure/agents"
@@ -174,6 +175,23 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(gorm.ProvideLexicalIndex),
 		fx.Provide(AsSubscriberGroups(ProvideLexicalGroup)),
 		fx.Provide(NewLexicalSearch),
+		// In-app agent skills (epic #397): declarative agent-skill resources
+		// loaded into a registry the orchestrator builds sub-agents from;
+		// invalidated on skill resource events so changes apply live.
+		fx.Provide(NewSkillRegistry),
+		fx.Invoke(subscribeSkillRegistry),
+		// The in-app agent: a coordinator that routes requests to skill
+		// sub-agents. Unconfigured (no LLM key) it degrades to a clear
+		// "not configured" signal. The tool surface is wired by the serve
+		// command once the MCP server exists.
+		fx.Provide(infraagents.ProvideOrchestrator),
+		fx.Provide(func(o *appagents.Orchestrator) ConversationalAgent { return o }),
+		fx.Invoke(func(o *appagents.Orchestrator, r *SkillRegistry, rs ResourceService) {
+			o.SetSkillSource(r.Skills)
+			// Completed turns become note resources — the episodic memory
+			// that #386 consolidation distills facts from.
+			o.SetEpisodeRecorder(RecordAgentTurn(rs))
+		}),
 	)
 }
 
