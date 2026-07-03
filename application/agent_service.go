@@ -43,9 +43,14 @@ type ConversationalAgent interface {
 	ConverseStream(ctx context.Context, conversationID, userID, message string, emit appagents.EventSink) error
 	// ResumeConfirmation answers a pending mutating-tool confirmation and
 	// streams the rest of the turn. Pending confirmations live in the
-	// durable session, so they survive refreshes and restarts.
+	// durable session, so they survive refreshes and restarts. A non-nil
+	// payload on an approval replaces the tool call's arguments wholesale
+	// (approve-with-edits): what executes is exactly what the user
+	// submitted. A nil payload runs the original arguments; a payload on a
+	// rejection is ignored.
 	ResumeConfirmation(
-		ctx context.Context, conversationID, userID, callID string, confirmed bool, emit appagents.EventSink,
+		ctx context.Context, conversationID, userID, callID string, confirmed bool,
+		payload map[string]any, emit appagents.EventSink,
 	) error
 	// History returns the conversation so far, oldest first.
 	History(ctx context.Context, conversationID, userID string) ([]entities.AgentMessage, error)

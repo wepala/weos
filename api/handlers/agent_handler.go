@@ -60,20 +60,24 @@ func (h *AgentHandler) SendMessage(c echo.Context) error {
 
 // Confirm handles POST /agent/conversations/:conversationID/confirmations/:callID.
 // It answers a pending mutating-tool confirmation and streams the rest of
-// the turn.
+// the turn. An approval may carry a payload object that replaces the tool
+// call's arguments (approve-with-edits); binding enforces that a present
+// payload is a JSON object.
 func (h *AgentHandler) Confirm(c echo.Context) error {
 	// Pointer bool: a body that omits "confirmed" must be a 400, not a
 	// silent rejection of the pending call.
 	var body struct {
-		Confirmed *bool `json:"confirmed"`
+		Confirmed *bool          `json:"confirmed"`
+		Payload   map[string]any `json:"payload"`
 	}
 	if err := c.Bind(&body); err != nil || body.Confirmed == nil {
-		return respondError(c, http.StatusBadRequest, "confirmed is required")
+		return respondError(c, http.StatusBadRequest,
+			"confirmed (boolean) is required; payload, when present, must be a JSON object")
 	}
 	return h.stream(c, func(emit appagents.EventSink) error {
 		return h.agent.ResumeConfirmation(
 			c.Request().Context(), c.Param("conversationID"), userIDFrom(c),
-			c.Param("callID"), *body.Confirmed, emit,
+			c.Param("callID"), *body.Confirmed, body.Payload, emit,
 		)
 	})
 }

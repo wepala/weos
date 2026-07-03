@@ -175,20 +175,31 @@ func (o *Orchestrator) ConverseStream(
 // ResumeConfirmation answers a pending tool confirmation (per the ADK
 // tool-confirmation protocol) and streams the rest of the turn. The pending
 // call lives in the durable session, so a confirmation survives refreshes
-// and restarts.
+// and restarts. A non-nil payload rides the confirmation response into
+// ADK's ToolConfirmation.Payload — the toolset substitutes it for the
+// call's arguments on approval (approve-with-edits) — and is durable for
+// the same reason the confirmation is.
 func (o *Orchestrator) ResumeConfirmation(
-	ctx context.Context, conversationID, userID, callID string, confirmed bool, emit EventSink,
+	ctx context.Context, conversationID, userID, callID string, confirmed bool,
+	payload map[string]any, emit EventSink,
 ) error {
+	response := map[string]any{"confirmed": confirmed}
+	if payload != nil {
+		response["payload"] = payload
+	}
 	content := &genai.Content{
 		Role: genai.RoleUser,
 		Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{
 			Name:     toolconfirmation.FunctionCallName,
 			ID:       callID,
-			Response: map[string]any{"confirmed": confirmed},
+			Response: response,
 		}}},
 	}
 	episode := "[approved a pending action]"
-	if !confirmed {
+	switch {
+	case confirmed && payload != nil:
+		episode = "[approved a pending action with edits]"
+	case !confirmed:
 		episode = "[rejected a pending action]"
 	}
 	return o.runTurn(ctx, conversationID, userID, content, episode, emit)

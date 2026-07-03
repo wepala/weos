@@ -63,7 +63,9 @@ func NewAgentToolset(ctx context.Context, server *mcp.Server, cfg AgentToolsetCo
 	if err != nil {
 		return nil, fmt.Errorf("wrap MCP server as agent toolset: %w", err)
 	}
-	return ts, nil
+	// Approve-with-edits: a confirmation payload replaces the confirmed
+	// call's arguments (stock mcptoolset would re-run the original ones).
+	return EditedArgsToolset(ts), nil
 }
 
 // AgentToolsetFactory returns a factory that opens a fresh toolset session

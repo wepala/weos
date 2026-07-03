@@ -20,6 +20,7 @@ type fakeAgent struct {
 	gotMessage string
 	gotCallID  string
 	confirmed  bool
+	gotPayload map[string]any
 }
 
 func (f *fakeAgent) Configured() bool { return f.configured }
@@ -41,10 +42,11 @@ func (f *fakeAgent) ConverseStream(
 }
 
 func (f *fakeAgent) ResumeConfirmation(
-	_ context.Context, _, _, callID string, confirmed bool, emit appagents.EventSink,
+	_ context.Context, _, _, callID string, confirmed bool, payload map[string]any, emit appagents.EventSink,
 ) error {
 	f.gotCallID = callID
 	f.confirmed = confirmed
+	f.gotPayload = payload
 	emit(entities.AgentEvent{Type: entities.AgentEventDone})
 	return nil
 }
@@ -136,6 +138,55 @@ func TestAgentHandler_ConfirmResumesTurn(t *testing.T) {
 	}
 	if agent.gotCallID != "call-9" || !agent.confirmed {
 		t.Errorf("resume args = %q %v", agent.gotCallID, agent.confirmed)
+	}
+}
+
+func TestAgentHandler_ConfirmPassesEditedArgsPayload(t *testing.T) {
+	agent := &fakeAgent{configured: true}
+	h := NewAgentHandler(agent, nopLogger{})
+
+	rec := agentRequest(t, h.Confirm, http.MethodPost,
+		"/agent/conversations/c1/confirmations/call-9",
+		`{"confirmed":true,"payload":{"interpretations":[{"line":1,"category":"groceries"}]}}`,
+		"conversationID", "c1", "callID", "call-9")
+
+	if !strings.Contains(rec.Body.String(), "event: done") {
+		t.Fatalf("stream missing done: %s", rec.Body.String())
+	}
+	if agent.gotPayload == nil {
+		t.Fatal("payload was not passed through to ResumeConfirmation")
+	}
+	if _, ok := agent.gotPayload["interpretations"]; !ok {
+		t.Errorf("payload = %v", agent.gotPayload)
+	}
+}
+
+func TestAgentHandler_ConfirmWithoutPayloadPassesNil(t *testing.T) {
+	agent := &fakeAgent{configured: true, gotPayload: map[string]any{"sentinel": true}}
+	h := NewAgentHandler(agent, nopLogger{})
+
+	agentRequest(t, h.Confirm, http.MethodPost,
+		"/agent/conversations/c1/confirmations/call-9", `{"confirmed":true}`,
+		"conversationID", "c1", "callID", "call-9")
+
+	if agent.gotPayload != nil {
+		t.Errorf("omitted payload must reach the agent as nil, got %v", agent.gotPayload)
+	}
+}
+
+func TestAgentHandler_ConfirmRejectsNonObjectPayload(t *testing.T) {
+	agent := &fakeAgent{configured: true}
+	h := NewAgentHandler(agent, nopLogger{})
+
+	rec := agentRequest(t, h.Confirm, http.MethodPost,
+		"/agent/conversations/c1/confirmations/call-9", `{"confirmed":true,"payload":[1,2]}`,
+		"conversationID", "c1", "callID", "call-9")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("non-object payload must be 400, got %d", rec.Code)
+	}
+	if agent.gotCallID != "" {
+		t.Error("ResumeConfirmation must not run with a malformed payload")
 	}
 }
 
