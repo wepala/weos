@@ -18,6 +18,9 @@ test-integration: ## Run integration tests only
 test-e2e: ## Run E2E tests
 	go test -v ./tests/e2e/...
 
+test-ui: build ## Run Playwright BDD tests against the embedded admin SPA (requires: npx playwright install chromium)
+	cd web/admin && npm run test:e2e
+
 coverage: test ## Generate coverage report
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"

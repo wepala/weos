@@ -69,6 +69,7 @@ newman/
 # Playwright
 test-results/
 playwright-report/
+web/admin/.features-gen/
 
 # Claude Code (agent workspace, not shared)
 .claude/
