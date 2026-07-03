@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 )
 
 type capturingCreator struct {
@@ -52,5 +55,15 @@ func TestRecordAgentTurn_PropagatesError(t *testing.T) {
 	record := RecordAgentTurn(&capturingCreator{err: errors.New("db down")})
 	if err := record(context.Background(), "c", "u", "m", "r"); err == nil {
 		t.Fatal("expected error to propagate (the orchestrator decides it is non-fatal)")
+	}
+}
+
+func TestRecordAgentTurn_MissingNoteTypeMeansMemoryOff(t *testing.T) {
+	record := RecordAgentTurn(&capturingCreator{
+		err: fmt.Errorf("resource type %q not found: %w", NoteTypeSlug, repositories.ErrNotFound),
+	})
+	err := record(context.Background(), "c", "u", "m", "r")
+	if !errors.Is(err, appagents.ErrEpisodicMemoryUnavailable) {
+		t.Fatalf("a missing note type must map to ErrEpisodicMemoryUnavailable, got: %v", err)
 	}
 }

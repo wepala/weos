@@ -60,6 +60,13 @@ type ToolsetFactory func(ctx context.Context) (tool.Toolset, error)
 // never fail the turn — the orchestrator logs and moves on.
 type EpisodeRecorder func(ctx context.Context, conversationID, userID, message, reply string) error
 
+// ErrEpisodicMemoryUnavailable is returned by an EpisodeRecorder when the
+// note resource type does not exist — i.e. the memory preset is not
+// installed. The orchestrator treats it as "episodic memory is off" (one
+// info line, no per-turn error noise) rather than a failure.
+var ErrEpisodicMemoryUnavailable = errors.New(
+	"episodic memory unavailable: install the memory preset to record conversation turns")
+
 // orchestratorInstruction is the root coordinator's standing brief. Routing
 // is LLM-driven over the skills' descriptions via ADK's transfer mechanism.
 const orchestratorInstruction = `You are the coordinator for this WeOS app.
@@ -83,6 +90,8 @@ type Orchestrator struct {
 	toolsets     ToolsetFactory
 	defaultTools []string
 	recorder     EpisodeRecorder
+
+	memoryOffOnce sync.Once
 }
 
 // NewOrchestrator assembles the orchestrator. model and sessions may be nil
@@ -294,6 +303,15 @@ func (o *Orchestrator) recordEpisode(ctx context.Context, conversationID, userID
 		return
 	}
 	if err := recorder(ctx, conversationID, userID, message, reply); err != nil {
+		if errors.Is(err, ErrEpisodicMemoryUnavailable) {
+			// Not an error: the instance simply hasn't installed the memory
+			// preset. Say so once instead of once per turn.
+			o.memoryOffOnce.Do(func() {
+				o.logger.Info(ctx, "episodic memory is off: install the memory preset "+
+					"to remember conversation turns")
+			})
+			return
+		}
 		o.logger.Error(ctx, "failed to record conversation episode",
 			"conversationID", conversationID, "error", err.Error())
 	}

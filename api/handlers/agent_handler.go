@@ -92,9 +92,10 @@ func (h *AgentHandler) History(c echo.Context) error {
 
 const agentNotConfiguredMsg = "the in-app agent is not configured: set the Gemini API key to enable it"
 
-// stream runs a turn and writes its events as SSE. Errors before the first
-// byte become normal JSON errors; errors mid-stream become an error event,
-// because the status line is already gone.
+// stream runs a turn and writes its events as SSE. Only the not-configured
+// check (and the callers' request validation) can produce a normal JSON
+// error: the SSE status line and headers are written before the turn runs,
+// so any failure after that surfaces as an "error" event on the stream.
 func (h *AgentHandler) stream(c echo.Context, run func(emit appagents.EventSink) error) error {
 	if !h.agent.Configured() {
 		return respondError(c, http.StatusServiceUnavailable, agentNotConfiguredMsg)

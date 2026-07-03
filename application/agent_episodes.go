@@ -18,10 +18,12 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 )
 
 // NoteTypeSlug is the memory preset's episodic input type — the only type
@@ -49,6 +51,11 @@ func RecordAgentTurn(resources ResourceCreator) appagents.EpisodeRecorder {
 			return fmt.Errorf("marshal conversation note: %w", err)
 		}
 		if _, err := resources.Create(ctx, CreateResourceCommand{TypeSlug: NoteTypeSlug, Data: data}); err != nil {
+			// A missing note type means the memory preset isn't installed —
+			// episodic memory is off, not broken.
+			if errors.Is(err, repositories.ErrNotFound) {
+				return appagents.ErrEpisodicMemoryUnavailable
+			}
 			return fmt.Errorf("record conversation note: %w", err)
 		}
 		return nil
