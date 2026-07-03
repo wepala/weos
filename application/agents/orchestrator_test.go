@@ -200,6 +200,17 @@ func (failingSessions) Get(context.Context, *session.GetRequest) (*session.GetRe
 	return nil, errors.New("connection refused")
 }
 
+func TestOrchestrator_ConverseSurfacesSessionStoreFailure(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "x"}, failingSessions{}, testLogger{})
+	_, err := o.Converse(context.Background(), "conv", "u1", "hi")
+	if err == nil || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("expected session-store failure to surface, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "create") {
+		t.Errorf("a Get failure must not be masked by a create attempt: %v", err)
+	}
+}
+
 func TestOrchestrator_HistorySurfacesStoreFailure(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "x"}, failingSessions{}, testLogger{})
 	_, err := o.History(context.Background(), "conv", "u1")

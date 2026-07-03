@@ -41,12 +41,14 @@ func annAdditive(idempotent bool) *mcp.ToolAnnotations {
 }
 
 // annDestructive marks a tool that overwrites or removes existing state
-// (update, delete, replace). All such WeOS tools are idempotent: repeating
-// the call leaves the instance in the same state.
+// (update, delete, replace). Not idempotent: WeOS is event-sourced, so a
+// repeated update records another domain event (the log grows, handlers
+// re-fire) and a repeated delete errors on the missing entity — clients
+// must not retry these calls assuming no additional effect.
 func annDestructive() *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{
 		DestructiveHint: boolPtr(true),
-		IdempotentHint:  true,
+		IdempotentHint:  false,
 		OpenWorldHint:   boolPtr(false),
 	}
 }

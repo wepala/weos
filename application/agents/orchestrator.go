@@ -416,12 +416,17 @@ func (o *Orchestrator) ensureSession(ctx context.Context, userID, conversationID
 	if getErr == nil {
 		return nil
 	}
+	if !isSessionNotFound(getErr) {
+		// A store outage or auth failure is not "session missing" — surface
+		// it rather than masking it behind a doomed create attempt.
+		return fmt.Errorf("ensure session %q: %w", conversationID, getErr)
+	}
 	if _, createErr := o.sessions.Create(ctx, &session.CreateRequest{
 		AppName:   OrchestratorAppName,
 		UserID:    userID,
 		SessionID: conversationID,
 	}); createErr != nil {
-		return fmt.Errorf("ensure session %q: get: %v; create: %w", conversationID, getErr, createErr)
+		return fmt.Errorf("ensure session %q: create: %w", conversationID, createErr)
 	}
 	return nil
 }
