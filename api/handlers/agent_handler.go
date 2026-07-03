@@ -43,7 +43,9 @@ func NewAgentHandler(agent application.ConversationalAgent, logger entities.Logg
 }
 
 // SendMessage handles POST /agent/conversations/:conversationID/messages.
-// The response is a server-sent event stream of entities.AgentEvent.
+// The response is a server-sent event stream of entities.AgentEvent. An
+// optional ?skill=<name> converses with that one skill directly instead of
+// the coordinator (direct invocation for deterministic client flows).
 func (h *AgentHandler) SendMessage(c echo.Context) error {
 	var body struct {
 		Message string `json:"message"`
@@ -53,7 +55,8 @@ func (h *AgentHandler) SendMessage(c echo.Context) error {
 	}
 	return h.stream(c, func(emit appagents.EventSink) error {
 		return h.agent.ConverseStream(
-			c.Request().Context(), c.Param("conversationID"), userIDFrom(c), body.Message, emit,
+			c.Request().Context(), c.Param("conversationID"), userIDFrom(c),
+			body.Message, c.QueryParam("skill"), emit,
 		)
 	})
 }
@@ -85,7 +88,7 @@ func (h *AgentHandler) Confirm(c echo.Context) error {
 	return h.stream(c, func(emit appagents.EventSink) error {
 		return h.agent.ResumeConfirmation(
 			c.Request().Context(), c.Param("conversationID"), userIDFrom(c),
-			c.Param("callID"), *body.Confirmed, payload, emit,
+			c.Param("callID"), *body.Confirmed, payload, c.QueryParam("skill"), emit,
 		)
 	})
 }

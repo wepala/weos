@@ -151,7 +151,7 @@ func (o *Orchestrator) Converse(
 	ctx context.Context, conversationID, userID, message string,
 ) (widgets.Response, error) {
 	var out widgets.Response
-	err := o.ConverseStream(ctx, conversationID, userID, message, func(e entities.AgentEvent) {
+	err := o.ConverseStream(ctx, conversationID, userID, message, "", func(e entities.AgentEvent) {
 		if e.Type == entities.AgentEventWidgets && e.Widgets != nil {
 			out = *e.Widgets
 		}
@@ -164,12 +164,14 @@ type EventSink func(entities.AgentEvent)
 
 // ConverseStream runs one turn, emitting text deltas as the model produces
 // them, an input_requested event when a mutating tool awaits the user's
-// confirmation, and finally the validated widgets plus done.
+// confirmation, and finally the validated widgets plus done. A non-empty
+// skill converses with that one skill directly (built as the root agent,
+// no coordinator routing); empty keeps the coordinator.
 func (o *Orchestrator) ConverseStream(
-	ctx context.Context, conversationID, userID, message string, emit EventSink,
+	ctx context.Context, conversationID, userID, message, skill string, emit EventSink,
 ) error {
 	content := &genai.Content{Parts: []*genai.Part{{Text: message}}, Role: genai.RoleUser}
-	return o.runTurn(ctx, conversationID, userID, content, message, emit)
+	return o.runTurn(ctx, conversationID, userID, content, message, skill, emit)
 }
 
 // ResumeConfirmation answers a pending tool confirmation (per the ADK
@@ -178,10 +180,12 @@ func (o *Orchestrator) ConverseStream(
 // and restarts. A non-nil payload rides the confirmation response into
 // ADK's ToolConfirmation.Payload — the toolset substitutes it for the
 // call's arguments on approval (approve-with-edits) — and is durable for
-// the same reason the confirmation is.
+// the same reason the confirmation is. skill must name the same skill the
+// paused turn ran as (the resumed turn rebuilds the same root); empty means
+// the coordinator.
 func (o *Orchestrator) ResumeConfirmation(
 	ctx context.Context, conversationID, userID, callID string, confirmed bool,
-	payload map[string]any, emit EventSink,
+	payload map[string]any, skill string, emit EventSink,
 ) error {
 	response := map[string]any{"confirmed": confirmed}
 	if payload != nil {
@@ -202,7 +206,7 @@ func (o *Orchestrator) ResumeConfirmation(
 	case !confirmed:
 		episode = "[rejected a pending action]"
 	}
-	return o.runTurn(ctx, conversationID, userID, content, episode, emit)
+	return o.runTurn(ctx, conversationID, userID, content, episode, skill, emit)
 }
 
 // History returns the conversation so far, oldest first. A conversation
@@ -251,15 +255,16 @@ func isSessionNotFound(err error) bool {
 }
 
 // runTurn drives the runner for one inbound content (a user message or a
-// confirmation response) and emits the turn's events.
+// confirmation response) and emits the turn's events. A non-empty skill
+// builds that skill as the root instead of the coordinator.
 func (o *Orchestrator) runTurn(
 	ctx context.Context, conversationID, userID string,
-	content *genai.Content, episodeMessage string, emit EventSink,
+	content *genai.Content, episodeMessage, skill string, emit EventSink,
 ) error {
 	if !o.Configured() {
 		return ErrNotConfigured
 	}
-	root, err := o.buildRoot(ctx)
+	root, err := o.rootFor(ctx, skill)
 	if err != nil {
 		return err
 	}
@@ -347,6 +352,55 @@ func (o *Orchestrator) recordEpisode(ctx context.Context, conversationID, userID
 		o.logger.Error(ctx, "failed to record conversation episode",
 			"conversationID", conversationID, "error", err.Error())
 	}
+}
+
+// rootFor picks the turn's root agent: the named skill built as root
+// (direct invocation), or the coordinator when skill is empty.
+func (o *Orchestrator) rootFor(ctx context.Context, skill string) (agent.Agent, error) {
+	if skill == "" {
+		return o.buildRoot(ctx)
+	}
+	return o.buildSkillRoot(ctx, skill)
+}
+
+// buildSkillRoot builds one named skill as the conversation's root agent —
+// the direct-invocation path a client uses to keep its flow deterministic
+// instead of relying on coordinator routing.
+func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.Agent, error) {
+	o.mu.RLock()
+	skills := o.skills
+	toolsets := o.toolsets
+	o.mu.RUnlock()
+
+	if skills == nil {
+		return nil, fmt.Errorf("unknown skill %q: no skills are loaded", name)
+	}
+	defs, err := skills(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load skills: %w", err)
+	}
+	var def *entities.SkillDefinition
+	for i := range defs {
+		if defs[i].Name == name {
+			def = &defs[i]
+			break
+		}
+	}
+	if def == nil {
+		return nil, fmt.Errorf("unknown skill %q", name)
+	}
+
+	var ts tool.Toolset
+	if toolsets != nil {
+		if ts, err = toolsets(ctx); err != nil {
+			return nil, fmt.Errorf("open toolset: %w", err)
+		}
+	}
+	root, err := BuildSkillRootAgent(*def, o.model, ts)
+	if err != nil {
+		return nil, fmt.Errorf("build skill root %q: %w", name, err)
+	}
+	return root, nil
 }
 
 // buildRoot assembles the coordinator with one sub-agent per loaded skill.

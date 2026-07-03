@@ -110,16 +110,30 @@ var widgetResponseSchema = &genai.Schema{
 // factory is the only place a skill becomes code, which is what lets
 // projects add skills without recompiling.
 func BuildSkillAgent(def entities.SkillDefinition, m model.LLM, toolset tool.Toolset) (agent.Agent, error) {
+	mode := llmagent.ModeTask
+	if def.Mode == entities.SkillModeSingleTurn {
+		mode = llmagent.ModeSingleTurn
+	}
+	return buildSkillAgent(def, m, toolset, mode)
+}
+
+// BuildSkillRootAgent builds the skill as a conversation's root agent (the
+// direct-invocation path, bypassing the coordinator). The declared
+// delegation mode is deliberately ignored: a root ModeTask agent would
+// self-install a finish_task tool with no parent to consume it, letting the
+// model end a turn with no output.
+func BuildSkillRootAgent(def entities.SkillDefinition, m model.LLM, toolset tool.Toolset) (agent.Agent, error) {
+	return buildSkillAgent(def, m, toolset, llmagent.ModeChat)
+}
+
+func buildSkillAgent(
+	def entities.SkillDefinition, m model.LLM, toolset tool.Toolset, mode llmagent.Mode,
+) (agent.Agent, error) {
 	// Validate defensively (nil known-tools: allowlist membership was the
 	// registry's job); a definition that slipped past loading must not build
 	// a half-configured agent.
 	if err := def.Validate(nil); err != nil {
 		return nil, fmt.Errorf("invalid skill definition %q: %w", def.ID, err)
-	}
-
-	mode := llmagent.ModeTask
-	if def.Mode == entities.SkillModeSingleTurn {
-		mode = llmagent.ModeSingleTurn
 	}
 
 	// The memory brief is only truthful when the tool surface exists —

@@ -21,6 +21,7 @@ type fakeAgent struct {
 	gotCallID  string
 	confirmed  bool
 	gotPayload map[string]any
+	gotSkill   string
 }
 
 func (f *fakeAgent) Configured() bool { return f.configured }
@@ -30,9 +31,10 @@ func (f *fakeAgent) Converse(context.Context, string, string, string) (widgets.R
 }
 
 func (f *fakeAgent) ConverseStream(
-	_ context.Context, _, _, message string, emit appagents.EventSink,
+	_ context.Context, _, _, message, skill string, emit appagents.EventSink,
 ) error {
 	f.gotMessage = message
+	f.gotSkill = skill
 	emit(entities.AgentEvent{Type: entities.AgentEventText, Text: "hel"})
 	emit(entities.AgentEvent{Type: entities.AgentEventText, Text: "lo"})
 	resp := widgets.FromText("hello")
@@ -42,11 +44,13 @@ func (f *fakeAgent) ConverseStream(
 }
 
 func (f *fakeAgent) ResumeConfirmation(
-	_ context.Context, _, _, callID string, confirmed bool, payload map[string]any, emit appagents.EventSink,
+	_ context.Context, _, _, callID string, confirmed bool, payload map[string]any,
+	skill string, emit appagents.EventSink,
 ) error {
 	f.gotCallID = callID
 	f.confirmed = confirmed
 	f.gotPayload = payload
+	f.gotSkill = skill
 	emit(entities.AgentEvent{Type: entities.AgentEventDone})
 	return nil
 }
@@ -138,6 +142,36 @@ func TestAgentHandler_ConfirmResumesTurn(t *testing.T) {
 	}
 	if agent.gotCallID != "call-9" || !agent.confirmed {
 		t.Errorf("resume args = %q %v", agent.gotCallID, agent.confirmed)
+	}
+}
+
+func TestAgentHandler_SkillParamThreadsThrough(t *testing.T) {
+	agent := &fakeAgent{configured: true}
+	h := NewAgentHandler(agent, nopLogger{})
+
+	agentRequest(t, h.SendMessage, http.MethodPost,
+		"/agent/conversations/c1/messages?skill=statement_import", `{"message":"hi"}`,
+		"conversationID", "c1")
+	if agent.gotSkill != "statement_import" {
+		t.Errorf("SendMessage skill = %q", agent.gotSkill)
+	}
+
+	agentRequest(t, h.Confirm, http.MethodPost,
+		"/agent/conversations/c1/confirmations/call-9?skill=statement_import", `{"confirmed":true}`,
+		"conversationID", "c1", "callID", "call-9")
+	if agent.gotSkill != "statement_import" {
+		t.Errorf("Confirm skill = %q", agent.gotSkill)
+	}
+}
+
+func TestAgentHandler_NoSkillParamMeansCoordinator(t *testing.T) {
+	agent := &fakeAgent{configured: true, gotSkill: "sentinel"}
+	h := NewAgentHandler(agent, nopLogger{})
+
+	agentRequest(t, h.SendMessage, http.MethodPost,
+		"/agent/conversations/c1/messages", `{"message":"hi"}`, "conversationID", "c1")
+	if agent.gotSkill != "" {
+		t.Errorf("omitted skill must reach the agent empty, got %q", agent.gotSkill)
 	}
 }
 

@@ -93,6 +93,65 @@ func TestOrchestrator_BuildRootSkipsBrokenSkill(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_DirectSkillInvocation(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	o.SetSkillSource(func(context.Context) ([]entities.SkillDefinition, error) {
+		return []entities.SkillDefinition{
+			// ModeTask on purpose: the root build must override it (a root
+			// task agent would get a parentless finish_task tool).
+			{SchemaVersion: 1, Name: "statement_import", Description: "d", Instructions: "i",
+				Mode: entities.SkillModeTask},
+		}, nil
+	})
+
+	root, err := o.buildSkillRoot(context.Background(), "statement_import")
+	if err != nil {
+		t.Fatalf("buildSkillRoot: %v", err)
+	}
+	if root.Name() != "statement_import" {
+		t.Errorf("root = %q, want the skill itself", root.Name())
+	}
+	if len(root.SubAgents()) != 0 {
+		t.Errorf("a skill root must have no sub-agents, got %d", len(root.SubAgents()))
+	}
+
+	// The seam is additive: a full turn against the skill still emits the
+	// standard event sequence.
+	var types []string
+	err = o.ConverseStream(context.Background(), "c1", "u1", "q", "statement_import",
+		func(e entities.AgentEvent) { types = append(types, e.Type) })
+	if err != nil {
+		t.Fatalf("ConverseStream(skill): %v", err)
+	}
+	if len(types) == 0 || types[len(types)-1] != entities.AgentEventDone {
+		t.Errorf("event types = %v, want a done-terminated turn", types)
+	}
+}
+
+func TestOrchestrator_UnknownSkillErrors(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	o.SetSkillSource(func(context.Context) ([]entities.SkillDefinition, error) {
+		return []entities.SkillDefinition{
+			{SchemaVersion: 1, Name: "other", Description: "d", Instructions: "i",
+				Mode: entities.SkillModeTask},
+		}, nil
+	})
+
+	err := o.ConverseStream(context.Background(), "c1", "u1", "q", "statement_import",
+		func(entities.AgentEvent) {})
+	if err == nil || !strings.Contains(err.Error(), `unknown skill "statement_import"`) {
+		t.Fatalf("expected unknown-skill error, got: %v", err)
+	}
+
+	// No skills loaded at all must also be a clear error, not a nil deref.
+	bare := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	err = bare.ConverseStream(context.Background(), "c1", "u1", "q", "statement_import",
+		func(entities.AgentEvent) {})
+	if err == nil || !strings.Contains(err.Error(), "unknown skill") {
+		t.Fatalf("expected unknown-skill error with no skills loaded, got: %v", err)
+	}
+}
+
 func TestOrchestrator_ConverseMultiTurnSharesSession(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "answer"}, session.InMemoryService(), testLogger{})
 
@@ -145,7 +204,7 @@ func TestOrchestrator_ConverseStreamEmitsTextWidgetsDone(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "streamed"}, session.InMemoryService(), testLogger{})
 
 	var types []string
-	err := o.ConverseStream(context.Background(), "c1", "u1", "q", func(e entities.AgentEvent) {
+	err := o.ConverseStream(context.Background(), "c1", "u1", "q", "", func(e entities.AgentEvent) {
 		types = append(types, e.Type)
 	})
 	if err != nil {
