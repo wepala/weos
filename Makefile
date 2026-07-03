@@ -26,6 +26,10 @@ coverage: test ## Generate coverage report
 	@echo "Coverage report generated: coverage.html"
 
 build: ## Build the weos binary
+	@test -f web/dist/index.html || { \
+		echo "web/dist/index.html is missing (web/dist is not checked in; //go:embed all:dist needs it)."; \
+		echo "Run 'make dev-build-frontend' first."; \
+		exit 1; }
 	go build -o bin/weos ./cmd/weos
 
 run: ## Run the API server

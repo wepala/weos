@@ -70,10 +70,18 @@ defineProps<{ widgets: AgentWidget[] }>()
 
 // Belt-and-braces with the server-side widgets.safeURL: only http(s)/mailto
 // links render — a javascript:/data: URL from a steered model must never
-// become a clickable link in the admin origin.
+// become a clickable link in the admin origin. URL() sees the same scheme
+// the browser will act on (and mirrors the server's url.Parse check);
+// relative URLs throw without a base and are rejected, as before.
 function safeUrl(url?: string): string {
-  const trimmed = url?.trim() ?? ''
-  return /^(https?:|mailto:)/i.test(trimmed) ? trimmed : ''
+  const raw = url?.trim() ?? ''
+  if (!raw) return ''
+  try {
+    const { protocol } = new URL(raw)
+    return protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:' ? raw : ''
+  } catch {
+    return ''
+  }
 }
 
 function tableColumns(widget: AgentWidget) {

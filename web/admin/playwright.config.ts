@@ -21,8 +21,9 @@ import { defineBddConfig } from 'playwright-bdd'
 // SQLite database, seeded so the dev user exists. The agent API is mocked
 // per scenario with page.route — the LLM-independent API behavior is
 // covered by the godog suite in tests/e2e; these tests validate the chat
-// interface itself. Run with: npm run test:e2e (requires `make build` first
-// so bin/weos embeds the current web/dist).
+// interface itself. Run with: make test-ui (regenerates web/dist, then
+// builds bin/weos so it embeds the current SPA — web/dist is not checked
+// in). `npm run test:e2e` alone only works against an up-to-date bin/weos.
 const testDir = defineBddConfig({
   features: 'e2e/features/**/*.feature',
   steps: 'e2e/steps/**/*.ts',
@@ -40,11 +41,14 @@ export default defineConfig({
   webServer: {
     // GOOGLE_CLIENT_ID/SECRET are pinned empty so a developer's local .env
     // (godotenv never overrides set variables) cannot flip the test server
-    // into OAuth mode — these tests run against dev auth.
+    // into OAuth mode — these tests run against dev auth. GEMINI_API_KEY is
+    // pinned for the same reason: the not-configured scenario needs the
+    // agent unconfigured, and the rest mock the agent API with page.route.
     command:
       `cd ../.. && rm -f ${dbPath} ${dbPath}-shm ${dbPath}-wal && ` +
-      `GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= DATABASE_DSN=${dbPath} ./bin/weos seed && ` +
-      `GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= DATABASE_DSN=${dbPath} SERVER_PORT=${port} ./bin/weos serve`,
+      `GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= GEMINI_API_KEY= DATABASE_DSN=${dbPath} ./bin/weos seed && ` +
+      `GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= GEMINI_API_KEY= DATABASE_DSN=${dbPath} SERVER_PORT=${port} ` +
+      `./bin/weos serve`,
     url: `http://127.0.0.1:${port}/api/health`,
     reuseExistingServer: false,
     timeout: 60_000,
