@@ -94,13 +94,18 @@ func FromText(text string) Response {
 // validation is replaced by a markdown widget carrying its raw JSON. Parse
 // never fails and never returns an empty response for non-empty input.
 func Parse(raw string) Response {
+	if strings.TrimSpace(raw) == "" {
+		return Response{SchemaVersion: SchemaVersion}
+	}
 	s := strings.TrimSpace(raw)
 	s = strings.TrimPrefix(s, "```json")
 	s = strings.TrimPrefix(s, "```")
 	s = strings.TrimSuffix(s, "```")
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return Response{SchemaVersion: SchemaVersion}
+		// Fence markers with nothing inside: non-empty input must still
+		// render something.
+		return FromText(raw)
 	}
 
 	// schemaVersion is deliberately not decoded: Parse stamps the version it

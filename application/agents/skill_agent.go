@@ -122,11 +122,20 @@ func BuildSkillAgent(def entities.SkillDefinition, m model.LLM, toolset tool.Too
 		mode = llmagent.ModeSingleTurn
 	}
 
+	// The memory brief is only truthful when the tool surface exists —
+	// instructing a tool-less skill to call memory_recall would push the
+	// model toward inventing tool results.
+	instruction := def.Instructions
+	if toolset != nil {
+		instruction += "\n" + memoryGuidance
+	}
+	instruction += "\n" + widgetOutputInstruction
+
 	cfg := llmagent.Config{
 		Name:        def.Name,
 		Description: def.Description,
 		Model:       m,
-		Instruction: def.Instructions + "\n" + memoryGuidance + "\n" + widgetOutputInstruction,
+		Instruction: instruction,
 		Mode:        mode,
 	}
 	if toolset != nil {

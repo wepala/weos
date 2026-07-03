@@ -77,6 +77,13 @@ func TestParse_WrongTypedSchemaVersionTolerated(t *testing.T) {
 	}
 }
 
+func TestParse_EmptyFenceStillRenders(t *testing.T) {
+	resp := Parse("```json\n```")
+	if len(resp.Widgets) != 1 || resp.Widgets[0].Type != TypeMarkdown {
+		t.Fatalf("bare fence markers are non-empty input and must render: %+v", resp)
+	}
+}
+
 func TestParse_EmptyInput(t *testing.T) {
 	resp := Parse("   ")
 	if len(resp.Widgets) != 0 || resp.SchemaVersion != SchemaVersion {

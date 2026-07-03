@@ -67,13 +67,20 @@ type EpisodeRecorder func(ctx context.Context, conversationID, userID, message, 
 var ErrEpisodicMemoryUnavailable = errors.New(
 	"episodic memory unavailable: install the memory preset to record conversation turns")
 
-// orchestratorInstruction is the root coordinator's standing brief. Routing
+// coordinatorBrief is the root coordinator's standing instruction. Routing
 // is LLM-driven over the skills' descriptions via ADK's transfer mechanism.
-const orchestratorInstruction = `You are the coordinator for this WeOS app.
+// Tool-dependent guidance is appended only when the tool surface is wired
+// (see buildRoot) so a tool-less coordinator is never told to use tools it
+// does not have.
+const coordinatorBrief = `You are the coordinator for this WeOS app.
 Route each user request to the sub-agent (skill) whose description best matches, by transferring to it.
-If no skill fits, answer directly using your read-only tools (memory recall, knowledge-graph search).
-Ground every answer in what the tools returned; when you cannot help, say so plainly instead of inventing data.
-` + memoryGuidance + widgetOutputInstruction
+When you cannot help, say so plainly instead of inventing data.`
+
+// coordinatorToolsBrief extends the brief when the read-only toolset exists.
+const coordinatorToolsBrief = `
+If no skill fits, answer directly using your read-only tools — recall consolidated memory first
+(memory_recall, memory_search), then search the knowledge graph. Ground every answer in what the
+tools returned.`
 
 // Orchestrator is the in-app agent: a Chat-mode coordinator that routes each
 // request to the right skill sub-agent, built fresh from the current skill
@@ -359,15 +366,22 @@ func (o *Orchestrator) buildRoot(ctx context.Context) (agent.Agent, error) {
 		subAgents = append(subAgents, sub)
 	}
 
+	instruction := coordinatorBrief
+	hasDirectTools := ts != nil && len(defaultTools) > 0
+	if hasDirectTools {
+		instruction += coordinatorToolsBrief
+	}
+	instruction += widgetOutputInstruction
+
 	cfg := llmagent.Config{
 		Name:        "weos_coordinator",
 		Description: "Routes requests to the right skill and answers simple questions directly",
 		Model:       o.model,
-		Instruction: orchestratorInstruction,
+		Instruction: instruction,
 		Mode:        llmagent.ModeChat,
 		SubAgents:   subAgents,
 	}
-	if ts != nil && len(defaultTools) > 0 {
+	if hasDirectTools {
 		cfg.Toolsets = []tool.Toolset{tool.FilterToolset(ts, tool.AllowedToolsPredicate(defaultTools))}
 	}
 	root, err := llmagent.New(cfg)
