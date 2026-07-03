@@ -1,0 +1,1 @@
+import{n as a}from"./CELOM8N5.js";function c(){const{request:e}=a();async function s(n){const t=n?`?role=${encodeURIComponent(n)}`:"";return e(`/api/settings/sidebar${t}`)}async function o(n,t){const i=t?`?role=${encodeURIComponent(t)}`:"";return e(`/api/settings/sidebar${i}`,{method:"PUT",body:JSON.stringify(n)})}return{getGlobalSettings:s,saveGlobalSettings:o}}export{c as u};

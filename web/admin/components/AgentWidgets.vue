@@ -55,7 +55,7 @@
             {{ f.value }}
           </a-descriptions-item>
         </a-descriptions>
-        <a v-if="safeUrl(widget.url)" :href="safeUrl(widget.url)" target="_blank" rel="noopener">Open</a>
+        <a v-if="safeUrl(widget.url)" :href="safeUrl(widget.url)" target="_blank" rel="noopener noreferrer">Open</a>
       </a-card>
 
       <pre v-else class="widget-unknown">{{ JSON.stringify(widget, null, 2) }}</pre>
