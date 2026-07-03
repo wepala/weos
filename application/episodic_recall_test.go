@@ -13,6 +13,11 @@ import (
 type stubEventLog struct {
 	lastFilter repositories.EventLogFilter
 	response   *repositories.PaginatedResponse[repositories.EventLogEntry]
+	// log backs GetByID/Recent for similarity tests; recent, when set,
+	// overrides Recent's source so the candidate window can exclude entries
+	// (e.g. a seed older than the window).
+	log    []repositories.EventLogEntry
+	recent []repositories.EventLogEntry
 }
 
 func (s *stubEventLog) Query(
@@ -23,6 +28,30 @@ func (s *stubEventLog) Query(
 		return s.response, nil
 	}
 	return &repositories.PaginatedResponse[repositories.EventLogEntry]{}, nil
+}
+
+func (s *stubEventLog) GetByID(
+	_ context.Context, id string,
+) (*repositories.EventLogEntry, error) {
+	for i := range s.log {
+		if s.log[i].ID == id {
+			return &s.log[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *stubEventLog) Recent(
+	_ context.Context, max int,
+) ([]repositories.EventLogEntry, error) {
+	src := s.log
+	if s.recent != nil {
+		src = s.recent
+	}
+	if len(src) > max {
+		return src[:max], nil
+	}
+	return src, nil
 }
 
 func fixedEpisodicRecall(stub *stubEventLog, now time.Time) *episodicRecall {
@@ -44,7 +73,15 @@ func (r *recordingRefsRepo) ForEvents(_ context.Context, ids []string) (map[stri
 	if r.err != nil {
 		return nil, r.err
 	}
-	return r.refs, nil
+	// Filter by the requested ids like the real repository does — a stub that
+	// returns everything would hide callers forgetting to ask for an ID.
+	out := map[string][]string{}
+	for _, id := range ids {
+		if refs, ok := r.refs[id]; ok {
+			out[id] = refs
+		}
+	}
+	return out, nil
 }
 
 func (r *recordingRefsRepo) Clear(context.Context) error { return nil }

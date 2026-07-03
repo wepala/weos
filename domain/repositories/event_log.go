@@ -60,4 +60,9 @@ type EventLogRepository interface {
 	// Query returns events matching the filter in ascending (created_at, id)
 	// order — deterministic across identical calls.
 	Query(ctx context.Context, filter EventLogFilter) (*PaginatedResponse[EventLogEntry], error)
+	// GetByID returns one event by its raw store ID, or nil when unknown.
+	GetByID(ctx context.Context, id string) (*EventLogEntry, error)
+	// Recent returns up to max events in descending (created_at, id) order —
+	// the similarity ranking's deterministic candidate window.
+	Recent(ctx context.Context, max int) ([]EventLogEntry, error)
 }

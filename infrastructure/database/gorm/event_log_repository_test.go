@@ -223,6 +223,37 @@ func TestEventLogQuery_AnchorsMatchAggregateOrProjection(t *testing.T) {
 	}
 }
 
+// TestEventLogRecentWindow pins the similarity candidate window's contract:
+// newest first with an id DESC tie-break, capped at max (the oldest rows are
+// the ones dropped), and a loud error on a non-positive window.
+func TestEventLogRecentWindow(t *testing.T) {
+	t.Parallel()
+	repo, db := newEventLogTestRepo(t)
+	at := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
+	seedLogEvent(t, db, "ev1", "urn:task:a1", "Resource.Created", at, 1)
+	seedLogEvent(t, db, "ev2", "urn:task:a2", "Resource.Created", at.Add(time.Hour), 2)
+	seedLogEvent(t, db, "ev3", "urn:task:a3", "Resource.Created", at.Add(2*time.Hour), 3)
+	// ev4 and ev5 share the newest timestamp — the id DESC tie-break decides.
+	seedLogEvent(t, db, "ev4", "urn:task:a4", "Resource.Created", at.Add(3*time.Hour), 4)
+	seedLogEvent(t, db, "ev5", "urn:task:a5", "Resource.Created", at.Add(3*time.Hour), 5)
+
+	got, err := repo.Recent(context.Background(), 3)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	ids := make([]string, 0, len(got))
+	for _, e := range got {
+		ids = append(ids, e.ID)
+	}
+	if !reflect.DeepEqual(ids, []string{"ev5", "ev4", "ev3"}) {
+		t.Errorf("Recent(3) = %v, want newest-first [ev5 ev4 ev3] with the oldest dropped", ids)
+	}
+
+	if _, err := repo.Recent(context.Background(), 0); err == nil {
+		t.Error("Recent(0) succeeded, want an error")
+	}
+}
+
 // TestEventLogQuery_WindowBounds pins from-inclusive / until-exclusive so
 // day-by-day paging (until = next from) never double-counts.
 func TestEventLogQuery_WindowBounds(t *testing.T) {

@@ -46,6 +46,17 @@ type EpisodicRecallOutput struct {
 	HasMore bool                        `json:"has_more"`
 }
 
+// EpisodicSimilarInput asks for events structurally similar to a seed event.
+type EpisodicSimilarInput struct {
+	Seed  string `json:"seed" jsonschema:"the seed event URN (urn:event:<id>) from an episodic_recall result"`
+	Limit int    `json:"limit,omitempty" jsonschema:"max events to return (default 20, max 100)"`
+}
+
+// EpisodicSimilarOutput lists ranked events, most similar first.
+type EpisodicSimilarOutput struct {
+	Results []application.SimilarEvent `json:"results"`
+}
+
 // registerEpisodicTools registers the episodic-memory tool group.
 func registerEpisodicTools(server *mcp.Server, episodic application.EpisodicRecall) {
 	mcp.AddTool(server, &mcp.Tool{
@@ -76,5 +87,24 @@ func registerEpisodicTools(server *mcp.Server, episodic application.EpisodicReca
 			Cursor:  res.Cursor,
 			HasMore: res.HasMore,
 		}, nil
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "episodic_similar",
+		Description: "Find events structurally similar to a seed event, ranked by a fixed, " +
+			"deterministic score: +100 per shared referenced resource (dominant), +10 same " +
+			"event type, +5 same resource type, up to +4 for temporal proximity (decaying " +
+			"per day, refines order only — events with no structural affinity are not " +
+			"ranked); ties break on event ID. Ranks the most recent 1000 events. Reference " +
+			"scoring reads a projection that may briefly lag very recent events. No " +
+			"embeddings, no learned ranking. Get seed URNs from episodic_recall results.",
+		Annotations: annReadOnly(),
+	}, func(
+		ctx context.Context, _ *mcp.CallToolRequest, in EpisodicSimilarInput,
+	) (*mcp.CallToolResult, EpisodicSimilarOutput, error) {
+		res, err := episodic.Similar(ctx, application.SimilarQuery{Seed: in.Seed, Limit: in.Limit})
+		if err != nil {
+			return nil, EpisodicSimilarOutput{}, err
+		}
+		return nil, EpisodicSimilarOutput{Results: res.Events}, nil
 	})
 }

@@ -53,6 +53,9 @@ type episodicWorld struct {
 	// aggregates maps a seeded resource's name to its aggregate URN so
 	// scenarios can speak in names while assertions match on IDs.
 	aggregates map[string]string
+	// eventIDs maps "name|eventType" of a seeded event to its urn:event: URN
+	// so similarity scenarios can name their seed.
+	eventIDs map[string]string
 	// seqs tracks the next sequence number per aggregate.
 	seqs      map[string]int
 	firstPage *episodicPage
@@ -190,6 +193,9 @@ func (w *episodicWorld) seedEvent(
 
 	envelope := pericarpdomain.NewEventEnvelope(payload, aggregateID, eventType, w.seqs[aggregateID])
 	envelope.Created = occurredAt
+	if w.eventIDs != nil {
+		w.eventIDs[name+"|"+eventType] = "urn:event:" + envelope.ID
+	}
 	return w.eventStore.Append(ctx, aggregateID, -1, envelope)
 }
 

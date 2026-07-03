@@ -81,10 +81,14 @@ type EpisodicRecallResult struct {
 }
 
 // EpisodicRecall answers scoped, deterministic queries over the event store's
-// episodic record: time-windowed, filterable, time-ordered, paginated. Tools
-// retrieve; agents interpret — no ranking, no LLM calls.
+// episodic record: time-windowed, filterable, time-ordered, paginated recall,
+// plus structural similar-event search from a seed event. Tools retrieve;
+// agents interpret — no learned ranking, no LLM calls.
 type EpisodicRecall interface {
 	Recall(ctx context.Context, q EpisodicQuery) (*EpisodicRecallResult, error)
+	// Similar ranks events by deterministic structural similarity to the
+	// seed event (see the weight constants in episodic_similar.go).
+	Similar(ctx context.Context, q SimilarQuery) (*SimilarResult, error)
 }
 
 type episodicRecall struct {

@@ -121,6 +121,56 @@ func (r *EventLogRepository) Query(
 	return resp, nil
 }
 
+// GetByID returns one event row by its raw store ID, nil when absent.
+func (r *EventLogRepository) GetByID(
+	ctx context.Context, id string,
+) (*repositories.EventLogEntry, error) {
+	var rows []infrastructure.GormEventModel
+	err := r.db.WithContext(ctx).
+		Model(&infrastructure.GormEventModel{}).
+		Where("id = ?", id).Limit(1).Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("event lookup failed: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	entry := entryFromModel(rows[0])
+	return &entry, nil
+}
+
+// Recent returns up to max events, newest first with an id tie-break, as the
+// similarity ranking's deterministic candidate window.
+func (r *EventLogRepository) Recent(
+	ctx context.Context, max int,
+) ([]repositories.EventLogEntry, error) {
+	if max <= 0 {
+		return nil, fmt.Errorf("recent events window must be positive, got %d", max)
+	}
+	var rows []infrastructure.GormEventModel
+	err := r.db.WithContext(ctx).
+		Model(&infrastructure.GormEventModel{}).
+		Order("created_at DESC, id DESC").Limit(max).Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("recent events query failed: %w", err)
+	}
+	entries := make([]repositories.EventLogEntry, 0, len(rows))
+	for _, m := range rows {
+		entries = append(entries, entryFromModel(m))
+	}
+	return entries, nil
+}
+
+func entryFromModel(m infrastructure.GormEventModel) repositories.EventLogEntry {
+	return repositories.EventLogEntry{
+		ID:          m.ID,
+		AggregateID: m.AggregateID,
+		EventType:   m.EventType,
+		CreatedAt:   m.CreatedAt,
+		Payload:     m.Payload,
+	}
+}
+
 // applyEventLogFilter adds the combinable WHERE clauses. The resource-type
 // filter leans only on the urn:<typeSlug>:<ksuid> URN shape — no payload
 // indexing, which diverges between SQLite and Postgres.
