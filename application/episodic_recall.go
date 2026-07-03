@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/pkg/identity"
@@ -40,11 +41,13 @@ var relativeRange = regexp.MustCompile(`^(?:last\s+(\d+)\s+days?|(\d+)\s+days?\s
 
 // EpisodicQuery is a structured recall request over the event log. From and
 // Until accept RFC3339 timestamps or the relative forms "last N days" /
-// "N days ago"; empty bounds leave that side of the window open.
+// "N days ago"; empty bounds leave that side of the window open. Anchors are
+// resource URNs; an event matches when any anchor is its aggregate or is
+// referenced in its payload.
 type EpisodicQuery struct {
 	From         string
 	Until        string
-	AggregateID  string
+	Anchors      []string
 	EventType    string
 	ResourceType string
 	// Limit caps results (default 20, max 100 — over-asks are capped, not errors).
@@ -156,6 +159,10 @@ func (r *episodicRecall) buildFilter(q EpisodicQuery) (repositories.EventLogFilt
 			"validation error: the time range is invalid: from (%s) must be before until (%s)",
 			q.From, q.Until)
 	}
+	anchors, err := normalizeAnchors(q.Anchors)
+	if err != nil {
+		return repositories.EventLogFilter{}, err
+	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = defaultEpisodicLimit
@@ -164,14 +171,30 @@ func (r *episodicRecall) buildFilter(q EpisodicQuery) (repositories.EventLogFilt
 		limit = maxEpisodicLimit
 	}
 	return repositories.EventLogFilter{
-		From:        from,
-		Until:       until,
-		AggregateID: q.AggregateID,
-		EventType:   q.EventType,
-		TypeSlug:    q.ResourceType,
-		Limit:       limit,
-		Cursor:      q.Cursor,
+		From:      from,
+		Until:     until,
+		Anchors:   anchors,
+		EventType: q.EventType,
+		TypeSlug:  q.ResourceType,
+		Limit:     limit,
+		Cursor:    q.Cursor,
 	}, nil
+}
+
+// normalizeAnchors trims and validates anchor URNs. Anchors must at least
+// look like URNs — a malformed anchor is a caller mistake worth surfacing
+// loudly, where an unknown-but-well-formed URN is simply an empty result.
+func normalizeAnchors(anchors []string) ([]string, error) {
+	out := make([]string, 0, len(anchors))
+	for _, a := range anchors {
+		a = strings.TrimSpace(a)
+		if !strings.HasPrefix(a, "urn:") || strings.ContainsFunc(a, unicode.IsSpace) {
+			return nil, fmt.Errorf(
+				"validation error: the resource URN %q is invalid — anchors must be URNs like urn:task:<id>", a)
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 // parseTimeBound resolves one window bound: empty stays open, RFC3339 is

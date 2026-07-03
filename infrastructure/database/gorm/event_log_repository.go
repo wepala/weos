@@ -131,8 +131,13 @@ func applyEventLogFilter(q *gorm.DB, filter repositories.EventLogFilter) *gorm.D
 	if !filter.Until.IsZero() {
 		q = q.Where("created_at < ?", filter.Until)
 	}
-	if filter.AggregateID != "" {
-		q = q.Where("aggregate_id = ?", filter.AggregateID)
+	if len(filter.Anchors) > 0 {
+		// An anchor matches as the aggregate directly (synchronous — no
+		// projection lag for an aggregate's own events) or through the
+		// event-reference projection for payload references.
+		q = q.Where(
+			"aggregate_id IN ? OR id IN (SELECT event_id FROM event_references WHERE resource_urn IN ?)",
+			filter.Anchors, filter.Anchors)
 	}
 	if filter.EventType != "" {
 		q = q.Where("event_type = ?", filter.EventType)

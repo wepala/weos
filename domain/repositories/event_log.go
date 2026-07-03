@@ -27,8 +27,10 @@ type EventLogFilter struct {
 	// until). Zero times leave that side unbounded.
 	From  time.Time
 	Until time.Time
-	// AggregateID restricts to one aggregate's events (a resource URN).
-	AggregateID string
+	// Anchors restricts to events involving any of these resource URNs — as
+	// the event's aggregate or referenced in its payload (via the
+	// event-reference projection). Multiple anchors union (OR).
+	Anchors []string
 	// EventType restricts to one stored event-type string (e.g. "Resource.Created").
 	EventType string
 	// TypeSlug restricts to aggregates of one resource type via the

@@ -56,10 +56,9 @@ type episodicWorld struct {
 	// seqs tracks the next sequence number per aggregate.
 	seqs      map[string]int
 	firstPage *episodicPage
-	// firstFrom/firstUntil replay the first page's window on the cursor call,
-	// the same way resource_list callers re-send their filters each page.
-	firstFrom  string
-	firstUntil string
+	// firstArgs replays the first page's filters on the cursor call, the same
+	// way resource_list callers re-send their filters each page.
+	firstArgs map[string]any
 	// lastMatched is the event the most recent includes-assertion found, for
 	// follow-up "that event" assertions. lastArgs and the lastInclude pair
 	// let async-projection assertions re-run that call+match while polling.
@@ -297,7 +296,7 @@ func (w *episodicWorld) callAboutResource(ctx context.Context, name string) erro
 	if !ok {
 		return fmt.Errorf("no seeded resource named %q", name)
 	}
-	return w.callEpisodic(ctx, map[string]any{"about": aggregateID})
+	return w.callEpisodic(ctx, map[string]any{"about": []string{aggregateID}})
 }
 
 func (w *episodicWorld) callEventType(ctx context.Context, eventType string) error {
@@ -318,6 +317,14 @@ func (w *episodicWorld) callWithFilters(ctx context.Context, table *godog.Table)
 		if len(row.Cells) != 2 {
 			return fmt.Errorf("filter rows need exactly a filter and a value")
 		}
+		if row.Cells[0].Value == "about" {
+			urn, ok := w.aggregates[row.Cells[1].Value]
+			if !ok {
+				return fmt.Errorf("no seeded resource named %q", row.Cells[1].Value)
+			}
+			args["about"] = []string{urn}
+			continue
+		}
 		key, ok := keys[row.Cells[0].Value]
 		if !ok {
 			return fmt.Errorf("unsupported filter %q", row.Cells[0].Value)
@@ -335,12 +342,18 @@ func (w *episodicWorld) recallFirstPage(ctx context.Context, from, until string)
 	if err := w.callBetween(ctx, from, until); err != nil {
 		return err
 	}
+	return w.captureFirstPage()
+}
+
+// captureFirstPage stashes the current response and its arguments so the
+// cursor step can continue the same query, whatever its filters were.
+func (w *episodicWorld) captureFirstPage() error {
 	page, err := w.page()
 	if err != nil {
 		return fmt.Errorf("first page: %w", err)
 	}
 	w.firstPage = page
-	w.firstFrom, w.firstUntil = from, until
+	w.firstArgs = w.lastArgs
 	return nil
 }
 
@@ -380,9 +393,10 @@ func (w *episodicWorld) callWithCursor(ctx context.Context) error {
 	if w.firstPage == nil || w.firstPage.Cursor == "" {
 		return fmt.Errorf("no cursor captured from a first page")
 	}
-	return w.callEpisodic(ctx, map[string]any{
-		"from": w.firstFrom, "until": w.firstUntil, "cursor": w.firstPage.Cursor,
-	})
+	args := map[string]any{}
+	maps.Copy(args, w.firstArgs)
+	args["cursor"] = w.firstPage.Cursor
+	return w.callEpisodic(ctx, args)
 }
 
 // --- Outcomes ---

@@ -142,6 +142,42 @@ func TestEpisodicRecallRejectsReversedRange(t *testing.T) {
 	}
 }
 
+func TestEpisodicRecallValidatesAnchors(t *testing.T) {
+	stub := &stubEventLog{}
+	recall := fixedEpisodicRecall(stub, time.Now().UTC())
+
+	rejected := [][]string{
+		{"not-a-urn"},
+		// A single bad anchor rejects the whole call — never silently dropped.
+		{"urn:task:2t111111111111111111111111", "not-a-urn"},
+		{""},
+		{"urn:task:a b"},
+		{"urn:task:a b"}, // non-breaking space — pins unicode.IsSpace
+	}
+	for _, anchors := range rejected {
+		_, err := recall.Recall(context.Background(), EpisodicQuery{Anchors: anchors})
+		if err == nil {
+			t.Fatalf("anchors %q accepted, want validation error", anchors)
+		}
+		msg := strings.ToLower(err.Error())
+		if !strings.Contains(msg, "validation") || !strings.Contains(msg, "resource urn") {
+			t.Errorf("error %q should mention validation and the resource URN", err)
+		}
+	}
+
+	_, err := recall.Recall(context.Background(), EpisodicQuery{
+		Anchors: []string{" urn:task:2t111111111111111111111111 ", "urn:project:2p111111111111111111111111"},
+	})
+	if err != nil {
+		t.Fatalf("valid anchors rejected: %v", err)
+	}
+	want := []string{"urn:task:2t111111111111111111111111", "urn:project:2p111111111111111111111111"}
+	if len(stub.lastFilter.Anchors) != 2 ||
+		stub.lastFilter.Anchors[0] != want[0] || stub.lastFilter.Anchors[1] != want[1] {
+		t.Errorf("filter anchors = %v, want trimmed %v", stub.lastFilter.Anchors, want)
+	}
+}
+
 func TestEpisodicRecallClampsLimits(t *testing.T) {
 	cases := []struct {
 		name string

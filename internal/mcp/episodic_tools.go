@@ -29,7 +29,8 @@ type EpisodicRecallInput struct {
 	From string `json:"from,omitempty" jsonschema:"start of the time window — RFC3339 or relative (last 7 days, 3 days ago)"`
 	//nolint:lll // jsonschema description
 	Until string `json:"until,omitempty" jsonschema:"end of the time window — RFC3339 or relative; open when omitted"`
-	About string `json:"about,omitempty" jsonschema:"only events on this aggregate/resource URN"`
+	//nolint:lll // jsonschema description
+	About []string `json:"about,omitempty" jsonschema:"only events involving these resource URNs — as the event's aggregate or referenced in its payload"`
 	//nolint:lll // jsonschema description
 	EventType    string `json:"eventType,omitempty" jsonschema:"only events of this stored type (e.g. Resource.Created)"`
 	ResourceType string `json:"resourceType,omitempty" jsonschema:"only events on resources of this type slug"`
@@ -50,7 +51,8 @@ func registerEpisodicTools(server *mcp.Server, episodic application.EpisodicReca
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "episodic_recall",
 		Description: "Recall what happened from the event log: a time-ordered, paginated slice of " +
-			"events, filterable by time window (absolute or relative), aggregate/resource URN, " +
+			"events, filterable by time window (absolute or relative), anchor resource URNs " +
+			"(one or more — matched as the event's aggregate or referenced in its payload), " +
 			"event type, and resource type. Results are compact summaries — deterministic " +
 			"retrieval, no ranking. Use memory_recall for consolidated facts.",
 		Annotations: annReadOnly(),
@@ -60,7 +62,7 @@ func registerEpisodicTools(server *mcp.Server, episodic application.EpisodicReca
 		res, err := episodic.Recall(ctx, application.EpisodicQuery{
 			From:         in.From,
 			Until:        in.Until,
-			AggregateID:  in.About,
+			Anchors:      in.About,
 			EventType:    in.EventType,
 			ResourceType: in.ResourceType,
 			Limit:        in.Limit,
