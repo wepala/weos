@@ -57,6 +57,11 @@ type EpisodicSimilarOutput struct {
 	Results []application.SimilarEvent `json:"results"`
 }
 
+// EpisodicEventGetInput identifies one event to fetch in full.
+type EpisodicEventGetInput struct {
+	URN string `json:"urn" jsonschema:"the event URN (urn:event:<id>) from any episodic tool's results"`
+}
+
 // registerEpisodicTools registers the episodic-memory tool group.
 func registerEpisodicTools(server *mcp.Server, episodic application.EpisodicRecall) {
 	mcp.AddTool(server, &mcp.Tool{
@@ -106,5 +111,20 @@ func registerEpisodicTools(server *mcp.Server, episodic application.EpisodicReca
 			return nil, EpisodicSimilarOutput{}, err
 		}
 		return nil, EpisodicSimilarOutput{Results: res.Events}, nil
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "episodic_event_get",
+		Description: "Fetch one event's full stored payload by its URN. Recall results stay " +
+			"compact by default — use this to drill into a single event an episodic tool " +
+			"surfaced. Unknown or malformed URNs return a clear error.",
+		Annotations: annReadOnly(),
+	}, func(
+		ctx context.Context, _ *mcp.CallToolRequest, in EpisodicEventGetInput,
+	) (*mcp.CallToolResult, application.FetchedEvent, error) {
+		fetched, err := episodic.EventByURN(ctx, in.URN)
+		if err != nil {
+			return nil, application.FetchedEvent{}, err
+		}
+		return nil, *fetched, nil
 	})
 }

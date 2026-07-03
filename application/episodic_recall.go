@@ -89,6 +89,9 @@ type EpisodicRecall interface {
 	// Similar ranks events by deterministic structural similarity to the
 	// seed event (see the weight constants in episodic_similar.go).
 	Similar(ctx context.Context, q SimilarQuery) (*SimilarResult, error)
+	// EventByURN returns one event's full stored payload — the explicit
+	// drill-in complement to the compact shapes above.
+	EventByURN(ctx context.Context, urn string) (*FetchedEvent, error)
 }
 
 type episodicRecall struct {
