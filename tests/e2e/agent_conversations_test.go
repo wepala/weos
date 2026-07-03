@@ -18,13 +18,14 @@ import (
 	"github.com/wepala/weos/v3/application/presets"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
 	"github.com/wepala/weos/v3/internal/config"
 
 	"github.com/cucumber/godog"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
 	"google.golang.org/adk/v2/model"
-	adksession "google.golang.org/adk/v2/session"
+	adkdb "google.golang.org/adk/v2/session/database"
 	"google.golang.org/genai"
 )
 
@@ -165,14 +166,22 @@ func (w *agentConversationWorld) boot(scripted bool) error {
 	var agent application.ConversationalAgent
 	if scripted {
 		// Everything is the real application; only the LLM is swapped. The
-		// module's own fx.Invoke wiring (skill source, episode recorder)
-		// applies to this decorated orchestrator.
+		// session service is the same database-backed one production wires
+		// (see infrastructure/agents.ProvideOrchestrator), over the test DSN,
+		// so these scenarios exercise the durable-session path. The module's
+		// own fx.Invoke wiring (skill source, episode recorder) applies to
+		// this decorated orchestrator.
 		reply := w.scripted
 		opts = append(opts, fx.Decorate(
-			func(_ *appagents.Orchestrator, logger entities.Logger) *appagents.Orchestrator {
-				return appagents.NewOrchestrator(
-					e2eScriptedModel{reply: reply}, adksession.InMemoryService(), logger,
-				)
+			func(_ *appagents.Orchestrator, logger entities.Logger) (*appagents.Orchestrator, error) {
+				sessions, err := adkdb.NewSessionService(gormdb.DialectorForDSN(cfg.DatabaseDSN))
+				if err != nil {
+					return nil, fmt.Errorf("create e2e session service: %w", err)
+				}
+				if err := adkdb.AutoMigrate(sessions); err != nil {
+					return nil, fmt.Errorf("migrate e2e session tables: %w", err)
+				}
+				return appagents.NewOrchestrator(e2eScriptedModel{reply: reply}, sessions, logger), nil
 			},
 		))
 	}

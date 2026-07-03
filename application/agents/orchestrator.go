@@ -33,6 +33,7 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
+	"gorm.io/gorm"
 )
 
 // OrchestratorAppName scopes ADK sessions for the in-app agent.
@@ -205,6 +206,9 @@ func (o *Orchestrator) History(ctx context.Context, conversationID, userID strin
 		SessionID: conversationID,
 	})
 	if err != nil {
+		if !isSessionNotFound(err) {
+			return nil, fmt.Errorf("load conversation %q: %w", conversationID, err)
+		}
 		// Missing session simply means the conversation hasn't started.
 		o.logger.Debug(ctx, "no session history", "conversationID", conversationID, "error", err.Error())
 		return []entities.AgentMessage{}, nil
@@ -223,6 +227,16 @@ func (o *Orchestrator) History(ctx context.Context, conversationID, userID strin
 		history = append(history, entities.AgentMessage{Role: "agent", Widgets: &parsed})
 	}
 	return history, nil
+}
+
+// isSessionNotFound reports whether a session.Service.Get error means the
+// session does not exist, as opposed to a session-store failure that must
+// surface to the caller. ADK's database-backed service wraps
+// gorm.ErrRecordNotFound; its in-memory service returns a plain
+// "session ... not found" error with no sentinel to match, hence the
+// message fallback.
+func isSessionNotFound(err error) bool {
+	return errors.Is(err, gorm.ErrRecordNotFound) || strings.Contains(err.Error(), "not found")
 }
 
 // runTurn drives the runner for one inbound content (a user message or a

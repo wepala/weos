@@ -192,6 +192,25 @@ func TestOrchestrator_HistoryUnknownConversationIsEmpty(t *testing.T) {
 	}
 }
 
+// failingSessions embeds session.Service so only Get needs a real
+// implementation; History must not touch the other methods.
+type failingSessions struct{ session.Service }
+
+func (failingSessions) Get(context.Context, *session.GetRequest) (*session.GetResponse, error) {
+	return nil, errors.New("connection refused")
+}
+
+func TestOrchestrator_HistorySurfacesStoreFailure(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "x"}, failingSessions{}, testLogger{})
+	_, err := o.History(context.Background(), "conv", "u1")
+	if err == nil {
+		t.Fatal("expected session-store failure to surface, got nil error")
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("error should wrap the store failure, got: %v", err)
+	}
+}
+
 func TestOrchestrator_SkillSourceErrorSurfaces(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "x"}, session.InMemoryService(), testLogger{})
 	o.SetSkillSource(func(context.Context) ([]entities.SkillDefinition, error) {

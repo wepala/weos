@@ -18,7 +18,7 @@ test-integration: ## Run integration tests only
 test-e2e: ## Run E2E tests
 	go test -v ./tests/e2e/...
 
-test-ui: build ## Run Playwright BDD tests against the embedded admin SPA (requires: npx playwright install chromium)
+test-ui: dev-build-frontend build ## Run Playwright BDD tests against the embedded admin SPA (requires: npx playwright install chromium)
 	cd web/admin && npm run test:e2e
 
 coverage: test ## Generate coverage report
@@ -74,7 +74,7 @@ dev-build-frontend: ## Build Nuxt frontend into web/dist/
 	cd web/admin && npx nuxt generate
 	rm -rf web/dist && cp -r web/admin/.output/public web/dist
 
-dev-test-ui: build dev-build-frontend dev-seed ## Run Playwright UI tests (headless)
+dev-test-ui: dev-build-frontend build dev-seed ## Run Playwright UI tests (headless)
 	cd tests/browser && npx playwright test
 
 dev-clean: ## Remove dev database, seed manifest, and build artifacts

@@ -42,7 +42,7 @@ export default defineConfig({
     // (godotenv never overrides set variables) cannot flip the test server
     // into OAuth mode — these tests run against dev auth.
     command:
-      `cd ../.. && rm -f ${dbPath} && ` +
+      `cd ../.. && rm -f ${dbPath} ${dbPath}-shm ${dbPath}-wal && ` +
       `GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= DATABASE_DSN=${dbPath} ./bin/weos seed && ` +
       `GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= DATABASE_DSN=${dbPath} SERVER_PORT=${port} ./bin/weos serve`,
     url: `http://127.0.0.1:${port}/api/health`,
