@@ -190,6 +190,22 @@ func TestAgentHandler_ConfirmRejectsNonObjectPayload(t *testing.T) {
 	}
 }
 
+func TestAgentHandler_ConfirmRejectsNullPayload(t *testing.T) {
+	agent := &fakeAgent{configured: true}
+	h := NewAgentHandler(agent, nopLogger{})
+
+	rec := agentRequest(t, h.Confirm, http.MethodPost,
+		"/agent/conversations/c1/confirmations/call-9", `{"confirmed":true,"payload":null}`,
+		"conversationID", "c1", "callID", "call-9")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("explicit null payload must be 400, not a silent fallback to model args; got %d", rec.Code)
+	}
+	if agent.gotCallID != "" {
+		t.Error("ResumeConfirmation must not run with a null payload")
+	}
+}
+
 func TestAgentHandler_ConfirmRequiresExplicitDecision(t *testing.T) {
 	agent := &fakeAgent{configured: true}
 	h := NewAgentHandler(agent, nopLogger{})
