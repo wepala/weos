@@ -58,6 +58,10 @@ type mcpWorld struct {
 	// eventStore backs direct event seeding (episodic recall scenarios need
 	// controlled occurred-at timestamps the entity API never exposes).
 	eventStore pericarpdomain.EventStore
+	// runWorkers opts a suite into in-process background subscribers
+	// (projections like event-references); manager drives checkpoint rebuilds.
+	runWorkers bool
+	manager    *application.Manager
 
 	pendingContext string
 	pendingSchema  string
@@ -104,6 +108,10 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 	w.tmpDir = dir
 	cfg.DatabaseDSN = filepath.Join(dir, "test.db") // ProvideGormDB adds the worker pragmas
 	cfg.LogLevel = "error"
+	if lvl := os.Getenv("E2E_LOG_LEVEL"); lvl != "" {
+		cfg.LogLevel = lvl
+	}
+	cfg.Worker.RunInProcess = w.runWorkers
 
 	// Both MCP sessions must outlive any single step, so anchor them to a
 	// scenario-scoped context (canceled in teardown) rather than the per-step
@@ -116,11 +124,12 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 	var kg application.KnowledgeGraphService
 	var episodic application.EpisodicRecall
 	var eventStore pericarpdomain.EventStore
+	var manager *application.Manager
 
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
-		fx.Populate(&rts, &rs, &kg, &episodic, &eventStore),
+		fx.Populate(&rts, &rs, &kg, &episodic, &eventStore, &manager),
 	)
 	startCtx, startCancel := context.WithTimeout(sessCtx, fx.DefaultTimeout)
 	defer startCancel()
@@ -129,6 +138,7 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 	}
 	w.app = app
 	w.eventStore = eventStore
+	w.manager = manager
 
 	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, episodic, nil)
 	if err != nil {

@@ -53,8 +53,7 @@ type EpisodicQuery struct {
 }
 
 // RecalledEvent is the compact episodic result shape: enough to know what
-// happened and fetch more, never the full raw payload. ReferencedResources
-// joins the shape once the reference projection lands (epic #409, story #411).
+// happened and fetch more, never the full raw payload.
 type RecalledEvent struct {
 	// ID is the event URN (urn:event:<id>), consistent with the
 	// prov:wasDerivedFrom identifiers in the memory preset.
@@ -64,6 +63,11 @@ type RecalledEvent struct {
 	AggregateID  string `json:"aggregateId"`
 	ResourceType string `json:"resourceType,omitempty"`
 	Summary      string `json:"summary,omitempty"`
+	// ReferencedResources lists the resource URNs the event references — the
+	// aggregate itself plus resource URNs in the payload — from the
+	// event-reference projection (story #411). Empty until the projection has
+	// caught up with the event.
+	ReferencedResources []string `json:"referencedResources,omitempty"`
 }
 
 // EpisodicRecallResult is one page of recalled events.
@@ -81,15 +85,19 @@ type EpisodicRecall interface {
 }
 
 type episodicRecall struct {
-	events repositories.EventLogRepository
+	events     repositories.EventLogRepository
+	references repositories.EventReferenceRepository
 	// now is injectable for tests; production uses time.Now.
 	now func() time.Time
 }
 
 // NewEpisodicRecall builds the episodic recall service over the event-log
-// read surface.
-func NewEpisodicRecall(events repositories.EventLogRepository) EpisodicRecall {
-	return &episodicRecall{events: events, now: time.Now}
+// read surface and the event-reference projection.
+func NewEpisodicRecall(
+	events repositories.EventLogRepository,
+	references repositories.EventReferenceRepository,
+) EpisodicRecall {
+	return &episodicRecall{events: events, references: references, now: time.Now}
 }
 
 func (r *episodicRecall) Recall(ctx context.Context, q EpisodicQuery) (*EpisodicRecallResult, error) {
@@ -101,15 +109,36 @@ func (r *episodicRecall) Recall(ctx context.Context, q EpisodicQuery) (*Episodic
 	if err != nil {
 		return nil, err
 	}
+	referenced, err := r.referencesFor(ctx, page.Data)
+	if err != nil {
+		return nil, err
+	}
 	result := &EpisodicRecallResult{
 		Events:  make([]RecalledEvent, 0, len(page.Data)),
 		Cursor:  page.Cursor,
 		HasMore: page.HasMore,
 	}
 	for _, e := range page.Data {
-		result.Events = append(result.Events, compactEvent(e))
+		recalled := compactEvent(e)
+		recalled.ReferencedResources = referenced[e.ID]
+		result.Events = append(result.Events, recalled)
 	}
 	return result, nil
+}
+
+// referencesFor batch-loads the referenced-resource URNs for one page of
+// events (one query, no per-event lookups).
+func (r *episodicRecall) referencesFor(
+	ctx context.Context, events []repositories.EventLogEntry,
+) (map[string][]string, error) {
+	if r.references == nil || len(events) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(events))
+	for _, e := range events {
+		ids = append(ids, e.ID)
+	}
+	return r.references.ForEvents(ctx, ids)
 }
 
 func (r *episodicRecall) buildFilter(q EpisodicQuery) (repositories.EventLogFilter, error) {

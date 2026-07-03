@@ -96,6 +96,7 @@ func ProvideGormDB(params struct {
 		&weosmodels.RoleSettings{},
 		&weosmodels.RoleResourceAccess{},
 		&weosmodels.Triple{},
+		&weosmodels.EventReference{},
 		&weosmodels.ResourcePermission{},
 		&weosmodels.BehaviorSettings{},
 		&oauth.OAuthClient{},

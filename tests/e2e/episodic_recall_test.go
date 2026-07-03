@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -59,20 +61,25 @@ type episodicWorld struct {
 	firstFrom  string
 	firstUntil string
 	// lastMatched is the event the most recent includes-assertion found, for
-	// follow-up "that event" assertions.
-	lastMatched *episodicEvent
+	// follow-up "that event" assertions. lastArgs and the lastInclude pair
+	// let async-projection assertions re-run that call+match while polling.
+	lastMatched     *episodicEvent
+	lastArgs        map[string]any
+	lastIncludeType string
+	lastIncludeName string
 	// secondText holds the second response of the determinism scenario.
 	secondText string
 }
 
 // episodicEvent mirrors the compact result shape episodic_recall returns.
 type episodicEvent struct {
-	ID           string `json:"id"`
-	EventType    string `json:"eventType"`
-	Timestamp    string `json:"timestamp"`
-	AggregateID  string `json:"aggregateId"`
-	ResourceType string `json:"resourceType"`
-	Summary      string `json:"summary"`
+	ID                  string   `json:"id"`
+	EventType           string   `json:"eventType"`
+	Timestamp           string   `json:"timestamp"`
+	AggregateID         string   `json:"aggregateId"`
+	ResourceType        string   `json:"resourceType"`
+	Summary             string   `json:"summary"`
+	ReferencedResources []string `json:"referencedResources"`
 }
 
 type episodicPage struct {
@@ -154,7 +161,7 @@ func parseOccurredAt(s string) (time.Time, error) {
 // directly to the event store — the entity API always stamps time.Now(), so
 // backdating has to bypass it. Payload shapes mirror the real resource events.
 func (w *episodicWorld) seedEvent(
-	ctx context.Context, typeSlug, name, description, eventType string, occurredAt time.Time,
+	ctx context.Context, typeSlug, name string, extra map[string]any, eventType string, occurredAt time.Time,
 ) error {
 	if w.eventStore == nil {
 		return fmt.Errorf("application not booted")
@@ -167,9 +174,7 @@ func (w *episodicWorld) seedEvent(
 	w.seqs[aggregateID]++
 
 	data := map[string]any{"name": name}
-	if description != "" {
-		data["description"] = description
-	}
+	maps.Copy(data, extra)
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -207,14 +212,21 @@ func (w *episodicWorld) activityIsRecorded(ctx context.Context, table *godog.Tab
 		if err != nil {
 			return err
 		}
-		description := ""
-		if i, ok := cols["description"]; ok {
-			description = row.Cells[i].Value
+		extra := map[string]any{}
+		if i, ok := cols["description"]; ok && row.Cells[i].Value != "" {
+			extra["description"] = row.Cells[i].Value
+		}
+		if i, ok := cols["project"]; ok && row.Cells[i].Value != "" {
+			projectURN, ok := w.aggregates[row.Cells[i].Value]
+			if !ok {
+				return fmt.Errorf("project %q must be seeded before rows referencing it", row.Cells[i].Value)
+			}
+			extra["project"] = projectURN
 		}
 		if err := w.seedEvent(ctx,
 			row.Cells[cols["resource-type"]].Value,
 			row.Cells[cols["name"]].Value,
-			description,
+			extra,
 			row.Cells[cols["event-type"]].Value,
 			occurredAt,
 		); err != nil {
@@ -234,7 +246,7 @@ func (w *episodicWorld) resourcesCreatedOnConsecutiveDays(
 	for i := range count {
 		name := fmt.Sprintf("%s %03d", typeSlug, i+1)
 		if err := w.seedEvent(
-			ctx, typeSlug, name, "", "Resource.Created", startAt.AddDate(0, 0, i),
+			ctx, typeSlug, name, nil, "Resource.Created", startAt.AddDate(0, 0, i),
 		); err != nil {
 			return err
 		}
@@ -245,6 +257,7 @@ func (w *episodicWorld) resourcesCreatedOnConsecutiveDays(
 // --- Actions ---
 
 func (w *episodicWorld) callEpisodic(ctx context.Context, args map[string]any) error {
+	w.lastArgs = args
 	raw, err := json.Marshal(args)
 	if err != nil {
 		return err
@@ -581,6 +594,7 @@ func (w *episodicWorld) everyEventIsForResourceType(typeSlug string) error {
 }
 
 func (w *episodicWorld) recallIncludesEventFor(eventType, name string) error {
+	w.lastIncludeType, w.lastIncludeName = eventType, name
 	page, err := w.page()
 	if err != nil {
 		return err
@@ -654,7 +668,7 @@ func (w *episodicWorld) bothRecallsIdentical() error {
 		return fmt.Errorf("recalls returned %d and %d events", len(first.Events), len(second.Events))
 	}
 	for i := range first.Events {
-		if first.Events[i] != second.Events[i] {
+		if !reflect.DeepEqual(first.Events[i], second.Events[i]) {
 			return fmt.Errorf("event %d differs between recalls: %+v vs %+v",
 				i, first.Events[i], second.Events[i])
 		}

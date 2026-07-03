@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,66 @@ func (s *stubEventLog) Query(
 
 func fixedEpisodicRecall(stub *stubEventLog, now time.Time) *episodicRecall {
 	return &episodicRecall{events: stub, now: func() time.Time { return now }}
+}
+
+// recordingRefsRepo records ForEvents calls so tests can pin the batching
+// contract of the recall join.
+type recordingRefsRepo struct {
+	calls [][]string
+	refs  map[string][]string
+	err   error
+}
+
+func (r *recordingRefsRepo) SaveForEvent(context.Context, string, []string) error { return nil }
+
+func (r *recordingRefsRepo) ForEvents(_ context.Context, ids []string) (map[string][]string, error) {
+	r.calls = append(r.calls, ids)
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.refs, nil
+}
+
+func (r *recordingRefsRepo) Clear(context.Context) error { return nil }
+
+// TestEpisodicRecallJoinsReferences pins the reference join: one batched
+// ForEvents call per page, refs attached to the matching event only, and a
+// projection read error failing the recall (deliberate — not a silent
+// degradation to recall-without-refs).
+func TestEpisodicRecallJoinsReferences(t *testing.T) {
+	at := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
+	stub := &stubEventLog{response: &repositories.PaginatedResponse[repositories.EventLogEntry]{
+		Data: []repositories.EventLogEntry{
+			{ID: "ev1", AggregateID: "urn:task:2t111111111111111111111111",
+				EventType: "Resource.Created", CreatedAt: at},
+			{ID: "ev2", AggregateID: "urn:task:2t222222222222222222222222",
+				EventType: "Resource.Created", CreatedAt: at.Add(time.Minute)},
+		},
+	}}
+	refs := &recordingRefsRepo{refs: map[string][]string{
+		"ev1": {"urn:project:2p111111111111111111111111", "urn:task:2t111111111111111111111111"},
+	}}
+	recall := &episodicRecall{events: stub, references: refs, now: time.Now}
+
+	res, err := recall.Recall(context.Background(), EpisodicQuery{})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(refs.calls) != 1 || len(refs.calls[0]) != 2 ||
+		refs.calls[0][0] != "ev1" || refs.calls[0][1] != "ev2" {
+		t.Errorf("ForEvents calls = %v, want one batched call with [ev1 ev2]", refs.calls)
+	}
+	if len(res.Events[0].ReferencedResources) != 2 {
+		t.Errorf("ev1 refs = %v, want the projected pair", res.Events[0].ReferencedResources)
+	}
+	if res.Events[1].ReferencedResources != nil {
+		t.Errorf("ev2 refs = %v, want none", res.Events[1].ReferencedResources)
+	}
+
+	refs.err = fmt.Errorf("projection unavailable")
+	if _, err := recall.Recall(context.Background(), EpisodicQuery{}); err == nil {
+		t.Error("Recall succeeded despite a failing reference projection, want the error to propagate")
+	}
 }
 
 func TestParseTimeBound(t *testing.T) {

@@ -177,7 +177,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(NewLexicalSearch),
 		// Episodic recall (epic #409): scoped, deterministic queries over the
 		// event store — time-windowed, filterable, paginated. Read-side only.
+		// The event-reference projection ("event-references" subscriber)
+		// records which resources each event touches; recall joins it in.
 		fx.Provide(gorm.ProvideEventLogRepository),
+		fx.Provide(gorm.ProvideEventReferenceRepository),
+		fx.Provide(AsSubscriberGroups(ProvideEventReferenceGroup)),
 		fx.Provide(NewEpisodicRecall),
 		// In-app agent skills (epic #397): declarative agent-skill resources
 		// loaded into a registry the orchestrator builds sub-agents from;
