@@ -106,6 +106,7 @@ func NewMCPServer(
 	resourceService application.ResourceService,
 	kgService application.KnowledgeGraphService,
 	lexicalSearch application.LexicalSearch,
+	episodicRecall application.EpisodicRecall,
 	enabledServices []string,
 ) (*mcp.Server, error) {
 	if isNilInterface(resourceTypeService) {
@@ -161,6 +162,11 @@ func NewMCPServer(
 			search = lexicalSearch
 		}
 		registerMemoryTools(server, application.NewPlaybookService(resourceService), recall, search)
+		// Episodic recall needs the event-log repository and IS threaded in;
+		// when nil (tests, minimal wiring) episodic_recall is not registered.
+		if !isNilInterface(episodicRecall) {
+			registerEpisodicTools(server, episodicRecall)
+		}
 	}
 
 	return server, nil
@@ -175,6 +181,7 @@ func Run(enabledServices []string) error {
 	var resourceService application.ResourceService
 	var kgService application.KnowledgeGraphService
 	var lexicalSearch application.LexicalSearch
+	var episodicRecall application.EpisodicRecall
 
 	app := fx.New(
 		fx.NopLogger,
@@ -183,6 +190,7 @@ func Run(enabledServices []string) error {
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
 		fx.Populate(&lexicalSearch),
+		fx.Populate(&episodicRecall),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -199,7 +207,8 @@ func Run(enabledServices []string) error {
 		}
 	}()
 
-	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, enabledServices)
+	server, err := NewMCPServer(
+		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall, enabledServices)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}

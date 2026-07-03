@@ -24,6 +24,7 @@ import (
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
 	"gorm.io/gorm"
 )
 
@@ -56,8 +57,22 @@ type sqliteLexicalIndex struct {
 
 func (s *sqliteLexicalIndex) Active() bool { return true }
 
+// writer joins the subscriber batch transaction when one is on the context.
+// The batch transaction holds SQLite's write lock (txlock=immediate), so a
+// write on a separate pooled connection would deadlock against the handler's
+// own batch until the busy timeout — and then retry inside the still-open
+// batch, starving every other writer in the process.
+func (s *sqliteLexicalIndex) writer(ctx context.Context) *gorm.DB {
+	if tx := subscriptions.TxFromContext(ctx); tx != nil {
+		return tx
+	}
+	return s.db.WithContext(ctx)
+}
+
 func (s *sqliteLexicalIndex) Index(ctx context.Context, id, typeSlug, content string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// Transaction nests as a savepoint when the writer is the batch
+	// transaction, keeping the delete+insert pair atomic either way.
+	return s.writer(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("DELETE FROM resource_search WHERE id = ?", id).Error; err != nil {
 			return fmt.Errorf("lexical index: clear %s: %w", id, err)
 		}
@@ -72,7 +87,7 @@ func (s *sqliteLexicalIndex) Index(ctx context.Context, id, typeSlug, content st
 }
 
 func (s *sqliteLexicalIndex) Remove(ctx context.Context, id string) error {
-	if err := s.db.WithContext(ctx).Exec("DELETE FROM resource_search WHERE id = ?", id).Error; err != nil {
+	if err := s.writer(ctx).Exec("DELETE FROM resource_search WHERE id = ?", id).Error; err != nil {
 		return fmt.Errorf("lexical index: remove %s: %w", id, err)
 	}
 	return nil

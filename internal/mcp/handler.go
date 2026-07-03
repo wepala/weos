@@ -35,9 +35,10 @@ func NewConfiguredServer(
 	resourceService application.ResourceService,
 	kgService application.KnowledgeGraphService,
 	lexicalSearch application.LexicalSearch,
+	episodicRecall application.EpisodicRecall,
 	logger *slog.Logger,
 ) (*gomcp.Server, error) {
-	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, nil)
+	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP server: %w", err)
 	}
@@ -69,9 +70,11 @@ func NewHTTPHandler(
 	resourceService application.ResourceService,
 	kgService application.KnowledgeGraphService,
 	lexicalSearch application.LexicalSearch,
+	episodicRecall application.EpisodicRecall,
 	logger *slog.Logger,
 ) (http.Handler, error) {
-	server, err := NewConfiguredServer(resourceTypeService, resourceService, kgService, lexicalSearch, logger)
+	server, err := NewConfiguredServer(
+		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall, logger)
 	if err != nil {
 		return nil, err
 	}
