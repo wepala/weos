@@ -85,9 +85,22 @@ func ProvideGormDB(params struct {
 		return GormDBResult{}, fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 
-	// Configure connection pool (only meaningful for PostgreSQL)
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
+	// Configure the connection pool by dialect. SQLite has ONE writer: a
+	// pool of many connections doesn't parallelize writes, it just makes
+	// them collide — the event-sourcing subscribers' checkpoint writes and
+	// a request's resource write then fail with SQLITE_BUSY that busy_timeout
+	// can't clear (a checkpoint upgrade against a pool-held lock returns
+	// immediately). Pinning SQLite to a single connection serializes every
+	// access through Go's sql pool instead, which removes the contention
+	// outright (WAL keeps reads cheap). PostgreSQL has real concurrency, so
+	// it keeps the larger pool.
+	if isPostgresDSN(dsn) {
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetMaxOpenConns(100)
+	} else {
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetMaxOpenConns(1)
+	}
 
 	models := []any{
 		&weosmodels.ResourceType{},
@@ -123,10 +136,19 @@ func ProvideGormDB(params struct {
 // connection to the configured database (e.g. the ADK session service) use
 // this so driver selection never diverges.
 func DialectorForDSN(dsn string) gorm.Dialector {
-	if strings.HasPrefix(dsn, "host=") || strings.Contains(dsn, "postgres://") || strings.Contains(dsn, "postgresql://") {
+	if isPostgresDSN(dsn) {
 		return postgres.Open(dsn)
 	}
 	return sqlite.Open(sqliteDSNWithWorkerPragmas(dsn))
+}
+
+// isPostgresDSN reports whether the DSN names a PostgreSQL database; anything
+// else is treated as SQLite. One predicate so pool sizing and driver
+// selection can never disagree about the dialect.
+func isPostgresDSN(dsn string) bool {
+	return strings.HasPrefix(dsn, "host=") ||
+		strings.Contains(dsn, "postgres://") ||
+		strings.Contains(dsn, "postgresql://")
 }
 
 // sqliteDSNWithWorkerPragmas augments a file-based SQLite DSN with the pragmas

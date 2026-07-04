@@ -16,8 +16,12 @@
 package gorm
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wepala/weos/v3/internal/config"
+	"go.uber.org/fx"
 )
 
 func TestSqliteDSNWithWorkerPragmas(t *testing.T) {
@@ -61,4 +65,40 @@ func TestSqliteDSNWithWorkerPragmas(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestIsPostgresDSN(t *testing.T) {
+	postgres := []string{
+		"host=localhost user=x dbname=y",
+		"postgres://u:p@localhost:5432/db",
+		"postgresql://u:p@localhost/db",
+	}
+	for _, dsn := range postgres {
+		if !isPostgresDSN(dsn) {
+			t.Errorf("%q should be detected as PostgreSQL", dsn)
+		}
+	}
+	sqlite := []string{"/tmp/app.db", "file:app.db?cache=shared", ":memory:", "app.db"}
+	for _, dsn := range sqlite {
+		if isPostgresDSN(dsn) {
+			t.Errorf("%q should be treated as SQLite", dsn)
+		}
+	}
+}
+
+func TestProvideGormDB_SqlitePoolIsSingleConnection(t *testing.T) {
+	// SQLite has one writer; the pool must be pinned to a single connection
+	// so subscriber checkpoint writes and request writes serialize instead of
+	// colliding on SQLITE_BUSY.
+	dsn := filepath.Join(t.TempDir(), "pool.db")
+	res, err := ProvideGormDB(struct {
+		fx.In
+		Config config.Config
+	}{Config: config.Config{DatabaseDSN: dsn}})
+	if err != nil {
+		t.Fatalf("ProvideGormDB: %v", err)
+	}
+	if got := res.SQLDB.Stats().MaxOpenConnections; got != 1 {
+		t.Errorf("SQLite MaxOpenConnections = %d, want 1", got)
+	}
 }
