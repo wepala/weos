@@ -52,13 +52,15 @@ type scriptCall struct {
 // scriptRule matches one moment of a conversation. Exactly one trigger:
 // WhenMessageContains matches the latest user text; AfterTool matches the
 // function response of a just-executed tool; neither set = the default.
-// The action is a Call, a Reply, or both (reply after call is invalid —
-// the model answers once per turn; a chained call is the way to continue).
+// The action is a Call or a Reply; ReplyFromToolOutput renders the matched
+// tool's real response instead of canned text, so a scenario can assert
+// the genuine outcome (e.g. "already imported") through the scripted rail.
 type scriptRule struct {
 	WhenMessageContains string      `json:"whenMessageContains,omitempty"`
 	AfterTool           string      `json:"afterTool,omitempty"`
 	Call                *scriptCall `json:"call,omitempty"`
 	Reply               string      `json:"reply,omitempty"`
+	ReplyFromToolOutput bool        `json:"replyFromToolOutput,omitempty"`
 }
 
 // scriptedModel is a model.LLM driven by ordered rules.
@@ -80,8 +82,11 @@ func NewScriptedModel(path string) (model.LLM, error) {
 		return nil, fmt.Errorf("parse agent script %s: %w", path, err)
 	}
 	for i, r := range file.Rules {
-		if r.Call == nil && r.Reply == "" {
+		if r.Call == nil && r.Reply == "" && !r.ReplyFromToolOutput {
 			return nil, fmt.Errorf("agent script %s: rule %d has neither call nor reply", path, i)
+		}
+		if r.ReplyFromToolOutput && r.AfterTool == "" {
+			return nil, fmt.Errorf("agent script %s: rule %d: replyFromToolOutput needs afterTool", path, i)
 		}
 	}
 	return &scriptedModel{rules: file.Rules}, nil
@@ -96,38 +101,39 @@ func (s *scriptedModel) Name() string { return "scripted" }
 func (s *scriptedModel) GenerateContent(
 	_ context.Context, req *model.LLMRequest, _ bool,
 ) iter.Seq2[*model.LLMResponse, error] {
-	rule := s.match(req)
+	rule, toolOutput := s.match(req)
 	return func(yield func(*model.LLMResponse, error) bool) {
-		yield(s.respond(req, rule), nil)
+		yield(s.respond(req, rule, toolOutput), nil)
 	}
 }
 
 // match picks the first applicable rule: afterTool rules when the latest
 // content is a tool's function response, whenMessageContains rules when it
-// is user text, then the first trigger-less rule as the default.
-func (s *scriptedModel) match(req *model.LLMRequest) *scriptRule {
-	lastTool, lastText := latestMoment(req)
+// is user text, then the first trigger-less rule as the default. It also
+// returns the matched tool's response map for replyFromToolOutput.
+func (s *scriptedModel) match(req *model.LLMRequest) (*scriptRule, map[string]any) {
+	lastTool, lastText, toolOutput := latestMoment(req)
 	for i := range s.rules {
 		r := &s.rules[i]
 		switch {
 		case r.AfterTool != "" && lastTool != "" && r.AfterTool == lastTool:
-			return r
+			return r, toolOutput
 		case r.WhenMessageContains != "" && lastText != "" &&
 			strings.Contains(strings.ToLower(lastText), strings.ToLower(r.WhenMessageContains)):
-			return r
+			return r, nil
 		}
 	}
 	for i := range s.rules {
 		if s.rules[i].AfterTool == "" && s.rules[i].WhenMessageContains == "" {
-			return &s.rules[i]
+			return &s.rules[i], nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // respond renders the rule as a model response — a minted function call or
 // a widget-JSON reply.
-func (s *scriptedModel) respond(req *model.LLMRequest, rule *scriptRule) *model.LLMResponse {
+func (s *scriptedModel) respond(req *model.LLMRequest, rule *scriptRule, toolOutput map[string]any) *model.LLMResponse {
 	if rule != nil && rule.Call != nil {
 		args := rule.Call.Args
 		if rule.Call.ArgsFromMessageJSON {
@@ -146,7 +152,18 @@ func (s *scriptedModel) respond(req *model.LLMRequest, rule *scriptRule) *model.
 		}}
 	}
 	reply := "The scripted agent has no rule for this turn."
-	if rule != nil && rule.Reply != "" {
+	switch {
+	case rule != nil && rule.ReplyFromToolOutput && toolOutput != nil:
+		// The tool's real response, verbatim — so a scenario can assert the
+		// genuine outcome through the scripted rail.
+		raw, err := json.Marshal(toolOutput)
+		if err == nil {
+			reply = string(raw)
+		}
+		if rule.Reply != "" {
+			reply = rule.Reply + "\n" + reply
+		}
+	case rule != nil && rule.Reply != "":
 		reply = rule.Reply
 	}
 	widget, _ := json.Marshal(map[string]any{
@@ -159,12 +176,12 @@ func (s *scriptedModel) respond(req *model.LLMRequest, rule *scriptRule) *model.
 	}}
 }
 
-// latestMoment scans the request tail: the name of the tool whose function
-// response arrived last (skipping the confirmation protocol's own frames),
-// or the latest user text.
-func latestMoment(req *model.LLMRequest) (lastTool, lastText string) {
+// latestMoment scans the request tail: the name (and response map) of the
+// tool whose function response arrived last (skipping the confirmation
+// protocol's own frames), or the latest user text.
+func latestMoment(req *model.LLMRequest) (lastTool, lastText string, toolOutput map[string]any) {
 	if req == nil {
-		return "", ""
+		return "", "", nil
 	}
 	for i := len(req.Contents) - 1; i >= 0; i-- {
 		c := req.Contents[i]
@@ -180,14 +197,14 @@ func latestMoment(req *model.LLMRequest) (lastTool, lastText string) {
 				if p.FunctionResponse.Name == "adk_request_confirmation" {
 					continue // the protocol frame, not a tool outcome
 				}
-				return p.FunctionResponse.Name, ""
+				return p.FunctionResponse.Name, "", p.FunctionResponse.Response
 			}
 			if p.Text != "" && c.Role == genai.RoleUser {
-				return "", p.Text
+				return "", p.Text, nil
 			}
 		}
 	}
-	return "", ""
+	return "", "", nil
 }
 
 // latestUserText returns the most recent user-authored text content.
