@@ -61,9 +61,9 @@ func testRegistry() *application.PresetRegistry {
 
 func TestPresets_AllPresetsExist(t *testing.T) {
 	t.Parallel()
-	// The canonical built-in presets. Custom presets registered via the
-	// "custom" build tag (weos-private-presets) may add more on top of this
-	// list, so the assertion is a subset check, not strict equality.
+	// The canonical built-in presets. Downstream binaries may plug custom
+	// presets into the registry via presets.Register, so the assertion is a
+	// subset check, not strict equality.
 	expected := []string{"core", "ecommerce", "events", "knowledge", "meal-planning", "tasks", "website"}
 	defs := testRegistry().List()
 	present := make(map[string]application.PresetDefinition, len(defs))
