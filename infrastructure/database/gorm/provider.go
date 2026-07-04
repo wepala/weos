@@ -85,9 +85,19 @@ func ProvideGormDB(params struct {
 		return GormDBResult{}, fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 
-	// Configure connection pool (only meaningful for PostgreSQL)
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
+	// Configure the connection pool per dialect. PostgreSQL has real MVCC
+	// concurrency and keeps its large pool. SQLite keeps a small pool for
+	// concurrent readers (WAL); writers are serialized by the write gate (see
+	// sqlite_write_gate.go), not by pool size — the pool must stay above one
+	// connection, because a single shared connection forces reads and boot to
+	// queue behind background subscriber writes (the #425 regression).
+	if params.Config.IsPostgres() {
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetMaxOpenConns(100)
+	} else {
+		sqlDB.SetMaxIdleConns(5)
+		sqlDB.SetMaxOpenConns(10)
+	}
 
 	models := []any{
 		&weosmodels.ResourceType{},
@@ -117,16 +127,24 @@ func ProvideGormDB(params struct {
 }
 
 // DialectorForDSN detects the database driver from the DSN the same way the
-// main DB provider does: PostgreSQL DSNs start with "host=" or contain a
-// postgres:// URI; everything else is treated as SQLite (file path or file:
-// URI, with the worker pragmas applied). Consumers that need their own GORM
-// connection to the configured database (e.g. the ADK session service) use
-// this so driver selection never diverges.
+// main DB provider does: PostgreSQL DSNs (per config.IsPostgresDSN) get the
+// postgres driver untouched; everything else is treated as SQLite (file path
+// or file: URI, with the worker pragmas applied and the write gate installed).
+// Consumers that need their own GORM connection to the configured database
+// (e.g. the ADK session service) use this so driver selection — and write
+// serialization — never diverges.
 func DialectorForDSN(dsn string) gorm.Dialector {
-	if strings.HasPrefix(dsn, "host=") || strings.Contains(dsn, "postgres://") || strings.Contains(dsn, "postgresql://") {
+	if config.IsPostgresDSN(dsn) {
 		return postgres.Open(dsn)
 	}
-	return sqlite.Open(sqliteDSNWithWorkerPragmas(dsn))
+	inner := sqlite.Open(sqliteDSNWithWorkerPragmas(dsn))
+	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
+		// In-memory databases are single-connection and unique per DSN;
+		// keying a shared gate on ":memory:" would serialize unrelated test
+		// databases against each other. Skip the gate, same as the pragmas.
+		return inner
+	}
+	return gatedSQLiteDialector{Dialector: inner, dsn: dsn}
 }
 
 // sqliteDSNWithWorkerPragmas augments a file-based SQLite DSN with the pragmas
