@@ -46,7 +46,20 @@ func ProvideOrchestrator(cfg config.Config, logger entities.Logger) (*appagents.
 		return appagents.NewOrchestrator(nil, nil, logger), nil
 	}
 
-	sessions, err := database.NewSessionService(gormdb.DialectorForDSN(cfg.DatabaseDSN))
+	// The agent session store is high-churn (an event appended per turn
+	// step) and independent of the resource graph. On SQLite it shares the
+	// single-writer lock with the resource store and the background
+	// subscribers, so under load — a conversation turn writing while memory
+	// consolidation writes a fact — the two contend. AGENT_SESSION_DSN
+	// points the session store at its own database to remove that
+	// contention; it defaults to the main DSN (one file, unchanged
+	// behavior). Postgres has no single-writer limit, so this only matters
+	// for SQLite deployments.
+	sessionDSN := cfg.DatabaseDSN
+	if v := os.Getenv("AGENT_SESSION_DSN"); v != "" {
+		sessionDSN = v
+	}
+	sessions, err := database.NewSessionService(gormdb.DialectorForDSN(sessionDSN))
 	if err != nil {
 		return nil, fmt.Errorf("create agent session service: %w", err)
 	}
