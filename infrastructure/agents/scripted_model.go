@@ -219,6 +219,12 @@ func latestMoment(req *model.LLMRequest) (lastTool, lastText string, toolOutput 
 				if p.FunctionResponse.Name == "adk_request_confirmation" {
 					continue // the protocol frame, not a tool outcome
 				}
+				if isAwaitingConfirmation(p.FunctionResponse.Response) {
+					// The pause artifact ("requires confirmation") the flow
+					// records when a mutating call first pauses — not a tool
+					// outcome; a fresh user message may legitimately follow.
+					continue
+				}
 				return p.FunctionResponse.Name, "", p.FunctionResponse.Response
 			}
 			if p.Text != "" && c.Role == genai.RoleUser {
@@ -227,6 +233,17 @@ func latestMoment(req *model.LLMRequest) (lastTool, lastText string, toolOutput 
 		}
 	}
 	return "", "", nil
+}
+
+// isAwaitingConfirmation reports whether a function response is the pause
+// artifact ADK records when a mutating call awaits approval — distinct
+// from a real failure (e.g. a rejection), which IS an outcome.
+func isAwaitingConfirmation(response map[string]any) bool {
+	if response == nil {
+		return false
+	}
+	errText, _ := response["error"].(string)
+	return strings.Contains(errText, "requires confirmation")
 }
 
 // latestUserText returns the most recent user-authored text content.
