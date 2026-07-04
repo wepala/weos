@@ -116,8 +116,14 @@ func (r *SkillRegistry) load(ctx context.Context) ([]entities.SkillDefinition, e
 	var defs []entities.SkillDefinition
 	seen := map[string]string{} // skill name -> resource URN
 	cursor := ""
+	// Skills are installed app capabilities, not per-user data: a skill
+	// seeded at boot (a preset fixture, a downstream binary's seed hook)
+	// carries no account attribution, and the caller's account-scoped
+	// visibility would hide it from every authenticated user. List them
+	// through an identity-free context, which the service reads unscoped.
+	listCtx := context.Background()
 	for {
-		page, err := r.resources.List(ctx, AgentSkillTypeSlug, cursor, 100, repositories.SortOptions{})
+		page, err := r.resources.List(listCtx, AgentSkillTypeSlug, cursor, 100, repositories.SortOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("list %s resources: %w", AgentSkillTypeSlug, err)
 		}
