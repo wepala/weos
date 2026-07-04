@@ -112,6 +112,17 @@ func (pm *projectionManager) EnsureTable(
 		return fmt.Errorf("failed to ensure projection table %q: %w", tableName, err)
 	}
 
+	// Reconcile the base columns even when the table already existed. The
+	// CREATE above lists them, but CREATE ... IF NOT EXISTS is a no-op on a
+	// table another owner made first — e.g. pericarp auth's `agents` table,
+	// which the ValueFlows `agent` type's projection shares by name — so
+	// without this a projection write to that table fails on the first
+	// missing base column (account_id). addMissingColumns is idempotent
+	// (HasColumn-guarded), so this is a cheap ALTER only when needed.
+	if err := pm.addMissingColumns(ctx, tableName, pm.baseColumnDefs()); err != nil {
+		return fmt.Errorf("failed to ensure base columns on %q: %w", tableName, err)
+	}
+
 	if err := pm.addMissingColumns(ctx, tableName, columns); err != nil {
 		return fmt.Errorf("failed to add columns to %q: %w", tableName, err)
 	}
@@ -577,6 +588,28 @@ func (pm *projectionManager) EnsureExistingTables(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// baseColumnDefs are the system columns every projection row carries. They
+// match the non-PK base columns createTableIfNotExists lists, but are typed
+// nullable here on purpose: ADD COLUMN can't introduce NOT NULL without a
+// default on a populated table, and the writer always supplies these values.
+// (id is the primary key and can't be ALTER-added, so it is omitted — a
+// table missing its primary key is not a case this reconciliation targets.)
+func (pm *projectionManager) baseColumnDefs() []columnDef {
+	ts := "DATETIME"
+	if pm.db.Name() == "postgres" {
+		ts = "TIMESTAMP WITH TIME ZONE"
+	}
+	return []columnDef{
+		{Name: "type_slug", SQLType: "TEXT"},
+		{Name: "status", SQLType: "TEXT"},
+		{Name: "created_by", SQLType: "TEXT"},
+		{Name: "account_id", SQLType: "TEXT"},
+		{Name: "sequence_no", SQLType: "INTEGER"},
+		{Name: "created_at", SQLType: ts},
+		{Name: "updated_at", SQLType: ts},
+	}
 }
 
 func (pm *projectionManager) createTableIfNotExists(ctx context.Context, tableName string, columns []columnDef) error {

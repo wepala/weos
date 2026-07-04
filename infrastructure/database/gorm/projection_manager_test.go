@@ -936,3 +936,39 @@ func TestRegisterLink_CoexistsWithSchemaReference(t *testing.T) {
 		t.Errorf("expected targets {project, user}, got %+v", targets)
 	}
 }
+
+// TestEnsureTable_ReconcilesBaseColumnsOnPreexistingTable covers the pericarp
+// collision: another owner (auth) created the `agents` table first, with no
+// base columns. EnsureTable for the ValueFlows `agent` type must ALTER the
+// base columns in, or the projection write fails on account_id.
+func TestEnsureTable_ReconcilesBaseColumnsOnPreexistingTable(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+
+	// Stand in for pericarp auth's agents table: present, but only its own
+	// columns — none of the projection base columns.
+	if err := db.Exec(`CREATE TABLE agents (
+		id text PRIMARY KEY, name text NOT NULL,
+		agent_type text NOT NULL DEFAULT 'foaf:Person',
+		status text NOT NULL DEFAULT 'active', created_at datetime)`).Error; err != nil {
+		t.Fatalf("failed to seed pre-existing agents table: %v", err)
+	}
+
+	schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(context.Background(), "agent", schema, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+
+	for _, col := range []string{"type_slug", "created_by", "account_id", "sequence_no"} {
+		if !db.Migrator().HasColumn("agents", col) {
+			t.Errorf("base column %q was not reconciled onto the pre-existing table", col)
+		}
+	}
+
+	// The write that used to fail must now succeed.
+	if err := db.Exec(`INSERT INTO agents (id, type_slug, status, created_by, account_id, sequence_no, name)
+		VALUES ('urn:agent:1', 'agent', 'active', 'urn:user:1', 'urn:account:1', 1, 'Acme')`).Error; err != nil {
+		t.Fatalf("projection write still fails after reconciliation: %v", err)
+	}
+}
