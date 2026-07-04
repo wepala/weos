@@ -137,7 +137,11 @@ func DialectorForDSN(dsn string) gorm.Dialector {
 //   - journal_mode(WAL) lets the workers' feed reads run concurrently with a
 //     write transaction instead of blocking on it.
 //   - busy_timeout makes a writer wait for the lock instead of failing
-//     immediately with "database is locked".
+//     immediately with "database is locked". It is generous (15s) because a
+//     background subscriber's write can queue behind another subscriber
+//     whose handler is LLM-latency-bound (memory consolidation extracts
+//     facts via a model call between reads and its write) — 5s left the
+//     checkpoint write timing out under that load.
 //   - _txlock=immediate takes the write lock at BEGIN so concurrent writers
 //     serialize cleanly via busy_timeout rather than erroring on a deferred
 //     lock upgrade mid-transaction.
@@ -153,7 +157,7 @@ func sqliteDSNWithWorkerPragmas(dsn string) string {
 	}
 	pragmas := []struct{ key, param string }{
 		{"journal_mode", "_pragma=journal_mode(WAL)"},
-		{"busy_timeout", "_pragma=busy_timeout(5000)"},
+		{"busy_timeout", "_pragma=busy_timeout(15000)"},
 		{"_txlock", "_txlock=immediate"},
 	}
 	sep := "?"
