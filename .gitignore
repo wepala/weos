@@ -55,9 +55,6 @@ bin/
 # Dev seed manifest
 .dev-seed.json
 
-# Private preset registration (local only, build-tag-gated)
-application/presets/register_custom.go
-
 # Configuration files with secrets
 config/local.yaml
 config/secrets.yaml
@@ -83,7 +80,8 @@ web/admin/.output
 web/admin/node_modules/
 web/frontend/.output
 web/frontend/node_modules/
-web/dist
+web/dist/*
+!web/dist/PLACEHOLDER
 weos
 
 # Jekyll

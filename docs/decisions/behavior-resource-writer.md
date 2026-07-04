@@ -146,7 +146,7 @@ Same as Option 1 but the proxy satisfies the full `ResourceService` interface (q
 
 ### Option 4: Require the `education` preset (and anything like it) to subscribe to domain events instead of using behaviors
 
-Accept that behaviors remain read-only + same-entity mutation. Cross-resource work goes through `Resource.Published` event subscribers (per the [Event Handler Data Availability ADR]({% link decisions/event-handler-data-availability.md %})). The preset would export a `Subscribe` function that `presets/register_custom.go` (or the core module) wires to the event dispatcher.
+Accept that behaviors remain read-only + same-entity mutation. Cross-resource work goes through `Resource.Published` event subscribers (per the [Event Handler Data Availability ADR]({% link decisions/event-handler-data-availability.md %})). The preset would export a `Subscribe` function that the downstream overlay binary (e.g. weos-private-presets' `cmd/weos`) wires to the event dispatcher.
 
 **Pros:**
 - No changes to `BehaviorServices` or the behavior interface.
