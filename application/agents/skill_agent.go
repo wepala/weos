@@ -119,9 +119,12 @@ func BuildSkillAgent(def entities.SkillDefinition, m model.LLM, toolset tool.Too
 
 // BuildSkillRootAgent builds the skill as a conversation's root agent (the
 // direct-invocation path, bypassing the coordinator). The declared
-// delegation mode is deliberately ignored: a root ModeTask agent would
-// self-install a finish_task tool with no parent to consume it, letting the
-// model end a turn with no output.
+// delegation mode is deliberately ignored — it governs how a PARENT invokes
+// the skill, and a root has no parent. Chat is also the only mode the ADK
+// runner accepts for a root ("root agent must be a chat LlmAgent"): a
+// ModeSingleTurn root would fail every turn outright, and a ModeTask root
+// would self-install a finish_task tool with no parent to consume it. The
+// skill's instructions ride along unchanged either way.
 func BuildSkillRootAgent(def entities.SkillDefinition, m model.LLM, toolset tool.Toolset) (agent.Agent, error) {
 	return buildSkillAgent(def, m, toolset, llmagent.ModeChat)
 }
