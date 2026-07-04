@@ -83,7 +83,8 @@ web/admin/.output
 web/admin/node_modules/
 web/frontend/.output
 web/frontend/node_modules/
-web/dist
+web/dist/*
+!web/dist/PLACEHOLDER
 weos
 
 # Jekyll
