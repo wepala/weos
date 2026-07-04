@@ -271,16 +271,35 @@ func (o *Orchestrator) pendingCallProposal(
 	return "", nil
 }
 
-// boundedJSON renders v as JSON, truncated to cap bytes.
-func boundedJSON(v any, cap int) string {
+// boundedJSON renders v as JSON within limit bytes — by dropping whole
+// interpretation lines (with an omittedLines count) when the value carries
+// an interpretations array, never by cutting mid-JSON: every consumer of
+// the blob parses the whole thing, so a byte-truncated blob would lose
+// EVERY line's signal, not just the overflow.
+func boundedJSON(v any, limit int) string {
 	raw, err := json.Marshal(v)
 	if err != nil {
-		return ""
+		return "{}"
 	}
-	if len(raw) > cap {
-		return string(raw[:cap]) + "…(truncated)"
+	if len(raw) <= limit {
+		return string(raw)
 	}
-	return string(raw)
+	if m, ok := v.(map[string]any); ok {
+		if lines, ok := m["interpretations"].([]any); ok {
+			trimmed := make(map[string]any, len(m)+1)
+			for k, val := range m {
+				trimmed[k] = val
+			}
+			for n := len(lines) - 1; n >= 0; n-- {
+				trimmed["interpretations"] = lines[:n]
+				trimmed["omittedLines"] = len(lines) - n
+				if raw, err = json.Marshal(trimmed); err == nil && len(raw) <= limit {
+					return string(raw)
+				}
+			}
+		}
+	}
+	return `{"omitted":"the blob exceeded the episode size cap"}`
 }
 
 // History returns the conversation so far, oldest first. A conversation

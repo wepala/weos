@@ -298,7 +298,7 @@ type LLMConfig struct {
 	GeminiAPIKey string
 
 	// GeminiModel is the Gemini model ID to use.
-	// Default: "gemini-2.0-flash"
+	// Default: "gemini-2.5-flash"
 	GeminiModel string
 }
 
@@ -346,7 +346,7 @@ func Default() Config {
 		},
 		SessionSecret: "change-me-in-production",
 		LLM: LLMConfig{
-			GeminiModel: "gemini-2.0-flash",
+			GeminiModel: "gemini-2.5-flash",
 		},
 		OAuth: OAuthConfig{
 			DynamicRegistration: false,

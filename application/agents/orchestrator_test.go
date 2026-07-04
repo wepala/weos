@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"iter"
 	"strings"
@@ -164,11 +165,29 @@ func TestConfirmationEpisodeDetail_MissingCallStaysPlain(t *testing.T) {
 	}
 }
 
-func TestBoundedJSON_Truncates(t *testing.T) {
-	long := strings.Repeat("x", 5000)
-	out := boundedJSON(map[string]any{"v": long}, 100)
-	if len(out) > 120 || !strings.Contains(out, "…(truncated)") {
-		t.Errorf("boundedJSON did not truncate: %d bytes", len(out))
+func TestBoundedJSON_DropsWholeLinesNeverMidJSON(t *testing.T) {
+	// An oversized interpretations payload trims whole lines and stays
+	// valid JSON with an omittedLines count.
+	lines := make([]any, 0, 100)
+	for i := 0; i < 100; i++ {
+		lines = append(lines, map[string]any{"description": strings.Repeat("m", 80), "treatment": "expense"})
+	}
+	out := boundedJSON(map[string]any{"statementId": "urn:statement:1", "interpretations": lines}, 2000)
+	if len(out) > 2000 {
+		t.Fatalf("blob exceeds the cap: %d bytes", len(out))
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("capped blob must stay valid JSON: %v — %s", err, out)
+	}
+	if parsed["omittedLines"] == nil {
+		t.Error("a trimmed blob must say how many lines were dropped")
+	}
+
+	// A non-conforming oversized value degrades to a valid marker object.
+	out = boundedJSON(map[string]any{"v": strings.Repeat("x", 5000)}, 100)
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("fallback blob must stay valid JSON: %v", err)
 	}
 }
 
