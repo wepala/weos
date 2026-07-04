@@ -18,12 +18,14 @@ package agents
 import (
 	"context"
 	"fmt"
+	"os"
 
 	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/domain/entities"
 	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
 	"github.com/wepala/weos/v3/internal/config"
 
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/session/database"
 )
 
@@ -36,14 +38,12 @@ import (
 // GORM-backed session service over the same DSN), so multi-turn
 // conversations survive process restarts.
 func ProvideOrchestrator(cfg config.Config, logger entities.Logger) (*appagents.Orchestrator, error) {
-	adk := NewADKConfig(cfg)
-	if adk == nil {
-		return appagents.NewOrchestrator(nil, nil, logger), nil
-	}
-
-	m, err := adk.CreateGeminiModel(context.Background())
+	m, err := provideModel(cfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("create agent model: %w", err)
+		return nil, err
+	}
+	if m == nil {
+		return appagents.NewOrchestrator(nil, nil, logger), nil
 	}
 
 	sessions, err := database.NewSessionService(gormdb.DialectorForDSN(cfg.DatabaseDSN))
@@ -55,4 +55,29 @@ func ProvideOrchestrator(cfg config.Config, logger entities.Logger) (*appagents.
 	}
 
 	return appagents.NewOrchestrator(m, sessions, logger), nil
+}
+
+// provideModel picks the agent's LLM: the scripted test model when
+// WEOS_AGENT_SCRIPT is set (deterministic turns, no key — see #420), else
+// Gemini when configured, else nil (agent unconfigured).
+func provideModel(cfg config.Config, logger entities.Logger) (model.LLM, error) {
+	if script := os.Getenv(AgentScriptEnv); script != "" {
+		m, err := NewScriptedModel(script)
+		if err != nil {
+			return nil, fmt.Errorf("load %s: %w", AgentScriptEnv, err)
+		}
+		logger.Warn(context.Background(),
+			"agent runs on a SCRIPTED model (test harness) — never use this in production",
+			"script", script)
+		return m, nil
+	}
+	adk := NewADKConfig(cfg)
+	if adk == nil {
+		return nil, nil
+	}
+	m, err := adk.CreateGeminiModel(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("create agent model: %w", err)
+	}
+	return m, nil
 }
