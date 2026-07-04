@@ -153,6 +153,41 @@ func TestOrchestrator_UnknownSkillErrors(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_ResumeConfirmationNotConfigured(t *testing.T) {
+	o := NewOrchestrator(nil, nil, testLogger{})
+
+	// The episode-detail session read must not run (nil session service
+	// would panic); the call must fail like every other unconfigured turn.
+	err := o.ResumeConfirmation(context.Background(), "c1", "u1", "call-1", true,
+		map[string]any{"a": 1}, "", func(entities.AgentEvent) {})
+	if !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("expected ErrNotConfigured, got: %v", err)
+	}
+}
+
+func TestOrchestrator_RejectionDropsPayload(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	var episode string
+	o.SetEpisodeRecorder(func(_ context.Context, _, _, message, _ string) error {
+		episode = message
+		return nil
+	})
+
+	// The contract: a payload on a rejection is ignored — neither the
+	// confirmation response nor the episode may carry the edited args.
+	err := o.ResumeConfirmation(context.Background(), "c1", "u1", "call-1", false,
+		map[string]any{"edited": "args"}, "", func(entities.AgentEvent) {})
+	if err != nil {
+		t.Fatalf("ResumeConfirmation: %v", err)
+	}
+	if !strings.Contains(episode, "[rejected a pending action]") {
+		t.Fatalf("episode = %q, want the rejection marker", episode)
+	}
+	if strings.Contains(episode, "chosen:") || strings.Contains(episode, "edited") {
+		t.Errorf("a rejected payload leaked into the episode: %q", episode)
+	}
+}
+
 func TestConfirmationEpisodeDetail_MissingCallStaysPlain(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
 

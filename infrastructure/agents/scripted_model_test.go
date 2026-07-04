@@ -130,12 +130,49 @@ func TestScriptedModel_ConfirmationFrameIsNotAToolOutcome(t *testing.T) {
 	}
 }
 
-func TestNewScriptedModel_RejectsEmptyRule(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bad.json")
-	if err := os.WriteFile(path, []byte(`{"rules":[{"whenMessageContains":"x"}]}`), 0o600); err != nil {
+func TestNewScriptedModel_RejectsLooseRules(t *testing.T) {
+	for name, script := range map[string]string{
+		"neither call nor reply": `{"rules":[{"whenMessageContains":"x"}]}`,
+		"multiple triggers":      `{"rules":[{"whenMessageContains":"x","afterTool":"t","reply":"y"}]}`,
+		"call plus reply":        `{"rules":[{"whenMessageContains":"x","call":{"tool":"t"},"reply":"y"}]}`,
+		"call plus replyFromToolOutput": `{"rules":[` +
+			`{"afterTool":"t","call":{"tool":"u"},"replyFromToolOutput":true}]}`,
+		"replyFromToolOutput without a tool trigger": `{"rules":[{"replyFromToolOutput":true}]}`,
+	} {
+		path := filepath.Join(t.TempDir(), "bad.json")
+		if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := NewScriptedModel(path); err == nil {
+			t.Errorf("%s must be rejected at load", name)
+		}
+	}
+
+	// replyFromToolOutput triggered by a failure is a legitimate shape.
+	path := filepath.Join(t.TempDir(), "good.json")
+	script := `{"rules":[{"afterToolFailed":"t","replyFromToolOutput":true}]}`
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewScriptedModel(path); err == nil {
-		t.Fatal("a rule with neither call nor reply must be rejected at load")
+	if _, err := NewScriptedModel(path); err != nil {
+		t.Errorf("afterToolFailed with replyFromToolOutput must load: %v", err)
+	}
+}
+
+func TestFencedJSONArgs_NestedObjects(t *testing.T) {
+	// The closing fence anchors the regex, so backtracking must carry the
+	// capture past nested closing braces to the object's real end.
+	args := fencedJSONArgs("import this\n```json\n" +
+		`{"statement": {"fileName": "march.csv"}, "interpretations": [{"line": 1, "meta": {"x": 2}}]}` +
+		"\n```")
+	if args == nil {
+		t.Fatal("a fenced object with nested objects must parse")
+	}
+	statement, ok := args["statement"].(map[string]any)
+	if !ok || statement["fileName"] != "march.csv" {
+		t.Errorf("nested object truncated: %v", args)
+	}
+	if _, ok := args["interpretations"]; !ok {
+		t.Errorf("trailing keys after the nested object were lost: %v", args)
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 )
 
@@ -119,9 +120,11 @@ func (r *SkillRegistry) load(ctx context.Context) ([]entities.SkillDefinition, e
 	// Skills are installed app capabilities, not per-user data: a skill
 	// seeded at boot (a preset fixture, a downstream binary's seed hook)
 	// carries no account attribution, and the caller's account-scoped
-	// visibility would hide it from every authenticated user. List them
-	// through an identity-free context, which the service reads unscoped.
-	listCtx := context.Background()
+	// visibility would hide it from every authenticated user. Strip only
+	// the identity — the service then reads unscoped — keeping the
+	// caller's context so cancellation and deadlines still bound the
+	// listing (load holds the registry mutex).
+	listCtx := auth.ContextWithAgent(ctx, nil)
 	for {
 		page, err := r.resources.List(listCtx, AgentSkillTypeSlug, cursor, 100, repositories.SortOptions{})
 		if err != nil {

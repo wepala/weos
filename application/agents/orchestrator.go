@@ -181,13 +181,22 @@ func (o *Orchestrator) ConverseStream(
 // and restarts. A non-nil payload rides the confirmation response into
 // ADK's ToolConfirmation.Payload — the toolset substitutes it for the
 // call's arguments on approval (approve-with-edits) — and is durable for
-// the same reason the confirmation is. skill must name the same skill the
-// paused turn ran as (the resumed turn rebuilds the same root); empty means
-// the coordinator.
+// the same reason the confirmation is. On a rejection the payload is
+// dropped: nothing executes, so persisting edited args would only bloat
+// the session. skill must name the same skill the paused turn ran as (the
+// resumed turn rebuilds the same root); empty means the coordinator.
 func (o *Orchestrator) ResumeConfirmation(
 	ctx context.Context, conversationID, userID, callID string, confirmed bool,
 	payload map[string]any, skill string, emit EventSink,
 ) error {
+	// Checked here as well as in runTurn: the episode-detail session read
+	// below would otherwise dereference a nil session service.
+	if !o.Configured() {
+		return ErrNotConfigured
+	}
+	if !confirmed {
+		payload = nil
+	}
 	response := map[string]any{"confirmed": confirmed}
 	if payload != nil {
 		response["payload"] = payload

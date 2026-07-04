@@ -18,6 +18,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"sync/atomic"
 
 	"google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
 
@@ -54,12 +56,14 @@ type scriptCall struct {
 	ArgsFromToolOutputField string `json:"argsFromToolOutputField,omitempty"`
 }
 
-// scriptRule matches one moment of a conversation. Exactly one trigger:
+// scriptRule matches one moment of a conversation. At most one trigger:
 // WhenMessageContains matches the latest user text; AfterTool matches the
-// function response of a just-executed tool; neither set = the default.
-// The action is a Call or a Reply; ReplyFromToolOutput renders the matched
-// tool's real response instead of canned text, so a scenario can assert
-// the genuine outcome (e.g. "already imported") through the scripted rail.
+// function response of a just-executed tool; AfterToolFailed its failed
+// response; none set = the default rule. The action is a Call or a Reply
+// (never both); ReplyFromToolOutput renders the matched tool's real
+// response instead of canned text, so a scenario can assert the genuine
+// outcome (e.g. "already imported") through the scripted rail. validate
+// enforces this shape at load.
 type scriptRule struct {
 	WhenMessageContains string `json:"whenMessageContains,omitempty"`
 	AfterTool           string `json:"afterTool,omitempty"`
@@ -91,14 +95,37 @@ func NewScriptedModel(path string) (model.LLM, error) {
 		return nil, fmt.Errorf("parse agent script %s: %w", path, err)
 	}
 	for i, r := range file.Rules {
-		if r.Call == nil && r.Reply == "" && !r.ReplyFromToolOutput {
-			return nil, fmt.Errorf("agent script %s: rule %d has neither call nor reply", path, i)
-		}
-		if r.ReplyFromToolOutput && r.AfterTool == "" && r.AfterToolFailed == "" {
-			return nil, fmt.Errorf("agent script %s: rule %d: replyFromToolOutput needs afterTool", path, i)
+		if err := r.validate(); err != nil {
+			return nil, fmt.Errorf("agent script %s: rule %d: %w", path, i, err)
 		}
 	}
 	return &scriptedModel{rules: file.Rules}, nil
+}
+
+// validate enforces the shape the scriptRule comment promises. Loose rules
+// are rejected at load, not tolerated at match time: a rule with several
+// triggers or a call plus a reply would otherwise fire half its intent
+// (respond prefers the call, silently dropping the reply).
+func (r scriptRule) validate() error {
+	triggers := 0
+	for _, t := range []string{r.WhenMessageContains, r.AfterTool, r.AfterToolFailed} {
+		if t != "" {
+			triggers++
+		}
+	}
+	if triggers > 1 {
+		return errors.New("has multiple triggers; use at most one of whenMessageContains, afterTool, afterToolFailed")
+	}
+	if r.Call == nil && r.Reply == "" && !r.ReplyFromToolOutput {
+		return errors.New("has neither call nor reply")
+	}
+	if r.Call != nil && (r.Reply != "" || r.ReplyFromToolOutput) {
+		return errors.New("has both call and reply; the action must be one or the other")
+	}
+	if r.ReplyFromToolOutput && r.AfterTool == "" && r.AfterToolFailed == "" {
+		return errors.New("replyFromToolOutput needs afterTool or afterToolFailed")
+	}
+	return nil
 }
 
 func (s *scriptedModel) Name() string { return "scripted" }
@@ -136,8 +163,9 @@ func (s *scriptedModel) match(req *model.LLMRequest) (*scriptRule, map[string]an
 		}
 	}
 	for i := range s.rules {
-		if s.rules[i].AfterTool == "" && s.rules[i].WhenMessageContains == "" {
-			return &s.rules[i], nil
+		r := &s.rules[i]
+		if r.AfterTool == "" && r.AfterToolFailed == "" && r.WhenMessageContains == "" {
+			return r, nil
 		}
 	}
 	return nil, nil
@@ -216,7 +244,7 @@ func latestMoment(req *model.LLMRequest) (lastTool, lastText string, toolOutput 
 				continue
 			}
 			if p.FunctionResponse != nil {
-				if p.FunctionResponse.Name == "adk_request_confirmation" {
+				if p.FunctionResponse.Name == toolconfirmation.FunctionCallName {
 					continue // the protocol frame, not a tool outcome
 				}
 				if isAwaitingConfirmation(p.FunctionResponse.Response) {
