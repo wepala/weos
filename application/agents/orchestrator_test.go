@@ -152,6 +152,26 @@ func TestOrchestrator_UnknownSkillErrors(t *testing.T) {
 	}
 }
 
+func TestConfirmationEpisodeDetail_MissingCallStaysPlain(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+
+	// No such session/call: the episode gains only the chosen payload — a
+	// session read failure must never break remembering the user's choice.
+	detail := o.confirmationEpisodeDetail(context.Background(), "u1", "conv-x", "call-9",
+		map[string]any{"statementId": "urn:statement:1"})
+	if !strings.Contains(detail, `"statementId":"urn:statement:1"`) || strings.Contains(detail, "proposed:") {
+		t.Errorf("detail = %q, want chosen-only", detail)
+	}
+}
+
+func TestBoundedJSON_Truncates(t *testing.T) {
+	long := strings.Repeat("x", 5000)
+	out := boundedJSON(map[string]any{"v": long}, 100)
+	if len(out) > 120 || !strings.Contains(out, "…(truncated)") {
+		t.Errorf("boundedJSON did not truncate: %d bytes", len(out))
+	}
+}
+
 func TestOrchestrator_ConverseMultiTurnSharesSession(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "answer"}, session.InMemoryService(), testLogger{})
 

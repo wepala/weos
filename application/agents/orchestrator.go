@@ -17,6 +17,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -206,7 +207,80 @@ func (o *Orchestrator) ResumeConfirmation(
 	case !confirmed:
 		episode = "[rejected a pending action]"
 	}
+	// The episode carries what was proposed and what the user chose, so the
+	// turn's note gives consolidation the correction signal — proposed-vs-
+	// chosen per approval — not just the fact that something was approved.
+	episode += o.confirmationEpisodeDetail(ctx, userID, conversationID, callID, payload)
 	return o.runTurn(ctx, conversationID, userID, content, episode, skill, emit)
+}
+
+// episodeDetailCap bounds one proposed/chosen blob in an episode; a huge
+// tool payload must not turn the note store into a payload archive.
+const episodeDetailCap = 4000
+
+// confirmationEpisodeDetail renders the pending call's proposal (its
+// original arguments, read from the durable session) and the user's chosen
+// payload as note-friendly lines. Best-effort: a session read failure just
+// yields a plainer episode — remembering must not break answering.
+func (o *Orchestrator) confirmationEpisodeDetail(
+	ctx context.Context, userID, conversationID, callID string, payload map[string]any,
+) string {
+	detail := ""
+	if tool, args := o.pendingCallProposal(ctx, userID, conversationID, callID); tool != "" {
+		detail += "\ntool: " + tool
+		if len(args) > 0 {
+			detail += "\nproposed: " + boundedJSON(args, episodeDetailCap)
+		}
+	}
+	if payload != nil {
+		detail += "\nchosen: " + boundedJSON(payload, episodeDetailCap)
+	}
+	return detail
+}
+
+// pendingCallProposal finds the paused tool call in the conversation's
+// session and returns the tool name and the arguments the model proposed.
+func (o *Orchestrator) pendingCallProposal(
+	ctx context.Context, userID, conversationID, callID string,
+) (string, map[string]any) {
+	resp, err := o.sessions.Get(ctx, &session.GetRequest{
+		AppName:   OrchestratorAppName,
+		UserID:    userID,
+		SessionID: conversationID,
+	})
+	if err != nil {
+		o.logger.Debug(ctx, "episode detail unavailable: session read failed", "error", err.Error())
+		return "", nil
+	}
+	for event := range resp.Session.Events().All() {
+		if event.Content == nil {
+			continue
+		}
+		for _, p := range event.Content.Parts {
+			if p == nil || p.FunctionCall == nil ||
+				p.FunctionCall.Name != toolconfirmation.FunctionCallName || p.FunctionCall.ID != callID {
+				continue
+			}
+			orig, oerr := toolconfirmation.OriginalCallFrom(p.FunctionCall)
+			if oerr != nil || orig == nil {
+				return "", nil
+			}
+			return orig.Name, orig.Args
+		}
+	}
+	return "", nil
+}
+
+// boundedJSON renders v as JSON, truncated to cap bytes.
+func boundedJSON(v any, cap int) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	if len(raw) > cap {
+		return string(raw[:cap]) + "…(truncated)"
+	}
+	return string(raw)
 }
 
 // History returns the conversation so far, oldest first. A conversation
