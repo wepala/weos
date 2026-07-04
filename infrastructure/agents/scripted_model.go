@@ -61,8 +61,12 @@ type scriptCall struct {
 // tool's real response instead of canned text, so a scenario can assert
 // the genuine outcome (e.g. "already imported") through the scripted rail.
 type scriptRule struct {
-	WhenMessageContains string      `json:"whenMessageContains,omitempty"`
-	AfterTool           string      `json:"afterTool,omitempty"`
+	WhenMessageContains string `json:"whenMessageContains,omitempty"`
+	AfterTool           string `json:"afterTool,omitempty"`
+	// AfterToolFailed matches a tool's FAILED function response (e.g. a
+	// rejected confirmation) — checked before AfterTool so a script can
+	// stop a chain instead of marching on after a rejection.
+	AfterToolFailed     string      `json:"afterToolFailed,omitempty"`
 	Call                *scriptCall `json:"call,omitempty"`
 	Reply               string      `json:"reply,omitempty"`
 	ReplyFromToolOutput bool        `json:"replyFromToolOutput,omitempty"`
@@ -90,7 +94,7 @@ func NewScriptedModel(path string) (model.LLM, error) {
 		if r.Call == nil && r.Reply == "" && !r.ReplyFromToolOutput {
 			return nil, fmt.Errorf("agent script %s: rule %d has neither call nor reply", path, i)
 		}
-		if r.ReplyFromToolOutput && r.AfterTool == "" {
+		if r.ReplyFromToolOutput && r.AfterTool == "" && r.AfterToolFailed == "" {
 			return nil, fmt.Errorf("agent script %s: rule %d: replyFromToolOutput needs afterTool", path, i)
 		}
 	}
@@ -118,10 +122,13 @@ func (s *scriptedModel) GenerateContent(
 // returns the matched tool's response map for replyFromToolOutput.
 func (s *scriptedModel) match(req *model.LLMRequest) (*scriptRule, map[string]any) {
 	lastTool, lastText, toolOutput := latestMoment(req)
+	failed := toolOutput != nil && toolOutput["error"] != nil
 	for i := range s.rules {
 		r := &s.rules[i]
 		switch {
-		case r.AfterTool != "" && lastTool != "" && r.AfterTool == lastTool:
+		case r.AfterToolFailed != "" && lastTool != "" && r.AfterToolFailed == lastTool && failed:
+			return r, toolOutput
+		case r.AfterTool != "" && lastTool != "" && r.AfterTool == lastTool && !failed:
 			return r, toolOutput
 		case r.WhenMessageContains != "" && lastText != "" &&
 			strings.Contains(strings.ToLower(lastText), strings.ToLower(r.WhenMessageContains)):

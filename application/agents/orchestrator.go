@@ -367,7 +367,13 @@ func (o *Orchestrator) runTurn(
 	}
 
 	text := out.String()
-	if episodeMessage != "" && text != "" {
+	if episodeMessage != "" && text == "" {
+		// A turn can legitimately end with no prose (e.g. a rejection whose
+		// next action was another tool call). The episode still matters —
+		// "rejections are written back" is only true if a silent turn is
+		// recorded too.
+		o.recordEpisode(ctx, conversationID, userID, episodeMessage, "[no textual reply]")
+	} else if episodeMessage != "" {
 		o.recordEpisode(ctx, conversationID, userID, episodeMessage, text)
 	}
 	// Server-side validation: whatever the model produced renders — contract
