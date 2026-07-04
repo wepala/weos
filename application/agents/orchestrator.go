@@ -17,6 +17,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -151,7 +152,7 @@ func (o *Orchestrator) Converse(
 	ctx context.Context, conversationID, userID, message string,
 ) (widgets.Response, error) {
 	var out widgets.Response
-	err := o.ConverseStream(ctx, conversationID, userID, message, func(e entities.AgentEvent) {
+	err := o.ConverseStream(ctx, conversationID, userID, message, "", func(e entities.AgentEvent) {
 		if e.Type == entities.AgentEventWidgets && e.Widgets != nil {
 			out = *e.Widgets
 		}
@@ -164,34 +165,150 @@ type EventSink func(entities.AgentEvent)
 
 // ConverseStream runs one turn, emitting text deltas as the model produces
 // them, an input_requested event when a mutating tool awaits the user's
-// confirmation, and finally the validated widgets plus done.
+// confirmation, and finally the validated widgets plus done. A non-empty
+// skill converses with that one skill directly (built as the root agent,
+// no coordinator routing); empty keeps the coordinator.
 func (o *Orchestrator) ConverseStream(
-	ctx context.Context, conversationID, userID, message string, emit EventSink,
+	ctx context.Context, conversationID, userID, message, skill string, emit EventSink,
 ) error {
 	content := &genai.Content{Parts: []*genai.Part{{Text: message}}, Role: genai.RoleUser}
-	return o.runTurn(ctx, conversationID, userID, content, message, emit)
+	return o.runTurn(ctx, conversationID, userID, content, message, skill, emit)
 }
 
 // ResumeConfirmation answers a pending tool confirmation (per the ADK
 // tool-confirmation protocol) and streams the rest of the turn. The pending
 // call lives in the durable session, so a confirmation survives refreshes
-// and restarts.
+// and restarts. A non-nil payload rides the confirmation response into
+// ADK's ToolConfirmation.Payload — the toolset substitutes it for the
+// call's arguments on approval (approve-with-edits) — and is durable for
+// the same reason the confirmation is. On a rejection the payload is
+// dropped: nothing executes, so persisting edited args would only bloat
+// the session. skill must name the same skill the paused turn ran as (the
+// resumed turn rebuilds the same root); empty means the coordinator.
 func (o *Orchestrator) ResumeConfirmation(
-	ctx context.Context, conversationID, userID, callID string, confirmed bool, emit EventSink,
+	ctx context.Context, conversationID, userID, callID string, confirmed bool,
+	payload map[string]any, skill string, emit EventSink,
 ) error {
+	// Checked here as well as in runTurn: the episode-detail session read
+	// below would otherwise dereference a nil session service.
+	if !o.Configured() {
+		return ErrNotConfigured
+	}
+	if !confirmed {
+		payload = nil
+	}
+	response := map[string]any{"confirmed": confirmed}
+	if payload != nil {
+		response["payload"] = payload
+	}
 	content := &genai.Content{
 		Role: genai.RoleUser,
 		Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{
 			Name:     toolconfirmation.FunctionCallName,
 			ID:       callID,
-			Response: map[string]any{"confirmed": confirmed},
+			Response: response,
 		}}},
 	}
 	episode := "[approved a pending action]"
-	if !confirmed {
+	switch {
+	case confirmed && payload != nil:
+		episode = "[approved a pending action with edits]"
+	case !confirmed:
 		episode = "[rejected a pending action]"
 	}
-	return o.runTurn(ctx, conversationID, userID, content, episode, emit)
+	// The episode carries what was proposed and what the user chose, so the
+	// turn's note gives consolidation the correction signal — proposed-vs-
+	// chosen per approval — not just the fact that something was approved.
+	episode += o.confirmationEpisodeDetail(ctx, userID, conversationID, callID, payload)
+	return o.runTurn(ctx, conversationID, userID, content, episode, skill, emit)
+}
+
+// episodeDetailCap bounds one proposed/chosen blob in an episode; a huge
+// tool payload must not turn the note store into a payload archive.
+const episodeDetailCap = 4000
+
+// confirmationEpisodeDetail renders the pending call's proposal (its
+// original arguments, read from the durable session) and the user's chosen
+// payload as note-friendly lines. Best-effort: a session read failure just
+// yields a plainer episode — remembering must not break answering.
+func (o *Orchestrator) confirmationEpisodeDetail(
+	ctx context.Context, userID, conversationID, callID string, payload map[string]any,
+) string {
+	detail := ""
+	if tool, args := o.pendingCallProposal(ctx, userID, conversationID, callID); tool != "" {
+		detail += "\ntool: " + tool
+		if len(args) > 0 {
+			detail += "\nproposed: " + boundedJSON(args, episodeDetailCap)
+		}
+	}
+	if payload != nil {
+		detail += "\nchosen: " + boundedJSON(payload, episodeDetailCap)
+	}
+	return detail
+}
+
+// pendingCallProposal finds the paused tool call in the conversation's
+// session and returns the tool name and the arguments the model proposed.
+func (o *Orchestrator) pendingCallProposal(
+	ctx context.Context, userID, conversationID, callID string,
+) (string, map[string]any) {
+	resp, err := o.sessions.Get(ctx, &session.GetRequest{
+		AppName:   OrchestratorAppName,
+		UserID:    userID,
+		SessionID: conversationID,
+	})
+	if err != nil {
+		o.logger.Debug(ctx, "episode detail unavailable: session read failed", "error", err.Error())
+		return "", nil
+	}
+	for event := range resp.Session.Events().All() {
+		if event.Content == nil {
+			continue
+		}
+		for _, p := range event.Content.Parts {
+			if p == nil || p.FunctionCall == nil ||
+				p.FunctionCall.Name != toolconfirmation.FunctionCallName || p.FunctionCall.ID != callID {
+				continue
+			}
+			orig, oerr := toolconfirmation.OriginalCallFrom(p.FunctionCall)
+			if oerr != nil || orig == nil {
+				return "", nil
+			}
+			return orig.Name, orig.Args
+		}
+	}
+	return "", nil
+}
+
+// boundedJSON renders v as JSON within limit bytes — by dropping whole
+// interpretation lines (with an omittedLines count) when the value carries
+// an interpretations array, never by cutting mid-JSON: every consumer of
+// the blob parses the whole thing, so a byte-truncated blob would lose
+// EVERY line's signal, not just the overflow.
+func boundedJSON(v any, limit int) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	if len(raw) <= limit {
+		return string(raw)
+	}
+	if m, ok := v.(map[string]any); ok {
+		if lines, ok := m["interpretations"].([]any); ok {
+			trimmed := make(map[string]any, len(m)+1)
+			for k, val := range m {
+				trimmed[k] = val
+			}
+			for n := len(lines) - 1; n >= 0; n-- {
+				trimmed["interpretations"] = lines[:n]
+				trimmed["omittedLines"] = len(lines) - n
+				if raw, err = json.Marshal(trimmed); err == nil && len(raw) <= limit {
+					return string(raw)
+				}
+			}
+		}
+	}
+	return `{"omitted":"the blob exceeded the episode size cap"}`
 }
 
 // History returns the conversation so far, oldest first. A conversation
@@ -240,15 +357,16 @@ func isSessionNotFound(err error) bool {
 }
 
 // runTurn drives the runner for one inbound content (a user message or a
-// confirmation response) and emits the turn's events.
+// confirmation response) and emits the turn's events. A non-empty skill
+// builds that skill as the root instead of the coordinator.
 func (o *Orchestrator) runTurn(
 	ctx context.Context, conversationID, userID string,
-	content *genai.Content, episodeMessage string, emit EventSink,
+	content *genai.Content, episodeMessage, skill string, emit EventSink,
 ) error {
 	if !o.Configured() {
 		return ErrNotConfigured
 	}
-	root, err := o.buildRoot(ctx)
+	root, err := o.rootFor(ctx, skill)
 	if err != nil {
 		return err
 	}
@@ -277,7 +395,13 @@ func (o *Orchestrator) runTurn(
 	}
 
 	text := out.String()
-	if episodeMessage != "" && text != "" {
+	if episodeMessage != "" && text == "" {
+		// A turn can legitimately end with no prose (e.g. a rejection whose
+		// next action was another tool call). The episode still matters —
+		// "rejections are written back" is only true if a silent turn is
+		// recorded too.
+		o.recordEpisode(ctx, conversationID, userID, episodeMessage, "[no textual reply]")
+	} else if episodeMessage != "" {
 		o.recordEpisode(ctx, conversationID, userID, episodeMessage, text)
 	}
 	// Server-side validation: whatever the model produced renders — contract
@@ -336,6 +460,55 @@ func (o *Orchestrator) recordEpisode(ctx context.Context, conversationID, userID
 		o.logger.Error(ctx, "failed to record conversation episode",
 			"conversationID", conversationID, "error", err.Error())
 	}
+}
+
+// rootFor picks the turn's root agent: the named skill built as root
+// (direct invocation), or the coordinator when skill is empty.
+func (o *Orchestrator) rootFor(ctx context.Context, skill string) (agent.Agent, error) {
+	if skill == "" {
+		return o.buildRoot(ctx)
+	}
+	return o.buildSkillRoot(ctx, skill)
+}
+
+// buildSkillRoot builds one named skill as the conversation's root agent —
+// the direct-invocation path a client uses to keep its flow deterministic
+// instead of relying on coordinator routing.
+func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.Agent, error) {
+	o.mu.RLock()
+	skills := o.skills
+	toolsets := o.toolsets
+	o.mu.RUnlock()
+
+	if skills == nil {
+		return nil, fmt.Errorf("unknown skill %q: no skills are loaded", name)
+	}
+	defs, err := skills(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load skills: %w", err)
+	}
+	var def *entities.SkillDefinition
+	for i := range defs {
+		if defs[i].Name == name {
+			def = &defs[i]
+			break
+		}
+	}
+	if def == nil {
+		return nil, fmt.Errorf("unknown skill %q", name)
+	}
+
+	var ts tool.Toolset
+	if toolsets != nil {
+		if ts, err = toolsets(ctx); err != nil {
+			return nil, fmt.Errorf("open toolset: %w", err)
+		}
+	}
+	root, err := BuildSkillRootAgent(*def, o.model, ts)
+	if err != nil {
+		return nil, fmt.Errorf("build skill root %q: %w", name, err)
+	}
+	return root, nil
 }
 
 // buildRoot assembles the coordinator with one sub-agent per loaded skill.

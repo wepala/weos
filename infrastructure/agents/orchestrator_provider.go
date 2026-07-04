@@ -18,12 +18,14 @@ package agents
 import (
 	"context"
 	"fmt"
+	"os"
 
 	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/domain/entities"
 	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
 	"github.com/wepala/weos/v3/internal/config"
 
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/session/database"
 )
 
@@ -36,17 +38,28 @@ import (
 // GORM-backed session service over the same DSN), so multi-turn
 // conversations survive process restarts.
 func ProvideOrchestrator(cfg config.Config, logger entities.Logger) (*appagents.Orchestrator, error) {
-	adk := NewADKConfig(cfg)
-	if adk == nil {
+	m, err := provideModel(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
 		return appagents.NewOrchestrator(nil, nil, logger), nil
 	}
 
-	m, err := adk.CreateGeminiModel(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("create agent model: %w", err)
+	// The agent session store is high-churn (an event appended per turn
+	// step) and independent of the resource graph. On SQLite it shares the
+	// single-writer lock with the resource store and the background
+	// subscribers, so under load — a conversation turn writing while memory
+	// consolidation writes a fact — the two contend. AGENT_SESSION_DSN
+	// points the session store at its own database to remove that
+	// contention; it defaults to the main DSN (one file, unchanged
+	// behavior). Postgres has no single-writer limit, so this only matters
+	// for SQLite deployments.
+	sessionDSN := cfg.DatabaseDSN
+	if v := os.Getenv("AGENT_SESSION_DSN"); v != "" {
+		sessionDSN = v
 	}
-
-	sessions, err := database.NewSessionService(gormdb.DialectorForDSN(cfg.DatabaseDSN))
+	sessions, err := database.NewSessionService(gormdb.DialectorForDSN(sessionDSN))
 	if err != nil {
 		return nil, fmt.Errorf("create agent session service: %w", err)
 	}
@@ -55,4 +68,29 @@ func ProvideOrchestrator(cfg config.Config, logger entities.Logger) (*appagents.
 	}
 
 	return appagents.NewOrchestrator(m, sessions, logger), nil
+}
+
+// provideModel picks the agent's LLM: the scripted test model when
+// WEOS_AGENT_SCRIPT is set (deterministic turns, no key — see #420), else
+// Gemini when configured, else nil (agent unconfigured).
+func provideModel(cfg config.Config, logger entities.Logger) (model.LLM, error) {
+	if script := os.Getenv(AgentScriptEnv); script != "" {
+		m, err := NewScriptedModel(script)
+		if err != nil {
+			return nil, fmt.Errorf("load %s: %w", AgentScriptEnv, err)
+		}
+		logger.Warn(context.Background(),
+			"agent runs on a SCRIPTED model (test harness) — never use this in production",
+			"script", script)
+		return m, nil
+	}
+	adk := NewADKConfig(cfg)
+	if adk == nil {
+		return nil, nil
+	}
+	m, err := adk.CreateGeminiModel(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("create agent model: %w", err)
+	}
+	return m, nil
 }

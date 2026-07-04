@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"iter"
 	"strings"
@@ -93,6 +94,144 @@ func TestOrchestrator_BuildRootSkipsBrokenSkill(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_DirectSkillInvocation(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	o.SetSkillSource(func(context.Context) ([]entities.SkillDefinition, error) {
+		return []entities.SkillDefinition{
+			// Non-chat modes on purpose: the root build must override both —
+			// the ADK runner rejects any non-chat root, and a root task agent
+			// would additionally get a parentless finish_task tool.
+			{SchemaVersion: 1, Name: "statement_import", Description: "d", Instructions: "i",
+				Mode: entities.SkillModeTask},
+			{SchemaVersion: 1, Name: "quick_answer", Description: "d", Instructions: "i",
+				Mode: entities.SkillModeSingleTurn},
+		}, nil
+	})
+
+	root, err := o.buildSkillRoot(context.Background(), "statement_import")
+	if err != nil {
+		t.Fatalf("buildSkillRoot: %v", err)
+	}
+	if root.Name() != "statement_import" {
+		t.Errorf("root = %q, want the skill itself", root.Name())
+	}
+	if len(root.SubAgents()) != 0 {
+		t.Errorf("a skill root must have no sub-agents, got %d", len(root.SubAgents()))
+	}
+
+	// The seam is additive: a full turn against the skill still emits the
+	// standard event sequence — for the single_turn skill too, which would
+	// fail outright if the root build preserved its declared mode.
+	for _, skillName := range []string{"statement_import", "quick_answer"} {
+		var types []string
+		err = o.ConverseStream(context.Background(), "c-"+skillName, "u1", "q", skillName,
+			func(e entities.AgentEvent) { types = append(types, e.Type) })
+		if err != nil {
+			t.Fatalf("ConverseStream(%s): %v", skillName, err)
+		}
+		if len(types) == 0 || types[len(types)-1] != entities.AgentEventDone {
+			t.Errorf("%s event types = %v, want a done-terminated turn", skillName, types)
+		}
+	}
+}
+
+func TestOrchestrator_UnknownSkillErrors(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	o.SetSkillSource(func(context.Context) ([]entities.SkillDefinition, error) {
+		return []entities.SkillDefinition{
+			{SchemaVersion: 1, Name: "other", Description: "d", Instructions: "i",
+				Mode: entities.SkillModeTask},
+		}, nil
+	})
+
+	err := o.ConverseStream(context.Background(), "c1", "u1", "q", "statement_import",
+		func(entities.AgentEvent) {})
+	if err == nil || !strings.Contains(err.Error(), `unknown skill "statement_import"`) {
+		t.Fatalf("expected unknown-skill error, got: %v", err)
+	}
+
+	// No skills loaded at all must also be a clear error, not a nil deref.
+	bare := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	err = bare.ConverseStream(context.Background(), "c1", "u1", "q", "statement_import",
+		func(entities.AgentEvent) {})
+	if err == nil || !strings.Contains(err.Error(), "unknown skill") {
+		t.Fatalf("expected unknown-skill error with no skills loaded, got: %v", err)
+	}
+}
+
+func TestOrchestrator_ResumeConfirmationNotConfigured(t *testing.T) {
+	o := NewOrchestrator(nil, nil, testLogger{})
+
+	// The episode-detail session read must not run (nil session service
+	// would panic); the call must fail like every other unconfigured turn.
+	err := o.ResumeConfirmation(context.Background(), "c1", "u1", "call-1", true,
+		map[string]any{"a": 1}, "", func(entities.AgentEvent) {})
+	if !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("expected ErrNotConfigured, got: %v", err)
+	}
+}
+
+func TestOrchestrator_RejectionDropsPayload(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+	var episode string
+	o.SetEpisodeRecorder(func(_ context.Context, _, _, message, _ string) error {
+		episode = message
+		return nil
+	})
+
+	// The contract: a payload on a rejection is ignored — neither the
+	// confirmation response nor the episode may carry the edited args.
+	err := o.ResumeConfirmation(context.Background(), "c1", "u1", "call-1", false,
+		map[string]any{"edited": "args"}, "", func(entities.AgentEvent) {})
+	if err != nil {
+		t.Fatalf("ResumeConfirmation: %v", err)
+	}
+	if !strings.Contains(episode, "[rejected a pending action]") {
+		t.Fatalf("episode = %q, want the rejection marker", episode)
+	}
+	if strings.Contains(episode, "chosen:") || strings.Contains(episode, "edited") {
+		t.Errorf("a rejected payload leaked into the episode: %q", episode)
+	}
+}
+
+func TestConfirmationEpisodeDetail_MissingCallStaysPlain(t *testing.T) {
+	o := NewOrchestrator(scriptedLLM{text: "ok"}, session.InMemoryService(), testLogger{})
+
+	// No such session/call: the episode gains only the chosen payload — a
+	// session read failure must never break remembering the user's choice.
+	detail := o.confirmationEpisodeDetail(context.Background(), "u1", "conv-x", "call-9",
+		map[string]any{"statementId": "urn:statement:1"})
+	if !strings.Contains(detail, `"statementId":"urn:statement:1"`) || strings.Contains(detail, "proposed:") {
+		t.Errorf("detail = %q, want chosen-only", detail)
+	}
+}
+
+func TestBoundedJSON_DropsWholeLinesNeverMidJSON(t *testing.T) {
+	// An oversized interpretations payload trims whole lines and stays
+	// valid JSON with an omittedLines count.
+	lines := make([]any, 0, 100)
+	for i := 0; i < 100; i++ {
+		lines = append(lines, map[string]any{"description": strings.Repeat("m", 80), "treatment": "expense"})
+	}
+	out := boundedJSON(map[string]any{"statementId": "urn:statement:1", "interpretations": lines}, 2000)
+	if len(out) > 2000 {
+		t.Fatalf("blob exceeds the cap: %d bytes", len(out))
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("capped blob must stay valid JSON: %v — %s", err, out)
+	}
+	if parsed["omittedLines"] == nil {
+		t.Error("a trimmed blob must say how many lines were dropped")
+	}
+
+	// A non-conforming oversized value degrades to a valid marker object.
+	out = boundedJSON(map[string]any{"v": strings.Repeat("x", 5000)}, 100)
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("fallback blob must stay valid JSON: %v", err)
+	}
+}
+
 func TestOrchestrator_ConverseMultiTurnSharesSession(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "answer"}, session.InMemoryService(), testLogger{})
 
@@ -145,7 +284,7 @@ func TestOrchestrator_ConverseStreamEmitsTextWidgetsDone(t *testing.T) {
 	o := NewOrchestrator(scriptedLLM{text: "streamed"}, session.InMemoryService(), testLogger{})
 
 	var types []string
-	err := o.ConverseStream(context.Background(), "c1", "u1", "q", func(e entities.AgentEvent) {
+	err := o.ConverseStream(context.Background(), "c1", "u1", "q", "", func(e entities.AgentEvent) {
 		types = append(types, e.Type)
 	})
 	if err != nil {

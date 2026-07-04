@@ -26,7 +26,7 @@ func TestSqliteDSNWithWorkerPragmas(t *testing.T) {
 	t.Run("adds all pragmas to a bare file DSN", func(t *testing.T) {
 		got := sqliteDSNWithWorkerPragmas("weos.db")
 		for _, want := range []string{
-			"_pragma=journal_mode(WAL)", "_pragma=busy_timeout(5000)", "_txlock=immediate",
+			"_pragma=journal_mode(WAL)", "_pragma=busy_timeout(15000)", "_txlock=immediate",
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("expected %q in %q", want, got)
@@ -48,7 +48,7 @@ func TestSqliteDSNWithWorkerPragmas(t *testing.T) {
 			t.Errorf("should preserve existing params, got %q", got)
 		}
 		// The missing pragmas are still appended with '&'.
-		if !strings.Contains(got, "_pragma=busy_timeout(5000)") ||
+		if !strings.Contains(got, "_pragma=busy_timeout(15000)") ||
 			!strings.Contains(got, "_txlock=immediate") {
 			t.Errorf("expected missing pragmas appended, got %q", got)
 		}

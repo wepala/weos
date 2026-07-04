@@ -43,7 +43,9 @@ func NewAgentHandler(agent application.ConversationalAgent, logger entities.Logg
 }
 
 // SendMessage handles POST /agent/conversations/:conversationID/messages.
-// The response is a server-sent event stream of entities.AgentEvent.
+// The response is a server-sent event stream of entities.AgentEvent. An
+// optional ?skill=<name> converses with that one skill directly instead of
+// the coordinator (direct invocation for deterministic client flows).
 func (h *AgentHandler) SendMessage(c echo.Context) error {
 	var body struct {
 		Message string `json:"message"`
@@ -53,27 +55,40 @@ func (h *AgentHandler) SendMessage(c echo.Context) error {
 	}
 	return h.stream(c, func(emit appagents.EventSink) error {
 		return h.agent.ConverseStream(
-			c.Request().Context(), c.Param("conversationID"), userIDFrom(c), body.Message, emit,
+			c.Request().Context(), c.Param("conversationID"), userIDFrom(c),
+			body.Message, c.QueryParam("skill"), emit,
 		)
 	})
 }
 
 // Confirm handles POST /agent/conversations/:conversationID/confirmations/:callID.
 // It answers a pending mutating-tool confirmation and streams the rest of
-// the turn.
+// the turn. An approval may carry a payload object that replaces the tool
+// call's arguments (approve-with-edits); a present payload must be a JSON
+// object.
 func (h *AgentHandler) Confirm(c echo.Context) error {
 	// Pointer bool: a body that omits "confirmed" must be a 400, not a
-	// silent rejection of the pending call.
+	// silent rejection of the pending call. Payload binds as raw JSON so
+	// an explicit null is rejected instead of being mistaken for an
+	// omitted payload (which falls back to the model-proposed args).
 	var body struct {
-		Confirmed *bool `json:"confirmed"`
+		Confirmed *bool           `json:"confirmed"`
+		Payload   json.RawMessage `json:"payload"`
 	}
+	const confirmUsage = "confirmed (boolean) is required; payload, when present, must be a JSON object"
 	if err := c.Bind(&body); err != nil || body.Confirmed == nil {
-		return respondError(c, http.StatusBadRequest, "confirmed is required")
+		return respondError(c, http.StatusBadRequest, confirmUsage)
+	}
+	var payload map[string]any
+	if len(body.Payload) > 0 {
+		if err := json.Unmarshal(body.Payload, &payload); err != nil || payload == nil {
+			return respondError(c, http.StatusBadRequest, confirmUsage)
+		}
 	}
 	return h.stream(c, func(emit appagents.EventSink) error {
 		return h.agent.ResumeConfirmation(
 			c.Request().Context(), c.Param("conversationID"), userIDFrom(c),
-			c.Param("callID"), *body.Confirmed, emit,
+			c.Param("callID"), *body.Confirmed, payload, c.QueryParam("skill"), emit,
 		)
 	})
 }

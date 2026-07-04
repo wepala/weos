@@ -103,14 +103,28 @@ async function streamAgentEvents(
   }
 }
 
+export interface AgentTurnOptions {
+  // Converse with one named skill directly (built as the turn's root agent,
+  // no coordinator routing). A confirmation must repeat the skill the paused
+  // turn ran with. Payload on an approval replaces the pending tool call's
+  // arguments wholesale (approve-with-edits).
+  skill?: string
+  payload?: Record<string, unknown>
+}
+
+function skillQuery(skill?: string): string {
+  return skill ? `?skill=${encodeURIComponent(skill)}` : ''
+}
+
 export function useAgentApi() {
   function sendMessage(
     conversationId: string,
     message: string,
     onEvent: (e: AgentEvent) => void,
+    opts: AgentTurnOptions = {},
   ) {
     return streamAgentEvents(
-      `/api/agent/conversations/${encodeURIComponent(conversationId)}/messages`,
+      `/api/agent/conversations/${encodeURIComponent(conversationId)}/messages${skillQuery(opts.skill)}`,
       { message },
       onEvent,
     )
@@ -121,10 +135,13 @@ export function useAgentApi() {
     callId: string,
     confirmed: boolean,
     onEvent: (e: AgentEvent) => void,
+    opts: AgentTurnOptions = {},
   ) {
+    const body: Record<string, unknown> = { confirmed }
+    if (opts.payload !== undefined) body.payload = opts.payload
     return streamAgentEvents(
-      `/api/agent/conversations/${encodeURIComponent(conversationId)}/confirmations/${encodeURIComponent(callId)}`,
-      { confirmed },
+      `/api/agent/conversations/${encodeURIComponent(conversationId)}/confirmations/${encodeURIComponent(callId)}${skillQuery(opts.skill)}`,
+      body,
       onEvent,
     )
   }
