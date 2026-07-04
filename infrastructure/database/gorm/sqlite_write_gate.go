@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
 	gosqlite "github.com/glebarez/go-sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -155,27 +157,32 @@ func isSQLiteBusy(err error) bool {
 	return errors.As(err, &e) && e.Code()&0xff == sqliteBusyCode
 }
 
-// gatedSQLiteDialector decorates the glebarez dialector so Initialize swaps
-// the raw *sql.DB ConnPool for the write-gated wrapper. Wrapping inside the
-// dialector (not after gorm.Open) means every caller of DialectorForDSN gets
-// the gate — nothing opts in, nothing can forget to.
-type gatedSQLiteDialector struct {
-	gorm.Dialector
-	dsn string
-}
-
-func (d gatedSQLiteDialector) Initialize(db *gorm.DB) error {
-	if err := d.Dialector.Initialize(db); err != nil {
-		return err
+// newGatedSQLiteDialector opens the raw *sql.DB itself and hands the glebarez
+// dialector a pre-wrapped ConnPool via its Conn field (its Initialize then
+// skips sql.Open and installs the Conn as-is). Building the concrete
+// *sqlite.Dialector — rather than decorating the gorm.Dialector interface —
+// keeps its full method set visible to gorm's optional-interface assertions:
+// an interface-embedding wrapper hides SavePoint/RollbackTo
+// (SavePointerDialectorInterface) and Translate (ErrorTranslator), which
+// breaks every savepoint (pericarp brackets each subscriber handler attempt
+// in one) with "unsupported driver".
+//
+// augmentedDSN carries the worker pragmas; rawDSN keys the per-file gate.
+func newGatedSQLiteDialector(augmentedDSN, rawDSN string) gorm.Dialector {
+	sqlDB, err := sql.Open(sqlite.DriverName, augmentedDSN)
+	if err != nil {
+		// Effectively unreachable: the driver is registered by the
+		// glebarez/go-sqlite import above, and sql.Open defers DSN parsing
+		// to connection time. Degrade to the ungated dialector (stderr only:
+		// stdout carries the MCP stdio protocol) rather than panic.
+		fmt.Fprintf(os.Stderr, "weos: sqlite write gate disabled: %v\n", err)
+		return sqlite.Open(augmentedDSN)
 	}
-	sqlDB, ok := db.ConnPool.(*sql.DB)
-	if !ok {
-		// A pre-supplied Conn or a wrapping gorm config (e.g. PrepareStmt)
-		// got here first; leave it alone rather than double-wrap.
-		return nil
+	return &sqlite.Dialector{
+		DriverName: sqlite.DriverName,
+		DSN:        augmentedDSN,
+		Conn:       &gatedConnPool{db: sqlDB, gate: writeGateFor(rawDSN)},
 	}
-	db.ConnPool = &gatedConnPool{db: sqlDB, gate: writeGateFor(d.dsn)}
-	return nil
 }
 
 // gatedConnPool implements gorm.ConnPool over the raw *sql.DB. Reads and

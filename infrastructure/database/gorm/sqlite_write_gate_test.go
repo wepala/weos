@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -332,13 +333,57 @@ func TestBeginWithBusyRetry_TransientBusyRecovers(t *testing.T) {
 }
 
 // TestGatedDialector_MemoryDSNSkipsGate: in-memory databases keep the plain
-// dialector (a shared ":memory:" gate would serialize unrelated databases).
+// dialector (a shared ":memory:" gate would serialize unrelated databases);
+// file DSNs get the concrete glebarez dialector with a gated Conn preset —
+// concrete so gorm still sees SavePoint/RollbackTo/Translate.
 func TestGatedDialector_MemoryDSNSkipsGate(t *testing.T) {
-	if _, ok := DialectorForDSN(":memory:").(gatedSQLiteDialector); ok {
+	if d, ok := DialectorForDSN(":memory:").(*sqlite.Dialector); ok && d.Conn != nil {
 		t.Fatal(":memory: DSN should not be write-gated")
 	}
-	if _, ok := DialectorForDSN("file.db").(gatedSQLiteDialector); !ok {
-		t.Fatal("file DSN should be write-gated")
+	d, ok := DialectorForDSN("file.db").(*sqlite.Dialector)
+	if !ok {
+		t.Fatalf("file DSN should produce the concrete glebarez dialector, got %T", DialectorForDSN("file.db"))
+	}
+	if _, ok := d.Conn.(*gatedConnPool); !ok {
+		t.Fatalf("file DSN should be write-gated, Conn is %T", d.Conn)
+	}
+	if _, ok := DialectorForDSN("file.db").(gorm.SavePointerDialectorInterface); !ok {
+		t.Fatal("gated dialector must keep SavePoint/RollbackTo visible (subscriber batches depend on savepoints)")
+	}
+}
+
+// TestGatedDB_SavepointsWork pins the regression the interface-embedding
+// wrapper caused: pericarp brackets every subscriber handler attempt in a
+// savepoint, so SAVEPOINT/ROLLBACK TO must work on a gated transaction.
+func TestGatedDB_SavepointsWork(t *testing.T) {
+	db := openGatedTestDB(t)
+
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatalf("begin: %v", tx.Error)
+	}
+	if err := tx.SavePoint("sp1").Error; err != nil {
+		t.Fatalf("savepoint on a gated tx: %v", err)
+	}
+	if err := tx.Create(&gateTestRow{Name: "discarded"}).Error; err != nil {
+		t.Fatalf("create after savepoint: %v", err)
+	}
+	if err := tx.RollbackTo("sp1").Error; err != nil {
+		t.Fatalf("rollback to savepoint: %v", err)
+	}
+	if err := tx.Create(&gateTestRow{Name: "kept"}).Error; err != nil {
+		t.Fatalf("create after rollback-to: %v", err)
+	}
+	if err := tx.Commit().Error; err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	var names []string
+	if err := db.Model(&gateTestRow{}).Pluck("name", &names).Error; err != nil {
+		t.Fatalf("pluck: %v", err)
+	}
+	if len(names) != 1 || names[0] != "kept" {
+		t.Fatalf("expected only the post-savepoint row to survive, got %v", names)
 	}
 }
 

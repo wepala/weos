@@ -1,4 +1,3 @@
-@wip
 Feature: SQLite write bursts queue instead of failing with database-is-locked
   As an operator running WeOS on SQLite
   I want concurrent writes to queue for the database instead of erroring

@@ -137,14 +137,14 @@ func DialectorForDSN(dsn string) gorm.Dialector {
 	if config.IsPostgresDSN(dsn) {
 		return postgres.Open(dsn)
 	}
-	inner := sqlite.Open(sqliteDSNWithWorkerPragmas(dsn))
+	augmented := sqliteDSNWithWorkerPragmas(dsn)
 	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
 		// In-memory databases are single-connection and unique per DSN;
 		// keying a shared gate on ":memory:" would serialize unrelated test
 		// databases against each other. Skip the gate, same as the pragmas.
-		return inner
+		return sqlite.Open(augmented)
 	}
-	return gatedSQLiteDialector{Dialector: inner, dsn: dsn}
+	return newGatedSQLiteDialector(augmented, dsn)
 }
 
 // sqliteDSNWithWorkerPragmas augments a file-based SQLite DSN with the pragmas
