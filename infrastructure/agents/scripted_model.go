@@ -47,6 +47,11 @@ type scriptCall struct {
 	Tool                string         `json:"tool"`
 	Args                map[string]any `json:"args,omitempty"`
 	ArgsFromMessageJSON bool           `json:"argsFromMessageJSON,omitempty"`
+	// ArgsFromToolOutputField takes the named field of the PREVIOUS tool's
+	// output object as this call's arguments — how a scripted chain passes a
+	// tool-composed object (e.g. run_interpretation's proposal) to the next
+	// call the way a live model would.
+	ArgsFromToolOutputField string `json:"argsFromToolOutputField,omitempty"`
 }
 
 // scriptRule matches one moment of a conversation. Exactly one trigger:
@@ -138,6 +143,16 @@ func (s *scriptedModel) respond(req *model.LLMRequest, rule *scriptRule, toolOut
 		args := rule.Call.Args
 		if rule.Call.ArgsFromMessageJSON {
 			args = fencedJSONArgs(latestUserText(req))
+		}
+		if f := rule.Call.ArgsFromToolOutputField; f != "" && toolOutput != nil {
+			// MCP structured outputs arrive wrapped under "output".
+			source := toolOutput
+			if inner, ok := toolOutput["output"].(map[string]any); ok {
+				source = inner
+			}
+			if picked, ok := source[f].(map[string]any); ok {
+				args = picked
+			}
 		}
 		if args == nil {
 			args = map[string]any{}
