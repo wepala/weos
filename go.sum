@@ -60,8 +60,8 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapp
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.55.0/go.mod h1:Mf6O40IAyB9zR/1J8nGDDPirZQQPbYJni8Yisy7NTMc=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
-github.com/akeemphilbert/pericarp v1.0.0-beta.1 h1:E91m5+Qhxq+zaDuOiBjaf3hag+VUAJqNLtx1vQEReyc=
-github.com/akeemphilbert/pericarp v1.0.0-beta.1/go.mod h1:feH/H38KCgoH+69m8+X/B++JRQKux2goR4BYASfahDE=
+github.com/akeemphilbert/pericarp v1.0.0-beta.2 h1:n3NA/fGLSpK3/jYYz6sVbVTImQeFkHL0Rbx6j3+K9DE=
+github.com/akeemphilbert/pericarp v1.0.0-beta.2/go.mod h1:feH/H38KCgoH+69m8+X/B++JRQKux2goR4BYASfahDE=
 github.com/aws/aws-sdk-go-v2 v1.42.0 h1:XvXMJTkFQtpBKIWZnmr9ZEOc2InWM2yldjXEJ/bymhA=
 github.com/aws/aws-sdk-go-v2 v1.42.0/go.mod h1:27+ACypSLljLAEKsCYOmrjKh83vuTRkuAe9Uv/3A4bg=
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 h1:eBMB84YGghSocM7PsjmmPffTa+1FBUeNvGvFou6V/4o=

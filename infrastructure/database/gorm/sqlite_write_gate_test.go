@@ -347,14 +347,14 @@ func TestBeginWithBusyRetry_TransientBusyRecovers(t *testing.T) {
 }
 
 // TestGatedDB_AmbientBatchTxBypassesGate pins the self-deadlock guard for
-// handlers that begin a NEW transaction from inside a subscriber batch (the
-// consolidation path: handler → ResourceService → UnitOfWork → event store
-// Append). The batch's own BeginTx holds the gate, so without the
-// TxFromContext bypass the nested Begin would queue on the gate its own call
-// stack holds — a permanent, app-wide write wedge. With the bypass it reaches
-// SQLite instead and fails fast with BUSY (bounded by the DSN's busy_timeout)
-// until pericarp's Append learns to join the ambient transaction
-// (akeemphilbert/pericarp#58).
+// code that begins a NEW transaction from inside a subscriber batch. The
+// batch's own BeginTx holds the gate, so without the TxFromContext bypass the
+// nested Begin would queue on the gate its own call stack holds — a
+// permanent, app-wide write wedge. With the bypass it reaches SQLite instead
+// and fails fast with BUSY (bounded by the DSN's busy_timeout). Pericarp's
+// Append joins the ambient transaction itself as of v1.0.0-beta.2
+// (akeemphilbert/pericarp#58), so this raw db.Transaction is the remaining
+// path the bypass protects.
 func TestGatedDB_AmbientBatchTxBypassesGate(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "ambient_test.db") + "?_pragma=busy_timeout(200)"
 	db, err := gorm.Open(DialectorForDSN(dsn), gormConfig())

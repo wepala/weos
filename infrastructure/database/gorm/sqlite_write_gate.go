@@ -278,12 +278,12 @@ func (p *gatedConnPool) GetDBConn() (*sql.DB, error) {
 // A handler already running inside a subscriber's batch transaction (pericarp
 // attaches it via HandlerContext; detected with TxFromContext) bypasses the
 // gate: the batch's own BeginTx acquired it higher up this goroutine's call
-// stack, and re-acquiring a non-reentrant semaphore would deadlock. The
-// bypassed Begin still contends with the batch inside SQLite itself, bounded
-// by busy_timeout — the bypass's only job is to keep that contention from
-// becoming a permanent gate deadlock. The root fix (pericarp's Append joining
-// the ambient transaction) ships separately in akeemphilbert/pericarp#58 and
-// takes effect once weos pins a release containing it.
+// stack, and re-acquiring a non-reentrant semaphore would deadlock. Pericarp's
+// Append joins the ambient transaction itself as of v1.0.0-beta.2
+// (akeemphilbert/pericarp#58), so the bypass now matters only for a raw
+// transaction begun inside a batch outside that path — which still contends
+// with the batch inside SQLite, bounded by busy_timeout. The bypass's only
+// job is to keep that contention from becoming a permanent gate deadlock.
 func (p *gatedConnPool) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.ConnPool, error) {
 	if subscriptions.TxFromContext(ctx) != nil {
 		tx, err := p.db.BeginTx(ctx, opts)
