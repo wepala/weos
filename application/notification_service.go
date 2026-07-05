@@ -220,9 +220,26 @@ func (s *notificationService) findByDedupeKey(
 	return nil, nil
 }
 
+// requireCaller returns the authenticated caller's AgentID, or
+// entities.ErrAccessDenied when ctx carries no identity. The inbox read methods
+// call it up front so a nil/system context (an MCP tool or internal caller that
+// did not attach an identity) is refused rather than served the unscoped,
+// cross-user result the ResourceService system path (nil VisibilityScope,
+// checkInstanceAccess allow-on-nil) would otherwise return. Notify does NOT use
+// this — it is legitimately called from system/producer (domain-event) contexts.
+func requireCaller(ctx context.Context) (string, error) {
+	if id := auth.AgentFromCtx(ctx); id != nil && id.AgentID != "" {
+		return id.AgentID, nil
+	}
+	return "", entities.ErrAccessDenied
+}
+
 func (s *notificationService) List(
 	ctx context.Context, limit int,
 ) ([]NotificationView, error) {
+	if _, err := requireCaller(ctx); err != nil {
+		return nil, err
+	}
 	switch {
 	case limit <= 0:
 		limit = notificationPageSize
@@ -242,6 +259,9 @@ func (s *notificationService) List(
 }
 
 func (s *notificationService) UnreadCount(ctx context.Context) (int, error) {
+	if _, err := requireCaller(ctx); err != nil {
+		return 0, err
+	}
 	count := 0
 	err := s.forEachFlat(ctx, func(row map[string]any) error {
 		if !flatBool(row, "read") {
@@ -253,6 +273,9 @@ func (s *notificationService) UnreadCount(ctx context.Context) (int, error) {
 }
 
 func (s *notificationService) MarkAllRead(ctx context.Context) (int, error) {
+	if _, err := requireCaller(ctx); err != nil {
+		return 0, err
+	}
 	var unreadIDs []string
 	err := s.forEachFlat(ctx, func(row map[string]any) error {
 		if !flatBool(row, "read") {
@@ -276,6 +299,13 @@ func (s *notificationService) MarkAllRead(ctx context.Context) (int, error) {
 func (s *notificationService) MarkRead(
 	ctx context.Context, id string,
 ) (*NotificationView, error) {
+	// Check the caller BEFORE GetFlat: a nil/system caller must be refused
+	// without a read, so it cannot probe id existence (AccessDenied vs NotFound)
+	// through the system-allowed GetFlat path.
+	callerID, err := requireCaller(ctx)
+	if err != nil {
+		return nil, err
+	}
 	row, err := s.resources.GetFlat(ctx, NotificationTypeSlug, id)
 	if err != nil {
 		return nil, err
@@ -286,8 +316,7 @@ func (s *notificationService) MarkRead(
 	// ResourceService admin bypass; refuse unless the caller IS the recipient.
 	// This closes both the content read (the returned view) and the mutate,
 	// and keeps the mark path consistent with the personal-only List path.
-	caller := auth.AgentFromCtx(ctx)
-	if caller == nil || view.Recipient != caller.AgentID {
+	if view.Recipient != callerID {
 		return nil, entities.ErrAccessDenied
 	}
 	if view.Read {

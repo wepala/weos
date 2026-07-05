@@ -59,3 +59,7 @@ Feature: Notification inbox
     When the service notifies "Alice" with title "Salary posted" and key "s-1"
     Then "Manager" cannot read the notification titled "Salary posted"
     And "Manager" is denied marking the notification titled "Salary posted" as read
+
+  Scenario: An inbox read with no identity is refused, not served cross-user
+    When the service notifies "Alice" with title "Private note" and key "p-1"
+    Then a caller with no identity is refused when listing notifications

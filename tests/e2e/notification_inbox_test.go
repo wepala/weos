@@ -110,6 +110,7 @@ func initNotificationInboxScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" is an account admin of "([^"]*)"$`, w.isAccountAdminOf)
 	sc.Step(`^"([^"]*)" cannot read the notification titled "([^"]*)"$`, w.cannotReadTitled)
 	sc.Step(`^"([^"]*)" is denied marking the notification titled "([^"]*)" as read$`, w.deniedMarkingTitled)
+	sc.Step(`^a caller with no identity is refused when listing notifications$`, w.noIdentityListRefused)
 }
 
 // --- Boot & seeding ---
@@ -254,6 +255,21 @@ func (w *notificationWorld) cannotReadTitled(name, title string) error {
 	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{AgentID: u.agentID})
 	if _, err := w.rs.GetByID(ctx, id); !errors.Is(err, entities.ErrAccessDenied) {
 		return fmt.Errorf("reading another member's notification: expected access denied, got: %v", err)
+	}
+	return nil
+}
+
+// noIdentityListRefused invokes the inbox read with a bare context (no agent) —
+// as a misconfigured MCP tool or internal caller would — and asserts it is
+// refused with ErrAccessDenied AND returns no rows, rather than the unscoped
+// cross-user result the ResourceService system path would otherwise yield.
+func (w *notificationWorld) noIdentityListRefused() error {
+	views, err := w.notes.List(context.Background(), 0)
+	if !errors.Is(err, entities.ErrAccessDenied) {
+		return fmt.Errorf("no-identity list: expected access denied, got err=%v with %d rows", err, len(views))
+	}
+	if len(views) != 0 {
+		return fmt.Errorf("no-identity list must not leak rows, got %d", len(views))
 	}
 	return nil
 }
