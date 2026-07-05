@@ -30,6 +30,7 @@ import (
 	"github.com/wepala/weos/v3/pkg/identity"
 	"github.com/wepala/weos/v3/pkg/utils"
 
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -105,6 +106,20 @@ func ProvideResourceRepository(params struct {
 	}, nil
 }
 
+// writeDB returns the gorm handle a resource write must use. When a
+// subscriber's batch transaction is in the context (pericarp injects it via
+// HandlerContext), the write joins that transaction so it runs on the same
+// connection — otherwise, under SQLite, a handler write on a pooled
+// connection deadlocks against the batch's own write lock. Outside a batch
+// (request-path writes) TxFromContext is nil and we fall back to the pooled
+// handle. Same contract as projectionManager.writeDB.
+func (r *ResourceRepository) writeDB(ctx context.Context) *gorm.DB {
+	if tx := subscriptions.TxFromContext(ctx); tx != nil {
+		return tx.WithContext(ctx)
+	}
+	return r.db.WithContext(ctx)
+}
+
 // Save persists a resource to the canonical table and all projection tables.
 // Projection writes are not transactional by design: projections are eventually-consistent
 // read models that can be rebuilt from the event store. A partial failure leaves the
@@ -114,7 +129,7 @@ func (r *ResourceRepository) Save(
 ) error {
 	// Always save to the generic resources table (canonical store).
 	model := models.FromResource(entity)
-	if err := r.db.WithContext(ctx).Create(model).Error; err != nil {
+	if err := r.writeDB(ctx).Create(model).Error; err != nil {
 		return fmt.Errorf("failed to save resource: %w", err)
 	}
 	// Also save to the projection table (denormalized read model) if one exists.
@@ -156,7 +171,7 @@ func (r *ResourceRepository) saveToProjection(
 	r.dropMissingColumns(targetSlug, row)
 	r.populateDisplayColumns(ctx, targetSlug, row,
 		buildLookupScope(entity.AccountID(), entity.CreatedBy()))
-	if err := r.db.WithContext(ctx).Table(tableName).Create(row).Error; err != nil {
+	if err := r.writeDB(ctx).Table(tableName).Create(row).Error; err != nil {
 		return fmt.Errorf("failed to save resource to projection %s: %w", tableName, err)
 	}
 	return nil
@@ -193,7 +208,7 @@ func (r *ResourceRepository) updateProjectionBySlug(
 		}
 	}
 
-	err := r.db.WithContext(ctx).Table(tableName).
+	err := r.writeDB(ctx).Table(tableName).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns(updateCols),
@@ -1270,7 +1285,7 @@ func (r *ResourceRepository) UpdateData(
 	if sequenceNo > 0 {
 		updates["sequence_no"] = sequenceNo
 	}
-	if err := r.db.WithContext(ctx).Model(&models.Resource{}).
+	if err := r.writeDB(ctx).Model(&models.Resource{}).
 		Where("id = ?", id).Updates(updates).Error; err != nil {
 		return fmt.Errorf("failed to update resource data: %w", err)
 	}
@@ -1326,7 +1341,7 @@ func (r *ResourceRepository) updateDataInProjection(
 	if len(row) == 0 {
 		return nil
 	}
-	result := r.db.WithContext(ctx).Table(tableName).
+	result := r.writeDB(ctx).Table(tableName).
 		Where("id = ?", id).Updates(row)
 	if result.Error != nil {
 		return fmt.Errorf("failed to update projection data in %s: %w", tableName, result.Error)
@@ -1340,7 +1355,7 @@ func (r *ResourceRepository) Update(
 ) error {
 	// Always update the generic resources table.
 	model := models.FromResource(entity)
-	if err := r.db.WithContext(ctx).Save(model).Error; err != nil {
+	if err := r.writeDB(ctx).Save(model).Error; err != nil {
 		return fmt.Errorf("failed to update resource: %w", err)
 	}
 	// Also update the projection table if one exists.
@@ -1363,7 +1378,7 @@ func (r *ResourceRepository) Update(
 
 func (r *ResourceRepository) Delete(ctx context.Context, id string) error {
 	// Always delete from the generic resources table.
-	err := r.db.WithContext(ctx).Where("id = ?", id).Delete(&models.Resource{}).Error
+	err := r.writeDB(ctx).Where("id = ?", id).Delete(&models.Resource{}).Error
 	if err != nil {
 		return fmt.Errorf("failed to delete resource: %w", err)
 	}
@@ -1392,7 +1407,7 @@ func (r *ResourceRepository) deleteFromProjectionTable(
 	ctx context.Context, id, targetSlug string,
 ) error {
 	tableName := r.projMgr.TableName(targetSlug)
-	err := r.db.WithContext(ctx).Table(tableName).
+	err := r.writeDB(ctx).Table(tableName).
 		Where("id = ?", id).Delete(map[string]any{}).Error
 	if err != nil {
 		return fmt.Errorf("failed to delete resource from %s: %w", tableName, err)

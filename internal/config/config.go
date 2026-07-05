@@ -172,14 +172,20 @@ type WorkerConfig struct {
 	LagLogInterval time.Duration
 }
 
-// IsPostgres reports whether the configured DSN targets PostgreSQL. Mirrors the
-// driver detection in the GORM provider so the worker runtime can choose the
-// right wake mechanism (Postgres LISTEN/NOTIFY vs in-process notifier).
-func (c Config) IsPostgres() bool {
-	dsn := c.DatabaseDSN
+// IsPostgresDSN reports whether dsn targets PostgreSQL — a "host=" libpq DSN
+// or a postgres(ql):// URI. Everything else is treated as SQLite. This is the
+// single dialect predicate — every DSN-driven driver decision (e.g. the GORM
+// provider's DialectorForDSN, the worker runtime's wake-mechanism choice)
+// must call it so those decisions never diverge between consumers.
+func IsPostgresDSN(dsn string) bool {
 	return strings.HasPrefix(dsn, "host=") ||
 		strings.Contains(dsn, "postgres://") ||
 		strings.Contains(dsn, "postgresql://")
+}
+
+// IsPostgres reports whether the configured DSN targets PostgreSQL.
+func (c Config) IsPostgres() bool {
+	return IsPostgresDSN(c.DatabaseDSN)
 }
 
 // OxigraphConfig holds configuration for the optional Oxigraph knowledge-graph
