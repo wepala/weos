@@ -1,6 +1,90 @@
 package repositories
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNoAccount is returned by KnowledgeGraphStores.ForAccount when per-account
+// mode is enabled but the caller passed an empty account id. Callers resolve
+// the account (and decide fail-closed vs. the local graph) before asking for a
+// store, so an empty id reaching the factory is a programming error, not a
+// routing decision.
+var ErrNoAccount = errors.New("knowledge graph: no account for per-account store")
+
+// KnowledgeGraphStores resolves which KnowledgeGraphStore a caller or a
+// projected event should use. It is the seam that makes many-accounts-in-one-
+// process isolation possible without changing the KnowledgeGraphStore interface:
+//
+//   - In SINGLE-TENANT mode (one embedded Path, one HTTP URL, or nop) it always
+//     returns the one process store, ignoring the account — behavior is
+//     identical to before per-account mode existed.
+//   - In PER-ACCOUNT mode it lazily opens and caches one embedded store per
+//     account under a base directory, so a query for account A can never see
+//     account B's graph.
+type KnowledgeGraphStores interface {
+	// Active reports whether any real backend is wired (false for pure nop),
+	// so registration can skip the projector/tools entirely when the graph is
+	// off.
+	Active() bool
+
+	// PerAccount reports whether per-account isolation is enabled. Call sites
+	// use it to decide whether to resolve an account before querying and how to
+	// handle a missing one (fail closed vs. the local graph).
+	PerAccount() bool
+
+	// ForAccount returns the store for accountID, opening it lazily in
+	// per-account mode. In single-tenant mode accountID is ignored and the one
+	// process store is returned. In per-account mode an empty accountID returns
+	// ErrNoAccount (fail closed) — callers must resolve the account first.
+	ForAccount(ctx context.Context, accountID string) (KnowledgeGraphStore, error)
+
+	// Truncate clears every graph for a checkpoint-reset rebuild: the single
+	// store in single-tenant mode, every account store (open or on disk) in
+	// per-account mode. The subsequent replay re-projects each event into the
+	// owning account's store.
+	Truncate(ctx context.Context) error
+
+	// Close releases every open store (flush + unlock). Registered on the fx
+	// OnStop hook so restarts reopen cleanly without stale directory locks.
+	Close() error
+}
+
+// NewSingleKnowledgeGraphStores adapts one KnowledgeGraphStore to the
+// KnowledgeGraphStores interface for single-tenant mode: ForAccount ignores the
+// account and always returns the wrapped store, Truncate clears it, and Close is
+// a no-op (the wrapped store's own closer is registered separately by the
+// provider that built it). Kept here — rather than in the infrastructure graph
+// package — so both the provider and the application/service unit tests can wrap
+// a store without importing the embedded backend.
+func NewSingleKnowledgeGraphStores(store KnowledgeGraphStore) KnowledgeGraphStores {
+	return singleStores{store: store}
+}
+
+type singleStores struct {
+	store KnowledgeGraphStore
+}
+
+func (s singleStores) Active() bool { return s.store != nil && s.store.Active() }
+
+func (s singleStores) PerAccount() bool { return false }
+
+func (s singleStores) ForAccount(_ context.Context, _ string) (KnowledgeGraphStore, error) {
+	return s.store, nil
+}
+
+func (s singleStores) Truncate(ctx context.Context) error {
+	if s.store == nil {
+		return nil
+	}
+	return s.store.Clear(ctx)
+}
+
+// Close is a no-op: the wrapped store's io.Closer (if any) is registered on the
+// fx lifecycle by the provider that opened it, so closing here would double-close.
+func (s singleStores) Close() error {
+	return nil
+}
 
 // KnowledgeGraphStore is the storage-agnostic interface used by the optional
 // knowledge-graph projection and the `knowledge-graph` MCP tool group. The

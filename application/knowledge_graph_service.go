@@ -28,6 +28,14 @@ const kgRedactedIRI = "urn:weos:redacted"
 // instead of an empty result so the LLM doesn't reason on a false negative.
 var ErrKGUnavailable = errors.New("knowledge graph not configured")
 
+// ErrKGStoreUnavailable is returned when the graph IS configured but the
+// caller's account store could not be opened (disk, corruption, a held lock).
+// It is deliberately generic — the underlying error (which may include
+// filesystem paths) is logged server-side, not surfaced to a remote caller —
+// and distinct from ErrKGUnavailable so a broken store never reads as
+// "not configured".
+var ErrKGStoreUnavailable = errors.New("knowledge graph temporarily unavailable")
+
 // KnowledgeGraphService is the application-layer entry point for the
 // `knowledge-graph` MCP tool group. It composes SPARQL on top of the
 // storage-agnostic KnowledgeGraphStore so MCP tool handlers stay declarative
@@ -91,32 +99,88 @@ type ClassDescription struct {
 // services' behavior for stdio/CLI/system callers.
 func ProvideKnowledgeGraphService(params struct {
 	fx.In
-	Store    repositories.KnowledgeGraphStore
+	Stores   repositories.KnowledgeGraphStores
 	Resource ResourceService
 	Logger   entities.Logger
 }) KnowledgeGraphService {
 	return &knowledgeGraphService{
-		store:    params.Store,
+		stores:   params.Stores,
 		resource: params.Resource,
 		logger:   params.Logger,
 	}
 }
 
 type knowledgeGraphService struct {
-	store    repositories.KnowledgeGraphStore
+	stores   repositories.KnowledgeGraphStores
 	resource ResourceService
 	logger   entities.Logger
 }
 
 func (s *knowledgeGraphService) Active() bool {
-	return s.store != nil && s.store.Active()
+	return s.stores != nil && s.stores.Active()
+}
+
+// storeFor resolves the KnowledgeGraphStore this request should read. In
+// single-tenant mode it's the one process store. In per-account mode it's the
+// caller's account store, resolved from request identity the same way the
+// resource services scope visibility:
+//
+//   - identity with an active account -> that account's store;
+//   - no account over the LOCAL stdio transport -> the reserved local graph
+//     (the stdio exception, so a local operator still has a working graph);
+//   - no account over any other (remote) transport -> ErrKGUnavailable, so an
+//     unauthenticated multi-tenant request is refused rather than served a
+//     default/global graph.
+//
+// A resolved-but-inactive store (single-tenant nop) also yields ErrKGUnavailable
+// so tool handlers report "not configured" instead of empty results.
+func (s *knowledgeGraphService) storeFor(ctx context.Context) (repositories.KnowledgeGraphStore, error) {
+	if s.stores == nil {
+		return nil, ErrKGUnavailable
+	}
+	accountID, err := s.resolveAccountID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	store, err := s.stores.ForAccount(ctx, accountID)
+	if err != nil {
+		// A genuine store-open failure (disk, corruption, a held lock) is an
+		// actionable error, not "graph not configured" — log the detail (which
+		// may include filesystem paths) server-side, but return a generic,
+		// distinct error so a broken account store neither masquerades as an
+		// unconfigured graph nor leaks internal paths to a remote caller.
+		s.logger.Error(ctx, "kg account store open failed", "accountID", accountID, "error", err)
+		return nil, ErrKGStoreUnavailable
+	}
+	if store == nil || !store.Active() {
+		return nil, ErrKGUnavailable
+	}
+	return store, nil
+}
+
+// resolveAccountID returns the account id storeFor should route to. Single-tenant
+// mode ignores the account (empty id -> the one store). Per-account mode reads
+// the caller's active account, applying the local-transport exception and the
+// remote fail-closed rule.
+func (s *knowledgeGraphService) resolveAccountID(ctx context.Context) (string, error) {
+	if !s.stores.PerAccount() {
+		return "", nil
+	}
+	if id := auth.AgentFromCtx(ctx); id != nil && id.ActiveAccountID != "" {
+		return id.ActiveAccountID, nil
+	}
+	if isLocalTransport(ctx) {
+		return LocalAccountID, nil
+	}
+	return "", ErrKGUnavailable
 }
 
 func (s *knowledgeGraphService) Query(
 	ctx context.Context, sparql string,
 ) (repositories.KGQueryResult, error) {
-	if !s.Active() {
-		return repositories.KGQueryResult{}, ErrKGUnavailable
+	store, err := s.storeFor(ctx)
+	if err != nil {
+		return repositories.KGQueryResult{}, err
 	}
 	if sparql == "" {
 		return repositories.KGQueryResult{}, fmt.Errorf("sparql query is required")
@@ -125,7 +189,7 @@ func (s *knowledgeGraphService) Query(
 		return repositories.KGQueryResult{}, err
 	}
 	s.logger.Debug(ctx, "kg query", "form", detectQuerySummary(sparql))
-	res, err := s.store.Query(ctx, sparql)
+	res, err := store.Query(ctx, sparql)
 	if err != nil {
 		return res, err
 	}
@@ -216,8 +280,9 @@ func (s *knowledgeGraphService) guardScopedQuery(ctx context.Context, sparql str
 func (s *knowledgeGraphService) ExpandEntity(
 	ctx context.Context, iri string, depth int,
 ) ([]repositories.Triple, error) {
-	if !s.Active() {
-		return nil, ErrKGUnavailable
+	store, err := s.storeFor(ctx)
+	if err != nil {
+		return nil, err
 	}
 	if err := validateIRI(iri); err != nil {
 		return nil, err
@@ -238,7 +303,7 @@ func (s *knowledgeGraphService) ExpandEntity(
 	}
 	q := buildExpandQuery(iri, depth)
 	s.logger.Debug(ctx, "kg expand entity", "iri", iri, "depth", depth)
-	res, err := s.store.Query(ctx, q)
+	res, err := store.Query(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -251,8 +316,9 @@ func (s *knowledgeGraphService) ExpandEntity(
 func (s *knowledgeGraphService) SearchEntities(
 	ctx context.Context, q, classIRI string, limit int,
 ) ([]repositories.KGTerm, error) {
-	if !s.Active() {
-		return nil, ErrKGUnavailable
+	store, err := s.storeFor(ctx)
+	if err != nil {
+		return nil, err
 	}
 	q = strings.TrimSpace(q)
 	if q == "" {
@@ -279,7 +345,7 @@ func (s *knowledgeGraphService) SearchEntities(
 	}
 	sparql := buildSearchQuery(q, classIRI, limit)
 	s.logger.Debug(ctx, "kg search entities", "q", q, "limit", limit)
-	res, err := s.store.Query(ctx, sparql)
+	res, err := store.Query(ctx, sparql)
 	if err != nil {
 		return nil, err
 	}
@@ -305,8 +371,9 @@ func (s *knowledgeGraphService) SearchEntities(
 func (s *knowledgeGraphService) DescribeClass(
 	ctx context.Context, classIRI string, sampleInstances int,
 ) (ClassDescription, error) {
-	if !s.Active() {
-		return ClassDescription{}, ErrKGUnavailable
+	store, err := s.storeFor(ctx)
+	if err != nil {
+		return ClassDescription{}, err
 	}
 	if err := validateIRI(classIRI); err != nil {
 		return ClassDescription{}, err
@@ -329,7 +396,7 @@ SELECT DISTINCT ?s ?p WHERE {
   ?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>/<http://www.w3.org/2000/01/rdf-schema#subClassOf>* %s .
   ?s ?p ?o .
 }`, formatIRI(classIRI))
-	predRes, err := s.store.Query(ctx, predQuery)
+	predRes, err := store.Query(ctx, predQuery)
 	if err != nil {
 		return ClassDescription{}, fmt.Errorf("describe class: predicate query failed: %w", err)
 	}
@@ -351,7 +418,7 @@ SELECT DISTINCT ?s ?p WHERE {
 SELECT ?s WHERE {
   ?s <http://www.w3.org/1999/02/22-rdf-syntax-ns#type>/<http://www.w3.org/2000/01/rdf-schema#subClassOf>* %s .
 } LIMIT %d`, formatIRI(classIRI), sampleInstances)
-		instRes, err := s.store.Query(ctx, instQuery)
+		instRes, err := store.Query(ctx, instQuery)
 		if err != nil {
 			// Predicates succeeded but instances failed — return zero-value
 			// to avoid the partial-state trap where a non-Go-aware caller
@@ -376,8 +443,9 @@ SELECT ?s WHERE {
 func (s *knowledgeGraphService) FindPath(
 	ctx context.Context, from, to string, maxHops int,
 ) ([]repositories.Triple, error) {
-	if !s.Active() {
-		return nil, ErrKGUnavailable
+	store, err := s.storeFor(ctx)
+	if err != nil {
+		return nil, err
 	}
 	if err := validateIRI(from); err != nil {
 		return nil, fmt.Errorf("from: %w", err)
@@ -402,7 +470,7 @@ func (s *knowledgeGraphService) FindPath(
 	// from "didn't run at all".
 	for length := 1; length <= maxHops; length++ {
 		q := buildPathQueryForLength(from, to, length)
-		res, err := s.store.Query(ctx, q)
+		res, err := store.Query(ctx, q)
 		if err != nil {
 			return nil, fmt.Errorf("find path: length %d query failed: %w", length, err)
 		}
@@ -589,8 +657,9 @@ func escapeSPARQLLiteral(s string) string {
 func (s *knowledgeGraphService) ListClasses(
 	ctx context.Context,
 ) ([]repositories.KGTerm, error) {
-	if !s.Active() {
-		return nil, ErrKGUnavailable
+	store, err := s.storeFor(ctx)
+	if err != nil {
+		return nil, err
 	}
 	// Anything typed rdfs:Class or owl:Class — covers both the explicit
 	// triples we emit (rdfs:Class) and ontology imports that use
@@ -603,7 +672,7 @@ SELECT DISTINCT ?s WHERE {
     <http://www.w3.org/2002/07/owl#Class>
   ))
 }`
-	res, err := s.store.Query(ctx, q)
+	res, err := store.Query(ctx, q)
 	if err != nil {
 		return nil, err
 	}

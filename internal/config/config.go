@@ -202,6 +202,16 @@ type OxigraphConfig struct {
 	// built with the `oxigraph_embedded` tag; otherwise the provider logs
 	// and falls back to nop, like an unreachable endpoint.
 	Path string
+	// AccountStorePath enables PER-ACCOUNT knowledge graphs for a multi-tenant
+	// deployment (one process, one shared database, many accounts). When set,
+	// each account gets its own embedded oxigraph store under
+	// <AccountStorePath>/<accountID>, and every kg_* query is scoped to the
+	// caller's account so it only ever sees that account's graph. Opt-in and
+	// takes precedence over Path/URL when set; leaving it empty keeps the
+	// single-store behavior (Path/URL/nop) unchanged. Uses the embedded backend,
+	// so it requires a binary built with the `oxigraph_embedded` tag (otherwise
+	// the provider logs once and falls back to nop, like an unopenable path).
+	AccountStorePath string
 	// Enabled gates the projection independently of URL so operators can
 	// stage a rollout (set URL but keep Enabled=false). LoadFromEnvironment
 	// flips Enabled=true automatically when OXIGRAPH_URL is present so the
@@ -228,7 +238,15 @@ type OxigraphConfig struct {
 // explicitly. Keeping Path in sync with the provider's selection is what lets
 // OXIGRAPH_REBUILD (gated on Active()) fire for embedded stores too.
 func (o OxigraphConfig) Active() bool {
-	return o.Path != "" || (o.URL != "" && o.Enabled)
+	return o.Path != "" || o.AccountStorePath != "" || (o.URL != "" && o.Enabled)
+}
+
+// PerAccount reports whether per-account knowledge graphs are enabled — the
+// opt-in multi-tenant mode where each account gets its own isolated embedded
+// store under AccountStorePath. When false the single-store selection
+// (Path/URL/nop) applies and no account scoping happens.
+func (o OxigraphConfig) PerAccount() bool {
+	return o.AccountStorePath != ""
 }
 
 // StorageConfig holds configuration for pluggable file storage backends.
@@ -539,6 +557,9 @@ func (c *Config) LoadFromEnvironment() {
 	}
 	if v := os.Getenv("OXIGRAPH_STORE_PATH"); v != "" {
 		c.Oxigraph.Path = v
+	}
+	if v := os.Getenv("OXIGRAPH_ACCOUNT_STORE_PATH"); v != "" {
+		c.Oxigraph.AccountStorePath = v
 	}
 	if v := os.Getenv("OXIGRAPH_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {

@@ -88,15 +88,20 @@ func (f *fakeKGStore) IsEmpty(_ context.Context) (bool, error) { return f.emptyR
 // methods panic — Resource.Published is the only path that touches the store
 // during projection.
 type fakeEventStore struct {
-	tx     map[string][]domain.EventEnvelope[any]
-	getErr error
+	tx           map[string][]domain.EventEnvelope[any]
+	byAggregate  map[string][]domain.EventEnvelope[any]
+	getErr       error
+	getEventsErr error
 }
 
 func (f *fakeEventStore) Append(_ context.Context, _ string, _ int, _ ...domain.EventEnvelope[any]) error {
 	panic("not used")
 }
-func (f *fakeEventStore) GetEvents(_ context.Context, _ string) ([]domain.EventEnvelope[any], error) {
-	panic("not used")
+func (f *fakeEventStore) GetEvents(_ context.Context, aggregateID string) ([]domain.EventEnvelope[any], error) {
+	if f.getEventsErr != nil {
+		return nil, f.getEventsErr
+	}
+	return f.byAggregate[aggregateID], nil
 }
 func (f *fakeEventStore) GetEventsFromVersion(_ context.Context, _ string, _ int) ([]domain.EventEnvelope[any], error) {
 	panic("not used")
@@ -159,10 +164,22 @@ func tripleMapEnvelope(eventType, subject, predicate, object string) domain.Even
 	}
 }
 
+// newTestOxigraphHandler builds the single-tenant projector handler these tests
+// exercise: the fake store wrapped as the one process store (per-account routing
+// has its own e2e coverage). Returns the same handler ProvideOxigraphGroup wires.
+func newTestOxigraphHandler(
+	es domain.EventStore,
+	store repositories.KnowledgeGraphStore,
+	tr repositories.ResourceTypeRepository,
+	logger entities.Logger,
+) func(context.Context, domain.EventEnvelope[any]) error {
+	return newOxigraphProjector(es, repositories.NewSingleKnowledgeGraphStores(store), tr, logger).handle
+}
+
 func TestProvideOxigraphGroup_InactiveReturnsNil(t *testing.T) {
 	t.Parallel()
 	groups := ProvideOxigraphGroup(OxigraphGroupParams{
-		Store:  &fakeKGStore{active: false},
+		Stores: repositories.NewSingleKnowledgeGraphStores(&fakeKGStore{active: false}),
 		Logger: noopLogger{},
 	})
 	if groups != nil {
@@ -174,7 +191,7 @@ func TestProvideOxigraphGroup_ActiveReturnsGroup(t *testing.T) {
 	t.Parallel()
 	groups := ProvideOxigraphGroup(OxigraphGroupParams{
 		EventStore: &fakeEventStore{},
-		Store:      &fakeKGStore{active: true},
+		Stores:     repositories.NewSingleKnowledgeGraphStores(&fakeKGStore{active: true}),
 		TypeRepo:   &kgTypeRepo{},
 		Logger:     noopLogger{},
 	})
@@ -186,7 +203,7 @@ func TestProvideOxigraphGroup_ActiveReturnsGroup(t *testing.T) {
 func TestOxigraphHandler_ProjectsTripleEvents(t *testing.T) {
 	t.Parallel()
 	store := &fakeKGStore{active: true}
-	h := oxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{}, noopLogger{})
+	h := newTestOxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{}, noopLogger{})
 	ctx := context.Background()
 
 	if err := h(ctx, tripleMapEnvelope("Triple.Created", "urn:product:1", "https://schema.org/name", "Widget")); err != nil {
@@ -211,7 +228,7 @@ func TestOxigraphHandler_ProjectsTripleEvents(t *testing.T) {
 func TestOxigraphHandler_RemovesSubjectOnResourceDeleted(t *testing.T) {
 	t.Parallel()
 	store := &fakeKGStore{active: true}
-	h := oxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{}, noopLogger{})
+	h := newTestOxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{}, noopLogger{})
 
 	env := domain.EventEnvelope[any]{AggregateID: "urn:product:42", EventType: "Resource.Deleted"}
 	if err := h(context.Background(), env); err != nil {
@@ -226,7 +243,7 @@ func TestOxigraphHandler_LoadsOntologyOnTypeCreated(t *testing.T) {
 	t.Parallel()
 	store := &fakeKGStore{active: true}
 	rt := makeRT("product", `{"@vocab":"https://schema.org/"}`)
-	h := oxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{rt: rt}, noopLogger{})
+	h := newTestOxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{rt: rt}, noopLogger{})
 
 	env := domain.EventEnvelope[any]{AggregateID: "urn:type:product", EventType: "ResourceType.Created"}
 	if err := h(context.Background(), env); err != nil {
@@ -258,7 +275,7 @@ func TestOxigraphHandler_LoadsOntologyOnTypeCreated(t *testing.T) {
 func TestOxigraphHandler_PropagatesStoreError(t *testing.T) {
 	t.Parallel()
 	store := &fakeKGStore{active: true, addErr: errors.New("oxigraph down")}
-	h := oxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{}, noopLogger{})
+	h := newTestOxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{}, noopLogger{})
 
 	err := h(context.Background(), tripleMapEnvelope("Triple.Created", "s", "p", "o"))
 	if err == nil {
@@ -283,7 +300,7 @@ func TestOxigraphHandler_ProjectsResourcePublished(t *testing.T) {
 		}},
 	}}
 	store := &fakeKGStore{active: true}
-	h := oxigraphHandler(es, store, &kgTypeRepo{}, noopLogger{})
+	h := newTestOxigraphHandler(es, store, &kgTypeRepo{}, noopLogger{})
 
 	env := domain.EventEnvelope[any]{
 		AggregateID: "urn:product:1", EventType: "Resource.Published", TransactionID: "tx-1", SequenceNo: 1,
@@ -297,7 +314,7 @@ func TestOxigraphHandler_ProjectsResourcePublished(t *testing.T) {
 
 	// A store failure on the same path must surface so the subscriber retries.
 	failStore := &fakeKGStore{active: true, loadErr: errors.New("oxigraph down")}
-	hf := oxigraphHandler(es, failStore, &kgTypeRepo{}, noopLogger{})
+	hf := newTestOxigraphHandler(es, failStore, &kgTypeRepo{}, noopLogger{})
 	if err := hf(context.Background(), env); err == nil {
 		t.Fatalf("expected LoadOntology failure to propagate")
 	}
@@ -311,7 +328,7 @@ func TestOxigraphHandler_ResourceTypeBranches(t *testing.T) {
 	store := &fakeKGStore{active: true}
 	env := domain.EventEnvelope[any]{AggregateID: "urn:type:gone", EventType: "ResourceType.Created"}
 
-	skip := oxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{err: repositories.ErrNotFound}, noopLogger{})
+	skip := newTestOxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{err: repositories.ErrNotFound}, noopLogger{})
 	if err := skip(context.Background(), env); err != nil {
 		t.Fatalf("deleted type should be skipped without error, got %v", err)
 	}
@@ -319,7 +336,7 @@ func TestOxigraphHandler_ResourceTypeBranches(t *testing.T) {
 		t.Fatalf("deleted type must not be projected")
 	}
 
-	retry := oxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{err: errors.New("db down")}, noopLogger{})
+	retry := newTestOxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{err: errors.New("db down")}, noopLogger{})
 	if err := retry(context.Background(), env); err == nil {
 		t.Fatalf("a repo error other than ErrNotFound must propagate so the subscriber retries")
 	}
@@ -330,7 +347,7 @@ func TestOxigraphHandler_ResourceTypeBranches(t *testing.T) {
 func TestOxigraphHandler_IgnoresUnrelatedEvents(t *testing.T) {
 	t.Parallel()
 	store := &fakeKGStore{active: true}
-	h := oxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{}, noopLogger{})
+	h := newTestOxigraphHandler(&fakeEventStore{}, store, &kgTypeRepo{}, noopLogger{})
 	if err := h(context.Background(), domain.EventEnvelope[any]{EventType: "Something.Else"}); err != nil {
 		t.Fatalf("unrelated event should be ignored: %v", err)
 	}

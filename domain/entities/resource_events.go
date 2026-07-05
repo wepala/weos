@@ -42,14 +42,22 @@ func (e ResourceCreated) EventType() string {
 	return "Resource.Created"
 }
 
+// AccountID is carried on every resource event (not just ResourceCreated) so a
+// background projector can route the event to the owning account's knowledge
+// graph without a separate history lookup. The resource entity always knows its
+// account (set from ResourceCreated on load), so recording it is free; events
+// persisted before this field existed carry an empty value and the projector
+// falls back to the aggregate's ResourceCreated to recover it.
 type ResourceUpdated struct {
 	Data      json.RawMessage
+	AccountID string
 	Timestamp time.Time
 }
 
-func (e ResourceUpdated) With(data json.RawMessage) ResourceUpdated {
+func (e ResourceUpdated) With(data json.RawMessage, accountID string) ResourceUpdated {
 	return ResourceUpdated{
 		Data:      data,
+		AccountID: accountID,
 		Timestamp: time.Now(),
 	}
 }
@@ -59,11 +67,12 @@ func (e ResourceUpdated) EventType() string {
 }
 
 type ResourceDeleted struct {
+	AccountID string
 	Timestamp time.Time
 }
 
-func (e ResourceDeleted) With() ResourceDeleted {
-	return ResourceDeleted{Timestamp: time.Now()}
+func (e ResourceDeleted) With(accountID string) ResourceDeleted {
+	return ResourceDeleted{AccountID: accountID, Timestamp: time.Now()}
 }
 
 func (e ResourceDeleted) EventType() string {
@@ -72,12 +81,14 @@ func (e ResourceDeleted) EventType() string {
 
 type ResourcePublished struct {
 	TypeSlug  string
+	AccountID string
 	Timestamp time.Time
 }
 
-func (e ResourcePublished) With(typeSlug string) ResourcePublished {
+func (e ResourcePublished) With(typeSlug, accountID string) ResourcePublished {
 	return ResourcePublished{
 		TypeSlug:  typeSlug,
+		AccountID: accountID,
 		Timestamp: time.Now(),
 	}
 }

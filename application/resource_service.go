@@ -292,13 +292,13 @@ func (s *resourceService) Create(
 
 	// Record triple events on the entity so they commit in the same UoW.
 	for _, ref := range refs {
-		tripleEvent := entities.TripleCreated{}.With(entityID, ref.Predicate, ref.Object)
+		tripleEvent := entities.TripleCreated{}.With(entityID, ref.Predicate, ref.Object, accountID)
 		if err := entity.RecordEvent(tripleEvent, tripleEvent.EventType()); err != nil {
 			return nil, fmt.Errorf("failed to record triple event: %w", err)
 		}
 	}
 
-	published := entities.ResourcePublished{}.With(cmd.TypeSlug)
+	published := entities.ResourcePublished{}.With(cmd.TypeSlug, accountID)
 	if err := entity.RecordEvent(published, published.EventType()); err != nil {
 		return nil, fmt.Errorf("failed to record resource published event: %w", err)
 	}
@@ -571,7 +571,7 @@ func (s *resourceService) Update(
 		return nil, err
 	}
 
-	published := entities.ResourcePublished{}.With(entity.TypeSlug())
+	published := entities.ResourcePublished{}.With(entity.TypeSlug(), entity.AccountID())
 	if err := entity.RecordEvent(published, published.EventType()); err != nil {
 		return nil, fmt.Errorf("failed to record resource published event: %w", err)
 	}
@@ -633,13 +633,13 @@ func (s *resourceService) Delete(
 		return fmt.Errorf("failed to load triples for deletion cleanup: %w", err)
 	}
 	for _, t := range existing {
-		ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object)
+		ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object, entity.AccountID())
 		if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
 			return fmt.Errorf("failed to record triple deleted event: %w", err)
 		}
 	}
 
-	published := entities.ResourcePublished{}.With(entity.TypeSlug())
+	published := entities.ResourcePublished{}.With(entity.TypeSlug(), entity.AccountID())
 	if err := entity.RecordEvent(published, published.EventType()); err != nil {
 		return fmt.Errorf("failed to record resource published event: %w", err)
 	}
@@ -691,7 +691,7 @@ func (s *resourceService) reconcileTriples(
 			continue
 		}
 		if !newSet[t.Predicate+"|"+t.Object] {
-			ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object)
+			ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object, entity.AccountID())
 			if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
 				return fmt.Errorf("failed to record triple deleted event: %w", err)
 			}
@@ -699,7 +699,7 @@ func (s *resourceService) reconcileTriples(
 	}
 	for _, ref := range newRefs {
 		if !existingSet[ref.Predicate+"|"+ref.Object] {
-			ev := entities.TripleCreated{}.With(entity.GetID(), ref.Predicate, ref.Object)
+			ev := entities.TripleCreated{}.With(entity.GetID(), ref.Predicate, ref.Object, entity.AccountID())
 			if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
 				return fmt.Errorf("failed to record triple created event: %w", err)
 			}

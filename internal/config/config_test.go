@@ -207,6 +207,40 @@ func TestLoadFromEnvironment_OxigraphEnabledFalseOverridesURL(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvironment_OxigraphAccountStorePathEnablesPerAccount(t *testing.T) {
+	t.Setenv("OXIGRAPH_ACCOUNT_STORE_PATH", "/data/graph")
+	cfg := Default()
+	cfg.LoadFromEnvironment()
+
+	if cfg.Oxigraph.AccountStorePath != "/data/graph" {
+		t.Fatalf("AccountStorePath = %q, want /data/graph", cfg.Oxigraph.AccountStorePath)
+	}
+	if !cfg.Oxigraph.PerAccount() {
+		t.Fatal("PerAccount() must be true when AccountStorePath is set")
+	}
+	if !cfg.Oxigraph.Active() {
+		t.Fatal("Active() must be true in per-account mode")
+	}
+}
+
+func TestOxigraphConfig_PerAccountAndActiveDefaults(t *testing.T) {
+	var o OxigraphConfig // zero value: no per-account, not active
+	if o.PerAccount() {
+		t.Error("zero-value config must not be per-account")
+	}
+	if o.Active() {
+		t.Error("zero-value config must be inactive")
+	}
+	// A single embedded path is active but NOT per-account.
+	o.Path = "/data/graph.db"
+	if o.PerAccount() {
+		t.Error("a single Path must not report per-account mode")
+	}
+	if !o.Active() {
+		t.Error("a single Path must be active")
+	}
+}
+
 func TestLoadFromEnvironment_OxigraphOptions(t *testing.T) {
 	t.Setenv("OXIGRAPH_URL", "http://localhost:7878")
 	t.Setenv("OXIGRAPH_USERNAME", "neo")

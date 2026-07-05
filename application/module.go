@@ -70,10 +70,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(gorm.ProvideTripleRepository),
 		fx.Provide(gorm.ProvideResourcePermissionRepository),
 
-		// Optional knowledge-graph store (Oxigraph over SPARQL HTTP). When
-		// not configured, the provider returns a nop store so downstream
-		// projectors and MCP tools become silent no-ops.
-		fx.Provide(graph.ProvideKnowledgeGraphStore),
+		// Optional knowledge-graph stores (Oxigraph over SPARQL HTTP, an
+		// embedded on-disk store, or — in multi-tenant per-account mode — one
+		// embedded store per account). When not configured, the resolver wraps a
+		// nop store so downstream projectors and MCP tools become silent no-ops.
+		fx.Provide(graph.ProvideKnowledgeGraphStores),
 
 		// Auth repositories (from pericarp)
 		fx.Provide(func(db *gormdb.DB) authrepos.AgentRepository { return authgorm.NewAgentRepository(db) }),

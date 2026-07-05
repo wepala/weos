@@ -116,4 +116,4 @@ build-embedded: fetch-oxigraph-lib ## Build weos with the embedded oxigraph back
 
 test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (CGO + vendored lib): unit + godog acceptance
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./infrastructure/graph/...
-	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./tests/e2e/ -run TestEmbeddedKnowledgeGraph
+	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./tests/e2e/ -run 'KnowledgeGraph'

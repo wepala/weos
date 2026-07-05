@@ -1090,21 +1090,29 @@ func TestManager_ReplayIsResumable(t *testing.T) {
 // OXIGRAPH_REBUILD only schedules a rebuild when the store is actually active.
 func TestProvideWorkerManager_OxigraphRebuildWiring(t *testing.T) {
 	t.Parallel()
+	oxiGroup := []SubscriberGroup{{
+		Name:    "oxigraph",
+		Handler: func(context.Context, domain.EventEnvelope[any]) error { return nil },
+	}}
 	cases := []struct {
-		name string
-		oxi  config.OxigraphConfig
-		want []string
+		name   string
+		oxi    config.OxigraphConfig
+		groups []SubscriberGroup
+		want   []string
 	}{
-		{"active and rebuild", config.OxigraphConfig{URL: "http://x", Enabled: true, Rebuild: true}, []string{"oxigraph"}},
-		{"rebuild but disabled", config.OxigraphConfig{URL: "http://x", Enabled: false, Rebuild: true}, nil},
-		{"active but no rebuild", config.OxigraphConfig{URL: "http://x", Enabled: true, Rebuild: false}, nil},
-		{"neither", config.OxigraphConfig{}, nil},
+		{"active and rebuild, group registered", config.OxigraphConfig{URL: "http://x", Enabled: true, Rebuild: true}, oxiGroup, []string{"oxigraph"}},
+		// Degraded per-account (nop) leaves Active() true but registers no group:
+		// the rebuild must NOT be scheduled for an unregistered subscriber.
+		{"active and rebuild, group NOT registered", config.OxigraphConfig{URL: "http://x", Enabled: true, Rebuild: true}, nil, nil},
+		{"rebuild but disabled", config.OxigraphConfig{URL: "http://x", Enabled: false, Rebuild: true}, oxiGroup, nil},
+		{"active but no rebuild", config.OxigraphConfig{URL: "http://x", Enabled: true, Rebuild: false}, oxiGroup, nil},
+		{"neither", config.OxigraphConfig{}, nil, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := config.Default()
 			cfg.Oxigraph = tc.oxi
-			m, err := ProvideWorkerManager(workerManagerParams{Config: cfg})
+			m, err := ProvideWorkerManager(workerManagerParams{Config: cfg, Groups: tc.groups})
 			if err != nil {
 				t.Fatalf("provide: %v", err)
 			}
