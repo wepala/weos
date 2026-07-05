@@ -66,32 +66,50 @@ func TestPerAccountStores_ForAccountRejectsUnsafeID(t *testing.T) {
 	}
 }
 
-func TestPerAccountStores_TruncateRemovesAccountDirsKeepsBase(t *testing.T) {
+func TestPerAccountStores_TruncateRemovesOnlyMarkedAccountDirs(t *testing.T) {
 	f := newTestPerAccountStores(t)
+	// Account stores we created carry the marker file.
 	for _, id := range []string{"harbor", "cedar"} {
-		if err := os.MkdirAll(filepath.Join(f.base, id), 0o755); err != nil {
+		dir := filepath.Join(f.base, id)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, accountMarkerFile), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// A non-account entry an operator might keep under the base must survive: a
-	// misconfigured base can't turn a rebuild into a data-wipe of unrelated files.
-	keep := filepath.Join(f.base, "operator-notes.txt")
-	if err := os.WriteFile(keep, []byte("x"), 0o600); err != nil {
+	// An unrelated directory an operator keeps under a misconfigured base — with
+	// a perfectly account-id-shaped name — must NOT be wiped, because we didn't
+	// create it (no marker). This is Copilot's "postgresql" case.
+	unrelatedDir := filepath.Join(f.base, "postgresql")
+	if err := os.MkdirAll(unrelatedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(unrelatedDir, "data"), []byte("precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keepFile := filepath.Join(f.base, "operator-notes.txt")
+	if err := os.WriteFile(keepFile, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := f.Truncate(context.Background()); err != nil {
 		t.Fatalf("Truncate: %v", err)
 	}
+
 	if _, err := os.Stat(f.base); err != nil {
 		t.Fatalf("base dir must survive Truncate: %v", err)
 	}
 	for _, id := range []string{"harbor", "cedar"} {
 		if _, err := os.Stat(filepath.Join(f.base, id)); !os.IsNotExist(err) {
-			t.Fatalf("account dir %q should be removed by Truncate", id)
+			t.Errorf("marked account dir %q should be removed by Truncate", id)
 		}
 	}
-	if _, err := os.Stat(keep); err != nil {
-		t.Fatalf("a non-account file must survive Truncate: %v", err)
+	if _, err := os.Stat(unrelatedDir); err != nil {
+		t.Errorf("an unmarked directory (not ours) must survive Truncate, got %v", err)
+	}
+	if _, err := os.Stat(keepFile); err != nil {
+		t.Errorf("a non-account file must survive Truncate: %v", err)
 	}
 }
 

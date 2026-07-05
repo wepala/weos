@@ -135,6 +135,17 @@ func (f *perAccountStores) ForAccount(
 	if err != nil {
 		return nil, fmt.Errorf("knowledge graph: open account store %q: %w", accountID, err)
 	}
+	// Drop a marker so Truncate can tell a directory WE created from an unrelated
+	// directory an operator may keep under a (mis)configured base. Best-effort: a
+	// store without a marker simply won't be reaped on rebuild — safe, not a leak.
+	markerPath := filepath.Join(dir, accountMarkerFile)
+	if _, statErr := os.Stat(markerPath); os.IsNotExist(statErr) {
+		if writeErr := os.WriteFile(markerPath, []byte(accountMarkerContent), 0o600); writeErr != nil {
+			f.logger.Warn(context.Background(),
+				"knowledge graph: could not write account store marker",
+				"accountID", accountID, "error", writeErr)
+		}
+	}
 	f.open[accountID] = st
 	return st, nil
 }
@@ -156,13 +167,15 @@ func (f *perAccountStores) Truncate(_ context.Context) error {
 		return fmt.Errorf("knowledge graph: read per-account base for truncate: %w", err)
 	}
 	for _, e := range entries {
-		// Only reap directories that could be account stores (a safe account id).
-		// Never touch other files/dirs an operator may keep under the base, so a
-		// misconfigured base can't delete unrelated data on a rebuild.
-		if !e.IsDir() || !isSafeAccountID(e.Name()) {
+		// Only reap a directory WE created — one carrying our marker file. A safe-
+		// looking name isn't enough (account ids are opaque, so an unrelated dir
+		// like "postgresql" would pass a name check), so a misconfigured base
+		// can't delete operator data that we didn't create.
+		dir := filepath.Join(f.base, e.Name())
+		if !e.IsDir() || !isAccountStoreDir(dir) {
 			continue
 		}
-		if rmErr := os.RemoveAll(filepath.Join(f.base, e.Name())); rmErr != nil {
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
 			return fmt.Errorf("knowledge graph: remove account graph %q: %w", e.Name(), rmErr)
 		}
 	}
@@ -210,6 +223,21 @@ func (f *perAccountStores) accountDir(accountID string) (string, error) {
 		return "", fmt.Errorf("knowledge graph: unsafe account id %q", accountID)
 	}
 	return filepath.Join(f.base, accountID), nil
+}
+
+// accountMarkerFile is written into every per-account store directory the
+// factory creates. Truncate reaps only directories carrying it, so a
+// misconfigured base can never delete a directory we didn't create.
+const (
+	accountMarkerFile    = ".weos-account-graph"
+	accountMarkerContent = "weos per-account knowledge-graph store\n"
+)
+
+// isAccountStoreDir reports whether dir is a per-account store this factory
+// created, identified by its marker file.
+func isAccountStoreDir(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, accountMarkerFile))
+	return err == nil && !info.IsDir()
 }
 
 func isSafeAccountID(id string) bool {
