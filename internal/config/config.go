@@ -174,9 +174,9 @@ type WorkerConfig struct {
 
 // IsPostgresDSN reports whether dsn targets PostgreSQL — a "host=" libpq DSN
 // or a postgres(ql):// URI. Everything else is treated as SQLite. This is the
-// single dialect predicate: the GORM provider's driver selection
-// (DialectorForDSN) and the worker runtime's wake-mechanism choice both call
-// it, so driver decisions never diverge between consumers.
+// single dialect predicate — every DSN-driven driver decision (e.g. the GORM
+// provider's DialectorForDSN, the worker runtime's wake-mechanism choice)
+// must call it so those decisions never diverge between consumers.
 func IsPostgresDSN(dsn string) bool {
 	return strings.HasPrefix(dsn, "host=") ||
 		strings.Contains(dsn, "postgres://") ||

@@ -38,8 +38,8 @@ import (
 // (feature #426): an in-process write gate serializes SQLite write transactions
 // so a concurrent burst queues instead of failing with "database is locked",
 // while reads and server boot stay responsive and a genuinely stuck database
-// still surfaces a bounded-retry error. Filter on demand with:
-// GODOG_TAGS=@wip go test ./tests/e2e/ -run TestSQLiteWriteSerialization -v
+// still surfaces a bounded-retry error. The feature is promoted (no @wip), so
+// the default suite runs it: go test ./tests/e2e/ -run TestSQLiteWriteSerialization -v
 func TestSQLiteWriteSerialization(t *testing.T) {
 	tags := "~@wip"
 	if override := os.Getenv("GODOG_TAGS"); override != "" {
@@ -62,8 +62,10 @@ func TestSQLiteWriteSerialization(t *testing.T) {
 }
 
 // burstSubscribers are the checkpointed subscriber groups the write-burst
-// scenarios expect to be running on file-based SQLite (all three register
-// unconditionally on SQLite — lexical-index because glebarez ships FTS5).
+// scenarios expect on file-based SQLite. event-references and display-values
+// always register; lexical-index registers when the FTS5 index activates,
+// which glebarez's unconditional FTS5 support makes effectively always true
+// here (the subscribersRunning step verifies all three by name regardless).
 var burstSubscribers = []string{"lexical-index", "event-references", "display-values"}
 
 // sqliteWriteWorld boots the full application against a file-backed SQLite

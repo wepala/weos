@@ -22,10 +22,12 @@ import (
 
 // TestPostgresWriteConcurrency proves the SQLite write-serialization fix
 // (feature #426) leaves the PostgreSQL path untouched: the connection pool
-// stays concurrent and the busy-retry never engages. It requires a real
-// PostgreSQL database supplied via TEST_POSTGRES_DSN and cleanly skips
-// otherwise. Filter on demand with:
-// GODOG_TAGS=@wip go test ./tests/e2e/ -run TestPostgresWriteConcurrency -v
+// stays concurrent, and a failing write is attempted exactly once — no retry
+// layer engages anywhere above the driver (on Postgres the gated pool and its
+// BUSY retry don't exist at all). It requires a real PostgreSQL database
+// supplied via TEST_POSTGRES_DSN and cleanly skips otherwise. The feature is
+// @wip until it has run against a real Postgres:
+// GODOG_TAGS=@wip TEST_POSTGRES_DSN=... go test ./tests/e2e/ -run TestPostgresWriteConcurrency -v
 func TestPostgresWriteConcurrency(t *testing.T) {
 	if os.Getenv("TEST_POSTGRES_DSN") == "" {
 		t.Skip("TEST_POSTGRES_DSN not set — postgres write-concurrency scenarios skipped")
@@ -51,8 +53,11 @@ func TestPostgresWriteConcurrency(t *testing.T) {
 }
 
 // armedEventStore decorates the pericarp event store so a single scenario can
-// force one write to fail with a permanent (non-BUSY) error and count how many
-// times the write was attempted. It proves the PostgreSQL path does not retry.
+// force one write to fail with a permanent error and count how many times the
+// write was attempted. Injecting at the store (application) layer pins that no
+// application-level retry wraps a failing Postgres write; the ConnPool-level
+// BUSY retry is out of reach of this fault by construction — and absent
+// entirely on Postgres, which is the point.
 type armedEventStore struct {
 	pericarpdomain.EventStore
 	armed       atomic.Bool
@@ -63,8 +68,8 @@ func (s *armedEventStore) Append(ctx context.Context, aggregateID string, expect
 	events ...pericarpdomain.EventEnvelope[any]) error {
 	s.appendCalls.Add(1)
 	if s.armed.Load() {
-		// A non-recoverable error (not SQLITE_BUSY): the busy-retry must ignore
-		// it entirely, so the write is attempted exactly once.
+		// A permanent failure: nothing above the driver may retry it, so the
+		// write is attempted exactly once.
 		return fmt.Errorf("permanent write failure: non-recoverable")
 	}
 	return s.EventStore.Append(ctx, aggregateID, expectedVersion, events...)

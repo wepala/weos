@@ -90,7 +90,8 @@ func ProvideGormDB(params struct {
 	// concurrent readers (WAL); writers are serialized by the write gate (see
 	// sqlite_write_gate.go), not by pool size — the pool must stay above one
 	// connection, because a single shared connection forces reads and boot to
-	// queue behind background subscriber writes (the #425 regression).
+	// queue behind background subscriber writes (the regression that sank the
+	// unmerged #425).
 	if params.Config.IsPostgres() {
 		sqlDB.SetMaxIdleConns(10)
 		sqlDB.SetMaxOpenConns(100)

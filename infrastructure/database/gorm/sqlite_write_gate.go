@@ -39,14 +39,16 @@ import (
 // SQLite allows one writer per database file. With _txlock=immediate every
 // transaction takes the write lock at BEGIN, so N goroutines beginning
 // transactions on separate pooled connections race the file lock inside
-// SQLite — and the loser of a lock-upgrade race fails *immediately* with
-// SQLITE_BUSY, before busy_timeout is even consulted (#421). The write gate
-// moves that queue into Go: at most one write transaction is in flight per
-// database file, waiters queue on a semaphore (ctx-cancellable, inspectable
-// in a goroutine dump), and in-process SQLITE_BUSY becomes structurally
-// impossible. Reads never touch the gate — only BeginTx acquires it — so a
-// write burst cannot starve reads or server boot the way the reverted
-// MaxOpenConns(1) approach did (#425).
+// SQLite — and the loser of that lock-upgrade/deadlock-avoidance race fails
+// *immediately* with SQLITE_BUSY, before busy_timeout is even consulted
+// (#421). The write gate moves that queue into Go: at most one write
+// transaction is in flight per database file, waiters queue on a semaphore
+// (ctx-cancellable, inspectable in a goroutine dump), and SQLITE_BUSY becomes
+// structurally impossible between gated writers (connections opened outside
+// DialectorForDSN, or another process, can still produce it — the bounded
+// retry below covers those). Reads never touch the gate — only BeginTx
+// acquires it — so a write burst cannot starve reads or server boot the way
+// the rejected MaxOpenConns(1) approach did (#425, closed unmerged).
 //
 // The gate is installed at the gorm.ConnPool seam by DialectorForDSN, which
 // means every consumer of the shared *gorm.DB — weos repositories, pericarp's
@@ -67,7 +69,7 @@ const (
 
 	// busyRetryMaxAttempts bounds the retry-on-BUSY loop in BeginTx. Retry is
 	// belt-and-suspenders for contention the gate cannot see (another process,
-	// or a second in-process pool on the same file).
+	// or a connection to the same file opened outside DialectorForDSN).
 	busyRetryMaxAttempts = 5
 
 	// busyRetryInitialDelay is the first retry delay; it doubles per attempt
@@ -224,14 +226,14 @@ func newGatedSQLiteDialector(augmentedDSN, rawDSN string) gorm.Dialector {
 // used). The remaining gorm.Dialector methods are dead stubs.
 type failingDialector struct{ err error }
 
-func (d failingDialector) Name() string                                        { return "sqlite" }
-func (d failingDialector) Initialize(*gorm.DB) error                           { return d.err }
-func (d failingDialector) Migrator(*gorm.DB) gorm.Migrator                     { return nil }
-func (d failingDialector) DataTypeOf(*schema.Field) string                     { return "" }
-func (d failingDialector) DefaultValueOf(*schema.Field) clause.Expression      { return nil }
-func (d failingDialector) BindVarTo(clause.Writer, *gorm.Statement, any)       {}
-func (d failingDialector) QuoteTo(clause.Writer, string)                       {}
-func (d failingDialector) Explain(sql string, vars ...any) string              { return sql }
+func (d failingDialector) Name() string                                   { return "sqlite" }
+func (d failingDialector) Initialize(*gorm.DB) error                      { return d.err }
+func (d failingDialector) Migrator(*gorm.DB) gorm.Migrator                { return nil }
+func (d failingDialector) DataTypeOf(*schema.Field) string                { return "" }
+func (d failingDialector) DefaultValueOf(*schema.Field) clause.Expression { return nil }
+func (d failingDialector) BindVarTo(clause.Writer, *gorm.Statement, any)  {}
+func (d failingDialector) QuoteTo(clause.Writer, string)                  {}
+func (d failingDialector) Explain(sql string, vars ...any) string         { return sql }
 
 // gatedConnPool implements gorm.ConnPool over the raw *sql.DB. Reads and
 // non-transactional statements delegate straight through — they never queue.
@@ -306,7 +308,8 @@ func (p *gatedConnPool) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.
 // beginWithBusyRetry retries BeginTx on SQLITE_BUSY with doubling backoff,
 // bounded at busyRetryMaxAttempts. Any other error surfaces on the first
 // attempt. The gate is already held, so BUSY here means contention the gate
-// cannot see: another process on the file, or a second in-process pool.
+// cannot see: another process on the file, or a connection opened outside
+// DialectorForDSN.
 func (p *gatedConnPool) beginWithBusyRetry(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
 	delay := busyRetryInitialDelay
 	var lastErr error
@@ -347,11 +350,12 @@ func (p *gatedConnPool) beginWithBusyRetry(ctx context.Context, opts *sql.TxOpti
 // was begun via the ambient-batch bypass and holds nothing.
 //
 // A wrapper that becomes unreachable without either being called would hold
-// the gate forever — a silent, process-wide write wedge (strictly worse than
-// the pre-gate behavior, where a leaked transaction surfaced as loud BUSY
-// errors and self-healed at busy_timeout). BeginTx therefore arms a finalizer
-// as a loud last resort: it rolls the inner transaction back, releases the
-// gate, and reports the leak on stderr.
+// the gate forever — a silent, process-wide write wedge. (Pre-gate, a leaked
+// transaction pinned its connection and SQLite's write lock just as
+// indefinitely, but every competing writer failed loudly at busy_timeout;
+// the gate must not turn that into silence.) BeginTx therefore arms a
+// finalizer as a loud last resort: it rolls the inner transaction back,
+// releases the gate, and reports the leak on stderr.
 type gatedTx struct {
 	tx       *sql.Tx
 	gate     *writeGate
