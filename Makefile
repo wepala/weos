@@ -84,3 +84,31 @@ dev-test-ui: dev-build-frontend build dev-seed ## Run Playwright UI tests (headl
 dev-clean: ## Remove dev database, seed manifest, and build artifacts
 	rm -f weos.db .dev-seed.json
 	rm -rf bin/
+
+# --- Embedded oxigraph knowledge-graph backend (story #422) ---
+# The graph can run from an in-process oxigraph store (no sidecar) when built
+# with the `oxigraph_embedded` tag. That needs CGO and a per-platform static
+# lib (liboxigraph_ffi.a) vendored from the binding's GitHub release — it is
+# not in the Go module (too large), so fetch it here. Without the tag weos
+# builds pure-Go and the graph falls back to nop.
+OXIGRAPH_LIB_VERSION ?= go/v0.1.0-alpha.3
+OXIGRAPH_LIB_DIR      := infrastructure/graph/oxigraph/lib
+OXIGRAPH_PLATFORM     := $(shell go env GOOS)_$(shell go env GOARCH)
+CGO_LDFLAGS_EMBEDDED  := -L$(abspath $(OXIGRAPH_LIB_DIR))/$(OXIGRAPH_PLATFORM)
+
+fetch-oxigraph-lib: ## Download + sha-verify liboxigraph_ffi.a for this platform (for -tags oxigraph_embedded)
+	@mkdir -p $(OXIGRAPH_LIB_DIR)/$(OXIGRAPH_PLATFORM) /tmp/oxigraph-lib
+	@echo "fetching liboxigraph_ffi for $(OXIGRAPH_PLATFORM) ($(OXIGRAPH_LIB_VERSION))"
+	@gh release download "$(OXIGRAPH_LIB_VERSION)" --repo akeemphilbert/oxigraph \
+		--pattern "liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a.gz" --pattern "SHA256SUMS" \
+		--dir /tmp/oxigraph-lib --clobber
+	@cd /tmp/oxigraph-lib && grep "liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a.gz" SHA256SUMS | shasum -a 256 -c -
+	@gunzip -f /tmp/oxigraph-lib/liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a.gz
+	@cp /tmp/oxigraph-lib/liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a \
+		$(OXIGRAPH_LIB_DIR)/$(OXIGRAPH_PLATFORM)/liboxigraph_ffi.a
+
+build-embedded: fetch-oxigraph-lib ## Build weos with the embedded oxigraph backend
+	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go build -tags oxigraph_embedded -o bin/weos .
+
+test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (CGO + vendored lib)
+	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./infrastructure/graph/...
