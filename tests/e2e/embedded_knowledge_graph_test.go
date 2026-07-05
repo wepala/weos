@@ -26,11 +26,15 @@ import (
 )
 
 // TestEmbeddedKnowledgeGraph runs the embedded-graph acceptance scenarios
-// (story #422). Requires the oxigraph_embedded build tag and CGO wired to the
-// vendored lib — run via `make test-graph-embedded` (which fetches the lib and
-// sets CGO_LDFLAGS) or:
+// (story #422). The scenarios are the test-first contract and are still tagged
+// @wip, so they are not wired into a Makefile target yet (that would go red on
+// the unfinished scenarios). Requires the oxigraph_embedded build tag and CGO
+// wired to the vendored lib — fetch the lib with `make fetch-oxigraph-lib`,
+// then run explicitly:
 //
 //	CGO_LDFLAGS=-L<lib> go test -tags oxigraph_embedded ./tests/e2e/ -run TestEmbeddedKnowledgeGraph
+//
+// Set GODOG_TAGS=~@wip to run only the graduated scenarios once they exist.
 func TestEmbeddedKnowledgeGraph(t *testing.T) {
 	tags := os.Getenv("GODOG_TAGS") // empty runs every scenario, incl. @wip
 	suite := godog.TestSuite{
@@ -94,7 +98,10 @@ func initEmbeddedKGScenario(sc *godog.ScenarioContext) {
 // --- Background / boot ---
 
 func (w *kgWorld) twinEmbedded(_ context.Context) error {
-	dir := w.newTmp()
+	dir, err := w.newTmp()
+	if err != nil {
+		return err
+	}
 	w.graphDir = filepath.Join(dir, "graph")
 	cfg := w.baseConfig(dir)
 	cfg.Oxigraph.Path = w.graphDir
@@ -102,11 +109,18 @@ func (w *kgWorld) twinEmbedded(_ context.Context) error {
 }
 
 func (w *kgWorld) twinNop(_ context.Context) error {
-	return w.startApp(w.baseConfig(w.newTmp()), false)
+	dir, err := w.newTmp()
+	if err != nil {
+		return err
+	}
+	return w.startApp(w.baseConfig(dir), false)
 }
 
 func (w *kgWorld) twinBadPath(_ context.Context) error {
-	dir := w.newTmp()
+	dir, err := w.newTmp()
+	if err != nil {
+		return err
+	}
 	bad := filepath.Join(dir, "not-a-directory")
 	if err := os.WriteFile(bad, []byte("x"), 0o600); err != nil {
 		return err
@@ -116,11 +130,18 @@ func (w *kgWorld) twinBadPath(_ context.Context) error {
 	return w.startApp(cfg, true)
 }
 
-func (w *kgWorld) newTmp() string {
+// newTmp lazily creates the scenario's temp dir. A failure is returned (not
+// swallowed) so the scenario fails deterministically rather than falling back
+// to an empty path and writing the db/store into the working directory.
+func (w *kgWorld) newTmp() (string, error) {
 	if w.tmpDir == "" {
-		w.tmpDir, _ = os.MkdirTemp("", "weos-kg-e2e-")
+		dir, err := os.MkdirTemp("", "weos-kg-e2e-")
+		if err != nil {
+			return "", fmt.Errorf("create temp dir: %w", err)
+		}
+		w.tmpDir = dir
 	}
-	return w.tmpDir
+	return w.tmpDir, nil
 }
 
 func (w *kgWorld) baseConfig(dir string) config.Config {
