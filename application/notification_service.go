@@ -58,8 +58,9 @@ type NotificationInput struct {
 	// identity SoftAuth/JWT put on the request context). A notification is
 	// owned by, and its inbox scoped to, this exact AgentID — any other value
 	// (email, display name) makes the notification invisible to every inbox.
+	// Notifications are personal/owner-scoped: they carry no account, so no
+	// account admin or owner can read another member's notification (see Notify).
 	Recipient   string
-	AccountID   string // recipient's account, if the producer knows it
 	Kind        string // free-form category, e.g. "import.completed"
 	Title       string
 	Body        string
@@ -181,15 +182,16 @@ func (s *notificationService) Notify(
 		return nil, fmt.Errorf("marshal notification: %w", err)
 	}
 
-	// A notification is owned by its recipient: creating it under the
-	// recipient's identity makes the standard ownership visibility scope show
-	// it only in that user's inbox and lets only that user mark it read — no
-	// ACL bypass anywhere on the inbox path.
-	ownerCtx := auth.ContextWithAgent(ctx, &auth.Identity{
-		AgentID:         in.Recipient,
-		ActiveAccountID: in.AccountID,
-		AccountIDs:      []string{in.AccountID},
-	})
+	// A notification is owned by its recipient AND carries no account: creating
+	// it under a recipient identity with an empty ActiveAccountID leaves
+	// entity.AccountID() == "", which skips the ResourceService account
+	// admin/owner access bypass on EVERY route — the generic resource routes
+	// (GET/PATCH/DELETE /:typeSlug/:id) as well as this service. Only the
+	// recipient (created_by) or an explicit permission grant can read or mutate
+	// it, so an account admin cannot see a member's notification body. The
+	// standard ownership visibility scope still shows it only in the recipient's
+	// inbox (created_by match), independent of account.
+	ownerCtx := auth.ContextWithAgent(ctx, &auth.Identity{AgentID: in.Recipient})
 	created, err := s.resources.Create(ownerCtx, CreateResourceCommand{
 		TypeSlug: NotificationTypeSlug,
 		Data:     data,

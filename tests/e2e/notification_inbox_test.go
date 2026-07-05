@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/cucumber/godog"
@@ -68,6 +70,7 @@ type notificationWorld struct {
 
 	rts   application.ResourceTypeService
 	notes application.NotificationService
+	rs    application.ResourceService // to assert generic-route (GetByID) access denial
 
 	authService authapp.AuthenticationService
 	credRepo    authrepos.CredentialRepository
@@ -105,6 +108,7 @@ func initNotificationInboxScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the notification titled "([^"]*)" in "([^"]*)" inbox is read$`, w.titledNotificationIsRead)
 	sc.Step(`^"([^"]*)" marks all notifications read$`, w.userMarksAllRead)
 	sc.Step(`^"([^"]*)" is an account admin of "([^"]*)"$`, w.isAccountAdminOf)
+	sc.Step(`^"([^"]*)" cannot read the notification titled "([^"]*)"$`, w.cannotReadTitled)
 	sc.Step(`^"([^"]*)" is denied marking the notification titled "([^"]*)" as read$`, w.deniedMarkingTitled)
 }
 
@@ -123,7 +127,7 @@ func (w *notificationWorld) aRunningApplication() error {
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
-		fx.Populate(&w.rts, &w.notes),
+		fx.Populate(&w.rts, &w.notes, &w.rs),
 		fx.Populate(&w.authService, &w.credRepo, &w.agentRepo, &w.accountRepo, &w.logger),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -201,7 +205,6 @@ func (w *notificationWorld) serviceNotifies(name, title, key string) error {
 	}
 	res, err := w.notes.Notify(context.Background(), application.NotificationInput{
 		Recipient:  u.agentID,
-		AccountID:  u.accountID,
 		Kind:       "test.signal",
 		Title:      title,
 		Body:       "body of " + title,
@@ -230,6 +233,27 @@ func (w *notificationWorld) isAccountAdminOf(adminName, targetName string) error
 	}
 	if err := w.accountRepo.SaveMember(context.Background(), target.accountID, admin.agentID, "admin"); err != nil {
 		return fmt.Errorf("make %q admin of %q's account: %w", adminName, targetName, err)
+	}
+	return nil
+}
+
+// cannotReadTitled asserts the named user cannot read another member's
+// notification content. It goes through ResourceService.GetByID — the same
+// access check the generic resource routes (GET /:typeSlug/:id) use — with the
+// user's identity, and requires ErrAccessDenied. This is the read half of the
+// hole: without account-less creation an account admin would get the body back.
+func (w *notificationWorld) cannotReadTitled(name, title string) error {
+	u, err := w.user(name)
+	if err != nil {
+		return err
+	}
+	id, ok := w.producedID[title]
+	if !ok {
+		return fmt.Errorf("no notification titled %q was produced", title)
+	}
+	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{AgentID: u.agentID})
+	if _, err := w.rs.GetByID(ctx, id); !errors.Is(err, entities.ErrAccessDenied) {
+		return fmt.Errorf("reading another member's notification: expected access denied, got: %v", err)
 	}
 	return nil
 }

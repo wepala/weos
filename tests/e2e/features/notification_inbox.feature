@@ -57,4 +57,5 @@ Feature: Notification inbox
     Given a user "Manager"
     And "Manager" is an account admin of "Alice"
     When the service notifies "Alice" with title "Salary posted" and key "s-1"
-    Then "Manager" is denied marking the notification titled "Salary posted" as read
+    Then "Manager" cannot read the notification titled "Salary posted"
+    And "Manager" is denied marking the notification titled "Salary posted" as read
