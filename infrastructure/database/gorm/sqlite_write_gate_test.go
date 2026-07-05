@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/subscriptions"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -279,6 +280,19 @@ func TestBeginWithBusyRetry_BoundedGiveUp(t *testing.T) {
 	if got := atomic.LoadInt32(&attempts); got != busyRetryMaxAttempts {
 		t.Fatalf("expected %d attempts, observed %d", busyRetryMaxAttempts, got)
 	}
+
+	// The failed begin must release the gate: once the external lock drops,
+	// the next writer goes straight through instead of wedging.
+	if err := holdTx.Rollback(); err != nil {
+		t.Fatalf("release external lock: %v", err)
+	}
+	tx, err := pool.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("gate leaked by the failed begin — follow-up BeginTx errored: %v", err)
+	}
+	if rb, ok := tx.(interface{ Rollback() error }); ok {
+		_ = rb.Rollback()
+	}
 }
 
 // TestBeginWithBusyRetry_TransientBusyRecovers releases the external lock
@@ -329,6 +343,105 @@ func TestBeginWithBusyRetry_TransientBusyRecovers(t *testing.T) {
 
 	if got := atomic.LoadInt32(&attempts); got < 2 {
 		t.Fatalf("expected more than one attempt, observed %d", got)
+	}
+}
+
+// TestGatedDB_AmbientBatchTxBypassesGate pins the self-deadlock guard for
+// handlers that begin a NEW transaction from inside a subscriber batch (the
+// consolidation path: handler → ResourceService → UnitOfWork → event store
+// Append). The batch's own BeginTx holds the gate, so without the
+// TxFromContext bypass the nested Begin would queue on the gate its own call
+// stack holds — a permanent, app-wide write wedge. With the bypass it reaches
+// SQLite instead and fails fast with BUSY (bounded by the DSN's busy_timeout)
+// until pericarp's Append learns to join the ambient transaction
+// (akeemphilbert/pericarp#58).
+func TestGatedDB_AmbientBatchTxBypassesGate(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "ambient_test.db") + "?_pragma=busy_timeout(200)"
+	db, err := gorm.Open(DialectorForDSN(dsn), gormConfig())
+	if err != nil {
+		t.Fatalf("open gated db: %v", err)
+	}
+	if err := db.AutoMigrate(&gateTestRow{}); err != nil {
+		t.Fatalf("auto-migrate: %v", err)
+	}
+
+	cps, err := subscriptions.NewGormCheckpointStore(db)
+	if err != nil {
+		t.Fatalf("new checkpoint store: %v", err)
+	}
+	// Acquire goes through the gated pool: the batch now holds the gate AND
+	// SQLite's write lock.
+	batch, acquired, err := cps.Acquire(context.Background(), "ambient-bypass")
+	if err != nil || !acquired {
+		t.Fatalf("acquire batch: acquired=%v err=%v", acquired, err)
+	}
+	defer func() { _ = batch.Rollback() }()
+	handlerCtx := batch.HandlerContext(context.Background())
+
+	// A new transaction from inside the batch must NOT hang on the gate. It
+	// bypasses it, contends with the batch inside SQLite, and surfaces BUSY
+	// after the 200ms busy_timeout — a bounded error, not a wedge.
+	done := make(chan error, 1)
+	go func() {
+		done <- db.WithContext(handlerCtx).Transaction(func(tx *gorm.DB) error {
+			return tx.Create(&gateTestRow{Name: "nested"}).Error
+		})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("nested transaction unexpectedly succeeded while the batch holds the write lock")
+		}
+		if !isSQLiteBusy(err) {
+			t.Fatalf("expected a bounded SQLITE_BUSY from the bypassed begin, got: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nested transaction hung — the ambient-batch bypass regressed into a gate self-deadlock")
+	}
+
+	// Ending the batch releases the gate; ordinary writes must flow again.
+	if err := batch.Rollback(); err != nil {
+		t.Fatalf("rollback batch: %v", err)
+	}
+	if err := db.Create(&gateTestRow{Name: "after"}).Error; err != nil {
+		t.Fatalf("write after batch release: %v", err)
+	}
+}
+
+// TestGatedDB_RollbackReleasesGate: a rolled-back transaction must free the
+// gate for queued writers — rollbacks are routine (failed Transaction
+// callbacks, constraint violations), and a leaked slot is a permanent wedge.
+func TestGatedDB_RollbackReleasesGate(t *testing.T) {
+	db := openGatedTestDB(t)
+
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatalf("begin: %v", tx.Error)
+	}
+
+	second := make(chan error, 1)
+	go func() {
+		second <- db.Transaction(func(inner *gorm.DB) error {
+			return inner.Create(&gateTestRow{Name: "after-rollback"}).Error
+		})
+	}()
+	select {
+	case err := <-second:
+		t.Fatalf("second writer finished while gate was held (err=%v)", err)
+	case <-time.After(200 * time.Millisecond):
+		// still queued — expected
+	}
+
+	if err := tx.Rollback().Error; err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	select {
+	case err := <-second:
+		if err != nil {
+			t.Fatalf("queued writer failed after rollback released the gate: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("queued writer never proceeded after rollback — gate leaked")
 	}
 }
 

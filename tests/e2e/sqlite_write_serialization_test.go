@@ -100,6 +100,7 @@ type sqliteWriteWorld struct {
 	burstStop       chan struct{}
 	burstWG         sync.WaitGroup
 	burstActive     atomic.Bool
+	burstSucceeded  atomic.Int64
 	readErr         error
 	readDuringBurst bool
 
@@ -171,9 +172,13 @@ func (w *sqliteWriteWorld) aCleanInstance() error {
 
 // bootApp (re)starts the fx application on the world's fixed DSN. The database
 // file persists across reboots, so the preset and any seeded data survive a
-// workers-off -> workers-on transition.
+// workers-off -> workers-on transition. A failed stop of the previous app is a
+// step failure, not a shrug: its workers would keep writing alongside the new
+// app and corrupt whatever the scenario asserts next.
 func (w *sqliteWriteWorld) bootApp(runWorkers bool) error {
-	w.stopApp()
+	if err := w.stopApp(); err != nil {
+		return fmt.Errorf("stop previous app before reboot: %w", err)
+	}
 	cfg := config.Default()
 	cfg.DatabaseDSN = w.dsn
 	cfg.LogLevel = "error"
@@ -434,6 +439,11 @@ func (w *sqliteWriteWorld) readSucceedsWhileBurst() error {
 	if err != nil {
 		return fmt.Errorf("the read failed while the burst was in flight: %w", err)
 	}
+	// The premise must hold: a "sustained burst" where every write failed
+	// would make the read assertion vacuous.
+	if w.burstSucceeded.Load() == 0 {
+		return fmt.Errorf("no burst write succeeded — the sustained-burst premise did not hold")
+	}
 	return nil
 }
 
@@ -450,7 +460,10 @@ func (w *sqliteWriteWorld) startBurst() {
 					return
 				default:
 				}
-				_ = w.createResource(context.Background(), "task", fmt.Sprintf("Sustained %d-%d", id, c))
+				if err := w.createResource(context.Background(), "task",
+					fmt.Sprintf("Sustained %d-%d", id, c)); err == nil {
+					w.burstSucceeded.Add(1)
+				}
 			}
 		}(i)
 	}
@@ -496,8 +509,10 @@ func (w *sqliteWriteWorld) theCreateSucceeds() error {
 }
 
 func (w *sqliteWriteWorld) writeAttemptedMoreThanOnce() error {
-	if n := w.busyAttempts.Load(); n <= 1 {
-		return fmt.Errorf("expected more than one write attempt, got %d", n)
+	// At least one BUSY-failed attempt plus the eventual success means the
+	// write was attempted more than once.
+	if n := w.busyAttempts.Load(); n < 1 {
+		return fmt.Errorf("expected at least one retried (BUSY-failed) attempt, got %d", n)
 	}
 	return nil
 }
@@ -520,14 +535,23 @@ func (w *sqliteWriteWorld) writeGaveUpBounded() error {
 		return fmt.Errorf("expected a bounded 'gave up after 5 attempts' error, got: %w", w.createErr)
 	}
 	if n := w.busyAttempts.Load(); n != 5 {
-		return fmt.Errorf("expected exactly 5 write attempts, got %d", n)
+		return fmt.Errorf("expected exactly 5 BUSY-failed attempts, got %d", n)
 	}
 	return nil
 }
 
+// observeBusyRetries counts only FAILED begin attempts. Successful begins
+// notify the observer too, and one resource create issues several gated
+// transactions (event append, canonical save, projection writes) — counting
+// those would make "attempted more than once" pass even with the retry loop
+// deleted.
 func (w *sqliteWriteWorld) observeBusyRetries() {
 	w.busyAttempts.Store(0)
-	weosgorm.SetBusyRetryObserver(func(int, error) { w.busyAttempts.Add(1) })
+	weosgorm.SetBusyRetryObserver(func(_ int, err error) {
+		if err != nil {
+			w.busyAttempts.Add(1)
+		}
+	})
 }
 
 // holdWriteLock opens a second raw connection to the same database file and
@@ -581,14 +605,15 @@ func (w *sqliteWriteWorld) createResource(ctx context.Context, typeSlug, name st
 	return err
 }
 
-func (w *sqliteWriteWorld) stopApp() {
+func (w *sqliteWriteWorld) stopApp() error {
 	if w.app == nil {
-		return
+		return nil
 	}
 	stopCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
-	_ = w.app.Stop(stopCtx)
+	err := w.app.Stop(stopCtx)
 	w.app = nil
+	return err
 }
 
 func (w *sqliteWriteWorld) teardown() {
@@ -603,7 +628,7 @@ func (w *sqliteWriteWorld) teardown() {
 		w.healthServer.Close()
 		w.healthServer = nil
 	}
-	w.stopApp()
+	_ = w.stopApp()
 	if w.tmpDir != "" {
 		_ = os.RemoveAll(w.tmpDir)
 		w.tmpDir = ""

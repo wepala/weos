@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,6 +32,8 @@ import (
 	gosqlite "github.com/glebarez/go-sqlite"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+	"gorm.io/gorm/schema"
 )
 
 // SQLite allows one writer per database file. With _txlock=immediate every
@@ -49,6 +52,13 @@ import (
 // means every consumer of the shared *gorm.DB — weos repositories, pericarp's
 // event store, checkpoint store and parking lot, and the ADK session store's
 // independent handle — inherits it without opting in.
+//
+// Invariant for subscriber handlers: writes made while a batch transaction is
+// open must join it via subscriptions.TxFromContext (see the writeDB helpers
+// on projectionManager and ResourceRepository). A handler write that opens a
+// fresh transaction instead bypasses the gate (see BeginTx) and contends with
+// its own batch inside SQLite — a bounded busy_timeout failure rather than a
+// wedge, but still a failure.
 
 const (
 	// sqliteBusyCode is SQLite's primary result code for "database is locked"
@@ -64,6 +74,13 @@ const (
 	// up to busyRetryMaxDelay.
 	busyRetryInitialDelay = 50 * time.Millisecond
 	busyRetryMaxDelay     = 2 * time.Second
+
+	// writeGateWarnAfter is how long a writer may queue at the gate before a
+	// warning is emitted (stderr — the logger doesn't exist when the dialector
+	// is built, and stdout carries the MCP stdio protocol). A healthy gate
+	// holds for milliseconds; a wait this long means a holder is stuck or an
+	// LLM-latency-bound batch is monopolizing the writer slot.
+	writeGateWarnAfter = 10 * time.Second
 )
 
 // writeGate is a binary semaphore serializing write-intent transactions on
@@ -81,8 +98,25 @@ func (g *writeGate) Lock(ctx context.Context) error {
 	select {
 	case g.ch <- struct{}{}:
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	default:
+	}
+	// Slow path: the gate is held. Warn once if the wait runs long — silence
+	// here would make a stuck holder look like a slow query — and wrap a
+	// cancellation so the operator can tell "died queued at the write gate"
+	// from an ordinary timeout.
+	warn := time.NewTimer(writeGateWarnAfter)
+	defer warn.Stop()
+	for {
+		select {
+		case g.ch <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("queued at the sqlite write gate: %w", ctx.Err())
+		case <-warn.C:
+			fmt.Fprintf(os.Stderr,
+				"weos: sqlite write gate: writer queued for over %s — the current holder is stuck or long-running\n",
+				writeGateWarnAfter)
+		}
 	}
 }
 
@@ -173,10 +207,10 @@ func newGatedSQLiteDialector(augmentedDSN, rawDSN string) gorm.Dialector {
 	if err != nil {
 		// Effectively unreachable: the driver is registered by the
 		// glebarez/go-sqlite import above, and sql.Open defers DSN parsing
-		// to connection time. Degrade to the ungated dialector (stderr only:
-		// stdout carries the MCP stdio protocol) rather than panic.
-		fmt.Fprintf(os.Stderr, "weos: sqlite write gate disabled: %v\n", err)
-		return sqlite.Open(augmentedDSN)
+		// to connection time. Fail fast at gorm.Open rather than silently
+		// degrade to an ungated pool — a working-but-ungated database would
+		// reintroduce the SQLITE_BUSY class this gate exists to eliminate.
+		return failingDialector{err: fmt.Errorf("sqlite write gate: open %q: %w", rawDSN, err)}
 	}
 	return &sqlite.Dialector{
 		DriverName: sqlite.DriverName,
@@ -184,6 +218,20 @@ func newGatedSQLiteDialector(augmentedDSN, rawDSN string) gorm.Dialector {
 		Conn:       &gatedConnPool{db: sqlDB, gate: writeGateFor(rawDSN)},
 	}
 }
+
+// failingDialector surfaces a construction error through gorm.Open (which
+// calls Initialize first and returns its error before any other method is
+// used). The remaining gorm.Dialector methods are dead stubs.
+type failingDialector struct{ err error }
+
+func (d failingDialector) Name() string                                        { return "sqlite" }
+func (d failingDialector) Initialize(*gorm.DB) error                           { return d.err }
+func (d failingDialector) Migrator(*gorm.DB) gorm.Migrator                     { return nil }
+func (d failingDialector) DataTypeOf(*schema.Field) string                     { return "" }
+func (d failingDialector) DefaultValueOf(*schema.Field) clause.Expression      { return nil }
+func (d failingDialector) BindVarTo(clause.Writer, *gorm.Statement, any)       {}
+func (d failingDialector) QuoteTo(clause.Writer, string)                       {}
+func (d failingDialector) Explain(sql string, vars ...any) string              { return sql }
 
 // gatedConnPool implements gorm.ConnPool over the raw *sql.DB. Reads and
 // non-transactional statements delegate straight through — they never queue.
@@ -229,9 +277,11 @@ func (p *gatedConnPool) GetDBConn() (*sql.DB, error) {
 // attaches it via HandlerContext; detected with TxFromContext) bypasses the
 // gate: the batch's own BeginTx acquired it higher up this goroutine's call
 // stack, and re-acquiring a non-reentrant semaphore would deadlock. The
-// bypassed Begin still contends with the batch inside SQLite itself — that
-// nested-write hazard is fixed at its root in pericarp (Append joining the
-// ambient transaction), not here.
+// bypassed Begin still contends with the batch inside SQLite itself, bounded
+// by busy_timeout — the bypass's only job is to keep that contention from
+// becoming a permanent gate deadlock. The root fix (pericarp's Append joining
+// the ambient transaction) ships separately in akeemphilbert/pericarp#58 and
+// takes effect once weos pins a release containing it.
 func (p *gatedConnPool) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.ConnPool, error) {
 	if subscriptions.TxFromContext(ctx) != nil {
 		tx, err := p.db.BeginTx(ctx, opts)
@@ -248,7 +298,9 @@ func (p *gatedConnPool) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.
 		p.gate.Unlock()
 		return nil, err
 	}
-	return &gatedTx{tx: tx, gate: p.gate}, nil
+	gt := &gatedTx{tx: tx, gate: p.gate}
+	runtime.SetFinalizer(gt, finalizeLeakedGatedTx)
+	return gt, nil
 }
 
 // beginWithBusyRetry retries BeginTx on SQLITE_BUSY with doubling backoff,
@@ -274,7 +326,11 @@ func (p *gatedConnPool) beginWithBusyRetry(ctx context.Context, opts *sql.TxOpti
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			// Keep the BUSY that drove us into backoff visible — a bare
+			// ctx.Err() is indistinguishable from a slow query.
+			return nil, fmt.Errorf(
+				"begin sqlite write transaction: %w (interrupted after %d attempts; last SQLITE_BUSY: %v)",
+				ctx.Err(), attempt, lastErr)
 		}
 		delay *= 2
 		if delay > busyRetryMaxDelay {
@@ -289,16 +345,37 @@ func (p *gatedConnPool) beginWithBusyRetry(ctx context.Context, opts *sql.TxOpti
 // gatedTx wraps the write transaction and releases the gate exactly once, on
 // whichever of Commit/Rollback runs first. A nil gate means the transaction
 // was begun via the ambient-batch bypass and holds nothing.
+//
+// A wrapper that becomes unreachable without either being called would hold
+// the gate forever — a silent, process-wide write wedge (strictly worse than
+// the pre-gate behavior, where a leaked transaction surfaced as loud BUSY
+// errors and self-healed at busy_timeout). BeginTx therefore arms a finalizer
+// as a loud last resort: it rolls the inner transaction back, releases the
+// gate, and reports the leak on stderr.
 type gatedTx struct {
-	tx   *sql.Tx
-	gate *writeGate
-	once sync.Once
+	tx       *sql.Tx
+	gate     *writeGate
+	released atomic.Bool
 }
 
 func (t *gatedTx) release() {
-	if t.gate != nil {
-		t.once.Do(t.gate.Unlock)
+	if t.gate != nil && t.released.CompareAndSwap(false, true) {
+		t.gate.Unlock()
 	}
+}
+
+// finalizeLeakedGatedTx is the last-resort release for a gated transaction
+// that was dropped without Commit/Rollback (e.g. a panic between gorm's begin
+// and commit callbacks, recovered upstream). Rollback on an already-finished
+// inner transaction returns sql.ErrTxDone harmlessly.
+func finalizeLeakedGatedTx(t *gatedTx) {
+	if t.gate == nil || t.released.Load() {
+		return
+	}
+	fmt.Fprintln(os.Stderr,
+		"weos: sqlite write gate: transaction leaked without Commit/Rollback; rolling back and releasing the gate")
+	_ = t.tx.Rollback()
+	t.release()
 }
 
 func (t *gatedTx) Commit() error {
