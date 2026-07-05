@@ -1,4 +1,4 @@
-@epic-136 @story-431 @wip
+@epic-136 @story-431
 Feature: Per-account knowledge graphs in a shared-process deployment
   As an operator running one WeOS process for many accounts
   I want each account's knowledge graph isolated to its own store
