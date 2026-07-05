@@ -1,0 +1,61 @@
+// Copyright (C) 2026 Wepala, LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// Package notifications provides the generic notification resource type that
+// backs the inbox capability. Any service can produce notifications addressed
+// to a user through application.NotificationService; this preset only defines
+// the store. Like every non-core preset it is opt-in: a service enables the
+// inbox by installing the "notifications" preset.
+package notifications
+
+import "github.com/wepala/weos/v3/application"
+
+// Slug is the resource type slug for a notification, aliasing the canonical
+// value the application package owns (avoids drift between the type this preset
+// installs and the type the notification service reads/writes).
+const Slug = application.NotificationTypeSlug
+
+// Register adds the notification preset to the registry.
+func Register(registry *application.PresetRegistry) {
+	registry.MustAdd(application.PresetDefinition{
+		Name:        "notifications",
+		Description: "Generic notification store backing the per-user inbox",
+		Types: []application.PresetResourceType{
+			application.NewPresetType("Notification", Slug,
+				"A notification addressed to a recipient, shown in their inbox",
+				// schema:Message is the closest ontology fit for an inbox item.
+				// No x-resource-type properties: taskRef stays a plain string so
+				// the store never couples to any particular consumer's types.
+				`{"@vocab":"https://schema.org/","@type":"Message"}`,
+				`{
+					"type": "object",
+					"properties": {
+						"recipient":   {"type": "string"},
+						"kind":        {"type": "string"},
+						"title":       {"type": "string"},
+						"body":        {"type": "string"},
+						"actionUrl":   {"type": "string"},
+						"actionLabel": {"type": "string"},
+						"taskRef":     {"type": "string"},
+						"occurredAt":  {"type": "string", "format": "date-time"},
+						"read":        {"type": "boolean"},
+						"dedupeKey":   {"type": "string"}
+					},
+					"required": ["recipient", "title"]
+				}`,
+			),
+		},
+	})
+}

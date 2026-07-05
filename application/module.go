@@ -135,6 +135,10 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvideResourcePermissionService),
 		fx.Provide(ProvideKnowledgeGraphService),
 		fx.Provide(storageprovider.ProvideFileService),
+		// Generic notification store + inbox (#427): production and mark-read
+		// route through ResourceService, so writes hit the behavior/event
+		// pipeline and inbox reads inherit the ownership visibility scope.
+		fx.Provide(ProvideNotificationService),
 
 		// Install the real ResourceService into the lazy writer proxy now that
 		// both exist. Behaviors close over the proxy at factory time; this
