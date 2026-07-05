@@ -5,7 +5,10 @@ package graph
 
 import (
 	"context"
+	"io"
 	"time"
+
+	"go.uber.org/fx"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -25,8 +28,35 @@ const pingTimeout = 3 * time.Second
 // unreachable at startup, we log a single ERROR and fall back to nop —
 // preferable to letting every event log per-write failures forever.
 func ProvideKnowledgeGraphStore(
-	cfg config.Config, logger entities.Logger,
+	cfg config.Config, logger entities.Logger, lc fx.Lifecycle,
 ) repositories.KnowledgeGraphStore {
+	// The embedded backend takes precedence: an explicit store path is the
+	// desktop/embedded case, and it selects the in-process store over any
+	// OXIGRAPH_URL. A failure to open it degrades to nop with one ERROR — the
+	// same soft-dependency contract as an unreachable HTTP endpoint.
+	if path := cfg.Oxigraph.Path; path != "" {
+		if !oxigraph.EmbeddedAvailable() {
+			logger.Error(context.Background(),
+				"knowledge graph: embedded store path is set but this binary was not built with "+
+					"the 'oxigraph_embedded' tag, using nop store", "path", path)
+			return NewNopStore()
+		}
+		store, err := oxigraph.NewEmbeddedStore(path, logger)
+		if err != nil {
+			logger.Error(context.Background(),
+				"knowledge graph: failed to open embedded store, falling back to nop",
+				"path", path, "error", err)
+			return NewNopStore()
+		}
+		// Flush and release the directory lock on shutdown so the same path
+		// can be reopened (a restart, or the next test).
+		if closer, ok := store.(io.Closer); ok {
+			lc.Append(fx.Hook{OnStop: func(context.Context) error { return closer.Close() }})
+		}
+		logger.Info(context.Background(),
+			"knowledge graph: embedded Oxigraph store enabled", "path", path)
+		return store
+	}
 	if !cfg.Oxigraph.Active() {
 		logger.Debug(context.Background(), "knowledge graph: Oxigraph not configured, using nop store")
 		return NewNopStore()

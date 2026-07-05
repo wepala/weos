@@ -194,6 +194,12 @@ func (c Config) IsPostgres() bool {
 // URL and Enabled are set — see Active().
 type OxigraphConfig struct {
 	URL string // e.g. http://localhost:7878 — empty disables the projection
+	// Path selects the EMBEDDED backend: an in-process oxigraph store opened
+	// on this local directory, no external endpoint. When set it takes
+	// precedence over URL (the desktop/embedded case). Requires a binary
+	// built with the `oxigraph_embedded` tag; otherwise the provider logs
+	// and falls back to nop, like an unreachable endpoint.
+	Path string
 	// Enabled gates the projection independently of URL so operators can
 	// stage a rollout (set URL but keep Enabled=false). LoadFromEnvironment
 	// flips Enabled=true automatically when OXIGRAPH_URL is present so the
@@ -524,6 +530,9 @@ func (c *Config) LoadFromEnvironment() {
 	if v := os.Getenv("OXIGRAPH_URL"); v != "" {
 		c.Oxigraph.URL = v
 		c.Oxigraph.Enabled = true
+	}
+	if v := os.Getenv("OXIGRAPH_STORE_PATH"); v != "" {
+		c.Oxigraph.Path = v
 	}
 	if v := os.Getenv("OXIGRAPH_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
