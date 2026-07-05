@@ -225,6 +225,10 @@ func Run(enabledServices []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// The stdio transport is a single local caller with no per-request identity.
+	// Mark the session so per-account knowledge-graph mode serves the local graph
+	// (the stdio exception) instead of failing closed on an unresolved account.
+	ctx = application.WithLocalTransport(ctx)
 
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && !isCleanShutdown(ctx, err) {
 		return err

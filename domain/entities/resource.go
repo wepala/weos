@@ -73,13 +73,13 @@ func (e *Resource) With(
 
 func (e *Resource) Update(data json.RawMessage) error {
 	e.data = data
-	event := ResourceUpdated{}.With(data)
+	event := ResourceUpdated{}.With(data, e.accountID)
 	return e.RecordEvent(event, event.EventType())
 }
 
 func (e *Resource) MarkDeleted() error {
 	e.status = "archived"
-	event := ResourceDeleted{}.With()
+	event := ResourceDeleted{}.With(e.accountID)
 	return e.RecordEvent(event, event.EventType())
 }
 

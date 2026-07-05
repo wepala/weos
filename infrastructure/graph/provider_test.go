@@ -2,10 +2,11 @@ package graph
 
 import (
 	"context"
-	"go.uber.org/fx/fxtest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"go.uber.org/fx/fxtest"
 
 	"github.com/wepala/weos/v3/internal/config"
 )

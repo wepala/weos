@@ -104,7 +104,11 @@ func newKGSvc(store repositories.KnowledgeGraphStore) KnowledgeGraphService {
 }
 
 func newKGSvcWithResource(store repositories.KnowledgeGraphStore, rsvc ResourceService) KnowledgeGraphService {
-	return &knowledgeGraphService{store: store, resource: rsvc, logger: noopLogger{}}
+	return &knowledgeGraphService{
+		stores:   repositories.NewSingleKnowledgeGraphStores(store),
+		resource: rsvc,
+		logger:   noopLogger{},
+	}
 }
 
 func TestKGService_InactiveStoreReturnsErrUnavailable(t *testing.T) {
@@ -492,7 +496,7 @@ func TestValidateIRI(t *testing.T) {
 // Active() guard: nil store must not panic.
 func TestKGService_NilStoreDoesNotPanic(t *testing.T) {
 	t.Parallel()
-	svc := &knowledgeGraphService{store: nil, logger: noopLogger{}}
+	svc := &knowledgeGraphService{stores: nil, logger: noopLogger{}}
 	if svc.Active() {
 		t.Error("nil store should report Active()=false")
 	}
