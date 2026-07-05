@@ -189,9 +189,11 @@ func (c Config) IsPostgres() bool {
 }
 
 // OxigraphConfig holds configuration for the optional Oxigraph knowledge-graph
-// projection. WeOS speaks to Oxigraph over HTTP using the SPARQL 1.1 protocol
-// (you run `oxigraph serve` separately). The projection runs only when both
-// URL and Enabled are set — see Active().
+// projection, over either of two backends: the HTTP SPARQL 1.1 protocol
+// against a separately-run `oxigraph serve` (URL), or an in-process embedded
+// store on a local directory (Path, the desktop case). The projection runs
+// when an embedded Path is set, or when both URL and Enabled are set — see
+// Active().
 type OxigraphConfig struct {
 	URL string // e.g. http://localhost:7878 — empty disables the projection
 	// Path selects the EMBEDDED backend: an in-process oxigraph store opened

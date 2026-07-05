@@ -76,6 +76,17 @@ func (s *EmbeddedStore) Close() error {
 	return err
 }
 
+// ensureOpen guards the methods that dereference s.store. Close() nils the
+// handle, so a call that races shutdown (a worker still draining while the Fx
+// OnStop hook fires) returns a clear "store is closed" error instead of
+// panicking on a nil dereference.
+func (s *EmbeddedStore) ensureOpen() error {
+	if s == nil || s.store == nil {
+		return fmt.Errorf("oxigraph embedded: store is closed")
+	}
+	return nil
+}
+
 // AddTriples inserts triples via SPARQL UPDATE INSERT DATA — the same SPARQL
 // the HTTP store builds, so the two backends behave identically.
 func (s *EmbeddedStore) AddTriples(ctx context.Context, triples []repositories.Triple) error {
@@ -101,8 +112,17 @@ func (s *EmbeddedStore) RemoveSubject(ctx context.Context, subject string) error
 	return s.Update(ctx, fmt.Sprintf("DELETE WHERE { %s ?p ?o }", formatTerm(subject)))
 }
 
-// Update executes an arbitrary SPARQL UPDATE against the embedded store.
-func (s *EmbeddedStore) Update(_ context.Context, sparql string) error {
+// Update executes an arbitrary SPARQL UPDATE against the embedded store. The
+// binding call is a synchronous CGO call that can't be cancelled mid-flight,
+// so ctx is honored only at entry (an already-cancelled context returns
+// without touching the store).
+func (s *EmbeddedStore) Update(ctx context.Context, sparql string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if err := s.store.Update(sparql); err != nil {
 		return fmt.Errorf("oxigraph embedded update: %w", err)
 	}
@@ -110,8 +130,15 @@ func (s *EmbeddedStore) Update(_ context.Context, sparql string) error {
 }
 
 // Query executes a SPARQL query and normalizes the binding's structured
-// result into a KGQueryResult, matching the HTTP store's shape.
-func (s *EmbeddedStore) Query(_ context.Context, sparql string) (repositories.KGQueryResult, error) {
+// result into a KGQueryResult, matching the HTTP store's shape. Like Update,
+// ctx is honored at entry only — the binding call itself is uncancellable.
+func (s *EmbeddedStore) Query(ctx context.Context, sparql string) (repositories.KGQueryResult, error) {
+	if err := ctx.Err(); err != nil {
+		return repositories.KGQueryResult{}, err
+	}
+	if err := s.ensureOpen(); err != nil {
+		return repositories.KGQueryResult{}, err
+	}
 	res, err := s.store.Query(sparql)
 	if err != nil {
 		return repositories.KGQueryResult{}, fmt.Errorf("oxigraph embedded query: %w", err)
@@ -122,9 +149,15 @@ func (s *EmbeddedStore) Query(_ context.Context, sparql string) (repositories.KG
 // LoadOntology bulk-loads a serialized RDF document into the default graph.
 // The IANA media type is mapped to the binding's RdfFormat; an empty format
 // defaults to Turtle, matching the HTTP store.
-func (s *EmbeddedStore) LoadOntology(_ context.Context, format string, body []byte) error {
+func (s *EmbeddedStore) LoadOntology(ctx context.Context, format string, body []byte) error {
 	if len(body) == 0 {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.ensureOpen(); err != nil {
+		return err
 	}
 	rdfFormat, ok := rdfFormatForMediaType(format)
 	if !ok {

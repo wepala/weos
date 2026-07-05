@@ -95,6 +95,10 @@ OXIGRAPH_LIB_VERSION ?= go/v0.1.0-alpha.3
 OXIGRAPH_LIB_DIR      := infrastructure/graph/oxigraph/lib
 OXIGRAPH_PLATFORM     := $(shell go env GOOS)_$(shell go env GOARCH)
 CGO_LDFLAGS_EMBEDDED  := -L$(abspath $(OXIGRAPH_LIB_DIR))/$(OXIGRAPH_PLATFORM)
+# sha256 checker: Linux ships sha256sum, macOS ships shasum. Pick whichever is
+# present so the fetch target's verify step works on both (both read the
+# checksum list from stdin with `-c -`).
+SHA256SUM_CHECK       := $(shell command -v sha256sum >/dev/null 2>&1 && echo 'sha256sum -c -' || echo 'shasum -a 256 -c -')
 
 fetch-oxigraph-lib: ## Download + sha-verify liboxigraph_ffi.a for this platform (for -tags oxigraph_embedded)
 	@mkdir -p $(OXIGRAPH_LIB_DIR)/$(OXIGRAPH_PLATFORM) /tmp/oxigraph-lib
@@ -102,7 +106,7 @@ fetch-oxigraph-lib: ## Download + sha-verify liboxigraph_ffi.a for this platform
 	@gh release download "$(OXIGRAPH_LIB_VERSION)" --repo akeemphilbert/oxigraph \
 		--pattern "liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a.gz" --pattern "SHA256SUMS" \
 		--dir /tmp/oxigraph-lib --clobber
-	@cd /tmp/oxigraph-lib && grep "liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a.gz" SHA256SUMS | shasum -a 256 -c -
+	@cd /tmp/oxigraph-lib && grep "liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a.gz" SHA256SUMS | $(SHA256SUM_CHECK)
 	@gunzip -f /tmp/oxigraph-lib/liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a.gz
 	@cp /tmp/oxigraph-lib/liboxigraph_ffi_$(OXIGRAPH_PLATFORM).a \
 		$(OXIGRAPH_LIB_DIR)/$(OXIGRAPH_PLATFORM)/liboxigraph_ffi.a
