@@ -307,12 +307,27 @@ func (s *notificationService) MarkRead(
 	if err != nil {
 		return nil, err
 	}
-	row, err := s.resources.GetFlat(ctx, NotificationTypeSlug, id)
+	// Load the FULL stored data (ownership-checked) rather than rebuilding from
+	// the flat projection: ResourceService.Update is a full replace, so marking
+	// read must resubmit the whole body. Flattening the stored JSON-LD preserves
+	// every property — including any not mirrored as a projection column — so no
+	// field is silently dropped. Notifications carry no references, so the entity
+	// node holds every property and a nil @context is sufficient to flatten.
+	entity, err := s.resources.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	view := viewFromFlat(row)
-	// A notification is personal to its recipient. GetFlat/Update alone would
+	flat, err := entities.SimplifyJSONLD(entity.Data(), nil)
+	if err != nil {
+		s.logger.Error(ctx, "failed to flatten notification", "id", id, "error", err)
+		return nil, fmt.Errorf("read notification: %w", err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(flat, &stored); err != nil {
+		return nil, fmt.Errorf("decode notification: %w", err)
+	}
+	view := viewFromFlat(stored)
+	// A notification is personal to its recipient. GetByID/Update alone would
 	// let an account admin/owner read or mutate a member's notification via the
 	// ResourceService admin bypass; refuse unless the caller IS the recipient.
 	// This closes both the content read (the returned view) and the mutate,
@@ -323,7 +338,13 @@ func (s *notificationService) MarkRead(
 	if view.Read {
 		return &view, nil // already read — idempotent
 	}
-	body, err := json.Marshal(dataFromFlat(row, true))
+	// Preserve every stored property; flip only read. Drop the JSON-LD artifacts
+	// SimplifyJSONLD surfaces (id/type) so the body matches the schema-shaped
+	// create data the full-replace Update expects.
+	stored["read"] = true
+	delete(stored, "id")
+	delete(stored, "type")
+	body, err := json.Marshal(stored)
 	if err != nil {
 		return nil, fmt.Errorf("marshal notification update: %w", err)
 	}
@@ -336,10 +357,15 @@ func (s *notificationService) MarkRead(
 }
 
 // forEachFlat pages through the caller's notifications (visibility-scoped) and
-// invokes fn for each row.
+// invokes fn for each row. It re-checks requireCaller as defense in depth so
+// the private helper cannot be misused by a future unguarded caller (its own
+// callers also guard up front — the redundancy is intentional).
 func (s *notificationService) forEachFlat(
 	ctx context.Context, fn func(row map[string]any) error,
 ) error {
+	if _, err := requireCaller(ctx); err != nil {
+		return err
+	}
 	cursor := ""
 	for {
 		page, err := s.resources.ListFlat(ctx, NotificationTypeSlug, cursor, notificationPageSize, newestFirst())
@@ -380,21 +406,6 @@ func viewFromFlat(row map[string]any) NotificationView {
 		TaskRef:     flatString(row, "taskRef"),
 		OccurredAt:  flatString(row, "occurredAt"),
 		Read:        flatBool(row, "read"),
-	}
-}
-
-func dataFromFlat(row map[string]any, read bool) notificationData {
-	return notificationData{
-		Recipient:   flatString(row, "recipient"),
-		Kind:        flatString(row, "kind"),
-		Title:       flatString(row, "title"),
-		Body:        flatString(row, "body"),
-		ActionURL:   flatString(row, "actionUrl"),
-		ActionLabel: flatString(row, "actionLabel"),
-		TaskRef:     flatString(row, "taskRef"),
-		OccurredAt:  flatString(row, "occurredAt"),
-		Read:        read,
-		DedupeKey:   flatString(row, "dedupeKey"),
 	}
 }
 

@@ -105,11 +105,14 @@ func initNotificationInboxScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" has an unread count of (\d+)$`, w.userHasUnreadCount)
 	sc.Step(`^"([^"]*)" marks the notification titled "([^"]*)" as read$`, w.userMarksTitledRead)
 	sc.Step(`^the notification titled "([^"]*)" in "([^"]*)" inbox is read$`, w.titledNotificationIsRead)
+	sc.Step(`^the notification titled "([^"]*)" in "([^"]*)" inbox has body "([^"]*)"$`, w.titledNotificationHasBody)
 	sc.Step(`^"([^"]*)" marks all notifications read$`, w.userMarksAllRead)
 	sc.Step(`^"([^"]*)" is an account admin of "([^"]*)"$`, w.isAccountAdminOf)
 	sc.Step(`^"([^"]*)" cannot read the notification titled "([^"]*)"$`, w.cannotReadTitled)
 	sc.Step(`^"([^"]*)" is denied marking the notification titled "([^"]*)" as read$`, w.deniedMarkingTitled)
 	sc.Step(`^a caller with no identity is refused when listing notifications$`, w.noIdentityListRefused)
+	sc.Step(`^creating a notification for "([^"]*)" with no occurredAt is rejected as invalid$`,
+		w.createWithoutOccurredAtRejected)
 }
 
 // --- Boot & seeding ---
@@ -271,6 +274,26 @@ func (w *notificationWorld) noIdentityListRefused() error {
 	return nil
 }
 
+// createWithoutOccurredAtRejected creates a notification directly through the
+// ResourceService — the path the generic POST /api/notification route uses —
+// with occurredAt omitted, and requires the tightened schema to reject it.
+// Guards the malformed-notification gap that would otherwise break newest-first
+// ordering.
+func (w *notificationWorld) createWithoutOccurredAtRejected(name string) error {
+	u, err := w.user(name)
+	if err != nil {
+		return err
+	}
+	ctx := auth.ContextWithAgent(context.Background(), &auth.Identity{AgentID: u.agentID})
+	data := json.RawMessage(fmt.Sprintf(`{"recipient":%q,"title":"No timestamp","read":false}`, u.agentID))
+	if _, err := w.rs.Create(ctx, application.CreateResourceCommand{
+		TypeSlug: application.NotificationTypeSlug, Data: data,
+	}); !errors.Is(err, application.ErrValidation) {
+		return fmt.Errorf("expected schema validation rejection for missing occurredAt, got: %v", err)
+	}
+	return nil
+}
+
 // deniedMarkingTitled has the named user attempt to mark a notification they do
 // not own (referenced by title, not via their own inbox) and asserts a 403.
 func (w *notificationWorld) deniedMarkingTitled(name, title string) error {
@@ -416,6 +439,19 @@ func (w *notificationWorld) titledNotificationIsRead(title, name string) error {
 	read, _ := item["read"].(bool)
 	if !read {
 		return fmt.Errorf("notification titled %q in %q inbox is not read: %v", title, name, item["read"])
+	}
+	return nil
+}
+
+// titledNotificationHasBody proves mark-read (and any read path) preserves a
+// populated non-key field — the body survives the full-replace update.
+func (w *notificationWorld) titledNotificationHasBody(title, name, want string) error {
+	item, err := w.findByTitle(name, title)
+	if err != nil {
+		return err
+	}
+	if got := fmt.Sprint(item["body"]); got != want {
+		return fmt.Errorf("notification titled %q body = %q, want %q", title, got, want)
 	}
 	return nil
 }

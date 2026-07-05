@@ -56,7 +56,7 @@ func Register(registry *application.PresetRegistry) {
 						"read":        {"type": "boolean"},
 						"dedupeKey":   {"type": "string"}
 					},
-					"required": ["recipient", "title"]
+					"required": ["recipient", "title", "occurredAt", "read"]
 				}`,
 			),
 		},

@@ -63,3 +63,12 @@ Feature: Notification inbox
   Scenario: An inbox read with no identity is refused, not served cross-user
     When the service notifies "Alice" with title "Private note" and key "p-1"
     Then a caller with no identity is refused when listing notifications
+
+  Scenario: Marking a notification read preserves its other fields
+    Given the service notifies "Alice" with title "Invoice ready" and key "inv-1"
+    When "Alice" marks the notification titled "Invoice ready" as read
+    Then the notification titled "Invoice ready" in "Alice" inbox is read
+    And the notification titled "Invoice ready" in "Alice" inbox has body "body of Invoice ready"
+
+  Scenario: A notification created without a timestamp is rejected by the schema
+    Then creating a notification for "Alice" with no occurredAt is rejected as invalid
