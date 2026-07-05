@@ -39,10 +39,25 @@ const NotificationTypeSlug = "notification"
 // (SQLite and PostgreSQL) without a boolean-column filter.
 const notificationPageSize = 100
 
+// notificationMaxLimit caps a caller-supplied inbox page so a request cannot
+// pull an unbounded number of rows in one call.
+const notificationMaxLimit = 200
+
+// occurredAtLayout stores occurredAt as a fixed-width UTC timestamp with a
+// constant 9-digit fraction, so a lexical descending sort of the string column
+// is a true chronological descending sort. time.RFC3339Nano trims trailing
+// zeros (variable width), which would invert order for sub-second-apart
+// notifications within the same second.
+const occurredAtLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 // NotificationInput is the payload a producing service supplies to emit a
 // notification from a domain event. Recipient is the agent the notification is
 // addressed to; DedupeKey is the stable key that makes production idempotent.
 type NotificationInput struct {
+	// Recipient MUST be the auth-resolved AgentID of the target user (the same
+	// identity SoftAuth/JWT put on the request context). A notification is
+	// owned by, and its inbox scoped to, this exact AgentID — any other value
+	// (email, display name) makes the notification invisible to every inbox.
 	Recipient   string
 	AccountID   string // recipient's account, if the producer knows it
 	Kind        string // free-form category, e.g. "import.completed"
@@ -74,9 +89,13 @@ type NotificationView struct {
 // UnreadCount, MarkRead, MarkAllRead) act on the authenticated caller carried
 // in ctx and are scoped to that user by the standard ownership model.
 type NotificationService interface {
-	// Notify emits a notification addressed to in.Recipient. It is idempotent
-	// on (Recipient, DedupeKey): re-emitting the same signal returns the
-	// existing notification instead of creating a duplicate.
+	// Notify emits a notification addressed to in.Recipient. For normal
+	// sequential delivery it is idempotent on (Recipient, DedupeKey):
+	// re-emitting the same signal returns the existing notification instead of
+	// creating a duplicate. The guarantee is a check-then-act lookup, not a DB
+	// uniqueness constraint (weos has no projection unique-index support), so
+	// two truly concurrent emits of the same (Recipient, DedupeKey) can still
+	// race to two rows; a future projection unique index would harden this.
 	Notify(ctx context.Context, in NotificationInput) (*entities.Resource, error)
 	// List returns the caller's notifications, newest first, up to limit.
 	List(ctx context.Context, limit int) ([]NotificationView, error)
@@ -134,6 +153,8 @@ func (s *notificationService) Notify(
 		// is definitively this recipient's prior delivery.
 		storedKey = dedupeKey(in.Recipient, in.DedupeKey)
 		if existing, err := s.findByDedupeKey(ctx, storedKey); err != nil {
+			s.logger.Error(ctx, "notification dedup lookup failed",
+				"recipient", in.Recipient, "error", err)
 			return nil, err
 		} else if existing != nil {
 			return existing, nil
@@ -152,7 +173,7 @@ func (s *notificationService) Notify(
 		ActionURL:   in.ActionURL,
 		ActionLabel: in.ActionLabel,
 		TaskRef:     in.TaskRef,
-		OccurredAt:  occurred.UTC().Format(time.RFC3339Nano),
+		OccurredAt:  occurred.UTC().Format(occurredAtLayout),
 		Read:        false,
 		DedupeKey:   storedKey,
 	})
@@ -174,6 +195,8 @@ func (s *notificationService) Notify(
 		Data:     data,
 	})
 	if err != nil {
+		s.logger.Error(ctx, "failed to create notification",
+			"recipient", in.Recipient, "kind", in.Kind, "error", err)
 		return nil, fmt.Errorf("create notification: %w", err)
 	}
 	return created, nil
@@ -198,11 +221,15 @@ func (s *notificationService) findByDedupeKey(
 func (s *notificationService) List(
 	ctx context.Context, limit int,
 ) ([]NotificationView, error) {
-	if limit <= 0 {
+	switch {
+	case limit <= 0:
 		limit = notificationPageSize
+	case limit > notificationMaxLimit:
+		limit = notificationMaxLimit
 	}
 	page, err := s.resources.ListFlat(ctx, NotificationTypeSlug, "", limit, newestFirst())
 	if err != nil {
+		s.logger.Error(ctx, "failed to list notifications", "error", err)
 		return nil, fmt.Errorf("list notifications: %w", err)
 	}
 	views := make([]NotificationView, 0, len(page.Data))
@@ -247,13 +274,20 @@ func (s *notificationService) MarkAllRead(ctx context.Context) (int, error) {
 func (s *notificationService) MarkRead(
 	ctx context.Context, id string,
 ) (*NotificationView, error) {
-	// GetFlat enforces the ownership access check, so a caller cannot mark a
-	// notification that is not theirs.
 	row, err := s.resources.GetFlat(ctx, NotificationTypeSlug, id)
 	if err != nil {
 		return nil, err
 	}
 	view := viewFromFlat(row)
+	// A notification is personal to its recipient. GetFlat/Update alone would
+	// let an account admin/owner read or mutate a member's notification via the
+	// ResourceService admin bypass; refuse unless the caller IS the recipient.
+	// This closes both the content read (the returned view) and the mutate,
+	// and keeps the mark path consistent with the personal-only List path.
+	caller := auth.AgentFromCtx(ctx)
+	if caller == nil || view.Recipient != caller.AgentID {
+		return nil, entities.ErrAccessDenied
+	}
 	if view.Read {
 		return &view, nil // already read — idempotent
 	}
@@ -262,6 +296,7 @@ func (s *notificationService) MarkRead(
 		return nil, fmt.Errorf("marshal notification update: %w", err)
 	}
 	if _, err := s.resources.Update(ctx, UpdateResourceCommand{ID: id, Data: body}); err != nil {
+		s.logger.Error(ctx, "failed to mark notification read", "id", id, "error", err)
 		return nil, err
 	}
 	view.Read = true
@@ -277,6 +312,7 @@ func (s *notificationService) forEachFlat(
 	for {
 		page, err := s.resources.ListFlat(ctx, NotificationTypeSlug, cursor, notificationPageSize, newestFirst())
 		if err != nil {
+			s.logger.Error(ctx, "failed to scan notifications", "error", err)
 			return fmt.Errorf("scan notifications: %w", err)
 		}
 		for _, row := range page.Data {

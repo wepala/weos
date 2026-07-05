@@ -52,3 +52,9 @@ Feature: Notification inbox
     When the service notifies "Alice" with title "First" and key "n-1"
     And the service notifies "Alice" with title "Second" and key "n-2"
     Then the newest notification in "Alice" inbox is titled "Second"
+
+  Scenario: An account admin cannot read or mark another member's notification
+    Given a user "Manager"
+    And "Manager" is an account admin of "Alice"
+    When the service notifies "Alice" with title "Salary posted" and key "s-1"
+    Then "Manager" is denied marking the notification titled "Salary posted" as read

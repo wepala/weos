@@ -54,6 +54,7 @@ func (h *NotificationHandler) List(c echo.Context) error {
 	limit, _ := strconv.Atoi(c.QueryParam("limit")) //nolint:errcheck // 0 => service default
 	views, err := h.notifications.List(c.Request().Context(), limit)
 	if err != nil {
+		h.logger.Error(c.Request().Context(), "list notifications failed", "error", err)
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return respond(c, http.StatusOK, views)
@@ -66,6 +67,7 @@ func (h *NotificationHandler) UnreadCount(c echo.Context) error {
 	}
 	count, err := h.notifications.UnreadCount(c.Request().Context())
 	if err != nil {
+		h.logger.Error(c.Request().Context(), "unread count failed", "error", err)
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return respond(c, http.StatusOK, map[string]int{"unread": count})
@@ -84,6 +86,8 @@ func (h *NotificationHandler) MarkRead(c echo.Context) error {
 		case errors.Is(err, repositories.ErrNotFound):
 			return respondError(c, http.StatusNotFound, "notification not found")
 		default:
+			h.logger.Error(c.Request().Context(), "mark notification read failed",
+				"id", c.Param("id"), "error", err)
 			return respondError(c, http.StatusInternalServerError, err.Error())
 		}
 	}
@@ -97,6 +101,7 @@ func (h *NotificationHandler) MarkAllRead(c echo.Context) error {
 	}
 	marked, err := h.notifications.MarkAllRead(c.Request().Context())
 	if err != nil {
+		h.logger.Error(c.Request().Context(), "mark all notifications read failed", "error", err)
 		return respondError(c, http.StatusInternalServerError, err.Error())
 	}
 	return respond(c, http.StatusOK, map[string]int{"marked": marked})

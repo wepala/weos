@@ -75,8 +75,9 @@ type notificationWorld struct {
 	accountRepo authrepos.AccountRepository
 	logger      entities.Logger
 
-	users  map[string]seededUser
-	occSeq int
+	users      map[string]seededUser
+	producedID map[string]string // notification title -> id, for cross-user reference
+	occSeq     int
 
 	lastStatus int
 	lastBody   string
@@ -103,6 +104,8 @@ func initNotificationInboxScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" marks the notification titled "([^"]*)" as read$`, w.userMarksTitledRead)
 	sc.Step(`^the notification titled "([^"]*)" in "([^"]*)" inbox is read$`, w.titledNotificationIsRead)
 	sc.Step(`^"([^"]*)" marks all notifications read$`, w.userMarksAllRead)
+	sc.Step(`^"([^"]*)" is an account admin of "([^"]*)"$`, w.isAccountAdminOf)
+	sc.Step(`^"([^"]*)" is denied marking the notification titled "([^"]*)" as read$`, w.deniedMarkingTitled)
 }
 
 // --- Boot & seeding ---
@@ -130,6 +133,7 @@ func (w *notificationWorld) aRunningApplication() error {
 	}
 	w.app = app
 	w.users = map[string]seededUser{}
+	w.producedID = map[string]string{}
 
 	// The notifications preset is opt-in (only core auto-installs); a consuming
 	// service enables the inbox by installing it, which is what we do here.
@@ -195,7 +199,7 @@ func (w *notificationWorld) serviceNotifies(name, title, key string) error {
 	if err != nil {
 		return err
 	}
-	_, err = w.notes.Notify(context.Background(), application.NotificationInput{
+	res, err := w.notes.Notify(context.Background(), application.NotificationInput{
 		Recipient:  u.agentID,
 		AccountID:  u.accountID,
 		Kind:       "test.signal",
@@ -206,6 +210,42 @@ func (w *notificationWorld) serviceNotifies(name, title, key string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("notify %q: %w", name, err)
+	}
+	w.producedID[title] = res.GetID()
+	return nil
+}
+
+// isAccountAdminOf makes adminName an admin member of targetName's account,
+// which activates the ResourceService admin/owner access bypass — the exact
+// path the mark endpoint must still refuse for a notification the admin does
+// not own.
+func (w *notificationWorld) isAccountAdminOf(adminName, targetName string) error {
+	admin, err := w.user(adminName)
+	if err != nil {
+		return err
+	}
+	target, err := w.user(targetName)
+	if err != nil {
+		return err
+	}
+	if err := w.accountRepo.SaveMember(context.Background(), target.accountID, admin.agentID, "admin"); err != nil {
+		return fmt.Errorf("make %q admin of %q's account: %w", adminName, targetName, err)
+	}
+	return nil
+}
+
+// deniedMarkingTitled has the named user attempt to mark a notification they do
+// not own (referenced by title, not via their own inbox) and asserts a 403.
+func (w *notificationWorld) deniedMarkingTitled(name, title string) error {
+	id, ok := w.producedID[title]
+	if !ok {
+		return fmt.Errorf("no notification titled %q was produced", title)
+	}
+	if err := w.do(name, http.MethodPost, "/api/notifications/"+id+"/read", ""); err != nil {
+		return err
+	}
+	if w.lastStatus != http.StatusForbidden {
+		return fmt.Errorf("marking another user's notification: expected 403, got %d: %s", w.lastStatus, w.lastBody)
 	}
 	return nil
 }
