@@ -63,7 +63,12 @@ func projectResourcePublished(
 		logger.Warn(ctx, "kg failed to clear prior subject", "id", event.AggregateID, "error", err)
 	}
 
-	if err := store.LoadOntology(ctx, "application/ld+json", state.Data); err != nil {
+	// Inline a remote-string @context (e.g. "https://schema.org/") as @vocab so
+	// the graph store parses the document offline — an embedded oxigraph has no
+	// network to fetch a remote context, and @vocab expands the bare terms
+	// identically (matching the resource-type ontology projection above).
+	if err := store.LoadOntology(ctx, "application/ld+json",
+		jsonld.InlineVocabContext(state.Data)); err != nil {
 		return fmt.Errorf("kg: load resource JSON-LD for %s: %w", event.AggregateID, err)
 	}
 	logger.Debug(ctx, "kg projected Resource.Published",

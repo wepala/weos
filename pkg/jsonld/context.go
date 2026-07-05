@@ -147,3 +147,36 @@ func ResolvePredicateIRI(propName, vocab string, contextMap map[string]string) s
 	}
 	return propName
 }
+
+// InlineVocabContext rewrites a JSON-LD document whose top-level @context is a
+// bare string — a remote context IRI such as "https://schema.org/" — into an
+// inline {"@vocab": "<that IRI>"} context. A JSON-LD parser with no network
+// access (the embedded oxigraph store) cannot fetch a remote context, but a
+// bare-term document expands identically against @vocab, which is how WeOS
+// builds resource-type ontologies. Documents whose @context is already an
+// object (or absent, or unparseable) are returned unchanged, so this is a safe
+// no-op for anything but the remote-string form.
+func InlineVocabContext(data json.RawMessage) json.RawMessage {
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(data, &doc) != nil {
+		return data
+	}
+	raw, ok := doc["@context"]
+	if !ok {
+		return data
+	}
+	var iri string
+	if json.Unmarshal(raw, &iri) != nil || iri == "" {
+		return data // @context is not a bare string
+	}
+	inlined, err := json.Marshal(map[string]string{"@vocab": iri})
+	if err != nil {
+		return data
+	}
+	doc["@context"] = inlined
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return data
+	}
+	return out
+}
