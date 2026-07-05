@@ -16,8 +16,8 @@
 // Package notifications provides the generic notification resource type that
 // backs the inbox capability. Any service can produce notifications addressed
 // to a user through application.NotificationService; this preset only defines
-// the store. Like every non-core preset it is opt-in: a service enables the
-// inbox by installing the "notifications" preset.
+// the store. It is AutoInstall (like core): the inbox is a baseline capability
+// every weos service gets, so the type is created at startup with no opt-in.
 package notifications
 
 import "github.com/wepala/weos/v3/application"
@@ -32,6 +32,9 @@ func Register(registry *application.PresetRegistry) {
 	registry.MustAdd(application.PresetDefinition{
 		Name:        "notifications",
 		Description: "Generic notification store backing the per-user inbox",
+		// Always-on: the inbox is a baseline capability, so the notification
+		// type is created at startup for every weos service (no opt-in).
+		AutoInstall: true,
 		Types: []application.PresetResourceType{
 			application.NewPresetType("Notification", Slug,
 				"A notification addressed to a recipient, shown in their inbox",

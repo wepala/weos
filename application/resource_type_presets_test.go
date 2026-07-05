@@ -195,7 +195,9 @@ func TestPresets_AutoInstallFlag(t *testing.T) {
 	t.Parallel()
 	for _, d := range testRegistry().List() {
 		switch d.Name {
-		case "core":
+		// core and notifications are the always-on presets: their types are
+		// created at startup for every weos service. Every other preset is opt-in.
+		case "core", "notifications":
 			if !d.AutoInstall {
 				t.Fatalf("preset %q should be marked as AutoInstall", d.Name)
 			}

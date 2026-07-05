@@ -68,7 +68,6 @@ type notificationWorld struct {
 	tmpDir string
 	e      *echo.Echo
 
-	rts   application.ResourceTypeService
 	notes application.NotificationService
 	rs    application.ResourceService // to assert generic-route (GetByID) access denial
 
@@ -128,7 +127,7 @@ func (w *notificationWorld) aRunningApplication() error {
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
-		fx.Populate(&w.rts, &w.notes, &w.rs),
+		fx.Populate(&w.notes, &w.rs),
 		fx.Populate(&w.authService, &w.credRepo, &w.agentRepo, &w.accountRepo, &w.logger),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -140,11 +139,9 @@ func (w *notificationWorld) aRunningApplication() error {
 	w.users = map[string]seededUser{}
 	w.producedID = map[string]string{}
 
-	// The notifications preset is opt-in (only core auto-installs); a consuming
-	// service enables the inbox by installing it, which is what we do here.
-	if _, err := w.rts.InstallPreset(context.Background(), "notifications", true); err != nil {
-		return fmt.Errorf("install notifications preset: %w", err)
-	}
+	// The notifications preset is AutoInstall: app.Start already created the
+	// notification type at boot (no opt-in install), so the inbox is present
+	// for every service — which is exactly the always-on behaviour under test.
 
 	// The same inbox routes serve.go registers, behind SoftAuth so the
 	// X-Dev-Agent header selects which seeded user is the caller.

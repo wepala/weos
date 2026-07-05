@@ -28,9 +28,10 @@ import (
 )
 
 // NotificationTypeSlug is the resource type slug for a notification. The
-// notifications preset installs this type; the service and its consumers key
-// off this one constant. Defined here (not in the preset package) so the
-// application package can reference it without an import cycle.
+// notifications preset (AutoInstall) creates this type at startup for every
+// service; the service and its consumers key off this one constant. Defined
+// here (not in the preset package) so the application package can reference it
+// without an import cycle.
 const NotificationTypeSlug = "notification"
 
 // notificationPageSize bounds each internal projection read when counting or
