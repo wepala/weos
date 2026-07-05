@@ -10,6 +10,7 @@ import (
 	"go.uber.org/fx/fxtest"
 
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/infrastructure/graph/oxigraph"
 	"github.com/wepala/weos/v3/internal/config"
 )
 
@@ -131,17 +132,26 @@ func TestPerAccountStores_CloseEmptyIsNil(t *testing.T) {
 	}
 }
 
-// TestProvideKnowledgeGraphStores_PerAccountDegradesToNopWithoutTag pins the
-// fail-safe boot: with per-account requested but the embedded backend absent
-// (this test binary is built WITHOUT the oxigraph_embedded tag), the resolver
-// degrades to a nop single store — the graph is off, not a crash — rather than
-// silently running per-account against a missing backend.
-func TestProvideKnowledgeGraphStores_PerAccountDegradesToNopWithoutTag(t *testing.T) {
+// TestProvideKnowledgeGraphStores_PerAccountMode pins the per-account boot in
+// both builds: with the embedded backend it activates per-account isolation;
+// without it (no oxigraph_embedded tag) it fail-safe degrades to an inactive nop
+// store — the graph is off, not a crash — rather than silently running
+// per-account against a missing backend.
+func TestProvideKnowledgeGraphStores_PerAccountMode(t *testing.T) {
 	cfg := config.Config{}
 	cfg.Oxigraph.AccountStorePath = t.TempDir()
 	stores := ProvideKnowledgeGraphStores(cfg, provLogger{}, fxtest.NewLifecycle(t))
+	if oxigraph.EmbeddedAvailable() {
+		if !stores.Active() {
+			t.Error("with the embedded backend, per-account mode must be active")
+		}
+		if !stores.PerAccount() {
+			t.Error("with the embedded backend, per-account mode must report PerAccount()")
+		}
+		return
+	}
 	if stores.Active() {
-		t.Error("without the embedded tag, per-account mode must degrade to an inactive store")
+		t.Error("without the embedded backend, per-account mode must degrade to an inactive store")
 	}
 	if stores.PerAccount() {
 		t.Error("a degraded nop fallback must not report per-account mode")
