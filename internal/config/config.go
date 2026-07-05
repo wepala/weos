@@ -189,11 +189,19 @@ func (c Config) IsPostgres() bool {
 }
 
 // OxigraphConfig holds configuration for the optional Oxigraph knowledge-graph
-// projection. WeOS speaks to Oxigraph over HTTP using the SPARQL 1.1 protocol
-// (you run `oxigraph serve` separately). The projection runs only when both
-// URL and Enabled are set — see Active().
+// projection, over either of two backends: the HTTP SPARQL 1.1 protocol
+// against a separately-run `oxigraph serve` (URL), or an in-process embedded
+// store on a local directory (Path, the desktop case). The projection runs
+// when an embedded Path is set, or when both URL and Enabled are set — see
+// Active().
 type OxigraphConfig struct {
 	URL string // e.g. http://localhost:7878 — empty disables the projection
+	// Path selects the EMBEDDED backend: an in-process oxigraph store opened
+	// on this local directory, no external endpoint. When set it takes
+	// precedence over URL (the desktop/embedded case). Requires a binary
+	// built with the `oxigraph_embedded` tag; otherwise the provider logs
+	// and falls back to nop, like an unreachable endpoint.
+	Path string
 	// Enabled gates the projection independently of URL so operators can
 	// stage a rollout (set URL but keep Enabled=false). LoadFromEnvironment
 	// flips Enabled=true automatically when OXIGRAPH_URL is present so the
@@ -212,11 +220,15 @@ type OxigraphConfig struct {
 	Rebuild bool
 }
 
-// Active reports whether the Oxigraph projection should run. Both URL and
-// Enabled must be set. LoadFromEnvironment auto-sets Enabled when
-// OXIGRAPH_URL is present; programmatic callers must set both explicitly.
+// Active reports whether the Oxigraph projection should run. It's active when
+// an embedded store Path is set (the in-process backend, no gate — the
+// provider selects it whenever a path is configured), or for the HTTP backend
+// when both URL and Enabled are set. LoadFromEnvironment auto-sets Enabled when
+// OXIGRAPH_URL is present; programmatic callers of the HTTP path must set both
+// explicitly. Keeping Path in sync with the provider's selection is what lets
+// OXIGRAPH_REBUILD (gated on Active()) fire for embedded stores too.
 func (o OxigraphConfig) Active() bool {
-	return o.URL != "" && o.Enabled
+	return o.Path != "" || (o.URL != "" && o.Enabled)
 }
 
 // StorageConfig holds configuration for pluggable file storage backends.
@@ -524,6 +536,9 @@ func (c *Config) LoadFromEnvironment() {
 	if v := os.Getenv("OXIGRAPH_URL"); v != "" {
 		c.Oxigraph.URL = v
 		c.Oxigraph.Enabled = true
+	}
+	if v := os.Getenv("OXIGRAPH_STORE_PATH"); v != "" {
+		c.Oxigraph.Path = v
 	}
 	if v := os.Getenv("OXIGRAPH_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {

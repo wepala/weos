@@ -2,6 +2,7 @@ package jsonld_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/wepala/weos/v3/pkg/jsonld"
@@ -158,5 +159,26 @@ func TestIsAbstract(t *testing.T) {
 				t.Errorf("IsAbstract() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestInlineVocabContext(t *testing.T) {
+	// A bare-string @context becomes @vocab.
+	in := json.RawMessage(`{"@context":"https://schema.org/","@graph":[{"@id":"urn:x:1","name":"A"}]}`)
+	out := jsonld.InlineVocabContext(in)
+	if !strings.Contains(string(out), `"@vocab":"https://schema.org/"`) {
+		t.Errorf("remote string @context not inlined as @vocab: %s", out)
+	}
+	if strings.Contains(string(out), `"@context":"https://schema.org/"`) {
+		t.Errorf("bare string @context still present: %s", out)
+	}
+	// An object @context, an absent one, and non-JSON are left unchanged.
+	obj := json.RawMessage(`{"@context":{"@vocab":"https://schema.org/"},"@id":"urn:x:1"}`)
+	if string(jsonld.InlineVocabContext(obj)) != string(obj) {
+		t.Error("object @context should be unchanged")
+	}
+	none := json.RawMessage(`{"@id":"urn:x:1"}`)
+	if string(jsonld.InlineVocabContext(none)) != string(none) {
+		t.Error("document without @context should be unchanged")
 	}
 }

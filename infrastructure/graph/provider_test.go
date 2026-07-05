@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"go.uber.org/fx/fxtest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,7 +20,7 @@ func (provLogger) Error(_ context.Context, _ string, _ ...interface{}) {}
 func TestProvideKnowledgeGraphStore_NopWhenInactive(t *testing.T) {
 	t.Parallel()
 	cfg := config.Config{} // Oxigraph zero-value: not active
-	store := ProvideKnowledgeGraphStore(cfg, provLogger{})
+	store := ProvideKnowledgeGraphStore(cfg, provLogger{}, fxtest.NewLifecycle(t))
 	if store.Active() {
 		t.Error("inactive config should produce a nop store")
 	}
@@ -36,7 +37,7 @@ func TestProvideKnowledgeGraphStore_ActiveWhenURLSetAndReachable(t *testing.T) {
 	defer srv.Close()
 
 	cfg := config.Config{Oxigraph: config.OxigraphConfig{URL: srv.URL, Enabled: true}}
-	store := ProvideKnowledgeGraphStore(cfg, provLogger{})
+	store := ProvideKnowledgeGraphStore(cfg, provLogger{}, fxtest.NewLifecycle(t))
 	if !store.Active() {
 		t.Error("configured + reachable Oxigraph should produce an active store")
 	}
@@ -51,7 +52,7 @@ func TestProvideKnowledgeGraphStore_NopWhenEndpointUnreachable(t *testing.T) {
 	srv.Close()
 
 	cfg := config.Config{Oxigraph: config.OxigraphConfig{URL: deadURL, Enabled: true}}
-	store := ProvideKnowledgeGraphStore(cfg, provLogger{})
+	store := ProvideKnowledgeGraphStore(cfg, provLogger{}, fxtest.NewLifecycle(t))
 	if store.Active() {
 		t.Error("unreachable endpoint should fall back to nop instead of returning an active store")
 	}
