@@ -64,12 +64,16 @@ func NewEmbeddedStore(path string, logger entities.Logger) (repositories.Knowled
 func (s *EmbeddedStore) Active() bool { return s != nil && s.store != nil }
 
 // Close releases the embedded store, flushing to disk and dropping the
-// directory lock so the same path can be reopened. Idempotent.
+// directory lock so the same path can be reopened. Idempotent: it clears the
+// underlying handle so a second call (e.g. the Fx OnStop hook plus a test
+// cleanup) is a no-op rather than a double-close.
 func (s *EmbeddedStore) Close() error {
 	if s == nil || s.store == nil {
 		return nil
 	}
-	return s.store.Close()
+	err := s.store.Close()
+	s.store = nil
+	return err
 }
 
 // AddTriples inserts triples via SPARQL UPDATE INSERT DATA — the same SPARQL

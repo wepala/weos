@@ -218,11 +218,15 @@ type OxigraphConfig struct {
 	Rebuild bool
 }
 
-// Active reports whether the Oxigraph projection should run. Both URL and
-// Enabled must be set. LoadFromEnvironment auto-sets Enabled when
-// OXIGRAPH_URL is present; programmatic callers must set both explicitly.
+// Active reports whether the Oxigraph projection should run. It's active when
+// an embedded store Path is set (the in-process backend, no gate — the
+// provider selects it whenever a path is configured), or for the HTTP backend
+// when both URL and Enabled are set. LoadFromEnvironment auto-sets Enabled when
+// OXIGRAPH_URL is present; programmatic callers of the HTTP path must set both
+// explicitly. Keeping Path in sync with the provider's selection is what lets
+// OXIGRAPH_REBUILD (gated on Active()) fire for embedded stores too.
 func (o OxigraphConfig) Active() bool {
-	return o.URL != "" && o.Enabled
+	return o.Path != "" || (o.URL != "" && o.Enabled)
 }
 
 // StorageConfig holds configuration for pluggable file storage backends.

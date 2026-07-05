@@ -108,7 +108,7 @@ fetch-oxigraph-lib: ## Download + sha-verify liboxigraph_ffi.a for this platform
 		$(OXIGRAPH_LIB_DIR)/$(OXIGRAPH_PLATFORM)/liboxigraph_ffi.a
 
 build-embedded: fetch-oxigraph-lib ## Build weos with the embedded oxigraph backend
-	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go build -tags oxigraph_embedded -o bin/weos .
+	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go build -tags oxigraph_embedded -o bin/weos ./cmd/weos
 
 test-graph-embedded: fetch-oxigraph-lib ## Test the embedded oxigraph backend (CGO + vendored lib)
 	CGO_LDFLAGS="$(CGO_LDFLAGS_EMBEDDED)" go test -tags oxigraph_embedded ./infrastructure/graph/...
