@@ -81,6 +81,14 @@ func newPerAccountStores(
 				"the 'oxigraph_embedded' tag, using nop store", "path", base)
 		return repositories.NewSingleKnowledgeGraphStores(NewNopStore())
 	}
+	// Refuse a base that could make Truncate destructive (root or the cwd): a
+	// rebuild removes account-store dirs under the base, and pointing it at "/"
+	// or "." would put unrelated data in blast range. Degrade to nop instead.
+	if clean := filepath.Clean(base); clean == "/" || clean == "." || clean == "" {
+		logger.Error(context.Background(),
+			"knowledge graph: per-account store base is unsafe (root or cwd), using nop store", "path", base)
+		return repositories.NewSingleKnowledgeGraphStores(NewNopStore())
+	}
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		logger.Error(context.Background(),
 			"knowledge graph: failed to create per-account store base directory, falling back to nop",
@@ -148,6 +156,12 @@ func (f *perAccountStores) Truncate(_ context.Context) error {
 		return fmt.Errorf("knowledge graph: read per-account base for truncate: %w", err)
 	}
 	for _, e := range entries {
+		// Only reap directories that could be account stores (a safe account id).
+		// Never touch other files/dirs an operator may keep under the base, so a
+		// misconfigured base can't delete unrelated data on a rebuild.
+		if !e.IsDir() || !isSafeAccountID(e.Name()) {
+			continue
+		}
 		if rmErr := os.RemoveAll(filepath.Join(f.base, e.Name())); rmErr != nil {
 			return fmt.Errorf("knowledge graph: remove account graph %q: %w", e.Name(), rmErr)
 		}

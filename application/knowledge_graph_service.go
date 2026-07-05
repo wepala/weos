@@ -28,6 +28,14 @@ const kgRedactedIRI = "urn:weos:redacted"
 // instead of an empty result so the LLM doesn't reason on a false negative.
 var ErrKGUnavailable = errors.New("knowledge graph not configured")
 
+// ErrKGStoreUnavailable is returned when the graph IS configured but the
+// caller's account store could not be opened (disk, corruption, a held lock).
+// It is deliberately generic — the underlying error (which may include
+// filesystem paths) is logged server-side, not surfaced to a remote caller —
+// and distinct from ErrKGUnavailable so a broken store never reads as
+// "not configured".
+var ErrKGStoreUnavailable = errors.New("knowledge graph temporarily unavailable")
+
 // KnowledgeGraphService is the application-layer entry point for the
 // `knowledge-graph` MCP tool group. It composes SPARQL on top of the
 // storage-agnostic KnowledgeGraphStore so MCP tool handlers stay declarative
@@ -137,11 +145,12 @@ func (s *knowledgeGraphService) storeFor(ctx context.Context) (repositories.Know
 	store, err := s.stores.ForAccount(ctx, accountID)
 	if err != nil {
 		// A genuine store-open failure (disk, corruption, a held lock) is an
-		// actionable error, not "graph not configured" — log it loudly and
-		// surface a distinct error so a broken account store doesn't masquerade
-		// as an unconfigured graph and vanish at the default log level.
+		// actionable error, not "graph not configured" — log the detail (which
+		// may include filesystem paths) server-side, but return a generic,
+		// distinct error so a broken account store neither masquerades as an
+		// unconfigured graph nor leaks internal paths to a remote caller.
 		s.logger.Error(ctx, "kg account store open failed", "accountID", accountID, "error", err)
-		return nil, fmt.Errorf("kg store unavailable: %w", err)
+		return nil, ErrKGStoreUnavailable
 	}
 	if store == nil || !store.Active() {
 		return nil, ErrKGUnavailable

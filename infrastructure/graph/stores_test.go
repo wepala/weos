@@ -73,14 +73,25 @@ func TestPerAccountStores_TruncateRemovesAccountDirsKeepsBase(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A non-account entry an operator might keep under the base must survive: a
+	// misconfigured base can't turn a rebuild into a data-wipe of unrelated files.
+	keep := filepath.Join(f.base, "operator-notes.txt")
+	if err := os.WriteFile(keep, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.Truncate(context.Background()); err != nil {
 		t.Fatalf("Truncate: %v", err)
 	}
 	if _, err := os.Stat(f.base); err != nil {
 		t.Fatalf("base dir must survive Truncate: %v", err)
 	}
-	if entries, _ := os.ReadDir(f.base); len(entries) != 0 {
-		t.Fatalf("Truncate should remove every account dir, found %d", len(entries))
+	for _, id := range []string{"harbor", "cedar"} {
+		if _, err := os.Stat(filepath.Join(f.base, id)); !os.IsNotExist(err) {
+			t.Fatalf("account dir %q should be removed by Truncate", id)
+		}
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("a non-account file must survive Truncate: %v", err)
 	}
 }
 
