@@ -130,6 +130,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var inviteRepo authrepos.InviteRepository
 	var db *gormlib.DB
 	var presetHandlers application.PresetHTTPHandlers
+	var notificationService application.NotificationService
 	var orchestrator *appagents.Orchestrator
 	var skillRegistry *application.SkillRegistry
 
@@ -164,6 +165,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&inviteRepo),
 		fx.Populate(&db),
 		fx.Populate(&presetHandlers),
+		fx.Populate(&notificationService),
 	}
 	fxOpts = append(fxOpts, customFxOptions...)
 	app := fx.New(fxOpts...)
@@ -343,6 +345,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.PUT("/organizations/:id", orgHandler.Update)
 	protected.DELETE("/organizations/:id", orgHandler.Delete)
 	protected.GET("/organizations/:id/members", orgHandler.Members)
+
+	// Notification inbox (#427). Registered before the generic /:typeSlug
+	// resource routes; the plural path never collides with the "notification"
+	// type slug, and the static sub-paths take radix priority over /:typeSlug/:id.
+	notificationHandler := handlers.NewNotificationHandler(notificationService, logger)
+	protected.GET("/notifications", notificationHandler.List)
+	protected.GET("/notifications/unread-count", notificationHandler.UnreadCount)
+	protected.POST("/notifications/mark-all-read", notificationHandler.MarkAllRead)
+	protected.POST("/notifications/:id/read", notificationHandler.MarkRead)
 
 	rtHandler := handlers.NewResourceTypeHandler(resourceTypeService, authzChecker, accountRepo, logger)
 	protected.POST("/resource-types", rtHandler.Create)
