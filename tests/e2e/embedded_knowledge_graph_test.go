@@ -26,17 +26,17 @@ import (
 )
 
 // TestEmbeddedKnowledgeGraph runs the embedded-graph acceptance scenarios
-// (story #422). The scenarios are the test-first contract and are still tagged
-// @wip, so they are not wired into a Makefile target yet (that would go red on
-// the unfinished scenarios). Requires the oxigraph_embedded build tag and CGO
-// wired to the vendored lib — fetch the lib with `make fetch-oxigraph-lib`,
-// then run explicitly:
+// (story #422). Requires the oxigraph_embedded build tag and CGO wired to the
+// vendored lib — run via `make test-graph-embedded` (which fetches the lib,
+// sets CGO_LDFLAGS, and runs the graph unit tests plus these scenarios) or
+// explicitly:
 //
 //	CGO_LDFLAGS=-L<lib> go test -tags oxigraph_embedded ./tests/e2e/ -run TestEmbeddedKnowledgeGraph
 //
-// Set GODOG_TAGS=~@wip to run only the graduated scenarios once they exist.
+// GODOG_TAGS filters by scenario tag (e.g. GODOG_TAGS=~@wip to skip any
+// scenario later tagged @wip); empty runs every scenario.
 func TestEmbeddedKnowledgeGraph(t *testing.T) {
-	tags := os.Getenv("GODOG_TAGS") // empty runs every scenario, incl. @wip
+	tags := os.Getenv("GODOG_TAGS") // empty runs every scenario
 	suite := godog.TestSuite{
 		Name:                "embedded-knowledge-graph",
 		ScenarioInitializer: initEmbeddedKGScenario,
