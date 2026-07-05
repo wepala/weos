@@ -136,8 +136,12 @@ func (s *knowledgeGraphService) storeFor(ctx context.Context) (repositories.Know
 	}
 	store, err := s.stores.ForAccount(ctx, accountID)
 	if err != nil {
-		s.logger.Debug(ctx, "kg store resolution failed", "error", err)
-		return nil, ErrKGUnavailable
+		// A genuine store-open failure (disk, corruption, a held lock) is an
+		// actionable error, not "graph not configured" — log it loudly and
+		// surface a distinct error so a broken account store doesn't masquerade
+		// as an unconfigured graph and vanish at the default log level.
+		s.logger.Error(ctx, "kg account store open failed", "accountID", accountID, "error", err)
+		return nil, fmt.Errorf("kg store unavailable: %w", err)
 	}
 	if store == nil || !store.Active() {
 		return nil, ErrKGUnavailable

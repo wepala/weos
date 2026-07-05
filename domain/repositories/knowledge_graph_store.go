@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"errors"
-	"io"
 )
 
 // ErrNoAccount is returned by KnowledgeGraphStores.ForAccount when per-account
@@ -82,10 +81,8 @@ func (s singleStores) Truncate(ctx context.Context) error {
 }
 
 // Close is a no-op: the wrapped store's io.Closer (if any) is registered on the
-// fx lifecycle by the provider that opened it, so closing here would double-
-// close. The type assertion is kept only to document that intent.
+// fx lifecycle by the provider that opened it, so closing here would double-close.
 func (s singleStores) Close() error {
-	_, _ = s.store.(io.Closer)
 	return nil
 }
 

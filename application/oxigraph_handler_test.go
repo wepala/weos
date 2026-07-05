@@ -88,15 +88,20 @@ func (f *fakeKGStore) IsEmpty(_ context.Context) (bool, error) { return f.emptyR
 // methods panic — Resource.Published is the only path that touches the store
 // during projection.
 type fakeEventStore struct {
-	tx     map[string][]domain.EventEnvelope[any]
-	getErr error
+	tx           map[string][]domain.EventEnvelope[any]
+	byAggregate  map[string][]domain.EventEnvelope[any]
+	getErr       error
+	getEventsErr error
 }
 
 func (f *fakeEventStore) Append(_ context.Context, _ string, _ int, _ ...domain.EventEnvelope[any]) error {
 	panic("not used")
 }
-func (f *fakeEventStore) GetEvents(_ context.Context, _ string) ([]domain.EventEnvelope[any], error) {
-	panic("not used")
+func (f *fakeEventStore) GetEvents(_ context.Context, aggregateID string) ([]domain.EventEnvelope[any], error) {
+	if f.getEventsErr != nil {
+		return nil, f.getEventsErr
+	}
+	return f.byAggregate[aggregateID], nil
 }
 func (f *fakeEventStore) GetEventsFromVersion(_ context.Context, _ string, _ int) ([]domain.EventEnvelope[any], error) {
 	panic("not used")

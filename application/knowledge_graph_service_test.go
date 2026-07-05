@@ -505,6 +505,37 @@ func TestKGService_NilStoreDoesNotPanic(t *testing.T) {
 	}
 }
 
+// TestResolveAccountID_Branches pins the per-account read-side routing policy:
+// identity→account, local-transport→local graph, remote-unresolved→fail closed
+// (including the identity-present-but-empty-account case), and single-tenant→"".
+func TestResolveAccountID_Branches(t *testing.T) {
+	t.Parallel()
+	perAccount := &knowledgeGraphService{stores: &fakeStores{perAccount: true, active: true}, logger: noopLogger{}}
+	single := &knowledgeGraphService{stores: &fakeStores{perAccount: false, active: true}, logger: noopLogger{}}
+	base := context.Background()
+	withAccount := auth.ContextWithAgent(base, &auth.Identity{
+		AgentID: "agent", AccountIDs: []string{"acct"}, ActiveAccountID: "acct",
+	})
+	withoutActiveAccount := auth.ContextWithAgent(base, &auth.Identity{AgentID: "agent"})
+	local := WithLocalTransport(base)
+
+	if got, err := perAccount.resolveAccountID(withAccount); err != nil || got != "acct" {
+		t.Errorf("identity+account: got (%q,%v), want (acct,nil)", got, err)
+	}
+	if got, err := perAccount.resolveAccountID(local); err != nil || got != LocalAccountID {
+		t.Errorf("local no-account: got (%q,%v), want (%q,nil)", got, err, LocalAccountID)
+	}
+	if _, err := perAccount.resolveAccountID(base); !errors.Is(err, ErrKGUnavailable) {
+		t.Errorf("remote no-account: want ErrKGUnavailable, got %v", err)
+	}
+	if _, err := perAccount.resolveAccountID(withoutActiveAccount); !errors.Is(err, ErrKGUnavailable) {
+		t.Errorf("identity with empty active account (remote): want ErrKGUnavailable, got %v", err)
+	}
+	if got, err := single.resolveAccountID(withAccount); err != nil || got != "" {
+		t.Errorf("single-tenant: got (%q,%v), want (\"\",nil)", got, err)
+	}
+}
+
 // --- Permission filter ---
 
 func TestKGService_ExpandEntity_FiltersForbiddenSubjectsFromCONSTRUCTResults(t *testing.T) {

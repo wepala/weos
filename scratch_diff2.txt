@@ -1,0 +1,424 @@
+diff --git a/application/kg_account.go b/application/kg_account.go
+new file mode 100644
+index 0000000..8abdf7a
+--- /dev/null
++++ b/application/kg_account.go
+@@ -0,0 +1,45 @@
++// Copyright (C) 2026 Wepala, LLC
++//
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <https://www.gnu.org/licenses/>.
++
++package application
++
++import "context"
++
++// LocalAccountID is the reserved account whose graph serves LOCAL stdio callers
++// that have no resolvable account in per-account mode — the stdio exception to
++// the otherwise fail-closed rule (a remote request with no account is refused).
++// It is not a KSUID (real account ids are base62 KSUIDs), so it can never
++// collide with a real account. The same sentinel is the routing target for the
++// write side: resources created without an account (a system/stdio writer) are
++// projected into this graph, so a local caller reads its own writes.
++const LocalAccountID = "local"
++
++type localTransportKey struct{}
++
++// WithLocalTransport marks ctx as originating from the LOCAL stdio MCP transport
++// (`weos mcp`). The stdio server roots its whole session in this ctx, so every
++// tool call it serves inherits the marker. Per-account store resolution reads it
++// to apply the stdio exception — serve the local graph instead of failing closed
++// when no account resolves. HTTP requests never carry it, so a remote unresolved
++// caller stays fail-closed.
++func WithLocalTransport(ctx context.Context) context.Context {
++	return context.WithValue(ctx, localTransportKey{}, true)
++}
++
++// isLocalTransport reports whether ctx was marked by WithLocalTransport.
++func isLocalTransport(ctx context.Context) bool {
++	v, _ := ctx.Value(localTransportKey{}).(bool)
++	return v
++}
+diff --git a/application/module.go b/application/module.go
+index 027de49..0fe2e8b 100644
+--- a/application/module.go
++++ b/application/module.go
+@@ -70,10 +70,11 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
+ 		fx.Provide(gorm.ProvideTripleRepository),
+ 		fx.Provide(gorm.ProvideResourcePermissionRepository),
+ 
+-		// Optional knowledge-graph store (Oxigraph over SPARQL HTTP). When
+-		// not configured, the provider returns a nop store so downstream
+-		// projectors and MCP tools become silent no-ops.
+-		fx.Provide(graph.ProvideKnowledgeGraphStore),
++		// Optional knowledge-graph stores (Oxigraph over SPARQL HTTP, an
++		// embedded on-disk store, or — in multi-tenant per-account mode — one
++		// embedded store per account). When not configured, the resolver wraps a
++		// nop store so downstream projectors and MCP tools become silent no-ops.
++		fx.Provide(graph.ProvideKnowledgeGraphStores),
+ 
+ 		// Auth repositories (from pericarp)
+ 		fx.Provide(func(db *gormdb.DB) authrepos.AgentRepository { return authgorm.NewAgentRepository(db) }),
+diff --git a/application/resource_service.go b/application/resource_service.go
+index 1e68e73..725ce84 100644
+--- a/application/resource_service.go
++++ b/application/resource_service.go
+@@ -292,13 +292,13 @@ func (s *resourceService) Create(
+ 
+ 	// Record triple events on the entity so they commit in the same UoW.
+ 	for _, ref := range refs {
+-		tripleEvent := entities.TripleCreated{}.With(entityID, ref.Predicate, ref.Object)
++		tripleEvent := entities.TripleCreated{}.With(entityID, ref.Predicate, ref.Object, accountID)
+ 		if err := entity.RecordEvent(tripleEvent, tripleEvent.EventType()); err != nil {
+ 			return nil, fmt.Errorf("failed to record triple event: %w", err)
+ 		}
+ 	}
+ 
+-	published := entities.ResourcePublished{}.With(cmd.TypeSlug)
++	published := entities.ResourcePublished{}.With(cmd.TypeSlug, accountID)
+ 	if err := entity.RecordEvent(published, published.EventType()); err != nil {
+ 		return nil, fmt.Errorf("failed to record resource published event: %w", err)
+ 	}
+@@ -571,7 +571,7 @@ func (s *resourceService) Update(
+ 		return nil, err
+ 	}
+ 
+-	published := entities.ResourcePublished{}.With(entity.TypeSlug())
++	published := entities.ResourcePublished{}.With(entity.TypeSlug(), entity.AccountID())
+ 	if err := entity.RecordEvent(published, published.EventType()); err != nil {
+ 		return nil, fmt.Errorf("failed to record resource published event: %w", err)
+ 	}
+@@ -633,13 +633,13 @@ func (s *resourceService) Delete(
+ 		return fmt.Errorf("failed to load triples for deletion cleanup: %w", err)
+ 	}
+ 	for _, t := range existing {
+-		ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object)
++		ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object, entity.AccountID())
+ 		if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
+ 			return fmt.Errorf("failed to record triple deleted event: %w", err)
+ 		}
+ 	}
+ 
+-	published := entities.ResourcePublished{}.With(entity.TypeSlug())
++	published := entities.ResourcePublished{}.With(entity.TypeSlug(), entity.AccountID())
+ 	if err := entity.RecordEvent(published, published.EventType()); err != nil {
+ 		return fmt.Errorf("failed to record resource published event: %w", err)
+ 	}
+@@ -691,7 +691,7 @@ func (s *resourceService) reconcileTriples(
+ 			continue
+ 		}
+ 		if !newSet[t.Predicate+"|"+t.Object] {
+-			ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object)
++			ev := entities.TripleDeleted{}.With(entity.GetID(), t.Predicate, t.Object, entity.AccountID())
+ 			if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
+ 				return fmt.Errorf("failed to record triple deleted event: %w", err)
+ 			}
+@@ -699,7 +699,7 @@ func (s *resourceService) reconcileTriples(
+ 	}
+ 	for _, ref := range newRefs {
+ 		if !existingSet[ref.Predicate+"|"+ref.Object] {
+-			ev := entities.TripleCreated{}.With(entity.GetID(), ref.Predicate, ref.Object)
++			ev := entities.TripleCreated{}.With(entity.GetID(), ref.Predicate, ref.Object, entity.AccountID())
+ 			if err := entity.RecordEvent(ev, ev.EventType()); err != nil {
+ 				return fmt.Errorf("failed to record triple created event: %w", err)
+ 			}
+diff --git a/domain/entities/resource.go b/domain/entities/resource.go
+index ef8d6e2..630b7a0 100644
+--- a/domain/entities/resource.go
++++ b/domain/entities/resource.go
+@@ -73,13 +73,13 @@ func (e *Resource) With(
+ 
+ func (e *Resource) Update(data json.RawMessage) error {
+ 	e.data = data
+-	event := ResourceUpdated{}.With(data)
++	event := ResourceUpdated{}.With(data, e.accountID)
+ 	return e.RecordEvent(event, event.EventType())
+ }
+ 
+ func (e *Resource) MarkDeleted() error {
+ 	e.status = "archived"
+-	event := ResourceDeleted{}.With()
++	event := ResourceDeleted{}.With(e.accountID)
+ 	return e.RecordEvent(event, event.EventType())
+ }
+ 
+diff --git a/domain/entities/resource_events.go b/domain/entities/resource_events.go
+index f41491a..9eaba47 100644
+--- a/domain/entities/resource_events.go
++++ b/domain/entities/resource_events.go
+@@ -42,14 +42,22 @@ func (e ResourceCreated) EventType() string {
+ 	return "Resource.Created"
+ }
+ 
++// AccountID is carried on every resource event (not just ResourceCreated) so a
++// background projector can route the event to the owning account's knowledge
++// graph without a separate history lookup. The resource entity always knows its
++// account (set from ResourceCreated on load), so recording it is free; events
++// persisted before this field existed carry an empty value and the projector
++// falls back to the aggregate's ResourceCreated to recover it.
+ type ResourceUpdated struct {
+ 	Data      json.RawMessage
++	AccountID string
+ 	Timestamp time.Time
+ }
+ 
+-func (e ResourceUpdated) With(data json.RawMessage) ResourceUpdated {
++func (e ResourceUpdated) With(data json.RawMessage, accountID string) ResourceUpdated {
+ 	return ResourceUpdated{
+ 		Data:      data,
++		AccountID: accountID,
+ 		Timestamp: time.Now(),
+ 	}
+ }
+@@ -59,11 +67,12 @@ func (e ResourceUpdated) EventType() string {
+ }
+ 
+ type ResourceDeleted struct {
++	AccountID string
+ 	Timestamp time.Time
+ }
+ 
+-func (e ResourceDeleted) With() ResourceDeleted {
+-	return ResourceDeleted{Timestamp: time.Now()}
++func (e ResourceDeleted) With(accountID string) ResourceDeleted {
++	return ResourceDeleted{AccountID: accountID, Timestamp: time.Now()}
+ }
+ 
+ func (e ResourceDeleted) EventType() string {
+@@ -72,12 +81,14 @@ func (e ResourceDeleted) EventType() string {
+ 
+ type ResourcePublished struct {
+ 	TypeSlug  string
++	AccountID string
+ 	Timestamp time.Time
+ }
+ 
+-func (e ResourcePublished) With(typeSlug string) ResourcePublished {
++func (e ResourcePublished) With(typeSlug, accountID string) ResourcePublished {
+ 	return ResourcePublished{
+ 		TypeSlug:  typeSlug,
++		AccountID: accountID,
+ 		Timestamp: time.Now(),
+ 	}
+ }
+diff --git a/domain/entities/triple_events.go b/domain/entities/triple_events.go
+index 713db84..8fd4645 100644
+--- a/domain/entities/triple_events.go
++++ b/domain/entities/triple_events.go
+@@ -7,18 +7,23 @@ import (
+ )
+ 
+ // TripleCreated is emitted when a relationship triple is established between two resources.
++// AccountID carries the owning account (the subject resource's account) so the
++// background knowledge-graph projector can route the triple to that account's
++// store without a separate history lookup.
+ type TripleCreated struct {
+ 	domain.BasicTripleEvent
++	AccountID string
+ 	Timestamp time.Time
+ }
+ 
+-func (e TripleCreated) With(subject, predicate, object string) TripleCreated {
++func (e TripleCreated) With(subject, predicate, object, accountID string) TripleCreated {
+ 	return TripleCreated{
+ 		BasicTripleEvent: domain.BasicTripleEvent{
+ 			Subject:   subject,
+ 			Predicate: predicate,
+ 			Object:    object,
+ 		},
++		AccountID: accountID,
+ 		Timestamp: time.Now(),
+ 	}
+ }
+@@ -30,16 +35,18 @@ func (e TripleCreated) EventType() string {
+ // TripleDeleted is emitted when a relationship triple is removed.
+ type TripleDeleted struct {
+ 	domain.BasicTripleEvent
++	AccountID string
+ 	Timestamp time.Time
+ }
+ 
+-func (e TripleDeleted) With(subject, predicate, object string) TripleDeleted {
++func (e TripleDeleted) With(subject, predicate, object, accountID string) TripleDeleted {
+ 	return TripleDeleted{
+ 		BasicTripleEvent: domain.BasicTripleEvent{
+ 			Subject:   subject,
+ 			Predicate: predicate,
+ 			Object:    object,
+ 		},
++		AccountID: accountID,
+ 		Timestamp: time.Now(),
+ 	}
+ }
+diff --git a/domain/repositories/knowledge_graph_store.go b/domain/repositories/knowledge_graph_store.go
+index 5932b58..5025ed7 100644
+--- a/domain/repositories/knowledge_graph_store.go
++++ b/domain/repositories/knowledge_graph_store.go
+@@ -1,6 +1,93 @@
+ package repositories
+ 
+-import "context"
++import (
++	"context"
++	"errors"
++	"io"
++)
++
++// ErrNoAccount is returned by KnowledgeGraphStores.ForAccount when per-account
++// mode is enabled but the caller passed an empty account id. Callers resolve
++// the account (and decide fail-closed vs. the local graph) before asking for a
++// store, so an empty id reaching the factory is a programming error, not a
++// routing decision.
++var ErrNoAccount = errors.New("knowledge graph: no account for per-account store")
++
++// KnowledgeGraphStores resolves which KnowledgeGraphStore a caller or a
++// projected event should use. It is the seam that makes many-accounts-in-one-
++// process isolation possible without changing the KnowledgeGraphStore interface:
++//
++//   - In SINGLE-TENANT mode (one embedded Path, one HTTP URL, or nop) it always
++//     returns the one process store, ignoring the account — behavior is
++//     identical to before per-account mode existed.
++//   - In PER-ACCOUNT mode it lazily opens and caches one embedded store per
++//     account under a base directory, so a query for account A can never see
++//     account B's graph.
++type KnowledgeGraphStores interface {
++	// Active reports whether any real backend is wired (false for pure nop),
++	// so registration can skip the projector/tools entirely when the graph is
++	// off.
++	Active() bool
++
++	// PerAccount reports whether per-account isolation is enabled. Call sites
++	// use it to decide whether to resolve an account before querying and how to
++	// handle a missing one (fail closed vs. the local graph).
++	PerAccount() bool
++
++	// ForAccount returns the store for accountID, opening it lazily in
++	// per-account mode. In single-tenant mode accountID is ignored and the one
++	// process store is returned. In per-account mode an empty accountID returns
++	// ErrNoAccount (fail closed) — callers must resolve the account first.
++	ForAccount(ctx context.Context, accountID string) (KnowledgeGraphStore, error)
++
++	// Truncate clears every graph for a checkpoint-reset rebuild: the single
++	// store in single-tenant mode, every account store (open or on disk) in
++	// per-account mode. The subsequent replay re-projects each event into the
++	// owning account's store.
++	Truncate(ctx context.Context) error
++
++	// Close releases every open store (flush + unlock). Registered on the fx
++	// OnStop hook so restarts reopen cleanly without stale directory locks.
++	Close() error
++}
++
++// NewSingleKnowledgeGraphStores adapts one KnowledgeGraphStore to the
++// KnowledgeGraphStores interface for single-tenant mode: ForAccount ignores the
++// account and always returns the wrapped store, Truncate clears it, and Close is
++// a no-op (the wrapped store's own closer is registered separately by the
++// provider that built it). Kept here — rather than in the infrastructure graph
++// package — so both the provider and the application/service unit tests can wrap
++// a store without importing the embedded backend.
++func NewSingleKnowledgeGraphStores(store KnowledgeGraphStore) KnowledgeGraphStores {
++	return singleStores{store: store}
++}
++
++type singleStores struct {
++	store KnowledgeGraphStore
++}
++
++func (s singleStores) Active() bool { return s.store != nil && s.store.Active() }
++
++func (s singleStores) PerAccount() bool { return false }
++
++func (s singleStores) ForAccount(_ context.Context, _ string) (KnowledgeGraphStore, error) {
++	return s.store, nil
++}
++
++func (s singleStores) Truncate(ctx context.Context) error {
++	if s.store == nil {
++		return nil
++	}
++	return s.store.Clear(ctx)
++}
++
++// Close is a no-op: the wrapped store's io.Closer (if any) is registered on the
++// fx lifecycle by the provider that opened it, so closing here would double-
++// close. The type assertion is kept only to document that intent.
++func (s singleStores) Close() error {
++	_, _ = s.store.(io.Closer)
++	return nil
++}
+ 
+ // KnowledgeGraphStore is the storage-agnostic interface used by the optional
+ // knowledge-graph projection and the `knowledge-graph` MCP tool group. The
+diff --git a/internal/config/config.go b/internal/config/config.go
+index b1eefbe..0c1e357 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -202,6 +202,16 @@ type OxigraphConfig struct {
+ 	// built with the `oxigraph_embedded` tag; otherwise the provider logs
+ 	// and falls back to nop, like an unreachable endpoint.
+ 	Path string
++	// AccountStorePath enables PER-ACCOUNT knowledge graphs for a multi-tenant
++	// deployment (one process, one shared database, many accounts). When set,
++	// each account gets its own embedded oxigraph store under
++	// <AccountStorePath>/<accountID>, and every kg_* query is scoped to the
++	// caller's account so it only ever sees that account's graph. Opt-in and
++	// takes precedence over Path/URL when set; leaving it empty keeps the
++	// single-store behavior (Path/URL/nop) unchanged. Uses the embedded backend,
++	// so it requires a binary built with the `oxigraph_embedded` tag (otherwise
++	// the provider logs once and falls back to nop, like an unopenable path).
++	AccountStorePath string
+ 	// Enabled gates the projection independently of URL so operators can
+ 	// stage a rollout (set URL but keep Enabled=false). LoadFromEnvironment
+ 	// flips Enabled=true automatically when OXIGRAPH_URL is present so the
+@@ -228,7 +238,15 @@ type OxigraphConfig struct {
+ // explicitly. Keeping Path in sync with the provider's selection is what lets
+ // OXIGRAPH_REBUILD (gated on Active()) fire for embedded stores too.
+ func (o OxigraphConfig) Active() bool {
+-	return o.Path != "" || (o.URL != "" && o.Enabled)
++	return o.Path != "" || o.AccountStorePath != "" || (o.URL != "" && o.Enabled)
++}
++
++// PerAccount reports whether per-account knowledge graphs are enabled — the
++// opt-in multi-tenant mode where each account gets its own isolated embedded
++// store under AccountStorePath. When false the single-store selection
++// (Path/URL/nop) applies and no account scoping happens.
++func (o OxigraphConfig) PerAccount() bool {
++	return o.AccountStorePath != ""
+ }
+ 
+ // StorageConfig holds configuration for pluggable file storage backends.
+@@ -540,6 +558,9 @@ func (c *Config) LoadFromEnvironment() {
+ 	if v := os.Getenv("OXIGRAPH_STORE_PATH"); v != "" {
+ 		c.Oxigraph.Path = v
+ 	}
++	if v := os.Getenv("OXIGRAPH_ACCOUNT_STORE_PATH"); v != "" {
++		c.Oxigraph.AccountStorePath = v
++	}
+ 	if v := os.Getenv("OXIGRAPH_ENABLED"); v != "" {
+ 		if b, err := strconv.ParseBool(v); err == nil {
+ 			c.Oxigraph.Enabled = b
+diff --git a/internal/mcp/server.go b/internal/mcp/server.go
+index 0e1c513..b1d4ea2 100644
+--- a/internal/mcp/server.go
++++ b/internal/mcp/server.go
+@@ -225,6 +225,10 @@ func Run(enabledServices []string) error {
+ 
+ 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+ 	defer stop()
++	// The stdio transport is a single local caller with no per-request identity.
++	// Mark the session so per-account knowledge-graph mode serves the local graph
++	// (the stdio exception) instead of failing closed on an unresolved account.
++	ctx = application.WithLocalTransport(ctx)
+ 
+ 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && !isCleanShutdown(ctx, err) {
+ 		return err

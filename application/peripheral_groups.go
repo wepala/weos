@@ -104,11 +104,33 @@ func newOxigraphProjector(
 	}
 }
 
+// errAccountlessWrite marks an event that, in per-account mode, has an
+// identified creator but no resolvable account. Projecting it would divert the
+// writer's data into the shared local graph (readable by any local caller), so
+// the handler skips it loudly instead — retrying would never help since the
+// event permanently carries no account. The genuinely ownerless case (no
+// creator at all — a system/stdio write) is NOT this; it routes to the local
+// graph as intended.
+var errAccountlessWrite = errors.New("kg: per-account event has a creator but no account")
+
 // handle is the subscriber handler. The subscriber feeds it every event in the
 // feed, so it filters by type and ignores the rest. Returning an error retries
 // (and eventually parks) the event; a user request is never affected because
-// this runs in the background.
+// this runs in the background. An errAccountlessWrite is turned into a loud skip
+// (logged, not parked) so an accountless authenticated write never silently
+// lands in the shared local graph.
 func (p *oxigraphProjector) handle(ctx context.Context, event domain.EventEnvelope[any]) error {
+	err := p.dispatch(ctx, event)
+	if errors.Is(err, errAccountlessWrite) {
+		p.logger.Error(ctx, "kg skipping per-account event with a creator but no account "+
+			"(not routed to the shared local graph)",
+			"aggregateID", event.AggregateID, "eventType", event.EventType)
+		return nil
+	}
+	return err
+}
+
+func (p *oxigraphProjector) dispatch(ctx context.Context, event domain.EventEnvelope[any]) error {
 	switch event.EventType {
 	case "Triple.Created":
 		return p.projectTriple(ctx, event, true)
@@ -161,7 +183,11 @@ func (p *oxigraphProjector) projectTriple(
 func (p *oxigraphProjector) projectPublished(
 	ctx context.Context, event domain.EventEnvelope[any],
 ) error {
-	store, err := p.storeForEvent(ctx, event)
+	account, err := p.accountForEvent(ctx, event)
+	if err != nil {
+		return err
+	}
+	store, err := p.stores.ForAccount(ctx, account)
 	if err != nil {
 		return err
 	}
@@ -170,10 +196,6 @@ func (p *oxigraphProjector) projectPublished(
 	// answer from the account's own graph. Single-tenant mode projects ontology
 	// eagerly on ResourceType events (see projectType), so this is a no-op there.
 	if p.stores.PerAccount() {
-		account := p.resolveAccount(ctx, event)
-		if account == "" {
-			account = LocalAccountID
-		}
 		if err := p.ensureAccountOntology(ctx, store, account, event.AggregateID); err != nil {
 			return err
 		}
@@ -218,54 +240,73 @@ func (p *oxigraphProjector) projectType(
 
 // storeForEvent resolves the store an event should be projected into. In
 // single-tenant mode it's the one store (account ignored). In per-account mode
-// it's the owning account's store; an event with no resolvable account (a
-// system/stdio writer) is routed to the local graph so those writes are still
-// readable by local callers.
+// it's the owning account's store, resolved by accountForEvent.
 func (p *oxigraphProjector) storeForEvent(
 	ctx context.Context, event domain.EventEnvelope[any],
 ) (repositories.KnowledgeGraphStore, error) {
-	account := p.resolveAccount(ctx, event)
-	if p.stores.PerAccount() && account == "" {
-		account = LocalAccountID
+	account, err := p.accountForEvent(ctx, event)
+	if err != nil {
+		return nil, err
 	}
 	return p.stores.ForAccount(ctx, account)
 }
 
-// resolveAccount returns the account that owns an event. Single-tenant mode
-// needs no account. Per-account mode reads AccountID off the event payload (now
-// carried on every resource/triple event); events persisted before that field
-// existed fall back to the aggregate's Resource.Created, which has always
-// carried the account.
-func (p *oxigraphProjector) resolveAccount(
+// accountForEvent returns the account an event should be routed to. Single-tenant
+// mode needs no account (""). Per-account mode reads AccountID off the event
+// payload (now carried on every resource/triple event); when it's empty it
+// recovers the owner from the aggregate's Resource.Created (events persisted
+// before the per-event AccountID field) and distinguishes three cases:
+//
+//   - a recovered account -> that account;
+//   - a creator but no account (an authenticated write whose caller has no active
+//     account) -> errAccountlessWrite, so the handler skips it rather than
+//     leaking it into the shared local graph;
+//   - no creator at all (a system/stdio write) -> the local graph.
+//
+// A transient failure loading history is returned as an error so the subscriber
+// retries/parks the event instead of misrouting it.
+func (p *oxigraphProjector) accountForEvent(
 	ctx context.Context, event domain.EventEnvelope[any],
-) string {
+) (string, error) {
 	if !p.stores.PerAccount() {
-		return ""
+		return "", nil
 	}
 	if account := accountFromPayload(event.Payload); account != "" {
-		return account
+		return account, nil
 	}
-	return p.accountFromHistory(ctx, event.AggregateID)
+	account, createdBy, err := p.ownerFromHistory(ctx, event.AggregateID)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case account != "":
+		return account, nil
+	case createdBy != "":
+		return "", errAccountlessWrite
+	default:
+		return LocalAccountID, nil
+	}
 }
 
-// accountFromHistory recovers a legacy event's account from the aggregate's
-// original Resource.Created event. Used only when the event payload predates the
-// per-event AccountID field.
-func (p *oxigraphProjector) accountFromHistory(ctx context.Context, aggregateID string) string {
+// ownerFromHistory recovers an aggregate's owning account and creator from its
+// original Resource.Created event (which has always carried both). Used only
+// when an event payload predates the per-event AccountID field, or to tell an
+// ownerless system/stdio write from an accountless authenticated one. A load
+// failure is returned as an error (not swallowed as "no owner") so the caller
+// can retry rather than misroute.
+func (p *oxigraphProjector) ownerFromHistory(
+	ctx context.Context, aggregateID string,
+) (accountID, createdBy string, err error) {
 	events, err := p.eventStore.GetEvents(ctx, aggregateID)
 	if err != nil {
-		p.logger.Warn(ctx, "kg could not load aggregate history for account resolution",
-			"aggregateID", aggregateID, "error", err)
-		return ""
+		return "", "", fmt.Errorf("kg account resolution: load history for %q: %w", aggregateID, err)
 	}
 	for _, e := range events {
 		if e.EventType == "Resource.Created" {
-			if account := accountFromPayload(e.Payload); account != "" {
-				return account
-			}
+			return accountFromPayload(e.Payload), createdByFromPayload(e.Payload), nil
 		}
 	}
-	return ""
+	return "", "", nil
 }
 
 // ensureAccountOntology projects a type's ontology into an account store the
@@ -322,6 +363,22 @@ func accountFromPayload(payload any) string {
 		return p.AccountID
 	case entities.TripleDeleted:
 		return p.AccountID
+	default:
+		return ""
+	}
+}
+
+// createdByFromPayload extracts the creator agent id from a Resource.Created
+// payload (the only event that carries it), matching accountFromPayload's
+// map-vs-typed handling. An empty result means the resource was created without
+// an identity — a system/stdio write.
+func createdByFromPayload(payload any) string {
+	switch p := payload.(type) {
+	case map[string]any:
+		createdBy, _ := p["CreatedBy"].(string)
+		return createdBy
+	case entities.ResourceCreated:
+		return p.CreatedBy
 	default:
 		return ""
 	}

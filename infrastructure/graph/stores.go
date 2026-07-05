@@ -168,10 +168,18 @@ func (f *perAccountStores) Close() error {
 func (f *perAccountStores) closeAllLocked() error {
 	var firstErr error
 	for id, st := range f.open {
-		if closer, ok := st.(io.Closer); ok {
-			if err := closer.Close(); err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("knowledge graph: close account store %q: %w", id, err)
-			}
+		closer, ok := st.(io.Closer)
+		if !ok {
+			// Every account store is an embedded *EmbeddedStore (an io.Closer);
+			// a non-closer here would strand its directory lock and break the
+			// next restart, so surface it loudly rather than dropping silently.
+			f.logger.Error(context.Background(),
+				"knowledge graph: account store is not closable, its lock may be stranded", "accountID", id)
+			delete(f.open, id)
+			continue
+		}
+		if err := closer.Close(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("knowledge graph: close account store %q: %w", id, err)
 		}
 		delete(f.open, id)
 	}

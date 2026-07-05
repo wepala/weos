@@ -126,7 +126,11 @@ func ProvideWorkerManager(p workerManagerParams) (*Manager, error) {
 	// OXIGRAPH_REBUILD is now a checkpoint reset: the serving process resets the
 	// oxigraph checkpoint at startup so its catch-up replays history into a
 	// freshly-cleared graph — the same replay mechanism as recovery and the CLI.
-	if p.Config.Oxigraph.Active() && p.Config.Oxigraph.Rebuild {
+	// Gate on the group actually being registered (not just config.Active()): a
+	// per-account store that degraded to nop leaves Oxigraph.Active() true but
+	// contributes no "oxigraph" group, and scheduling a rebuild for an
+	// unregistered subscriber logs a misleading "unknown subscriber" error.
+	if p.Config.Oxigraph.Active() && p.Config.Oxigraph.Rebuild && hasSubscriberGroup(p.Groups, "oxigraph") {
 		rebuild = append(rebuild, "oxigraph")
 	}
 	return NewManager(ManagerParams{
@@ -140,6 +144,17 @@ func ProvideWorkerManager(p workerManagerParams) (*Manager, error) {
 		RebuildOnStart:   rebuild,
 		EnsureCheckpoint: p.Ensure,
 	})
+}
+
+// hasSubscriberGroup reports whether a group with the given name was registered,
+// so rebuild-on-start only schedules subscribers that actually exist.
+func hasSubscriberGroup(groups []SubscriberGroup, name string) bool {
+	for _, g := range groups {
+		if g.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // AsSubscriberGroup tags a SubscriberGroup constructor so its result joins the
