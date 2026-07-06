@@ -32,6 +32,22 @@ const (
 	DefaultAppName = "WeOS"
 )
 
+// runnerPlugins is an optional, process-wide runner plugin config applied to
+// every RunAgent invocation. Its intended use is an observability/telemetry
+// plugin (e.g. one that records each LLM request/response payload for tracing).
+// The zero value means no plugins — the default. Set once at startup via
+// SetRunnerPlugins, before any agent runs.
+var runnerPlugins runner.PluginConfig
+
+// SetRunnerPlugins registers a runner plugin config that RunAgent applies to
+// every agent run. Downstream services call this once at startup to install an
+// observability plugin (e.g. exporting LLM payloads to a tracing backend);
+// passing the zero value clears it. Not safe to call concurrently with agent
+// runs — treat it as start-up-only configuration.
+func SetRunnerPlugins(pc runner.PluginConfig) {
+	runnerPlugins = pc
+}
+
 // responseSchemaKeyType is the context key for an optional per-run response schema.
 type responseSchemaKeyType struct{}
 
@@ -82,6 +98,7 @@ func RunAgent(
 		AppName:        appName,
 		Agent:          a,
 		SessionService: sessionService,
+		PluginConfig:   runnerPlugins,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create runner: %w", err)
