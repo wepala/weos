@@ -512,8 +512,12 @@ func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.A
 }
 
 // buildRoot assembles the coordinator with one sub-agent per loaded skill.
-// It is rebuilt per turn from the live registry, which is what makes skill
-// changes take effect immediately; construction is cheap (no network).
+// The sub-agents are Chat-mode transfer targets (BuildSkillSubAgent), so the
+// coordinator routes to them via ADK's in-process transfer_to_agent — not the
+// dynamic-node RunNode path a task/single_turn sub-agent would need but the
+// standard runner cannot provide for a Chat root. It is rebuilt per turn from
+// the live registry, which is what makes skill changes take effect
+// immediately; construction is cheap (no network).
 func (o *Orchestrator) buildRoot(ctx context.Context) (agent.Agent, error) {
 	o.mu.RLock()
 	skills := o.skills
@@ -543,7 +547,7 @@ func (o *Orchestrator) buildRoot(ctx context.Context) (agent.Agent, error) {
 			o.logger.Info(ctx, "agent-skill model override not yet supported; using the default model",
 				"skill", def.Name, "model", def.Model)
 		}
-		sub, err := BuildSkillAgent(def, o.model, ts)
+		sub, err := BuildSkillSubAgent(def, o.model, ts)
 		if err != nil {
 			// One bad skill must not take the agent down; the registry
 			// already validated, so this is defensive.

@@ -31,21 +31,25 @@ func skillDef() entities.SkillDefinition {
 	}
 }
 
-func TestBuildSkillAgent(t *testing.T) {
-	a, err := BuildSkillAgent(skillDef(), fakeLLM{}, nil)
+func TestBuildSkillSubAgent(t *testing.T) {
+	a, err := BuildSkillSubAgent(skillDef(), fakeLLM{}, nil)
 	if err != nil {
-		t.Fatalf("BuildSkillAgent: %v", err)
+		t.Fatalf("BuildSkillSubAgent: %v", err)
 	}
 	if a.Name() != "researcher" {
 		t.Errorf("agent name = %q, want researcher", a.Name())
 	}
 }
 
-func TestBuildSkillAgent_SingleTurnMode(t *testing.T) {
+// A sub-agent is always a Chat transfer target — the declared task/single_turn
+// mode is overridden, not applied — so a single_turn-declared skill still
+// builds (as a Chat sub-agent) rather than the RunNode-dispatched node that
+// would fail delegation at runtime.
+func TestBuildSkillSubAgent_OverridesDeclaredMode(t *testing.T) {
 	def := skillDef()
 	def.Mode = entities.SkillModeSingleTurn
-	if _, err := BuildSkillAgent(def, fakeLLM{}, nil); err != nil {
-		t.Fatalf("BuildSkillAgent single_turn: %v", err)
+	if _, err := BuildSkillSubAgent(def, fakeLLM{}, nil); err != nil {
+		t.Fatalf("BuildSkillSubAgent single_turn: %v", err)
 	}
 }
 
@@ -68,10 +72,10 @@ func TestSkillToolNames_IncludesMemoryDefaults(t *testing.T) {
 	}
 }
 
-func TestBuildSkillAgent_RejectsInvalidDefinition(t *testing.T) {
+func TestBuildSkillSubAgent_RejectsInvalidDefinition(t *testing.T) {
 	def := skillDef()
 	def.Instructions = ""
-	_, err := BuildSkillAgent(def, fakeLLM{}, nil)
+	_, err := BuildSkillSubAgent(def, fakeLLM{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "invalid skill definition") {
 		t.Fatalf("expected invalid-definition error, got: %v", err)
 	}
