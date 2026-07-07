@@ -176,3 +176,67 @@ func TestFencedJSONArgs_NestedObjects(t *testing.T) {
 		t.Errorf("trailing keys after the nested object were lost: %v", args)
 	}
 }
+
+// After a coordinator transfer, ADK narrates the parent's tool activity to
+// the sub-agent as USER-role text ("For context:" + call/result echoes) —
+// there is no FunctionResponse on the sub-agent's side. The scripted model
+// must treat the result echo as that tool's moment (so afterTool rules can
+// continue a hub handoff) and must NOT let the echoes shadow the real user
+// message for argsFromMessageJSON.
+func TestScriptedModel_HubTransferEchoIsAToolMoment(t *testing.T) {
+	m := scriptedFromString(t, `{
+	  "rules": [
+	    {"whenMessageContains": "import the statement",
+	     "call": {"tool": "transfer_to_agent", "args": {"agent_name": "statement_import"}}},
+	    {"afterTool": "transfer_to_agent",
+	     "call": {"tool": "check_duplicate_import", "argsFromMessageJSON": true}},
+	    {"reply": "Nothing scripted for that."}
+	  ]
+	}`)
+
+	// The sub-agent's request, exactly as the runner shapes it post-transfer.
+	req := &model.LLMRequest{Contents: []*genai.Content{
+		{Role: genai.RoleUser, Parts: []*genai.Part{{Text: "Please import the statement I'm handing you.\n```json\n{\"fileName\":\"march.csv\"}\n```"}}},
+		{Role: genai.RoleUser, Parts: []*genai.Part{
+			{Text: "For context:"},
+			{Text: "[weos_coordinator] called tool `transfer_to_agent` with parameters: {\"agent_name\":\"statement_import\"}"},
+		}},
+		{Role: genai.RoleUser, Parts: []*genai.Part{
+			{Text: "For context:"},
+			{Text: "[weos_coordinator] `transfer_to_agent` tool returned result: {}"},
+		}},
+	}}
+
+	resp := oneResponse(t, m, req)
+	call := resp.Content.Parts[0].FunctionCall
+	if call == nil || call.Name != "check_duplicate_import" {
+		t.Fatalf("expected the afterTool transfer rule to fire check_duplicate_import, got %+v", resp.Content.Parts[0])
+	}
+	if call.Args["fileName"] != "march.csv" {
+		t.Errorf("args = %v, want the ORIGINAL user message's fenced JSON (echoes must not shadow it)", call.Args)
+	}
+}
+
+// The result echo carries the tool's outcome; a narrated error must count as
+// a failed moment so afterToolFailed rules (not afterTool) match it.
+func TestScriptedModel_HubTransferEchoErrorIsAFailedMoment(t *testing.T) {
+	m := scriptedFromString(t, `{
+	  "rules": [
+	    {"afterTool": "transfer_to_agent", "reply": "transferred"},
+	    {"afterToolFailed": "transfer_to_agent", "reply": "transfer failed"},
+	    {"reply": "Nothing scripted for that."}
+	  ]
+	}`)
+
+	req := &model.LLMRequest{Contents: []*genai.Content{
+		{Role: genai.RoleUser, Parts: []*genai.Part{{Text: "hi"}}},
+		{Role: genai.RoleUser, Parts: []*genai.Part{
+			{Text: "[weos_coordinator] `transfer_to_agent` tool returned result: {\"error\":\"tool 'transfer_to_agent' not found.\"}"},
+		}},
+	}}
+
+	resp := oneResponse(t, m, req)
+	if text := resp.Content.Parts[0].Text; !strings.Contains(text, "transfer failed") {
+		t.Errorf("reply = %q, want the afterToolFailed branch", text)
+	}
+}
