@@ -6,6 +6,7 @@ import (
 	"errors"
 	"iter"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -39,6 +40,69 @@ func (s scriptedLLM) GenerateContent(
 			},
 		}, nil)
 	}
+}
+
+// reachSkillLLM plays a live model routing one free request from the
+// coordinator to a single skill sub-agent. On the coordinator's first turn it
+// records the function names it was offered (so the test can assert HOW routing
+// is wired), then routes using whatever it was given: it calls a task-tool
+// named after the skill if one is offered (the RunNode-dispatch path), else it
+// transfers via transfer_to_agent (the Chat sub-agent path). Once it is the
+// sub-agent's turn it answers with text so the turn terminates.
+type reachSkillLLM struct {
+	target     string
+	calls      atomic.Int32
+	firstOffer []string // function names offered on the coordinator's first turn
+}
+
+func (*reachSkillLLM) Name() string { return "reach-skill-scripted" }
+func (m *reachSkillLLM) GenerateContent(
+	_ context.Context, req *model.LLMRequest, _ bool,
+) iter.Seq2[*model.LLMResponse, error] {
+	first := m.calls.Add(1) == 1
+	if first {
+		m.firstOffer = offeredFunctions(req)
+	}
+	return func(yield func(*model.LLMResponse, error) bool) {
+		part := &genai.Part{Text: "here is what we know"}
+		if first {
+			if contains(m.firstOffer, m.target) {
+				part = &genai.Part{FunctionCall: &genai.FunctionCall{Name: m.target}}
+			} else {
+				part = &genai.Part{FunctionCall: &genai.FunctionCall{
+					Name: "transfer_to_agent",
+					Args: map[string]any{"agent_name": m.target},
+				}}
+			}
+		}
+		yield(&model.LLMResponse{
+			Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{part}},
+		}, nil)
+	}
+}
+
+// offeredFunctions returns the names of the function declarations offered to the
+// model in the request.
+func offeredFunctions(req *model.LLMRequest) []string {
+	if req == nil || req.Config == nil {
+		return nil
+	}
+	var names []string
+	for _, tl := range req.Config.Tools {
+		for _, fd := range tl.FunctionDeclarations {
+			names = append(names, fd.Name)
+		}
+	}
+	return names
+}
+
+func contains(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestOrchestrator_NotConfigured(t *testing.T) {
@@ -91,6 +155,44 @@ func TestOrchestrator_BuildRootSkipsBrokenSkill(t *testing.T) {
 	}
 	if len(root.SubAgents()) != 1 || root.SubAgents()[0].Name() != "good" {
 		t.Fatalf("expected only the good skill, got %v", root.SubAgents())
+	}
+}
+
+// A free question with no pinned skill routes through the coordinator, which
+// must reach a skill by TRANSFER — not by a task-tool named after the skill.
+// The task-tool path dispatches the skill through workflow.RunNode, which the
+// standard runner runs outside any dynamic node; that is what broke free-form
+// chat in the field ("RunNode called outside a dynamic node"). This asserts the
+// wiring directly (offer transfer_to_agent, not a skill-named task-tool) and
+// that the routed turn completes — both fail if a skill sub-agent regresses to
+// its declared task/single_turn mode.
+func TestOrchestrator_CoordinatorReachesSkillByTransfer(t *testing.T) {
+	m := &reachSkillLLM{target: "researcher"}
+	o := NewOrchestrator(m, session.InMemoryService(), testLogger{})
+	o.SetSkillSource(func(context.Context) ([]entities.SkillDefinition, error) {
+		return []entities.SkillDefinition{
+			// Declared task mode on purpose: the coordinator must still reach it
+			// by transfer (as a Chat sub-agent), not the RunNode task-tool path.
+			{SchemaVersion: 1, Name: "researcher", Description: "answers questions about the graph",
+				Instructions: "i", Mode: entities.SkillModeTask},
+		}, nil
+	})
+
+	var types []string
+	// Empty skill = the coordinator (the hub) decides where to route.
+	if err := o.ConverseStream(context.Background(), "c1", "u1", "what do we know?", "",
+		func(e entities.AgentEvent) { types = append(types, e.Type) }); err != nil {
+		t.Fatalf("coordinator turn failed: %v", err)
+	}
+	if len(types) == 0 || types[len(types)-1] != entities.AgentEventDone {
+		t.Errorf("event types = %v, want a done-terminated turn", types)
+	}
+	if !contains(m.firstOffer, "transfer_to_agent") {
+		t.Errorf("coordinator must route by transfer, but did not offer transfer_to_agent; offered %v", m.firstOffer)
+	}
+	if contains(m.firstOffer, "researcher") {
+		t.Errorf("coordinator offered a task-tool named after the skill (the workflow.RunNode dispatch "+
+			"path); skill sub-agents must be transfer targets. offered %v", m.firstOffer)
 	}
 }
 

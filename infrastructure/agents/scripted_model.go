@@ -226,9 +226,31 @@ func (s *scriptedModel) respond(req *model.LLMRequest, rule *scriptRule, toolOut
 	}}
 }
 
+// Cross-agent context echoes. When the coordinator transfers to a skill
+// sub-agent, ADK narrates the parent's tool activity into the sub-agent's
+// request as plain USER-role text ("For context:" followed by
+// "[parent] called tool `x` with parameters: …" / "[parent] `x` tool
+// returned result: …") — there is no FunctionResponse part on the
+// sub-agent's side. Without recognizing these, a scripted hub handoff is
+// invisible: afterTool rules can't fire (no tool moment) and the echo text
+// shadows the real user message for whenMessageContains/argsFromMessageJSON.
+var (
+	ctxEchoCall   = regexp.MustCompile("^\\[[^\\]]+\\] called tool `[^`]+` with parameters: ")
+	ctxEchoResult = regexp.MustCompile("(?s)^\\[[^\\]]+\\] `([^`]+)` tool returned result: (.*)$")
+)
+
+// isContextEchoNoise reports echo lines that carry no decision signal (the
+// framing line and the call echo — the RESULT echo is the tool moment and
+// is handled in latestMoment).
+func isContextEchoNoise(text string) bool {
+	return strings.TrimSpace(text) == "For context:" || ctxEchoCall.MatchString(text)
+}
+
 // latestMoment scans the request tail: the name (and response map) of the
 // tool whose function response arrived last (skipping the confirmation
-// protocol's own frames), or the latest user text.
+// protocol's own frames), or the latest user text. A cross-agent result
+// echo counts as that tool's moment, so a scripted sub-agent can continue
+// a hub handoff with an afterTool rule (e.g. afterTool transfer_to_agent).
 func latestMoment(req *model.LLMRequest) (lastTool, lastText string, toolOutput map[string]any) {
 	if req == nil {
 		return "", "", nil
@@ -256,6 +278,16 @@ func latestMoment(req *model.LLMRequest) (lastTool, lastText string, toolOutput 
 				return p.FunctionResponse.Name, "", p.FunctionResponse.Response
 			}
 			if p.Text != "" && c.Role == genai.RoleUser {
+				if m := ctxEchoResult.FindStringSubmatch(p.Text); m != nil {
+					// A parent agent's tool outcome, narrated as text: the
+					// sub-agent's view of e.g. the transfer that reached it.
+					var resp map[string]any
+					_ = json.Unmarshal([]byte(strings.TrimSpace(m[2])), &resp)
+					return m[1], "", resp
+				}
+				if isContextEchoNoise(p.Text) {
+					continue
+				}
 				return "", p.Text, nil
 			}
 		}
@@ -274,7 +306,9 @@ func isAwaitingConfirmation(response map[string]any) bool {
 	return strings.Contains(errText, "requires confirmation")
 }
 
-// latestUserText returns the most recent user-authored text content.
+// latestUserText returns the most recent user-authored text content,
+// skipping cross-agent context echoes — after a hub transfer the actual
+// user message (and its fenced args) sits behind ADK's narration lines.
 func latestUserText(req *model.LLMRequest) string {
 	if req == nil {
 		return ""
@@ -285,7 +319,8 @@ func latestUserText(req *model.LLMRequest) string {
 			continue
 		}
 		for j := len(c.Parts) - 1; j >= 0; j-- {
-			if p := c.Parts[j]; p != nil && p.Text != "" {
+			if p := c.Parts[j]; p != nil && p.Text != "" &&
+				!isContextEchoNoise(p.Text) && !ctxEchoResult.MatchString(p.Text) {
 				return p.Text
 			}
 		}

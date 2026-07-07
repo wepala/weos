@@ -103,18 +103,24 @@ var widgetResponseSchema = &genai.Schema{
 	Required: []string{"widgets"},
 }
 
-// BuildSkillAgent turns a validated skill definition into a runnable ADK
-// agent. The shared toolset is filtered down to the skill's allowlist, and
-// the declared mode maps to the ADK delegation mode that governs how an
-// orchestrator hands work to the skill. The definition is data — this
-// factory is the only place a skill becomes code, which is what lets
-// projects add skills without recompiling.
-func BuildSkillAgent(def entities.SkillDefinition, m model.LLM, toolset tool.Toolset) (agent.Agent, error) {
-	mode := llmagent.ModeTask
-	if def.Mode == entities.SkillModeSingleTurn {
-		mode = llmagent.ModeSingleTurn
-	}
-	return buildSkillAgent(def, m, toolset, mode)
+// BuildSkillSubAgent turns a validated skill definition into a coordinator
+// sub-agent: a Chat-mode LlmAgent the coordinator reaches via ADK's in-process
+// transfer_to_agent, which is exactly what the coordinator's brief promises
+// ("route each request to the sub-agent ... by transferring to it").
+//
+// The declared task/single_turn mode is deliberately NOT applied here. A
+// task/single_turn sub-agent is installed on the parent as a tool that
+// dispatches it through workflow.RunNode, and RunNode only works inside an
+// enclosing dynamic node. The runner executes a Chat root directly
+// (runner.Run → rootAgent.Run) with no dynamic node in scope, so that
+// delegation fails at the first transfer with ErrInvalidRunNodeContext
+// ("RunNode called outside a dynamic node"). Chat sub-agents transfer
+// in-process and need no dynamic node, so routing works through the same
+// runner. The declared mode is preserved on the definition for a future
+// workflow-node execution path; today every reachable skill runs as Chat
+// (a directly-invoked root does too — see BuildSkillRootAgent).
+func BuildSkillSubAgent(def entities.SkillDefinition, m model.LLM, toolset tool.Toolset) (agent.Agent, error) {
+	return buildSkillAgent(def, m, toolset, llmagent.ModeChat)
 }
 
 // BuildSkillRootAgent builds the skill as a conversation's root agent (the
