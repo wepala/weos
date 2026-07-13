@@ -972,3 +972,149 @@ func TestEnsureTable_ReconcilesBaseColumnsOnPreexistingTable(t *testing.T) {
 		t.Fatalf("projection write still fails after reconciliation: %v", err)
 	}
 }
+
+// insertCanonicalResource writes a row straight into the canonical resources
+// table, bypassing the projection path — used to simulate rows that predate a
+// projection table's creation.
+func insertCanonicalResource(t *testing.T, db *gorm.DB, r models.Resource) {
+	t.Helper()
+	if err := db.Create(&r).Error; err != nil {
+		t.Fatalf("failed to insert canonical resource %q: %v", r.ID, err)
+	}
+}
+
+func TestEnsureTable_BackfillsPreexistingCanonicalRows(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+		t.Fatalf("failed to migrate resources: %v", err)
+	}
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	// Canonical rows written BEFORE the projection table exists. Legacy
+	// flat-format payload (no @graph wrapper) on purpose.
+	insertCanonicalResource(t, db, models.Resource{
+		ID: "rec-1", TypeSlug: "recipe", Status: "active",
+		CreatedBy: "u1", AccountID: "acct-1", SequenceNo: 1,
+		CreatedAt: time.Now(),
+		Data:      `{"@id":"rec-1","@type":"Recipe","name":"Chili","servings":4}`,
+	})
+	insertCanonicalResource(t, db, models.Resource{
+		ID: "rec-2", TypeSlug: "recipe", Status: "active",
+		CreatedBy: "u1", AccountID: "acct-1", SequenceNo: 2,
+		CreatedAt: time.Now(),
+		Data:      `{"@id":"rec-2","@type":"Recipe","name":"Soup","servings":2}`,
+	})
+
+	schema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"},
+			"servings": {"type": "integer"}
+		}
+	}`)
+	if err := pm.EnsureTable(ctx, "recipe", schema, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+
+	var rows []map[string]any
+	if err := db.Table("recipes").Order("id").Find(&rows).Error; err != nil {
+		t.Fatalf("failed to read recipes projection: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 backfilled rows, got %d", len(rows))
+	}
+	if rows[0]["name"] != "Chili" {
+		t.Errorf("row 0 name = %v, want Chili", rows[0]["name"])
+	}
+	// sqlite returns integer columns as int64.
+	if got := rows[0]["servings"]; got != int64(4) {
+		t.Errorf("row 0 servings = %v (%T), want 4", got, got)
+	}
+	if rows[0]["type_slug"] != "recipe" || rows[0]["account_id"] != "acct-1" {
+		t.Errorf("row 0 base columns wrong: %+v", rows[0])
+	}
+}
+
+func TestEnsureTable_BackfillDoesNotClobberExistingRow(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+		t.Fatalf("failed to migrate resources: %v", err)
+	}
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	insertCanonicalResource(t, db, models.Resource{
+		ID: "rec-1", TypeSlug: "recipe", Status: "active",
+		CreatedBy: "u1", AccountID: "acct-1", SequenceNo: 1,
+		CreatedAt: time.Now(),
+		Data:      `{"@id":"rec-1","@type":"Recipe","name":"Chili"}`,
+	})
+
+	schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "recipe", schema, nil); err != nil {
+		t.Fatalf("first EnsureTable failed: %v", err)
+	}
+
+	// Simulate a divergent projection row (e.g. a later synchronous write).
+	if err := db.Table("recipes").Where("id = ?", "rec-1").
+		Update("name", "Chili (updated)").Error; err != nil {
+		t.Fatalf("failed to update projection row: %v", err)
+	}
+
+	// Re-run EnsureTable: the anti-join must exclude the already-projected row,
+	// and ON CONFLICT DO NOTHING must never overwrite it back to the canonical value.
+	if err := pm.EnsureTable(ctx, "recipe", schema, nil); err != nil {
+		t.Fatalf("second EnsureTable failed: %v", err)
+	}
+
+	var row map[string]any
+	if err := db.Table("recipes").Where("id = ?", "rec-1").Take(&row).Error; err != nil {
+		t.Fatalf("failed to read row: %v", err)
+	}
+	if row["name"] != "Chili (updated)" {
+		t.Errorf("backfill clobbered existing row: name = %v, want %q", row["name"], "Chili (updated)")
+	}
+}
+
+func TestEnsureTable_BackfillSkipsSoftDeletedRows(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&models.Resource{}); err != nil {
+		t.Fatalf("failed to migrate resources: %v", err)
+	}
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	ctx := context.Background()
+
+	deleted := time.Now()
+	insertCanonicalResource(t, db, models.Resource{
+		ID: "rec-live", TypeSlug: "recipe", Status: "active",
+		CreatedBy: "u1", AccountID: "acct-1", SequenceNo: 1,
+		CreatedAt: time.Now(),
+		Data:      `{"@id":"rec-live","@type":"Recipe","name":"Live"}`,
+	})
+	insertCanonicalResource(t, db, models.Resource{
+		ID: "rec-gone", TypeSlug: "recipe", Status: "active",
+		CreatedBy: "u1", AccountID: "acct-1", SequenceNo: 2,
+		CreatedAt: time.Now(), DeletedAt: &deleted,
+		Data:      `{"@id":"rec-gone","@type":"Recipe","name":"Gone"}`,
+	})
+
+	schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	if err := pm.EnsureTable(ctx, "recipe", schema, nil); err != nil {
+		t.Fatalf("EnsureTable failed: %v", err)
+	}
+
+	var rows []map[string]any
+	if err := db.Table("recipes").Find(&rows).Error; err != nil {
+		t.Fatalf("failed to read recipes projection: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected only the live row backfilled, got %d rows", len(rows))
+	}
+	if rows[0]["id"] != "rec-live" {
+		t.Errorf("expected rec-live, got %v", rows[0]["id"])
+	}
+}

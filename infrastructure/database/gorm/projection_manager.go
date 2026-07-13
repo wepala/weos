@@ -33,6 +33,7 @@ import (
 	"github.com/jinzhu/inflection"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type columnDef struct {
@@ -161,7 +162,96 @@ func (pm *projectionManager) EnsureTable(
 		pm.parentOf.Delete(slug)
 	}
 	pm.registerReverseReferences(slug, schema)
+
+	// Backfill any canonical rows that predate this projection table. In steady
+	// state the anti-join returns nothing, so this is a cheap no-op; it only does
+	// work when a type's projection table is created after resources of that type
+	// already exist (e.g. a preset installed, or a lazily-created table for a type
+	// whose rows were written before EnsureTable first ran for it).
+	if err := pm.backfillFromCanonical(ctx, slug, tableName, ldContext); err != nil {
+		return fmt.Errorf("failed to backfill projection table %q: %w", tableName, err)
+	}
 	return nil
+}
+
+// backfillBatchSize bounds each backfill scan so a type with a large canonical
+// backlog is filled in bounded rounds rather than one unbounded query.
+const backfillBatchSize = 500
+
+// backfillFromCanonical populates the projection table with any canonical
+// `resources` rows of type slug that have no matching projection row yet. It
+// scans in batches (LIMIT backfillBatchSize) using a NOT EXISTS anti-join —
+// supported identically by SQLite and Postgres — so each round shrinks the
+// candidate set until none remain. In steady state the first round returns
+// nothing and the function is a no-op.
+//
+// Rows are inserted with ON CONFLICT (id) DO NOTHING so a row written
+// concurrently by the synchronous save path is never clobbered. Display columns
+// are deliberately left unpopulated — a NULL display is a documented-tolerated
+// state (see populateDisplayColumns) that self-heals on the next write or
+// triple-propagation event — which also keeps this path free of the display
+// lookup's account-scope dependencies.
+func (pm *projectionManager) backfillFromCanonical(
+	ctx context.Context, slug, tableName string, ldContext json.RawMessage,
+) error {
+	// No canonical store means nothing to backfill. In production the resources
+	// table is always migrated before any type is ensured; this guard keeps the
+	// path a clean no-op for callers (and tests) that ensure tables in isolation.
+	if !pm.db.Migrator().HasTable("resources") {
+		return nil
+	}
+
+	antiJoin := fmt.Sprintf(
+		"NOT EXISTS (SELECT 1 FROM %s p WHERE p.id = resources.id)", tableName)
+
+	for {
+		var batch []models.Resource
+		if err := pm.db.WithContext(ctx).
+			Where("type_slug = ? AND deleted_at IS NULL", slug).
+			Where(antiJoin).
+			Limit(backfillBatchSize).
+			Find(&batch).Error; err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+
+		for i := range batch {
+			res := &batch[i]
+			row := map[string]any{
+				"id":          res.ID,
+				"type_slug":   res.TypeSlug,
+				"status":      res.Status,
+				"created_by":  res.CreatedBy,
+				"account_id":  res.AccountID,
+				"sequence_no": res.SequenceNo,
+				"created_at":  res.CreatedAt,
+			}
+			// ExtractFlatColumns understands both legacy flat and @graph payloads.
+			ExtractFlatColumns(json.RawMessage(res.Data), ldContext, row)
+			// Drop keys with no column on this table (mirrors dropMissingColumns).
+			for col := range row {
+				if standardColumnNames[col] {
+					continue
+				}
+				if !pm.HasColumn(slug, col) {
+					delete(row, col)
+				}
+			}
+			if err := pm.db.WithContext(ctx).Table(tableName).
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "id"}},
+					DoNothing: true,
+				}).Create(row).Error; err != nil {
+				return fmt.Errorf("failed to backfill row %q into %s: %w", res.ID, tableName, err)
+			}
+		}
+
+		if len(batch) < backfillBatchSize {
+			return nil
+		}
+	}
 }
 
 // HasProjectionTable reports whether a projection table exists. Cached entries are not
