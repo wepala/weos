@@ -72,11 +72,30 @@ type OAuthConfig struct {
 	JWTSigningKey       string // PEM-encoded RSA private key, or "auto" to generate ephemeral key
 	DynamicRegistration bool   // Enable OAuth Dynamic Client Registration (RFC 7591)
 
+	// AllowedEmails, when non-empty, restricts OAuth login to identities whose
+	// verified email is in this list (case-insensitive). The /oauth/callback
+	// rejects anyone else before an account is created; empty (the default)
+	// allows any authenticated user. Set via OAUTH_ALLOWED_EMAILS (comma-separated).
+	AllowedEmails []string
+
 	// DefaultProvider is the provider used by /api/auth/login when the
 	// caller doesn't pass a provider query param (the admin SPA does
 	// this). Empty means "auto-pick from the configured registry" —
 	// see DefaultOAuthProvider below.
 	DefaultProvider string
+}
+
+// parseAllowedEmails splits a comma-separated OAUTH_ALLOWED_EMAILS value into a
+// normalized allowlist: each entry trimmed and lowercased, blanks dropped.
+func parseAllowedEmails(raw string) []string {
+	parts := strings.Split(raw, ",")
+	emails := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if e := strings.ToLower(strings.TrimSpace(p)); e != "" {
+			emails = append(emails, e)
+		}
+	}
+	return emails
 }
 
 // SMTPConfig holds configuration for outbound email via SMTP.
@@ -511,6 +530,10 @@ func (c *Config) LoadFromEnvironment() {
 		if enabled, err := strconv.ParseBool(dynReg); err == nil {
 			c.OAuth.DynamicRegistration = enabled
 		}
+	}
+
+	if allowed := os.Getenv("OAUTH_ALLOWED_EMAILS"); allowed != "" {
+		c.OAuth.AllowedEmails = parseAllowedEmails(allowed)
 	}
 
 	if provider := os.Getenv("OAUTH_DEFAULT_PROVIDER"); provider != "" {
