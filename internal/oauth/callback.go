@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -35,6 +36,9 @@ import (
 // This handler completes the Google OAuth exchange, resolves the user identity,
 // updates the pending authorization code with the agent/account IDs, and
 // redirects back to the MCP client's redirect_uri with the authorization code.
+//
+// When allowedEmails is non-empty, an identity whose email is not in the list is
+// rejected before any account is created, so the server admits only known users.
 func Callback(
 	authService authapp.AuthenticationService,
 	sessionStore sessions.Store,
@@ -42,6 +46,7 @@ func Callback(
 	accountRepo authrepos.AccountRepository,
 	logger entities.Logger,
 	baseURL string,
+	allowedEmails []string,
 ) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
@@ -121,6 +126,23 @@ func Callback(
 				map[string]string{"error": "server_error"})
 		}
 
+		// Enforce the identity allowlist (when configured) BEFORE resolving the
+		// agent, so a non-permitted user never gets a persisted account. The email
+		// comes from the provider's userinfo endpoint (a server-to-server call),
+		// so we trust Google's consumer-account invariant that this address is
+		// owned by the authenticated user. If a provider without that invariant is
+		// ever added behind this gate, also require an email_verified claim.
+		if len(allowedEmails) > 0 {
+			email := strings.ToLower(strings.TrimSpace(authResult.UserInfo.Email))
+			if !emailAllowed(email, allowedEmails) {
+				logger.Warn(ctx, "oauth callback: identity not in allowlist",
+					"email", email)
+				return c.JSON(http.StatusForbidden,
+					map[string]string{"error": "access_denied",
+						"error_description": "this account is not permitted to access this server"})
+			}
+		}
+
 		agent, _, account, err := authService.FindOrCreateAgent(
 			ctx, authResult.UserInfo)
 		if err != nil {
@@ -182,4 +204,16 @@ func Callback(
 
 		return c.Redirect(http.StatusFound, redirectURL.String())
 	}
+}
+
+// emailAllowed reports whether email (already normalized to lowercase) is present
+// in the allowlist. The caller guards against an empty allowlist, which means
+// "no restriction".
+func emailAllowed(email string, allowed []string) bool {
+	for _, a := range allowed {
+		if a == email {
+			return true
+		}
+	}
+	return false
 }
