@@ -144,7 +144,7 @@ func (w *notificationWorld) aRunningApplication() error {
 
 	// The notifications preset is AutoInstall: app.Start already created the
 	// notification type at boot (no opt-in install), so the inbox is present
-	// for every service — which is exactly the always-on behaviour under test.
+	// for every service — which is exactly the always-on behavior under test.
 
 	// The same inbox routes serve.go registers, behind SoftAuth so the
 	// X-Dev-Agent header selects which seeded user is the caller.
