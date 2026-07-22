@@ -290,7 +290,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		asHandler := weosoauth.AuthorizationServerMetadata(baseURL, appCfg.OAuth.DynamicRegistration)
 		regHandler := weosoauth.RegisterClient(clientRepo, appCfg.OAuth.DynamicRegistration)
 		authzHandler := weosoauth.Authorize(authService, sessionStore, clientRepo, codeRepo, logger, baseURL)
-		cbHandler := weosoauth.Callback(authService, sessionStore, codeRepo, accountRepo, logger, baseURL)
+		cbHandler := weosoauth.Callback(authService, sessionStore, codeRepo, accountRepo, logger, baseURL, appCfg.OAuth.AllowedEmails)
 		tokHandler := weosoauth.Token(jwtService, codeRepo, refreshRepo, agentRepo, accountRepo, logger)
 
 		e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
