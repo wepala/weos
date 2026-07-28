@@ -62,12 +62,25 @@ func subscribeResourceTypeHandlers(
 			); err != nil {
 				return err
 			}
-			if err := repo.Save(ctx, entity); err != nil {
-				return err
+			// Replay-idempotent (a handler constraint, and `worker reproject`
+			// re-runs this handler over history): a row that already exists
+			// for this aggregate converges via Update instead of failing
+			// Save's unique constraints. A genuinely conflicting row (same
+			// slug, different aggregate) still fails Save loudly.
+			_, findErr := repo.FindByID(ctx, env.AggregateID)
+			switch {
+			case findErr == nil:
+				if err := repo.Update(ctx, entity); err != nil {
+					return err
+				}
+			case errors.Is(findErr, repositories.ErrNotFound):
+				if err := repo.Save(ctx, entity); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("projection read failed: %w", findErr)
 			}
 			// ensureProjection is idempotent (CREATE TABLE IF NOT EXISTS).
-			// If it fails and the event is retried, repo.Save will fail with a
-			// duplicate key, which the event dispatcher treats as already-processed.
 			if err := ensureProjection(ctx, repo, projMgr, p.Slug, p.Schema, p.Context); err != nil {
 				logger.Error(ctx, "failed to ensure projection for type",
 					"slug", p.Slug, "error", err)
@@ -298,7 +311,20 @@ func handleResourcePublished(
 		// Reverse-reference display-value propagation runs asynchronously in the
 		// "display-values" subscriber group (see peripheral_groups.go), so it no
 		// longer adds latency to — or can fail — the user's write.
-		return repo.Save(ctx, entity)
+		//
+		// Replay-idempotent (a handler constraint, and `worker reproject`
+		// re-runs this handler over history): if the canonical row already
+		// exists, converge through the Update path — its projection writes
+		// upsert — instead of failing Save's plain inserts.
+		_, findErr := repo.FindByID(ctx, env.AggregateID)
+		switch {
+		case findErr == nil:
+			return repo.Update(ctx, entity)
+		case errors.Is(findErr, repositories.ErrNotFound):
+			return repo.Save(ctx, entity)
+		default:
+			return fmt.Errorf("projection read failed: %w", findErr)
+		}
 	}
 
 	// Update: read existing resource for fields not in the transaction events.

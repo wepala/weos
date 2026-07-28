@@ -86,6 +86,29 @@ server stopped (or the affected group otherwise idle).`,
 	RunE: runWorkerCheckpointReset,
 }
 
+var workerReprojectCmd = &cobra.Command{
+	Use:   "reproject",
+	Short: "Replay the event feed through the synchronous projections (resource types, resources, triples)",
+	Long: `Streams the whole event history, in global position order, through the same
+synchronous projection handlers the write path uses, materializing the
+resource-type, canonical-resource, and triple read models — including the
+per-type projection tables.
+
+This is the rebuild rail for projections that "checkpoint reset" cannot reach:
+those handlers run inline at commit time and have no checkpoint. Its intended
+use is an event store that arrived without its projections — a pericarp
+export/import migration, a restored backup — where the history is complete but
+every synchronous read model is empty.
+
+Run it with the server STOPPED: a live server is writing the same tables. The
+handlers are idempotent, so an interrupted run can simply be re-run (or resumed
+with --after-position from the position the error message reports). Events
+owned by the checkpointed background groups are skipped here — rebuild those
+with "worker checkpoint reset <subscriber>" as usual.`,
+	Args: cobra.NoArgs,
+	RunE: runWorkerReproject,
+}
+
 func init() {
 	workerParkedListCmd.Flags().String("subscriber", "", "limit to a single subscriber")
 	workerParkedCmd.AddCommand(workerParkedListCmd, workerParkedReplayCmd)
@@ -93,8 +116,54 @@ func init() {
 	workerCheckpointResetCmd.Flags().Bool("truncate", false, "clear the subscriber's projection before replay")
 	workerCheckpointCmd.AddCommand(workerCheckpointResetCmd)
 
-	workerCmd.AddCommand(workerParkedCmd, workerCheckpointCmd)
+	workerReprojectCmd.Flags().Int64("after-position", 0, "resume: replay only events after this global position")
+	workerReprojectCmd.Flags().Int("batch-size", 500, "events read per batch")
+
+	workerCmd.AddCommand(workerParkedCmd, workerCheckpointCmd, workerReprojectCmd)
 	rootCmd.AddCommand(workerCmd)
+}
+
+// runWorkerReproject drives application.Reproject over a deliberately NARROW
+// fx graph (application.ReprojectModule), not withWorkerManager's full
+// application.Module: the full module runs ensureBuiltInResourceTypes at
+// start, which decides type existence from the projection tables — empty on
+// exactly the freshly-imported store reproject exists to fix — and would
+// append duplicate built-in ResourceType.Created events (fresh IDs) into the
+// imported history before replay ever ran (#443).
+func runWorkerReproject(cmd *cobra.Command, _ []string) error {
+	after, _ := cmd.Flags().GetInt64("after-position")
+	batch, _ := cmd.Flags().GetInt("batch-size")
+	appCfg := GetConfig().Config
+
+	var rt application.ReprojectRuntime
+	app := fx.New(
+		fx.NopLogger,
+		application.ReprojectModule(appCfg),
+		fx.Populate(&rt),
+	)
+
+	startCtx, startCancel := context.WithTimeout(cmd.Context(), fx.DefaultTimeout)
+	defer startCancel()
+	if err := app.Start(startCtx); err != nil {
+		return fmt.Errorf("failed to start reproject runtime: %w", err)
+	}
+	defer func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
+		defer stopCancel()
+		_ = app.Stop(stopCtx)
+	}()
+
+	res, err := application.Reproject(cmd.Context(), rt, application.ReprojectOptions{
+		AfterPosition: after,
+		BatchSize:     batch,
+	})
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(os.Stdout,
+		"reprojected %d events (%d skipped) through positions %d..%d\n",
+		res.Dispatched, res.Skipped, after, res.LastPosition)
+	return nil
 }
 
 // withWorkerManager builds the application graph, hands the worker Manager to
