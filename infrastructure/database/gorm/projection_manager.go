@@ -33,6 +33,7 @@ import (
 	"github.com/jinzhu/inflection"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type columnDef struct {
@@ -154,6 +155,11 @@ func (pm *projectionManager) EnsureTable(
 			}
 		}
 	}
+	// Cache the table as healthy BEFORE backfilling — backfillFromCanonical
+	// reads this entry (via HasColumn) to decide which extracted keys map to
+	// real columns. If the backfill then errors we invalidate the entry below,
+	// so the lazy HasProjectionTable path re-runs EnsureTable next call rather
+	// than trusting a table that never got its pre-existing rows filled.
 	pm.tables.Store(slug, tableInfo{name: tableName, context: ldContext, columns: colSet})
 	if parentSlug := jsonld.SubClassOf(ldContext); parentSlug != "" {
 		pm.parentOf.Store(slug, parentSlug)
@@ -161,7 +167,133 @@ func (pm *projectionManager) EnsureTable(
 		pm.parentOf.Delete(slug)
 	}
 	pm.registerReverseReferences(slug, schema)
+
+	// Backfill any canonical rows that predate this projection table. In steady
+	// state the anti-join returns nothing, so this is a cheap no-op; it only does
+	// work when a type's projection table is created after resources of that type
+	// already exist (e.g. a preset installed, or a lazily-created table for a type
+	// whose rows were written before EnsureTable first ran for it).
+	skipped, err := pm.backfillFromCanonical(ctx, slug, tableName, ldContext)
+	if err != nil {
+		// A backfill query failure (not a per-row skip — those are tolerated
+		// below) means we can't vouch for this table's completeness. Drop the
+		// cache entry so the lazy HasProjectionTable path retries instead of
+		// caching a half-filled table as healthy for the process lifetime.
+		pm.tables.Delete(slug)
+		return fmt.Errorf("failed to backfill projection table %q (skipped %d rows before failure): %w",
+			tableName, skipped, err)
+	}
+	if skipped > 0 {
+		// Partial backfill: the healthy rows are in, but some legacy rows could
+		// not be projected. Surface the count so an operator can find and repair
+		// them; the per-row cause was logged as each was skipped.
+		pm.logger.Warn(ctx, "projection backfill completed with skipped rows",
+			"table", tableName, "slug", slug, "skipped", skipped)
+	}
 	return nil
+}
+
+// backfillBatchSize bounds each backfill scan so a type with a large canonical
+// backlog is filled in bounded rounds rather than one unbounded query.
+const backfillBatchSize = 500
+
+// backfillFromCanonical populates the projection table with any canonical
+// `resources` rows of type slug that have no matching projection row yet. It
+// walks the canonical rows in keyset order (ORDER BY id, cursor id > lastID)
+// using a NOT EXISTS anti-join — supported identically by SQLite and Postgres.
+// In steady state the first round's anti-join returns nothing and the function
+// is a no-op.
+//
+// Keyset (not shrink-by-anti-join) pagination is deliberate: a row that fails
+// to insert is skipped rather than aborting the batch (see below), but a
+// skipped row still has no projection row, so a shrink-by-anti-join scan would
+// hand it back on every subsequent round and spin forever on a full batch of
+// poisoned rows. Advancing a cursor past each batch's last id guarantees every
+// canonical row is visited exactly once and the walk terminates.
+//
+// Per-row inserts that fail (e.g. a legacy payload whose value violates a
+// column constraint) are logged and skipped, not fatal, so one poisoned row
+// can't starve every healthy row behind it. The count of skipped rows is
+// returned so EnsureTable can surface it to operators. A returned error means
+// a batch-level query failure (the scan itself), which is not tolerated.
+//
+// Rows are inserted with ON CONFLICT (id) DO NOTHING so a row written
+// concurrently by the synchronous save path is never clobbered. Display columns
+// are deliberately left unpopulated — a NULL display is a documented-tolerated
+// state (see populateDisplayColumns) that self-heals on the next write or
+// triple-propagation event — which also keeps this path free of the display
+// lookup's account-scope dependencies.
+func (pm *projectionManager) backfillFromCanonical(
+	ctx context.Context, slug, tableName string, ldContext json.RawMessage,
+) (int, error) {
+	// No canonical store means nothing to backfill. In production the resources
+	// table is always migrated before any type is ensured; this guard keeps the
+	// path a clean no-op for callers (and tests) that ensure tables in isolation.
+	if !pm.db.Migrator().HasTable("resources") {
+		return 0, nil
+	}
+
+	antiJoin := fmt.Sprintf(
+		"NOT EXISTS (SELECT 1 FROM %s p WHERE p.id = resources.id)", tableName)
+
+	skipped := 0
+	lastID := ""
+	for {
+		q := pm.db.WithContext(ctx).
+			Where("type_slug = ? AND deleted_at IS NULL", slug).
+			Where(antiJoin)
+		if lastID != "" {
+			q = q.Where("resources.id > ?", lastID)
+		}
+		var batch []models.Resource
+		if err := q.Order("resources.id").Limit(backfillBatchSize).Find(&batch).Error; err != nil {
+			return skipped, err
+		}
+		if len(batch) == 0 {
+			return skipped, nil
+		}
+
+		for i := range batch {
+			res := &batch[i]
+			row := map[string]any{
+				"id":          res.ID,
+				"type_slug":   res.TypeSlug,
+				"status":      res.Status,
+				"created_by":  res.CreatedBy,
+				"account_id":  res.AccountID,
+				"sequence_no": res.SequenceNo,
+				"created_at":  res.CreatedAt,
+			}
+			// ExtractFlatColumns understands both legacy flat and @graph payloads.
+			ExtractFlatColumns(json.RawMessage(res.Data), ldContext, row)
+			// Drop keys with no column on this table (mirrors dropMissingColumns).
+			for col := range row {
+				if standardColumnNames[col] {
+					continue
+				}
+				if !pm.HasColumn(slug, col) {
+					delete(row, col)
+				}
+			}
+			if err := pm.db.WithContext(ctx).Table(tableName).
+				Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "id"}},
+					DoNothing: true,
+				}).Create(row).Error; err != nil {
+				// Skip the poisoned row, keep going. The keyset cursor advances
+				// past it below so it won't be re-scanned into an infinite loop.
+				pm.logger.Warn(ctx, "projection backfill skipping row after insert failure",
+					"id", res.ID, "table", tableName, "error", err)
+				skipped++
+				continue
+			}
+		}
+
+		lastID = batch[len(batch)-1].ID
+		if len(batch) < backfillBatchSize {
+			return skipped, nil
+		}
+	}
 }
 
 // HasProjectionTable reports whether a projection table exists. Cached entries are not

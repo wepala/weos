@@ -244,6 +244,11 @@ func (s *resourceService) Create(
 	if err != nil {
 		return nil, err
 	}
+	// Seed a per-call scratch bag so a behavior's BeforeCreate can stash data
+	// (e.g. a field it strips from the payload) for this same call's
+	// AfterCreate to consume; behaviors are shared singletons so this cannot
+	// live on the behavior itself.
+	ctx = withBehaviorScratch(ctx)
 	rt, err := s.typeRepo.FindBySlug(ctx, cmd.TypeSlug)
 	if err != nil {
 		return nil, fmt.Errorf("resource type %q not found: %w", cmd.TypeSlug, err)
@@ -523,6 +528,9 @@ func (s *resourceService) Update(
 	if err != nil {
 		return nil, err
 	}
+	// Seed a per-call scratch bag shared by every behavior hook in this update
+	// (see withBehaviorScratch / BehaviorScratch for why per-call, not per-behavior).
+	ctx = withBehaviorScratch(ctx)
 	entity, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
 		return nil, err
