@@ -230,6 +230,67 @@ func TestReproject_IsIdempotent(t *testing.T) {
 	}
 }
 
+// seedDeletedTypeHistory appends a type that was created and then deleted —
+// the history shape that leaves a soft-deleted resource_types row behind
+// after one replay pass.
+func (e *reprojectTestEnv) seedDeletedTypeHistory(t testing.TB) {
+	t.Helper()
+	ctx := context.Background()
+
+	events := []domain.EventEnvelope[any]{
+		{
+			ID:          "evt-rt-d1",
+			AggregateID: "urn:type:draft",
+			EventType:   "ResourceType.Created",
+			Payload: entities.ResourceTypeCreated{
+				Name: "Draft", Slug: "draft", Description: "a draft",
+				Context:   json.RawMessage(`{"@vocab":"https://example.com/ns#"}`),
+				Schema:    json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}}}`),
+				Timestamp: time.Now().UTC(),
+			},
+			Created:    time.Now().UTC(),
+			SequenceNo: 1,
+		},
+		{
+			ID:          "evt-rt-d2",
+			AggregateID: "urn:type:draft",
+			EventType:   "ResourceType.Deleted",
+			Payload:     entities.ResourceTypeDeleted{}.With(),
+			Created:     time.Now().UTC(),
+			SequenceNo:  2,
+		},
+	}
+	for _, env := range events {
+		if err := e.rt.EventStore.Append(ctx, env.AggregateID, env.SequenceNo-1, env); err != nil {
+			t.Fatalf("append %s: %v", env.EventType, err)
+		}
+	}
+}
+
+// A history that deletes a type leaves a soft-deleted row after the first
+// pass. The Created handler's existence probe must see that row (FindByID
+// filters deleted_at) or the second pass fails Save on the primary key.
+func TestReproject_IsIdempotentOverDeletedTypeHistory(t *testing.T) {
+	env := newReprojectTestEnv(t)
+	env.seedDeletedTypeHistory(t)
+
+	if _, err := Reproject(context.Background(), env.rt, ReprojectOptions{}); err != nil {
+		t.Fatalf("first reproject: %v", err)
+	}
+	if _, err := Reproject(context.Background(), env.rt, ReprojectOptions{}); err != nil {
+		t.Fatalf("second reproject over soft-deleted type: %v", err)
+	}
+
+	if n := env.count(t, `SELECT COUNT(*) FROM resource_types WHERE slug = 'draft'`); n != 1 {
+		t.Errorf("resource_types rows for 'draft' = %d, want 1", n)
+	}
+	if n := env.count(t,
+		`SELECT COUNT(*) FROM resource_types WHERE slug = 'draft' AND deleted_at IS NOT NULL`,
+	); n != 1 {
+		t.Errorf("expected the 'draft' row to converge soft-deleted after replay")
+	}
+}
+
 func TestReproject_ResumesAfterPosition(t *testing.T) {
 	env := newReprojectTestEnv(t)
 	env.seedImportedHistory(t)

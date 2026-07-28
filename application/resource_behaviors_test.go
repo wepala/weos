@@ -30,6 +30,11 @@ func (r *stubTypeRepo) Save(context.Context, *entities.ResourceType) error { ret
 func (r *stubTypeRepo) FindByID(context.Context, string) (*entities.ResourceType, error) {
 	return nil, errors.New("not implemented")
 }
+func (r *stubTypeRepo) FindByIDIncludingDeleted(
+	context.Context, string,
+) (*entities.ResourceType, error) {
+	return nil, errors.New("not implemented")
+}
 func (r *stubTypeRepo) FindAll(
 	_ context.Context, _ string, _ int,
 ) (repositories.PaginatedResponse[*entities.ResourceType], error) {

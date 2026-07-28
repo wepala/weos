@@ -65,9 +65,14 @@ func subscribeResourceTypeHandlers(
 			// Replay-idempotent (a handler constraint, and `worker reproject`
 			// re-runs this handler over history): a row that already exists
 			// for this aggregate converges via Update instead of failing
-			// Save's unique constraints. A genuinely conflicting row (same
-			// slug, different aggregate) still fails Save loudly.
-			_, findErr := repo.FindByID(ctx, env.AggregateID)
+			// Save's unique constraints. The probe must see soft-deleted rows
+			// too — a history holding ResourceType.Deleted leaves one behind,
+			// and Save would hit those constraints. Update resurrects it
+			// (full-field save clears deleted_at); replaying the Deleted
+			// event re-deletes, so the run still converges. A genuinely
+			// conflicting row (same slug, different aggregate) still fails
+			// Save loudly.
+			_, findErr := repo.FindByIDIncludingDeleted(ctx, env.AggregateID)
 			switch {
 			case findErr == nil:
 				if err := repo.Update(ctx, entity); err != nil {
