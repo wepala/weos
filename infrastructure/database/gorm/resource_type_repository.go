@@ -72,6 +72,23 @@ func (r *ResourceTypeRepository) FindByID(
 	return model.ToResourceType()
 }
 
+// FindByIDIncludingDeleted also matches soft-deleted rows, for projection
+// replay's existence probe (see ResourceTypeRepository interface docs).
+func (r *ResourceTypeRepository) FindByIDIncludingDeleted(
+	ctx context.Context, id string,
+) (*entities.ResourceType, error) {
+	var model models.ResourceType
+	err := r.db.WithContext(ctx).
+		Where("id = ?", id).First(&model).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("resource type %q: %w", id, repositories.ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to find resource type: %w", err)
+	}
+	return model.ToResourceType()
+}
+
 func (r *ResourceTypeRepository) FindBySlug(
 	ctx context.Context, slug string,
 ) (*entities.ResourceType, error) {

@@ -28,6 +28,10 @@ var ErrNotFound = errors.New("not found")
 type ResourceTypeRepository interface {
 	Save(ctx context.Context, entity *entities.ResourceType) error
 	FindByID(ctx context.Context, id string) (*entities.ResourceType, error)
+	// FindByIDIncludingDeleted also matches soft-deleted rows. Projection
+	// replay needs it: ResourceType.Created must converge via Update when a
+	// row exists in any state, or Save hits its unique constraints.
+	FindByIDIncludingDeleted(ctx context.Context, id string) (*entities.ResourceType, error)
 	FindBySlug(ctx context.Context, slug string) (*entities.ResourceType, error)
 	FindAll(ctx context.Context, cursor string, limit int) (PaginatedResponse[*entities.ResourceType], error)
 	Update(ctx context.Context, entity *entities.ResourceType) error

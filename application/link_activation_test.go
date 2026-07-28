@@ -38,6 +38,11 @@ func (r *listingTypeRepo) Save(context.Context, *entities.ResourceType) error { 
 func (r *listingTypeRepo) FindByID(context.Context, string) (*entities.ResourceType, error) {
 	return nil, repositories.ErrNotFound
 }
+func (r *listingTypeRepo) FindByIDIncludingDeleted(
+	context.Context, string,
+) (*entities.ResourceType, error) {
+	return nil, repositories.ErrNotFound
+}
 func (r *listingTypeRepo) FindBySlug(_ context.Context, slug string) (*entities.ResourceType, error) {
 	for _, s := range r.slugs {
 		if s == slug {

@@ -143,6 +143,11 @@ func (r *kgTypeRepo) FindByID(_ context.Context, _ string) (*entities.ResourceTy
 	}
 	return r.rt, nil
 }
+func (r *kgTypeRepo) FindByIDIncludingDeleted(
+	ctx context.Context, id string,
+) (*entities.ResourceType, error) {
+	return r.FindByID(ctx, id)
+}
 func (r *kgTypeRepo) FindBySlug(_ context.Context, _ string) (*entities.ResourceType, error) {
 	return r.rt, nil
 }

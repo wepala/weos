@@ -45,6 +45,12 @@ func (r *installTestTypeRepo) FindByID(_ context.Context, id string) (*entities.
 	return nil, fmt.Errorf("resource type %q: %w", id, repositories.ErrNotFound)
 }
 
+func (r *installTestTypeRepo) FindByIDIncludingDeleted(
+	ctx context.Context, id string,
+) (*entities.ResourceType, error) {
+	return r.FindByID(ctx, id)
+}
+
 func (r *installTestTypeRepo) FindAll(
 	_ context.Context, _ string, _ int,
 ) (repositories.PaginatedResponse[*entities.ResourceType], error) {
@@ -359,6 +365,11 @@ func (r *failingTypeRepo) FindBySlug(context.Context, string) (*entities.Resourc
 }
 func (r *failingTypeRepo) Save(context.Context, *entities.ResourceType) error { return nil }
 func (r *failingTypeRepo) FindByID(context.Context, string) (*entities.ResourceType, error) {
+	return nil, r.err
+}
+func (r *failingTypeRepo) FindByIDIncludingDeleted(
+	context.Context, string,
+) (*entities.ResourceType, error) {
 	return nil, r.err
 }
 func (r *failingTypeRepo) FindAll(
