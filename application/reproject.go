@@ -130,8 +130,9 @@ type ReprojectResult struct {
 //
 // Both passes scan the whole feed — the event store has no server-side type
 // filter — which trades a second read for correctness in an operator-invoked
-// one-shot. Only pass 2 counts Skipped, so an event with no synchronous handler
-// is still counted exactly once.
+// one-shot. Both also count Skipped; an event with no synchronous handler is
+// still tallied exactly once because the passes' accept filters partition the
+// feed, so only one pass ever reaches it.
 func Reproject(ctx context.Context, rt ReprojectRuntime, opts ReprojectOptions) (ReprojectResult, error) {
 	batch := opts.BatchSize
 	if batch <= 0 {
@@ -203,8 +204,9 @@ func isResourceTypeEvent(eventType string) bool {
 }
 
 // replayPassOptions configures one pass of the feed. accept selects the event
-// types this pass dispatches; everything else is stepped over without being
-// counted, so the two passes together account for each event exactly once.
+// types this pass handles; everything else is stepped over untouched, and is
+// accounted for by the pass whose filter does accept it — so the passes
+// together see each event exactly once.
 type replayPassOptions struct {
 	label  string
 	head   int64
@@ -214,8 +216,10 @@ type replayPassOptions struct {
 	// trackLast advances res.LastPosition, which is the position an operator
 	// resumes from. Only the resumable pass sets it.
 	trackLast bool
-	// countSkip counts events with no synchronous handler. Only one pass sets
-	// it, so a skipped event isn't tallied twice.
+	// countSkip counts events with no synchronous handler. Every pass sets it:
+	// double-counting is prevented by the accept filters partitioning the feed,
+	// not by leaving it off somewhere. Leaving it off would instead drop an
+	// unhandled event from the totals altogether, since no other pass sees it.
 	countSkip bool
 }
 
