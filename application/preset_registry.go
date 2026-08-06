@@ -110,10 +110,15 @@ type InstallPresetResult struct {
 // aren't installed are absent entirely; creating them is InstallPreset's job,
 // not this one's.
 //
-// Every category other than Unchanged means writes to at least one property are
-// still being dropped, so each is reported separately rather than folded
-// together — a reconcile that quietly does nothing is the failure mode this
-// whole change exists to end.
+// The categories are reported separately rather than folded together because
+// they demand different responses — a reconcile that quietly does nothing is
+// the failure mode this whole change exists to end:
+//
+//   - Failed and NoSchema mean writes to at least one property ARE still being
+//     dropped. Both are urgent.
+//   - Refused means a property definition diverged and is being held safely at
+//     its stored form. The column already exists and writes to it still land;
+//     what needs an operator is the divergence itself, not data loss.
 type ReconcilePresetResult struct {
 	// Updated lists types whose stored schema was rewritten AND whose new
 	// columns were confirmed present afterwards.

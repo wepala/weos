@@ -296,7 +296,14 @@ func (w *projectionMigrationWorld) widgetColumns() string {
 	return strings.Join(names, ", ")
 }
 
-func (w *projectionMigrationWorld) createWidget(data map[string]any) error {
+// createWidget creates a widget and records its ID under name. The name is
+// passed explicitly rather than read back out of data: deriving it would fall
+// back to "" whenever the key were missing, silently overwriting a previous
+// entry and breaking every later lookup with a confusing failure.
+func (w *projectionMigrationWorld) createWidget(name string, data map[string]any) error {
+	if name == "" {
+		return fmt.Errorf("a widget must be created with a name")
+	}
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -306,26 +313,25 @@ func (w *projectionMigrationWorld) createWidget(data map[string]any) error {
 		Data:     raw,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create widget: %w", err)
+		return fmt.Errorf("failed to create widget %q: %w", name, err)
 	}
-	name, _ := data["name"].(string)
 	w.createdIDs[name] = res.GetID()
 	return nil
 }
 
 func (w *projectionMigrationWorld) iCreateWidgetWith(name, field, value string) error {
-	return w.createWidget(map[string]any{"name": name, field: value})
+	return w.createWidget(name, map[string]any{"name": name, field: value})
 }
 
 func (w *projectionMigrationWorld) aWidgetExists(name string) error {
-	return w.createWidget(map[string]any{"name": name})
+	return w.createWidget(name, map[string]any{"name": name})
 }
 
 // aWidgetIsCreatedWithUndeclared writes a field the CURRENT schema does not
 // declare — the state the bug leaves behind: the value reaches the canonical
 // resources row but has no projection column to land in.
 func (w *projectionMigrationWorld) aWidgetIsCreatedWithUndeclared(name, field, value string) error {
-	return w.createWidget(map[string]any{"name": name, field: value})
+	return w.createWidget(name, map[string]any{"name": name, field: value})
 }
 
 // flatRead reads a widget back through the projection (GetFlat), which is the

@@ -149,14 +149,20 @@ func Reproject(ctx context.Context, rt ReprojectRuntime, opts ReprojectOptions) 
 	// guard is what keeps that true now that pass 1 ignores AfterPosition —
 	// without it, a resume at head would still re-dispatch every type event for
 	// no benefit, since pass 2 has no resources left to project against them.
+	//
+	// LastPosition reports the head rather than the caller's AfterPosition, so a
+	// no-op run and a complete run agree on the resume point. It also keeps an
+	// over-large AfterPosition from being echoed straight back to the operator.
 	if opts.AfterPosition >= head {
+		res.LastPosition = head
 		return res, nil
 	}
 
-	// countSkip is set on pass 1 as well as pass 2. Each pass's accept filter
-	// excludes what the other handles, so an event is only ever counted once —
-	// and a future ResourceType.* event with no synchronous handler would
-	// otherwise fall out of both counters entirely.
+	// BOTH passes set countSkip. Their accept filters partition the feed, so an
+	// unhandled event is tallied by whichever pass accepts it and therefore
+	// exactly once. Pass 1 needs it because pass 2 never sees ResourceType.*
+	// events: without it, a future ResourceType.* event with no synchronous
+	// handler would fall out of both counters entirely.
 	if err := runReplayPass(ctx, rt, replayPassOptions{
 		label:     "resource-types",
 		head:      head,
