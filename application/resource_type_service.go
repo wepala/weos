@@ -9,6 +9,7 @@ import (
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/pkg/jsonld"
+	"github.com/wepala/weos/v3/pkg/utils"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
@@ -345,6 +346,11 @@ func (s *resourceTypeService) InstallPreset(
 // Refused, never rewritten; a type with no delta emits no event, which is what
 // keeps repeated restarts from appending a ResourceTypeUpdated per type per
 // boot.
+//
+// Per-type failures never abort the pass. One unparseable stored schema or one
+// transient write error must not leave every LATER type in the preset
+// unreconciled and silently dropping writes — which is the very defect this
+// exists to end — so failures are collected in Failed and the loop continues.
 func (s *resourceTypeService) ReconcilePresetSchemas(
 	ctx context.Context, presetName string,
 ) (*ReconcilePresetResult, error) {
@@ -354,49 +360,119 @@ func (s *resourceTypeService) ReconcilePresetSchemas(
 	}
 	result := &ReconcilePresetResult{}
 	for _, pt := range preset.Types {
+		// A preset type with no schema projects only base columns, so every data
+		// field is dropped on write. That is almost always a packaging mistake
+		// and never a healthy no-op, so it gets its own category instead of
+		// being folded into Unchanged where nothing would ever report it.
+		if len(pt.Schema) == 0 {
+			result.NoSchema = append(result.NoSchema, pt.Slug)
+			continue
+		}
 		existing, err := s.GetBySlug(ctx, pt.Slug)
 		if err != nil {
-			// Not installed yet: InstallPreset's create path owns that case, and
-			// it has already run by the time startup calls this.
+			// Not installed here: InstallPreset's create path owns that case.
 			if errors.Is(err, repositories.ErrNotFound) {
 				continue
 			}
-			return result, fmt.Errorf("failed to look up resource type %q: %w", pt.Slug, err)
-		}
-		rec, rErr := reconcileAdditiveSchema(existing.Schema(), pt.Schema)
-		if rErr != nil {
-			return result, fmt.Errorf("failed to reconcile schema for %q: %w", pt.Slug, rErr)
-		}
-		if len(rec.Conflicts) > 0 {
-			s.logger.Warn(ctx,
-				"preset schema diverges non-additively; leaving stored resource type unchanged",
-				"preset", presetName, "slug", pt.Slug, "conflictingProperties", rec.Conflicts)
-			if result.Refused == nil {
-				result.Refused = make(map[string][]string)
-			}
-			result.Refused[pt.Slug] = rec.Conflicts
+			s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
+				fmt.Errorf("failed to look up resource type: %w", err))
 			continue
 		}
-		if !rec.Changed {
-			result.Unchanged = append(result.Unchanged, pt.Slug)
-			continue
-		}
-		if _, uErr := s.Update(ctx, UpdateResourceTypeCommand{
-			ID:          existing.GetID(),
-			Name:        existing.Name(),
-			Slug:        existing.Slug(),
-			Description: existing.Description(),
-			Status:      existing.Status(),
-			Context:     existing.Context(),
-			Schema:      rec.Schema,
-		}); uErr != nil {
-			return result, fmt.Errorf("failed to reconcile resource type %q: %w", pt.Slug, uErr)
-		}
-		s.logger.Info(ctx, "reconciled preset schema into existing resource type",
-			"preset", presetName, "slug", pt.Slug, "addedProperties", rec.Added)
-		result.Updated = append(result.Updated, pt.Slug)
+		s.reconcileOneType(ctx, result, presetName, pt, existing)
 	}
 	return result, nil
+}
+
+// reconcileOneType applies the additive merge to a single installed type,
+// recording the outcome on result. It never returns an error: every outcome is
+// a category on the result so one type can't mask another.
+func (s *resourceTypeService) reconcileOneType(
+	ctx context.Context, result *ReconcilePresetResult,
+	presetName string, pt PresetResourceType, existing *entities.ResourceType,
+) {
+	rec, err := reconcileAdditiveSchema(existing.Schema(), pt.Schema)
+	if err != nil {
+		s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
+			fmt.Errorf("failed to reconcile schema: %w", err))
+		return
+	}
+	if len(rec.Conflicts) > 0 {
+		// Refusal is all-or-nothing, so naming only the conflicting properties
+		// hides the real cost: every additive property blocked alongside them is
+		// still having its writes dropped. Report both.
+		s.logger.Warn(ctx,
+			"preset schema diverges non-additively; leaving stored resource type unchanged",
+			"preset", presetName, "slug", pt.Slug,
+			"conflictingProperties", rec.Conflicts, "blockedAdditions", rec.Added)
+		if result.Refused == nil {
+			result.Refused = make(map[string][]string)
+		}
+		result.Refused[pt.Slug] = rec.Conflicts
+		if len(rec.Added) > 0 {
+			if result.BlockedAdditions == nil {
+				result.BlockedAdditions = make(map[string][]string)
+			}
+			result.BlockedAdditions[pt.Slug] = rec.Added
+		}
+		return
+	}
+	if !rec.Changed {
+		result.Unchanged = append(result.Unchanged, pt.Slug)
+		return
+	}
+	if _, err := s.Update(ctx, UpdateResourceTypeCommand{
+		ID:          existing.GetID(),
+		Name:        existing.Name(),
+		Slug:        existing.Slug(),
+		Description: existing.Description(),
+		Status:      existing.Status(),
+		Context:     existing.Context(),
+		Schema:      rec.Schema,
+	}); err != nil {
+		s.recordReconcileFailure(ctx, result, presetName, pt.Slug, err)
+		return
+	}
+	// A successful Update is NOT evidence the column exists. The column is added
+	// by the ResourceType.Updated handler, and SimpleUnitOfWork.Commit discards
+	// dispatch errors as non-fatal (eventual-consistency model), so EnsureTable
+	// can fail while Update still returns nil. Reporting "reconciled" on that
+	// basis would announce success over exactly the silent drop this change
+	// exists to end, so confirm the columns actually landed.
+	if missing := s.missingColumns(pt.Slug, rec.Added); len(missing) > 0 {
+		s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
+			fmt.Errorf("stored schema updated but projection columns are still missing: %v", missing))
+		return
+	}
+	s.logger.Info(ctx, "reconciled preset schema into existing resource type",
+		"preset", presetName, "slug", pt.Slug, "addedProperties", rec.Added)
+	result.Updated = append(result.Updated, pt.Slug)
+}
+
+// missingColumns returns the subset of property names with no matching
+// projection column, using the same camelCase→snake_case mapping the projection
+// writer uses to decide which keys to keep.
+func (s *resourceTypeService) missingColumns(slug string, properties []string) []string {
+	if s.projMgr == nil {
+		return nil
+	}
+	var missing []string
+	for _, prop := range properties {
+		if !s.projMgr.HasColumn(slug, utils.CamelToSnake(prop)) {
+			missing = append(missing, prop)
+		}
+	}
+	return missing
+}
+
+func (s *resourceTypeService) recordReconcileFailure(
+	ctx context.Context, result *ReconcilePresetResult, presetName, slug string, err error,
+) {
+	s.logger.Error(ctx, "failed to reconcile preset schema into resource type",
+		"preset", presetName, "slug", slug, "error", err)
+	if result.Failed == nil {
+		result.Failed = make(map[string]string)
+	}
+	result.Failed[slug] = err.Error()
 }
 
 // seedFixtures creates resources from the preset type's fixture data.

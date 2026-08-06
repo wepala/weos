@@ -351,3 +351,73 @@ func TestTypedForReplay_ConvertsStoreShapedPayloads(t *testing.T) {
 		t.Fatalf("unhandled event: handled=%v err=%v, want false/nil", handled, err)
 	}
 }
+
+// TestReproject_ResumeStillRunsTypePass covers the semantics this file's other
+// resume test can't reach: a resume from a position BELOW the head. Pass 1
+// deliberately ignores AfterPosition so the types reach their final shape
+// before the remaining resources project, while pass 2 honors it.
+func TestReproject_ResumeStillRunsTypePass(t *testing.T) {
+	env := newReprojectTestEnv(t)
+	env.seedImportedHistory(t)
+
+	full, err := Reproject(context.Background(), env.rt, ReprojectOptions{})
+	if err != nil {
+		t.Fatalf("full reproject: %v", err)
+	}
+
+	// Resume from just after the ResourceType.Created at position 1. The type
+	// pass must run again regardless, or the resources replaying in pass 2 would
+	// have no column set to project against.
+	resumed, err := Reproject(context.Background(), env.rt, ReprojectOptions{AfterPosition: 1})
+	if err != nil {
+		t.Fatalf("resumed reproject: %v", err)
+	}
+	if resumed.Dispatched == 0 {
+		t.Fatal("a resume below the head dispatched nothing")
+	}
+	if resumed.LastPosition != full.Head {
+		t.Errorf("resume LastPosition = %d, want head %d", resumed.LastPosition, full.Head)
+	}
+}
+
+// TestReproject_CompleteRunReachesHead pins the number an operator would feed
+// back as --after-position. Pass 2 only advances LastPosition on events it
+// accepts, and the last event in a real feed is commonly a ResourceType.Updated
+// (the startup reconcile appends one), so without the terminal assignment a
+// fully successful run would under-report.
+func TestReproject_CompleteRunReachesHead(t *testing.T) {
+	env := newReprojectTestEnv(t)
+	env.seedImportedHistory(t)
+
+	res, err := Reproject(context.Background(), env.rt, ReprojectOptions{})
+	if err != nil {
+		t.Fatalf("reproject: %v", err)
+	}
+	if res.LastPosition != res.Head {
+		t.Errorf("complete run reported LastPosition %d, want head %d", res.LastPosition, res.Head)
+	}
+}
+
+// TestReproject_CountsEachEventOnce guards the two-pass split: the passes'
+// accept filters partition the feed, so no event may be double-counted or fall
+// out of both counters.
+func TestReproject_CountsEachEventOnce(t *testing.T) {
+	env := newReprojectTestEnv(t)
+	env.seedImportedHistory(t)
+
+	res, err := Reproject(context.Background(), env.rt, ReprojectOptions{})
+	if err != nil {
+		t.Fatalf("reproject: %v", err)
+	}
+	// seedImportedHistory writes 5 events. Two have no synchronous handler of
+	// their own — Custom.Ignored, and Resource.Created (folded in via the
+	// Published handler's transaction read) — so the split must be 3/2 with
+	// every event accounted for exactly once.
+	if got := res.Dispatched + res.Skipped; got != 5 {
+		t.Errorf("Dispatched+Skipped = %d, want 5 (dispatched=%d skipped=%d)",
+			got, res.Dispatched, res.Skipped)
+	}
+	if res.Skipped != 2 {
+		t.Errorf("Skipped = %d, want exactly 2", res.Skipped)
+	}
+}

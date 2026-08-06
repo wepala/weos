@@ -18,7 +18,9 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
@@ -55,6 +57,20 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
+// assertRequired checks the merged schema's `required` array exactly.
+func assertRequired(t *testing.T, raw json.RawMessage, want []string) {
+	t.Helper()
+	var doc struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("merged schema is not a JSON object: %v", err)
+	}
+	if !sameStrings(doc.Required, want) {
+		t.Errorf("required = %v, want %v", doc.Required, want)
+	}
+}
+
 func TestReconcileAdditiveSchema(t *testing.T) {
 	t.Parallel()
 
@@ -68,6 +84,8 @@ func TestReconcileAdditiveSchema(t *testing.T) {
 		// wantProps, when set, lists every property name the merged schema must
 		// carry — the guard that preserved and added properties coexist.
 		wantProps []string
+		// wantRequired, when set, is the exact reconciled `required` array.
+		wantRequired []string
 	}{{
 		name:        "identical schemas are a no-op",
 		stored:      `{"type":"object","properties":{"name":{"type":"string"}}}`,
@@ -134,6 +152,24 @@ func TestReconcileAdditiveSchema(t *testing.T) {
 		wantAdded:   []string{"sku"},
 		wantProps:   []string{"name", "sku"},
 	}, {
+		// The preset has no opinion about a property it doesn't declare, so its
+		// `required` list must not silently drop the operator's own requirement.
+		name:         "a stored-only property keeps its requirement",
+		stored:       `{"type":"object","required":["name","nickname"],"properties":{"name":{"type":"string"},"nickname":{"type":"string"}}}`,
+		preset:       `{"type":"object","required":["name"],"properties":{"name":{"type":"string"},"sku":{"type":"string"}}}`,
+		wantChanged:  true,
+		wantAdded:    []string{"sku"},
+		wantProps:    []string{"name", "nickname", "sku"},
+		wantRequired: []string{"name", "nickname"},
+	}, {
+		// ...but a requirement the preset DOES have an opinion about follows the
+		// preset, including when the preset drops it.
+		name:         "a requirement on a preset-declared property follows the preset",
+		stored:       `{"type":"object","required":["name","sku"],"properties":{"name":{"type":"string"},"sku":{"type":"string"}}}`,
+		preset:       `{"type":"object","required":["name"],"properties":{"name":{"type":"string"},"sku":{"type":"string"}}}`,
+		wantChanged:  true,
+		wantRequired: []string{"name"},
+	}, {
 		name:        "a changed top-level keyword alone still counts as a change",
 		stored:      `{"type":"object","additionalProperties":true,"properties":{"name":{"type":"string"}}}`,
 		preset:      `{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"}}}`,
@@ -195,6 +231,9 @@ func TestReconcileAdditiveSchema(t *testing.T) {
 			}
 			if tc.wantProps == nil {
 				return
+			}
+			if tc.wantRequired != nil {
+				assertRequired(t, got.Schema, tc.wantRequired)
 			}
 			props := schemaProps(t, got.Schema)
 			if len(props) != len(tc.wantProps) {
@@ -560,5 +599,199 @@ func reconcileTestService(
 	return &resourceTypeService{
 		repo: repo, projMgr: pm, eventStore: &stubEventStore{}, dispatcher: d,
 		registry: registry, logger: noopLogger{}, resourceSvc: rSvc,
+	}
+}
+
+// TestReconcilePresetSchemas_FailsWhenColumnDoesNotLand is the guard against
+// announcing success over a silent failure. SimpleUnitOfWork.Commit discards
+// dispatch errors, so Update returns nil even when EnsureTable failed and the
+// column was never added — reporting that type as reconciled would claim the
+// #379 bug is fixed for a type still dropping writes.
+func TestReconcilePresetSchemas_FailsWhenColumnDoesNotLand(t *testing.T) {
+	t.Parallel()
+	v1 := NewPresetRegistry()
+	v1.MustAdd(testPresetSingle(
+		"Product", "product", "A product",
+		`{"@vocab":"https://schema.org/"}`,
+		`{"type":"object","properties":{"name":{"type":"string"}}}`,
+	))
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	if _, err := makeInstallTestService(repo, rSvc, v1).
+		InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+
+	v2 := NewPresetRegistry()
+	v2.MustAdd(testPresetSingle(
+		"Product", "product", "A product",
+		`{"@vocab":"https://schema.org/"}`,
+		`{"type":"object","properties":{"name":{"type":"string"},"sku":{"type":"string"}}}`,
+	))
+
+	// A projection manager that refuses to add columns — the ALTER failing, or
+	// any other reason EnsureTable errors inside the event handler.
+	d := domain.NewEventDispatcher()
+	pm := &stubProjMgr{ensureTableErr: errors.New("ALTER TABLE failed")}
+	if err := SubscribeResourceTypeHandlers(d, repo, pm, noopLogger{}); err != nil {
+		t.Fatalf("SubscribeResourceTypeHandlers: %v", err)
+	}
+	svc := &resourceTypeService{
+		repo: repo, projMgr: pm, eventStore: &stubEventStore{}, dispatcher: d,
+		registry: v2, logger: noopLogger{}, resourceSvc: rSvc,
+	}
+
+	res, err := svc.ReconcilePresetSchemas(context.Background(), "single")
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if len(res.Updated) != 0 {
+		t.Errorf("must not report Updated when the column never landed, got %+v", res.Updated)
+	}
+	if _, ok := res.Failed["product"]; !ok {
+		t.Fatalf("expected product in Failed, got %+v", res)
+	}
+	if !strings.Contains(res.Failed["product"], "sku") {
+		t.Errorf("failure reason should name the missing column, got %q", res.Failed["product"])
+	}
+}
+
+// TestReconcilePresetSchemas_ContinuesAfterPerTypeFailure: one bad type must
+// not leave every later type in the preset unreconciled and silently dropping
+// writes.
+func TestReconcilePresetSchemas_ContinuesAfterPerTypeFailure(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(PresetDefinition{
+		Name: "single",
+		Types: []PresetResourceType{
+			{
+				Name: "Broken", Slug: "broken", Description: "d",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`),
+			},
+			{
+				Name: "Healthy", Slug: "healthy", Description: "d",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object","properties":{"b":{"type":"string"}}}`),
+			},
+		},
+	})
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	svc := makeInstallTestService(repo, rSvc, registry)
+	if _, err := svc.InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+
+	// Corrupt the first type's stored schema so its reconcile errors.
+	broken, err := repo.FindBySlug(context.Background(), "broken")
+	if err != nil {
+		t.Fatalf("FindBySlug: %v", err)
+	}
+	if err := broken.Restore(broken.GetID(), broken.Name(), "broken", broken.Description(),
+		broken.Status(), broken.Context(), json.RawMessage(`"not an object"`),
+		broken.CreatedAt(), 2); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if err := repo.Update(context.Background(), broken); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	// A later build adds a property to BOTH types.
+	v2 := NewPresetRegistry()
+	v2.MustAdd(PresetDefinition{
+		Name: "single",
+		Types: []PresetResourceType{
+			{
+				Name: "Broken", Slug: "broken", Description: "d",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"},"a2":{"type":"string"}}}`),
+			},
+			{
+				Name: "Healthy", Slug: "healthy", Description: "d",
+				Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+				Schema:  json.RawMessage(`{"type":"object","properties":{"b":{"type":"string"},"b2":{"type":"string"}}}`),
+			},
+		},
+	})
+
+	res, err := reconcileTestService(t, repo, rSvc, v2).
+		ReconcilePresetSchemas(context.Background(), "single")
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if _, ok := res.Failed["broken"]; !ok {
+		t.Errorf("expected broken in Failed, got %+v", res)
+	}
+	if !sameStrings(res.Updated, []string{"healthy"}) {
+		t.Fatalf("the type after the failing one must still be reconciled, got Updated=%v", res.Updated)
+	}
+}
+
+// TestReconcilePresetSchemas_ReportsSchemaLessType: a preset type with no schema
+// projects only base columns, so every field is dropped on write. It must not
+// be filed as a healthy no-op.
+func TestReconcilePresetSchemas_ReportsSchemaLessType(t *testing.T) {
+	t.Parallel()
+	registry := NewPresetRegistry()
+	registry.MustAdd(testPresetSingle(
+		"Product", "product", "A product", `{"@vocab":"https://schema.org/"}`, ``,
+	))
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	svc := makeInstallTestService(repo, rSvc, registry)
+	if _, err := svc.InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+
+	res, err := reconcileTestService(t, repo, rSvc, registry).
+		ReconcilePresetSchemas(context.Background(), "single")
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !sameStrings(res.NoSchema, []string{"product"}) {
+		t.Fatalf("expected NoSchema=[product], got %+v", res)
+	}
+	if len(res.Unchanged) != 0 {
+		t.Errorf("a schema-less type must not be filed as Unchanged, got %v", res.Unchanged)
+	}
+}
+
+// TestReconcilePresetSchemas_ReportsBlockedAdditions: refusal is all-or-nothing,
+// so an operator needs to know which additive properties went down with the
+// conflict — those are the ones still losing writes.
+func TestReconcilePresetSchemas_ReportsBlockedAdditions(t *testing.T) {
+	t.Parallel()
+	v1 := NewPresetRegistry()
+	v1.MustAdd(testPresetSingle(
+		"Product", "product", "A product",
+		`{"@vocab":"https://schema.org/"}`,
+		`{"type":"object","properties":{"sku":{"type":"string"}}}`,
+	))
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	if _, err := makeInstallTestService(repo, rSvc, v1).
+		InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+
+	v2 := NewPresetRegistry()
+	v2.MustAdd(testPresetSingle(
+		"Product", "product", "A product",
+		`{"@vocab":"https://schema.org/"}`,
+		`{"type":"object","properties":{"sku":{"type":"integer"},"gtin":{"type":"string"},"brand":{"type":"string"}}}`,
+	))
+
+	res, err := reconcileTestService(t, repo, rSvc, v2).
+		ReconcilePresetSchemas(context.Background(), "single")
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !sameStrings(res.Refused["product"], []string{"sku"}) {
+		t.Fatalf("expected Refused[product]=[sku], got %+v", res.Refused)
+	}
+	if !sameStrings(res.BlockedAdditions["product"], []string{"brand", "gtin"}) {
+		t.Fatalf("expected BlockedAdditions[product]=[brand gtin], got %+v", res.BlockedAdditions)
 	}
 }

@@ -54,7 +54,9 @@ The fix belongs at step 2, not in the ALTER machinery.
 
 Additive-column migration stays exactly where it was — `ensureProjectionTables` at startup. What was added is a narrower **schema reconciliation** step ahead of it.
 
-`ResourceTypeService.ReconcilePresetSchemas` merges a preset's code-defined schema into the stored resource types, and `ensureBuiltInResourceTypes` calls it after `InstallPreset`. Because it runs before `fx.Invoke(ensureProjectionTables)` — and because the `ResourceType.Updated` it emits is handled synchronously — the refreshed schema is in place by the time any column set is derived.
+`ResourceTypeService.ReconcilePresetSchemas` merges a preset's code-defined schema into the stored resource types, and `ensureBuiltInResourceTypes` calls it at startup. Because it runs before `fx.Invoke(ensureProjectionTables)` — and because the `ResourceType.Updated` it emits is handled synchronously — the refreshed schema is in place by the time any column set is derived.
+
+The reconcile runs for **every registered preset**, not only the `AutoInstall` ones. Only two presets in the tree set `AutoInstall`, so gating it on that flag would leave this bug unfixed for every preset an operator installs on demand — including any shipped by a private registrar. A preset type that isn't installed in the current database is a no-op inside the reconcile, so running it unconditionally is safe.
 
 `InstallPreset` was deliberately **not** changed. Neither of its modes is safe unattended: `update=false` skips existing types (the bug), and `update=true` overwrites `Name`, `Description`, `Context` *and* `Schema` from code on every boot, which would discard operator customisation. Startup gets a third, narrower behaviour instead; the explicit `resource-type preset install --update` path keeps its full-overwrite semantics, because there an operator asked for it.
 
@@ -68,13 +70,18 @@ Additive-column migration stays exactly where it was — `ensureProjectionTables
 | Property in stored, absent from the preset | **Preserved** — never dropped |
 | Property in both, same definition | No-op |
 | Property in both, **different** definition | **Refused** — the whole type is left untouched and logged |
-| Other top-level keywords (`required`, `type`, …) | Follow the preset where it declares them |
+| `required` naming a stored-only property | **Carried over** — the preset has no opinion about a property it doesn't declare |
+| Other top-level keywords (`type`, `additionalProperties`, …) | Follow the preset where it declares them |
 
 Preserving stored-only properties is what protects operator customisation. WeOS has no provenance field on `ResourceType`, so an operator's addition through the API is indistinguishable from drift — dropping it would trade one silent data loss for another. Preserving it also stops a single customisation from permanently blocking later preset additions.
 
 The merge is idempotent: re-running it against its own output reports no change, which is what keeps repeated restarts quiet.
 
-**`required` is authoritative.** A property the preset newly marks required tightens the stored schema. This is a deliberate choice, and it has a consequence worth stating plainly: existing rows that lack that property will start failing validation on their next write.
+**`required` is authoritative — for properties the preset declares.** A property the preset newly marks required tightens the stored schema. This is a deliberate choice, and it has a consequence worth stating plainly: `validateAgainstSchema` runs on **update** as well as create, so existing rows that lack that property become un-editable through every surface — API, admin UI, MCP, and any behavior writing a partial payload — until they are backfilled. Requirements naming *stored-only* properties are carried over instead of dropped, since the preset expresses no opinion about a property it doesn't declare; dropping them would silently weaken a constraint the operator set.
+
+**Reported success means the column exists.** A successful `Update` is not evidence of that: the column is added by the `ResourceType.Updated` handler, and `SimpleUnitOfWork.Commit` discards dispatch errors as non-fatal under its eventual-consistency model, so `EnsureTable` can fail while `Update` still returns nil. The reconcile therefore re-checks `HasColumn` for every added property and demotes the type to `Failed` when they didn't land. Announcing "reconciled" over a still-broken projection would be the same silent success this change exists to eliminate.
+
+**A per-type failure never aborts the pass.** One unparseable stored schema or one transient write error must not leave every later type in the preset unreconciled and silently dropping writes. Failures are collected per type in `Failed`, and a preset type declaring no schema at all is reported under `NoSchema` rather than folded into `Unchanged`, where nothing would ever surface it.
 
 ### 3. GORM `AutoMigrate` — rejected
 
@@ -92,6 +99,8 @@ Adding a column leaves it `NULL` on every pre-existing row. Two paths exist, and
 - `weos worker reproject` replays the event feed through the synchronous projection handlers, rewriting each row from its canonical JSON-LD. **This is the backfill path for a newly added column.**
 
 Reproject stays **operator-invoked**. A full replay is expensive and must not fire on boot; the runbook case (server stopped, column added, operator reprojects) is the right shape.
+
+Note the resume caveat the two-pass split introduces: pass 1 always runs and cannot be skipped with `--after-position`, so a single unconvertible `ResourceType.*` event anywhere in history blocks the whole command. That trade buys correctness — resources must never project against a stale column set — but it means the escape hatch that used to step past a poison event no longer covers type events.
 
 Making that true required a fix. Reproject previously replayed the feed in one strict position order, which meant each type's *original* schema was applied, every resource projected against it, and only then the later `ResourceType.Updated` that added the column — so the column was never backfilled, and re-running didn't help because the ordering was identical every pass. Reproject now replays in **two passes, resource types first**, so every type reaches its final shape before a single resource projects. Pass 1 always starts at the beginning of the feed (re-applying type events is idempotent); pass 2 is the resumable one and alone honours `--after-position`.
 
@@ -129,7 +138,9 @@ The filter case deserves emphasis: dropping a filter does not narrow results, it
 ### Risks
 
 - **`required` tightening breaks existing rows.** A property the preset newly marks required will fail validation for rows that lack it, on their next write. Accepted deliberately; operators changing `required` on a populated type should plan a data pass.
-- **Refusal is all-or-nothing per type.** One conflicting property blocks that type's additive changes too, until an operator resolves it. Chosen over partial application, which would leave a schema in a state neither the preset nor the operator authored.
+- **Refusal is all-or-nothing per type.** One conflicting property blocks that type's additive changes too, until an operator resolves it. Chosen over partial application, which would leave a schema in a state neither the preset nor the operator authored. The cost is real, because the conflict test is an exact comparison: a preset that merely adds a `description` or `maxLength` to an existing property refuses the whole type. The refusal warning therefore names the blocked additive properties (`BlockedAdditions`) alongside the conflict, since those are the ones still losing writes.
+- **The conflict check does not follow indirection.** Property definitions are compared verbatim, so a schema reaching its types through `$ref`/`$defs`, `definitions`, `allOf`, or `patternProperties` can be retyped without tripping the guard — the change lands in a top-level keyword the preset simply wins. No preset in the tree uses those keywords today; one that starts to would need the check to resolve indirection first.
+- **Concurrent startup against a shared database.** Two replicas booting at once can both append `ResourceType.Updated` at the same sequence, and `addMissingColumns`' `HasColumn` guard is TOCTOU. Before this change a steady-state boot had nothing to ALTER, so the window didn't exist; the upgrade boot opens it. The loser's type lands in `Failed` with the reason logged rather than being silently skipped, and the next boot reconciles it.
 - **Drift is still silent at read time.** Until the follow-up tickets land, a filter on a column that does not exist still widens results rather than erroring.
 
 ## Alternatives Considered

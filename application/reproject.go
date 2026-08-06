@@ -153,12 +153,17 @@ func Reproject(ctx context.Context, rt ReprojectRuntime, opts ReprojectOptions) 
 		return res, nil
 	}
 
+	// countSkip is set on pass 1 as well as pass 2. Each pass's accept filter
+	// excludes what the other handles, so an event is only ever counted once —
+	// and a future ResourceType.* event with no synchronous handler would
+	// otherwise fall out of both counters entirely.
 	if err := runReplayPass(ctx, rt, replayPassOptions{
-		label:  "resource-types",
-		head:   head,
-		from:   0,
-		batch:  batch,
-		accept: isResourceTypeEvent,
+		label:     "resource-types",
+		head:      head,
+		from:      0,
+		batch:     batch,
+		accept:    isResourceTypeEvent,
+		countSkip: true,
 	}, &res); err != nil {
 		return res, err
 	}
@@ -174,6 +179,14 @@ func Reproject(ctx context.Context, rt ReprojectRuntime, opts ReprojectOptions) 
 	}, &res); err != nil {
 		return res, err
 	}
+
+	// Both passes reached the head, so the whole feed is processed. Pass 2 only
+	// advances LastPosition on events it accepts, and the last event in the feed
+	// is now commonly a ResourceType.Updated (the startup reconcile appends
+	// one), which would otherwise leave a fully successful run reporting a
+	// LastPosition short of the head — the number an operator would feed back as
+	// --after-position, and the range the CLI prints.
+	res.LastPosition = head
 	return res, nil
 }
 

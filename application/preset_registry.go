@@ -106,15 +106,38 @@ type InstallPresetResult struct {
 }
 
 // ReconcilePresetResult reports the outcome of an additive schema reconcile
-// (issue #379) across one preset's types. Refused holds the types whose preset
-// schema diverged non-additively, keyed by slug and listing the offending
-// property names — those types were left untouched and need an operator
-// decision. Types the preset declares but that aren't installed are absent
-// entirely; creating them is InstallPreset's job, not this one's.
+// (issue #379) across one preset's types. Types the preset declares but that
+// aren't installed are absent entirely; creating them is InstallPreset's job,
+// not this one's.
+//
+// Every category other than Unchanged means writes to at least one property are
+// still being dropped, so each is reported separately rather than folded
+// together — a reconcile that quietly does nothing is the failure mode this
+// whole change exists to end.
 type ReconcilePresetResult struct {
-	Updated   []string            `json:"updated,omitempty"`
-	Unchanged []string            `json:"unchanged,omitempty"`
-	Refused   map[string][]string `json:"refused,omitempty"`
+	// Updated lists types whose stored schema was rewritten AND whose new
+	// columns were confirmed present afterwards.
+	Updated []string `json:"updated,omitempty"`
+	// Unchanged lists types already in sync — the steady-state boot.
+	Unchanged []string `json:"unchanged,omitempty"`
+	// Refused maps a slug to the properties whose definitions diverged
+	// non-additively. The type was left untouched and needs an operator
+	// decision. See BlockedAdditions for what that refusal also cost.
+	Refused map[string][]string `json:"refused,omitempty"`
+	// BlockedAdditions maps a refused slug to the additive properties that were
+	// blocked along with it. Refusal is all-or-nothing, so these are the
+	// properties whose writes are still being silently dropped — the list an
+	// operator actually needs, and the one a "conflicting properties" warning
+	// alone never shows.
+	BlockedAdditions map[string][]string `json:"blockedAdditions,omitempty"`
+	// Failed maps a slug to why its reconcile could not be completed. A type
+	// here is NOT reconciled: either the update errored, or it reported success
+	// while the projection column did not actually appear.
+	Failed map[string]string `json:"failed,omitempty"`
+	// NoSchema lists preset types that declare no JSON Schema at all. Their
+	// projection tables carry only base columns, so every data field is dropped
+	// on write — usually a preset packaging mistake, and never a healthy no-op.
+	NoSchema []string `json:"noSchema,omitempty"`
 }
 
 // presetMatchesResourceType reports whether the preset's definition matches
