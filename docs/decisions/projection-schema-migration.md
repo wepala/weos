@@ -69,7 +69,7 @@ The reconcile runs for **every registered preset**, not only the `AutoInstall` o
 | Property in the preset, absent from stored | **Merged in** — this is what yields the missing column |
 | Property in stored, absent from the preset | **Preserved** — never dropped |
 | Property in both, same definition | No-op |
-| Property in both, **different** definition | **Refused** — the whole type is left untouched and logged |
+| Property in both, **different** definition | **Held** at its stored definition and logged — the rest of the merge still proceeds |
 | `required` naming a stored-only property | **Carried over** — the preset has no opinion about a property it doesn't declare |
 | Other top-level keywords (`type`, `additionalProperties`, …) | Follow the preset where it declares them |
 
@@ -138,18 +138,19 @@ The filter case deserves emphasis: dropping a filter does not narrow results, it
 ### Risks
 
 - **`required` tightening breaks existing rows.** A property the preset newly marks required will fail validation for rows that lack it, on their next write. Accepted deliberately; operators changing `required` on a populated type should plan a data pass.
-- **Refusal is all-or-nothing per type.** One conflicting property blocks that type's additive changes too, until an operator resolves it. Chosen over partial application, which would leave a schema in a state neither the preset nor the operator authored. The cost is real, because the conflict test is an exact comparison: a preset that merely adds a `description` or `maxLength` to an existing property refuses the whole type. The refusal warning therefore names the blocked additive properties (`BlockedAdditions`) alongside the conflict, since those are the ones still losing writes.
+- **A held property leaves the stored schema in a state neither side authored.** Refusal is per-property: the conflicting property keeps its stored definition while the preset's additive properties are merged around it, so the result matches the preset in part and the database in part until an operator resolves it. This was chosen over refusing the whole type because the conflict test is an exact comparison — a preset that merely adds a `description` or `maxLength` to an existing property would otherwise block every additive property beside it, and the silent drop this change exists to fix would persist for that type on a routine upgrade. Nothing non-additive is ever applied, and every held property is named in the boot log.
 - **The conflict check does not follow indirection.** Property definitions are compared verbatim, so a schema reaching its types through `$ref`/`$defs`, `definitions`, `allOf`, or `patternProperties` can be retyped without tripping the guard — the change lands in a top-level keyword the preset simply wins. No preset in the tree uses those keywords today; one that starts to would need the check to resolve indirection first.
 - **Concurrent startup against a shared database.** Two replicas booting at once can both append `ResourceType.Updated` at the same sequence, and `addMissingColumns`' `HasColumn` guard is TOCTOU. Before this change a steady-state boot had nothing to ALTER, so the window didn't exist; the upgrade boot opens it. The loser's type lands in `Failed` with the reason logged rather than being silently skipped, and the next boot reconciles it.
 - **Drift is still silent at read time.** Until the follow-up tickets land, a filter on a column that does not exist still widens results rather than erroring.
 
 ## Alternatives Considered
 
-1. **Flip `ensureBuiltInResourceTypes` to `InstallPreset(..., true)`.** The smallest possible diff, and rejected: it makes preset code authoritative for `Name`, `Description`, `Context` and `Schema` on every boot, silently discarding operator customisation. Trading a silent-data-loss bug for a different silent-data-loss bug is not a fix.
-2. **A config flag selecting overwrite / merge / off.** Rejected for v1 as surface area without a decision: the merge behaviour is what a correct default looks like, and the explicit `--update` path already exists for operators who want overwrite.
-3. **GORM `AutoMigrate`.** Rejected — see above.
-4. **Backfill automatically after adding a column.** Rejected: a full replay on boot is expensive and unpredictable. Reproject stays an explicit operator action.
-5. **Add a provenance field to `ResourceType` (preset-owned vs operator-edited).** A cleaner long-term answer to "who owns this property", and out of scope here — the additive merge achieves the same protection without a schema migration on the entity itself.
+1. **Refuse the whole type on any conflict.** Simpler to reason about and never produces a mixed schema, but it made one cosmetic property edit block every additive property in the same type — defeating the ticket's purpose on exactly the kind of upgrade that motivated it. Rejected in favour of per-property holds.
+2. **Flip `ensureBuiltInResourceTypes` to `InstallPreset(..., true)`.** The smallest possible diff, and rejected: it makes preset code authoritative for `Name`, `Description`, `Context` and `Schema` on every boot, silently discarding operator customisation. Trading a silent-data-loss bug for a different silent-data-loss bug is not a fix.
+3. **A config flag selecting overwrite / merge / off.** Rejected for v1 as surface area without a decision: the merge behaviour is what a correct default looks like, and the explicit `--update` path already exists for operators who want overwrite.
+4. **GORM `AutoMigrate`.** Rejected — see above.
+5. **Backfill automatically after adding a column.** Rejected: a full replay on boot is expensive and unpredictable. Reproject stays an explicit operator action.
+6. **Add a provenance field to `ResourceType` (preset-owned vs operator-edited).** A cleaner long-term answer to "who owns this property", and out of scope here — the additive merge achieves the same protection without a schema migration on the entity itself.
 
 ## Further Reading
 

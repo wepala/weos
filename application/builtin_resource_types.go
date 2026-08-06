@@ -115,14 +115,13 @@ func reconcilePresetSchemas(
 		logger.Info(ctx, "reconciled resource type schema from preset",
 			"preset", presetName, "slug", slug)
 	}
-	for slug, conflicts := range reconciled.Refused {
-		// Name the blocked additive properties alongside the conflict: refusal
-		// is all-or-nothing, so those are the properties whose writes are still
-		// being dropped, and a conflict list alone never reveals them.
+	for slug, held := range reconciled.Refused {
+		// Held at their stored definition, not applied. The type's additive
+		// properties still landed, so this is a narrower warning than it used to
+		// be: only these properties need an operator decision.
 		logger.Warn(ctx,
-			"resource type left unchanged: preset schema diverges non-additively",
-			"preset", presetName, "slug", slug, "conflictingProperties", conflicts,
-			"blockedAdditions", reconciled.BlockedAdditions[slug])
+			"resource type properties held at their stored definition: preset diverges non-additively",
+			"preset", presetName, "slug", slug, "heldProperties", held)
 	}
 	for slug, reason := range reconciled.Failed {
 		logger.Error(ctx,

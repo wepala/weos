@@ -121,15 +121,11 @@ type ReconcilePresetResult struct {
 	// Unchanged lists types already in sync — the steady-state boot.
 	Unchanged []string `json:"unchanged,omitempty"`
 	// Refused maps a slug to the properties whose definitions diverged
-	// non-additively. The type was left untouched and needs an operator
-	// decision. See BlockedAdditions for what that refusal also cost.
+	// non-additively and were therefore HELD at their stored definition. The
+	// type's genuinely additive properties were still merged (refusal is
+	// per-property, not per-type), so a slug can appear here and in Updated at
+	// the same time. Held properties need an operator decision.
 	Refused map[string][]string `json:"refused,omitempty"`
-	// BlockedAdditions maps a refused slug to the additive properties that were
-	// blocked along with it. Refusal is all-or-nothing, so these are the
-	// properties whose writes are still being silently dropped — the list an
-	// operator actually needs, and the one a "conflicting properties" warning
-	// alone never shows.
-	BlockedAdditions map[string][]string `json:"blockedAdditions,omitempty"`
 	// Failed maps a slug to why its reconcile could not be completed. A type
 	// here is NOT reconciled: either the update errored, or it reported success
 	// while the projection column did not actually appear.

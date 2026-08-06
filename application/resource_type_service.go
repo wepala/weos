@@ -397,24 +397,16 @@ func (s *resourceTypeService) reconcileOneType(
 		return
 	}
 	if len(rec.Conflicts) > 0 {
-		// Refusal is all-or-nothing, so naming only the conflicting properties
-		// hides the real cost: every additive property blocked alongside them is
-		// still having its writes dropped. Report both.
+		// Held, not applied — and the rest of the merge still proceeds, so one
+		// changed property definition can't block every additive property beside
+		// it. Report which properties are stuck at their stored definition.
 		s.logger.Warn(ctx,
-			"preset schema diverges non-additively; leaving stored resource type unchanged",
-			"preset", presetName, "slug", pt.Slug,
-			"conflictingProperties", rec.Conflicts, "blockedAdditions", rec.Added)
+			"preset property definitions diverge non-additively; holding them at their stored definition",
+			"preset", presetName, "slug", pt.Slug, "heldProperties", rec.Conflicts)
 		if result.Refused == nil {
 			result.Refused = make(map[string][]string)
 		}
 		result.Refused[pt.Slug] = rec.Conflicts
-		if len(rec.Added) > 0 {
-			if result.BlockedAdditions == nil {
-				result.BlockedAdditions = make(map[string][]string)
-			}
-			result.BlockedAdditions[pt.Slug] = rec.Added
-		}
-		return
 	}
 	if !rec.Changed {
 		result.Unchanged = append(result.Unchanged, pt.Slug)

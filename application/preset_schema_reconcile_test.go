@@ -136,11 +136,16 @@ func TestReconcileAdditiveSchema(t *testing.T) {
 		wantChanged:   false,
 		wantConflicts: []string{"sku"},
 	}, {
-		name:          "a redefined property is refused even when a sibling is additive",
+		// Per-property refusal: the conflicting property is held at its stored
+		// definition, but the additive sibling still lands — otherwise one
+		// cosmetic edit would block the whole type and #379 would persist for it.
+		name:          "a held property does not block an additive sibling",
 		stored:        `{"type":"object","properties":{"sku":{"type":"string"}}}`,
 		preset:        `{"type":"object","properties":{"sku":{"type":"string","maxLength":8},"tag":{"type":"string"}}}`,
-		wantChanged:   false,
+		wantChanged:   true,
+		wantAdded:     []string{"tag"},
 		wantConflicts: []string{"sku"},
+		wantProps:     []string{"sku", "tag"},
 	}, {
 		// Akeem's call on issue #379: the preset is authoritative for `required`,
 		// so tightening it applies even though existing rows may then fail
@@ -218,10 +223,17 @@ func TestReconcileAdditiveSchema(t *testing.T) {
 			if !sameStrings(got.Conflicts, tc.wantConflicts) {
 				t.Errorf("Conflicts = %v, want %v", got.Conflicts, tc.wantConflicts)
 			}
-			// A refused reconcile must never hand back a schema a caller could
-			// persist by mistake.
+			// A held property must keep its STORED definition in whatever schema
+			// comes back — that is what keeps the merge additive.
 			if len(tc.wantConflicts) > 0 && got.Schema != nil {
-				t.Errorf("refused reconcile returned a schema: %s", got.Schema)
+				storedProps := schemaProps(t, json.RawMessage(tc.stored))
+				mergedProps := schemaProps(t, got.Schema)
+				for _, name := range tc.wantConflicts {
+					if !jsonEquivalent(storedProps[name], mergedProps[name]) {
+						t.Errorf("held property %q was rewritten: stored %s, merged %s",
+							name, storedProps[name], mergedProps[name])
+					}
+				}
 			}
 			if !tc.wantChanged {
 				if got.Schema != nil {
@@ -491,9 +503,10 @@ func TestReconcilePresetSchemas_PreservesStoredIdentity(t *testing.T) {
 	}
 }
 
-// TestReconcilePresetSchemas_RefusesNonAdditiveChange pins the deferred case:
-// a retyped property leaves the stored type entirely alone and is reported.
-func TestReconcilePresetSchemas_RefusesNonAdditiveChange(t *testing.T) {
+// TestReconcilePresetSchemas_HoldsNonAdditiveChange pins the deferred case: a
+// retyped property keeps its stored definition and is reported, while the rest
+// of the merge proceeds.
+func TestReconcilePresetSchemas_HoldsNonAdditiveChange(t *testing.T) {
 	t.Parallel()
 	v1 := NewPresetRegistry()
 	v1.MustAdd(testPresetSingle(
@@ -533,20 +546,31 @@ func TestReconcilePresetSchemas_RefusesNonAdditiveChange(t *testing.T) {
 	if got := res.Refused["product"]; !reflect.DeepEqual(got, []string{"sku"}) {
 		t.Fatalf("expected Refused[product]=[sku], got %+v", res)
 	}
-	if len(res.Updated) != 0 {
-		t.Errorf("a refused type must not be updated, got %+v", res.Updated)
+	if !sameStrings(res.Updated, []string{"product"}) {
+		t.Errorf("the additive sibling should still be applied, got Updated=%v", res.Updated)
 	}
-	if *updateCount != 0 {
-		t.Errorf("a refused type must emit no event, got %d", *updateCount)
+	if *updateCount != 1 {
+		t.Errorf("expected exactly one ResourceTypeUpdated event, got %d", *updateCount)
 	}
 
-	// The additive sibling must NOT have been smuggled in.
+	// The conflicting property keeps its stored definition even though the
+	// additive sibling landed.
 	after, err := repo.FindBySlug(context.Background(), "product")
 	if err != nil {
 		t.Fatalf("FindBySlug: %v", err)
 	}
-	if _, ok := schemaProps(t, after.Schema())["tag"]; ok {
-		t.Error("a refused reconcile partially applied the preset")
+	props := schemaProps(t, after.Schema())
+	if _, ok := props["tag"]; !ok {
+		t.Error("the additive sibling should have landed alongside the held property")
+	}
+	var sku struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(props["sku"], &sku); err != nil {
+		t.Fatalf("sku is not an object: %v", err)
+	}
+	if sku.Type != "string" {
+		t.Errorf("held property was rewritten: sku.type = %q, want the stored %q", sku.Type, "string")
 	}
 }
 
@@ -758,10 +782,11 @@ func TestReconcilePresetSchemas_ReportsSchemaLessType(t *testing.T) {
 	}
 }
 
-// TestReconcilePresetSchemas_ReportsBlockedAdditions: refusal is all-or-nothing,
-// so an operator needs to know which additive properties went down with the
-// conflict — those are the ones still losing writes.
-func TestReconcilePresetSchemas_ReportsBlockedAdditions(t *testing.T) {
+// TestReconcilePresetSchemas_HeldPropertyDoesNotBlockAdditions: refusal is
+// per-property, so a conflicting definition is held at its stored form while
+// every additive property in the same schema still lands. Under the old
+// all-or-nothing rule these additions were blocked and kept losing writes.
+func TestReconcilePresetSchemas_HeldPropertyDoesNotBlockAdditions(t *testing.T) {
 	t.Parallel()
 	v1 := NewPresetRegistry()
 	v1.MustAdd(testPresetSingle(
@@ -791,7 +816,28 @@ func TestReconcilePresetSchemas_ReportsBlockedAdditions(t *testing.T) {
 	if !sameStrings(res.Refused["product"], []string{"sku"}) {
 		t.Fatalf("expected Refused[product]=[sku], got %+v", res.Refused)
 	}
-	if !sameStrings(res.BlockedAdditions["product"], []string{"brand", "gtin"}) {
-		t.Fatalf("expected BlockedAdditions[product]=[brand gtin], got %+v", res.BlockedAdditions)
+	if !sameStrings(res.Updated, []string{"product"}) {
+		t.Fatalf("the additive properties should still have landed, got Updated=%v", res.Updated)
+	}
+
+	after, err := repo.FindBySlug(context.Background(), "product")
+	if err != nil {
+		t.Fatalf("FindBySlug: %v", err)
+	}
+	props := schemaProps(t, after.Schema())
+	for _, name := range []string{"gtin", "brand"} {
+		if _, ok := props[name]; !ok {
+			t.Errorf("additive property %q did not land (have %v)", name, sortedKeys(props))
+		}
+	}
+	// ...and the conflicting one is still the STORED definition, not the preset's.
+	var sku struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(props["sku"], &sku); err != nil {
+		t.Fatalf("sku is not an object: %v", err)
+	}
+	if sku.Type != "string" {
+		t.Errorf("held property was rewritten: sku.type = %q, want the stored %q", sku.Type, "string")
 	}
 }

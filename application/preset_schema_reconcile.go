@@ -24,26 +24,32 @@ import (
 // schemaReconciliation reports what an additive reconcile would do to one
 // resource type's stored JSON Schema (issue #379).
 //
-// Only Schema is safe to persist, and only when Changed is true. When
-// Conflicts is non-empty the reconcile is refused wholesale — Changed is
-// false and Schema is nil — because a property whose definition changed is a
-// non-additive migration, which is explicitly out of scope and needs an
-// operator decision rather than a silent rewrite.
+// Refusal is per-property, not per-type: a property whose definition changed is
+// held at its stored definition, while every genuinely additive property in the
+// same schema is still merged in. The alternative — refusing the whole type —
+// meant a preset that added `sku` and merely gave an existing property a
+// `description` blocked `sku` too, so the silent-drop this exists to fix
+// persisted for that type on a routine upgrade.
+//
+// Schema is safe to persist whenever Changed is true, including alongside a
+// non-empty Conflicts: the merged schema keeps the STORED definition of every
+// conflicting property, so nothing non-additive is ever applied.
 type schemaReconciliation struct {
 	// Added names the properties present in the preset but absent from the
 	// stored schema. These are what the projection table is missing columns for.
-	// It is populated even when the reconcile is ultimately refused, so a caller
-	// can report which additive properties a refusal also blocked.
 	Added []string
 	// Conflicts names properties present in BOTH schemas whose definitions
-	// differ — a retype or redefinition. Refusing on these is what keeps the
-	// reconcile additive.
+	// differ — a retype or redefinition. These are left at their stored
+	// definition and reported for an operator to resolve; holding them back is
+	// what keeps the reconcile additive.
 	Conflicts []string
 	// Schema is the merged result. Nil unless Changed.
 	Schema json.RawMessage
 	// Changed reports whether the stored schema needs rewriting at all. False
 	// means the boot is a no-op for this type, so no ResourceTypeUpdated event
-	// is emitted and repeated restarts stay quiet.
+	// is emitted and repeated restarts stay quiet. Conflicts alone never make a
+	// schema Changed — there is nothing to write if the only difference is a
+	// property being held back.
 	Changed bool
 }
 
@@ -60,9 +66,11 @@ type schemaReconciliation struct {
 //     addition through the API is indistinguishable from drift; dropping it
 //     would trade one silent data loss for another. Preserving it also stops a
 //     single customization from permanently blocking later preset additions.
-//   - A property in BOTH whose definition differs is a CONFLICT. The whole type
-//     is refused and left untouched for the caller to warn about — that is the
-//     deferred non-additive case (rename/retype/drop).
+//   - A property in BOTH whose definition differs is a CONFLICT: it is HELD at
+//     its stored definition and reported, while the rest of the merge proceeds.
+//     Applying it would be the deferred non-additive case (rename/retype/drop);
+//     refusing the whole type instead would let one cosmetic edit block every
+//     additive property beside it.
 //   - `required` follows the preset, EXCEPT that requirements naming
 //     stored-only properties are carried over. The preset has no opinion about a
 //     property it does not declare, so dropping such an entry would silently
@@ -125,15 +133,10 @@ func reconcileAdditiveSchema(stored, preset json.RawMessage) (schemaReconciliati
 			continue
 		}
 		if !jsonEquivalent(existing, presetDoc.props[name]) {
+			// Held at the stored definition: mergedProps already carries it, so
+			// simply not overwriting is what keeps the merge additive.
 			out.Conflicts = append(out.Conflicts, name)
 		}
-	}
-
-	// A non-additive divergence refuses the whole type. Reporting Schema as nil
-	// makes it impossible for a caller to persist a partially-merged schema.
-	// Added survives so the caller can name what the refusal also blocked.
-	if len(out.Conflicts) > 0 {
-		return out, nil
 	}
 
 	mergedTop, topChanged, err := mergeTopLevel(storedDoc, presetDoc)
