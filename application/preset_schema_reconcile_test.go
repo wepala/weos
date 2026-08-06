@@ -23,7 +23,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wepala/weos/v3/domain/entities"
+
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
+	"go.uber.org/fx"
 )
 
 // schemaProps decodes a schema's `properties` map so assertions can talk about
@@ -198,6 +201,25 @@ func TestReconcileAdditiveSchema(t *testing.T) {
 		wantChanged: true,
 		wantAdded:   []string{"owner"},
 		wantProps:   []string{"name", "owner"},
+	}, {
+		// A rename is NOT detected: it reads as one property added and one
+		// preserved. Both columns land, the old keeps its data, the new is NULL.
+		// Additively safe, but not a migration — pinned so the ADR can't drift.
+		name:        "a renamed property is added, not migrated",
+		stored:      `{"type":"object","properties":{"name":{"type":"string"},"sku":{"type":"string"}}}`,
+		preset:      `{"type":"object","properties":{"name":{"type":"string"},"stockKeepingUnit":{"type":"string"}}}`,
+		wantChanged: true,
+		wantAdded:   []string{"stockKeepingUnit"},
+		wantProps:   []string{"name", "sku", "stockKeepingUnit"},
+	}, {
+		// Indirection routes around the conflict check: the $ref is identical on
+		// both sides, so the retype hides in $defs, which the preset simply wins.
+		// Documented as a scope limit; pinned so it fails loudly if it changes.
+		name:        "a retype behind $ref is NOT caught as a conflict",
+		stored:      `{"type":"object","$defs":{"P":{"type":"string"}},"properties":{"o":{"$ref":"#/$defs/P"}}}`,
+		preset:      `{"type":"object","$defs":{"P":{"type":"integer"}},"properties":{"o":{"$ref":"#/$defs/P"}}}`,
+		wantChanged: true,
+		wantProps:   []string{"o"},
 	}, {
 		name:        "a schema with no properties key is tolerated",
 		stored:      `{"type":"object"}`,
@@ -839,5 +861,148 @@ func TestReconcilePresetSchemas_HeldPropertyDoesNotBlockAdditions(t *testing.T) 
 	}
 	if sku.Type != "string" {
 		t.Errorf("held property was rewritten: sku.type = %q, want the stored %q", sku.Type, "string")
+	}
+}
+
+// catalogPreset builds a preset whose single type carries the given schema.
+func catalogPreset(autoInstall bool, schema string) PresetDefinition {
+	return PresetDefinition{
+		Name:        "single",
+		AutoInstall: autoInstall,
+		Types: []PresetResourceType{{
+			Name: "Product", Slug: "product", Description: "A product",
+			Context: json.RawMessage(`{"@vocab":"https://schema.org/"}`),
+			Schema:  json.RawMessage(schema),
+		}},
+	}
+}
+
+// TestEnsureBuiltInResourceTypes_ReconcilesNonAutoInstallPresets is the
+// regression guard for the scope of the fix. Only two presets in the tree set
+// AutoInstall, so gating the reconcile on that flag left issue #379 unfixed for
+// every preset an operator installs on demand — including any from a private
+// registrar. Moving the reconcile back under the AutoInstall guard must fail
+// this test.
+func TestEnsureBuiltInResourceTypes_ReconcilesNonAutoInstallPresets(t *testing.T) {
+	t.Parallel()
+	v1 := NewPresetRegistry()
+	v1.MustAdd(catalogPreset(false, `{"type":"object","properties":{"name":{"type":"string"}}}`))
+
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	// The operator installed it explicitly at some earlier point.
+	if _, err := makeInstallTestService(repo, rSvc, v1).
+		InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+
+	// A later build adds a property. The preset is still NOT auto-install.
+	v2 := NewPresetRegistry()
+	v2.MustAdd(catalogPreset(false,
+		`{"type":"object","properties":{"name":{"type":"string"},"sku":{"type":"string"}}}`))
+
+	err := ensureBuiltInResourceTypes(struct {
+		fx.In
+		Registry      *PresetRegistry
+		TypeSvc       ResourceTypeService
+		Logger        entities.Logger
+		LinkActivator *LinkActivator `optional:"true"`
+	}{
+		Registry: v2,
+		TypeSvc:  reconcileTestService(t, repo, rSvc, v2),
+		Logger:   noopLogger{},
+	})
+	if err != nil {
+		t.Fatalf("ensureBuiltInResourceTypes: %v", err)
+	}
+
+	after, aErr := repo.FindBySlug(context.Background(), "product")
+	if aErr != nil {
+		t.Fatalf("FindBySlug: %v", aErr)
+	}
+	if _, ok := schemaProps(t, after.Schema())["sku"]; !ok {
+		t.Fatal("a non-AutoInstall preset's added property never reached the stored schema")
+	}
+}
+
+// TestReconcilePresetSchemas_HeldTypeSettlesAcrossRestarts: a type carrying a
+// held property must still go quiet after its additive changes land. Without
+// this, a schema stuck in permanent divergence would emit a ResourceTypeUpdated
+// on every boot forever — the failure the clean path already guards against.
+func TestReconcilePresetSchemas_HeldTypeSettlesAcrossRestarts(t *testing.T) {
+	t.Parallel()
+	v1 := NewPresetRegistry()
+	v1.MustAdd(catalogPreset(true, `{"type":"object","properties":{"sku":{"type":"string"}}}`))
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	if _, err := makeInstallTestService(repo, rSvc, v1).
+		InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+
+	v2 := NewPresetRegistry()
+	v2.MustAdd(catalogPreset(true,
+		`{"type":"object","properties":{"sku":{"type":"integer"},"gtin":{"type":"string"}}}`))
+
+	d := domain.NewEventDispatcher()
+	pm := &stubProjMgr{}
+	if err := SubscribeResourceTypeHandlers(d, repo, pm, noopLogger{}); err != nil {
+		t.Fatalf("SubscribeResourceTypeHandlers: %v", err)
+	}
+	updateCount := countingUpdateSub(t, d)
+	svc := &resourceTypeService{
+		repo: repo, projMgr: pm, eventStore: &stubEventStore{}, dispatcher: d,
+		registry: v2, logger: noopLogger{}, resourceSvc: rSvc,
+	}
+
+	for i := 0; i < 3; i++ {
+		res, err := svc.ReconcilePresetSchemas(context.Background(), "single")
+		if err != nil {
+			t.Fatalf("reconcile %d: %v", i, err)
+		}
+		// The hold is reported every boot — it stays unresolved until an
+		// operator acts — but it must not keep rewriting the schema.
+		if !sameStrings(res.Refused["product"], []string{"sku"}) {
+			t.Fatalf("boot %d: expected sku held, got %+v", i, res.Refused)
+		}
+		if i > 0 && len(res.Updated) != 0 {
+			t.Fatalf("boot %d rewrote the schema again: %+v", i, res.Updated)
+		}
+	}
+	if *updateCount != 1 {
+		t.Fatalf("expected exactly one ResourceTypeUpdated across three boots, got %d", *updateCount)
+	}
+}
+
+// TestReconcilePresetSchemas_IgnoresColumnlessProperties: some schema property
+// names deliberately yield no projection column of their own. Reporting them as
+// missing would raise a false alarm announcing data loss that isn't happening.
+func TestReconcilePresetSchemas_IgnoresColumnlessProperties(t *testing.T) {
+	t.Parallel()
+	v1 := NewPresetRegistry()
+	v1.MustAdd(catalogPreset(true, `{"type":"object","properties":{"name":{"type":"string"}}}`))
+	repo := newInstallTestTypeRepo()
+	rSvc := newFakeResourceSvc()
+	if _, err := makeInstallTestService(repo, rSvc, v1).
+		InstallPreset(context.Background(), "single", false); err != nil {
+		t.Fatalf("initial install: %v", err)
+	}
+
+	// A later build adds properties the projection deliberately has no column
+	// for: the canonical data blob and a JSON-LD meta-key.
+	v2 := NewPresetRegistry()
+	v2.MustAdd(catalogPreset(true,
+		`{"type":"object","properties":{"name":{"type":"string"},"data":{"type":"string"},"@id":{"type":"string"}}}`))
+
+	res, err := reconcileTestService(t, repo, rSvc, v2).
+		ReconcilePresetSchemas(context.Background(), "single")
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if len(res.Failed) != 0 {
+		t.Fatalf("columnless properties were reported as a failure: %+v", res.Failed)
+	}
+	if !sameStrings(res.Updated, []string{"product"}) {
+		t.Errorf("expected Updated=[product], got %+v", res)
 	}
 }

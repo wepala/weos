@@ -104,9 +104,15 @@ Note the resume caveat the two-pass split introduces: pass 1 always runs and can
 
 Making that true required a fix. Reproject previously replayed the feed in one strict position order, which meant each type's *original* schema was applied, every resource projected against it, and only then the later `ResourceType.Updated` that added the column — so the column was never backfilled, and re-running didn't help because the ordering was identical every pass. Reproject now replays in **two passes, resource types first**, so every type reaches its final shape before a single resource projects. Pass 1 always starts at the beginning of the feed (re-applying type events is idempotent); pass 2 is the resumable one and alone honours `--after-position`.
 
-### 5. Non-additive changes — detected, deferred
+### 5. Non-additive changes — partially detected, deferred
 
-Renames, type changes, and drops remain out of scope. They are now **detected** rather than ignored: a property whose definition differs between the preset and the stored schema refuses the whole type, logs a warning naming the conflicting properties, and reports them in `ReconcilePresetResult.Refused`. Nothing is rewritten, so an operator decides.
+Renames, type changes, and drops remain out of scope. Only one of the three is actually **detected**, and the distinction matters:
+
+- **Type change / redefinition** — detected. A property present in both schemas whose definition differs is held at its stored definition, logged with the property named, and reported in `ReconcilePresetResult.Refused`. The preset's version is never applied.
+- **Rename** — *not* detected, and not detectable by this comparison. `sku` → `stockKeepingUnit` reads as one property added and one preserved: both columns end up on the table, the old one keeps its data, and the new one is NULL. Nothing is lost, but nothing is migrated either.
+- **Drop** — *not* detected. A property the preset stops declaring is silently preserved, by the same rule that protects operator customization.
+
+Both undetected cases are additively safe — no data is destroyed — which is why they are tolerated rather than blocked. Genuinely migrating them needs intent the schemas alone don't carry, which is what the follow-up ticket is for.
 
 ### 6. Drift detection — the remaining gap
 

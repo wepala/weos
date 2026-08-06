@@ -360,22 +360,27 @@ func (s *resourceTypeService) ReconcilePresetSchemas(
 	}
 	result := &ReconcilePresetResult{}
 	for _, pt := range preset.Types {
-		// A preset type with no schema projects only base columns, so every data
-		// field is dropped on write. That is almost always a packaging mistake
-		// and never a healthy no-op, so it gets its own category instead of
-		// being folded into Unchanged where nothing would ever report it.
-		if len(pt.Schema) == 0 {
-			result.NoSchema = append(result.NoSchema, pt.Slug)
-			continue
-		}
 		existing, err := s.GetBySlug(ctx, pt.Slug)
 		if err != nil {
 			// Not installed here: InstallPreset's create path owns that case.
+			// Checked BEFORE the schema check so a preset that isn't installed in
+			// this database stays completely silent — the reconcile now runs for
+			// every registered preset, so warning about types nobody installed
+			// would be noise on every boot.
 			if errors.Is(err, repositories.ErrNotFound) {
 				continue
 			}
 			s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
 				fmt.Errorf("failed to look up resource type: %w", err))
+			continue
+		}
+		// An INSTALLED type whose preset declares no schema projects only base
+		// columns, so every data field is dropped on write. That is almost
+		// always a packaging mistake and never a healthy no-op, so it gets its
+		// own category instead of being folded into Unchanged where nothing
+		// would ever report it.
+		if len(pt.Schema) == 0 {
+			result.NoSchema = append(result.NoSchema, pt.Slug)
 			continue
 		}
 		s.reconcileOneType(ctx, result, presetName, pt, existing)
@@ -440,16 +445,41 @@ func (s *resourceTypeService) reconcileOneType(
 	result.Updated = append(result.Updated, pt.Slug)
 }
 
+// columnlessProperties are schema property names that deliberately yield no
+// projection column of their own, so their absence is correct rather than a
+// failed migration. This mirrors schemaToColumns in the gorm projection
+// manager, which skips the JSON-LD meta-keys outright and skips any property
+// whose snake_case name collides with a standard column. Only `data` is
+// enumerated from that second set: every other standard column IS cached as
+// present by EnsureTable, so a property named `status` or `createdAt` — both of
+// which real presets declare — verifies correctly without special-casing.
+var columnlessProperties = map[string]bool{
+	"@id":      true,
+	"@type":    true,
+	"@context": true,
+	"data":     true, // lives on the canonical resources row, not the projection
+}
+
 // missingColumns returns the subset of property names with no matching
 // projection column, using the same camelCase→snake_case mapping the projection
 // writer uses to decide which keys to keep.
+//
+// Properties that never map to a column are skipped: reporting them would raise
+// a false alarm announcing data loss that isn't happening.
 func (s *resourceTypeService) missingColumns(slug string, properties []string) []string {
 	if s.projMgr == nil {
 		return nil
 	}
 	var missing []string
 	for _, prop := range properties {
-		if !s.projMgr.HasColumn(slug, utils.CamelToSnake(prop)) {
+		if columnlessProperties[prop] {
+			continue
+		}
+		column := utils.CamelToSnake(prop)
+		if columnlessProperties[column] {
+			continue
+		}
+		if !s.projMgr.HasColumn(slug, column) {
 			missing = append(missing, prop)
 		}
 	}
