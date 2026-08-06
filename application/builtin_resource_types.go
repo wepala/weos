@@ -59,6 +59,34 @@ func ensureBuiltInResourceTypes(params struct {
 			params.Logger.Info(ctx, "seeded built-in fixture data",
 				"slug", slug, "count", count)
 		}
+		// InstallPreset above skips types that already exist, so a preset that
+		// gained a property in this build would never reach a database
+		// provisioned by an earlier one — the stored schema would stay stale and
+		// every write to the new field would be silently dropped (issue #379).
+		// Reconcile merges those additions in; it deliberately does NOT overwrite
+		// a stored type's name, description, context or status, and refuses any
+		// non-additive divergence rather than guessing.
+		//
+		// A reconcile failure is logged, not fatal: the types are installed and
+		// serviceable, and failing the boot over a projection column that most
+		// requests don't touch would be a worse outcome than running with it
+		// missing and the warning on the record.
+		reconciled, rErr := params.TypeSvc.ReconcilePresetSchemas(ctx, preset.Name)
+		if rErr != nil {
+			params.Logger.Error(ctx, "failed to reconcile built-in preset schema",
+				"preset", preset.Name, "error", rErr)
+		}
+		if reconciled == nil {
+			continue
+		}
+		for _, slug := range reconciled.Updated {
+			params.Logger.Info(ctx, "reconciled built-in resource type schema", "slug", slug)
+		}
+		for slug, conflicts := range reconciled.Refused {
+			params.Logger.Warn(ctx,
+				"built-in resource type left unchanged: preset schema diverges non-additively",
+				"preset", preset.Name, "slug", slug, "conflictingProperties", conflicts)
+		}
 	}
 	// InstallPreset already reconciles after each install, but presets install
 	// one at a time in the loop above — if preset B depends on preset A's

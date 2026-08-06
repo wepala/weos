@@ -101,6 +101,7 @@ type ResourceTypeService interface {
 	Delete(ctx context.Context, cmd DeleteResourceTypeCommand) error
 	ListPresets() []PresetDefinition
 	InstallPreset(ctx context.Context, presetName string, update bool) (*InstallPresetResult, error)
+	ReconcilePresetSchemas(ctx context.Context, presetName string) (*ReconcilePresetResult, error)
 	ListBehaviors(ctx context.Context, typeSlug string) ([]BehaviorInfo, error)
 	SetBehaviors(ctx context.Context, typeSlug string, slugs []string) error
 }
@@ -316,6 +317,84 @@ func (s *resourceTypeService) InstallPreset(
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("link reconciliation failed: %s", rErr.Error()))
 		}
+	}
+	return result, nil
+}
+
+// ReconcilePresetSchemas merges additive schema changes from a preset's code
+// definition into the resource types already stored in this database (issue
+// #379).
+//
+// This exists because InstallPreset can't do the job at startup. With
+// update=false it skips an existing type entirely, so a preset that gains a
+// property in a new build never reaches an already-provisioned database — the
+// stored schema stays stale, EnsureTable derives the old column set from it,
+// and every write to the new field is silently dropped by dropMissingColumns.
+// With update=true it overwrites Name, Description, Context and Schema from
+// code on every boot, which would silently discard any operator customization
+// of a built-in type. Neither is acceptable unattended, so startup gets this
+// third, narrower behavior instead.
+//
+// Only the schema is touched, and only additively (see reconcileAdditiveSchema
+// for the merge rules). Name, Description, Context and Status are read back
+// from the stored type and passed through unchanged. The explicit
+// `resource-type preset install --update` path keeps its full-overwrite
+// semantics — there an operator asked for it.
+//
+// A type whose preset schema diverged non-additively is logged and recorded in
+// Refused, never rewritten; a type with no delta emits no event, which is what
+// keeps repeated restarts from appending a ResourceTypeUpdated per type per
+// boot.
+func (s *resourceTypeService) ReconcilePresetSchemas(
+	ctx context.Context, presetName string,
+) (*ReconcilePresetResult, error) {
+	preset, ok := s.registry.Get(presetName)
+	if !ok {
+		return nil, fmt.Errorf("unknown preset %q", presetName)
+	}
+	result := &ReconcilePresetResult{}
+	for _, pt := range preset.Types {
+		existing, err := s.GetBySlug(ctx, pt.Slug)
+		if err != nil {
+			// Not installed yet: InstallPreset's create path owns that case, and
+			// it has already run by the time startup calls this.
+			if errors.Is(err, repositories.ErrNotFound) {
+				continue
+			}
+			return result, fmt.Errorf("failed to look up resource type %q: %w", pt.Slug, err)
+		}
+		rec, rErr := reconcileAdditiveSchema(existing.Schema(), pt.Schema)
+		if rErr != nil {
+			return result, fmt.Errorf("failed to reconcile schema for %q: %w", pt.Slug, rErr)
+		}
+		if len(rec.Conflicts) > 0 {
+			s.logger.Warn(ctx,
+				"preset schema diverges non-additively; leaving stored resource type unchanged",
+				"preset", presetName, "slug", pt.Slug, "conflictingProperties", rec.Conflicts)
+			if result.Refused == nil {
+				result.Refused = make(map[string][]string)
+			}
+			result.Refused[pt.Slug] = rec.Conflicts
+			continue
+		}
+		if !rec.Changed {
+			result.Unchanged = append(result.Unchanged, pt.Slug)
+			continue
+		}
+		if _, uErr := s.Update(ctx, UpdateResourceTypeCommand{
+			ID:          existing.GetID(),
+			Name:        existing.Name(),
+			Slug:        existing.Slug(),
+			Description: existing.Description(),
+			Status:      existing.Status(),
+			Context:     existing.Context(),
+			Schema:      rec.Schema,
+		}); uErr != nil {
+			return result, fmt.Errorf("failed to reconcile resource type %q: %w", pt.Slug, uErr)
+		}
+		s.logger.Info(ctx, "reconciled preset schema into existing resource type",
+			"preset", presetName, "slug", pt.Slug, "addedProperties", rec.Added)
+		result.Updated = append(result.Updated, pt.Slug)
 	}
 	return result, nil
 }

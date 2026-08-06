@@ -105,6 +105,18 @@ type InstallPresetResult struct {
 	Warnings  []string       `json:"warnings,omitempty"`
 }
 
+// ReconcilePresetResult reports the outcome of an additive schema reconcile
+// (issue #379) across one preset's types. Refused holds the types whose preset
+// schema diverged non-additively, keyed by slug and listing the offending
+// property names — those types were left untouched and need an operator
+// decision. Types the preset declares but that aren't installed are absent
+// entirely; creating them is InstallPreset's job, not this one's.
+type ReconcilePresetResult struct {
+	Updated   []string            `json:"updated,omitempty"`
+	Unchanged []string            `json:"unchanged,omitempty"`
+	Refused   map[string][]string `json:"refused,omitempty"`
+}
+
 // presetMatchesResourceType reports whether the preset's definition matches
 // the stored type. Slug is equal by construction (the lookup key); Status is
 // carried over on update and so is deliberately not compared.

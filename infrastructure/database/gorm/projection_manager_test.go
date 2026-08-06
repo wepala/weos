@@ -1100,7 +1100,7 @@ func TestEnsureTable_BackfillSkipsSoftDeletedRows(t *testing.T) {
 		ID: "rec-gone", TypeSlug: "recipe", Status: "active",
 		CreatedBy: "u1", AccountID: "acct-1", SequenceNo: 2,
 		CreatedAt: time.Now(), DeletedAt: &deleted,
-		Data:      `{"@id":"rec-gone","@type":"Recipe","name":"Gone"}`,
+		Data: `{"@id":"rec-gone","@type":"Recipe","name":"Gone"}`,
 	})
 
 	schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
@@ -1133,7 +1133,7 @@ func TestEnsureTable_BackfillSkipsPoisonedRowAndContinues(t *testing.T) {
 	}
 
 	// Pre-create the projection table with a CHECK on servings so a legacy row
-	// carrying an out-of-range value fails its insert while its neighbours don't.
+	// carrying an out-of-range value fails its insert while its neighbors don't.
 	// CREATE ... IF NOT EXISTS inside EnsureTable is a no-op against this table,
 	// and addMissingColumns fills in the rest (name) idempotently.
 	if err := db.Exec(`CREATE TABLE recipes (
