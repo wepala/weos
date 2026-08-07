@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	gormprov "github.com/wepala/weos/v3/infrastructure/database/gorm"
@@ -104,11 +105,34 @@ type ReprojectResult struct {
 	Head         int64 // feed head captured at the start of the run
 }
 
-// Reproject streams the event store's global feed, in position order, through
-// the synchronous projection handlers. The head is captured once up front so
-// the run terminates even against a concurrently-writing server (writes after
-// the snapshot already projected inline via the live path) — though the
-// intended use is the runbook's: server stopped, freshly imported store.
+// Reproject streams the event store's global feed through the synchronous
+// projection handlers. The head is captured once up front so the run terminates
+// even against a concurrently-writing server (writes after the snapshot already
+// projected inline via the live path) — though the intended use is the
+// runbook's: server stopped, freshly imported store.
+//
+// The feed is replayed in TWO passes, resource types first, and that ordering
+// is load-bearing (issue #379). A projection write drops any key with no
+// column, deciding that from the column set EnsureTable cached the last time it
+// saw the type's schema. Replaying one strict position order would hand the
+// handlers each type's ORIGINAL schema, project every resource against it, and
+// only then apply the later ResourceType.Updated that added a column — so a
+// column added by a schema change would never be backfilled, and re-running
+// wouldn't help because the ordering is identical every pass. Draining all
+// ResourceType events first brings every type to its final shape before a
+// single resource projects.
+//
+// Pass 1 always starts at the beginning of the feed, ignoring AfterPosition:
+// resuming mid-run must still put the types in their final shape before the
+// remaining resources replay, and re-applying type events is idempotent
+// (EnsureTable is HasColumn-guarded, the repo write converges). Pass 2 is the
+// resumable one, so it alone honors AfterPosition and advances LastPosition.
+//
+// Both passes scan the whole feed — the event store has no server-side type
+// filter — which trades a second read for correctness in an operator-invoked
+// one-shot. Both also count Skipped; an event with no synchronous handler is
+// still tallied exactly once because the passes' accept filters partition the
+// feed, so only one pass ever reaches it.
 func Reproject(ctx context.Context, rt ReprojectRuntime, opts ReprojectOptions) (ReprojectResult, error) {
 	batch := opts.BatchSize
 	if batch <= 0 {
@@ -122,46 +146,150 @@ func Reproject(ctx context.Context, rt ReprojectRuntime, opts ReprojectOptions) 
 	}
 	res.Head = head
 
-	pos := opts.AfterPosition
-	for pos < head {
-		envs, err := rt.EventStore.ReadAfter(ctx, pos, batch)
+	// Nothing left in the feed: resuming at (or past) the head is a no-op. This
+	// guard is what keeps that true now that pass 1 ignores AfterPosition —
+	// without it, a resume at head would still re-dispatch every type event for
+	// no benefit, since pass 2 has no resources left to project against them.
+	//
+	// LastPosition reports the head rather than the caller's AfterPosition, so a
+	// no-op run and a complete run agree on the resume point. It also keeps an
+	// over-large AfterPosition from being echoed straight back to the operator.
+	if opts.AfterPosition >= head {
+		res.LastPosition = head
+		return res, nil
+	}
+
+	// BOTH passes set countSkip. Their accept filters partition the feed, so an
+	// unhandled event is tallied by whichever pass accepts it and therefore
+	// exactly once. Pass 1 needs it because pass 2 never sees ResourceType.*
+	// events: without it, a future ResourceType.* event with no synchronous
+	// handler would fall out of both counters entirely.
+	if err := runReplayPass(ctx, rt, replayPassOptions{
+		label:     "resource-types",
+		head:      head,
+		from:      0,
+		batch:     batch,
+		accept:    isResourceTypeEvent,
+		countSkip: true,
+	}, &res); err != nil {
+		return res, err
+	}
+
+	if err := runReplayPass(ctx, rt, replayPassOptions{
+		label:     "resources",
+		head:      head,
+		from:      opts.AfterPosition,
+		batch:     batch,
+		accept:    func(eventType string) bool { return !isResourceTypeEvent(eventType) },
+		trackLast: true,
+		countSkip: true,
+	}, &res); err != nil {
+		return res, err
+	}
+
+	// Both passes reached the head, so the whole feed is processed. Pass 2 only
+	// advances LastPosition on events it accepts, and the last event in the feed
+	// is now commonly a ResourceType.Updated (the startup reconcile appends
+	// one), which would otherwise leave a fully successful run reporting a
+	// LastPosition short of the head — the number an operator would feed back as
+	// --after-position, and the range the CLI prints.
+	res.LastPosition = head
+	return res, nil
+}
+
+// isResourceTypeEvent reports whether an event shapes a resource type (and so
+// belongs to Reproject's first pass) rather than carrying resource data.
+func isResourceTypeEvent(eventType string) bool {
+	return strings.HasPrefix(eventType, "ResourceType.")
+}
+
+// replayPassOptions configures one pass of the feed. accept selects the event
+// types this pass handles; everything else is stepped over untouched, and is
+// accounted for by the pass whose filter does accept it — so the passes
+// together see each event exactly once.
+type replayPassOptions struct {
+	label  string
+	head   int64
+	from   int64
+	batch  int
+	accept func(eventType string) bool
+	// trackLast advances res.LastPosition, which is the position an operator
+	// resumes from. Only the resumable pass sets it.
+	trackLast bool
+	// countSkip counts events with no synchronous handler. Every pass sets it:
+	// double-counting is prevented by the accept filters partitioning the feed,
+	// not by leaving it off somewhere. Leaving it off would instead drop an
+	// unhandled event from the totals altogether, since no other pass sees it.
+	countSkip bool
+}
+
+func runReplayPass(
+	ctx context.Context, rt ReprojectRuntime, p replayPassOptions, res *ReprojectResult,
+) error {
+	pos := p.from
+	for pos < p.head {
+		envs, err := rt.EventStore.ReadAfter(ctx, pos, p.batch)
 		if err != nil {
-			return res, fmt.Errorf("reproject: read after position %d: %w", pos, err)
+			return fmt.Errorf("reproject(%s): read after position %d: %w", p.label, pos, err)
 		}
 		if len(envs) == 0 {
 			break
 		}
 		for i := range envs {
 			env := envs[i]
-			if env.Position > head {
+			if env.Position > p.head {
 				// Written after our snapshot — the live path projected it.
-				pos = head
+				pos = p.head
 				break
 			}
 			pos = env.Position
-			typed, handled, convErr := typedForReplay(env)
-			if convErr != nil {
-				return res, fmt.Errorf(
-					"reproject: stopped at position %d (%s on %s): %w — fix the cause, then resume with --after-position %d",
-					env.Position, env.EventType, env.AggregateID, convErr, res.LastPosition)
-			}
-			if !handled {
-				res.Skipped++
-				res.LastPosition = env.Position
+			if !p.accept(env.EventType) {
 				continue
 			}
-			if err := rt.Dispatcher.Dispatch(ctx, typed); err != nil {
-				return res, fmt.Errorf(
-					"reproject: stopped at position %d (%s on %s): %w — fix the cause, then resume with --after-position %d",
-					env.Position, env.EventType, env.AggregateID, err, res.LastPosition)
+			if err := dispatchReplayed(ctx, rt, env, p, res); err != nil {
+				return err
 			}
-			res.Dispatched++
+		}
+		rt.Logger.Info(ctx, "reproject: progress", "pass", p.label,
+			"position", pos, "head", p.head, "dispatched", res.Dispatched, "skipped", res.Skipped)
+	}
+	return nil
+}
+
+// dispatchReplayed converts and dispatches one accepted envelope, updating the
+// run's counters. Split out of runReplayPass to keep both within the project's
+// function-length and complexity limits.
+func dispatchReplayed(
+	ctx context.Context, rt ReprojectRuntime,
+	env domain.EventEnvelope[any], p replayPassOptions, res *ReprojectResult,
+) error {
+	typed, handled, convErr := typedForReplay(env)
+	if convErr != nil {
+		return replayStopErr(p.label, env, convErr, res.LastPosition)
+	}
+	if !handled {
+		if p.countSkip {
+			res.Skipped++
+		}
+		if p.trackLast {
 			res.LastPosition = env.Position
 		}
-		rt.Logger.Info(ctx, "reproject: progress",
-			"position", pos, "head", head, "dispatched", res.Dispatched, "skipped", res.Skipped)
+		return nil
 	}
-	return res, nil
+	if err := rt.Dispatcher.Dispatch(ctx, typed); err != nil {
+		return replayStopErr(p.label, env, err, res.LastPosition)
+	}
+	res.Dispatched++
+	if p.trackLast {
+		res.LastPosition = env.Position
+	}
+	return nil
+}
+
+func replayStopErr(label string, env domain.EventEnvelope[any], cause error, resumeFrom int64) error {
+	return fmt.Errorf(
+		"reproject(%s): stopped at position %d (%s on %s): %w — fix the cause, then resume with --after-position %d",
+		label, env.Position, env.EventType, env.AggregateID, cause, resumeFrom)
 }
 
 // typedForReplay converts a store-loaded envelope (payload deserialized as

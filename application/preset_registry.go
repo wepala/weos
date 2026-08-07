@@ -105,6 +105,42 @@ type InstallPresetResult struct {
 	Warnings  []string       `json:"warnings,omitempty"`
 }
 
+// ReconcilePresetResult reports the outcome of an additive schema reconcile
+// (issue #379) across one preset's types. Types the preset declares but that
+// aren't installed are absent entirely; creating them is InstallPreset's job,
+// not this one's.
+//
+// The categories are reported separately rather than folded together because
+// they demand different responses — a reconcile that quietly does nothing is
+// the failure mode this whole change exists to end:
+//
+//   - Failed and NoSchema mean writes to at least one property ARE still being
+//     dropped. Both are urgent.
+//   - Refused means a property definition diverged and is being held safely at
+//     its stored form. The column already exists and writes to it still land;
+//     what needs an operator is the divergence itself, not data loss.
+type ReconcilePresetResult struct {
+	// Updated lists types whose stored schema was rewritten AND whose new
+	// columns were confirmed present afterwards.
+	Updated []string `json:"updated,omitempty"`
+	// Unchanged lists types already in sync — the steady-state boot.
+	Unchanged []string `json:"unchanged,omitempty"`
+	// Refused maps a slug to the properties whose definitions diverged
+	// non-additively and were therefore HELD at their stored definition. The
+	// type's genuinely additive properties were still merged (refusal is
+	// per-property, not per-type), so a slug can appear here and in Updated at
+	// the same time. Held properties need an operator decision.
+	Refused map[string][]string `json:"refused,omitempty"`
+	// Failed maps a slug to why its reconcile could not be completed. A type
+	// here is NOT reconciled: either the update errored, or it reported success
+	// while the projection column did not actually appear.
+	Failed map[string]string `json:"failed,omitempty"`
+	// NoSchema lists preset types that declare no JSON Schema at all. Their
+	// projection tables carry only base columns, so every data field is dropped
+	// on write — usually a preset packaging mistake, and never a healthy no-op.
+	NoSchema []string `json:"noSchema,omitempty"`
+}
+
 // presetMatchesResourceType reports whether the preset's definition matches
 // the stored type. Slug is equal by construction (the lookup key); Status is
 // carried over on update and so is deliberately not compared.

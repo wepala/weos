@@ -8,6 +8,7 @@ import (
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/utils"
 
 	"github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 )
@@ -19,13 +20,45 @@ type stubProjMgr struct {
 	tables         map[string]bool
 	ancestorMap    map[string][]string
 	reverseRefs    map[string][]repositories.ReverseReference
+	columns        map[string]map[string]bool
 	fkUpdates      []fkUpdate
 	updateErr      error
 }
 
-func (s *stubProjMgr) EnsureTable(_ context.Context, slug string, _, _ json.RawMessage) error {
+func (s *stubProjMgr) EnsureTable(_ context.Context, slug string, schema, _ json.RawMessage) error {
 	s.ensuredSlugs = append(s.ensuredSlugs, slug)
-	return s.ensureTableErr
+	if s.ensureTableErr != nil {
+		// A failed EnsureTable adds no columns. Modeling that is what lets a
+		// test prove the reconcile refuses to report success when the column
+		// never landed (issue #379).
+		return s.ensureTableErr
+	}
+	s.recordColumns(slug, schema)
+	return nil
+}
+
+// recordColumns mirrors the real projection manager closely enough for
+// HasColumn to mean something: each schema property becomes a snake_case
+// column on the slug's table.
+func (s *stubProjMgr) recordColumns(slug string, schema json.RawMessage) {
+	if len(schema) == 0 {
+		return
+	}
+	var doc struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &doc); err != nil {
+		return
+	}
+	if s.columns == nil {
+		s.columns = map[string]map[string]bool{}
+	}
+	if s.columns[slug] == nil {
+		s.columns[slug] = map[string]bool{}
+	}
+	for name := range doc.Properties {
+		s.columns[slug][utils.CamelToSnake(name)] = true
+	}
 }
 
 func (s *stubProjMgr) HasProjectionTable(slug string) bool {
@@ -69,7 +102,7 @@ func (s *stubProjMgr) AncestorSlugs(slug string) []string {
 	return s.ancestorMap[slug]
 }
 
-func (s *stubProjMgr) HasColumn(_, _ string) bool { return false }
+func (s *stubProjMgr) HasColumn(slug, column string) bool { return s.columns[slug][column] }
 
 func (s *stubProjMgr) RegisterLink(_ context.Context, _ repositories.LinkReference) error {
 	return nil

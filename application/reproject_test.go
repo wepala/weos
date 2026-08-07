@@ -351,3 +351,147 @@ func TestTypedForReplay_ConvertsStoreShapedPayloads(t *testing.T) {
 		t.Fatalf("unhandled event: handled=%v err=%v, want false/nil", handled, err)
 	}
 }
+
+// seedSchemaChangeHistory writes the history shape issue #379 is about: a type
+// created WITHOUT a property, resources written carrying that property anyway,
+// and only then a ResourceType.Updated adding it. Replaying this in one strict
+// position order projects the resources against the old column set and loses
+// the value; the two-pass order is what recovers it.
+//
+//	pos 1  ResourceType.Created   (note, schema {title})
+//	pos 2  ResourceType.Unarchived (no synchronous handler — a ResourceType.*
+//	                                event pass 1 must still count as skipped)
+//	pos 3  Resource.Created       ┐
+//	pos 4  Triple.Created         ├ one transaction (tx-1), data carries `sku`
+//	pos 5  Resource.Published     ┘
+//	pos 6  ResourceType.Updated   (note, schema {title, sku}) — LAST in the feed
+func (e *reprojectTestEnv) seedSchemaChangeHistory(t testing.TB) {
+	t.Helper()
+	ctx := context.Background()
+	ldCtx := json.RawMessage(`{"@vocab":"https://example.com/ns#"}`)
+	oldSchema := json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}}}`)
+	newSchema := json.RawMessage(
+		`{"type":"object","properties":{"title":{"type":"string"},"sku":{"type":"string"}}}`)
+
+	appendEvt := func(aggregateID, eventType string, payload any, seq int, txID string) {
+		t.Helper()
+		env := domain.EventEnvelope[any]{
+			ID:            fmt.Sprintf("evt-%s-%d", eventType, seq),
+			AggregateID:   aggregateID,
+			EventType:     eventType,
+			Payload:       payload,
+			Created:       time.Now().UTC(),
+			SequenceNo:    seq,
+			TransactionID: txID,
+		}
+		if err := e.rt.EventStore.Append(ctx, aggregateID, seq-1, env); err != nil {
+			t.Fatalf("append %s: %v", eventType, err)
+		}
+	}
+
+	appendEvt("urn:type:note", "ResourceType.Created", entities.ResourceTypeCreated{
+		Name: "Note", Slug: "note", Description: "a note",
+		Context: ldCtx, Schema: oldSchema, Timestamp: time.Now().UTC(),
+	}, 1, "")
+	// A ResourceType.* event typedForReplay does not handle. Pass 2's accept
+	// filter excludes it, so only pass 1 can account for it.
+	appendEvt("urn:type:note", "ResourceType.Unarchived", map[string]any{"n": 1}, 2, "")
+
+	data := json.RawMessage(`{"@id":"urn:note:abc","@type":"note","title":"hello","sku":"BC-100"}`)
+	appendEvt("urn:note:abc", "Resource.Created", map[string]any{
+		"TypeSlug": "note", "Data": data, "CreatedBy": "urn:agent:test", "AccountID": "",
+		"Timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+	}, 1, "tx-1")
+	appendEvt("urn:note:abc", "Triple.Created",
+		entities.TripleCreated{}.With("urn:note:abc", "relatesTo", "urn:note:def", ""), 2, "tx-1")
+	appendEvt("urn:note:abc", "Resource.Published",
+		entities.ResourcePublished{}.With("note", ""), 3, "tx-1")
+
+	appendEvt("urn:type:note", "ResourceType.Updated", entities.ResourceTypeUpdated{
+		Name: "Note", Slug: "note", Description: "a note", Status: "active",
+		Context: ldCtx, Schema: newSchema, Timestamp: time.Now().UTC(),
+	}, 3, "")
+}
+
+// TestReproject_BackfillsColumnAddedAfterTheRows is the unit-level guard for the
+// two-pass order. Replaying in one position order applies the type's ORIGINAL
+// schema, projects the resources against it, and only then the update that adds
+// `sku` — so the column stays NULL. Draining type events first recovers it.
+func TestReproject_BackfillsColumnAddedAfterTheRows(t *testing.T) {
+	env := newReprojectTestEnv(t)
+	env.seedSchemaChangeHistory(t)
+
+	if _, err := Reproject(context.Background(), env.rt, ReprojectOptions{}); err != nil {
+		t.Fatalf("reproject: %v", err)
+	}
+	if n := env.count(t,
+		`SELECT COUNT(*) FROM notes WHERE id = 'urn:note:abc' AND sku = 'BC-100'`,
+	); n != 1 {
+		t.Errorf("sku was not backfilled onto the projection row (matching rows = %d)", n)
+	}
+}
+
+// TestReproject_ResumeStillRunsTypePass pins that pass 1 ignores AfterPosition.
+// Resuming past the type events must STILL bring the type to its final shape,
+// or the resources replaying in pass 2 project against a column set that was
+// never established.
+func TestReproject_ResumeStillRunsTypePass(t *testing.T) {
+	env := newReprojectTestEnv(t)
+	env.seedSchemaChangeHistory(t)
+
+	// Resume from position 2 — past both type events that precede the
+	// resources. Only pass 1 replaying from the start of the feed can give the
+	// projection its table and its `sku` column.
+	res, err := Reproject(context.Background(), env.rt, ReprojectOptions{AfterPosition: 2})
+	if err != nil {
+		t.Fatalf("resumed reproject: %v", err)
+	}
+	if res.LastPosition != res.Head {
+		t.Errorf("resume LastPosition = %d, want head %d", res.LastPosition, res.Head)
+	}
+	if n := env.count(t,
+		`SELECT COUNT(*) FROM notes WHERE id = 'urn:note:abc' AND sku = 'BC-100'`,
+	); n != 1 {
+		t.Errorf("a resume did not run the type pass: sku missing (matching rows = %d)", n)
+	}
+}
+
+// TestReproject_CompleteRunReachesHead pins the number an operator feeds back as
+// --after-position. Pass 2 only advances LastPosition on events it accepts, and
+// this feed ends with a ResourceType.Updated, so without the terminal assignment
+// a fully successful run under-reports.
+func TestReproject_CompleteRunReachesHead(t *testing.T) {
+	env := newReprojectTestEnv(t)
+	env.seedSchemaChangeHistory(t)
+
+	res, err := Reproject(context.Background(), env.rt, ReprojectOptions{})
+	if err != nil {
+		t.Fatalf("reproject: %v", err)
+	}
+	if res.LastPosition != res.Head {
+		t.Errorf("complete run reported LastPosition %d, want head %d", res.LastPosition, res.Head)
+	}
+}
+
+// TestReproject_CountsEachEventOnce guards the two-pass split. The feed carries
+// a ResourceType.* event with no synchronous handler, which only pass 1 can
+// account for — drop countSkip there and it falls out of both counters.
+func TestReproject_CountsEachEventOnce(t *testing.T) {
+	env := newReprojectTestEnv(t)
+	env.seedSchemaChangeHistory(t)
+
+	res, err := Reproject(context.Background(), env.rt, ReprojectOptions{})
+	if err != nil {
+		t.Fatalf("reproject: %v", err)
+	}
+	// 6 events: ResourceType.Created, ResourceType.Unarchived, Resource.Created,
+	// Triple.Created, Resource.Published, ResourceType.Updated. Two lack a
+	// synchronous handler (Unarchived; Created, folded into Published).
+	if got := res.Dispatched + res.Skipped; got != 6 {
+		t.Errorf("Dispatched+Skipped = %d, want 6 (dispatched=%d skipped=%d)",
+			got, res.Dispatched, res.Skipped)
+	}
+	if res.Skipped != 2 {
+		t.Errorf("Skipped = %d, want exactly 2", res.Skipped)
+	}
+}

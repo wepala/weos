@@ -58,6 +58,12 @@ func (s *stubResourceTypeService) InstallPreset(
 	return nil, nil
 }
 
+func (s *stubResourceTypeService) ReconcilePresetSchemas(
+	_ context.Context, _ string,
+) (*application.ReconcilePresetResult, error) {
+	return nil, nil
+}
+
 func (s *stubResourceTypeService) ListBehaviors(
 	_ context.Context, _ string,
 ) ([]application.BehaviorInfo, error) {
