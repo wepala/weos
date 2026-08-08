@@ -68,6 +68,38 @@ func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler 
 	return &PasswordAuthHandler{cfg: cfg}
 }
 
+// PasswordAuthRoutes describes which of the two password endpoints an
+// instance offers. They are independent on purpose: an instance can accept
+// sign-ins from accounts it already has (SignIn) without letting anyone who
+// reaches the hostname create another (Registration).
+type PasswordAuthRoutes struct {
+	// SignIn mounts POST /auth/password-login.
+	SignIn bool
+	// Registration mounts POST /auth/register. Ignored unless SignIn is
+	// also set — registering an account that could never sign in is not a
+	// configuration worth honoring.
+	Registration bool
+}
+
+// MountPasswordAuth registers the password endpoints an instance has turned
+// on, and *only* those. An endpoint that is off is never registered, so its
+// path answers exactly like a path the server has never had: 404, no
+// authentication challenge, no Allow header, nothing to probe and no
+// allowlist to keep correct. This is deliberately not a handler that
+// inspects the request and refuses it.
+//
+// serve.go and the acceptance tests both mount through here so there is one
+// copy of this decision rather than two that can drift apart.
+func MountPasswordAuth(g *echo.Group, h *PasswordAuthHandler, routes PasswordAuthRoutes) {
+	if !routes.SignIn {
+		return
+	}
+	if routes.Registration {
+		g.POST("/auth/register", h.Register)
+	}
+	g.POST("/auth/password-login", h.Login)
+}
+
 type registerRequest struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
