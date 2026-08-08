@@ -50,7 +50,7 @@ func TestDescribeRegisterOutcome(t *testing.T) {
 			wantSaid:   "password support",
 		},
 		{
-			name:       "an unrecognised failure stops the boot",
+			name:       "an unrecognized failure stops the boot",
 			err:        errors.New("disk is on fire"),
 			wantFailed: true,
 			wantSaid:   "disk is on fire",

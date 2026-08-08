@@ -38,7 +38,7 @@ import (
 // an HTTP route that strangers can also reach.
 //
 // These scenarios run the real binary as a real process. That is not
-// incidental: what they assert is process behaviour — the exit code an
+// incidental: what they assert is process behavior — the exit code an
 // entrypoint under `set -e` reads, what reaches stdout and stderr, a password
 // arriving on standard input, and a password that must not appear in the
 // argument list. Calling the command in-process would leave every one of those

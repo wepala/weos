@@ -233,7 +233,7 @@ func runAccountCreate(cmd *cobra.Command, _ []string) error {
 // nobody can sign in, and no later run can repair it, because they all take
 // this same branch.
 //
-// Checking only for the row's presence keeps the deliberate no-reset behaviour
+// Checking only for the row's presence keeps the deliberate no-reset behavior
 // intact: a rotated password still changes nothing. What it refuses to do is
 // call a half-written account "already there".
 func verifyUsable(
