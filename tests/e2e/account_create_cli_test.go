@@ -122,6 +122,7 @@ type accountCLIWorld struct {
 
 	lastRun      commandRun
 	lastPassword string
+	workDir      string
 
 	// A booted instance, for the scenarios that check the account works.
 	app    *fx.App
@@ -152,6 +153,8 @@ func initAccountCreateScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a WeOS store where the operator has already created the account "([^"]*)" with password "([^"]*)"$`,
 		w.aStoreWithAccount)
 	sc.Step(`^a WeOS store whose database cannot be opened$`, w.anUnopenableStore)
+	sc.Step(`^a WeOS store where "([^"]*)" already signs in through Google$`, w.anOAuthAccount)
+	sc.Step(`^a WeOS instance with no database configured$`, w.noDatabaseConfigured)
 	sc.Step(`^a WeOS store that already holds the account "([^"]*)" and a task named "([^"]*)"$`, w.aStoreWithAccountAndTask)
 	sc.Step(`^no server is running against it$`, w.noServerRunning)
 	sc.Step(`^the operator has asked for verbose logging$`, w.verboseLogging)
@@ -184,6 +187,10 @@ func initAccountCreateScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the command exits with a failure$`, w.exitedWithFailure)
 	sc.Step(`^the command reports that the account already exists$`, w.reportedAlreadyExists)
 	sc.Step(`^the failure names the database as the reason$`, func() error { return w.failureNames("database") })
+	sc.Step(`^the failure says no database was specified and names how to supply one$`, w.failureNamesNoDatabase)
+	sc.Step(`^the command reports that the account already exists, naming Google as how it signs in$`, w.reportedExistsViaGoogle)
+	sc.Step(`^no account is created in any store$`, w.noStoreWasWritten)
+	sc.Step(`^the command leaves no database behind in the directory it ran from$`, w.noStrayDatabase)
 	sc.Step(`^the store holds exactly one account for "([^"]*)"$`, w.storeHoldsExactlyOne)
 	sc.Step(`^no account exists for "([^"]*)"$`, w.noAccountExists)
 	sc.Step(`^the account for "([^"]*)" is presented as "([^"]*)"$`, w.accountPresentedAs)
@@ -269,6 +276,41 @@ func (w *accountCLIWorld) verboseLogging() error {
 	return nil
 }
 
+// anOAuthAccount seeds an account the way the OAuth callback would, so the
+// scenario starts from an email that signs in without any password at all.
+func (w *accountCLIWorld) anOAuthAccount(email string) error {
+	if err := w.anEmptyStore(); err != nil {
+		return err
+	}
+	if err := w.startInstance(false); err != nil {
+		return err
+	}
+	if _, _, _, err := w.authService.FindOrCreateAgent(context.Background(), authapp.UserInfo{
+		ProviderUserID: "google-" + email,
+		Email:          email,
+		DisplayName:    "Ops",
+		Provider:       "google",
+	}); err != nil {
+		return fmt.Errorf("could not seed the Google account for %q: %w", email, err)
+	}
+	w.stopInstance()
+	return nil
+}
+
+// noDatabaseConfigured runs the command from an empty directory with no DSN in
+// the environment, which is how a deployment that lost its setting would look.
+func (w *accountCLIWorld) noDatabaseConfigured() error {
+	dir, err := os.MkdirTemp("", "weos-account-cli-nodsn-")
+	if err != nil {
+		return err
+	}
+	w.tmpDir = dir
+	w.dsn = ""
+	w.workDir = dir
+	w.signIns = map[string]int{}
+	return nil
+}
+
 // --- Running the command ---
 
 func (w *accountCLIWorld) run(args []string, env []string, stdin string) error {
@@ -280,9 +322,17 @@ func (w *accountCLIWorld) run(args []string, env []string, stdin string) error {
 		args = append(args, "--verbose")
 	}
 	cmd := exec.Command(binary, args...)
+	if w.workDir != "" {
+		cmd.Dir = w.workDir
+	}
+	dsnEnv := "DATABASE_DSN=" + w.dsn
+	if w.dsn == "" {
+		// Unset rather than empty: an absent setting is the case under test.
+		dsnEnv = "DATABASE_DSN="
+	}
 	cmd.Env = append(os.Environ(),
 		append([]string{
-			"DATABASE_DSN=" + w.dsn,
+			dsnEnv,
 			// Left unset by default; a scenario that asks for verbose logging
 			// turns it up so the "never repeats the password" claim is made
 			// against the noisiest setting, not the quietest.
@@ -726,4 +776,51 @@ func (w *accountCLIWorld) storeStillHolds(email, taskName string) error {
 		}
 	}
 	return fmt.Errorf("expected the task %q to survive; the store held %d task(s)", taskName, len(page.Data))
+}
+
+// --- Assertions for the two failures that look like success ---
+
+func (w *accountCLIWorld) failureNamesNoDatabase() error {
+	said := strings.ToLower(w.lastRun.said())
+	if !strings.Contains(said, "no database specified") {
+		return fmt.Errorf("expected the failure to say no database was specified, it said: %s", w.lastRun.said())
+	}
+	// Naming the remedy is half the point: this message is read by whoever is
+	// staring at a container that would not start.
+	if !strings.Contains(said, "database_dsn") {
+		return fmt.Errorf("expected the failure to name how to supply a database, it said: %s", w.lastRun.said())
+	}
+	return nil
+}
+
+func (w *accountCLIWorld) reportedExistsViaGoogle() error {
+	if err := w.reportedAlreadyExists(); err != nil {
+		return err
+	}
+	if !strings.Contains(strings.ToLower(w.lastRun.said()), "google") {
+		return fmt.Errorf("expected the report to name Google, it said: %s", w.lastRun.said())
+	}
+	return nil
+}
+
+// noStoreWasWritten checks the whole working directory, not one expected path.
+// The defect this guards against was the command writing to a store nobody
+// named, so asserting against a known filename would miss the case entirely.
+func (w *accountCLIWorld) noStoreWasWritten() error {
+	return w.noStrayDatabase()
+}
+
+func (w *accountCLIWorld) noStrayDatabase() error {
+	entries, err := os.ReadDir(w.workDir)
+	if err != nil {
+		return fmt.Errorf("could not inspect the directory the command ran from: %w", err)
+	}
+	stray := []string{}
+	for _, entry := range entries {
+		stray = append(stray, entry.Name())
+	}
+	if len(stray) > 0 {
+		return fmt.Errorf("expected the command to leave nothing behind, found: %v", stray)
+	}
+	return nil
 }

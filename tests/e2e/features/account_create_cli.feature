@@ -104,7 +104,6 @@ Feature: Minting an account from the command line
     And the command reports that the account already exists
     And the store holds exactly one account for "ops@harborlegal.example"
 
-  @wip
   Scenario: An email that already signs in another way is recognised, not duplicated
     Given a WeOS store where "ops@harborlegal.example" already signs in through Google
     When the operator creates an account for "ops@harborlegal.example" with password "correct-horse-battery-staple"
@@ -119,7 +118,6 @@ Feature: Minting an account from the command line
     Then the command exits with a failure
     And the failure names the database as the reason
 
-  @wip
   Scenario: An unspecified database stops the boot rather than provisioning somewhere arbitrary
     Given a WeOS instance with no database configured
     When the operator creates an account for "ops@harborlegal.example" with the password supplied through the environment
