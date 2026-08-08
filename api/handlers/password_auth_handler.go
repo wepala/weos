@@ -68,6 +68,23 @@ func NewPasswordAuthHandler(cfg PasswordAuthHandlerConfig) *PasswordAuthHandler 
 	return &PasswordAuthHandler{cfg: cfg}
 }
 
+// DefaultDisplayName picks the name to register an account under. Registration
+// requires a non-empty display name because the personal account is named after
+// it, and the email's local part is the least surprising stand-in when the
+// caller didn't give one.
+//
+// The CLI and the HTTP route share this so an account minted either way is the
+// same thing afterwards — which is the whole point of having both.
+func DefaultDisplayName(email, given string) string {
+	if displayName := strings.TrimSpace(given); displayName != "" {
+		return displayName
+	}
+	if local, _, ok := strings.Cut(email, "@"); ok && local != "" {
+		return local
+	}
+	return email
+}
+
 // PasswordAuthRoutes describes which of the two password endpoints an
 // instance offers. They are independent on purpose: an instance can accept
 // sign-ins from accounts it already has (SignIn) without letting anyone who
@@ -138,17 +155,7 @@ func (h *PasswordAuthHandler) Register(c echo.Context) error {
 	if email == "" || req.Password == "" {
 		return respondError(c, http.StatusBadRequest, "email and password are required")
 	}
-	displayName := strings.TrimSpace(req.DisplayName)
-	if displayName == "" {
-		// RegisterPassword requires a non-empty display name (it's used to
-		// build the personal-account name); the email's local-part is the
-		// least surprising default.
-		if local, _, ok := strings.Cut(email, "@"); ok && local != "" {
-			displayName = local
-		} else {
-			displayName = email
-		}
-	}
+	displayName := DefaultDisplayName(email, req.DisplayName)
 
 	ctx := c.Request().Context()
 	agent, credential, account, err := h.cfg.AuthService.RegisterPassword(ctx, email, displayName, req.Password)
