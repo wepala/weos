@@ -131,12 +131,24 @@ type Config struct {
 	// SessionSecret is the secret key for session cookies.
 	SessionSecret string
 
-	// PasswordAuthEnabled toggles the email + password register/login
-	// endpoints. Off by default — enabling it without a non-default
-	// SessionSecret is a footgun because sessions become forgeable.
-	// Callers should ensure SessionSecret is set to a production-safe
-	// value before enabling password authentication.
+	// PasswordAuthEnabled toggles the email + password login endpoint.
+	// Off by default — enabling it without a non-default SessionSecret is
+	// a footgun because sessions become forgeable. Callers should ensure
+	// SessionSecret is set to a production-safe value before enabling
+	// password authentication.
 	PasswordAuthEnabled bool
+
+	// PasswordRegistrationEnabled toggles the self-service registration
+	// endpoint (POST /api/auth/register). Off by default, and independent
+	// of PasswordAuthEnabled: an instance can offer password sign-in to
+	// accounts it already has without letting anyone who reaches the
+	// hostname create another. When off the route is never mounted, so the
+	// path 404s exactly like one the server has never had — there is no
+	// handler to probe and no allowlist to keep correct.
+	//
+	// Registration still requires PasswordAuthEnabled: opening this alone
+	// would mint accounts that have no way to sign in.
+	PasswordRegistrationEnabled bool
 
 	// LLM holds configuration for LLM integrations.
 	LLM LLMConfig
@@ -451,6 +463,12 @@ func (c *Config) LoadFromEnvironment() {
 	if v := os.Getenv("PASSWORD_AUTH_ENABLED"); v != "" {
 		if enabled, err := strconv.ParseBool(v); err == nil {
 			c.PasswordAuthEnabled = enabled
+		}
+	}
+
+	if v := os.Getenv("PASSWORD_REGISTRATION_ENABLED"); v != "" {
+		if enabled, err := strconv.ParseBool(v); err == nil {
+			c.PasswordRegistrationEnabled = enabled
 		}
 	}
 

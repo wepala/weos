@@ -35,6 +35,23 @@ OAuth is enabled when both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set
 | `GOOGLE_CLIENT_SECRET` | string | | Google OAuth 2.0 client secret |
 | `FRONTEND_URL` | string | | Frontend URL for OAuth redirect callbacks |
 
+## Authentication (email + password)
+
+Sign-in and registration are separate settings, so an instance can accept sign-ins from the accounts it already has without letting anyone who reaches the hostname create another.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `PASSWORD_AUTH_ENABLED` | bool | `false` | Mounts `POST /api/auth/password-login` |
+| `PASSWORD_REGISTRATION_ENABLED` | bool | `false` | Mounts `POST /api/auth/register`. Requires `PASSWORD_AUTH_ENABLED` — on its own it does nothing, since the accounts it created could not sign in |
+
+An endpoint that is off is never mounted, so its path answers exactly what a path the server has never had answers — nothing to probe and no allowlist to keep correct.
+
+What that looks like depends on the deployment rather than on registration: an unmatched `POST` under `/api` gets a bare `404`, while `GET`/`PUT`/`DELETE` are claimed by the generic resource route and get `401`, and on an instance with OAuth configured every unmatched path answers `401` with a `WWW-Authenticate: Bearer` challenge. In each case `/api/auth/register` answers identically to any address the server has never had, which is the property that matters.
+
+Set `SESSION_SECRET` to a real value before enabling either one — with the default secret, sessions are forgeable.
+
+> **Upgrading:** `PASSWORD_AUTH_ENABLED` used to mount registration as well. A deployment that sets only that variable keeps working for sign-in, but its register route is now closed. That is the intended change; set `PASSWORD_REGISTRATION_ENABLED=true` to restore the old behaviour on an instance that genuinely wants open self-service signup.
+
 ## MCP Server
 
 | Variable | Type | Default | Description |
@@ -71,4 +88,8 @@ SESSION_SECRET=my-super-secret-key
 # GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 # GOOGLE_CLIENT_SECRET=your-client-secret
 # FRONTEND_URL=http://localhost:3000
+
+# Email + password sign-in (both default to false)
+# PASSWORD_AUTH_ENABLED=true
+# PASSWORD_REGISTRATION_ENABLED=true
 ```

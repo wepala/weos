@@ -246,9 +246,26 @@ func runServe(cmd *cobra.Command, args []string) error {
 		SecureCookies:  secureCookies,
 		Logger:         logger,
 	})
-	if appCfg.PasswordAuthEnabled {
-		api.POST("/auth/register", passwordAuthHandlers.Register)
-		api.POST("/auth/password-login", passwordAuthHandlers.Login)
+	handlers.MountPasswordAuth(api, passwordAuthHandlers, handlers.PasswordAuthRoutes{
+		SignIn:       appCfg.PasswordAuthEnabled,
+		Registration: appCfg.PasswordRegistrationEnabled,
+	})
+	// Registration used to come along with PASSWORD_AUTH_ENABLED, so an
+	// existing deployment that upgrades loses its register route the moment it
+	// picks up this version. Say so at startup: without a line here the change
+	// is invisible until someone's signup form 404s in production.
+	if appCfg.PasswordAuthEnabled && !appCfg.PasswordRegistrationEnabled {
+		logger.Info(context.Background(),
+			"password sign-in is on and account registration is off; POST /api/auth/register is not mounted",
+			"remedy", "set PASSWORD_REGISTRATION_ENABLED=true to offer open self-service signup")
+	}
+	// Registration without sign-in would mint accounts that could never be
+	// used, so it is ignored rather than honored. Warn, because the operator
+	// asked for something they are not getting.
+	if appCfg.PasswordRegistrationEnabled && !appCfg.PasswordAuthEnabled {
+		logger.Warn(context.Background(),
+			"PASSWORD_REGISTRATION_ENABLED is set but PASSWORD_AUTH_ENABLED is not; registration stays unmounted",
+			"remedy", "set PASSWORD_AUTH_ENABLED=true as well")
 	}
 
 	// Logout must clear BOTH the gorilla session (pericarp Logout) AND the
@@ -465,6 +482,23 @@ func runServe(cmd *cobra.Command, args []string) error {
 		mcpGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
 	}
 	mcpGroup.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
+
+	// Careful: this is the last Use() on an empty-prefix group under /api, and
+	// echo's Group.Use registers the group's not-found catch-all at the group
+	// prefix. So THIS group owns what an unmatched /api/... path answers —
+	// a bare 404 in dev, and 401 with a Bearer challenge once OAuth is
+	// configured, because BearerOrSession sets the challenge before it checks
+	// the session.
+	//
+	// Adding a later empty-prefix group, or reordering these three (protected,
+	// acceptGroup, mcpGroup), silently moves that ownership and changes the
+	// answer for every unmounted path — including /api/auth/register when
+	// PASSWORD_REGISTRATION_ENABLED is off. What must stay true is that the
+	// registration path answers exactly what an invented path answers; the
+	// specific status is allowed to differ per deployment. The acceptance
+	// scenarios in tests/e2e/features/password_registration_flag.feature pin
+	// that parity, and tests/e2e/password_registration_flag_test.go builds its
+	// own echo instance, so it will NOT notice if this ordering changes.
 
 	// The in-app agent is independent of the MCP transport flag: with MCP
 	// disabled it still chats, just tool-less (the orchestrator degrades).
