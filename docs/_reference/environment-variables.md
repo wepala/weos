@@ -44,7 +44,9 @@ Sign-in and registration are separate settings, so an instance can accept sign-i
 | `PASSWORD_AUTH_ENABLED` | bool | `false` | Mounts `POST /api/auth/password-login` |
 | `PASSWORD_REGISTRATION_ENABLED` | bool | `false` | Mounts `POST /api/auth/register`. Requires `PASSWORD_AUTH_ENABLED` — on its own it does nothing, since the accounts it created could not sign in |
 
-An endpoint that is off is never mounted, so its path answers `404` exactly like a path the server has never had: no authentication challenge, no `Allow` header, nothing to probe and no allowlist to keep correct.
+An endpoint that is off is never mounted, so its path answers exactly what a path the server has never had answers — nothing to probe and no allowlist to keep correct.
+
+What that looks like depends on the deployment rather than on registration: an unmatched `POST` under `/api` gets a bare `404`, while `GET`/`PUT`/`DELETE` are claimed by the generic resource route and get `401`, and on an instance with OAuth configured every unmatched path answers `401` with a `WWW-Authenticate: Bearer` challenge. In each case `/api/auth/register` answers identically to any address the server has never had, which is the property that matters.
 
 Set `SESSION_SECRET` to a real value before enabling either one — with the default secret, sessions are forgeable.
 
@@ -86,4 +88,8 @@ SESSION_SECRET=my-super-secret-key
 # GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 # GOOGLE_CLIENT_SECRET=your-client-secret
 # FRONTEND_URL=http://localhost:3000
+
+# Email + password sign-in (both default to false)
+# PASSWORD_AUTH_ENABLED=true
+# PASSWORD_REGISTRATION_ENABLED=true
 ```

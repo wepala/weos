@@ -19,6 +19,7 @@ import (
 	"github.com/wepala/weos/v3/application/presets"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
+	weosoauth "github.com/wepala/weos/v3/internal/oauth"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -36,11 +37,18 @@ import (
 // account registration.
 //
 // The scenarios turn on a distinction that only holds if the route is truly
-// absent — 404 with no authentication challenge and no Allow header, answering
-// exactly like a path the server has never had. So these tests drive real HTTP
-// against an Echo instance mounted through handlers.MountPasswordAuth, the same
-// call serve.go makes. Re-declaring the routes here instead would let the test
-// and production drift apart while both stayed green.
+// absent: the registration path has to answer whatever a path the server has
+// never had answers. That is deliberately not a fixed status. What an unknown
+// path returns varies by deployment — a bare 404 here, 401 with a Bearer
+// challenge on an instance with OAuth configured — and singling the
+// registration path out with a status its neighbours don't return would give it
+// away just as loudly as refusing would.
+//
+// So these tests drive real HTTP against an echo instance mounted through
+// handlers.MountPasswordAuth, the same call serve.go makes, and compare the
+// registration path against an invented control path. Re-declaring the routes
+// here instead would let the test and production drift apart while both
+// stayed green.
 func TestPasswordRegistrationFlag(t *testing.T) {
 	tags := "~@wip"
 	if override := os.Getenv("GODOG_TAGS"); override != "" {
@@ -65,6 +73,10 @@ func TestPasswordRegistrationFlag(t *testing.T) {
 const registrationPath = "/api/auth/register"
 const signInPath = "/api/auth/password-login"
 
+// aPassword is used only by steps whose Gherkin doesn't name one, because the
+// scenario is about the answer rather than the credential.
+const aPassword = "correct-horse-battery-staple"
+
 // capturedResponse is everything a caller can observe about one answer. The
 // scenarios compare whole answers against each other ("the same status and the
 // same body"), so the body is kept verbatim rather than parsed.
@@ -84,29 +96,47 @@ type passwordAuthWorld struct {
 	dsn    string
 	server *httptest.Server
 
-	authService authapp.AuthenticationService
-	credRepo    authrepos.CredentialRepository
-	agentRepo   authrepos.AgentRepository
-	accountRepo authrepos.AccountRepository
-	sessionMgr  session.SessionManager
-	sessionsSt  sessions.Store
-	authzCheck  *authcasbin.CasbinAuthorizationChecker
-	resources   application.ResourceService
-	resourceTps application.ResourceTypeService
-	logger      entities.Logger
+	authService         authapp.AuthenticationService
+	credRepo            authrepos.CredentialRepository
+	agentRepo           authrepos.AgentRepository
+	accountRepo         authrepos.AccountRepository
+	sessionManager      session.SessionManager
+	sessionStore        sessions.Store
+	authzChecker        *authcasbin.CasbinAuthorizationChecker
+	resourceService     application.ResourceService
+	resourceTypeService application.ResourceTypeService
+	jwtService          authapp.JWTService
+	logger              entities.Logger
+
+	// signIn / registration / oauth are the shape the instance was last booted
+	// with, so a Given that adds a provider can rebuild it without the scenario
+	// having to restate the settings it already gave.
+	signInEnabled       bool
+	registrationEnabled *bool
+	oauthConfigured     bool
 
 	// answers accumulates every response the scenario provoked, in order, so
 	// steps phrased as "both requests..." can compare them.
 	answers []*capturedResponse
+
+	// lastCredentials is the body the previous request actually carried, so a
+	// step saying "the same details" sends the same details rather than a
+	// second copy of them written out again down here.
+	lastCredentials string
+
+	// envBefore is the environment as this scenario found it, restored on
+	// teardown so the suite doesn't leave its settings behind for whatever
+	// runs next in the process.
+	envBefore map[string]*string
 }
 
+// initPasswordRegistrationScenario runs once per scenario, so the world below
+// starts fresh each time and needs no reset hook. The suite relies on staying
+// serial (godog Concurrency is unset and nothing here calls t.Parallel) because
+// the scenarios set process environment to exercise the real config parsing.
 func initPasswordRegistrationScenario(sc *godog.ScenarioContext) {
 	w := &passwordAuthWorld{}
 
-	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
-		*w = passwordAuthWorld{}
-		return ctx, nil
-	})
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		w.teardown()
 		return ctx, nil
@@ -128,16 +158,20 @@ func initPasswordRegistrationScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^someone sends the same ([A-Z]+) request to "([^"]*)", a path this instance has never had$`, w.sendMethodToNeverMountedPath)
 	sc.Step(`^someone submits a registration request whose body is not valid JSON$`, w.submitMalformedRegistration)
 
+	sc.Step(`^an OAuth provider is also configured on that instance$`, w.andAnOAuthProviderConfigured)
+
 	sc.Step(`^the sign-in succeeds$`, w.lastSucceeded)
 	sc.Step(`^the registration succeeds$`, w.lastSucceeded)
 	sc.Step(`^"([^"]*)" holds an authenticated session$`, w.holdsAuthenticatedSession)
-	sc.Step(`^the registration request is answered "([^"]*)"$`, w.lastAnsweredWith)
-	sc.Step(`^the request is answered "([^"]*)"$`, w.lastAnsweredWith)
-	sc.Step(`^a registration for "([^"]*)" is answered "([^"]*)"$`, w.registrationForIsAnswered)
-	sc.Step(`^the answer offers no authentication challenge$`, w.noAuthChallenge)
-	sc.Step(`^the answer advertises no permitted methods for that path$`, w.noAllowHeader)
 	sc.Step(`^both requests are answered with the same status and the same body$`, w.lastTwoAnswersIdentical)
-	sc.Step(`^both requests are answered "([^"]*)"$`, w.lastTwoAnsweredWith)
+	sc.Step(`^both answers carry the same authentication challenge$`, w.lastTwoSameChallenge)
+	sc.Step(`^neither answer advertises permitted methods for its path$`, w.lastTwoAdvertiseNoMethods)
+	sc.Step(`^both requests are answered identically, including any authentication challenge$`,
+		func() error { return w.lastNAnswersIdentical(2) })
+	sc.Step(`^all three requests are answered identically, including any authentication challenge$`,
+		func() error { return w.lastNAnswersIdentical(3) })
+	sc.Step(`^a registration for "([^"]*)" is answered exactly like a post to an endpoint that has never existed$`,
+		w.registrationAnsweredLikeNeverExisted)
 	sc.Step(`^no account exists for "([^"]*)"$`, w.noAccountExistsFor)
 	sc.Step(`^"([^"]*)" cannot sign in with password "([^"]*)"$`, w.cannotSignIn)
 	sc.Step(`^"([^"]*)" can sign in again with password "([^"]*)"$`, w.canSignInAgain)
@@ -177,11 +211,22 @@ func registrationSetting(registration string) *bool {
 }
 
 func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
-	os.Setenv("PASSWORD_AUTH_ENABLED", strconv.FormatBool(signIn))
+	w.signInEnabled, w.registrationEnabled = signIn, registration
+	w.setEnv("PASSWORD_AUTH_ENABLED", ptr(strconv.FormatBool(signIn)))
 	if registration == nil {
-		os.Unsetenv("PASSWORD_REGISTRATION_ENABLED")
+		w.setEnv("PASSWORD_REGISTRATION_ENABLED", nil)
 	} else {
-		os.Setenv("PASSWORD_REGISTRATION_ENABLED", strconv.FormatBool(*registration))
+		w.setEnv("PASSWORD_REGISTRATION_ENABLED", ptr(strconv.FormatBool(*registration)))
+	}
+	// Credentials are never contacted — OAuthEnabled() only asks whether a
+	// provider is configured, and that is what changes who answers an
+	// unmatched path.
+	if w.oauthConfigured {
+		w.setEnv("GOOGLE_CLIENT_ID", ptr("acceptance-client-id.apps.googleusercontent.com"))
+		w.setEnv("GOOGLE_CLIENT_SECRET", ptr("acceptance-client-secret"))
+	} else {
+		w.setEnv("GOOGLE_CLIENT_ID", nil)
+		w.setEnv("GOOGLE_CLIENT_SECRET", nil)
 	}
 
 	cfg := config.Default()
@@ -194,9 +239,12 @@ func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
+		// serve.go provides this alongside the module rather than from it, and
+		// the bearer middleware that owns the catch-all needs it.
+		fx.Provide(weosoauth.ProvideJWTService),
 		fx.Populate(&w.authService, &w.credRepo, &w.agentRepo, &w.accountRepo),
-		fx.Populate(&w.sessionMgr, &w.sessionsSt, &w.authzCheck, &w.logger),
-		fx.Populate(&w.resources, &w.resourceTps),
+		fx.Populate(&w.sessionManager, &w.sessionStore, &w.authzChecker, &w.logger),
+		fx.Populate(&w.resourceService, &w.resourceTypeService, &w.jwtService),
 	)
 	startCtx, cancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 	defer cancel()
@@ -214,7 +262,7 @@ func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
 	api.Use(apimw.Messages())
 	passwordAuthHandlers := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
 		AuthService:    w.authService,
-		SessionManager: w.sessionMgr,
+		SessionManager: w.sessionManager,
 		SecureCookies:  false,
 		Logger:         w.logger,
 	})
@@ -254,22 +302,58 @@ func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
 	var guards []echo.MiddlewareFunc
 	if cfg.AuthEnabled() {
 		guards = []echo.MiddlewareFunc{
-			echo.WrapMiddleware(authhttp.RequireAuth(w.sessionMgr, w.authService)),
-			apimw.Impersonation(w.sessionsSt, w.accountRepo, w.logger),
-			apimw.AuthorizeResource(w.authzCheck, w.accountRepo, w.logger),
+			echo.WrapMiddleware(authhttp.RequireAuth(w.sessionManager, w.authService)),
+			apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger),
+			apimw.AuthorizeResource(w.authzChecker, w.accountRepo, w.logger),
 		}
 	} else {
 		guards = []echo.MiddlewareFunc{apimw.SoftAuth(w.credRepo, w.agentRepo, w.accountRepo, w.logger)}
 	}
-	resourceHandler := handlers.NewResourceHandler(w.resources, w.resourceTps, w.logger)
+	resourceHandler := handlers.NewResourceHandler(w.resourceService, w.resourceTypeService, w.logger)
 	api.POST("/:typeSlug", resourceHandler.Create, guards...)
 	api.GET("/:typeSlug", resourceHandler.List, guards...)
 	api.GET("/:typeSlug/:id", resourceHandler.Get, guards...)
 	api.PUT("/:typeSlug/:id", resourceHandler.Update, guards...)
 	api.DELETE("/:typeSlug/:id", resourceHandler.Delete, guards...)
 
+	// And now the part that decides what an *unmatched* path answers.
+	//
+	// echo's Group.Use registers the group's not-found catch-all at the group
+	// prefix, so whichever empty-prefix group calls Use last owns every
+	// unmatched /api path. In serve.go that is the MCP group, and its
+	// middleware changes with the deployment: SoftAuth on its own, or
+	// BearerOrSession once an OAuth provider is configured — which sets a
+	// WWW-Authenticate challenge before it ever checks the session. That is why
+	// an unmatched POST answers a bare 404 on one instance and 401 with a
+	// bearer challenge on another.
+	//
+	// Mirroring that group is copying an accident of serve.go's structure, and
+	// I would rather not — but it is the accident that decides the observable
+	// these scenarios are about, so a harness without it would let the
+	// OAuth-shaped scenarios pass while never producing an OAuth-shaped answer.
+	// weos#467 tracks extracting the real route table so this can go away.
+	catchAllOwner := api.Group("")
+	if cfg.OAuthEnabled() {
+		sessionAuth := authhttp.RequireAuth(w.sessionManager, w.authService)
+		catchAllOwner.Use(apimw.BearerOrSession(w.jwtService, sessionAuth, "http://acceptance.invalid"))
+		catchAllOwner.Use(apimw.Impersonation(w.sessionStore, w.accountRepo, w.logger))
+	} else {
+		catchAllOwner.Use(apimw.SoftAuth(w.credRepo, w.agentRepo, w.accountRepo, w.logger))
+	}
+	catchAllOwner.Use(apimw.AuthorizeResource(w.authzChecker, w.accountRepo, w.logger))
+
 	w.server = httptest.NewServer(e)
 	return nil
+}
+
+// andAnOAuthProviderConfigured rebuilds the instance it was given with a
+// provider configured, keeping the password settings and the database. It is a
+// second Given rather than another axis on the first so the scenarios that do
+// not care about OAuth stay readable.
+func (w *passwordAuthWorld) andAnOAuthProviderConfigured() error {
+	w.stopServer()
+	w.oauthConfigured = true
+	return w.boot(w.signInEnabled, w.registrationEnabled)
 }
 
 // restartWithRegistrationDisabled stops the instance and brings it back up
@@ -294,10 +378,43 @@ func (w *passwordAuthWorld) stopServer() {
 	}
 }
 
+func ptr[T any](v T) *T { return &v }
+
+// setEnv sets (or clears) a variable, remembering what was there the first time
+// this scenario touched it. A nil value means "absent", which is a different
+// input from an explicit "false" for the setting under test.
+func (w *passwordAuthWorld) setEnv(key string, value *string) {
+	if w.envBefore == nil {
+		w.envBefore = map[string]*string{}
+	}
+	if _, remembered := w.envBefore[key]; !remembered {
+		if prior, ok := os.LookupEnv(key); ok {
+			w.envBefore[key] = &prior
+		} else {
+			w.envBefore[key] = nil
+		}
+	}
+	if value == nil {
+		os.Unsetenv(key)
+		return
+	}
+	os.Setenv(key, *value)
+}
+
+func (w *passwordAuthWorld) restoreEnv() {
+	for key, prior := range w.envBefore {
+		if prior == nil {
+			os.Unsetenv(key)
+			continue
+		}
+		os.Setenv(key, *prior)
+	}
+	w.envBefore = nil
+}
+
 func (w *passwordAuthWorld) teardown() {
 	w.stopServer()
-	os.Unsetenv("PASSWORD_AUTH_ENABLED")
-	os.Unsetenv("PASSWORD_REGISTRATION_ENABLED")
+	w.restoreEnv()
 	if w.tmpDir != "" {
 		_ = os.RemoveAll(w.tmpDir)
 		w.tmpDir = ""
@@ -364,20 +481,32 @@ func credentialsJSON(email, password string) string {
 }
 
 func (w *passwordAuthWorld) submitRegistration(email, password string) error {
-	return w.do(http.MethodPost, registrationPath, credentialsJSON(email, password))
+	w.lastCredentials = credentialsJSON(email, password)
+	return w.do(http.MethodPost, registrationPath, w.lastCredentials)
 }
 
+// submitMalformedRegistration truncates whatever the scenario last sent, so the
+// malformed body stays the well-formed one's twin however the feature's data
+// changes. The pair is only comparable if the only difference is the damage.
 func (w *passwordAuthWorld) submitMalformedRegistration() error {
-	return w.do(http.MethodPost, registrationPath, `{"email": "newcomer@harborlegal.example", "password":`)
+	wellFormed := w.lastCredentials
+	if wellFormed == "" {
+		wellFormed = credentialsJSON("newcomer@harborlegal.example", aPassword)
+	}
+	return w.do(http.MethodPost, registrationPath, strings.TrimSuffix(wellFormed, `"}`))
 }
 
 func (w *passwordAuthWorld) sendMethodToRegistration(method string) error {
 	return w.do(method, registrationPath, "")
 }
 
+// postToNeverMountedPath replays the details the scenario just submitted, so
+// "the same details" stays literally true if the feature's data ever changes.
 func (w *passwordAuthWorld) postToNeverMountedPath(path string) error {
-	return w.do(http.MethodPost, path,
-		credentialsJSON("newcomer@harborlegal.example", "correct-horse-battery-staple"))
+	if w.lastCredentials == "" {
+		return fmt.Errorf("no registration has been submitted yet, so there are no same details to send")
+	}
+	return w.do(http.MethodPost, path, w.lastCredentials)
 }
 
 // sendMethodToNeverMountedPath issues the same method against a path this
@@ -401,17 +530,6 @@ func (w *passwordAuthWorld) last() (*capturedResponse, error) {
 	return w.answers[len(w.answers)-1], nil
 }
 
-// parseStatus turns the Gherkin wording ("404 Not Found") into a code, so the
-// scenarios stay readable while the assertion stays exact.
-func parseStatus(want string) (int, error) {
-	code, _, _ := strings.Cut(want, " ")
-	n, err := strconv.Atoi(code)
-	if err != nil {
-		return 0, fmt.Errorf("could not read a status code from %q", want)
-	}
-	return n, nil
-}
-
 func (w *passwordAuthWorld) lastSucceeded() error {
 	got, err := w.last()
 	if err != nil {
@@ -419,44 +537,6 @@ func (w *passwordAuthWorld) lastSucceeded() error {
 	}
 	if got.status != http.StatusOK && got.status != http.StatusCreated {
 		return fmt.Errorf("expected success, got %d: %s", got.status, got.body)
-	}
-	return nil
-}
-
-func (w *passwordAuthWorld) lastAnsweredWith(want string) error {
-	code, err := parseStatus(want)
-	if err != nil {
-		return err
-	}
-	got, err := w.last()
-	if err != nil {
-		return err
-	}
-	if got.status != code {
-		return fmt.Errorf("expected %d, got %d: %s", code, got.status, got.body)
-	}
-	return nil
-}
-
-func (w *passwordAuthWorld) registrationForIsAnswered(email, want string) error {
-	if err := w.submitRegistration(email, "correct-horse-battery-staple"); err != nil {
-		return err
-	}
-	return w.lastAnsweredWith(want)
-}
-
-func (w *passwordAuthWorld) lastTwoAnsweredWith(want string) error {
-	code, err := parseStatus(want)
-	if err != nil {
-		return err
-	}
-	if len(w.answers) < 2 {
-		return fmt.Errorf("expected two requests, saw %d", len(w.answers))
-	}
-	for _, got := range w.answers[len(w.answers)-2:] {
-		if got.status != code {
-			return fmt.Errorf("expected both answers to be %d, got %d: %s", code, got.status, got.body)
-		}
 	}
 	return nil
 }
@@ -478,26 +558,75 @@ func (w *passwordAuthWorld) lastTwoAnswersIdentical() error {
 	return nil
 }
 
-func (w *passwordAuthWorld) noAuthChallenge() error {
-	got, err := w.last()
+// lastN returns the last n answers, so the "identically" steps can compare a
+// pair or a trio without each writing out the same bounds check.
+func (w *passwordAuthWorld) lastN(n int) ([]*capturedResponse, error) {
+	if len(w.answers) < n {
+		return nil, fmt.Errorf("expected %d requests, saw %d", n, len(w.answers))
+	}
+	return w.answers[len(w.answers)-n:], nil
+}
+
+// lastNAnswersIdentical is the anti-probe assertion in its fullest form. A
+// prober reads the status, the body and the challenge, so all three have to
+// match — the registration path must be as ordinary as an address the instance
+// has never had, whatever ordinary happens to mean on this deployment.
+func (w *passwordAuthWorld) lastNAnswersIdentical(n int) error {
+	answers, err := w.lastN(n)
 	if err != nil {
 		return err
 	}
-	if got.wwwAuth != "" {
-		return fmt.Errorf("expected no authentication challenge, got WWW-Authenticate: %q", got.wwwAuth)
+	first := answers[0]
+	for _, other := range answers[1:] {
+		if first.status != other.status {
+			return fmt.Errorf("answers differ in status: %d vs %d", first.status, other.status)
+		}
+		if first.body != other.body {
+			return fmt.Errorf("answers differ in body: %q vs %q", first.body, other.body)
+		}
+		if first.wwwAuth != other.wwwAuth {
+			return fmt.Errorf("answers differ in authentication challenge: %q vs %q", first.wwwAuth, other.wwwAuth)
+		}
 	}
 	return nil
 }
 
-func (w *passwordAuthWorld) noAllowHeader() error {
-	got, err := w.last()
+func (w *passwordAuthWorld) lastTwoSameChallenge() error {
+	answers, err := w.lastN(2)
 	if err != nil {
 		return err
 	}
-	if got.allow != "" {
-		return fmt.Errorf("expected no permitted methods to be advertised, got Allow: %q", got.allow)
+	if answers[0].wwwAuth != answers[1].wwwAuth {
+		return fmt.Errorf("answers differ in authentication challenge: %q vs %q",
+			answers[0].wwwAuth, answers[1].wwwAuth)
 	}
 	return nil
+}
+
+func (w *passwordAuthWorld) lastTwoAdvertiseNoMethods() error {
+	answers, err := w.lastN(2)
+	if err != nil {
+		return err
+	}
+	for _, answer := range answers {
+		if answer.allow != "" {
+			return fmt.Errorf("expected no permitted methods to be advertised, got Allow: %q", answer.allow)
+		}
+	}
+	return nil
+}
+
+// registrationAnsweredLikeNeverExisted submits a registration and the same
+// details to an address the instance has never had, and requires the two to be
+// indistinguishable.
+func (w *passwordAuthWorld) registrationAnsweredLikeNeverExisted(email string) error {
+	if err := w.submitRegistration(email, aPassword); err != nil {
+		return err
+	}
+	if err := w.postToNeverMountedPath("/api/auth/enroll"); err != nil {
+		return err
+	}
+	return w.lastNAnswersIdentical(2)
 }
 
 func (w *passwordAuthWorld) holdsAuthenticatedSession(email string) error {

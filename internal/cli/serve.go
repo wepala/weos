@@ -483,6 +483,23 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	mcpGroup.Use(apimw.AuthorizeResource(authzChecker, accountRepo, logger))
 
+	// Careful: this is the last Use() on an empty-prefix group under /api, and
+	// echo's Group.Use registers the group's not-found catch-all at the group
+	// prefix. So THIS group owns what an unmatched /api/... path answers —
+	// a bare 404 in dev, and 401 with a Bearer challenge once OAuth is
+	// configured, because BearerOrSession sets the challenge before it checks
+	// the session.
+	//
+	// Adding a later empty-prefix group, or reordering these three (protected,
+	// acceptGroup, mcpGroup), silently moves that ownership and changes the
+	// answer for every unmounted path — including /api/auth/register when
+	// PASSWORD_REGISTRATION_ENABLED is off. What must stay true is that the
+	// registration path answers exactly what an invented path answers; the
+	// specific status is allowed to differ per deployment. The acceptance
+	// scenarios in tests/e2e/features/password_registration_flag.feature pin
+	// that parity, and tests/e2e/password_registration_flag_test.go builds its
+	// own echo instance, so it will NOT notice if this ordering changes.
+
 	// The in-app agent is independent of the MCP transport flag: with MCP
 	// disabled it still chats, just tool-less (the orchestrator degrades).
 	agentHandler := handlers.NewAgentHandler(orchestrator, logger)
