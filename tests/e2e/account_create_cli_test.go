@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,8 +67,20 @@ func TestAccountCreateCLI(t *testing.T) {
 var (
 	buildOnce   sync.Once
 	builtBinary string
+	buildDir    string
 	buildErr    error
 )
+
+// TestMain removes the directory the binary was built into. Without it every
+// run leaves an ~85 MB copy behind, which is invisible on an ephemeral CI
+// runner and accumulates on a developer's machine.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if buildDir != "" {
+		_ = os.RemoveAll(buildDir)
+	}
+	os.Exit(code)
+}
 
 // weosBinary builds the command under test once for the whole suite.
 func weosBinary() (string, error) {
@@ -77,6 +90,7 @@ func weosBinary() (string, error) {
 			buildErr = err
 			return
 		}
+		buildDir = dir
 		path := filepath.Join(dir, "weos")
 		cmd := exec.Command("go", "build", "-o", path, "./cmd/weos")
 		cmd.Dir = "../.."
@@ -170,7 +184,6 @@ func initAccountCreateScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the command exits with a failure$`, w.exitedWithFailure)
 	sc.Step(`^the command reports that the account already exists$`, w.reportedAlreadyExists)
 	sc.Step(`^the failure names the database as the reason$`, func() error { return w.failureNames("database") })
-	sc.Step(`^the failure names password support as the reason$`, func() error { return w.failureNames("password support") })
 	sc.Step(`^the store holds exactly one account for "([^"]*)"$`, w.storeHoldsExactlyOne)
 	sc.Step(`^no account exists for "([^"]*)"$`, w.noAccountExists)
 	sc.Step(`^the account for "([^"]*)" is presented as "([^"]*)"$`, w.accountPresentedAs)
@@ -284,9 +297,9 @@ func (w *accountCLIWorld) run(args []string, env []string, stdin string) error {
 
 	runErr := cmd.Run()
 	exitCode := 0
-	var exitErr *exec.ExitError
 	if runErr != nil {
-		if ok := asExitError(runErr, &exitErr); !ok {
+		var exitErr *exec.ExitError
+		if !errors.As(runErr, &exitErr) {
 			return fmt.Errorf("failed to run the command: %w", runErr)
 		}
 		exitCode = exitErr.ExitCode()
@@ -298,14 +311,6 @@ func (w *accountCLIWorld) run(args []string, env []string, stdin string) error {
 		args:     args,
 	}
 	return nil
-}
-
-func asExitError(err error, target **exec.ExitError) bool {
-	if e, ok := err.(*exec.ExitError); ok {
-		*target = e
-		return true
-	}
-	return false
 }
 
 func (w *accountCLIWorld) createArgs(email, displayName string) []string {
@@ -649,8 +654,6 @@ func (w *accountCLIWorld) cliHoldsSession(email string) error {
 
 // --- The store is already in use ---
 
-// seedTask puts unrelated data in the store, so a scenario can show the command
-// adds an account without disturbing what was already there.
 // contextForOwner builds the identity the given account acts under, so seeding
 // and reading agree about who owns what.
 func (w *accountCLIWorld) contextForOwner(email string) (context.Context, error) {
@@ -670,6 +673,8 @@ func (w *accountCLIWorld) contextForOwner(email string) (context.Context, error)
 	}), nil
 }
 
+// seedTask puts unrelated data in the store, so a scenario can show the command
+// adds an account without disturbing what was already there.
 func (w *accountCLIWorld) seedTask(name string) error {
 	ctx := context.Background()
 	if _, err := w.resourceTypeService.InstallPreset(ctx, "tasks", true); err != nil {

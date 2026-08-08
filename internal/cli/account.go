@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wepala/weos/v3/api/handlers"
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
 
 	authapp "github.com/akeemphilbert/pericarp/pkg/auth/application"
+	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 )
@@ -53,6 +58,7 @@ is meant for interactive use only.
 Running it again for an email that already exists reports that and succeeds, so
 it is safe on every restart and redeploy. It will not change an existing
 account's password.`,
+	Args:         cobra.NoArgs,
 	RunE:         runAccountCreate,
 	SilenceUsage: true,
 }
@@ -75,6 +81,22 @@ func init() {
 // creating the account so that "no password anywhere" fails before the store is
 // opened, rather than part-way through provisioning.
 func resolveAccountPassword(stdin io.Reader) (string, error) {
+	// Refuse rather than pick. The realistic mix-up is an operator shelling
+	// into a container whose entrypoint exported the variable, typing
+	// --password for a second account, and silently getting the entrypoint's
+	// password instead of the one they typed — discovered at first sign-in.
+	offered := 0
+	for _, supplied := range []bool{accountPasswordStdin, os.Getenv(passwordEnvVar) != "", accountPassword != ""} {
+		if supplied {
+			offered++
+		}
+	}
+	if offered > 1 {
+		return "", fmt.Errorf(
+			"more than one password supplied: choose one of %s, --password-stdin or --password",
+			passwordEnvVar)
+	}
+
 	if accountPasswordStdin {
 		raw, err := io.ReadAll(stdin)
 		if err != nil {
@@ -112,35 +134,83 @@ func runAccountCreate(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Refuse to guess which store to write to. config.Default() carries a
+	// "weos.db" fallback, which for a server means "start somewhere"; for this
+	// command it would mean minting the instance's only account into whatever
+	// directory the process happened to start in, reporting success, and
+	// exiting 0 — leaving a deployment that looks provisioned and has no
+	// account. An entrypoint's DSN is never implicit, so neither is this.
+	if os.Getenv("DATABASE_DSN") == "" && databaseDSN == "" {
+		return errors.New(
+			"no database specified: set DATABASE_DSN or pass --database-dsn " +
+				"(this command will not fall back to the built-in default, so an account " +
+				"is never created in a store nobody asked for)")
+	}
+
 	appCfg := GetConfig().Config
 
 	var authService authapp.AuthenticationService
+	var credentialRepo authrepos.CredentialRepository
+	var passwordRepo authrepos.PasswordCredentialRepository
 
+	// Built directly rather than through StartContainer (internal/cli/di.go),
+	// which exposes only the resource services and installs a signal handler a
+	// one-shot command does not want. The full module is deliberate: it is what
+	// makes an account minted here indistinguishable from a registered one.
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(appCfg, presets.NewDefaultRegistry()),
-		fx.Populate(&authService),
+		fx.Populate(&authService, &credentialRepo, &passwordRepo),
 	)
 
-	startCtx, startCancel := context.WithTimeout(cmd.Context(), fx.DefaultTimeout)
+	// Generously longer than fx's default. Starting the module runs the
+	// migrations, the built-in resource types and the projection tables, not
+	// just a connection — against a cold database that can outlast 15s, and a
+	// timeout here crash-loops a container rather than reporting anything
+	// useful.
+	startCtx, startCancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 	defer startCancel()
 	if err := app.Start(startCtx); err != nil {
-		// Named as a database problem on purpose: this runs from an entrypoint
-		// under `set -e`, and the operator needs to know the boot stopped
-		// because the store would not open. The DSN is left out — it can carry
-		// credentials of its own.
-		//
 		// Reported as the root cause rather than the whole chain: fx describes
 		// a failure by naming every constructor it could not build, which is
 		// several hundred characters of dependency graph wrapped around one
-		// sentence about the file. In a container log that buries the answer.
-		return fmt.Errorf("failed to open the database: %w", rootCause(err))
+		// sentence about what actually broke. In a container log that buries
+		// the answer.
+		//
+		// Not called a database failure, though the database is the usual
+		// cause: any wiring failure arrives here, and branding them all as the
+		// store sends an operator looking in the wrong place. The DSN is
+		// scrubbed because drivers routinely echo the connection string back,
+		// and a Postgres one carries a password.
+		return fmt.Errorf("failed to start (check DATABASE_DSN): %s",
+			redactDSN(rootCause(err).Error(), appCfg.DatabaseDSN))
 	}
 	defer func() {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
 		defer stopCancel()
 		_ = app.Stop(stopCtx)
 	}()
+
+	// Look the email up across every provider before registering, because
+	// RegisterPassword's own guard only looks for a *password* credential. An
+	// email that already signs in through Google sails past it and gets a
+	// second, unlinked agent and personal account — silently, on some later
+	// boot, once OAuth is added for an address this command already owns. This
+	// runs on every start forever, so "later" is not hypothetical.
+	normalized := strings.ToLower(email)
+	existing, lookupErr := credentialRepo.FindByEmail(cmd.Context(), normalized)
+	if lookupErr != nil {
+		return fmt.Errorf("failed to check whether %s already has an account: %w", email, rootCause(lookupErr))
+	}
+	if len(existing) > 0 {
+		if err := verifyUsable(cmd.Context(), passwordRepo, existing, email); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+			"Account already exists for %s (via %s); leaving it unchanged\n",
+			email, strings.Join(providersOf(existing), ", "))
+		return nil
+	}
 
 	displayName := handlers.DefaultDisplayName(email, accountDisplayName)
 
@@ -151,6 +221,72 @@ func runAccountCreate(cmd *cobra.Command, _ []string) error {
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), report)
 	return nil
+}
+
+// verifyUsable makes sure "already exists" means "and can be signed in to".
+//
+// Registering writes the credential row and the password row as two separate,
+// untransacted saves. A crash or a full disk between them leaves an email that
+// looks registered and has no password: the first run stops the boot correctly,
+// but every run after it finds the credential, reports "already exists", and
+// exits 0 — so the instance comes up reporting itself provisioned forever while
+// nobody can sign in, and no later run can repair it, because they all take
+// this same branch.
+//
+// Checking only for the row's presence keeps the deliberate no-reset behaviour
+// intact: a rotated password still changes nothing. What it refuses to do is
+// call a half-written account "already there".
+func verifyUsable(
+	ctx context.Context,
+	passwordRepo authrepos.PasswordCredentialRepository,
+	existing []*authentities.Credential,
+	email string,
+) error {
+	for _, credential := range existing {
+		if credential.Provider() != authentities.ProviderPassword {
+			continue
+		}
+		stored, err := passwordRepo.FindByCredentialID(ctx, credential.GetID())
+		if err != nil {
+			return fmt.Errorf("failed to check the stored password for %s: %w", email, rootCause(err))
+		}
+		if stored == nil {
+			return fmt.Errorf(
+				"%s has a password credential with no stored password — the account was "+
+					"half-written by an earlier interrupted run and nobody can sign in to it. "+
+					"Remove the credential for %s and run this again", email, email)
+		}
+	}
+	return nil
+}
+
+// providersOf names the ways an email can already sign in, so the message says
+// "via google" rather than leaving an operator to wonder why an account they
+// never created with this command is reported as already there.
+func providersOf(credentials []*authentities.Credential) []string {
+	seen := map[string]bool{}
+	providers := []string{}
+	for _, credential := range credentials {
+		provider := credential.Provider()
+		if provider == "" || seen[provider] {
+			continue
+		}
+		seen[provider] = true
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	return providers
+}
+
+// redactDSN keeps a connection string out of a message that a driver may have
+// built from one. Matching on the whole DSN is deliberately narrow: it removes
+// what we know we configured without trying to guess at every shape a driver
+// might print.
+func redactDSN(message, dsn string) string {
+	if dsn == "" {
+		return message
+	}
+	return strings.ReplaceAll(message, dsn, "[DATABASE_DSN]")
 }
 
 // rootCause unwraps to the innermost error, which is the sentence that says
@@ -184,7 +320,15 @@ func describeRegisterOutcome(email, password string, err error) (report string, 
 		if password == "" {
 			return s
 		}
-		return strings.ReplaceAll(s, password, "[redacted]")
+		s = strings.ReplaceAll(s, password, "[redacted]")
+		// Go code formats values with %q as readily as %v, and the escaped
+		// rendering of a password containing a quote or a backslash is a
+		// different string from the password — so a plain substring replace
+		// walks straight past it, leaving the secret perfectly readable.
+		if escaped := strings.Trim(strconv.Quote(password), `"`); escaped != password {
+			s = strings.ReplaceAll(s, escaped, "[redacted]")
+		}
+		return s
 	}
 
 	switch {

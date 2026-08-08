@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -74,19 +75,36 @@ func TestDescribeRegisterOutcome(t *testing.T) {
 // the password in it. The mapping is not given the password at all, so this
 // fails the moment someone changes that.
 func TestDescribeRegisterOutcomeNeverRepeatsThePassword(t *testing.T) {
-	const password = "correct-horse-battery-staple"
+	// Deliberately full of characters %q escapes. A password of plain letters
+	// and dashes would let this test pass while the escaped rendering of a
+	// realistic password sat in the message untouched: `he "said" hi` formatted
+	// with %q is a different string from the password itself, so a substring
+	// replace walks straight past it.
+	passwords := []string{
+		"correct-horse-battery-staple",
+		`he "said" hi`,
+		`back\slash`,
+		"tab\there",
+	}
 
-	for _, err := range []error{
-		nil,
-		authapp.ErrEmailAlreadyTaken,
-		authapp.ErrPasswordSupportNotConfigured,
-		// The realistic leak: a lower layer that put the password in its own
-		// error, which this mapping would otherwise pass straight through.
-		fmt.Errorf("hash password %q: bad cost", password),
-	} {
-		report, _ := describeRegisterOutcome("ops@harborlegal.example", password, err)
-		if strings.Contains(report, password) {
-			t.Errorf("the password appeared in the report for %v: %s", err, report)
+	for _, password := range passwords {
+		for _, err := range []error{
+			nil,
+			authapp.ErrEmailAlreadyTaken,
+			authapp.ErrPasswordSupportNotConfigured,
+			// The realistic leak: a lower layer that put the password in its
+			// own error, which this mapping would otherwise pass through.
+			fmt.Errorf("hash password %v: bad cost", password),
+			fmt.Errorf("hash password %q: bad cost", password),
+		} {
+			report, _ := describeRegisterOutcome("ops@harborlegal.example", password, err)
+			if strings.Contains(report, password) {
+				t.Errorf("the password %q appeared in the report for %v: %s", password, err, report)
+			}
+			if escaped := strings.Trim(strconv.Quote(password), `"`); escaped != password &&
+				strings.Contains(report, escaped) {
+				t.Errorf("the escaped password %q appeared in the report for %v: %s", escaped, err, report)
+			}
 		}
 	}
 }

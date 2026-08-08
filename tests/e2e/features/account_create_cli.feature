@@ -15,13 +15,24 @@ Feature: Minting an account from the command line
   by that one number. "The account is already there" is the normal state of every
   restart after the first, and must exit 0 and change nothing — including the
   existing account's password, which this command never rewrites, so a rotated
-  variable quietly does nothing rather than locking the instance out of itself. "The
-  store would not open" is a real failure, and must exit non-zero so the boot stops
-  rather than continuing into a half-provisioned instance.
+  variable quietly does nothing rather than locking the instance out of itself. A
+  real failure must exit non-zero so the boot stops rather than continuing into a
+  half-provisioned instance.
 
-  A store that will not open is the only such failure reachable through the real
-  command. The other one the code guards against — password support being
-  unavailable — cannot be produced by any configuration, because the
+  "Already there" is judged by the email, not by how that email signs in. An address
+  that arrived through Google is already a person on this instance, and registering a
+  password identity for it would hand one human two unlinked agents — which nobody
+  would notice, because it can only happen on some later restart after OAuth was
+  added for an address this command had already provisioned.
+
+  Two failures are reachable through the real command, and both are silent-success
+  traps rather than crashes. A store that will not open is the obvious one. The
+  quieter one is a database that was never specified: the command must refuse rather
+  than fall back to a default file, because provisioning "an" instance is meaningless
+  — the whole point is provisioning one particular store, and an instance whose DSN
+  went missing would otherwise report success while its account went somewhere
+  nobody will look. The third failure the code guards against — password support
+  being unavailable — cannot be produced by any configuration, because the
   password-credential repository is wired unconditionally (application/module.go,
   application/auth_providers.go). A scenario for it could only be staged by handing
   the command a deliberately crippled service, which would demonstrate the harness
@@ -93,11 +104,29 @@ Feature: Minting an account from the command line
     And the command reports that the account already exists
     And the store holds exactly one account for "ops@harborlegal.example"
 
+  @wip
+  Scenario: An email that already signs in another way is recognised, not duplicated
+    Given a WeOS store where "ops@harborlegal.example" already signs in through Google
+    When the operator creates an account for "ops@harborlegal.example" with password "correct-horse-battery-staple"
+    Then the command exits successfully
+    And the command reports that the account already exists, naming Google as how it signs in
+    And the store holds exactly one account for "ops@harborlegal.example"
+    And "ops@harborlegal.example" cannot sign in with password "correct-horse-battery-staple"
+
   Scenario: A store that cannot be opened stops the boot
     Given a WeOS store whose database cannot be opened
     When the operator creates an account for "ops@harborlegal.example" with the password supplied through the environment
     Then the command exits with a failure
     And the failure names the database as the reason
+
+  @wip
+  Scenario: An unspecified database stops the boot rather than provisioning somewhere arbitrary
+    Given a WeOS instance with no database configured
+    When the operator creates an account for "ops@harborlegal.example" with the password supplied through the environment
+    Then the command exits with a failure
+    And the failure says no database was specified and names how to supply one
+    And no account is created in any store
+    And the command leaves no database behind in the directory it ran from
 
   Scenario: A missing password creates nothing rather than an account anyone can open
     Given a WeOS store with no accounts, and no server running against it
