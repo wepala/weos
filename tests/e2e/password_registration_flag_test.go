@@ -41,7 +41,7 @@ import (
 // never had answers. That is deliberately not a fixed status. What an unknown
 // path returns varies by deployment — a bare 404 here, 401 with a Bearer
 // challenge on an instance with OAuth configured — and singling the
-// registration path out with a status its neighbours don't return would give it
+// registration path out with a status its neighbors don't return would give it
 // away just as loudly as refusing would.
 //
 // So these tests drive real HTTP against an echo instance mounted through
@@ -298,7 +298,7 @@ func (w *passwordAuthWorld) boot(signIn bool, registration *bool) error {
 	// Reproducing that by declaring three throwaway groups here would be
 	// copying an accident. Attaching the middleware to the routes themselves
 	// leaves the catch-all as api.Use registered it and reproduces both
-	// observed behaviours exactly, which is what these scenarios rest on.
+	// observed behaviors exactly, which is what these scenarios rest on.
 	var guards []echo.MiddlewareFunc
 	if cfg.AuthEnabled() {
 		guards = []echo.MiddlewareFunc{
