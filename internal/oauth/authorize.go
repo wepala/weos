@@ -120,7 +120,6 @@ func Authorize(
 	sessionStore sessions.Store,
 	clientRepo ClientRepository,
 	codeRepo AuthCodeRepository,
-	accountRepo authrepos.AccountRepository,
 	credentialRepo authrepos.CredentialRepository,
 	logger entities.Logger,
 	baseURL string,
@@ -193,7 +192,7 @@ func Authorize(
 		// branch below — a session is not a reason to skip the proof key.
 
 		// Already authenticated? Then there is nobody left to authenticate.
-		if identity := resolveSession(c, sessionManager, authService, accountRepo, logger); identity != nil {
+		if identity := resolveSession(c, sessionManager, authService); identity != nil {
 			// The allowlist decides who may reach this instance, not which door
 			// they came through. It is enforced on the Google path in the
 			// callback, so without this an instance that also offers password
@@ -325,8 +324,6 @@ func resolveSession(
 	c echo.Context,
 	sessionManager session.SessionManager,
 	authService authapp.AuthenticationService,
-	accountRepo authrepos.AccountRepository,
-	logger entities.Logger,
 ) *sessionIdentity {
 	if sessionManager == nil {
 		return nil
@@ -341,20 +338,27 @@ func resolveSession(
 		return nil
 	}
 
-	accountID := info.AccountID
-	if accountID == "" {
-		accounts, lookupErr := accountRepo.FindByMember(ctx, info.AgentID)
-		if lookupErr != nil {
-			// The session is good; only the account is unknown. Fall through
-			// with none rather than refusing — the callback path tolerates the
-			// same shape.
-			logger.Warn(ctx, "oauth authorize: account lookup failed for session",
-				"agent", info.AgentID, "error", lookupErr)
-		} else if len(accounts) > 0 {
-			accountID = accounts[0].GetID()
-		}
+	// A session that names no account is treated as no session at all.
+	//
+	// There used to be a fallback here that looked memberships up and took the
+	// first one. It cannot be right: someone in several accounts gets whichever
+	// the query returns first, not the one they signed in to, and the token
+	// minted from this identity then acts somewhere they never chose.
+	//
+	// Refusing rather than guessing is not automatic, because ValidateSession
+	// does NOT reject an unscoped session — it only runs its membership and
+	// deactivation checks when the session names an account, so an unscoped
+	// session validates cleanly and arrives here looking healthy. RequireAuth
+	// is what refuses it on the ordinary API, with unscoped_session. Without
+	// this check, a cookie that every admin page rejects would still mint an
+	// authorization code bound to no account, and the access token exchanged
+	// from it would act nowhere — the very symptom this change exists to
+	// remove, moved onto the connector rail. Taking the same stance sends the
+	// person to sign in, which is what produces a scoped session.
+	if info.AccountID == "" {
+		return nil
 	}
-	return &sessionIdentity{agentID: info.AgentID, accountID: accountID}
+	return &sessionIdentity{agentID: info.AgentID, accountID: info.AccountID}
 }
 
 // issueCodeForSession mints an authorization code already bound to an identity

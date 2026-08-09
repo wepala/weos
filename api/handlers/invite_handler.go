@@ -284,6 +284,15 @@ func (h *InviteHandler) Accept(c echo.Context) error {
 		case errors.Is(err, authapp.ErrInviteNotFound):
 			h.logger.Warn(ctx, "invite not found", "error", err)
 			return respondError(c, http.StatusNotFound, "invite not found")
+		case errors.Is(err, authapp.ErrAccountDeactivated):
+			// The invite and the person are both fine; the account they were
+			// invited into is suspended. Without this arm it lands in default
+			// and answers 500, which reads as an instance fault and invites a
+			// retry that cannot ever work. Conflict says the same thing the
+			// no-longer-pending arm says: the invite is real but the state it
+			// points at will not accept it.
+			h.logger.Warn(ctx, "invite into a deactivated account", "error", err)
+			return respondError(c, http.StatusConflict, "the account for this invite is not available")
 		default:
 			h.logger.Error(ctx, "failed to accept invite", "error", err)
 			return respondError(c, http.StatusInternalServerError, "failed to accept invite")

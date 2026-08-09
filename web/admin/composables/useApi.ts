@@ -61,6 +61,9 @@ export function unwrapEnvelope<T>(raw: unknown): T {
 }
 
 export function useApi() {
+  // 401 handling deliberately lives in the session-refusal plugin, not here:
+  // several composables call $fetch directly, so a wrapper cannot see every
+  // refusal. See plugins/session-refusal.client.ts.
   async function request<T>(
     url: string,
     options?: RequestInit,

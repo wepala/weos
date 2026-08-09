@@ -195,6 +195,16 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     Then the person is sent back to Claude with an authorization code
     And the person is not asked to sign in a second time
 
+  Scenario: A session that names no account is treated as no session
+    Given a demo instance where password sign-in is enabled and no Google provider is configured
+    And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
+    And Claude is registered as a connector on that instance
+    And the person adding the connector signed in as "demo@harborlegal.example" and their session names no account
+    When Claude asks the instance to authorize the connector
+    Then the person is sent to a sign-in page on this instance
+    And Claude is not sent an authorization code
+    And the instance does not report a failure of its own
+
   Scenario: An expired session is treated as no session
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
