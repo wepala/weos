@@ -56,6 +56,37 @@
       >
         Sign in again
       </button>
+      <!--
+        Always present, whatever the code. Without it the screen variant has
+        no actions at all for two of the three refusals: reload re-runs the
+        same failing call and shows the same screen, so the only way out is
+        clearing cookies or typing a URL. Signing out is not the remedy for
+        any of these refusals, but it is a way to leave, and it works even
+        while the session is refused because the logout route is mounted
+        outside the guarded group.
+      -->
+      <button
+        type="button"
+        class="session-refusal__action"
+        data-testid="session-refusal-signout"
+        @click="signOut"
+      >
+        Sign out
+      </button>
+      <!--
+        Dismiss is offered only on the banner, where the person can see for
+        themselves that the page behind it works. The screen variant has no
+        page behind it to judge.
+      -->
+      <button
+        v-if="variant === 'banner'"
+        type="button"
+        class="session-refusal__action"
+        data-testid="session-refusal-dismiss"
+        @click="clearRefusal"
+      >
+        Dismiss
+      </button>
     </div>
   </div>
 </template>
@@ -75,6 +106,14 @@ function retry() {
 
 function signInAgain() {
   window.location.href = '/login'
+}
+
+const { clearRefusal } = useSessionRefusal()
+const { logout } = useAuth()
+
+function signOut() {
+  clearRefusal()
+  logout()
 }
 </script>
 
