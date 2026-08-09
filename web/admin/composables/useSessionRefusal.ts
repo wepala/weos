@@ -80,6 +80,17 @@ export function useSessionRefusal() {
   const refusal = useState<SessionRefusal | null>('session-refusal', () => null)
 
   function noteRefusal(code: RefusalCode) {
+    // A suspension is not downgraded to "you have no account".
+    //
+    // Once the account is suspended, signing in again resolves nothing, so the
+    // next refusal is unscoped_session — which is true but says less: it drops
+    // the fact that an operator can fix this by reactivating the account, and
+    // it reads as a permanent dead end. The more specific explanation stays
+    // until this page session ends, and a reload clears it, so the notice can
+    // never outlive the suspension itself.
+    if (refusal.value?.code === 'account_deactivated' && code === 'unscoped_session') {
+      return
+    }
     refusal.value = { code, ...REFUSALS[code] }
   }
 

@@ -26,7 +26,7 @@ Feature: How the admin answers a refused session
     Given the API is scripted to refuse the session with the code "unscoped_session"
     When the user opens the persons page
     And the user opens the users page
-    And the user reloads the page
+    And the user reloads the admin
     Then the user is not sent to the sign-in page
     And the page explains they have no account to work in
 
