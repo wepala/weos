@@ -121,9 +121,11 @@ func Authorize(
 	clientRepo ClientRepository,
 	codeRepo AuthCodeRepository,
 	accountRepo authrepos.AccountRepository,
+	credentialRepo authrepos.CredentialRepository,
 	logger entities.Logger,
 	baseURL string,
 	oauthProviderConfigured bool,
+	allowedEmails []string,
 ) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clientID := c.QueryParam("client_id")
@@ -192,6 +194,15 @@ func Authorize(
 
 		// Already authenticated? Then there is nobody left to authenticate.
 		if identity := resolveSession(c, sessionManager, authService, accountRepo, logger); identity != nil {
+			// The allowlist decides who may reach this instance, not which door
+			// they came through. It is enforced on the Google path in the
+			// callback, so without this an instance that also offers password
+			// sign-in would hand a code to someone the allowlist excludes —
+			// a way around the gate rather than a second gate.
+			if !sessionAllowed(c, credentialRepo, identity, allowedEmails, logger) {
+				return redirectAuthError(c, redirectURI,
+					"access_denied", "this account is not permitted on this instance", state)
+			}
 			return issueCodeForSession(c, codeRepo, logger, identity, authorizationRequest{
 				clientID:            clientID,
 				redirectURI:         redirectURI,
@@ -385,6 +396,16 @@ func issueCodeForSession(
 		return redirectAuthError(c, req.redirectURI, "server_error", "", req.state)
 	}
 
+	// Bind the identity through the same call the callback uses, which is also
+	// what moves the row from pending to issued. The token endpoint only
+	// accepts issued codes, so a row left pending would be minted, handed over,
+	// and then refused at exchange.
+	if err := codeRepo.UpdateIdentity(ctx, authCode.Code, identity.agentID, identity.accountID); err != nil {
+		logger.Error(ctx, "oauth authorize: identity binding failed",
+			"code_hash", MaskCode(authCode.Code), "error", err)
+		return redirectAuthError(c, req.redirectURI, "server_error", "", req.state)
+	}
+
 	logger.Info(ctx, "oauth authorization code issued from session",
 		"agent", identity.agentID, "client", req.clientID)
 
@@ -400,6 +421,38 @@ func issueCodeForSession(
 	redirectURL.RawQuery = q.Encode()
 
 	return c.Redirect(http.StatusFound, redirectURL.String())
+}
+
+// sessionAllowed applies the instance's identity allowlist to a session-based
+// authorization. An empty allowlist admits everyone, exactly as it does on the
+// Google path.
+func sessionAllowed(
+	c echo.Context,
+	credentialRepo authrepos.CredentialRepository,
+	identity *sessionIdentity,
+	allowedEmails []string,
+	logger entities.Logger,
+) bool {
+	if len(allowedEmails) == 0 {
+		return true
+	}
+	ctx := c.Request().Context()
+	credentials, err := credentialRepo.FindByAgent(ctx, identity.agentID)
+	if err != nil {
+		// Refuse rather than guess: an allowlist that cannot be checked is not
+		// an allowlist that passes.
+		logger.Error(ctx, "oauth authorize: could not read credentials for allowlist check",
+			"agent", identity.agentID, "error", err)
+		return false
+	}
+	for _, credential := range credentials {
+		if emailAllowed(strings.ToLower(credential.Email()), allowedEmails) {
+			return true
+		}
+	}
+	logger.Warn(ctx, "oauth authorize: session refused by the identity allowlist",
+		"agent", identity.agentID)
+	return false
 }
 
 // signInURL points at this instance's own sign-in, carrying the authorization

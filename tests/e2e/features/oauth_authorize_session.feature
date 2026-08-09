@@ -57,7 +57,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
 
   # --- The instance is an authorization server at all ---
 
-  @wip
   Scenario: A password-only instance tells a connector how to authorize
     Given a demo instance where password sign-in is enabled, no Google provider is configured, and dynamic client registration is on
     When a connector asks the instance how to authorize against it
@@ -65,7 +64,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     And it offers to register connectors on the spot
     And it requires the S256 proof-key method
 
-  @wip
   Scenario: A connector registers itself on a password-only instance
     Given a demo instance where password sign-in is enabled, no Google provider is configured, and dynamic client registration is on
     When Claude registers itself as a connector with the redirect URI "https://claude.ai/api/mcp/auth_callback"
@@ -73,7 +71,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     And the connector is issued its own client identifier
     And the redirect URI it registered is the one the instance will send people back to
 
-  @wip
   Scenario: With dynamic registration off, a connector has no way to register itself
     Given a demo instance where password sign-in is enabled, no Google provider is configured, and dynamic client registration is off
     When a connector asks the instance how to authorize against it
@@ -83,7 +80,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
 
   # --- A request that already carries a session ---
 
-  @wip
   Scenario: A signed-in person's authorization comes straight back to the connector
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -94,7 +90,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     And the state Claude sent is returned with it
     And the person is never sent to Google
 
-  @wip
   Scenario: The code from a signed-in authorization exchanges for a working access token
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -105,7 +100,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     Then Claude receives an access token
     And the token is issued for the scope Claude asked for
 
-  @wip
   Scenario: The access token acts as the account that was signed in
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -116,7 +110,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     And Claude exchanges the authorization code it received, presenting the proof key it started with
     Then the access token acts as "counsel@harborlegal.example"
 
-  @wip
   Scenario: A code minted from a session can only be exchanged once
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -128,7 +121,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     Then the second exchange is refused
     And no second access token is issued
 
-  @wip
   Scenario: A code minted from a session still requires the proof key it was minted with
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -139,7 +131,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     Then the exchange is refused
     And no access token is issued
 
-  @wip
   Scenario Outline: A signed-in person gets no code for an authorization the protocol rejects
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -156,7 +147,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
       | with an unhashed proof key                    | invalid_request           |
       | asking for a scope this instance never issues | invalid_scope             |
 
-  @wip
   Scenario: An unknown connector is refused in place even for a signed-in person
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -166,7 +156,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     And it reports that the client is not one it knows
     And no authorization code is issued
 
-  @wip
   Scenario: A redirect URI the connector never registered is refused in place, not redirected to
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -177,7 +166,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     And the person is not sent to the unregistered redirect URI
     And no authorization code is issued
 
-  @wip
   Scenario: An unknown connector is refused in place rather than sent to sign in
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the person adding the connector is not signed in
@@ -187,7 +175,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
 
   # --- A request that carries no session ---
 
-  @wip
   Scenario: An authorization with no session goes to the instance's own sign-in
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -198,7 +185,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     And the person is not sent to Google
     And Claude is not sent an authorization code
 
-  @wip
   Scenario: Signing in returns the person to the authorization they interrupted
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -209,7 +195,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     Then the person is sent back to Claude with an authorization code
     And the person is not asked to sign in a second time
 
-  @wip
   Scenario: An expired session is treated as no session
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -220,7 +205,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     And Claude is not sent an authorization code
     And the instance does not report a failure of its own
 
-  @wip
   Scenario: A browser that has signed out is treated as no session
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -230,7 +214,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     Then the person is sent to a sign-in page on this instance
     And Claude is not sent an authorization code
 
-  @wip
   Scenario: A session cookie the instance cannot read is treated as no session
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -243,7 +226,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
 
   # --- The instance already in production must not regress ---
 
-  @wip
   Scenario: On a Google instance an unauthenticated authorization still ends at Google
     Given an instance where Google sign-in is configured and the allowlist names "ops@harborlegal.example"
     And Claude is registered as a connector on that instance
@@ -252,7 +234,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     Then the person ends up at Google's sign-in
     And Claude is not sent an authorization code yet
 
-  @wip
   Scenario: On a Google instance an allowlisted person who is already signed in is not sent to Google again
     Given an instance where Google sign-in is configured and the allowlist names "ops@harborlegal.example"
     And Claude is registered as a connector on that instance
@@ -261,7 +242,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     Then the person is sent back to Claude with an authorization code
     And the person is never sent to Google
 
-  @wip
   Scenario: An allowlisted instance is not opened up by signing in another way
     Given an instance where Google sign-in is configured and the allowlist names "ops@harborlegal.example"
     And password sign-in is also enabled on that instance
@@ -274,7 +254,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
 
   # --- What the connector is for ---
 
-  @wip
   Scenario: A connector authorized on a password-only instance can list the instance's tools
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -282,7 +261,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     When Claude asks the instance which tools it offers
     Then the instance lists the tools it offers
 
-  @wip
   Scenario: A connector authorized on a password-only instance can call a tool
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
@@ -290,7 +268,6 @@ Feature: Authorizing an MCP connector against the instance's own sign-in
     When Claude creates the task "File the quarterly compliance report" through the instance's tools
     Then the task "File the quarterly compliance report" is one of the demo account's tasks
 
-  @wip
   Scenario: Two people who add the demo connector share the one demo identity
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the bootstrap account "demo@harborlegal.example" with password "correct-horse-battery-staple"
