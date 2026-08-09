@@ -979,6 +979,12 @@ func (w *accountScopedWorld) recordedSessionIsUnscoped() error {
 // stageSession makes a session directly, so a scenario can hold one shaped in a
 // way no sign-in would produce today — unscoped, or naming an account the
 // person is about to lose.
+//
+// It deliberately does NOT pass AccountAlreadyVerified. That option is only
+// honest on a sign-in path that resolved the account itself; here the account
+// came from a lookup in this harness, so vouching for it would ask pericarp to
+// trust a claim the test made up, and a staging mistake would go unnoticed.
+// Letting the membership check run means a wrongly staged session fails loudly.
 func (w *accountScopedWorld) stageSession(email, accountID string) error {
 	p, ok := w.people[email]
 	if !ok {
@@ -993,7 +999,7 @@ func (w *accountScopedWorld) stageSession(email, accountID string) error {
 		return fmt.Errorf("no credential for %q to build a session from", email)
 	}
 	authSession, err := w.authService.CreateSession(ctx, p.agentID, accountID, creds[0].GetID(),
-		"127.0.0.1", "acceptance", time.Hour, authapp.AccountAlreadyVerified())
+		"127.0.0.1", "acceptance", time.Hour)
 	if err != nil {
 		return fmt.Errorf("could not stage a session for %q: %w", email, err)
 	}
@@ -1061,7 +1067,7 @@ func (w *accountScopedWorld) sessionHasSince(email, what string) error {
 			return fmt.Errorf("no credential for %q", email)
 		}
 		expired, err := w.authService.CreateSession(context.Background(), p.agentID, p.accountID,
-			creds[0].GetID(), "127.0.0.1", "acceptance", -time.Hour, authapp.AccountAlreadyVerified())
+			creds[0].GetID(), "127.0.0.1", "acceptance", -time.Hour)
 		if err != nil {
 			return fmt.Errorf("could not stage an expired session: %w", err)
 		}
