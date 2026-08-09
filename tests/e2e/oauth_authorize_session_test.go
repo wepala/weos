@@ -420,11 +420,6 @@ func (w *oauthWorld) fetchDiscovery() error {
 
 // --- sessions ---
 
-func (w *oauthWorld) signIn(email, password string) (*http.Response, error) {
-	body, _ := json.Marshal(map[string]string{"email": email, "password": password})
-	return w.client.Post(w.server.URL+"/api/auth/password-login", "application/json", strings.NewReader(string(body)))
-}
-
 // signedInAs gives the person a live session for that account.
 //
 // Deliberately not routed through the password endpoint. How someone signed in
