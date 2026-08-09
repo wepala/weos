@@ -338,15 +338,26 @@ func resolveSession(
 		return nil
 	}
 
-	// The session carries the account it was scoped to at sign-in, and that is
-	// the only account this identity may act in. There used to be a fallback
-	// here that looked memberships up and took the first one whenever the
-	// session named none. It cannot be right: someone who belongs to several
-	// accounts gets whichever the query returns first, which is not the one
-	// they signed in to, and the token minted from this identity then acts
-	// somewhere they never chose. A session with no account is now refused
-	// everywhere else, so guessing here would make this the one path that
-	// quietly re-scopes it.
+	// A session that names no account is treated as no session at all.
+	//
+	// There used to be a fallback here that looked memberships up and took the
+	// first one. It cannot be right: someone in several accounts gets whichever
+	// the query returns first, not the one they signed in to, and the token
+	// minted from this identity then acts somewhere they never chose.
+	//
+	// Refusing rather than guessing is not automatic, because ValidateSession
+	// does NOT reject an unscoped session — it only runs its membership and
+	// deactivation checks when the session names an account, so an unscoped
+	// session validates cleanly and arrives here looking healthy. RequireAuth
+	// is what refuses it on the ordinary API, with unscoped_session. Without
+	// this check, a cookie that every admin page rejects would still mint an
+	// authorization code bound to no account, and the access token exchanged
+	// from it would act nowhere — the very symptom this change exists to
+	// remove, moved onto the connector rail. Taking the same stance sends the
+	// person to sign in, which is what produces a scoped session.
+	if info.AccountID == "" {
+		return nil
+	}
 	return &sessionIdentity{agentID: info.AgentID, accountID: info.AccountID}
 }
 

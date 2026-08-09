@@ -163,6 +163,7 @@ func initOAuthAuthorizeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the person adding the connector is signed in as "([^"]*)"$`, w.signedInAs)
 	sc.Step(`^the person adding the connector is not signed in$`, func() error { return nil })
 	sc.Step(`^the person adding the connector signed in as "([^"]*)" and their session has since expired$`, w.signedInWithExpiredSession)
+	sc.Step(`^the person adding the connector signed in as "([^"]*)" and their session names no account$`, w.signedInWithUnscopedSession)
 	sc.Step(`^the person adding the connector signed in as "([^"]*)" and then signed out, keeping the cookie they were left with$`, w.signedInThenSignedOut)
 	sc.Step(`^the person adding the connector carries a session cookie this instance cannot read$`, w.carriesUnreadableCookie)
 
@@ -460,6 +461,33 @@ func (w *oauthWorld) signedInAs(email string) error {
 		SessionID: authSession.GetID(),
 		AgentID:   creds[0].AgentID(),
 		AccountID: accountID,
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+}
+
+// signedInWithUnscopedSession builds a live, valid session that names no
+// account — the shape every row written before sessions carried one still has.
+//
+// It is worth being explicit about why this is not simply refused upstream:
+// ValidateSession only runs its membership and deactivation checks when the
+// session names an account, so an unscoped session validates cleanly and
+// reaches the authorize handler looking healthy. RequireAuth refuses it on the
+// ordinary API; this rail has to take the same stance itself.
+func (w *oauthWorld) signedInWithUnscopedSession(email string) error {
+	ctx := context.Background()
+	creds, err := w.credRepo.FindByEmail(ctx, strings.ToLower(email))
+	if err != nil || len(creds) == 0 {
+		return fmt.Errorf("no account for %q to build an unscoped session from", email)
+	}
+	authSession, err := w.authService.CreateSession(ctx, creds[0].AgentID(), "", creds[0].GetID(),
+		"127.0.0.1", "acceptance", time.Hour)
+	if err != nil {
+		return fmt.Errorf("could not create an unscoped session: %w", err)
+	}
+	return w.setSessionCookie(session.SessionData{
+		SessionID: authSession.GetID(),
+		AgentID:   creds[0].AgentID(),
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
 	})
