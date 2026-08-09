@@ -286,7 +286,10 @@ Feature: A session knows which account it acts in
     When "broker@cedarrealty.example" signs in and marks a second pantry as the default one
     Then only the second pantry is marked as the default one
 
-  @pending-steps
+  # Needs the embedded graph: -tags oxigraph_embedded, CGO, and the static
+  # library `make fetch-oxigraph-lib` downloads. The normal test job does not
+  # build that, so these live behind their own tag rather than unwritten.
+  @requires-embedded-graph
   Scenario: A signed-in person can reach their own knowledge graph
     Given a per-account WeOS instance where password sign-in is enabled and requests are authenticated by their session
     And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
@@ -295,7 +298,10 @@ Feature: A session knows which account it acts in
     Then the knowledge graph answers rather than reporting it is not configured
     And the search results include the "project" resource "Q3 Roadmap"
 
-  @pending-steps
+  # Needs the embedded graph: -tags oxigraph_embedded, CGO, and the static
+  # library `make fetch-oxigraph-lib` downloads. The normal test job does not
+  # build that, so these live behind their own tag rather than unwritten.
+  @requires-embedded-graph
   Scenario: Two signed-in people reach their own graphs and not each other's
     Given a per-account WeOS instance where password sign-in is enabled and requests are authenticated by their session
     And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
@@ -307,7 +313,10 @@ Feature: A session knows which account it acts in
 
   # --- The token the sign-in hands back ---
 
-  @pending-steps
+  # Blocked by wepala/weos#474, like the two-account listing scenario: this one
+  # asserts the same exclusion. It also needs Bearer auth mounted, which a
+  # password-only instance does not mount today.
+  @pending-product
   Scenario: The token a sign-in returns names the account the session was scoped to
     Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
     And the account "Harbor Legal", whose owner "ops@harborlegal.example" signs in with password "correct-horse-battery-staple"
@@ -319,7 +328,6 @@ Feature: A session knows which account it acts in
     Then the projects they see include "Q3 Roadmap"
     And the projects they see exclude "Bridge upgrade"
 
-  @pending-steps
   Scenario: A sign-in that resolved no account hands back no token and sets no token cookie
     Given a WeOS instance where password sign-in is enabled and requests are authenticated by their session
     And "stranded@harborlegal.example" signs in with password "trellis-anchor-mango-9" and belongs to no account they can act in
@@ -331,7 +339,10 @@ Feature: A session knows which account it acts in
 
   # --- The connector path reads the same account ---
 
-  @pending-steps
+  # The same property is already proven by oauth_authorize_session.feature,
+  # "The access token acts as the account that was signed in", on the harness
+  # built for it. Re-staging the whole connector flow here would duplicate it.
+  @covered-elsewhere
   Scenario: An access token minted from a session acts in the account that session was scoped to
     Given a demo instance where password sign-in is enabled and no Google provider is configured
     And the account "Cedar Realty", which "counsel@harborlegal.example" was added to and signs in to with password "trellis-anchor-mango-9"

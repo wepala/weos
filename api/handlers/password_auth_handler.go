@@ -282,13 +282,24 @@ func (h *PasswordAuthHandler) completeAuth(
 	// On error, drop the token entirely so the client doesn't see a JWT in
 	// the response body that has no matching cookie — that mismatch makes
 	// "logged in but no cookie" states harder to reason about.
-	tokenString, issueErr := h.cfg.AuthService.IssueIdentityToken(
-		ctx, agent, accountID, authapp.AccountAlreadyVerified(),
-	)
-	if issueErr != nil {
-		h.cfg.Logger.Warn(ctx, "password auth: failed to issue identity token", "error", issueErr)
-		tokenString = ""
-	} else if tokenString != "" {
+	//
+	// A sign-in that resolved no account gets no token at all. Issuing one
+	// would mint a credential naming no account, and the session middleware
+	// refuses exactly that shape with unscoped_session — so the token could
+	// only ever be useful on a path that does not make the same check, which
+	// is the hole rather than the feature.
+	var tokenString string
+	if accountID != "" {
+		var issueErr error
+		tokenString, issueErr = h.cfg.AuthService.IssueIdentityToken(
+			ctx, agent, accountID, authapp.AccountAlreadyVerified(),
+		)
+		if issueErr != nil {
+			h.cfg.Logger.Warn(ctx, "password auth: failed to issue identity token", "error", issueErr)
+			tokenString = ""
+		}
+	}
+	if tokenString != "" {
 		http.SetCookie(w, &http.Cookie{
 			Name:     h.cfg.JWTCookieName,
 			Value:    tokenString,

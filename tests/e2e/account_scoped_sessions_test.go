@@ -60,18 +60,24 @@ import (
 // survived in production while every existing test stayed green. Anything
 // written on setupTestEnv's harness would pass with the bug present.
 //
-// The remaining scenarios in the feature file — per-account settings, the
-// knowledge graph, the token and the connector path — are tagged
-// @pending-steps and excluded below. Their steps are not written yet. The
-// exclusion is explicit rather than implicit: godog runs Strict, so an
-// unimplemented step fails the suite instead of quietly passing.
+// Four scenarios are excluded by tag, each for a reason stated on the scenario
+// itself rather than left to be inferred:
+//
+//	@pending-product          blocked by weos#474 — resource listing is gated
+//	                          per resource, not by the session's account
+//	@requires-embedded-graph  needs -tags oxigraph_embedded and its static
+//	                          library, which the normal test job does not build
+//	@covered-elsewhere        already proven by oauth_authorize_session.feature
+//
+// Everything else runs, and godog runs Strict, so an unimplemented step fails
+// the suite rather than passing quietly.
 func TestAccountScopedSessions(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: initAccountScopedSessionScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"features/account_scoped_sessions.feature"},
-			Tags:     "~@pending-steps && ~@pending-product",
+			Tags:     "~@pending-product && ~@requires-embedded-graph && ~@covered-elsewhere",
 			Strict:   true,
 			TestingT: t,
 		},
@@ -92,6 +98,8 @@ type person struct {
 	sessionID  string
 	cookie     string
 	accountID  string // the account their last sign-in reported
+	token      string // the identity token the sign-in handed back, if any
+	tokenCooki bool   // whether a JWT cookie came back alongside it
 	lastAnswer *capturedAnswer
 }
 
@@ -202,6 +210,11 @@ func initAccountScopedSessionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the sign-in succeeds$`, w.lastSucceeded)
 	sc.Step(`^the registration succeeds$`, w.lastSucceeded)
 	sc.Step(`^the sign-in reports which account it signed them in to$`, w.signInReportedAnAccount)
+	sc.Step(`^"([^"]*)" signs in with password "([^"]*)" and belongs to no account they can act in$`, w.strandedPerson)
+	sc.Step(`^the sign-in reports no account$`, w.signInReportedNoAccount)
+	sc.Step(`^the sign-in hands back no token$`, w.signInHandedBackNoToken)
+	sc.Step(`^no token cookie is set$`, w.noTokenCookie)
+	sc.Step(`^the instance records that the session it made has no account to act in$`, w.recordedSessionIsUnscoped)
 
 	// --- staged sessions ---
 	sc.Step(`^"([^"]*)" holds a session made before sessions recorded an account$`, w.holdsUnscopedSession)
@@ -813,6 +826,8 @@ func (w *accountScopedWorld) signsIn(email string) error {
 		p.cookie = sessionCookieHeader(res.Cookies())
 		p.accountID = reportedAccountID(raw)
 		p.sessionID = w.sessionIDBehind(p.cookie)
+		p.token = reportedToken(raw)
+		p.tokenCooki = hasCookieNamed(res.Cookies(), "pericarp_token")
 	}
 	return nil
 }
@@ -895,6 +910,71 @@ func (w *accountScopedWorld) signInReportedAnAccount() error {
 }
 
 // --- staged sessions --------------------------------------------------------
+
+// strandedPerson is someone whose only account has been taken away: they can
+// still prove who they are, but there is nothing for them to act in.
+func (w *accountScopedWorld) strandedPerson(email, password string) error {
+	p, err := w.personFor(email, password)
+	if err != nil {
+		return err
+	}
+	personal, err := w.accountRepo.FindPersonalByMember(context.Background(), p.agentID)
+	if err != nil {
+		return fmt.Errorf("could not read the personal account of %q: %w", email, err)
+	}
+	if personal != nil {
+		return w.deactivate(personal.GetID())
+	}
+	return nil
+}
+
+func (w *accountScopedWorld) signInReportedNoAccount() error {
+	p, err := w.currentPerson()
+	if err != nil {
+		return err
+	}
+	if p.accountID != "" {
+		return fmt.Errorf("the sign-in named account %q, but nothing should have resolved", p.accountID)
+	}
+	return nil
+}
+
+func (w *accountScopedWorld) signInHandedBackNoToken() error {
+	p, err := w.currentPerson()
+	if err != nil {
+		return err
+	}
+	if p.token != "" {
+		return fmt.Errorf("the sign-in handed back a token even though it resolved no account")
+	}
+	return nil
+}
+
+func (w *accountScopedWorld) noTokenCookie() error {
+	p, err := w.currentPerson()
+	if err != nil {
+		return err
+	}
+	if p.tokenCooki {
+		return fmt.Errorf("a token cookie was set for a session with no account to act in")
+	}
+	return nil
+}
+
+func (w *accountScopedWorld) recordedSessionIsUnscoped() error {
+	p, err := w.currentPerson()
+	if err != nil {
+		return err
+	}
+	if p.sessionID == "" {
+		return fmt.Errorf("no session was recorded for %q", p.email)
+	}
+	info, err := w.authService.ValidateSession(context.Background(), p.sessionID)
+	if err == nil && info != nil && info.AccountID != "" {
+		return fmt.Errorf("the stored session names account %q; nothing resolved one", info.AccountID)
+	}
+	return nil
+}
 
 // stageSession makes a session directly, so a scenario can hold one shaped in a
 // way no sign-in would produce today — unscoped, or naming an account the
@@ -1536,6 +1616,25 @@ func reportedAccountID(raw []byte) string {
 		return ""
 	}
 	return body.Data.Account.ID
+}
+
+func reportedToken(raw []byte) string {
+	var body struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(raw, &body)
+	return body.Data.Token
+}
+
+func hasCookieNamed(cookies []*http.Cookie, name string) bool {
+	for _, c := range cookies {
+		if c.Name == name && c.Value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func describe(a *capturedAnswer) string {
