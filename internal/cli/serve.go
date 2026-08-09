@@ -291,7 +291,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// OAuth 2.1 endpoints for MCP remote auth (unprotected — they handle their own auth).
 	// Registered via e.Pre() so they run before the SPA static middleware,
 	// which would otherwise intercept /.well-known/* and /oauth/* paths.
-	if appCfg.OAuthEnabled() {
+	//
+	// Gated on AuthEnabled rather than OAuthEnabled: this server is the
+	// authorization server, and it can act as one whenever it can authenticate
+	// a resource owner at all — which now includes an instance offering only
+	// password sign-in. Keyed to OAuthEnabled, such an instance mounted none of
+	// these routes, so a connector asking how to authorize against it got the
+	// SPA's static handler instead of the metadata, and could not discover it,
+	// register with it, or authorize at all.
+	if appCfg.AuthEnabled() {
 		clientRepo := weosoauth.NewClientRepository(db)
 		codeRepo := weosoauth.NewAuthCodeRepository(db)
 		refreshRepo := weosoauth.NewRefreshTokenRepository(db)
@@ -306,7 +314,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		prHandler := weosoauth.ProtectedResourceMetadata(baseURL, defaultResource, knownResources)
 		asHandler := weosoauth.AuthorizationServerMetadata(baseURL, appCfg.OAuth.DynamicRegistration)
 		regHandler := weosoauth.RegisterClient(clientRepo, appCfg.OAuth.DynamicRegistration)
-		authzHandler := weosoauth.Authorize(authService, sessionStore, clientRepo, codeRepo, logger, baseURL)
+		authzHandler := weosoauth.Authorize(authService, sessionManager, sessionStore,
+			clientRepo, codeRepo, accountRepo, logger, baseURL, appCfg.OAuthEnabled())
 		cbHandler := weosoauth.Callback(authService, sessionStore, codeRepo, accountRepo, logger, baseURL, appCfg.OAuth.AllowedEmails)
 		tokHandler := weosoauth.Token(jwtService, codeRepo, refreshRepo, agentRepo, accountRepo, logger)
 
