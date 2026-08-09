@@ -71,6 +71,32 @@ export function isRefusalCode(value: unknown): value is RefusalCode {
   return typeof value === 'string' && value in REFUSALS
 }
 
+/**
+ * Applies a refused response, wherever it came from.
+ *
+ * Exported because wrapping $fetch is NOT sufficient on its own: the agent
+ * chat streams with native fetch (useAgentApi), so it never passes through
+ * the interceptor. Any caller that bypasses $fetch has to call this itself,
+ * or its 401s arrive as raw status codes with no explanation and no redirect.
+ *
+ * Returns true when the refusal was coded and has been explained in place.
+ */
+export function applyRefusedResponse(status: number, body: unknown): boolean {
+  if (status !== 401) return false
+  const { noteRefusal, clearRefusal } = useSessionRefusal()
+  const code = (body as { code?: unknown } | null)?.code
+  if (isRefusalCode(code)) {
+    noteRefusal(code)
+    return true
+  }
+  clearRefusal()
+  const here = window.location.pathname
+  if (here !== '/login') {
+    navigateTo({ path: '/login', query: { redirect: here + window.location.search } })
+  }
+  return false
+}
+
 export function useSessionRefusal() {
   // useState, not a module-level ref, so the value is per request on the
   // server and shared across components on the client. It is intentionally

@@ -1219,6 +1219,11 @@ func (w *accountScopedWorld) notServedAnythingOf(name string) error {
 		return fmt.Errorf("the request was served from %q even though it is suspended: %s",
 			name, describe(p.lastAnswer))
 	}
+	// The Gherkin promises they are served no CONTENT of that account, so read
+	// the body rather than restating the status the previous step asserted.
+	if strings.Contains(p.lastAnswer.body, name) {
+		return fmt.Errorf("the refusal leaked content belonging to %q: %s", name, describe(p.lastAnswer))
+	}
 	return nil
 }
 
@@ -1287,12 +1292,22 @@ func (w *accountScopedWorld) answerBlamesTheAccountNotTheInstance() error {
 }
 
 func (w *accountScopedWorld) notAMember(email, name string) error {
-	p, ok := w.people[email]
-	if !ok || p.agentID == "" {
-		// Never became an agent at all, which is a stronger form of the same.
+	// The agent id is resolved from the credential store rather than read off
+	// the person: only the password-staging helper fills that field in, so
+	// somebody who arrived by accepting an invitation never has one, and an
+	// assertion keyed on it would pass without checking anything.
+	ctx := context.Background()
+	creds, err := w.credRepo.FindByEmail(ctx, strings.ToLower(email))
+	if err != nil {
+		return fmt.Errorf("could not look up %q: %w", email, err)
+	}
+	if len(creds) == 0 {
+		// No identity was created at all, which is a stronger form of not
+		// being a member — but say so rather than passing silently.
 		return nil
 	}
-	role, err := w.accountRepo.FindMemberRole(context.Background(), w.accounts[name], p.agentID)
+	agentID := creds[0].AgentID()
+	role, err := w.accountRepo.FindMemberRole(ctx, w.accounts[name], agentID)
 	if err != nil {
 		return fmt.Errorf("could not read the membership of %q: %w", email, err)
 	}
@@ -1437,12 +1452,13 @@ func (w *accountScopedWorld) actingAccountIs(want string) error {
 	if err != nil {
 		return err
 	}
+	// No fallback to "a request succeeded". A session scoped to the WRONG
+	// account fails validation with ErrSessionAccountRevoked — an error — so
+	// a fallback on error would swallow exactly the regression this step
+	// exists to catch, and in two scenarios the last captured 200 is the
+	// sign-in, which says nothing about which account anything acts in.
 	info, err := w.authService.ValidateSession(context.Background(), p.sessionID)
 	if err != nil || info == nil {
-		// No staged session id: fall back to what the served request proves.
-		if p.lastAnswer != nil && p.lastAnswer.status == http.StatusOK {
-			return nil
-		}
 		return fmt.Errorf("could not read the session of %q: %v", p.email, err)
 	}
 	if info.AccountID != want {

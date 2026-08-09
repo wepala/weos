@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { isRefusalCode } from '../composables/useSessionRefusal'
+import { applyRefusedResponse } from '../composables/useSessionRefusal'
 
 /**
  * Decides what a 401 means, for every call the admin makes.
@@ -21,9 +21,12 @@ import { isRefusalCode } from '../composables/useSessionRefusal'
  * This lives in a $fetch interceptor rather than in useApi because not every
  * caller goes through useApi: usePersonApi, for one, calls $fetch directly.
  * Handling refusals in the wrapper would mean a 401 from those endpoints was
- * silently ignored, and would leave the next composable free to bypass it
- * again. Wrapping $fetch itself is the only placement where "every call"
- * is actually true.
+ * silently ignored.
+ *
+ * It still does not cover literally every call. The agent chat streams with
+ * native fetch, which no $fetch interceptor can see, so it calls
+ * applyRefusedResponse itself. Any future caller that reaches past $fetch has
+ * to do the same.
  *
  * A coded refusal is explained where the person is standing and explicitly
  * does NOT redirect: for two of the three codes a fresh sign-in cannot help,
@@ -33,8 +36,6 @@ import { isRefusalCode } from '../composables/useSessionRefusal'
  * invisibly and leave a half-empty page.
  */
 export default defineNuxtPlugin(() => {
-  const { noteRefusal, clearRefusal } = useSessionRefusal()
-
   globalThis.$fetch = $fetch.create({
     // Deliberately no onResponse hook clearing the refusal.
     //
@@ -45,22 +46,7 @@ export default defineNuxtPlugin(() => {
     // happens instead — "try again" reloads, and a reload starts with no
     // refusal because the state is held in memory by design.
     onResponseError({ response }) {
-      if (response?.status !== 401) return
-
-      const code = (response._data as { code?: unknown } | null)?.code
-      if (isRefusalCode(code)) {
-        noteRefusal(code)
-        return
-      }
-
-      clearRefusal()
-      // window.location rather than useRoute(): this runs inside a fetch
-      // callback, outside any component's setup, where the route composable
-      // is not reliably available.
-      const here = window.location.pathname
-      if (here !== '/login') {
-        navigateTo({ path: '/login', query: { redirect: here + window.location.search } })
-      }
+      applyRefusedResponse(response?.status, response?._data)
     },
   })
 })

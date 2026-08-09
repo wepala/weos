@@ -35,6 +35,8 @@ const REFUSAL = '[data-testid="session-refusal"]'
 const REFUSAL_TEXT = '[data-testid="session-refusal-text"]'
 const RETRY = '[data-testid="session-refusal-retry"]'
 const SIGN_IN = '[data-testid="session-refusal-signin"]'
+const SIGN_OUT = '[data-testid="session-refusal-signout"]'
+const DISMISS = '[data-testid="session-refusal-dismiss"]'
 
 // A refused session, shaped the way pericarp's RequireAuth writes it: 401 with
 // `error`, plus `code` for the three refusals that carry one.
@@ -194,6 +196,17 @@ Then('the page does not explain only that they have no account to work in', asyn
 Then('once the user reloads the page, the suspension is no longer explained', async ({ page }) => {
   await page.reload()
   await expect(page.locator(REFUSAL_TEXT)).not.toContainText('suspended')
+})
+
+// The property the sign-out affordance restored: two of the three coded
+// refusals offer neither retry nor sign-in, and the screen variant replaces
+// the whole app — so without this there is no action on the page at all.
+Then('the page offers a way out', async ({ page }) => {
+  await expect(page.locator(SIGN_OUT)).toBeVisible()
+})
+
+When('the user dismisses the explanation', async ({ page }) => {
+  await page.locator(DISMISS).click()
 })
 
 Then('the page offers to try again', async ({ page }) => {

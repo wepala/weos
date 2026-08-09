@@ -66,6 +66,19 @@ async function streamAgentEvents(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+  // Native fetch, so the $fetch interceptor never sees this response. A
+  // refused session here would otherwise surface as a bare "agent request
+  // failed (401)" with no explanation and no redirect — the agent routes sit
+  // behind the same guard as everything else.
+  if (res.status === 401) {
+    let body: unknown = null
+    try {
+      body = await res.clone().json()
+    } catch {
+      body = null
+    }
+    applyRefusedResponse(res.status, body)
+  }
   if (!res.ok || !res.body) {
     let message = `agent request failed (${res.status})`
     try {

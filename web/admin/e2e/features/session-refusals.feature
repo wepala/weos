@@ -60,6 +60,23 @@ Feature: How the admin answers a refused session
     And the page does not explain only that they have no account to work in
     And once the user reloads the page, the suspension is no longer explained
 
+  Scenario Outline: A refusal the person cannot fix still gives them a way out
+    Given the API is scripted to refuse the session with the code "<code>"
+    When the user opens the persons page
+    Then the page offers a way out
+
+    Examples:
+      | code               |
+      | unscoped_session   |
+      | account_deactivated |
+
+  Scenario: A refusal over a working page can be dismissed
+    Given the API is scripted to serve the signed-in user
+    And loading persons is scripted to refuse the session with the code "account_access_revoked"
+    When the user opens the persons page
+    And the user dismisses the explanation
+    Then no refusal is explained on the page
+
   Scenario: A refusal while the person is working does not throw them out to sign in
     Given the API is scripted to serve the signed-in user
     And loading persons is scripted to refuse the session with the code "unscoped_session"
