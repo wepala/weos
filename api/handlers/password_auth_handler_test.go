@@ -58,6 +58,13 @@ type fakeAuthService struct {
 	gotEmail       string
 	gotDisplayName string
 	gotPassword    string
+
+	gotSessionAgentID      string
+	gotSessionAccountID    string
+	gotSessionCredentialID string
+	gotSessionVouched      bool
+	gotTokenAccountID      string
+	gotTokenVouched        bool
 }
 
 func (f *fakeAuthService) RegisterPassword(_ context.Context, email, displayName, plaintext string) (
@@ -77,15 +84,27 @@ func (f *fakeAuthService) VerifyPassword(_ context.Context, email, plaintext str
 	return f.verifyAgent, f.verifyCred, f.verifyAccount, f.verifyErr
 }
 
+// CreateSession records each identifier under its own name rather than
+// discarding them. The parameters either side of accountID are also strings,
+// so a transposed argument compiles and only a test that checks which value
+// landed where can catch it.
 func (f *fakeAuthService) CreateSession(
-	_ context.Context, _, _, _, _ string, _ time.Duration,
+	_ context.Context, agentID, accountID, credentialID, _, _ string, _ time.Duration,
+	opts ...authapp.AccountTrustOption,
 ) (*authentities.AuthSession, error) {
+	f.gotSessionAgentID = agentID
+	f.gotSessionAccountID = accountID
+	f.gotSessionCredentialID = credentialID
+	f.gotSessionVouched = len(opts) > 0
 	return f.sessionResult, f.sessionErr
 }
 
 func (f *fakeAuthService) IssueIdentityToken(
-	_ context.Context, _ *authentities.Agent, _ string,
+	_ context.Context, _ *authentities.Agent, activeAccountID string,
+	opts ...authapp.AccountTrustOption,
 ) (string, error) {
+	f.gotTokenAccountID = activeAccountID
+	f.gotTokenVouched = len(opts) > 0
 	return f.tokenString, f.tokenErr
 }
 
@@ -135,7 +154,7 @@ func newAccount(t *testing.T, id, name string) *authentities.Account {
 func newAuthSession(t *testing.T) *authentities.AuthSession {
 	t.Helper()
 	s, err := (&authentities.AuthSession{}).With(
-		"sess-1", "agent-1", "cred-1", "127.0.0.1", "go-test", time.Now().Add(time.Hour),
+		"sess-1", "agent-1", "account-1", "cred-1", "127.0.0.1", "go-test", time.Now().Add(time.Hour),
 	)
 	if err != nil {
 		t.Fatalf("build auth session: %v", err)
@@ -315,6 +334,106 @@ func TestPasswordAuthHandler_Login_SetsSessionAndJWTCookie(t *testing.T) {
 	}
 	if cookie.MaxAge <= 0 {
 		t.Errorf("cookie MaxAge = %d, want >0", cookie.MaxAge)
+	}
+}
+
+// TestPasswordAuthHandler_Login_ScopesSessionToTheResolvedAccount pins which
+// value lands in which parameter, not merely that the call compiles.
+//
+// CreateSession takes agentID, accountID and credentialID next to one another
+// and all three are strings, so passing the credential where the account
+// belongs builds cleanly. In a deployment it then fails at run time as
+// ErrAccountNotMember, and every session made before that point acts in no
+// account at all — the defect this whole change exists to remove. The
+// assertions below therefore name each identifier and also state what it must
+// not be, so a transposition fails here rather than in production.
+func TestPasswordAuthHandler_Login_ScopesSessionToTheResolvedAccount(t *testing.T) {
+	auth := &fakeAuthService{
+		verifyAgent:   newAgent(t, "agent-1", "alice"),
+		verifyCred:    newCredential(t),
+		verifyAccount: newAccount(t, "acct-1", "alice"),
+		sessionResult: newAuthSession(t),
+		tokenString:   "the.jwt.token",
+	}
+	h := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
+		AuthService:    auth,
+		SessionManager: &fakeSessionManager{},
+		Logger:         nopLogger{},
+	})
+
+	rec := httptest.NewRecorder()
+	req := newJSONRequest(http.MethodPost, "/api/auth/password-login",
+		`{"email":"alice@example.com","password":"pw"}`)
+	if err := h.Login(echo.New().NewContext(req, rec)); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body=%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	if auth.gotSessionAccountID != "acct-1" {
+		t.Errorf("CreateSession accountID = %q, want %q", auth.gotSessionAccountID, "acct-1")
+	}
+	if auth.gotSessionAccountID == "cred-1" || auth.gotSessionAccountID == "agent-1" {
+		t.Errorf("CreateSession accountID = %q — an adjacent argument landed in the account slot",
+			auth.gotSessionAccountID)
+	}
+	if auth.gotSessionAgentID != "agent-1" {
+		t.Errorf("CreateSession agentID = %q, want %q", auth.gotSessionAgentID, "agent-1")
+	}
+	if auth.gotSessionCredentialID != "cred-1" {
+		t.Errorf("CreateSession credentialID = %q, want %q", auth.gotSessionCredentialID, "cred-1")
+	}
+	if auth.gotTokenAccountID != "acct-1" {
+		t.Errorf("IssueIdentityToken activeAccountID = %q, want %q", auth.gotTokenAccountID, "acct-1")
+	}
+
+	// Both calls vouch for the account. It came from VerifyPassword in this
+	// same request, so re-reading it costs a query and can lose a race against
+	// a membership written moments earlier.
+	if !auth.gotSessionVouched {
+		t.Error("CreateSession got no AccountTrustOption, want AccountAlreadyVerified")
+	}
+	if !auth.gotTokenVouched {
+		t.Error("IssueIdentityToken got no AccountTrustOption, want AccountAlreadyVerified")
+	}
+}
+
+// TestPasswordAuthHandler_Login_NoAccountLeavesSessionUnscoped pins the other
+// half: when the sign-in resolves no account, nothing is invented for it. The
+// session is created unscoped and RequireAuth refuses it later with its own
+// code, which is a better answer than a lookup guessing an account the person
+// did not sign in to.
+func TestPasswordAuthHandler_Login_NoAccountLeavesSessionUnscoped(t *testing.T) {
+	auth := &fakeAuthService{
+		verifyAgent:   newAgent(t, "agent-1", "alice"),
+		verifyCred:    newCredential(t),
+		verifyAccount: nil,
+		sessionResult: newAuthSession(t),
+		tokenString:   "the.jwt.token",
+	}
+	sm := &fakeSessionManager{}
+	h := handlers.NewPasswordAuthHandler(handlers.PasswordAuthHandlerConfig{
+		AuthService:    auth,
+		SessionManager: sm,
+		Logger:         nopLogger{},
+	})
+
+	rec := httptest.NewRecorder()
+	req := newJSONRequest(http.MethodPost, "/api/auth/password-login",
+		`{"email":"alice@example.com","password":"pw"}`)
+	if err := h.Login(echo.New().NewContext(req, rec)); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body=%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if auth.gotSessionAccountID != "" {
+		t.Errorf("CreateSession accountID = %q, want empty — nothing was resolved to put there",
+			auth.gotSessionAccountID)
+	}
+	if sm.gotData.AccountID != "" {
+		t.Errorf("session AccountID = %q, want empty", sm.gotData.AccountID)
 	}
 }
 

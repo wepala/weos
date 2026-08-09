@@ -120,7 +120,6 @@ func Authorize(
 	sessionStore sessions.Store,
 	clientRepo ClientRepository,
 	codeRepo AuthCodeRepository,
-	accountRepo authrepos.AccountRepository,
 	credentialRepo authrepos.CredentialRepository,
 	logger entities.Logger,
 	baseURL string,
@@ -193,7 +192,7 @@ func Authorize(
 		// branch below — a session is not a reason to skip the proof key.
 
 		// Already authenticated? Then there is nobody left to authenticate.
-		if identity := resolveSession(c, sessionManager, authService, accountRepo, logger); identity != nil {
+		if identity := resolveSession(c, sessionManager, authService); identity != nil {
 			// The allowlist decides who may reach this instance, not which door
 			// they came through. It is enforced on the Google path in the
 			// callback, so without this an instance that also offers password
@@ -325,8 +324,6 @@ func resolveSession(
 	c echo.Context,
 	sessionManager session.SessionManager,
 	authService authapp.AuthenticationService,
-	accountRepo authrepos.AccountRepository,
-	logger entities.Logger,
 ) *sessionIdentity {
 	if sessionManager == nil {
 		return nil
@@ -341,20 +338,16 @@ func resolveSession(
 		return nil
 	}
 
-	accountID := info.AccountID
-	if accountID == "" {
-		accounts, lookupErr := accountRepo.FindByMember(ctx, info.AgentID)
-		if lookupErr != nil {
-			// The session is good; only the account is unknown. Fall through
-			// with none rather than refusing — the callback path tolerates the
-			// same shape.
-			logger.Warn(ctx, "oauth authorize: account lookup failed for session",
-				"agent", info.AgentID, "error", lookupErr)
-		} else if len(accounts) > 0 {
-			accountID = accounts[0].GetID()
-		}
-	}
-	return &sessionIdentity{agentID: info.AgentID, accountID: accountID}
+	// The session carries the account it was scoped to at sign-in, and that is
+	// the only account this identity may act in. There used to be a fallback
+	// here that looked memberships up and took the first one whenever the
+	// session named none. It cannot be right: someone who belongs to several
+	// accounts gets whichever the query returns first, which is not the one
+	// they signed in to, and the token minted from this identity then acts
+	// somewhere they never chose. A session with no account is now refused
+	// everywhere else, so guessing here would make this the one path that
+	// quietly re-scopes it.
+	return &sessionIdentity{agentID: info.AgentID, accountID: info.AccountID}
 }
 
 // issueCodeForSession mints an authorization code already bound to an identity

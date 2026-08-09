@@ -286,7 +286,7 @@ func (w *oauthWorld) boot(opts bootOpts) error {
 		asHandler := weosoauth.AuthorizationServerMetadata(baseURL, cfg.OAuth.DynamicRegistration)
 		regHandler := weosoauth.RegisterClient(clientRepo, cfg.OAuth.DynamicRegistration)
 		authzHandler := weosoauth.Authorize(w.authService, w.sessionManager, sessionStore,
-			clientRepo, codeRepo, w.accountRepo, w.credRepo, w.logger, baseURL,
+			clientRepo, codeRepo, w.credRepo, w.logger, baseURL,
 			cfg.OAuthEnabled(), cfg.OAuth.AllowedEmails)
 		tokHandler := weosoauth.Token(jwtService, codeRepo, refreshRepo, w.agentRepo, w.accountRepo, w.logger)
 
@@ -442,14 +442,19 @@ func (w *oauthWorld) signedInAs(email string) error {
 			return fmt.Errorf("could not create a session identity for %q", email)
 		}
 	}
-	authSession, err := w.authService.CreateSession(ctx, creds[0].AgentID(), creds[0].GetID(),
-		"127.0.0.1", "acceptance", time.Hour)
-	if err != nil {
-		return fmt.Errorf("could not create a session for %q: %w", email, err)
-	}
+	// The account has to be known before the session is made, not after: a
+	// session now carries the account it acts in, and one made without it is
+	// refused on sight. This helper stages a session rather than signing in,
+	// so it looks the membership up — and it deliberately does not vouch for
+	// it, leaving pericarp to verify the agent really is a member.
 	accountID := ""
 	if accounts, lookupErr := w.accountRepo.FindByMember(ctx, creds[0].AgentID()); lookupErr == nil && len(accounts) > 0 {
 		accountID = accounts[0].GetID()
+	}
+	authSession, err := w.authService.CreateSession(ctx, creds[0].AgentID(), accountID, creds[0].GetID(),
+		"127.0.0.1", "acceptance", time.Hour)
+	if err != nil {
+		return fmt.Errorf("could not create a session for %q: %w", email, err)
 	}
 	return w.setSessionCookie(session.SessionData{
 		SessionID: authSession.GetID(),
@@ -469,7 +474,14 @@ func (w *oauthWorld) signedInWithExpiredSession(email string) error {
 	if err != nil || len(creds) == 0 {
 		return fmt.Errorf("no account for %q to expire", email)
 	}
-	authSession, err := w.authService.CreateSession(ctx, creds[0].AgentID(), creds[0].GetID(),
+	// Scoped like any other session, so that expiry is the only thing wrong
+	// with it. An unscoped session is refused for its own separate reason,
+	// which would make this scenario pass for the wrong cause.
+	accountID := ""
+	if accounts, lookupErr := w.accountRepo.FindByMember(ctx, creds[0].AgentID()); lookupErr == nil && len(accounts) > 0 {
+		accountID = accounts[0].GetID()
+	}
+	authSession, err := w.authService.CreateSession(ctx, creds[0].AgentID(), accountID, creds[0].GetID(),
 		"127.0.0.1", "acceptance", -time.Hour)
 	if err != nil {
 		return fmt.Errorf("could not create an expired session: %w", err)

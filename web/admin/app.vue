@@ -16,9 +16,18 @@
 -->
 
 <template>
-  <NuxtLayout>
-    <NuxtPage />
-  </NuxtLayout>
+  <!--
+    A refusal that arrives before the person is through the auth gate leaves
+    no page worth rendering, so it takes the screen. Any other time they keep
+    the page they were on and the explanation sits above it.
+  -->
+  <SessionRefusal v-if="refusal && !user" :refusal="refusal" variant="screen" />
+  <template v-else>
+    <SessionRefusal v-if="refusal" :refusal="refusal" variant="banner" />
+    <NuxtLayout>
+      <NuxtPage />
+    </NuxtLayout>
+  </template>
   <div class="api-notifications" aria-live="polite" role="status">
     <div
       v-for="n in notifications"
@@ -39,6 +48,8 @@
 
 <script setup lang="ts">
 const { notifications, removeNotification } = useNotifications()
+const { refusal } = useSessionRefusal()
+const { user } = useAuth()
 </script>
 
 <style scoped>

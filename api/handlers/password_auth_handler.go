@@ -234,9 +234,28 @@ func (h *PasswordAuthHandler) completeAuth(
 	r := c.Request()
 	w := c.Response().Writer
 
+	// The account this sign-in resolved is the only thing that knows which
+	// account the session acts in, and it is resolved exactly once, here.
+	// Nothing downstream can recover it: a lookup would have to guess, and it
+	// would guess wrong for anyone who arrived by invite and has no personal
+	// account of their own. So it is computed before the session is created
+	// and reused for every account-shaped field below.
+	accountID := ""
+	if account != nil {
+		accountID = account.GetID()
+	}
+
+	// AccountAlreadyVerified is safe here and only here: the account came back
+	// from VerifyPassword or FindOrCreateAgent in this same request, so the
+	// membership is established and the account is active by construction.
+	// It also skips a re-read that can lose a race — a first-time signup
+	// writes the membership moments earlier, and a replica may not show it
+	// yet. Never pass this option for an account that arrived from a client;
+	// it disables the membership and deactivation checks.
 	authSession, err := h.cfg.AuthService.CreateSession(
-		ctx, agent.GetID(), credential.GetID(),
+		ctx, agent.GetID(), accountID, credential.GetID(),
 		c.RealIP(), r.UserAgent(), h.cfg.SessionDuration,
+		authapp.AccountAlreadyVerified(),
 	)
 	if err != nil {
 		h.cfg.Logger.Error(ctx, "password auth: session creation failed", "error", err)
@@ -250,11 +269,9 @@ func (h *PasswordAuthHandler) completeAuth(
 		ExpiresAt: authSession.ExpiresAt(),
 	}
 	var accountResp *authAccountResponse
-	activeAccountID := ""
 	if account != nil {
-		sessionData.AccountID = account.GetID()
-		activeAccountID = account.GetID()
-		accountResp = &authAccountResponse{ID: account.GetID(), Name: account.Name()}
+		sessionData.AccountID = accountID
+		accountResp = &authAccountResponse{ID: accountID, Name: account.Name()}
 	}
 	if err := h.cfg.SessionManager.CreateHTTPSession(w, r, sessionData); err != nil {
 		h.cfg.Logger.Error(ctx, "password auth: HTTP session creation failed", "error", err)
@@ -265,7 +282,9 @@ func (h *PasswordAuthHandler) completeAuth(
 	// On error, drop the token entirely so the client doesn't see a JWT in
 	// the response body that has no matching cookie — that mismatch makes
 	// "logged in but no cookie" states harder to reason about.
-	tokenString, issueErr := h.cfg.AuthService.IssueIdentityToken(ctx, agent, activeAccountID)
+	tokenString, issueErr := h.cfg.AuthService.IssueIdentityToken(
+		ctx, agent, accountID, authapp.AccountAlreadyVerified(),
+	)
 	if issueErr != nil {
 		h.cfg.Logger.Warn(ctx, "password auth: failed to issue identity token", "error", issueErr)
 		tokenString = ""
