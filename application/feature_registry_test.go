@@ -1,0 +1,181 @@
+package application
+
+import (
+	"testing"
+
+	"github.com/wepala/weos/v3/domain/entities"
+)
+
+func testFeature(key, display string) entities.FeatureMeta {
+	return entities.FeatureMeta{Key: key, DisplayName: display, Default: true, Manageable: true, Grantable: true}
+}
+
+func newTestFeatureRegistry(t *testing.T, declared ...entities.FeatureMeta) (*FeatureRegistry, *PresetRegistry) {
+	t.Helper()
+	presets := NewPresetRegistry()
+	r, err := NewFeatureRegistry(presets, nil, declared)
+	if err != nil {
+		t.Fatalf("NewFeatureRegistry: %v", err)
+	}
+	return r, presets
+}
+
+func TestFeatureRegistryCodeDeclarations(t *testing.T) {
+	r, _ := newTestFeatureRegistry(t,
+		testFeature("episodic-recall", "Episodic recall"),
+		testFeature("ledger-export", "Ledger export"),
+	)
+
+	m, ok := r.Lookup("episodic-recall")
+	if !ok {
+		t.Fatal("Lookup(episodic-recall) = not found, want found")
+	}
+	if m.DisplayName != "Episodic recall" {
+		t.Fatalf("DisplayName = %q, want %q", m.DisplayName, "Episodic recall")
+	}
+	if _, ok := r.Lookup("shipping-labels"); ok {
+		t.Fatal("Lookup of an undeclared key returned found, want not found")
+	}
+
+	all := r.All()
+	if len(all) != 2 {
+		t.Fatalf("All() returned %d features, want 2", len(all))
+	}
+	// All() is sorted by key so the CLI and admin listing are stable.
+	if all[0].Key != "episodic-recall" || all[1].Key != "ledger-export" {
+		t.Fatalf("All() = %q, %q; want sorted by key", all[0].Key, all[1].Key)
+	}
+}
+
+func TestFeatureRegistryRejectsInvalidDeclaration(t *testing.T) {
+	presets := NewPresetRegistry()
+	_, err := NewFeatureRegistry(presets, nil, []entities.FeatureMeta{{Key: "Not A Key", DisplayName: "X"}})
+	if err == nil {
+		t.Fatal("NewFeatureRegistry accepted an invalid key, want a boot failure")
+	}
+}
+
+func TestFeatureRegistryRejectsDuplicateCodeKey(t *testing.T) {
+	r, _ := newTestFeatureRegistry(t, testFeature("ledger-export", "Ledger export"))
+	err := r.Register(testFeature("ledger-export", "Ledger export again"))
+	if err == nil {
+		t.Fatal("Register accepted a duplicate key, want an error")
+	}
+}
+
+// TestFeatureRegistrySeesPresetInstalledAfterBoot is the registry half of the
+// contract scenario "Installing a preset adds the features the preset
+// declares". The registry is built BEFORE the preset is added, proving
+// declarations are swept on demand rather than copied at construction.
+func TestFeatureRegistrySeesPresetInstalledAfterBoot(t *testing.T) {
+	r, presets := newTestFeatureRegistry(t, testFeature("episodic-recall", "Episodic recall"))
+
+	if _, ok := r.Lookup("invoice-export"); ok {
+		t.Fatal("invoice-export was found before its preset was registered")
+	}
+
+	if err := presets.Add(PresetDefinition{
+		Name: "billing-demo",
+		Features: map[string]entities.FeatureMeta{
+			"invoice-export": {Key: "invoice-export", DisplayName: "Invoice export", Default: false},
+		},
+	}); err != nil {
+		t.Fatalf("presets.Add: %v", err)
+	}
+
+	m, ok := r.Lookup("invoice-export")
+	if !ok {
+		t.Fatal("Lookup(invoice-export) = not found after the preset was registered")
+	}
+	if m.Default {
+		t.Fatal("invoice-export resolved Default=true, want the declared false")
+	}
+	// The code-declared feature must survive the sweep.
+	if _, ok := r.Lookup("episodic-recall"); !ok {
+		t.Fatal("episodic-recall disappeared once a preset declared features")
+	}
+	if len(r.All()) != 2 {
+		t.Fatalf("All() returned %d features, want 2", len(r.All()))
+	}
+}
+
+// TestFeatureRegistryCodeWinsOverPreset pins the collision rule: a downstream
+// binary that declares a key a preset also uses is overriding it deliberately
+// and cannot edit the preset to say so.
+func TestFeatureRegistryCodeWinsOverPreset(t *testing.T) {
+	r, presets := newTestFeatureRegistry(t,
+		entities.FeatureMeta{Key: "invoice-export", DisplayName: "From code", Default: true},
+	)
+	if err := presets.Add(PresetDefinition{
+		Name: "billing-demo",
+		Features: map[string]entities.FeatureMeta{
+			"invoice-export": {Key: "invoice-export", DisplayName: "From preset", Default: false},
+		},
+	}); err != nil {
+		t.Fatalf("presets.Add: %v", err)
+	}
+
+	m, ok := r.Lookup("invoice-export")
+	if !ok {
+		t.Fatal("Lookup(invoice-export) = not found")
+	}
+	if m.DisplayName != "From code" || !m.Default {
+		t.Fatalf("Lookup returned %+v, want the code declaration to win", m)
+	}
+
+	all := r.All()
+	if len(all) != 1 {
+		t.Fatalf("All() returned %d features, want 1 merged entry", len(all))
+	}
+	if all[0].DisplayName != "From code" {
+		t.Fatalf("All() returned %q, want the code declaration to win", all[0].DisplayName)
+	}
+}
+
+// TestPresetRegistryFeaturesMergeLastWins mirrors BehaviorsMeta's documented
+// merge semantics: presets are walked alphabetically and the last declaration
+// of a key wins.
+func TestPresetRegistryFeaturesMergeLastWins(t *testing.T) {
+	presets := NewPresetRegistry()
+	for _, name := range []string{"alpha", "zulu"} {
+		if err := presets.Add(PresetDefinition{
+			Name: name,
+			Features: map[string]entities.FeatureMeta{
+				"shared": {Key: "shared", DisplayName: name},
+			},
+		}); err != nil {
+			t.Fatalf("presets.Add(%s): %v", name, err)
+		}
+	}
+	if got := presets.Features()["shared"].DisplayName; got != "zulu" {
+		t.Fatalf("merged DisplayName = %q, want %q (alphabetical, last wins)", got, "zulu")
+	}
+}
+
+// TestPresetDefinitionCloneCopiesFeatures guards the deep-copy contract on
+// Get/List: a caller mutating the returned definition must not reach into the
+// registry's own copy.
+func TestPresetDefinitionCloneCopiesFeatures(t *testing.T) {
+	presets := NewPresetRegistry()
+	if err := presets.Add(PresetDefinition{
+		Name:     "billing-demo",
+		Features: map[string]entities.FeatureMeta{"invoice-export": {Key: "invoice-export", DisplayName: "Invoice export"}},
+	}); err != nil {
+		t.Fatalf("presets.Add: %v", err)
+	}
+
+	def, ok := presets.Get("billing-demo")
+	if !ok {
+		t.Fatal("Get(billing-demo) = not found")
+	}
+	def.Features["invoice-export"] = entities.FeatureMeta{Key: "invoice-export", DisplayName: "mutated"}
+	def.Features["injected"] = entities.FeatureMeta{Key: "injected", DisplayName: "injected"}
+
+	fresh := presets.Features()
+	if fresh["invoice-export"].DisplayName != "Invoice export" {
+		t.Fatal("mutating a cloned definition changed the registry's declaration")
+	}
+	if _, ok := fresh["injected"]; ok {
+		t.Fatal("mutating a cloned definition injected a feature into the registry")
+	}
+}

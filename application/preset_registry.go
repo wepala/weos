@@ -70,9 +70,17 @@ type PresetDefinition struct {
 	Types        []PresetResourceType
 	Behaviors    map[string]BehaviorFactory       // slug -> factory invoked at startup with services
 	BehaviorMeta map[string]entities.BehaviorMeta // slug -> metadata for UI/config
-	Screens      fs.FS                            // optional embedded screen components
-	Sidebar      *PresetSidebarConfig             // optional sidebar defaults
-	Handlers     []PresetHTTPHandler              // optional HTTP routes mounted under /api
+	// Features declares the feature flags this preset owns, keyed by flag key.
+	// Unlike Behaviors, whose slug IS a resource type slug, a feature key is
+	// its own namespace and need not correspond to any type — a preset may
+	// gate a capability that spans several types, or none. Declarations are
+	// read straight from this registry at resolution time rather than copied
+	// anywhere, so installing a preset makes its features known immediately
+	// and nothing has to be persisted or replayed. See FeatureRegistry.
+	Features map[string]entities.FeatureMeta
+	Screens  fs.FS                // optional embedded screen components
+	Sidebar  *PresetSidebarConfig // optional sidebar defaults
+	Handlers []PresetHTTPHandler  // optional HTTP routes mounted under /api
 	// Links declares cross-type relationships that live outside any resource
 	// type's schema. Each link activates when both SourceType and TargetType
 	// are installed — enabling a "finance-education" integration preset to
@@ -340,6 +348,13 @@ func (d PresetDefinition) clone() PresetDefinition {
 			meta[k] = v
 		}
 		d.BehaviorMeta = meta
+	}
+	if d.Features != nil {
+		features := make(map[string]entities.FeatureMeta, len(d.Features))
+		for k, v := range d.Features {
+			features[k] = v
+		}
+		d.Features = features
 	}
 	if d.Handlers != nil {
 		handlers := make([]PresetHTTPHandler, len(d.Handlers))
@@ -619,6 +634,31 @@ func (r *PresetRegistry) BehaviorsMeta() BehaviorMetaRegistry {
 		}
 	}
 	return meta
+}
+
+// Features returns the merged feature declarations from all registered
+// presets. Same merge semantics as BehaviorsMeta(): presets are walked in
+// alphabetical order and the last declaration of a key wins.
+//
+// Read on demand rather than copied at install time, so a preset installed
+// while the process is running contributes its features to the very next
+// resolution with no hook in InstallPreset and nothing persisted.
+func (r *PresetRegistry) Features() map[string]entities.FeatureMeta {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.presets))
+	for name := range r.presets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	features := make(map[string]entities.FeatureMeta)
+	for _, name := range names {
+		for key, m := range r.presets[name].Features {
+			features[key] = m
+		}
+	}
+	return features
 }
 
 // NewPresetType is a helper to create a PresetResourceType from raw strings.
