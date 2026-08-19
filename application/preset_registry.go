@@ -221,6 +221,9 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 			return fmt.Errorf("preset %q: behavior factory for slug %q is nil", def.Name, slug)
 		}
 	}
+	if err := validatePresetFeatures(def); err != nil {
+		return err
+	}
 	if err := validateHandlers(def); err != nil {
 		return err
 	}
@@ -230,6 +233,31 @@ func (r *PresetRegistry) Add(def PresetDefinition) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.presets[def.Name] = def
+	return nil
+}
+
+// validatePresetFeatures holds preset declarations to the same standard as
+// code declarations. Without it FeatureRegistry's contract — that an invalid
+// declaration fails the boot rather than being resolved against — would only
+// hold for code, and a preset could ship a key nothing can gate.
+//
+// The map key and the declaration's own Key must agree. If they diverge —
+// Features: {"a": {Key: "b"}} — Lookup("a") finds the declaration while
+// resolution folds the value under "b", so Enabled("a") never finds its key in
+// the resolved set and falls through to the declared default, ignoring every
+// stored override permanently.
+func validatePresetFeatures(def PresetDefinition) error {
+	for key, meta := range def.Features {
+		if key != meta.Key {
+			return fmt.Errorf(
+				"preset %q: feature declared under key %q but names itself %q; "+
+					"resolution would fold its value under a key nothing looks up",
+				def.Name, key, meta.Key)
+		}
+		if err := meta.Validate(); err != nil {
+			return fmt.Errorf("preset %q: %w", def.Name, err)
+		}
+	}
 	return nil
 }
 

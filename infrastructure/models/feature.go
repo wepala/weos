@@ -27,11 +27,11 @@ import "time"
 type FeatureSetting struct {
 	ID uint `gorm:"primaryKey;autoIncrement"`
 	// ScopeType is "instance" or "account".
-	ScopeType string `gorm:"type:varchar(32);not null;uniqueIndex:idx_feature_scope_key"`
+	ScopeType string `gorm:"type:varchar(32);not null;uniqueIndex:idx_fs_scope_key"`
 	// ScopeID is the account ID, and empty for the instance scope — there is
 	// one instance, so it needs no identifier.
-	ScopeID    string `gorm:"type:varchar(255);not null;default:'';uniqueIndex:idx_feature_scope_key"`
-	FeatureKey string `gorm:"type:varchar(64);not null;uniqueIndex:idx_feature_scope_key"`
+	ScopeID    string `gorm:"type:varchar(255);not null;default:'';uniqueIndex:idx_fs_scope_key"`
+	FeatureKey string `gorm:"type:varchar(64);not null;uniqueIndex:idx_fs_scope_key"`
 	Enabled    bool   `gorm:"not null"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
@@ -54,14 +54,14 @@ func (FeatureSetting) TableName() string {
 type FeatureGrant struct {
 	ID uint `gorm:"primaryKey;autoIncrement"`
 	// SubjectType is "agent" or "role".
-	SubjectType string `gorm:"type:varchar(32);not null;uniqueIndex:idx_feature_grant_subject"`
+	SubjectType string `gorm:"type:varchar(32);not null;uniqueIndex:idx_fg_subject"`
 	// SubjectID is the agent ID or the role ID.
-	SubjectID string `gorm:"type:varchar(255);not null;uniqueIndex:idx_feature_grant_subject"`
+	SubjectID string `gorm:"type:varchar(255);not null;uniqueIndex:idx_fg_subject"`
 	// AccountID scopes the grant. Roles are per-account memberships, and a
 	// person's access is granted within an account, so both subject kinds
 	// carry one.
-	AccountID  string `gorm:"type:varchar(255);not null;uniqueIndex:idx_feature_grant_subject;index:idx_feature_grant_account"`
-	FeatureKey string `gorm:"type:varchar(64);not null;uniqueIndex:idx_feature_grant_subject"`
+	AccountID  string `gorm:"type:varchar(255);not null;uniqueIndex:idx_fg_subject;index:idx_fg_account"`
+	FeatureKey string `gorm:"type:varchar(64);not null;uniqueIndex:idx_fg_subject"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

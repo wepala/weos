@@ -160,7 +160,8 @@ func TestProviderNonBooleanEvaluationsReturnTheCallersDefault(t *testing.T) {
 	if got := p.IntEvaluation(ctx, flag, 7, nil); got.Value != 7 || got.Reason != openfeature.DefaultReason {
 		t.Fatalf("IntEvaluation = %+v, want the caller's default with reason DEFAULT", got)
 	}
-	if got := p.FloatEvaluation(ctx, flag, 1.5, nil); got.Value != 1.5 || got.Reason != openfeature.DefaultReason {
+	got := p.FloatEvaluation(ctx, flag, 1.5, nil)
+	if got.Value != 1.5 || got.Reason != openfeature.DefaultReason {
 		t.Fatalf("FloatEvaluation = %+v, want the caller's default with reason DEFAULT", got)
 	}
 	obj := map[string]string{"tier": "pro"}

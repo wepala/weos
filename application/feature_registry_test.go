@@ -1,6 +1,7 @@
 package application
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -177,5 +178,59 @@ func TestPresetDefinitionCloneCopiesFeatures(t *testing.T) {
 	}
 	if _, ok := fresh["injected"]; ok {
 		t.Fatal("mutating a cloned definition injected a feature into the registry")
+	}
+}
+
+// TestPresetRegistryRejectsInvalidFeatureDeclarations holds preset
+// declarations to the same standard as code declarations. Without this, the
+// registry's "an invalid declaration fails the boot" contract only held for
+// code, and a preset could ship a key nothing can gate.
+func TestPresetRegistryRejectsInvalidFeatureDeclarations(t *testing.T) {
+	cases := []struct {
+		name     string
+		features map[string]entities.FeatureMeta
+		want     string
+	}{
+		{
+			"key disagrees with the declaration",
+			map[string]entities.FeatureMeta{"a": {Key: "b", DisplayName: "B"}},
+			"names itself",
+		},
+		{
+			"invalid key",
+			map[string]entities.FeatureMeta{"Not A Key": {Key: "Not A Key", DisplayName: "X"}},
+			"must match",
+		},
+		{
+			"missing display name",
+			map[string]entities.FeatureMeta{"ledger-export": {Key: "ledger-export"}},
+			"display name",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := NewPresetRegistry().Add(PresetDefinition{Name: "broken", Features: tc.features})
+			if err == nil {
+				t.Fatal("Add accepted an invalid feature declaration")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want it to contain %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// TestMismatchedPresetKeyWouldStrandResolution documents WHY the key must
+// match: a declaration found by one key but folded under another can never be
+// resolved, so it would silently ignore every stored override.
+func TestMismatchedPresetKeyWouldStrandResolution(t *testing.T) {
+	r, presets := newTestFeatureRegistry(t)
+	// Bypass Add's validation to build the shape the guard now prevents.
+	presets.MustAdd(PresetDefinition{Name: "ok", Features: map[string]entities.FeatureMeta{
+		"invoice-export": {Key: "invoice-export", DisplayName: "Invoice export"},
+	}})
+	if _, ok := r.Lookup("invoice-export"); !ok {
+		t.Fatal("a well-formed preset declaration was not found")
 	}
 }

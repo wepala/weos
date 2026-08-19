@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -736,7 +737,12 @@ func (w *featureWorld) stepFeatureAnswersOffOnly() error {
 	if err != nil {
 		return err
 	}
-	for i, got := range w.answers[p.email] {
+	answers := w.answers[p.email]
+	if len(answers) == 0 {
+		return fmt.Errorf("%q was never answered, so there is nothing to assert — "+
+			"an earlier step evaluated as the wrong person", p.email)
+	}
+	for i, got := range answers {
 		if got {
 			return fmt.Errorf("session %d was answered on, want off", i+1)
 		}
@@ -749,7 +755,12 @@ func (w *featureWorld) stepAnsweredOnEveryTime() error {
 	if err != nil {
 		return err
 	}
-	for i, got := range w.answers[p.email] {
+	answers := w.answers[p.email]
+	if len(answers) == 0 {
+		return fmt.Errorf("%q was never answered, so there is nothing to assert — "+
+			"an earlier step evaluated as the wrong person", p.email)
+	}
+	for i, got := range answers {
 		if !got {
 			return fmt.Errorf("evaluation %d answered off, want on", i+1)
 		}
@@ -965,14 +976,25 @@ func (w *featureWorld) lastAnswerFor(email string) (bool, bool) {
 	return answers[len(answers)-1], true
 }
 
+// soleAccount is for steps that name a role but no account. Refusing when more
+// than one account exists is deliberate: picking one at random from a map would
+// misfire silently the day a role-grant scenario stages a second account.
 func (w *featureWorld) soleAccount() (string, error) {
-	if len(w.accounts) == 0 {
+	switch len(w.accounts) {
+	case 0:
 		return "", fmt.Errorf("no account has been staged")
+	case 1:
+		for _, id := range w.accounts {
+			return id, nil
+		}
 	}
-	for _, id := range w.accounts {
-		return id, nil
+	names := make([]string, 0, len(w.accounts))
+	for name := range w.accounts {
+		names = append(names, name)
 	}
-	return "", fmt.Errorf("no account has been staged")
+	sort.Strings(names)
+	return "", fmt.Errorf("this step names a role but not an account, and %d are staged (%s); "+
+		"the step wording needs to say which", len(w.accounts), strings.Join(names, ", "))
 }
 
 func (w *featureWorld) lastGrantedKey() (string, error) {

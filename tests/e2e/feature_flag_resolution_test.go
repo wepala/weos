@@ -28,10 +28,10 @@ import (
 
 // TestFeatureFlagResolution runs the acceptance contract for story #481.
 //
-// Tagged @wip, so it is skipped by the default "~@wip" filter and run
-// deliberately:
+// The scenarios were promoted out of @wip once green, so they run in the
+// default suite. GODOG_TAGS still overrides the filter when a subset is wanted:
 //
-//	GODOG_TAGS=@wip go test ./tests/e2e/ -run TestFeatureFlagResolution
+//	GODOG_TAGS=@story-481 go test ./tests/e2e/ -run TestFeatureFlagResolution
 func TestFeatureFlagResolution(t *testing.T) {
 	tags := "~@wip"
 	if v := os.Getenv("GODOG_TAGS"); v != "" {
