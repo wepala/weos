@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"github.com/open-feature/go-sdk/openfeature"
 
 	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/domain/entities"
@@ -133,6 +134,12 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(NewFeatureResolver),
 		fx.Provide(ProvideFeatureCacheInvalidator),
 		fx.Provide(NewFeatureProvider),
+		fx.Provide(RegisterFeatureProvider),
+		// fx builds only what something depends on. Without this Invoke the
+		// provider is never constructed and never registered, so the OpenFeature
+		// domain falls through to the SDK's no-op provider and every evaluation
+		// silently returns the caller's default.
+		fx.Invoke(func(*openfeature.Client) {}),
 		fx.Provide(NewFeatureService),
 
 		// Email sender

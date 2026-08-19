@@ -27,16 +27,27 @@ type fakeSettings struct {
 	instanceReads int
 	accountReads  int
 	err           error
+	// beforeReturn runs inside a read, so a test can interleave an
+	// invalidation with a resolve that is already in flight.
+	beforeReturn func()
 }
 
 func (f *fakeSettings) InstanceOverrides(context.Context) (map[string]bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.instanceReads++
-	if f.err != nil {
-		return nil, f.err
+	hook := f.beforeReturn
+	err := f.err
+	inst := copyFeatureValues(f.instance)
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
 	}
-	return copyFeatureValues(f.instance), nil
+	f.mu.Lock()
+	if err != nil {
+		return nil, err
+	}
+	return inst, nil
 }
 
 func (f *fakeSettings) AccountOverrides(_ context.Context, accountID string) (map[string]bool, error) {
@@ -493,5 +504,128 @@ func TestResolverCachedSetIsNotAliased(t *testing.T) {
 	}
 	if _, ok := second["injected"]; ok {
 		t.Fatal("mutating a returned set injected a key into the cache")
+	}
+}
+
+// TestResolverDoesNotCacheAResultAnInvalidationOvertook is the race the
+// premortem predicted: a resolve that read the store BEFORE a write commits,
+// but finishes AFTER the invalidation runs, must not store its values. If it
+// did, stale values would get a fresh timestamp and survive up to the maximum
+// cache age — breaking the one rule this design has, and most likely to happen
+// exactly when the instance is busy.
+func TestResolverDoesNotCacheAResultAnInvalidationOvertook(t *testing.T) {
+	registry, _ := newTestFeatureRegistry(t, featEpisodic)
+	settings := &fakeSettings{}
+	grants := newFakeGrants()
+	r := NewFeatureResolver(config.Default(), registry, settings, grants,
+		&fakeAccounts{roles: map[string]string{}}, nil)
+
+	ctx := ctxAs("agent-ops", "acct-harbor")
+
+	// Simulate the interleaving: the read has happened, then an invalidation
+	// lands, then the result tries to store itself.
+	settings.beforeReturn = func() { r.InvalidateAll(context.Background()) }
+	if _, err := r.ResolvedSet(ctx); err != nil {
+		t.Fatalf("ResolvedSet: %v", err)
+	}
+	settings.beforeReturn = nil
+
+	before, _ := settings.reads()
+	if _, err := r.ResolvedSet(ctx); err != nil {
+		t.Fatalf("ResolvedSet: %v", err)
+	}
+	after, _ := settings.reads()
+	if after == before {
+		t.Fatal("the overtaken result was cached; a change would not reach this session " +
+			"until the maximum cache age expired")
+	}
+}
+
+// TestResolverServesLastKnownSetWhenTheStoreFails covers the outage the
+// premortem predicted: a database blip must not strip every capability from
+// everyone mid-turn, including features nobody ever turned off.
+func TestResolverServesLastKnownSetWhenTheStoreFails(t *testing.T) {
+	r, settings, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+	ctx := ctxAs("agent-ops", "acct-harbor")
+
+	if set := mustResolve(t, r, ctx); !set["episodic-recall"] {
+		t.Fatal("the first resolve did not return the declared default")
+	}
+
+	settings.err = errors.New("database is unreachable")
+	r.InvalidateAll(context.Background()) // force a refresh attempt
+	set, err := r.ResolvedSet(ctx)
+	if err == nil && set["episodic-recall"] {
+		// This is only reachable if a previous set survived the invalidation,
+		// which it must not — InvalidateAll drops everything.
+		t.Fatal("InvalidateAll left a set behind")
+	}
+
+	// With a set present and no invalidation, a failing refresh serves it.
+	settings.err = nil
+	_ = mustResolve(t, r, ctx)
+	settings.err = errors.New("database is unreachable")
+	r.expire(featureCacheKey{AgentID: "agent-ops", AccountID: "acct-harbor"})
+
+	set, err = r.ResolvedSet(ctx)
+	if err != nil {
+		t.Fatalf("a failing refresh with a previous set returned an error: %v", err)
+	}
+	if !set["episodic-recall"] {
+		t.Fatal("a database blip stripped a capability that was on moments before")
+	}
+}
+
+// TestResolverThrottlesRetriesWhileTheStoreIsDown stops a sustained outage
+// becoming a query storm: thirty evaluations in one agent turn must not mean
+// thirty failing round trips.
+func TestResolverThrottlesRetriesWhileTheStoreIsDown(t *testing.T) {
+	r, settings, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+	ctx := ctxAs("agent-ops", "acct-harbor")
+	_ = mustResolve(t, r, ctx)
+
+	settings.err = errors.New("database is unreachable")
+	r.expire(featureCacheKey{AgentID: "agent-ops", AccountID: "acct-harbor"})
+
+	before, _ := settings.reads()
+	for i := 0; i < 30; i++ {
+		if _, err := r.ResolvedSet(ctx); err != nil {
+			t.Fatalf("evaluation %d returned an error instead of the last known set: %v", i, err)
+		}
+	}
+	after, _ := settings.reads()
+	if after-before > 2 {
+		t.Fatalf("a down store was retried %d times across 30 evaluations, want at most 2", after-before)
+	}
+}
+
+// TestResolverRebuildsWhenACachedSetLacksADeclaredKey covers the preset-install
+// case: answering meta.Default for a key missing from a cached set would bypass
+// every stored layer, so a feature could answer ON past an explicit instance
+// OFF for the life of the entry.
+func TestResolverRebuildsWhenACachedSetLacksADeclaredKey(t *testing.T) {
+	r, settings, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+	ctx := ctxAs("agent-ops", "acct-harbor")
+	_ = mustResolve(t, r, ctx)
+
+	// A feature declared after the set was cached, with the instance already
+	// holding an explicit off for it — the shape a preset install produces on
+	// an instance that was pre-seeded.
+	late := entities.FeatureMeta{Key: "invoice-export", DisplayName: "Invoice export", Default: true}
+	if err := r.registry.Register(late); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	_ = settings.SetOverride(context.Background(), repositories.FeatureScopeInstance, "", "invoice-export", false)
+
+	value, declared, err := r.Enabled(ctx, "invoice-export")
+	if err != nil {
+		t.Fatalf("Enabled: %v", err)
+	}
+	if !declared {
+		t.Fatal("the late declaration was reported undeclared")
+	}
+	if value {
+		t.Fatal("a key missing from the cached set answered its declared default, " +
+			"ignoring an explicit instance off")
 	}
 }

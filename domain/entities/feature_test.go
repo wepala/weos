@@ -23,39 +23,40 @@ func grantable(def bool) FeatureMeta {
 // ones only this test proves.
 func TestResolveFeature(t *testing.T) {
 	cases := []struct {
-		name     string
-		meta     FeatureMeta
-		instance FeatureState
-		account  FeatureState
-		granted  bool
-		want     bool
+		name      string
+		meta      FeatureMeta
+		instance  FeatureState
+		account   FeatureState
+		granted   bool
+		want      bool
+		decidedBy FeatureLayer
 	}{
 		// Nobody has spoken: the declared default stands, and it is not an
 		// explicit off — a declared-off feature must remain reachable.
-		{"default on, nothing stored", grantable(true), FeatureUnset, FeatureUnset, false, true},
-		{"default off, nothing stored", grantable(false), FeatureUnset, FeatureUnset, false, false},
+		{"default on, nothing stored", grantable(true), FeatureUnset, FeatureUnset, false, true, FeatureLayerDefault},
+		{"default off, nothing stored", grantable(false), FeatureUnset, FeatureUnset, false, false, FeatureLayerDefault},
 
 		// A declared-off feature can still be turned on from below. This is
 		// the whole reason Default and an explicit instance off are different
 		// states; read "first off wins" strictly and every row here is false.
-		{"default off, account on", grantable(false), FeatureUnset, FeatureOn, false, true},
-		{"default off, granted", grantable(false), FeatureUnset, FeatureUnset, true, true},
-		{"default off, instance on", grantable(false), FeatureOn, FeatureUnset, false, true},
+		{"default off, account on", grantable(false), FeatureUnset, FeatureOn, false, true, FeatureLayerAccount},
+		{"default off, granted", grantable(false), FeatureUnset, FeatureUnset, true, true, FeatureLayerGrant},
+		{"default off, instance on", grantable(false), FeatureOn, FeatureUnset, false, true, FeatureLayerInstance},
 
 		// An explicit off is final for every layer below it.
-		{"instance off beats account on", grantable(true), FeatureOff, FeatureOn, false, false},
-		{"instance off beats grant", grantable(true), FeatureOff, FeatureUnset, true, false},
-		{"instance off beats account on and grant", grantable(true), FeatureOff, FeatureOn, true, false},
-		{"account off beats grant", grantable(true), FeatureUnset, FeatureOff, true, false},
+		{"instance off beats account on", grantable(true), FeatureOff, FeatureOn, false, false, FeatureLayerInstance},
+		{"instance off beats grant", grantable(true), FeatureOff, FeatureUnset, true, false, FeatureLayerInstance},
+		{"instance off beats account on and grant", grantable(true), FeatureOff, FeatureOn, true, false, FeatureLayerInstance},
+		{"account off beats grant", grantable(true), FeatureUnset, FeatureOff, true, false, FeatureLayerAccount},
 
 		// contract gap: an explicit ON is NOT final. An account may still turn
 		// off what the instance turned on. No .feature scenario covers these.
-		{"instance on does not beat account off", grantable(true), FeatureOn, FeatureOff, false, false},
-		{"instance on, account off, granted", grantable(false), FeatureOn, FeatureOff, true, false},
+		{"instance on does not beat account off", grantable(true), FeatureOn, FeatureOff, false, false, FeatureLayerAccount},
+		{"instance on, account off, granted", grantable(false), FeatureOn, FeatureOff, true, false, FeatureLayerAccount},
 
 		// A grant only ever turns a feature on; it can never turn one off.
-		{"grant cannot lower account on", grantable(true), FeatureUnset, FeatureOn, false, true},
-		{"grant raises a default-off feature", grantable(false), FeatureUnset, FeatureUnset, true, true},
+		{"grant cannot lower account on", grantable(true), FeatureUnset, FeatureOn, false, true, FeatureLayerAccount},
+		{"grant raises a default-off feature", grantable(false), FeatureUnset, FeatureUnset, true, true, FeatureLayerGrant},
 
 		// Eligibility is re-checked at resolution, because a stored row can
 		// outlive a declaration change and resolution must not depend on the
@@ -63,27 +64,33 @@ func TestResolveFeature(t *testing.T) {
 		{
 			"account override ignored when not manageable",
 			FeatureMeta{Key: "audit-trail", DisplayName: "Audit trail", Default: true},
-			FeatureUnset, FeatureOff, false, true,
+			FeatureUnset, FeatureOff, false, true, FeatureLayerDefault,
 		},
 		{
 			"grant ignored when not grantable",
 			FeatureMeta{Key: "audit-trail", DisplayName: "Audit trail", Default: false},
-			FeatureUnset, FeatureUnset, true, false,
+			FeatureUnset, FeatureUnset, true, false, FeatureLayerDefault,
 		},
 		{
 			"non-manageable still obeys the instance layer",
 			FeatureMeta{Key: "audit-trail", DisplayName: "Audit trail", Default: true},
-			FeatureOff, FeatureUnset, false, false,
+			FeatureOff, FeatureUnset, false, false, FeatureLayerInstance,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ResolveFeature(tc.meta, tc.instance, tc.account, tc.granted)
+			got, decidedBy := ResolveFeature(tc.meta, tc.instance, tc.account, tc.granted)
 			if got != tc.want {
 				t.Fatalf("ResolveFeature(default=%v manageable=%v grantable=%v, instance=%v, account=%v, granted=%v) = %v, want %v",
 					tc.meta.Default, tc.meta.Manageable, tc.meta.Grantable,
 					tc.instance, tc.account, tc.granted, got, tc.want)
+			}
+			// The deciding layer is what #482's explain output and #486's
+			// listing will show an operator. A wrong layer with a right value
+			// is a wrong explanation, so it is pinned here too.
+			if decidedBy != tc.decidedBy {
+				t.Fatalf("decided by %v, want %v", decidedBy, tc.decidedBy)
 			}
 		})
 	}

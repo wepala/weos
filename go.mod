@@ -19,6 +19,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.13.3
 	github.com/modelcontextprotocol/go-sdk v1.4.1
+	github.com/open-feature/go-sdk v1.17.2
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/segmentio/ksuid v1.0.4
 	github.com/spf13/cobra v1.10.2
@@ -105,7 +106,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/microsoft/go-mssqldb v1.9.5 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
-	github.com/open-feature/go-sdk v1.17.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
@@ -134,6 +134,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.uber.org/dig v1.18.0 // indirect
+	go.uber.org/mock v0.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.51.0 // indirect

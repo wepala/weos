@@ -17,6 +17,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -194,4 +195,25 @@ func (p *FeatureProvider) log(ctx context.Context, msg string, kv ...any) {
 		return
 	}
 	p.logger.Warn(ctx, msg, kv...)
+}
+
+// RegisterFeatureProvider binds the provider to its OpenFeature domain and
+// returns a client for it.
+//
+// This is wired as an fx.Invoke rather than left to a consumer, and that is
+// load-bearing: fx is lazy, so a provider that nothing depends on is never
+// constructed. Before this existed the provider was built only by tests that
+// populated it directly, the "weos" domain fell through to the SDK's no-op
+// provider in the real server, and every evaluation returned the caller's
+// default — the whole subsystem inert in the shipped binary while every test
+// passed.
+func RegisterFeatureProvider(p *FeatureProvider, logger entities.Logger) (*openfeature.Client, error) {
+	if err := openfeature.SetNamedProviderAndWait(FeatureProviderDomain, p); err != nil {
+		return nil, fmt.Errorf("failed to register the feature provider: %w", err)
+	}
+	if logger != nil {
+		logger.Debug(context.Background(), "feature provider registered",
+			"domain", FeatureProviderDomain, "provider", featureProviderName)
+	}
+	return openfeature.NewClient(FeatureProviderDomain), nil
 }

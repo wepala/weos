@@ -70,6 +70,40 @@ func (m FeatureMeta) Validate() error {
 	return nil
 }
 
+// FeatureLayer names which layer decided a feature's value. It exists so the
+// operator CLI's "explain" output (#482) and the admin listing (#486) can say
+// WHY a feature is on or off without re-deriving the rules — the mistake this
+// whole file exists to prevent.
+//
+// Widened into ResolveFeature's signature before any call site existed;
+// afterwards it would have been a breaking change to the one shared function.
+type FeatureLayer int
+
+const (
+	// FeatureLayerDefault means no layer spoke; the declaration's Default stands.
+	FeatureLayerDefault FeatureLayer = iota
+	// FeatureLayerInstance means the instance layer decided.
+	FeatureLayerInstance
+	// FeatureLayerAccount means the account override decided.
+	FeatureLayerAccount
+	// FeatureLayerGrant means a grant turned it on.
+	FeatureLayerGrant
+)
+
+// String renders the layer for operator-facing output.
+func (l FeatureLayer) String() string {
+	switch l {
+	case FeatureLayerInstance:
+		return "instance"
+	case FeatureLayerAccount:
+		return "account"
+	case FeatureLayerGrant:
+		return "grant"
+	default:
+		return "default"
+	}
+}
+
 // FeatureState is what one layer says about a feature. The zero value is
 // FeatureUnset, so a layer that has stored nothing says nothing — which is what
 // makes row-absence the storage representation of "unset" and removes any need
@@ -116,26 +150,34 @@ const (
 // account override on a non-manageable feature, and a grant on a non-grantable
 // feature, are both ignored. Stored rows can outlive a declaration change, and
 // resolution must not depend on whoever wrote the row.
-func ResolveFeature(meta FeatureMeta, instance, account FeatureState, granted bool) bool {
+// The second result names the layer that decided, so callers can explain the
+// answer rather than guess at it.
+func ResolveFeature(
+	meta FeatureMeta, instance, account FeatureState, granted bool,
+) (bool, FeatureLayer) {
 	value := meta.Default
+	decidedBy := FeatureLayerDefault
 
 	if instance != FeatureUnset {
 		if instance == FeatureOff {
-			return false
+			return false, FeatureLayerInstance
 		}
 		value = true
+		decidedBy = FeatureLayerInstance
 	}
 
 	if meta.Manageable && account != FeatureUnset {
 		if account == FeatureOff {
-			return false
+			return false, FeatureLayerAccount
 		}
 		value = true
+		decidedBy = FeatureLayerAccount
 	}
 
 	if meta.Grantable && granted {
 		value = true
+		decidedBy = FeatureLayerGrant
 	}
 
-	return value
+	return value, decidedBy
 }

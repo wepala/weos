@@ -59,6 +59,11 @@ type featureCacheKey struct {
 type resolvedFeatureSet struct {
 	values     map[string]bool
 	resolvedAt time.Time
+	// retryAfter throttles re-reads while the store is failing. Without it an
+	// agent turn making thirty evaluations against an unreadable database
+	// makes thirty failing round trips, turning a blip into a query storm at
+	// the worst moment.
+	retryAfter time.Time
 }
 
 // FeatureResolver answers what features are on for a caller, and owns the
@@ -81,6 +86,13 @@ type FeatureResolver struct {
 
 	mu   sync.RWMutex
 	sets map[featureCacheKey]resolvedFeatureSet
+	// generation increments on every invalidation. A resolve that started
+	// before an invalidation and finished after it must not store its result:
+	// it read the database before the write landed, so caching it would give
+	// stale values a fresh timestamp and break the one rule this design has —
+	// that a change reaches sessions already open. The window is widest
+	// exactly when the instance is busy.
+	generation uint64
 	// now is injectable so the max-age behaviour can be tested without
 	// sleeping. Production leaves it nil and uses time.Now.
 	now func() time.Time
@@ -139,9 +151,17 @@ func (r *FeatureResolver) Enabled(ctx context.Context, key string) (bool, bool, 
 	}
 	value, ok := set[key]
 	if !ok {
-		// Declared after this set was cached. Fall back to the declaration
-		// rather than reporting it undeclared — the set is stale, not the
-		// registry.
+		// Declared after this set was cached — the set is stale, not the
+		// registry. Re-resolve rather than answering meta.Default, which would
+		// bypass every stored layer and could serve ON past an explicit
+		// instance OFF for the lifetime of the cache entry.
+		fresh, err := r.resolveNow(ctx)
+		if err != nil {
+			return false, true, err
+		}
+		if value, ok := fresh[key]; ok {
+			return value, true, nil
+		}
 		return meta.Default, true, nil
 	}
 	return value, true, nil
@@ -163,21 +183,81 @@ func (r *FeatureResolver) ResolvedSet(ctx context.Context) (map[string]bool, err
 	if set, ok := r.cached(key); ok {
 		return set, nil
 	}
+	return r.refresh(ctx, key)
+}
+
+// resolveNow bypasses the cache entirely. Used when a cached set turns out not
+// to contain a key it should — the set is stale and must be rebuilt rather
+// than guessed around.
+func (r *FeatureResolver) resolveNow(ctx context.Context) (map[string]bool, error) {
+	identity := auth.AgentFromCtx(ctx)
+	key := featureCacheKey{}
+	if identity != nil {
+		key = featureCacheKey{AgentID: identity.AgentID, AccountID: identity.ActiveAccountID}
+	}
+	return r.refresh(ctx, key)
+}
+
+// refresh reads every layer and stores the result, unless an invalidation
+// overtook it.
+func (r *FeatureResolver) refresh(ctx context.Context, key featureCacheKey) (map[string]bool, error) {
+	r.mu.RLock()
+	startedAt := r.generation
+	r.mu.RUnlock()
 
 	values, err := r.resolve(ctx, key)
 	if err != nil {
-		// A failure is never cached. Remembering it would turn one unreadable
-		// moment into a persistently-off feature long after the store
-		// recovered.
-		return nil, err
+		return r.onResolveError(ctx, key, err)
 	}
 
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.generation != startedAt {
+		// An invalidation landed while this read was in flight, so these
+		// values may predate the write that caused it. Serve them to this
+		// caller — they are no more stale than the read itself — but do not
+		// store them, or the next caller inherits a stale set with a fresh
+		// timestamp.
+		return copyFeatureValues(values), nil
+	}
 	r.sets[key] = resolvedFeatureSet{values: values, resolvedAt: r.clock()}
-	r.mu.Unlock()
-
 	return copyFeatureValues(values), nil
 }
+
+// onResolveError decides what a caller is told when the store cannot be read.
+//
+// A failure is never cached as an answer. But if this caller already has a
+// resolved set, serving it beats answering off for everything: a database blip
+// would otherwise strip every capability from every user mid-turn — including
+// features nobody ever turned off — and once #484 gates tool listings, clients
+// cache the emptied list and the outage outlives the blip.
+//
+// With no previous set there is nothing to fall back to, so the answer is off.
+// That is the contract's case: a store unreadable from the start resolves off
+// with reason ERROR.
+func (r *FeatureResolver) onResolveError(
+	ctx context.Context, key featureCacheKey, err error,
+) (map[string]bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	previous, ok := r.sets[key]
+	if !ok {
+		return nil, err
+	}
+	// Throttle the retry so a sustained outage does not turn every evaluation
+	// into another failing round trip.
+	previous.retryAfter = r.clock().Add(resolveFailureBackoff)
+	r.sets[key] = previous
+	if r.logger != nil {
+		r.logger.Warn(ctx, "serving the last known feature set; the store could not be read",
+			"agent", key.AgentID, "account", key.AccountID, "error", err)
+	}
+	return copyFeatureValues(previous.values), nil
+}
+
+// resolveFailureBackoff is how long a failed refresh suppresses another
+// attempt for the same caller.
+const resolveFailureBackoff = time.Second
 
 func (r *FeatureResolver) cached(key featureCacheKey) (map[string]bool, bool) {
 	r.mu.RLock()
@@ -186,9 +266,15 @@ func (r *FeatureResolver) cached(key featureCacheKey) (map[string]bool, bool) {
 	if !ok {
 		return nil, false
 	}
-	if r.clock().Sub(set.resolvedAt) >= r.maxAge {
+	now := r.clock()
+	if now.Sub(set.resolvedAt) >= r.maxAge {
 		// Too old to trust. Treated as a miss rather than evicted here so the
 		// read path keeps only a read lock; the entry is replaced on write.
+		// Unless a refresh just failed — then serving this set is better than
+		// hammering a store that is down.
+		if set.retryAfter.After(now) {
+			return copyFeatureValues(set.values), true
+		}
 		return nil, false
 	}
 	return copyFeatureValues(set.values), true
@@ -229,12 +315,13 @@ func (r *FeatureResolver) resolve(ctx context.Context, key featureCacheKey) (map
 	declared := r.registry.All()
 	values := make(map[string]bool, len(declared))
 	for _, meta := range declared {
-		values[meta.Key] = entities.ResolveFeature(
+		value, _ := entities.ResolveFeature(
 			meta,
 			featureStateFrom(instance, meta.Key),
 			featureStateFrom(account, meta.Key),
 			granted[meta.Key],
 		)
+		values[meta.Key] = value
 	}
 	return values, nil
 }
@@ -261,11 +348,24 @@ func copyFeatureValues(in map[string]bool) map[string]bool {
 	return out
 }
 
+// expire ages a cached entry past the maximum, so a test can force the next
+// read to attempt a refresh without sleeping.
+func (r *FeatureResolver) expire(key featureCacheKey) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if set, ok := r.sets[key]; ok {
+		set.resolvedAt = r.clock().Add(-2 * r.maxAge)
+		set.retryAfter = time.Time{}
+		r.sets[key] = set
+	}
+}
+
 // InvalidateAll drops every cached set. Used when an instance-level value
 // changes, and when a replica is told that something changed elsewhere.
 func (r *FeatureResolver) InvalidateAll(_ context.Context) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.generation++
 	r.sets = make(map[featureCacheKey]resolvedFeatureSet)
 }
 
@@ -277,6 +377,7 @@ func (r *FeatureResolver) InvalidateAccount(_ context.Context, accountID string)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.generation++
 	for key := range r.sets {
 		if key.AccountID == accountID {
 			delete(r.sets, key)
@@ -293,6 +394,7 @@ func (r *FeatureResolver) InvalidateAgents(_ context.Context, accountID string, 
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.generation++
 	for _, agentID := range agentIDs {
 		delete(r.sets, featureCacheKey{AgentID: agentID, AccountID: accountID})
 	}
