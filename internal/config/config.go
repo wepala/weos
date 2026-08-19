@@ -172,6 +172,30 @@ type Config struct {
 	// runs peripheral event handlers (knowledge-graph sync, denormalization)
 	// off checkpointed feeds, isolated from the synchronous write path.
 	Worker WorkerConfig
+
+	// Features tunes feature-flag resolution (epic #480).
+	Features FeaturesConfig
+}
+
+// FeaturesConfig tunes the feature-flag resolver. Feature flags themselves are
+// declared in code or by a preset and stored in the database — nothing here
+// turns a feature on or off.
+type FeaturesConfig struct {
+	// CacheMaxAge bounds how long a resolved feature set may be served from
+	// memory before it is re-resolved, whether or not an invalidation arrived.
+	//
+	// On a single-process instance invalidation is exact, so this only matters
+	// as a backstop and the default is generous. Under Postgres replicas it is
+	// load-bearing: cross-replica invalidation rides LISTEN/NOTIFY, which is
+	// not durable — a replica whose LISTEN connection drops misses those
+	// messages entirely — so this is what stops a missed notification becoming
+	// permanent staleness. Shorten it when running replicas.
+	CacheMaxAge time.Duration
+
+	// NotifyChannel is the Postgres NOTIFY channel used to broadcast cache
+	// invalidations between replicas. Ignored on SQLite, which is
+	// single-process by construction and needs no broadcast.
+	NotifyChannel string
 }
 
 // WorkerConfig tunes the background subscriber runtime (epic #365). Subscribers
@@ -432,6 +456,10 @@ func Default() Config {
 			MaxRetryBackoff: 5 * time.Second,
 			LagLogInterval:  30 * time.Second,
 		},
+		Features: FeaturesConfig{
+			CacheMaxAge:   15 * time.Minute,
+			NotifyChannel: "weos_feature_cache",
+		},
 	}
 }
 
@@ -607,6 +635,15 @@ func (c *Config) LoadFromEnvironment() {
 			c.Oxigraph.Enabled = b
 		}
 	}
+	if v := os.Getenv("FEATURE_CACHE_MAX_AGE_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Features.CacheMaxAge = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("FEATURE_NOTIFY_CHANNEL"); v != "" {
+		c.Features.NotifyChannel = v
+	}
+
 	if v := os.Getenv("OXIGRAPH_USERNAME"); v != "" {
 		c.Oxigraph.Username = v
 	}

@@ -92,7 +92,7 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/go-memdb v1.3.5 // indirect
-	github.com/hashicorp/golang-lru v0.5.4 // indirect
+	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -105,6 +105,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/microsoft/go-mssqldb v1.9.5 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/open-feature/go-sdk v1.17.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect

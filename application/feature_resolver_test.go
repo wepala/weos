@@ -1,0 +1,497 @@
+package application
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/akeemphilbert/pericarp/pkg/auth"
+	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
+
+	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/internal/config"
+)
+
+// --- fakes -------------------------------------------------------------
+
+// fakeSettings counts reads so the cache scenarios can assert that a warm
+// evaluation touches the store zero times, and that an anonymous caller never
+// reaches the account layer at all.
+type fakeSettings struct {
+	mu            sync.Mutex
+	instance      map[string]bool
+	account       map[string]map[string]bool
+	instanceReads int
+	accountReads  int
+	err           error
+}
+
+func (f *fakeSettings) InstanceOverrides(context.Context) (map[string]bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.instanceReads++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return copyFeatureValues(f.instance), nil
+}
+
+func (f *fakeSettings) AccountOverrides(_ context.Context, accountID string) (map[string]bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.accountReads++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return copyFeatureValues(f.account[accountID]), nil
+}
+
+func (f *fakeSettings) SetOverride(_ context.Context, scopeType, scopeID, key string, enabled bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if scopeType == repositories.FeatureScopeInstance {
+		if f.instance == nil {
+			f.instance = map[string]bool{}
+		}
+		f.instance[key] = enabled
+		return nil
+	}
+	if f.account == nil {
+		f.account = map[string]map[string]bool{}
+	}
+	if f.account[scopeID] == nil {
+		f.account[scopeID] = map[string]bool{}
+	}
+	f.account[scopeID][key] = enabled
+	return nil
+}
+
+func (f *fakeSettings) ClearOverride(_ context.Context, scopeType, scopeID, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if scopeType == repositories.FeatureScopeInstance {
+		delete(f.instance, key)
+		return nil
+	}
+	delete(f.account[scopeID], key)
+	return nil
+}
+
+func (f *fakeSettings) reads() (int, int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.instanceReads, f.accountReads
+}
+
+type fakeGrants struct {
+	mu    sync.Mutex
+	byKey map[string]map[string]bool // "accountID|subjectID" -> keys
+	reads int
+	err   error
+}
+
+func newFakeGrants() *fakeGrants {
+	return &fakeGrants{byKey: map[string]map[string]bool{}}
+}
+
+func (f *fakeGrants) GrantedKeys(_ context.Context, accountID, agentID, roleID string) (map[string]bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := map[string]bool{}
+	for k := range f.byKey[accountID+"|"+agentID] {
+		out[k] = true
+	}
+	if roleID != "" {
+		for k := range f.byKey[accountID+"|"+roleID] {
+			out[k] = true
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeGrants) Grant(_ context.Context, subjectType, subjectID, accountID, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := accountID + "|" + subjectID
+	if f.byKey[id] == nil {
+		f.byKey[id] = map[string]bool{}
+	}
+	f.byKey[id][key] = true
+	return nil
+}
+
+func (f *fakeGrants) Revoke(_ context.Context, subjectType, subjectID, accountID, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.byKey[accountID+"|"+subjectID], key)
+	return nil
+}
+
+func (f *fakeGrants) readCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reads
+}
+
+// fakeAccounts embeds the pericarp interface so only the one method feature
+// resolution actually calls has to be implemented. A call to anything else
+// panics, which is the point: it proves resolution touches nothing more.
+type fakeAccounts struct {
+	authrepos.AccountRepository
+	roles map[string]string // "accountID|agentID" -> roleID
+	err   error
+}
+
+func (f fakeAccounts) FindMemberRole(_ context.Context, accountID, agentID string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.roles[accountID+"|"+agentID], nil
+}
+
+// --- helpers -----------------------------------------------------------
+
+func testResolver(t *testing.T, features []entities.FeatureMeta) (
+	*FeatureResolver, *fakeSettings, *fakeGrants, *fakeAccounts,
+) {
+	t.Helper()
+	registry, _ := newTestFeatureRegistry(t, features...)
+	settings := &fakeSettings{}
+	grants := newFakeGrants()
+	accounts := &fakeAccounts{roles: map[string]string{}}
+	cfg := config.Default()
+	return NewFeatureResolver(cfg, registry, settings, grants, accounts, nil), settings, grants, accounts
+}
+
+func ctxAs(agentID, accountID string) context.Context {
+	return auth.ContextWithAgent(context.Background(),
+		&auth.Identity{AgentID: agentID, ActiveAccountID: accountID})
+}
+
+var (
+	featEpisodic = entities.FeatureMeta{
+		Key: "episodic-recall", DisplayName: "Episodic recall",
+		Default: true, Manageable: true, Grantable: true,
+	}
+	featLedger = entities.FeatureMeta{
+		Key: "ledger-export", DisplayName: "Ledger export",
+		Default: false, Manageable: true, Grantable: true,
+	}
+	featAudit = entities.FeatureMeta{
+		Key: "audit-trail", DisplayName: "Audit trail", Default: true,
+	}
+)
+
+func mustResolve(t *testing.T, r *FeatureResolver, ctx context.Context) map[string]bool {
+	t.Helper()
+	set, err := r.ResolvedSet(ctx)
+	if err != nil {
+		t.Fatalf("ResolvedSet: %v", err)
+	}
+	return set
+}
+
+// --- tests -------------------------------------------------------------
+
+func TestResolverDefaultsWhenNothingStored(t *testing.T) {
+	r, _, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic, featLedger})
+	set := mustResolve(t, r, ctxAs("agent-ops", "acct-harbor"))
+	if !set["episodic-recall"] {
+		t.Fatal("a declared-on feature resolved off with nothing stored")
+	}
+	if set["ledger-export"] {
+		t.Fatal("a declared-off feature resolved on with nothing stored")
+	}
+}
+
+func TestResolverLayerPrecedence(t *testing.T) {
+	ctx := ctxAs("agent-ops", "acct-harbor")
+	cases := []struct {
+		name  string
+		setup func(*fakeSettings, *fakeGrants, *fakeAccounts)
+		key   string
+		want  bool
+	}{
+		{
+			"account turns on a declared-off feature",
+			func(s *fakeSettings, _ *fakeGrants, _ *fakeAccounts) {
+				_ = s.SetOverride(context.Background(), repositories.FeatureScopeAccount, "acct-harbor", "ledger-export", true)
+			}, "ledger-export", true,
+		},
+		{
+			"account off beats a grant",
+			func(s *fakeSettings, g *fakeGrants, _ *fakeAccounts) {
+				_ = s.SetOverride(context.Background(), repositories.FeatureScopeAccount, "acct-harbor", "episodic-recall", false)
+				_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "episodic-recall")
+			}, "episodic-recall", false,
+		},
+		{
+			"instance off beats an account on",
+			func(s *fakeSettings, _ *fakeGrants, _ *fakeAccounts) {
+				_ = s.SetOverride(context.Background(), repositories.FeatureScopeInstance, "", "episodic-recall", false)
+				_ = s.SetOverride(context.Background(), repositories.FeatureScopeAccount, "acct-harbor", "episodic-recall", true)
+			}, "episodic-recall", false,
+		},
+		{
+			"instance off beats a grant",
+			func(s *fakeSettings, g *fakeGrants, _ *fakeAccounts) {
+				_ = s.SetOverride(context.Background(), repositories.FeatureScopeInstance, "", "ledger-export", false)
+				_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
+			}, "ledger-export", false,
+		},
+		{
+			"a direct grant turns a feature on",
+			func(_ *fakeSettings, g *fakeGrants, _ *fakeAccounts) {
+				_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
+			}, "ledger-export", true,
+		},
+		{
+			"a role grant resolves like a direct one",
+			func(_ *fakeSettings, g *fakeGrants, a *fakeAccounts) {
+				a.roles["acct-harbor|agent-ops"] = "admin"
+				_ = g.Grant(context.Background(), repositories.FeatureSubjectRole, "admin", "acct-harbor", "ledger-export")
+			}, "ledger-export", true,
+		},
+		{
+			"an account override on a non-manageable feature is ignored",
+			func(s *fakeSettings, _ *fakeGrants, _ *fakeAccounts) {
+				_ = s.SetOverride(context.Background(), repositories.FeatureScopeAccount, "acct-harbor", "audit-trail", false)
+			}, "audit-trail", true,
+		},
+		{
+			"a grant on a non-grantable feature is ignored",
+			func(s *fakeSettings, g *fakeGrants, _ *fakeAccounts) {
+				_ = s.SetOverride(context.Background(), repositories.FeatureScopeInstance, "", "audit-trail", false)
+				_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "audit-trail")
+			}, "audit-trail", false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, s, g, a := testResolver(t, []entities.FeatureMeta{featEpisodic, featLedger, featAudit})
+			tc.setup(s, g, a)
+			set := mustResolve(t, r, ctx)
+			if set[tc.key] != tc.want {
+				t.Fatalf("%s resolved %v, want %v", tc.key, set[tc.key], tc.want)
+			}
+		})
+	}
+}
+
+// TestResolverAnonymousReadsInstanceLayerOnly proves the nil-identity rule is
+// implemented, not merely intended: the account and grant stores are never
+// touched, so there is no path by which a background worker or a stdio MCP
+// session could pick up someone's account override.
+func TestResolverAnonymousReadsInstanceLayerOnly(t *testing.T) {
+	r, s, g, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+	_ = s.SetOverride(context.Background(), repositories.FeatureScopeAccount, "acct-harbor", "episodic-recall", false)
+	_ = s.SetOverride(context.Background(), repositories.FeatureScopeInstance, "", "episodic-recall", true)
+
+	set := mustResolve(t, r, context.Background())
+	if !set["episodic-recall"] {
+		t.Fatal("the anonymous caller did not get the instance-level value")
+	}
+	if _, accountReads := s.reads(); accountReads != 0 {
+		t.Fatalf("the anonymous path read the account layer %d times, want 0", accountReads)
+	}
+	if g.readCount() != 0 {
+		t.Fatalf("the anonymous path read grants %d times, want 0", g.readCount())
+	}
+}
+
+func TestResolverFailsClosedAndNeverCachesTheFailure(t *testing.T) {
+	r, s, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+	boom := errors.New("database is unreachable")
+	s.err = boom
+
+	if _, err := r.ResolvedSet(ctxAs("agent-ops", "acct-harbor")); err == nil {
+		t.Fatal("ResolvedSet returned nil error while the store was unreadable")
+	}
+
+	// Recovery must be immediate. A remembered failure would keep a feature
+	// off long after the store came back.
+	s.err = nil
+	set := mustResolve(t, r, ctxAs("agent-ops", "acct-harbor"))
+	if !set["episodic-recall"] {
+		t.Fatal("the feature stayed off after the store recovered; the failure was cached")
+	}
+}
+
+func TestResolverCachesPerAgentAndAccount(t *testing.T) {
+	r, s, g, _ := testResolver(t, []entities.FeatureMeta{featEpisodic, featLedger})
+	_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
+
+	ops := ctxAs("agent-ops", "acct-harbor")
+	for i := 0; i < 30; i++ {
+		set := mustResolve(t, r, ops)
+		if !set["ledger-export"] {
+			t.Fatalf("evaluation %d lost the grant", i)
+		}
+	}
+	instanceReads, _ := s.reads()
+	if instanceReads != 1 {
+		t.Fatalf("30 evaluations in one session read the store %d times, want 1", instanceReads)
+	}
+
+	// A different person in the same account must not be served the first
+	// person's set.
+	counsel := mustResolve(t, r, ctxAs("agent-counsel", "acct-harbor"))
+	if counsel["ledger-export"] {
+		t.Fatal("one person's grant leaked into another person's resolved set")
+	}
+
+	// Same person, different active account: a different key again.
+	instanceReads, _ = s.reads()
+	_ = mustResolve(t, r, ctxAs("agent-ops", "acct-cedar"))
+	newReads, _ := s.reads()
+	if newReads == instanceReads {
+		t.Fatal("switching account served the previous account's cached set")
+	}
+}
+
+func TestResolverInvalidation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("InvalidateAll drops everything", func(t *testing.T) {
+		r, s, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+		_ = mustResolve(t, r, ctxAs("agent-ops", "acct-harbor"))
+		_ = mustResolve(t, r, ctxAs("agent-broker", "acct-cedar"))
+		before, _ := s.reads()
+
+		r.InvalidateAll(ctx)
+		_ = mustResolve(t, r, ctxAs("agent-ops", "acct-harbor"))
+		_ = mustResolve(t, r, ctxAs("agent-broker", "acct-cedar"))
+		after, _ := s.reads()
+		if after != before+2 {
+			t.Fatalf("after InvalidateAll the store was read %d more times, want 2", after-before)
+		}
+	})
+
+	t.Run("InvalidateAccount spares other accounts", func(t *testing.T) {
+		r, s, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+		_ = mustResolve(t, r, ctxAs("agent-ops", "acct-harbor"))
+		_ = mustResolve(t, r, ctxAs("agent-broker", "acct-cedar"))
+		before, _ := s.reads()
+
+		r.InvalidateAccount(ctx, "acct-harbor")
+		_ = mustResolve(t, r, ctxAs("agent-broker", "acct-cedar"))
+		if after, _ := s.reads(); after != before {
+			t.Fatal("invalidating one account re-resolved another account's session")
+		}
+		_ = mustResolve(t, r, ctxAs("agent-ops", "acct-harbor"))
+		if after, _ := s.reads(); after != before+1 {
+			t.Fatal("invalidating an account did not re-resolve its own session")
+		}
+	})
+
+	t.Run("InvalidateAgents reaches named people only", func(t *testing.T) {
+		r, s, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+		_ = mustResolve(t, r, ctxAs("agent-counsel", "acct-harbor"))
+		_ = mustResolve(t, r, ctxAs("agent-clerk", "acct-harbor"))
+		_ = mustResolve(t, r, ctxAs("agent-temp", "acct-harbor"))
+		before, _ := s.reads()
+
+		// The role fan-out case: two holders invalidated in one call.
+		r.InvalidateAgents(ctx, "acct-harbor", "agent-counsel", "agent-clerk")
+
+		_ = mustResolve(t, r, ctxAs("agent-temp", "acct-harbor"))
+		if after, _ := s.reads(); after != before {
+			t.Fatal("a member who does not hold the role was re-resolved")
+		}
+		_ = mustResolve(t, r, ctxAs("agent-counsel", "acct-harbor"))
+		_ = mustResolve(t, r, ctxAs("agent-clerk", "acct-harbor"))
+		if after, _ := s.reads(); after != before+2 {
+			t.Fatal("both role holders should have been re-resolved")
+		}
+	})
+}
+
+// TestResolverMaxAgeBoundsStaleness is the backstop that makes the Postgres
+// path safe: NOTIFY is not durable, so a replica that misses an invalidation
+// must still converge. The clock is injected rather than slept on.
+func TestResolverMaxAgeBoundsStaleness(t *testing.T) {
+	registry, _ := newTestFeatureRegistry(t, featEpisodic)
+	settings := &fakeSettings{}
+	cfg := config.Default()
+	cfg.Features.CacheMaxAge = 2 * time.Second
+	r := NewFeatureResolver(cfg, registry, settings, newFakeGrants(),
+		&fakeAccounts{roles: map[string]string{}}, nil)
+
+	now := time.Now()
+	r.now = func() time.Time { return now }
+
+	ctx := ctxAs("agent-ops", "acct-harbor")
+	if set := mustResolve(t, r, ctx); !set["episodic-recall"] {
+		t.Fatal("first resolve did not return the declared default")
+	}
+
+	// The change lands in the store with no invalidation reaching this cache.
+	_ = settings.SetOverride(context.Background(), repositories.FeatureScopeInstance, "", "episodic-recall", false)
+
+	// Straight away: still the cached answer.
+	if set := mustResolve(t, r, ctx); !set["episodic-recall"] {
+		t.Fatal("the cached set expired before the maximum cache age")
+	}
+
+	// Past the age: re-resolved, without anything having invalidated it.
+	now = now.Add(3 * time.Second)
+	if set := mustResolve(t, r, ctx); set["episodic-recall"] {
+		t.Fatal("the set was not re-resolved after the maximum cache age passed")
+	}
+}
+
+// TestResolverMaxAgeDoesNotChangeAnAnswer pins the other half: expiry costs one
+// extra read, it does not alter what the caller is told.
+func TestResolverMaxAgeDoesNotChangeAnAnswer(t *testing.T) {
+	registry, _ := newTestFeatureRegistry(t, featEpisodic)
+	settings := &fakeSettings{}
+	cfg := config.Default()
+	cfg.Features.CacheMaxAge = 2 * time.Second
+	r := NewFeatureResolver(cfg, registry, settings, newFakeGrants(),
+		&fakeAccounts{roles: map[string]string{}}, nil)
+
+	now := time.Now()
+	r.now = func() time.Time { return now }
+	ctx := ctxAs("agent-ops", "acct-harbor")
+
+	_ = mustResolve(t, r, ctx)
+	before, _ := settings.reads()
+
+	now = now.Add(3 * time.Second)
+	set := mustResolve(t, r, ctx)
+	after, _ := settings.reads()
+
+	if !set["episodic-recall"] {
+		t.Fatal("expiry changed the answer when nothing had changed")
+	}
+	if after != before+1 {
+		t.Fatalf("expiry cost %d extra reads, want exactly 1", after-before)
+	}
+}
+
+// TestResolverCachedSetIsNotAliased guards against a caller mutating the map
+// it was handed and corrupting every later reader of the same cache entry.
+func TestResolverCachedSetIsNotAliased(t *testing.T) {
+	r, _, _, _ := testResolver(t, []entities.FeatureMeta{featEpisodic})
+	ctx := ctxAs("agent-ops", "acct-harbor")
+
+	first := mustResolve(t, r, ctx)
+	first["episodic-recall"] = false
+	first["injected"] = true
+
+	second := mustResolve(t, r, ctx)
+	if !second["episodic-recall"] {
+		t.Fatal("mutating a returned set corrupted the cache")
+	}
+	if _, ok := second["injected"]; ok {
+		t.Fatal("mutating a returned set injected a key into the cache")
+	}
+}
