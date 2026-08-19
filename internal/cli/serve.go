@@ -34,6 +34,7 @@ import (
 	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/application/presets"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 	gormdb "github.com/wepala/weos/v3/infrastructure/database/gorm"
 	"github.com/wepala/weos/v3/internal/config"
 	mcpserver "github.com/wepala/weos/v3/internal/mcp"
@@ -133,6 +134,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var notificationService application.NotificationService
 	var orchestrator *appagents.Orchestrator
 	var skillRegistry *application.SkillRegistry
+	var featureInvalidator repositories.FeatureCacheInvalidator
 
 	registry := presets.NewDefaultRegistry()
 
@@ -142,6 +144,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Provide(weosoauth.ProvideJWTService),
 		fx.Populate(&orchestrator),
 		fx.Populate(&skillRegistry),
+		fx.Populate(&featureInvalidator),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
@@ -423,6 +426,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		AgentRepo:      agentRepo,
 		CredentialRepo: credentialRepo,
 		AccountRepo:    accountRepo,
+		Features:       featureInvalidator,
 		Logger:         logger,
 	})
 	protected.GET("/users", userHandler.List)

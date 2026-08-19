@@ -117,6 +117,24 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvidePresetHTTPHandlers),
 		fx.Provide(gorm.ProvideBehaviorSettingsRepository),
 
+		// Feature flags (epic #480). The resolver owns the per-caller cache
+		// and IS the in-process invalidator — on SQLite that is the complete
+		// implementation, not a fallback, because SQLite is single-process by
+		// construction. ProvideFeatureCacheInvalidator wraps it with a
+		// Postgres broadcast only when the deployment can actually have
+		// replicas.
+		fx.Provide(fx.Annotate(
+			NewFeatureRegistry,
+			fx.ParamTags(``, ``, `group:"feature_declarations"`),
+		)),
+		fx.Provide(gorm.ProvideFeatureSettingsRepository),
+		fx.Provide(gorm.ProvideFeatureGrantRepository),
+		fx.Provide(gorm.ProvideAccountMemberQuery),
+		fx.Provide(NewFeatureResolver),
+		fx.Provide(ProvideFeatureCacheInvalidator),
+		fx.Provide(NewFeatureProvider),
+		fx.Provide(NewFeatureService),
+
 		// Email sender
 		fx.Provide(email.ProvideEmailSender),
 

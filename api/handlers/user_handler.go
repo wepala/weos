@@ -21,6 +21,7 @@ import (
 
 	apimw "github.com/wepala/weos/v3/api/middleware"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -31,6 +32,7 @@ type UserHandler struct {
 	agentRepo      authrepos.AgentRepository
 	credentialRepo authrepos.CredentialRepository
 	accountRepo    authrepos.AccountRepository
+	features       repositories.FeatureCacheInvalidator
 	logger         entities.Logger
 }
 
@@ -38,7 +40,11 @@ type UserHandlerConfig struct {
 	AgentRepo      authrepos.AgentRepository
 	CredentialRepo authrepos.CredentialRepository
 	AccountRepo    authrepos.AccountRepository
-	Logger         entities.Logger
+	// Features drops a member's resolved feature set when their role changes.
+	// Optional: a handler constructed without one simply does not invalidate,
+	// which keeps existing test constructions working.
+	Features repositories.FeatureCacheInvalidator
+	Logger   entities.Logger
 }
 
 func NewUserHandler(cfg UserHandlerConfig) *UserHandler {
@@ -46,6 +52,7 @@ func NewUserHandler(cfg UserHandlerConfig) *UserHandler {
 		agentRepo:      cfg.AgentRepo,
 		credentialRepo: cfg.CredentialRepo,
 		accountRepo:    cfg.AccountRepo,
+		features:       cfg.Features,
 		logger:         cfg.Logger,
 	}
 }
@@ -154,6 +161,16 @@ func (h *UserHandler) Update(c echo.Context) error {
 		if err := h.accountRepo.SaveMember(ctx, accountID, id, req.Role); err != nil {
 			h.logger.Error(ctx, "failed to save user role", "error", err, "user_id", id)
 			return respondError(c, http.StatusInternalServerError, "failed to update user role")
+		}
+		// A role change changes what features this person resolves, because a
+		// feature can be granted to a role. SaveMember writes the projection
+		// directly and emits no event, so nothing else would ever notice —
+		// this is the one invalidation call site outside FeatureService, and
+		// without it the person keeps their old access until the cache ages
+		// out. Dropping their resolved set does not sign them out; their next
+		// evaluation costs one database read.
+		if h.features != nil {
+			h.features.InvalidateAgents(ctx, accountID, id)
 		}
 	}
 
