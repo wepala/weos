@@ -113,14 +113,17 @@ func (p *FeatureProvider) BooleanEvaluation(
 		// Fail closed. Not the caller's default — off. A resolver that
 		// answered "on" while the store was unreadable would hand out the
 		// capability at exactly the moment nobody could see why.
+		//
+		// Reason is ERROR so hooks and telemetry see the failure, but NO
+		// ResolutionError is attached, and that is deliberate. The OpenFeature
+		// client treats a resolution error as "fall back to the caller's
+		// default", which would hand `true` to any call site that passed
+		// `true` — the exact opposite of failing closed, and invisible to a
+		// unit test that calls this provider directly instead of going through
+		// the client. The failure is surfaced through the log line below
+		// rather than through a mechanism that would overrule the value.
 		p.log(ctx, "feature evaluation failed, answering off", "feature", key, "error", err)
-		return openfeature.BoolResolutionDetail{
-			Value: false,
-			ProviderResolutionDetail: openfeature.ProviderResolutionDetail{
-				Reason:          openfeature.ErrorReason,
-				ResolutionError: openfeature.NewGeneralResolutionError(err.Error()),
-			},
-		}
+		return boolDetail(false, openfeature.ErrorReason)
 	case !declared:
 		// Registry drift: a call site and the declarations disagree. The
 		// caller gets what it asked for, and the instance says so once.
