@@ -1,4 +1,4 @@
-@wip @epic-480 @story-481
+@epic-480 @story-481
 Feature: A feature is declared once and resolved through OpenFeature
   As an operator running a WeOS instance
   I want one answer to "is this capability on for this caller?"
