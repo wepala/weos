@@ -93,6 +93,7 @@ declared with, which an account admin or an individual grant can still turn on.`
 
 func init() {
 	featureCmd.AddCommand(featureListCmd, featureEnableCmd, featureDisableCmd, featureResetCmd)
+	initGrantCommands()
 	rootCmd.AddCommand(featureCmd)
 }
 
@@ -234,4 +235,188 @@ func withFeatureAdmin(cmd *cobra.Command, fn func(context.Context, *application.
 	}()
 
 	return fn(application.WithLocalTransport(cmd.Context()), admin)
+}
+
+var (
+	grantEmail   string
+	grantRole    string
+	grantAccount string
+	grantFrom    string
+	grantUntil   string
+)
+
+var featureGrantCmd = &cobra.Command{
+	Use:   "grant <key>",
+	Short: "Give a feature to one person or to a role within an account",
+	Long: `Gives a feature to one person or to a role.
+
+A grant only ever turns a feature ON. It cannot rescue a feature an account or
+the instance has switched off — those are above it and an explicit off is final.
+
+The window is optional. A grant with none is live from the moment it is made;
+one with --valid-from starts on its own, and one with --valid-until ends on its
+own, with nothing to run and nobody to sign in again.
+
+The account must be named on any instance with more than one, because a grant
+lands in exactly one account and guessing which would be worse than asking.`,
+	Args:         cobra.ExactArgs(1),
+	RunE:         runFeatureGrant,
+	SilenceUsage: true,
+}
+
+var featureRevokeCmd = &cobra.Command{
+	Use:          "revoke <key>",
+	Short:        "Take a feature back from one person or from a role",
+	Args:         cobra.ExactArgs(1),
+	RunE:         runFeatureRevoke,
+	SilenceUsage: true,
+}
+
+var featureGrantsCmd = &cobra.Command{
+	Use:          "grants <key>",
+	Short:        "List who holds a feature, with each grant's window and who made it",
+	Args:         cobra.ExactArgs(1),
+	RunE:         runFeatureGrants,
+	SilenceUsage: true,
+}
+
+func initGrantCommands() {
+	for _, c := range []*cobra.Command{featureGrantCmd, featureRevokeCmd} {
+		c.Flags().StringVar(&grantEmail, "email", "", "the person to grant to (give exactly one of --email or --role)")
+		c.Flags().StringVar(&grantRole, "role", "", "the role to grant to (owner, admin or member)")
+		c.Flags().StringVar(&grantAccount, "account", "", "the account id the grant lands in")
+	}
+	featureGrantCmd.Flags().StringVar(&grantFrom, "valid-from", "", "RFC3339 time the grant starts (default: immediately)")
+	featureGrantCmd.Flags().StringVar(&grantUntil, "valid-until", "", "RFC3339 time the grant ends (default: indefinitely)")
+	featureGrantsCmd.Flags().StringVar(&grantAccount, "account", "", "the account id to list grants in")
+	featureCmd.AddCommand(featureGrantCmd, featureRevokeCmd, featureGrantsCmd)
+}
+
+func runFeatureGrant(cmd *cobra.Command, args []string) error {
+	key := args[0]
+	from, err := parseGrantFlag("--valid-from", grantFrom)
+	if err != nil {
+		return err
+	}
+	until, err := parseGrantFlag("--valid-until", grantUntil)
+	if err != nil {
+		return err
+	}
+	return withFeatureAdmin(cmd, func(ctx context.Context, admin *application.FeatureAdminService) error {
+		account, err := resolveGrantAccount(ctx, admin)
+		if err != nil {
+			return err
+		}
+		if err := admin.Grant(ctx, application.GrantRequest{
+			Key: key, Email: grantEmail, Role: grantRole,
+			ValidFrom: from, ValidThrough: until,
+			AccountID: account, Source: entities.FeatureChangeSourceCLI,
+		}); err != nil {
+			return err
+		}
+		cmd.Printf("Granted %q to %s in account %s.\n", key, grantSubjectWord(), account)
+		printCacheAgeNotice(cmd)
+		return nil
+	})
+}
+
+func runFeatureRevoke(cmd *cobra.Command, args []string) error {
+	key := args[0]
+	return withFeatureAdmin(cmd, func(ctx context.Context, admin *application.FeatureAdminService) error {
+		account, err := resolveGrantAccount(ctx, admin)
+		if err != nil {
+			return err
+		}
+		if err := admin.RevokeGrant(ctx, application.RevokeRequest{
+			Key: key, Email: grantEmail, Role: grantRole,
+			AccountID: account, Source: entities.FeatureChangeSourceCLI,
+		}); err != nil {
+			return err
+		}
+		cmd.Printf("Took %q back from %s in account %s.\n", key, grantSubjectWord(), account)
+		printCacheAgeNotice(cmd)
+		return nil
+	})
+}
+
+func runFeatureGrants(cmd *cobra.Command, args []string) error {
+	key := args[0]
+	return withFeatureAdmin(cmd, func(ctx context.Context, admin *application.FeatureAdminService) error {
+		account, err := resolveGrantAccount(ctx, admin)
+		if err != nil {
+			return err
+		}
+		views, err := admin.GrantsOn(ctx, key, account)
+		if err != nil {
+			return err
+		}
+		if len(views) == 0 {
+			cmd.Printf("Nobody holds %q in account %s.\n", key, account)
+			return nil
+		}
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		if _, err := fmt.Fprintln(w, "SUBJECT\tWINDOW\tSTATUS\tGRANTED BY"); err != nil {
+			return err
+		}
+		for _, v := range views {
+			subject := v.Email
+			if v.SubjectType == "role" {
+				subject = "role:" + v.Role
+			}
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				subject, windowWord(v), v.Status, orDash(v.GrantedBy)); err != nil {
+				return err
+			}
+		}
+		return w.Flush()
+	})
+}
+
+// resolveGrantAccount names the account a grant acts in. The command line has
+// no session to take one from, so it is either given or inferred — and only
+// inferred when there is exactly one account, which on this system means a
+// single-person instance.
+func resolveGrantAccount(ctx context.Context, admin *application.FeatureAdminService) (string, error) {
+	if grantAccount != "" {
+		return grantAccount, nil
+	}
+	return admin.DefaultGrantAccount(ctx)
+}
+
+func parseGrantFlag(flag, value string) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be an RFC3339 time like 2026-08-21T09:00:00Z: %w", flag, err)
+	}
+	return &t, nil
+}
+
+func grantSubjectWord() string {
+	if grantRole != "" {
+		return "role " + grantRole
+	}
+	return grantEmail
+}
+
+func windowWord(v application.GrantView) string {
+	switch {
+	case v.ValidFrom != nil && v.ValidThrough != nil:
+		return v.ValidFrom.Format(time.RFC3339) + " to " + v.ValidThrough.Format(time.RFC3339)
+	case v.ValidFrom != nil:
+		return "from " + v.ValidFrom.Format(time.RFC3339)
+	case v.ValidThrough != nil:
+		return "until " + v.ValidThrough.Format(time.RFC3339)
+	default:
+		return "—"
+	}
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }

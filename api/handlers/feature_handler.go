@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -113,6 +114,101 @@ func (h *FeatureHandler) SetAccount(c echo.Context) error {
 func (h *FeatureHandler) ResetAccount(c echo.Context) error {
 	err := h.admin.ResetAccount(c.Request().Context(), c.Param("key"), entities.FeatureChangeSourceAPI)
 	return h.respondAfterChange(c, err)
+}
+
+// grantRequestBody is the body of POST /api/features/:key/grants.
+//
+// There is deliberately no account field. The account comes off the session,
+// so an admin naming another one has nothing to bind to — the property is
+// enforced by the shape rather than by a check that could be forgotten.
+type grantRequestBody struct {
+	Email        string     `json:"email,omitempty"`
+	Role         string     `json:"role,omitempty"`
+	ValidFrom    *time.Time `json:"validFrom,omitempty"`
+	ValidThrough *time.Time `json:"validThrough,omitempty"`
+}
+
+// ListGrants returns every grant on one feature in the caller's account,
+// including pending and expired ones.
+func (h *FeatureHandler) ListGrants(c echo.Context) error {
+	views, err := h.admin.GrantsOn(c.Request().Context(), c.Param("key"), "")
+	if err != nil {
+		return h.grantError(c, err)
+	}
+	return respond(c, http.StatusOK, views)
+}
+
+// GrantsHeldBy returns everything one person holds, directly or through a role.
+func (h *FeatureHandler) GrantsHeldBy(c echo.Context) error {
+	views, err := h.admin.GrantsHeldBy(c.Request().Context(), c.QueryParam("email"))
+	if err != nil {
+		return h.grantError(c, err)
+	}
+	return respond(c, http.StatusOK, views)
+}
+
+// Grant gives a feature to one person or to a role.
+func (h *FeatureHandler) Grant(c echo.Context) error {
+	var body grantRequestBody
+	if err := c.Bind(&body); err != nil {
+		return respondError(c, http.StatusBadRequest, "invalid request")
+	}
+	err := h.admin.Grant(c.Request().Context(), application.GrantRequest{
+		Key:          c.Param("key"),
+		Email:        body.Email,
+		Role:         body.Role,
+		ValidFrom:    body.ValidFrom,
+		ValidThrough: body.ValidThrough,
+		Source:       entities.FeatureChangeSourceAPI,
+	})
+	if err != nil {
+		return h.grantError(c, err)
+	}
+	return h.respondWithGrants(c)
+}
+
+// RevokeGrant takes a grant back. The subject comes from the query string:
+// DELETE bodies are unreliable across clients and proxies.
+func (h *FeatureHandler) RevokeGrant(c echo.Context) error {
+	err := h.admin.RevokeGrant(c.Request().Context(), application.RevokeRequest{
+		Key:    c.Param("key"),
+		Email:  c.QueryParam("email"),
+		Role:   c.QueryParam("role"),
+		Source: entities.FeatureChangeSourceAPI,
+	})
+	if err != nil {
+		return h.grantError(c, err)
+	}
+	return h.respondWithGrants(c)
+}
+
+// respondWithGrants answers a change with the feature's current grants, so a
+// client can see what the change produced — a window in particular resolves to
+// a status the client cannot compute.
+func (h *FeatureHandler) respondWithGrants(c echo.Context) error {
+	views, err := h.admin.GrantsOn(c.Request().Context(), c.Param("key"), "")
+	if err != nil {
+		// The change landed; only the read-back failed. Saying so beats
+		// reporting a failure for work that succeeded, and beats an empty body
+		// a client would read as "there are no grants".
+		h.logger.Error(c.Request().Context(), "grant changed but the listing could not be read", "error", err)
+		return respond(c, http.StatusOK, map[string]any{"applied": true})
+	}
+	return respond(c, http.StatusOK, views)
+}
+
+func (h *FeatureHandler) grantError(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, repositories.ErrNotFound):
+		return respondError(c, http.StatusNotFound, err.Error())
+	case errors.Is(err, application.ErrForbidden):
+		return respondError(c, http.StatusForbidden, err.Error())
+	case errors.Is(err, application.ErrValidation):
+		return respondError(c, http.StatusBadRequest, err.Error())
+	default:
+		h.logger.Error(c.Request().Context(), "failed to change a grant", "error", err)
+		return respondError(c, http.StatusInternalServerError, "failed to change the grant")
+	}
 }
 
 // bindSetFeature refuses a body that does not say which way to set the

@@ -443,6 +443,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	protected.DELETE("/features/:key/instance", featureHandler.ResetInstance)
 	protected.PUT("/features/:key/account", featureHandler.SetAccount)
 	protected.DELETE("/features/:key/account", featureHandler.ResetAccount)
+	// Grants hang off the same :key. The static segment is registered before
+	// the parameterised one so it cannot be swallowed by it.
+	protected.GET("/features/grants", featureHandler.GrantsHeldBy)
+	protected.GET("/features/:key/grants", featureHandler.ListGrants)
+	protected.POST("/features/:key/grants", featureHandler.Grant)
+	protected.DELETE("/features/:key/grants", featureHandler.RevokeGrant)
 
 	protected.GET("/users", userHandler.List)
 	protected.GET("/users/:id", userHandler.Get)

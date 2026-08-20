@@ -18,6 +18,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -139,6 +140,124 @@ func registerFeatureTools(server *mcp.Server, admin *application.FeatureAdminSer
 		}
 		return featureListingResult(ctx, admin)
 	})
+
+	registerGrantTools(server, admin)
+}
+
+// Grant inputs carry no account field, ever. Over HTTP the account comes off
+// the session; over stdio there is none, which is what makes the tool refuse
+// there rather than guess. An account argument would turn that refusal into a
+// multi-tenant hole.
+type FeatureGrantInput struct {
+	Key        string `json:"key" jsonschema:"the feature key to grant"`
+	Email      string `json:"email,omitempty" jsonschema:"the person to grant it to; give exactly one of email or role"`
+	Role       string `json:"role,omitempty" jsonschema:"the role to grant it to; give exactly one of email or role"`
+	ValidFrom  string `json:"valid_from,omitempty" jsonschema:"RFC3339; when the grant starts. Omit for immediately"`
+	ValidUntil string `json:"valid_until,omitempty" jsonschema:"RFC3339; when the grant ends. Omit for indefinitely"`
+}
+
+type FeatureRevokeInput struct {
+	Key   string `json:"key" jsonschema:"the feature key to take back"`
+	Email string `json:"email,omitempty" jsonschema:"give exactly one of email or role"`
+	Role  string `json:"role,omitempty" jsonschema:"give exactly one of email or role"`
+}
+
+type FeatureGrantsInput struct {
+	Key string `json:"key" jsonschema:"the feature key to list grants for"`
+}
+
+type FeatureGrantsOutput struct {
+	Grants []application.GrantView `json:"grants"`
+}
+
+// parseGrantTime reads an optional RFC3339 instant.
+func parseGrantTime(field, value string) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be an RFC3339 time like 2026-08-21T09:00:00Z: %w", field, err)
+	}
+	return &t, nil
+}
+
+// registerGrantTools adds the grant surface to the same opt-in group.
+func registerGrantTools(server *mcp.Server, admin *application.FeatureAdminService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "feature_grant",
+		Description: "Give a feature to one person or to a role, within the account you are signed in " +
+			"to. Optionally bounded by a validity window, which takes effect and expires on its own.",
+		Annotations: annDestructive(),
+	}, func(
+		ctx context.Context, _ *mcp.CallToolRequest, input FeatureGrantInput,
+	) (*mcp.CallToolResult, FeatureGrantsOutput, error) {
+		from, err := parseGrantTime("valid_from", input.ValidFrom)
+		if err != nil {
+			return nil, FeatureGrantsOutput{}, err
+		}
+		until, err := parseGrantTime("valid_until", input.ValidUntil)
+		if err != nil {
+			return nil, FeatureGrantsOutput{}, err
+		}
+		if err := admin.Grant(ctx, application.GrantRequest{
+			Key: input.Key, Email: input.Email, Role: input.Role,
+			ValidFrom: from, ValidThrough: until,
+			Source: entities.FeatureChangeSourceMCP,
+		}); err != nil {
+			return nil, FeatureGrantsOutput{}, err
+		}
+		return grantListingResult(ctx, admin, input.Key)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "feature_revoke",
+		Description: "Take a feature back from one person or from a role. Taking back what nobody " +
+			"holds succeeds and changes nothing.",
+		Annotations: annDestructive(),
+	}, func(
+		ctx context.Context, _ *mcp.CallToolRequest, input FeatureRevokeInput,
+	) (*mcp.CallToolResult, FeatureGrantsOutput, error) {
+		if err := admin.RevokeGrant(ctx, application.RevokeRequest{
+			Key: input.Key, Email: input.Email, Role: input.Role,
+			Source: entities.FeatureChangeSourceMCP,
+		}); err != nil {
+			return nil, FeatureGrantsOutput{}, err
+		}
+		return grantListingResult(ctx, admin, input.Key)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "feature_grants",
+		Description: "List who holds a feature in this account, with each grant's window and who " +
+			"made it. Includes grants that have not started yet and ones whose window has closed.",
+		Annotations: annReadOnly(),
+	}, func(
+		ctx context.Context, _ *mcp.CallToolRequest, input FeatureGrantsInput,
+	) (*mcp.CallToolResult, FeatureGrantsOutput, error) {
+		views, err := admin.GrantsOn(ctx, input.Key, "")
+		if err != nil {
+			return nil, FeatureGrantsOutput{}, err
+		}
+		return nil, FeatureGrantsOutput{Grants: views}, nil
+	})
+}
+
+func grantListingResult(
+	ctx context.Context, admin *application.FeatureAdminService, key string,
+) (*mcp.CallToolResult, FeatureGrantsOutput, error) {
+	views, err := admin.GrantsOn(ctx, key, "")
+	if err != nil {
+		// The change landed; only the read-back failed. Said in words rather
+		// than answered with an empty list, which a client would read as
+		// "nobody holds this".
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{
+				Text: "The change was applied. The grant listing could not be read just now.",
+			}},
+		}, FeatureGrantsOutput{}, nil
+	}
+	return nil, FeatureGrantsOutput{Grants: views}, nil
 }
 
 // scopeOrInstance defaults an omitted scope to the instance. Instance is the

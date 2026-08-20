@@ -520,6 +520,36 @@ func (s *FeatureAdminService) viewsOf(
 	return out
 }
 
+// DefaultGrantAccount names the account a command-line grant lands in when the
+// operator did not say.
+//
+// Exactly one account means that account, and nothing has to be configured.
+// That is narrower than it sounds: registration mints every person a personal
+// account, so a single-account instance is a single-person instance — the
+// mini-me shape, where nobody should have to look up a KSUID to grant
+// themselves something.
+//
+// Deliberately does NOT fall back to FEATURE_PRIMARY_ACCOUNT_ID. That names
+// who owns the instance switch, not where a grant lands, and quietly dropping
+// a grant into it on a multi-tenant instance would put a right in an account
+// nobody named.
+func (s *FeatureAdminService) DefaultGrantAccount(ctx context.Context) (string, error) {
+	page, err := s.accounts.FindAll(ctx, "", 2)
+	if err != nil {
+		return "", fmt.Errorf("failed to read the instance's accounts: %w", err)
+	}
+	switch {
+	case page == nil || len(page.Data) == 0:
+		return "", fmt.Errorf("this instance has no account to grant in: %w", ErrValidation)
+	case len(page.Data) == 1:
+		return page.Data[0].GetID(), nil
+	default:
+		return "", fmt.Errorf(
+			"this instance has more than one account, so a grant has to say which: "+
+				"name it with --account <id>: %w", ErrValidation)
+	}
+}
+
 // grantAccount decides which account a grant acts in.
 //
 // The local transport is the operator's, so it may name an account — the
