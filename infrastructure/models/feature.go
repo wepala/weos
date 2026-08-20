@@ -60,10 +60,25 @@ type FeatureGrant struct {
 	// AccountID scopes the grant. Roles are per-account memberships, and a
 	// person's access is granted within an account, so both subject kinds
 	// carry one.
-	AccountID  string `gorm:"type:varchar(255);not null;uniqueIndex:idx_fg_subject;index:idx_fg_account"`
-	FeatureKey string `gorm:"type:varchar(64);not null;uniqueIndex:idx_fg_subject"`
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	AccountID  string `gorm:"type:varchar(255);not null;uniqueIndex:idx_fg_subject;index:idx_fg_account,priority:1"`
+	FeatureKey string `gorm:"type:varchar(64);not null;uniqueIndex:idx_fg_subject;index:idx_fg_account,priority:2"`
+
+	// ValidFrom and ValidThrough bound the grant; NULL is unbounded on that
+	// side. Nullable so the columns migrate cleanly onto existing rows, which
+	// is also the honest meaning: a grant made before windows existed has none.
+	ValidFrom    *time.Time
+	ValidThrough *time.Time
+
+	// Provenance, kept here as well as in the Feature.Changed event because
+	// the two answer different questions. The row says who granted a right
+	// that still exists and is what a listing shows; the event log says what
+	// happened, and survives revocation, which deletes the row.
+	GrantedByID    string `gorm:"type:varchar(255)"`
+	GrantedByEmail string `gorm:"type:varchar(255)"`
+	Source         string `gorm:"type:varchar(32)"`
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (FeatureGrant) TableName() string {

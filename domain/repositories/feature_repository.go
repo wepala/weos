@@ -15,7 +15,11 @@
 
 package repositories
 
-import "context"
+import (
+	"context"
+
+	"github.com/wepala/weos/v3/domain/entities"
+)
 
 // Override scopes. The instance scope has no identifier — there is one
 // instance — so its rows carry an empty ScopeID.
@@ -72,16 +76,30 @@ type FeatureSettingsRepository interface {
 // immediately: #483 adds validity windows and provenance to grants alone,
 // which would be permanently null on every instance-scoped override row.
 type FeatureGrantRepository interface {
-	// GrantedKeys returns the feature keys granted to this caller within an
-	// account, unioning the grant made to them directly with the grant carried
-	// by their role. roleID may be empty when the caller holds no role.
-	GrantedKeys(ctx context.Context, accountID, agentID, roleID string) (map[string]bool, error)
+	// GrantsFor returns the grant ROWS that could apply to this caller within
+	// an account — the grant made to them directly, and the one carried by
+	// their role. roleID may be empty when the caller holds no role.
+	//
+	// Rows outside their validity window are returned too, deliberately. A
+	// grant that has not started yet is a boundary the resolver has to know
+	// about so it can expire its cached answer at the right instant, and a
+	// grant that has closed is still a row a listing has to be able to show.
+	// Filtering in SQL would hide both.
+	GrantsFor(ctx context.Context, accountID, agentID, roleID string) ([]entities.FeatureGrantRecord, error)
 
-	// Grant records a grant. Granting twice is not an error.
-	Grant(ctx context.Context, subjectType, subjectID, accountID, featureKey string) error
+	// ListByFeature returns every grant on one feature within an account, for
+	// the admin listing. Includes pending and expired rows.
+	ListByFeature(ctx context.Context, accountID, featureKey string) ([]entities.FeatureGrantRecord, error)
 
-	// Revoke removes a grant. Revoking one that does not exist is not an error.
-	Revoke(ctx context.Context, subjectType, subjectID, accountID, featureKey string) error
+	// Grant records a grant, replacing the window and provenance of one that
+	// already exists. Granting twice leaves one grant, not two.
+	Grant(ctx context.Context, record entities.FeatureGrantRecord) error
+
+	// Revoke removes a grant and reports whether one was there. Revoking a
+	// grant nobody holds is not an error — the caller's intent is already
+	// satisfied — but nothing is recorded and no cache is disturbed for a
+	// change that did not happen.
+	Revoke(ctx context.Context, subjectType, subjectID, accountID, featureKey string) (bool, error)
 }
 
 // AccountMemberQuery reads pericarp's account_members projection for the one

@@ -99,50 +99,94 @@ func (f *fakeSettings) reads() (int, int) {
 
 type fakeGrants struct {
 	mu    sync.Mutex
-	byKey map[string]map[string]bool // "accountID|subjectID" -> keys
+	rows  []entities.FeatureGrantRecord
 	reads int
 	err   error
 }
 
 func newFakeGrants() *fakeGrants {
-	return &fakeGrants{byKey: map[string]map[string]bool{}}
+	return &fakeGrants{}
 }
 
-func (f *fakeGrants) GrantedKeys(_ context.Context, accountID, agentID, roleID string) (map[string]bool, error) {
+func (f *fakeGrants) GrantsFor(
+	_ context.Context, accountID, agentID, roleID string,
+) ([]entities.FeatureGrantRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reads++
 	if f.err != nil {
 		return nil, f.err
 	}
-	out := map[string]bool{}
-	for k := range f.byKey[accountID+"|"+agentID] {
-		out[k] = true
-	}
-	if roleID != "" {
-		for k := range f.byKey[accountID+"|"+roleID] {
-			out[k] = true
+	var out []entities.FeatureGrantRecord
+	for _, r := range f.rows {
+		if r.AccountID != accountID {
+			continue
+		}
+		if r.SubjectType == repositories.FeatureSubjectAgent && r.SubjectID == agentID {
+			out = append(out, r)
+			continue
+		}
+		if roleID != "" && r.SubjectType == repositories.FeatureSubjectRole && r.SubjectID == roleID {
+			out = append(out, r)
 		}
 	}
 	return out, nil
 }
 
-func (f *fakeGrants) Grant(_ context.Context, subjectType, subjectID, accountID, key string) error {
+func (f *fakeGrants) ListByFeature(
+	_ context.Context, accountID, key string,
+) ([]entities.FeatureGrantRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	id := accountID + "|" + subjectID
-	if f.byKey[id] == nil {
-		f.byKey[id] = map[string]bool{}
+	if f.err != nil {
+		return nil, f.err
 	}
-	f.byKey[id][key] = true
+	var out []entities.FeatureGrantRecord
+	for _, r := range f.rows {
+		if r.AccountID == accountID && r.FeatureKey == key {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeGrants) Grant(_ context.Context, record entities.FeatureGrantRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, r := range f.rows {
+		if r.SubjectType == record.SubjectType && r.SubjectID == record.SubjectID &&
+			r.AccountID == record.AccountID && r.FeatureKey == record.FeatureKey {
+			f.rows[i] = record
+			return nil
+		}
+	}
+	f.rows = append(f.rows, record)
 	return nil
 }
 
-func (f *fakeGrants) Revoke(_ context.Context, subjectType, subjectID, accountID, key string) error {
+func (f *fakeGrants) Revoke(
+	_ context.Context, subjectType, subjectID, accountID, key string,
+) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.byKey[accountID+"|"+subjectID], key)
-	return nil
+	for i, r := range f.rows {
+		if r.SubjectType == subjectType && r.SubjectID == subjectID &&
+			r.AccountID == accountID && r.FeatureKey == key {
+			f.rows = append(f.rows[:i], f.rows[i+1:]...)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// grantNow is the windowless grant the #481 tests make. It must fold to
+// exactly the old behavior — held, with no boundary — which is what keeps
+// those scenarios meaningful across this change.
+func (f *fakeGrants) grantNow(subjectType, subjectID, accountID, key string) {
+	_ = f.Grant(context.Background(), entities.FeatureGrantRecord{
+		SubjectType: subjectType, SubjectID: subjectID,
+		AccountID: accountID, FeatureKey: key,
+	})
 }
 
 func (f *fakeGrants) readCount() int {
@@ -240,7 +284,7 @@ func TestResolverLayerPrecedence(t *testing.T) {
 			"account off beats a grant",
 			func(s *fakeSettings, g *fakeGrants, _ *fakeAccounts) {
 				_ = s.SetOverride(context.Background(), repositories.FeatureScopeAccount, "acct-harbor", "episodic-recall", false)
-				_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "episodic-recall")
+				g.grantNow(repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "episodic-recall")
 			}, "episodic-recall", false,
 		},
 		{
@@ -254,20 +298,20 @@ func TestResolverLayerPrecedence(t *testing.T) {
 			"instance off beats a grant",
 			func(s *fakeSettings, g *fakeGrants, _ *fakeAccounts) {
 				_ = s.SetOverride(context.Background(), repositories.FeatureScopeInstance, "", "ledger-export", false)
-				_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
+				g.grantNow(repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
 			}, "ledger-export", false,
 		},
 		{
 			"a direct grant turns a feature on",
 			func(_ *fakeSettings, g *fakeGrants, _ *fakeAccounts) {
-				_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
+				g.grantNow(repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
 			}, "ledger-export", true,
 		},
 		{
 			"a role grant resolves like a direct one",
 			func(_ *fakeSettings, g *fakeGrants, a *fakeAccounts) {
 				a.roles["acct-harbor|agent-ops"] = "admin"
-				_ = g.Grant(context.Background(), repositories.FeatureSubjectRole, "admin", "acct-harbor", "ledger-export")
+				g.grantNow(repositories.FeatureSubjectRole, "admin", "acct-harbor", "ledger-export")
 			}, "ledger-export", true,
 		},
 		{
@@ -280,7 +324,7 @@ func TestResolverLayerPrecedence(t *testing.T) {
 			"a grant on a non-grantable feature is ignored",
 			func(s *fakeSettings, g *fakeGrants, _ *fakeAccounts) {
 				_ = s.SetOverride(context.Background(), repositories.FeatureScopeInstance, "", "audit-trail", false)
-				_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "audit-trail")
+				g.grantNow(repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "audit-trail")
 			}, "audit-trail", false,
 		},
 	}
@@ -338,7 +382,7 @@ func TestResolverFailsClosedAndNeverCachesTheFailure(t *testing.T) {
 
 func TestResolverCachesPerAgentAndAccount(t *testing.T) {
 	r, s, g, _ := testResolver(t, []entities.FeatureMeta{featEpisodic, featLedger})
-	_ = g.Grant(context.Background(), repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
+	g.grantNow(repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
 
 	ops := ctxAs("agent-ops", "acct-harbor")
 	for i := 0; i < 30; i++ {
@@ -628,4 +672,18 @@ func TestResolverRebuildsWhenACachedSetLacksADeclaredKey(t *testing.T) {
 		t.Fatal("a key missing from the cached set answered its declared default, " +
 			"ignoring an explicit instance off")
 	}
+}
+
+// holds reports whether a grant row exists, for tests that assert on storage
+// rather than on resolution.
+func (f *fakeGrants) holds(subjectType, subjectID, accountID, key string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.rows {
+		if r.SubjectType == subjectType && r.SubjectID == subjectID &&
+			r.AccountID == accountID && r.FeatureKey == key {
+			return true
+		}
+	}
+	return false
 }

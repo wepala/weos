@@ -59,6 +59,17 @@ type featureCacheKey struct {
 type resolvedFeatureSet struct {
 	values     map[string]bool
 	resolvedAt time.Time
+	// staleAt is the earliest instant at which this set stops being true on
+	// its own — the nearest validity-window boundary among the grants that fed
+	// it. Zero when no window is in play.
+	//
+	// This is what lets a grant expire to the second on a cache measured in
+	// minutes. Without it, a window closing between two evaluations in one
+	// session would go unnoticed until the whole entry aged out, and the only
+	// remedy would be shrinking the maximum cache age to whatever precision a
+	// window needs — throwing away the caching that exists for the other three
+	// hundred and sixty evaluations in an agent turn.
+	staleAt time.Time
 	// retryAfter throttles re-reads while the store is failing. Without it an
 	// agent turn making thirty evaluations against an unreadable database
 	// makes thirty failing round trips, turning a blip into a query storm at
@@ -205,7 +216,7 @@ func (r *FeatureResolver) refresh(ctx context.Context, key featureCacheKey) (map
 	startedAt := r.generation
 	r.mu.RUnlock()
 
-	values, err := r.resolve(ctx, key)
+	values, staleAt, err := r.resolve(ctx, key)
 	if err != nil {
 		return r.onResolveError(ctx, key, err)
 	}
@@ -220,7 +231,7 @@ func (r *FeatureResolver) refresh(ctx context.Context, key featureCacheKey) (map
 		// timestamp.
 		return copyFeatureValues(values), nil
 	}
-	r.sets[key] = resolvedFeatureSet{values: values, resolvedAt: r.clock()}
+	r.sets[key] = resolvedFeatureSet{values: values, resolvedAt: r.clock(), staleAt: staleAt}
 	return copyFeatureValues(values), nil
 }
 
@@ -267,6 +278,11 @@ func (r *FeatureResolver) cached(key featureCacheKey) (map[string]bool, bool) {
 		return nil, false
 	}
 	now := r.clock()
+	// A window boundary the set already knows about. Checked before the age,
+	// because it can fall long before it — that is the point of it.
+	if !set.staleAt.IsZero() && !now.Before(set.staleAt) && !set.retryAfter.After(now) {
+		return nil, false
+	}
 	if now.Sub(set.resolvedAt) >= r.maxAge {
 		// Too old to trust. Treated as a miss rather than evicted here so the
 		// read path keeps only a read lock; the entry is replaced on write.
@@ -283,16 +299,18 @@ func (r *FeatureResolver) cached(key featureCacheKey) (map[string]bool, bool) {
 // resolve reads every layer and folds them into a plain value map for the
 // cache. It is Explain's answer with the layer information dropped, so the two
 // cannot disagree about what a feature resolves to.
-func (r *FeatureResolver) resolve(ctx context.Context, key featureCacheKey) (map[string]bool, error) {
-	statuses, err := r.resolveDetailed(ctx, key)
+func (r *FeatureResolver) resolve(
+	ctx context.Context, key featureCacheKey,
+) (map[string]bool, time.Time, error) {
+	statuses, staleAt, err := r.resolveDetailed(ctx, key)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	values := make(map[string]bool, len(statuses))
 	for _, s := range statuses {
 		values[s.Key] = s.Enabled
 	}
-	return values, nil
+	return values, staleAt, nil
 }
 
 // Explain resolves every declared feature for the caller on ctx and reports
@@ -308,7 +326,8 @@ func (r *FeatureResolver) Explain(ctx context.Context) ([]entities.FeatureStatus
 	if identity != nil {
 		key = featureCacheKey{AgentID: identity.AgentID, AccountID: identity.ActiveAccountID}
 	}
-	return r.resolveDetailed(ctx, key)
+	statuses, _, err := r.resolveDetailed(ctx, key)
+	return statuses, err
 }
 
 // resolveDetailed reads every layer and folds them through
@@ -318,17 +337,20 @@ func (r *FeatureResolver) Explain(ctx context.Context) ([]entities.FeatureStatus
 // down for the cache and Explain() returns it whole, so the value a call site
 // evaluates and the source an operator is shown can never drift apart — which
 // is exactly what a listing is for.
+// The second return is the earliest instant at which this answer changes on
+// its own — see resolvedFeatureSet.staleAt.
 func (r *FeatureResolver) resolveDetailed(
 	ctx context.Context, key featureCacheKey,
-) ([]entities.FeatureStatus, error) {
+) ([]entities.FeatureStatus, time.Time, error) {
 	instance, err := r.settings.InstanceOverrides(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve features: %w", err)
+		return nil, time.Time{}, fmt.Errorf("failed to resolve features: %w", err)
 	}
 
 	var (
 		account map[string]bool
 		granted map[string]bool
+		staleAt time.Time
 	)
 	// An anonymous caller resolves from the instance layer alone. No account
 	// override and no grant is read — there is no subject for either to
@@ -339,16 +361,20 @@ func (r *FeatureResolver) resolveDetailed(
 	if key.AgentID != "" && key.AccountID != "" {
 		account, err = r.settings.AccountOverrides(ctx, key.AccountID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve features: %w", err)
+			return nil, time.Time{}, fmt.Errorf("failed to resolve features: %w", err)
 		}
 		roleID, err := r.accounts.FindMemberRole(ctx, key.AccountID, key.AgentID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve features: %w", err)
+			return nil, time.Time{}, fmt.Errorf("failed to resolve features: %w", err)
 		}
-		granted, err = r.grants.GrantedKeys(ctx, key.AccountID, key.AgentID, roleID)
+		records, err := r.grants.GrantsFor(ctx, key.AccountID, key.AgentID, roleID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve features: %w", err)
+			return nil, time.Time{}, fmt.Errorf("failed to resolve features: %w", err)
 		}
+		// One read yields both what the caller holds now and when that stops
+		// being true. Folding here rather than filtering in SQL is what makes
+		// the boundary available without a second query.
+		granted, staleAt = entities.FoldGrants(records, r.clock())
 	}
 
 	declared := r.registry.All()
@@ -371,7 +397,7 @@ func (r *FeatureResolver) resolveDetailed(
 			Grantable:   meta.Grantable,
 		})
 	}
-	return out, nil
+	return out, staleAt, nil
 }
 
 // featureStateFrom turns a stored override map into a tri-state. An absent key

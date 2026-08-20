@@ -4,10 +4,12 @@ import (
 	"context"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/infrastructure/models"
 )
@@ -159,15 +161,15 @@ func TestFeatureGrantsUnionAgentAndRole(t *testing.T) {
 	ctx := context.Background()
 	repo := ProvideFeatureGrantRepository(newFeatureTestDB(t))
 
-	if err := repo.Grant(ctx, repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export"); err != nil {
+	if err := repo.Grant(ctx, entities.FeatureGrantRecord{SubjectType: repositories.FeatureSubjectAgent, SubjectID: "agent-ops", AccountID: "acct-harbor", FeatureKey: "ledger-export"}); err != nil {
 		t.Fatalf("Grant agent: %v", err)
 	}
-	if err := repo.Grant(ctx, repositories.FeatureSubjectRole, "admin", "acct-harbor", "audit-trail"); err != nil {
+	if err := repo.Grant(ctx, entities.FeatureGrantRecord{SubjectType: repositories.FeatureSubjectRole, SubjectID: "admin", AccountID: "acct-harbor", FeatureKey: "audit-trail"}); err != nil {
 		t.Fatalf("Grant role: %v", err)
 	}
 
 	// Holding the role sees both legs.
-	got, err := repo.GrantedKeys(ctx, "acct-harbor", "agent-ops", "admin")
+	got, err := grantedKeys(t, repo, ctx, "acct-harbor", "agent-ops", "admin")
 	if err != nil {
 		t.Fatalf("GrantedKeys: %v", err)
 	}
@@ -176,7 +178,7 @@ func TestFeatureGrantsUnionAgentAndRole(t *testing.T) {
 	}
 
 	// Without the role, only the direct grant.
-	got, err = repo.GrantedKeys(ctx, "acct-harbor", "agent-ops", "")
+	got, err = grantedKeys(t, repo, ctx, "acct-harbor", "agent-ops", "")
 	if err != nil {
 		t.Fatalf("GrantedKeys (no role): %v", err)
 	}
@@ -188,7 +190,7 @@ func TestFeatureGrantsUnionAgentAndRole(t *testing.T) {
 	}
 
 	// Another agent holding the same role gets the role grant only.
-	got, err = repo.GrantedKeys(ctx, "acct-harbor", "agent-counsel", "admin")
+	got, err = grantedKeys(t, repo, ctx, "acct-harbor", "agent-counsel", "admin")
 	if err != nil {
 		t.Fatalf("GrantedKeys (other agent): %v", err)
 	}
@@ -204,10 +206,10 @@ func TestFeatureGrantsAreAccountScoped(t *testing.T) {
 	ctx := context.Background()
 	repo := ProvideFeatureGrantRepository(newFeatureTestDB(t))
 
-	if err := repo.Grant(ctx, repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export"); err != nil {
+	if err := repo.Grant(ctx, entities.FeatureGrantRecord{SubjectType: repositories.FeatureSubjectAgent, SubjectID: "agent-ops", AccountID: "acct-harbor", FeatureKey: "ledger-export"}); err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
-	got, err := repo.GrantedKeys(ctx, "acct-cedar", "agent-ops", "")
+	got, err := grantedKeys(t, repo, ctx, "acct-cedar", "agent-ops", "")
 	if err != nil {
 		t.Fatalf("GrantedKeys: %v", err)
 	}
@@ -217,7 +219,7 @@ func TestFeatureGrantsAreAccountScoped(t *testing.T) {
 
 	// No account and no agent must never match rows on empty strings.
 	for _, tc := range []struct{ accountID, agentID string }{{"", "agent-ops"}, {"acct-harbor", ""}, {"", ""}} {
-		got, err := repo.GrantedKeys(ctx, tc.accountID, tc.agentID, "")
+		got, err := grantedKeys(t, repo, ctx, tc.accountID, tc.agentID, "")
 		if err != nil {
 			t.Fatalf("GrantedKeys(%q,%q): %v", tc.accountID, tc.agentID, err)
 		}
@@ -232,24 +234,30 @@ func TestFeatureGrantIsIdempotentAndRevocable(t *testing.T) {
 	repo := ProvideFeatureGrantRepository(newFeatureTestDB(t))
 
 	for i := 0; i < 3; i++ {
-		if err := repo.Grant(ctx, repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export"); err != nil {
+		if err := repo.Grant(ctx, entities.FeatureGrantRecord{SubjectType: repositories.FeatureSubjectAgent, SubjectID: "agent-ops", AccountID: "acct-harbor", FeatureKey: "ledger-export"}); err != nil {
 			t.Fatalf("Grant %d: %v", i, err)
 		}
 	}
-	got, _ := repo.GrantedKeys(ctx, "acct-harbor", "agent-ops", "")
+	got, _ := grantedKeys(t, repo, ctx, "acct-harbor", "agent-ops", "")
 	if len(got) != 1 {
 		t.Fatalf("granting three times produced %v, want one key", got)
 	}
 
-	if err := repo.Revoke(ctx, repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export"); err != nil {
+	if _, err := repo.Revoke(ctx, repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export"); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
-	got, _ = repo.GrantedKeys(ctx, "acct-harbor", "agent-ops", "")
+	got, _ = grantedKeys(t, repo, ctx, "acct-harbor", "agent-ops", "")
 	if len(got) != 0 {
-		t.Fatalf("after revoke, GrantedKeys = %v, want empty", got)
+		t.Fatalf("after revoke, the caller still holds %v, want nothing", got)
 	}
-	if err := repo.Revoke(ctx, repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export"); err != nil {
+	// Revoking what nobody holds succeeds and reports that nothing was there,
+	// which is what lets a caller record only real changes.
+	removed, err := repo.Revoke(ctx, repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
+	if err != nil {
 		t.Fatalf("Revoke on an absent grant = %v, want nil", err)
+	}
+	if removed {
+		t.Fatal("Revoke reported it removed a grant that was not there")
 	}
 }
 
@@ -307,4 +315,19 @@ func TestAccountMemberQueryListsByRole(t *testing.T) {
 			t.Fatalf("ListMemberIDsByRole(%q,%q) = %v, want empty", tc.account, tc.role, got)
 		}
 	}
+}
+
+// grantedKeys folds a caller's rows the way the resolver does, so these tests
+// keep asserting on what a caller holds rather than on row shape.
+func grantedKeys(
+	t *testing.T, repo repositories.FeatureGrantRepository,
+	ctx context.Context, accountID, agentID, roleID string,
+) (map[string]bool, error) {
+	t.Helper()
+	rows, err := repo.GrantsFor(ctx, accountID, agentID, roleID)
+	if err != nil {
+		return nil, err
+	}
+	held, _ := entities.FoldGrants(rows, time.Now())
+	return held, nil
 }

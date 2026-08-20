@@ -121,16 +121,16 @@ func TestServiceRefusesIneligibleWrites(t *testing.T) {
 			return svc.SetAccountFeature(ctx, "acct-harbor", "audit-trail", false)
 		}, "cannot be changed per account"},
 		{"non-grantable to an agent", func() error {
-			return svc.GrantToAgent(ctx, "acct-harbor", "agent-ops", "audit-trail")
+			return svc.GrantToAgent(ctx, "acct-harbor", "agent-ops", "audit-trail", GrantTerms{})
 		}, "cannot be granted"},
 		{"non-grantable to a role", func() error {
-			return svc.GrantToRole(ctx, "acct-harbor", "admin", "audit-trail")
+			return svc.GrantToRole(ctx, "acct-harbor", "admin", "audit-trail", GrantTerms{})
 		}, "cannot be granted"},
 		{"account override with no account", func() error {
 			return svc.SetAccountFeature(ctx, "", "episodic-recall", true)
 		}, "account is required"},
 		{"grant with no subject", func() error {
-			return svc.GrantToAgent(ctx, "acct-harbor", "", "episodic-recall")
+			return svc.GrantToAgent(ctx, "acct-harbor", "", "episodic-recall", GrantTerms{})
 		}, "account and a subject are required"},
 	}
 
@@ -156,20 +156,20 @@ func TestServiceAgentGrantInvalidatesThatPersonOnly(t *testing.T) {
 	ctx := context.Background()
 	svc, _, grants, inv := testService(t, fakeMembers{}, featLedger)
 
-	if err := svc.GrantToAgent(ctx, "acct-harbor", "agent-ops", "ledger-export"); err != nil {
+	if err := svc.GrantToAgent(ctx, "acct-harbor", "agent-ops", "ledger-export", GrantTerms{}); err != nil {
 		t.Fatalf("GrantToAgent: %v", err)
 	}
 	if got := inv.agentsFor("acct-harbor"); len(got) != 1 || got[0] != "agent-ops" {
 		t.Fatalf("invalidated agents = %v, want [agent-ops]", got)
 	}
-	if !grants.byKey["acct-harbor|agent-ops"]["ledger-export"] {
+	if !grants.holds("agent", "agent-ops", "acct-harbor", "ledger-export") {
 		t.Fatal("the grant was not stored")
 	}
 
-	if err := svc.RevokeFromAgent(ctx, "acct-harbor", "agent-ops", "ledger-export"); err != nil {
+	if _, err := svc.RevokeFromAgent(ctx, "acct-harbor", "agent-ops", "ledger-export"); err != nil {
 		t.Fatalf("RevokeFromAgent: %v", err)
 	}
-	if grants.byKey["acct-harbor|agent-ops"]["ledger-export"] {
+	if grants.holds("agent", "agent-ops", "acct-harbor", "ledger-export") {
 		t.Fatal("the grant survived the revoke")
 	}
 	if got := inv.agentsFor("acct-harbor"); len(got) != 2 {
@@ -187,7 +187,7 @@ func TestServiceRoleGrantFansOutToEveryHolder(t *testing.T) {
 	}}
 	svc, _, _, inv := testService(t, members, featLedger)
 
-	if err := svc.GrantToRole(ctx, "acct-harbor", "admin", "ledger-export"); err != nil {
+	if err := svc.GrantToRole(ctx, "acct-harbor", "admin", "ledger-export", GrantTerms{}); err != nil {
 		t.Fatalf("GrantToRole: %v", err)
 	}
 	got := inv.agentsFor("acct-harbor")
@@ -207,10 +207,10 @@ func TestServiceRoleGrantFallsBackWhenTheMemberListFails(t *testing.T) {
 	members := fakeMembers{err: errors.New("account_members is unreadable")}
 	svc, _, grants, inv := testService(t, members, featLedger)
 
-	if err := svc.GrantToRole(ctx, "acct-harbor", "admin", "ledger-export"); err != nil {
+	if err := svc.GrantToRole(ctx, "acct-harbor", "admin", "ledger-export", GrantTerms{}); err != nil {
 		t.Fatalf("GrantToRole returned %v; the write landed, so it must not fail", err)
 	}
-	if !grants.byKey["acct-harbor|admin"]["ledger-export"] {
+	if !grants.holds("role", "admin", "acct-harbor", "ledger-export") {
 		t.Fatal("the grant was not stored")
 	}
 	if len(inv.accounts) != 1 || inv.accounts[0] != "acct-harbor" {

@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/infrastructure/models"
 
@@ -110,14 +111,14 @@ func ProvideFeatureGrantRepository(db *gorm.DB) repositories.FeatureGrantReposit
 	return &FeatureGrantRepository{db: db}
 }
 
-func (r *FeatureGrantRepository) GrantedKeys(
+func (r *FeatureGrantRepository) GrantsFor(
 	ctx context.Context, accountID, agentID, roleID string,
-) (map[string]bool, error) {
+) ([]entities.FeatureGrantRecord, error) {
 	if accountID == "" || agentID == "" {
 		// Grants are account-scoped and subject-bound. With neither, there is
 		// nothing a grant could match, and querying would risk matching rows
 		// on empty strings.
-		return map[string]bool{}, nil
+		return nil, nil
 	}
 
 	query := r.db.WithContext(ctx).
@@ -125,7 +126,9 @@ func (r *FeatureGrantRepository) GrantedKeys(
 		Where("account_id = ?", accountID)
 
 	// One query for both legs — the grant made to this person directly, and
-	// the grant carried by whatever role they hold in this account.
+	// the one carried by whatever role they hold in this account. No filter on
+	// the window: a grant that has not started is a boundary the resolver
+	// needs, and one that has closed is a row a listing needs.
 	if roleID != "" {
 		query = query.Where(
 			r.db.Where("subject_type = ? AND subject_id = ?", repositories.FeatureSubjectAgent, agentID).
@@ -135,51 +138,95 @@ func (r *FeatureGrantRepository) GrantedKeys(
 		query = query.Where("subject_type = ? AND subject_id = ?", repositories.FeatureSubjectAgent, agentID)
 	}
 
-	var keys []string
-	if err := query.Distinct().Pluck("feature_key", &keys).Error; err != nil {
+	var rows []models.FeatureGrant
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to load feature grants for agent %q: %w", agentID, err)
 	}
-	out := make(map[string]bool, len(keys))
-	for _, k := range keys {
-		out[k] = true
+	return recordsFrom(rows), nil
+}
+
+func (r *FeatureGrantRepository) ListByFeature(
+	ctx context.Context, accountID, featureKey string,
+) ([]entities.FeatureGrantRecord, error) {
+	if accountID == "" || featureKey == "" {
+		return nil, nil
 	}
-	return out, nil
+	var rows []models.FeatureGrant
+	err := r.db.WithContext(ctx).
+		Where("account_id = ? AND feature_key = ?", accountID, featureKey).
+		Order("subject_type ASC, subject_id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to list grants on feature %q: %w", featureKey, err)
+	}
+	return recordsFrom(rows), nil
+}
+
+func recordsFrom(rows []models.FeatureGrant) []entities.FeatureGrantRecord {
+	out := make([]entities.FeatureGrantRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, entities.FeatureGrantRecord{
+			SubjectType:    row.SubjectType,
+			SubjectID:      row.SubjectID,
+			AccountID:      row.AccountID,
+			FeatureKey:     row.FeatureKey,
+			ValidFrom:      row.ValidFrom,
+			ValidThrough:   row.ValidThrough,
+			GrantedByID:    row.GrantedByID,
+			GrantedByEmail: row.GrantedByEmail,
+			Source:         row.Source,
+			CreatedAt:      row.CreatedAt,
+		})
+	}
+	return out
 }
 
 func (r *FeatureGrantRepository) Grant(
-	ctx context.Context, subjectType, subjectID, accountID, featureKey string,
+	ctx context.Context, record entities.FeatureGrantRecord,
 ) error {
 	row := models.FeatureGrant{
-		SubjectType: subjectType,
-		SubjectID:   subjectID,
-		AccountID:   accountID,
-		FeatureKey:  featureKey,
+		SubjectType:    record.SubjectType,
+		SubjectID:      record.SubjectID,
+		AccountID:      record.AccountID,
+		FeatureKey:     record.FeatureKey,
+		ValidFrom:      record.ValidFrom,
+		ValidThrough:   record.ValidThrough,
+		GrantedByID:    record.GrantedByID,
+		GrantedByEmail: record.GrantedByEmail,
+		Source:         record.Source,
 	}
-	// Granting twice is not an error — the right is already held, and an
-	// operator repeating themselves should not see a failure.
+	// Granting twice leaves one grant. The window and provenance are replaced
+	// rather than kept: re-granting with a new window is how an admin changes
+	// one, and the record should say who last did that.
 	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "subject_type"}, {Name: "subject_id"}, {Name: "account_id"}, {Name: "feature_key"},
 		},
-		DoUpdates: clause.AssignmentColumns([]string{"updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{
+			"valid_from", "valid_through", "granted_by_id", "granted_by_email", "source", "updated_at",
+		}),
 	}).Create(&row).Error
 	if err != nil {
-		return fmt.Errorf("failed to grant feature %q to %s %q: %w", featureKey, subjectType, subjectID, err)
+		return fmt.Errorf("failed to grant feature %q to %s %q: %w",
+			record.FeatureKey, record.SubjectType, record.SubjectID, err)
 	}
 	return nil
 }
 
 func (r *FeatureGrantRepository) Revoke(
 	ctx context.Context, subjectType, subjectID, accountID, featureKey string,
-) error {
-	err := r.db.WithContext(ctx).
+) (bool, error) {
+	res := r.db.WithContext(ctx).
 		Where("subject_type = ? AND subject_id = ? AND account_id = ? AND feature_key = ?",
 			subjectType, subjectID, accountID, featureKey).
-		Delete(&models.FeatureGrant{}).Error
-	if err != nil {
-		return fmt.Errorf("failed to revoke feature %q from %s %q: %w", featureKey, subjectType, subjectID, err)
+		Delete(&models.FeatureGrant{})
+	if res.Error != nil {
+		return false, fmt.Errorf("failed to revoke feature %q from %s %q: %w",
+			featureKey, subjectType, subjectID, res.Error)
 	}
-	return nil
+	// Reported rather than assumed, so a caller can tell a real revocation
+	// from a no-op and record only what happened.
+	return res.RowsAffected > 0, nil
 }
 
 // AccountMemberQuery answers "who holds this role in this account?" — the

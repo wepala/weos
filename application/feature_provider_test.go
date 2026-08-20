@@ -139,7 +139,7 @@ func TestProviderResolvesDeclaredFeatures(t *testing.T) {
 		t.Fatal("a declared-off feature resolved on because the caller's default was true")
 	}
 
-	_ = grants.Grant(context.Background(), "agent", "agent-ops", "acct-harbor", "ledger-export")
+	grants.grantNow("agent", "agent-ops", "acct-harbor", "ledger-export")
 	p.resolver.InvalidateAll(context.Background())
 	if got := p.BooleanEvaluation(ctx, FeatureFlagPrefix+"ledger-export", false, nil); !got.Value {
 		t.Fatal("a grant did not reach the provider after invalidation")
@@ -185,7 +185,7 @@ func TestProviderMetadataIsStable(t *testing.T) {
 // whichever set was resolved most recently.
 func TestProviderAnswersPerCallerNotPerLastAsker(t *testing.T) {
 	p, _, grants, _ := testProvider(t, featLedger)
-	_ = grants.Grant(context.Background(), "agent", "agent-ops", "acct-harbor", "ledger-export")
+	grants.grantNow("agent", "agent-ops", "acct-harbor", "ledger-export")
 
 	ops := ctxAs("agent-ops", "acct-harbor")
 	counsel := ctxAs("agent-counsel", "acct-harbor")

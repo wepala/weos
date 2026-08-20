@@ -18,6 +18,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -137,45 +138,149 @@ func (s *FeatureService) ClearAccountFeature(ctx context.Context, accountID, key
 	return nil
 }
 
+// GrantTerms is everything about a grant other than who holds it: when it
+// applies, and who made it.
+type GrantTerms struct {
+	ValidFrom      *time.Time
+	ValidThrough   *time.Time
+	GrantedByID    string
+	GrantedByEmail string
+	Source         string
+}
+
 // GrantToAgent gives one person a feature within an account.
-func (s *FeatureService) GrantToAgent(ctx context.Context, accountID, agentID, key string) error {
-	return s.changeAgentGrant(ctx, accountID, agentID, key, true)
-}
-
-// RevokeFromAgent takes it back. The person stays signed in; their next
-// evaluation costs one database read and answers off.
-func (s *FeatureService) RevokeFromAgent(ctx context.Context, accountID, agentID, key string) error {
-	return s.changeAgentGrant(ctx, accountID, agentID, key, false)
-}
-
-func (s *FeatureService) changeAgentGrant(
-	ctx context.Context, accountID, agentID, key string, grant bool,
+func (s *FeatureService) GrantToAgent(
+	ctx context.Context, accountID, agentID, key string, terms GrantTerms,
 ) error {
 	if err := s.validateGrant(accountID, agentID, key); err != nil {
 		return err
 	}
-	var err error
-	if grant {
-		err = s.grants.Grant(ctx, repositories.FeatureSubjectAgent, agentID, accountID, key)
-	} else {
-		err = s.grants.Revoke(ctx, repositories.FeatureSubjectAgent, agentID, accountID, key)
+	if err := s.validateWindow(terms); err != nil {
+		return err
 	}
-	if err != nil {
+	if err := s.grants.Grant(ctx, s.recordFor(
+		repositories.FeatureSubjectAgent, agentID, accountID, key, terms)); err != nil {
 		return err
 	}
 	s.invalidator.InvalidateAgents(ctx, accountID, agentID)
-	s.log(ctx, "agent grant changed", "feature", key, "account", accountID, "agent", agentID, "granted", grant)
+	s.log(ctx, "agent grant made", "feature", key, "account", accountID, "agent", agentID)
 	return nil
 }
 
-// GrantToRole gives a feature to everyone holding a role in an account.
-func (s *FeatureService) GrantToRole(ctx context.Context, accountID, roleID, key string) error {
-	return s.changeRoleGrant(ctx, accountID, roleID, key, true)
+// RevokeFromAgent takes it back, and reports whether there was anything to
+// take. The person stays signed in; their next evaluation costs one database
+// read and answers off.
+func (s *FeatureService) RevokeFromAgent(
+	ctx context.Context, accountID, agentID, key string,
+) (bool, error) {
+	if err := s.validateGrant(accountID, agentID, key); err != nil {
+		return false, err
+	}
+	removed, err := s.grants.Revoke(ctx, repositories.FeatureSubjectAgent, agentID, accountID, key)
+	if err != nil {
+		return false, err
+	}
+	if !removed {
+		// Nothing changed, so nothing is invalidated. Dropping a cache entry
+		// for a revocation that removed nothing would cost every session in
+		// the account a re-resolve for no reason.
+		return false, nil
+	}
+	s.invalidator.InvalidateAgents(ctx, accountID, agentID)
+	s.log(ctx, "agent grant revoked", "feature", key, "account", accountID, "agent", agentID)
+	return true, nil
 }
 
-// RevokeFromRole takes it back from everyone holding the role.
-func (s *FeatureService) RevokeFromRole(ctx context.Context, accountID, roleID, key string) error {
-	return s.changeRoleGrant(ctx, accountID, roleID, key, false)
+func (s *FeatureService) recordFor(
+	subjectType, subjectID, accountID, key string, terms GrantTerms,
+) entities.FeatureGrantRecord {
+	return entities.FeatureGrantRecord{
+		SubjectType:    subjectType,
+		SubjectID:      subjectID,
+		AccountID:      accountID,
+		FeatureKey:     key,
+		ValidFrom:      terms.ValidFrom,
+		ValidThrough:   terms.ValidThrough,
+		GrantedByID:    terms.GrantedByID,
+		GrantedByEmail: terms.GrantedByEmail,
+		Source:         terms.Source,
+	}
+}
+
+// validateWindow refuses a window that can never be open. Checked once here so
+// all three surfaces refuse it the same way.
+func (s *FeatureService) validateWindow(terms GrantTerms) error {
+	if terms.ValidFrom == nil || terms.ValidThrough == nil {
+		return nil
+	}
+	if !terms.ValidThrough.After(*terms.ValidFrom) {
+		return fmt.Errorf(
+			"the window ends before it begins (%s is not after %s): %w",
+			terms.ValidThrough.Format(time.RFC3339), terms.ValidFrom.Format(time.RFC3339), ErrValidation)
+	}
+	return nil
+}
+
+// GrantsOnFeature lists every grant on one feature in an account, including
+// pending and expired ones.
+func (s *FeatureService) GrantsOnFeature(
+	ctx context.Context, accountID, key string,
+) ([]entities.FeatureGrantRecord, error) {
+	if _, err := s.declared(key); err != nil {
+		return nil, err
+	}
+	return s.grants.ListByFeature(ctx, accountID, key)
+}
+
+// GrantsFor lists the grants that could apply to one caller.
+func (s *FeatureService) GrantsFor(
+	ctx context.Context, accountID, agentID, roleID string,
+) ([]entities.FeatureGrantRecord, error) {
+	return s.grants.GrantsFor(ctx, accountID, agentID, roleID)
+}
+
+// Declared exposes a feature's declaration so a surface can order its refusals
+// — an unknown key is a 404 and must be answered before anything looks up a
+// person or a membership.
+func (s *FeatureService) Declared(key string) (entities.FeatureMeta, error) {
+	return s.declared(key)
+}
+
+// GrantToRole gives a feature to everyone holding a role in an account.
+func (s *FeatureService) GrantToRole(
+	ctx context.Context, accountID, roleID, key string, terms GrantTerms,
+) error {
+	if err := s.validateGrant(accountID, roleID, key); err != nil {
+		return err
+	}
+	if err := s.validateWindow(terms); err != nil {
+		return err
+	}
+	if err := s.grants.Grant(ctx, s.recordFor(
+		repositories.FeatureSubjectRole, roleID, accountID, key, terms)); err != nil {
+		return err
+	}
+	s.fanOutRoleChange(ctx, accountID, roleID, key, true)
+	return nil
+}
+
+// RevokeFromRole takes it back from everyone holding the role, and reports
+// whether there was anything to take.
+func (s *FeatureService) RevokeFromRole(
+	ctx context.Context, accountID, roleID, key string,
+) (bool, error) {
+	if err := s.validateGrant(accountID, roleID, key); err != nil {
+		return false, err
+	}
+	removed, err := s.grants.Revoke(ctx, repositories.FeatureSubjectRole, roleID, accountID, key)
+	if err != nil {
+		return false, err
+	}
+	if !removed {
+		return false, nil
+	}
+	s.fanOutRoleChange(ctx, accountID, roleID, key, false)
+	return true, nil
 }
 
 // changeRoleGrant is the expensive case. One row changes, but the resolved set
@@ -186,22 +291,9 @@ func (s *FeatureService) RevokeFromRole(ctx context.Context, accountID, roleID, 
 // concurrently is included rather than missed. A member this query does not
 // return keeps a stale answer until the maximum cache age expires, and nothing
 // will point at it — which is why the listing query is tested directly.
-func (s *FeatureService) changeRoleGrant(
+func (s *FeatureService) fanOutRoleChange(
 	ctx context.Context, accountID, roleID, key string, grant bool,
-) error {
-	if err := s.validateGrant(accountID, roleID, key); err != nil {
-		return err
-	}
-	var err error
-	if grant {
-		err = s.grants.Grant(ctx, repositories.FeatureSubjectRole, roleID, accountID, key)
-	} else {
-		err = s.grants.Revoke(ctx, repositories.FeatureSubjectRole, roleID, accountID, key)
-	}
-	if err != nil {
-		return err
-	}
-
+) {
 	agentIDs, err := s.members.ListMemberIDsByRole(ctx, accountID, roleID)
 	if err != nil {
 		// The write landed but the fan-out failed. Fall back to invalidating
@@ -211,13 +303,12 @@ func (s *FeatureService) changeRoleGrant(
 		s.log(ctx, "could not list role members; invalidating the whole account instead",
 			"feature", key, "account", accountID, "role", roleID, "error", err)
 		s.invalidator.InvalidateAccount(ctx, accountID)
-		return nil
+		return
 	}
 
 	s.invalidator.InvalidateAgents(ctx, accountID, agentIDs...)
 	s.log(ctx, "role grant changed", "feature", key, "account", accountID,
 		"role", roleID, "granted", grant, "membersInvalidated", len(agentIDs))
-	return nil
 }
 
 func (s *FeatureService) validateGrant(accountID, subjectID, key string) error {

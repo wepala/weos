@@ -325,7 +325,8 @@ func (w *featureWorld) stepAgentGranted(email, key string) error {
 		return err
 	}
 	w.grantedKey = key
-	return w.service.GrantToAgent(context.Background(), p.accountID, p.agentID, key)
+	return w.service.GrantToAgent(context.Background(), p.accountID, p.agentID, key,
+		application.GrantTerms{})
 }
 
 func (w *featureWorld) stepRoleGranted(role, key string) error {
@@ -334,7 +335,8 @@ func (w *featureWorld) stepRoleGranted(role, key string) error {
 		return err
 	}
 	w.grantedKey = key
-	return w.service.GrantToRole(context.Background(), accountID, role, key)
+	return w.service.GrantToRole(context.Background(), accountID, role, key,
+		application.GrantTerms{})
 }
 
 func (w *featureWorld) stepRevokeAgent(email string) error {
@@ -346,7 +348,8 @@ func (w *featureWorld) stepRevokeAgent(email string) error {
 	if err != nil {
 		return err
 	}
-	return w.service.RevokeFromAgent(context.Background(), p.accountID, p.agentID, key)
+	_, err = w.service.RevokeFromAgent(context.Background(), p.accountID, p.agentID, key)
+	return err
 }
 
 func (w *featureWorld) stepRevokeRole(role string) error {
@@ -358,7 +361,8 @@ func (w *featureWorld) stepRevokeRole(role string) error {
 	if err != nil {
 		return err
 	}
-	return w.service.RevokeFromRole(context.Background(), accountID, role, key)
+	_, err = w.service.RevokeFromRole(context.Background(), accountID, role, key)
+	return err
 }
 
 // stepStoredAccountOverride and stepStoredGrant write the store directly,
@@ -377,7 +381,12 @@ func (w *featureWorld) stepStoredGrant(email, key string) error {
 	if err != nil {
 		return err
 	}
-	return w.grants.Grant(context.Background(), repositories.FeatureSubjectAgent, p.agentID, p.accountID, key)
+	return w.grants.Grant(context.Background(), entities.FeatureGrantRecord{
+		SubjectType: repositories.FeatureSubjectAgent,
+		SubjectID:   p.agentID,
+		AccountID:   p.accountID,
+		FeatureKey:  key,
+	})
 }
 
 func (w *featureWorld) stepBreakStore() error {

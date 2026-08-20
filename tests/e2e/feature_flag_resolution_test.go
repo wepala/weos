@@ -144,7 +144,9 @@ type grantsSpy struct {
 	broken bool
 }
 
-func (g *grantsSpy) GrantedKeys(ctx context.Context, accountID, agentID, roleID string) (map[string]bool, error) {
+func (g *grantsSpy) GrantsFor(
+	ctx context.Context, accountID, agentID, roleID string,
+) ([]entities.FeatureGrantRecord, error) {
 	g.mu.Lock()
 	if g.reads == nil {
 		g.reads = map[string]int{}
@@ -155,14 +157,22 @@ func (g *grantsSpy) GrantedKeys(ctx context.Context, accountID, agentID, roleID 
 	if broken {
 		return nil, errStoreUnreadable
 	}
-	return g.inner.GrantedKeys(ctx, accountID, agentID, roleID)
+	return g.inner.GrantsFor(ctx, accountID, agentID, roleID)
 }
 
-func (g *grantsSpy) Grant(ctx context.Context, subjectType, subjectID, accountID, key string) error {
-	return g.inner.Grant(ctx, subjectType, subjectID, accountID, key)
+func (g *grantsSpy) ListByFeature(
+	ctx context.Context, accountID, key string,
+) ([]entities.FeatureGrantRecord, error) {
+	return g.inner.ListByFeature(ctx, accountID, key)
 }
 
-func (g *grantsSpy) Revoke(ctx context.Context, subjectType, subjectID, accountID, key string) error {
+func (g *grantsSpy) Grant(ctx context.Context, record entities.FeatureGrantRecord) error {
+	return g.inner.Grant(ctx, record)
+}
+
+func (g *grantsSpy) Revoke(
+	ctx context.Context, subjectType, subjectID, accountID, key string,
+) (bool, error) {
 	return g.inner.Revoke(ctx, subjectType, subjectID, accountID, key)
 }
 

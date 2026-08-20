@@ -35,9 +35,11 @@ const (
 
 // What happened to the setting.
 const (
-	FeatureChangeStateOn    = "on"
-	FeatureChangeStateOff   = "off"
-	FeatureChangeStateReset = "reset"
+	FeatureChangeStateOn      = "on"
+	FeatureChangeStateOff     = "off"
+	FeatureChangeStateReset   = "reset"
+	FeatureChangeStateGranted = "granted"
+	FeatureChangeStateRevoked = "revoked"
 )
 
 // FeatureChanged records one change to feature state.
@@ -58,6 +60,14 @@ type FeatureChanged struct {
 	ActorID    string
 	ActorEmail string
 	Timestamp  time.Time
+
+	// Subject fields are set for grants and revocations, and empty for
+	// instance and account overrides. Added after the event already existed;
+	// events are immutable, so this is additive only — an older stored event
+	// deserializes with these empty, which is what it meant.
+	SubjectType  string
+	SubjectID    string
+	SubjectEmail string
 }
 
 func (e FeatureChanged) EventType() string { return "Feature.Changed" }
