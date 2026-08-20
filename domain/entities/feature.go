@@ -181,3 +181,26 @@ func ResolveFeature(
 
 	return value, decidedBy
 }
+
+// FeatureStatus is one feature as an operator sees it: what it is, whether it
+// is on for the caller asking, and which layer decided that.
+//
+// Source is what makes a listing actionable rather than merely informative. An
+// operator looking at an "off" feature needs to know whether they are seeing a
+// declared default they can override, an instance switch someone threw, or an
+// account override — the three call for different actions, and guessing
+// between them is how a flag gets flipped twice in the wrong place.
+type FeatureStatus struct {
+	Key         string `json:"key"`
+	DisplayName string `json:"displayName"`
+	Description string `json:"description,omitempty"`
+	// Enabled is the resolved answer for the caller who asked.
+	Enabled bool `json:"enabled"`
+	// Source names the layer that decided Enabled.
+	Source string `json:"source"`
+	// Default, Manageable and Grantable echo the declaration, so a caller can
+	// tell what may be changed and where without a second request.
+	Default    bool `json:"default"`
+	Manageable bool `json:"manageable"`
+	Grantable  bool `json:"grantable"`
+}

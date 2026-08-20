@@ -141,6 +141,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// silently returns the caller's default.
 		fx.Invoke(func(*openfeature.Client) {}),
 		fx.Provide(NewFeatureService),
+		fx.Provide(NewFeatureAdminService),
 
 		// Email sender
 		fx.Provide(email.ProvideEmailSender),

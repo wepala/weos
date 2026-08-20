@@ -280,8 +280,47 @@ func (r *FeatureResolver) cached(key featureCacheKey) (map[string]bool, bool) {
 	return copyFeatureValues(set.values), true
 }
 
-// resolve reads every layer and folds them through entities.ResolveFeature.
+// resolve reads every layer and folds them into a plain value map for the
+// cache. It is Explain's answer with the layer information dropped, so the two
+// cannot disagree about what a feature resolves to.
 func (r *FeatureResolver) resolve(ctx context.Context, key featureCacheKey) (map[string]bool, error) {
+	statuses, err := r.resolveDetailed(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]bool, len(statuses))
+	for _, s := range statuses {
+		values[s.Key] = s.Enabled
+	}
+	return values, nil
+}
+
+// Explain resolves every declared feature for the caller on ctx and reports
+// which layer decided each one.
+//
+// Deliberately uncached, and it does not populate the cache. The cached set
+// holds values only — adding the deciding layer to it would grow every entry
+// to serve a listing that an operator hits occasionally and a hot path never
+// does. Listings are rare; evaluations are not.
+func (r *FeatureResolver) Explain(ctx context.Context) ([]entities.FeatureStatus, error) {
+	identity := auth.AgentFromCtx(ctx)
+	key := featureCacheKey{}
+	if identity != nil {
+		key = featureCacheKey{AgentID: identity.AgentID, AccountID: identity.ActiveAccountID}
+	}
+	return r.resolveDetailed(ctx, key)
+}
+
+// resolveDetailed reads every layer and folds them through
+// entities.ResolveFeature, keeping the layer each answer came from.
+//
+// This is the single place the layers are read. resolve() maps its output
+// down for the cache and Explain() returns it whole, so the value a call site
+// evaluates and the source an operator is shown can never drift apart — which
+// is exactly what a listing is for.
+func (r *FeatureResolver) resolveDetailed(
+	ctx context.Context, key featureCacheKey,
+) ([]entities.FeatureStatus, error) {
 	instance, err := r.settings.InstanceOverrides(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve features: %w", err)
@@ -313,17 +352,26 @@ func (r *FeatureResolver) resolve(ctx context.Context, key featureCacheKey) (map
 	}
 
 	declared := r.registry.All()
-	values := make(map[string]bool, len(declared))
+	out := make([]entities.FeatureStatus, 0, len(declared))
 	for _, meta := range declared {
-		value, _ := entities.ResolveFeature(
+		value, decidedBy := entities.ResolveFeature(
 			meta,
 			featureStateFrom(instance, meta.Key),
 			featureStateFrom(account, meta.Key),
 			granted[meta.Key],
 		)
-		values[meta.Key] = value
+		out = append(out, entities.FeatureStatus{
+			Key:         meta.Key,
+			DisplayName: meta.DisplayName,
+			Description: meta.Description,
+			Enabled:     value,
+			Source:      decidedBy.String(),
+			Default:     meta.Default,
+			Manageable:  meta.Manageable,
+			Grantable:   meta.Grantable,
+		})
 	}
-	return values, nil
+	return out, nil
 }
 
 // featureStateFrom turns a stored override map into a tri-state. An absent key

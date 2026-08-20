@@ -104,14 +104,14 @@ func (s *FeatureService) SetAccountFeature(ctx context.Context, accountID, key s
 		return err
 	}
 	if accountID == "" {
-		return fmt.Errorf("an account is required to override feature %q", key)
+		return fmt.Errorf("an account is required to override feature %q: %w", key, ErrValidation)
 	}
 	// Refused at the write rather than only ignored at the read. The resolver
 	// ignores an ineligible row regardless — stored rows outlive declaration
 	// changes — but an operator who asks for something impossible deserves to
 	// be told, not silently obeyed and then overruled.
 	if !meta.Manageable {
-		return fmt.Errorf("feature %q cannot be changed per account", key)
+		return fmt.Errorf("feature %q cannot be changed per account: %w", key, ErrValidation)
 	}
 	if err := s.settings.SetOverride(ctx, repositories.FeatureScopeAccount, accountID, key, enabled); err != nil {
 		return err
@@ -127,7 +127,7 @@ func (s *FeatureService) ClearAccountFeature(ctx context.Context, accountID, key
 		return err
 	}
 	if accountID == "" {
-		return fmt.Errorf("an account is required to clear feature %q", key)
+		return fmt.Errorf("an account is required to clear feature %q: %w", key, ErrValidation)
 	}
 	if err := s.settings.ClearOverride(ctx, repositories.FeatureScopeAccount, accountID, key); err != nil {
 		return err
@@ -226,10 +226,10 @@ func (s *FeatureService) validateGrant(accountID, subjectID, key string) error {
 		return err
 	}
 	if accountID == "" || subjectID == "" {
-		return fmt.Errorf("an account and a subject are required to grant feature %q", key)
+		return fmt.Errorf("an account and a subject are required to grant feature %q: %w", key, ErrValidation)
 	}
 	if !meta.Grantable {
-		return fmt.Errorf("feature %q cannot be granted", key)
+		return fmt.Errorf("feature %q cannot be granted: %w", key, ErrValidation)
 	}
 	return nil
 }
@@ -237,7 +237,11 @@ func (s *FeatureService) validateGrant(accountID, subjectID, key string) error {
 func (s *FeatureService) declared(key string) (entities.FeatureMeta, error) {
 	meta, ok := s.registry.Lookup(key)
 	if !ok {
-		return entities.FeatureMeta{}, fmt.Errorf("no feature named %q is declared", key)
+		// Wrapped so a handler can answer 404 without matching on the message.
+		// An undeclared key is genuinely "not found" rather than a bad
+		// request: the caller named something that does not exist.
+		return entities.FeatureMeta{}, fmt.Errorf(
+			"no feature named %q is declared: %w", key, repositories.ErrNotFound)
 	}
 	return meta, nil
 }
