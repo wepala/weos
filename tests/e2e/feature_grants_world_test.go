@@ -123,6 +123,41 @@ func (g *grantsSpyRepo) rowsLastRead() int {
 	return g.lastRows
 }
 
+// invalidatorSpy counts invalidations, so a scenario claiming a window took
+// effect on its own can prove nothing dropped the cache for it.
+type invalidatorSpy struct {
+	inner repositories.FeatureCacheInvalidator
+	mu    sync.Mutex
+	calls int
+}
+
+func (i *invalidatorSpy) InvalidateAll(ctx context.Context) {
+	i.bump()
+	i.inner.InvalidateAll(ctx)
+}
+
+func (i *invalidatorSpy) InvalidateAccount(ctx context.Context, accountID string) {
+	i.bump()
+	i.inner.InvalidateAccount(ctx, accountID)
+}
+
+func (i *invalidatorSpy) InvalidateAgents(ctx context.Context, accountID string, agentIDs ...string) {
+	i.bump()
+	i.inner.InvalidateAgents(ctx, accountID, agentIDs...)
+}
+
+func (i *invalidatorSpy) bump() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.calls++
+}
+
+func (i *invalidatorSpy) count() int {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.calls
+}
+
 type grantsWorld struct {
 	app    *fx.App
 	tmpDir string
@@ -134,6 +169,7 @@ type grantsWorld struct {
 	resolver *application.FeatureResolver
 	grants   repositories.FeatureGrantRepository
 	spy      *grantsSpyRepo
+	invSpy   *invalidatorSpy
 	settings repositories.FeatureSettingsRepository
 	eventLog repositories.EventLogRepository
 	db       *gormlib.DB
@@ -170,6 +206,14 @@ type grantsWorld struct {
 	lastKey      string
 	straightAway bool
 	afterMoment  bool
+	// readsStraightAway and readsAfterMoment record what each of the two
+	// window evaluations cost, so the scenarios can tell the boundary
+	// mechanism from an implementation that simply never caches.
+	readsStraightAway int
+	readsAfterMoment  int
+	// invalidationsAtStraightAway snapshots the invalidation count, so
+	// "nothing invalidated the session in between" is a measurement.
+	invalidationsAtStraightAway int
 	// moment is the instant a window scenario waits for.
 	moment time.Time
 
@@ -250,12 +294,17 @@ func (w *grantsWorld) boot() error {
 	cfg.Features.PrimaryAccountID = w.primary
 
 	w.spy = &grantsSpyRepo{}
+	w.invSpy = &invalidatorSpy{}
 	app := fx.New(
 		fx.NopLogger,
 		application.Module(cfg, presets.NewDefaultRegistry()),
 		fx.Decorate(func(inner repositories.FeatureGrantRepository) repositories.FeatureGrantRepository {
 			w.spy.inner = inner
 			return w.spy
+		}),
+		fx.Decorate(func(inner repositories.FeatureCacheInvalidator) repositories.FeatureCacheInvalidator {
+			w.invSpy.inner = inner
+			return w.invSpy
 		}),
 		fx.Populate(&w.registry, &w.admin, &w.resolver, &w.grants, &w.settings, &w.eventLog),
 		fx.Populate(&w.db, &w.resources, &w.rts),
@@ -416,6 +465,9 @@ func (w *grantsWorld) request(p *featurePerson, method, path string, body any) e
 	}
 	w.lastStatus = resp.StatusCode
 	w.lastBody = buf.Bytes()
+	// An HTTP answer supersedes any earlier tool payload, so a later
+	// assertion cannot read a stale MCP result as if it were this response.
+	w.lastMCPOut = nil
 	if method == http.MethodGet {
 		w.listingStat = resp.StatusCode
 		w.listingBody = buf.Bytes()

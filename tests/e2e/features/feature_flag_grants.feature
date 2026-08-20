@@ -257,6 +257,7 @@ Feature: An admin grants a feature to specific users or roles
     And "counsel@harborlegal.example" evaluates "ledger-export" again once that moment has passed
     Then the evaluation straight away is answered off
     And the evaluation after that moment is answered on
+    And the grant store was read once for each of those two evaluations
     And nothing invalidated the session in between
     And the maximum cache age had not run out
 
@@ -269,7 +270,9 @@ Feature: An admin grants a feature to specific users or roles
     When "counsel@harborlegal.example" evaluates "ledger-export" again straight away
     And "counsel@harborlegal.example" evaluates "ledger-export" again once that moment has passed
     Then the evaluation straight away is answered on
+    And that answer came from memory, without reading the grant store
     And the evaluation after that moment is answered off
+    And the grant store was read once to answer that one
     And nothing invalidated the session in between
     And the maximum cache age had not run out
     And "counsel@harborlegal.example" is still signed in

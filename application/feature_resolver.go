@@ -263,6 +263,15 @@ func (r *FeatureResolver) onResolveError(
 	defer r.mu.Unlock()
 	previous, ok := r.sets[key]
 	if !ok {
+		// Nothing to serve, so the caller gets the error.
+		//
+		// NOT throttled, deliberately. A caller with no cached set makes one
+		// failing round trip per evaluation while the store is down, which is
+		// a storm the backoff prevents for everybody else. Throttling here
+		// would break a guarantee the contract pins instead: a caller who
+		// evaluates again the moment the store recovers must get the recovered
+		// answer, not a remembered failure. Recovery beats the storm, and the
+		// storm is a follow-up.
 		return nil, err
 	}
 	// Throttle the retry so a sustained outage does not turn every evaluation

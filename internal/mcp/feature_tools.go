@@ -279,9 +279,14 @@ func featureListingResult(
 ) (*mcp.CallToolResult, FeatureChangeOutput, error) {
 	statuses, err := admin.Listing(ctx)
 	if err != nil {
-		// The change landed; only the read-back failed. Returning an error
-		// would report failure for work that succeeded.
-		return nil, FeatureChangeOutput{}, nil
+		// The change landed; only the read-back failed. Said in words rather
+		// than answered with an empty list, which a client — or an LLM — would
+		// read as "this instance declares no features".
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{
+				Text: "The change was applied. The feature listing could not be read just now.",
+			}},
+		}, FeatureChangeOutput{}, nil
 	}
 	return nil, FeatureChangeOutput{Features: statuses}, nil
 }

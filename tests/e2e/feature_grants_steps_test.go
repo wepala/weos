@@ -151,6 +151,9 @@ func initFeatureGrantsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^neither of them was signed out$`, w.stepAllStillSignedIn)
 	sc.Step(`^the request "([^"]*)" makes next is served$`, w.stepNextRequestServed)
 	sc.Step(`^nothing invalidated the session in between$`, w.stepNothingInvalidated)
+	sc.Step(`^that answer came from memory, without reading the grant store$`, w.stepAnswerCameFromMemory)
+	sc.Step(`^the grant store was read once to answer that one$`, w.stepReadOnceForThatOne)
+	sc.Step(`^the grant store was read once for each of those two evaluations$`, w.stepReadOnceEach)
 	sc.Step(`^the maximum cache age had not run out$`, w.stepCacheAgeNotReached)
 	sc.Step(`^the instance was not restarted$`, w.stepNotRestarted)
 	sc.Step(`^"([^"]*)" read no feature state from the database to be answered$`, w.stepReadNothing)
@@ -210,11 +213,15 @@ func (w *grantsWorld) stepAccountOwner(name, email, password string) error {
 
 // --- membership -----------------------------------------------------------
 
+// Each of these names a person the scenario is about, so "both of them" and
+// "each of them" mean those people rather than whoever else exists.
 func (w *grantsWorld) stepAlsoBelongs(email, account string) error {
+	w.group = append(w.group, email)
 	return w.addToAccount(email, account, "member")
 }
 
 func (w *grantsWorld) stepAlsoBelongsWithRole(email, account, role string) error {
+	w.group = append(w.group, email)
 	return w.addToAccount(email, account, role)
 }
 
@@ -229,6 +236,7 @@ func (w *grantsWorld) stepTwoBelongWithRole(a, b, account, role string) error {
 }
 
 func (w *grantsWorld) stepOrdinaryMember(email, account string) error {
+	w.group = append(w.group, email)
 	return w.addToAccount(email, account, "member")
 }
 
@@ -555,15 +563,33 @@ func (w *grantsWorld) cohort() []*featurePerson {
 		}
 		return out
 	}
+	// Not "everyone staged". A scenario that says "both of them" and named
+	// nobody would otherwise sweep in the Background's owner, and pass or fail
+	// for reasons it never mentions.
 	out := make([]*featurePerson, 0, len(w.people))
 	for _, p := range w.people {
-		out = append(out, p)
+		if len(p.sessionIDs) > 0 {
+			out = append(out, p)
+		}
 	}
 	return out
 }
 
+// requireCohort refuses to let a "both of them" step assert nothing.
+func (w *grantsWorld) requireCohort() ([]*featurePerson, error) {
+	group := w.cohort()
+	if len(group) == 0 {
+		return nil, fmt.Errorf("this step is about several people and the scenario named none")
+	}
+	return group, nil
+}
+
 func (w *grantsWorld) stepBothSignedInAnswered(onOff, key string) error {
-	for _, p := range w.cohort() {
+	group, err := w.requireCohort()
+	if err != nil {
+		return err
+	}
+	for _, p := range group {
 		if len(p.sessionIDs) == 0 {
 			if err := w.signIn(p); err != nil {
 				return err
@@ -606,11 +632,14 @@ func (w *grantsWorld) stepEvaluateStraightAway(email, key string) error {
 	if err != nil {
 		return err
 	}
+	before := w.spy.countFor(p.agentID)
 	got, err := w.evaluate(p, key)
 	if err != nil {
 		return err
 	}
 	w.straightAway = got
+	w.readsStraightAway = w.spy.countFor(p.agentID) - before
+	w.invalidationsAtStraightAway = w.invSpy.count()
 	return nil
 }
 
@@ -627,11 +656,13 @@ func (w *grantsWorld) stepEvaluateAfterMoment(email, key string) error {
 	if wait := time.Until(w.moment); wait > 0 {
 		time.Sleep(wait + 250*time.Millisecond)
 	}
+	before := w.spy.countFor(p.agentID)
 	got, err := w.evaluate(p, key)
 	if err != nil {
 		return err
 	}
 	w.afterMoment = got
+	w.readsAfterMoment = w.spy.countFor(p.agentID) - before
 	return nil
 }
 
@@ -645,7 +676,11 @@ func (w *grantsWorld) stepPersonEvaluatesAgain(email, key string) error {
 }
 
 func (w *grantsWorld) stepEachEvaluatesAgain(key string) error {
-	for _, p := range w.cohort() {
+	group, err := w.requireCohort()
+	if err != nil {
+		return err
+	}
+	for _, p := range group {
 		if len(p.sessionIDs) == 0 {
 			continue
 		}
@@ -1061,9 +1096,14 @@ func (w *grantsWorld) currentGrantViews() ([]application.GrantView, error) {
 		return w.mcpGrants()
 	}
 	if len(w.lastBody) > 0 {
-		if views, err := w.grantViews(w.lastBody); err == nil {
-			return views, nil
+		// Fail loudly rather than falling through. Asking the service when the
+		// response did not parse would let a handler that stopped returning
+		// grants keep every one of these assertions green.
+		views, err := w.grantViews(w.lastBody)
+		if err != nil {
+			return nil, fmt.Errorf("the surface answered something that is not a grant listing: %w", err)
 		}
+		return views, nil
 	}
 	if w.current == nil {
 		return nil, fmt.Errorf("nobody is signed in to read grants as")
@@ -1221,8 +1261,16 @@ func (w *grantsWorld) stepPersonAnswered(email, onOff string) error {
 }
 
 func (w *grantsWorld) stepBothOff() error {
-	for _, p := range w.cohort() {
-		if got, ok := w.answers[p.email]; ok && got {
+	group, err := w.requireCohort()
+	if err != nil {
+		return err
+	}
+	for _, p := range group {
+		got, ok := w.answers[p.email]
+		if !ok {
+			return fmt.Errorf("%q never evaluated, so this asserts nothing about them", p.email)
+		}
+		if got {
 			return fmt.Errorf("%q was answered on, want off", p.email)
 		}
 	}
@@ -1296,9 +1344,45 @@ func (w *grantsWorld) stepNextRequestServed(email string) error {
 	return err
 }
 
-// stepNothingInvalidated is a claim about the mechanism: the window took
-// effect without anything dropping the cache.
-func (w *grantsWorld) stepNothingInvalidated() error { return nil }
+// stepNothingInvalidated is the claim the whole boundary mechanism rests on:
+// the window took effect without anything dropping the cache. Measured, not
+// asserted in prose — the count is snapshotted at the straight-away
+// evaluation and must not have moved by the time the window closed.
+func (w *grantsWorld) stepNothingInvalidated() error {
+	if now := w.invSpy.count(); now != w.invalidationsAtStraightAway {
+		return fmt.Errorf("%d invalidations happened between the two evaluations, want none — "+
+			"the window has to take effect on its own, not because something dropped the cache",
+			now-w.invalidationsAtStraightAway)
+	}
+	return nil
+}
+
+// stepAnswerCameFromMemory is what stops the window scenarios passing against
+// an implementation that never caches at all: with no cache, every evaluation
+// reads, and both a live and an expired grant would look correct.
+func (w *grantsWorld) stepAnswerCameFromMemory() error {
+	if w.readsStraightAway != 0 {
+		return fmt.Errorf("the straight-away answer cost %d grant reads, want none — "+
+			"it should have come from the cached set", w.readsStraightAway)
+	}
+	return nil
+}
+
+func (w *grantsWorld) stepReadOnceForThatOne() error {
+	if w.readsAfterMoment != 1 {
+		return fmt.Errorf("the evaluation after the boundary cost %d grant reads, want exactly 1",
+			w.readsAfterMoment)
+	}
+	return nil
+}
+
+func (w *grantsWorld) stepReadOnceEach() error {
+	if w.readsStraightAway != 1 || w.readsAfterMoment != 1 {
+		return fmt.Errorf("the two evaluations cost %d and %d grant reads, want exactly 1 each",
+			w.readsStraightAway, w.readsAfterMoment)
+	}
+	return nil
+}
 
 func (w *grantsWorld) stepCacheAgeNotReached() error {
 	if w.maxCacheAge < time.Minute {
