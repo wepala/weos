@@ -1,4 +1,4 @@
-@wip @epic-480 @story-485
+@epic-480 @story-485
 Feature: A disabled agent skill is never offered to the in-app agent
   As someone talking to a WeOS app's agent
   I want the skills for a capability I do not have to be absent from the agent's routing,

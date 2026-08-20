@@ -386,6 +386,21 @@ func (o *Orchestrator) runTurn(
 	var out strings.Builder
 	for event, err := range r.Run(ctx, userID, conversationID, content, agent.RunConfig{}) {
 		if err != nil {
+			// A transfer to an agent that is not in this turn's graph is a
+			// refusal, not a fault (#485). The model can name a skill the
+			// caller's features do not reach — it invented the name, or a
+			// client carried it over from a conversation where the caller did
+			// have it — and the answer must be a reply the user can read, not
+			// a broken turn. Failing here would turn every gated skill into a
+			// way to break somebody's chat by mentioning it.
+			if unreachableSkill(err) {
+				o.logger.Info(ctx, "the model named a skill this caller cannot reach",
+					"conversation", conversationID, "error", err.Error())
+				out.Reset()
+				out.WriteString(skillOutOfReachReply)
+				emit(entities.AgentEvent{Type: entities.AgentEventText, Text: skillOutOfReachReply})
+				break
+			}
 			return fmt.Errorf("run agent: %w", err)
 		}
 		o.emitConfirmationRequests(ctx, event, emit)
@@ -569,6 +584,23 @@ func (o *Orchestrator) buildRoot(ctx context.Context) (agent.Agent, error) {
 		return nil, fmt.Errorf("build coordinator: %w", err)
 	}
 	return root, nil
+}
+
+// skillOutOfReachReply is what a caller is told when the model tried to hand
+// the turn to a skill their features do not reach. It names no skill on
+// purpose: the caller cannot use it, and naming it would advertise a
+// capability they do not have and cannot ask for by name.
+const skillOutOfReachReply = "I cannot help with that here."
+
+// unreachableSkill reports whether the runner failed because the model
+// transferred to an agent this turn's graph does not contain.
+//
+// Matched on the ADK runner's message because the error carries no type to
+// test. Kept narrow — a different runner failure must still surface as a
+// failure, since swallowing those would hide real faults behind a polite
+// sentence. Verified against google.golang.org/adk/v2 v2.0.0.
+func unreachableSkill(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "failed to find agent")
 }
 
 // ensureSession makes the (userID, conversationID) session exist. Get-then-

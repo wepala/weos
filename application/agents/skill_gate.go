@@ -95,6 +95,17 @@ func (o *Orchestrator) allowedSkills(ctx context.Context) ([]entities.SkillDefin
 	return allowed, nil
 }
 
+// RoutableSkills returns the skills the caller on ctx can be routed to — the
+// exact list buildRoot turns into the coordinator's sub-agents.
+//
+// Exported because more than the coordinator needs it: the admin surface
+// (#486) has to show a person what their agent can actually reach, and a
+// second implementation of "what may this caller use" would be a second
+// answer. Callers get definitions, not agents, so nothing here builds a model.
+func (o *Orchestrator) RoutableSkills(ctx context.Context) ([]entities.SkillDefinition, error) {
+	return o.allowedSkills(ctx)
+}
+
 // findSkill locates a named skill for the direct-invocation door and reports
 // why the caller cannot have it.
 //
