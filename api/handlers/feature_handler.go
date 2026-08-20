@@ -17,6 +17,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -49,8 +50,13 @@ func NewFeatureHandler(cfg FeatureHandlerConfig) *FeatureHandler {
 }
 
 // setFeatureRequest is the body of both PUT endpoints.
+//
+// Enabled is a pointer so an omitted field is distinguishable from false. A
+// bare bool would bind an empty body to false, so a client that forgot the
+// field — or sent {} — would silently DISABLE the feature it meant to enable,
+// and get a 200 saying so.
 type setFeatureRequest struct {
-	Enabled bool `json:"enabled"`
+	Enabled *bool `json:"enabled"`
 }
 
 // List returns every declared feature with its resolved value and the layer
@@ -71,13 +77,12 @@ func (h *FeatureHandler) List(c echo.Context) error {
 
 // SetInstance turns a feature on or off for the whole instance.
 func (h *FeatureHandler) SetInstance(c echo.Context) error {
-	var req setFeatureRequest
-	if err := c.Bind(&req); err != nil {
-		return respondError(c, http.StatusBadRequest, "invalid request")
+	req, err := bindSetFeature(c)
+	if err != nil {
+		return respondError(c, http.StatusBadRequest, err.Error())
 	}
-	err := h.admin.SetInstance(
-		c.Request().Context(), c.Param("key"), req.Enabled, entities.FeatureChangeSourceAPI)
-	return h.respondAfterChange(c, err)
+	return h.respondAfterChange(c, h.admin.SetInstance(
+		c.Request().Context(), c.Param("key"), *req.Enabled, entities.FeatureChangeSourceAPI))
 }
 
 // ResetInstance removes the instance override so the feature returns to its
@@ -96,19 +101,31 @@ func (h *FeatureHandler) ResetInstance(c echo.Context) error {
 // one account cannot reach into another by naming it — and an endpoint that
 // accepted an account id would make that property untestable.
 func (h *FeatureHandler) SetAccount(c echo.Context) error {
-	var req setFeatureRequest
-	if err := c.Bind(&req); err != nil {
-		return respondError(c, http.StatusBadRequest, "invalid request")
+	req, err := bindSetFeature(c)
+	if err != nil {
+		return respondError(c, http.StatusBadRequest, err.Error())
 	}
-	err := h.admin.SetAccount(
-		c.Request().Context(), c.Param("key"), req.Enabled, entities.FeatureChangeSourceAPI)
-	return h.respondAfterChange(c, err)
+	return h.respondAfterChange(c, h.admin.SetAccount(
+		c.Request().Context(), c.Param("key"), *req.Enabled, entities.FeatureChangeSourceAPI))
 }
 
 // ResetAccount removes the caller's account override.
 func (h *FeatureHandler) ResetAccount(c echo.Context) error {
 	err := h.admin.ResetAccount(c.Request().Context(), c.Param("key"), entities.FeatureChangeSourceAPI)
 	return h.respondAfterChange(c, err)
+}
+
+// bindSetFeature refuses a body that does not say which way to set the
+// feature, rather than defaulting to off.
+func bindSetFeature(c echo.Context) (setFeatureRequest, error) {
+	var req setFeatureRequest
+	if err := c.Bind(&req); err != nil {
+		return req, fmt.Errorf("invalid request")
+	}
+	if req.Enabled == nil {
+		return req, fmt.Errorf(`"enabled" is required: say true or false rather than leaving it out`)
+	}
+	return req, nil
 }
 
 // respondAfterChange maps the service's error to a status, then answers with

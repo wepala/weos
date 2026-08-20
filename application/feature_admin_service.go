@@ -26,6 +26,7 @@ import (
 	esdomain "github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/internal/config"
 	"github.com/wepala/weos/v3/pkg/identity"
 )
 
@@ -49,6 +50,11 @@ type FeatureAdminService struct {
 	accounts authrepos.AccountRepository
 	creds    authrepos.CredentialRepository
 
+	// primaryAccountID names the account whose owners and admins may change
+	// instance-wide state. Empty means "work it out from how many accounts
+	// exist" — see requireOperator.
+	primaryAccountID string
+
 	eventStore esdomain.EventStore
 	dispatcher *esdomain.EventDispatcher
 
@@ -57,6 +63,7 @@ type FeatureAdminService struct {
 
 // NewFeatureAdminService builds the surface layer.
 func NewFeatureAdminService(
+	cfg config.Config,
 	features *FeatureService,
 	resolver *FeatureResolver,
 	accounts authrepos.AccountRepository,
@@ -66,13 +73,14 @@ func NewFeatureAdminService(
 	logger entities.Logger,
 ) *FeatureAdminService {
 	return &FeatureAdminService{
-		features:   features,
-		resolver:   resolver,
-		accounts:   accounts,
-		creds:      creds,
-		eventStore: eventStore,
-		dispatcher: dispatcher,
-		logger:     logger,
+		features:         features,
+		resolver:         resolver,
+		accounts:         accounts,
+		creds:            creds,
+		primaryAccountID: cfg.Features.PrimaryAccountID,
+		eventStore:       eventStore,
+		dispatcher:       dispatcher,
+		logger:           logger,
 	}
 }
 
@@ -164,17 +172,60 @@ func (s *FeatureAdminService) requireOperator(ctx context.Context) error {
 		return nil
 	}
 	identityCtx := auth.AgentFromCtx(ctx)
-	if identityCtx == nil {
+	if identityCtx == nil || identityCtx.ActiveAccountID == "" {
+		// A session that names no account has no role to check. Refused
+		// explicitly rather than left to the lookup, which returns an empty
+		// role for an empty account and would reach the same answer less
+		// obviously.
 		return fmt.Errorf("changing instance feature state requires a signed-in operator: %w", ErrForbidden)
 	}
-	role, err := s.accounts.FindMemberRole(ctx, identityCtx.ActiveAccountID, identityCtx.AgentID)
+	primary, err := s.instanceAccount(ctx)
+	if err != nil {
+		return err
+	}
+	// The role must be held in the INSTANCE's account, not merely in some
+	// account the caller happens to own. Registration mints every new user as
+	// owner of their own personal account, so checking the caller's active
+	// account would make "owner or admin" mean "anyone who signed up".
+	role, err := s.accounts.FindMemberRole(ctx, primary, identityCtx.AgentID)
 	if err != nil {
 		return fmt.Errorf("failed to read the caller's role: %w", err)
 	}
 	if role != authentities.RoleOwner && role != authentities.RoleAdmin {
-		return fmt.Errorf("only an owner or admin may change instance feature state: %w", ErrForbidden)
+		return fmt.Errorf(
+			"only an owner or admin of this instance's account may change instance feature state: %w",
+			ErrForbidden)
 	}
 	return nil
+}
+
+// instanceAccount answers which account owns the instance-wide switch.
+//
+// Configured wins. Otherwise, exactly one account means that account is the
+// instance — the single-user shape, where no configuration should be needed.
+// More than one and nothing configured is refused rather than guessed: picking
+// one would hand the switch to whoever happened to register first, and picking
+// the caller's would hand it to everyone.
+func (s *FeatureAdminService) instanceAccount(ctx context.Context) (string, error) {
+	if s.primaryAccountID != "" {
+		return s.primaryAccountID, nil
+	}
+	page, err := s.accounts.FindAll(ctx, "", 2)
+	if err != nil {
+		return "", fmt.Errorf("failed to read the instance's accounts: %w", err)
+	}
+	switch {
+	case page == nil || len(page.Data) == 0:
+		return "", fmt.Errorf(
+			"this instance has no account to own its feature switch: %w", ErrForbidden)
+	case len(page.Data) == 1:
+		return page.Data[0].GetID(), nil
+	default:
+		return "", fmt.Errorf(
+			"this instance has more than one account, so it cannot tell which one owns the "+
+				"feature switch: set FEATURE_PRIMARY_ACCOUNT_ID (the command line still works): %w",
+			ErrForbidden)
+	}
 }
 
 // requireAccountAdmin checks the same roles and returns the account the caller
@@ -204,6 +255,17 @@ func (s *FeatureAdminService) requireAccountAdmin(ctx context.Context) (string, 
 // surfaced as a message instead, which is the honest account: the change
 // happened, the record of it did not.
 func (s *FeatureAdminService) record(ctx context.Context, key, scope, scopeID, state, src string) {
+	if s.eventStore == nil || s.dispatcher == nil {
+		// Nothing to record into. Guarded rather than left to fail inside the
+		// unit of work, which panics on a nil store — and a panic here would
+		// take down a request whose actual work already succeeded, which is
+		// the opposite of this method's whole failure policy.
+		if s.logger != nil {
+			s.logger.Error(ctx, "the feature change was applied but there is nowhere to record it",
+				"feature", key, "scope", scope, "state", state)
+		}
+		return
+	}
 	event := entities.FeatureChanged{
 		Key:     key,
 		Scope:   scope,

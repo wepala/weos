@@ -38,6 +38,18 @@ const (
 	ServiceFeature        ServiceName = "feature"
 )
 
+// DefaultOffServices are real services that are NOT enabled when a caller
+// names none.
+//
+// The feature tools change instance-wide state, and `weos mcp` over stdio is
+// trusted without a permission check — so leaving them on by default would put
+// the instance switchboard in reach of any local MCP client, including an LLM
+// pointed at the graph for something else entirely. Naming the group turns
+// them on: `weos mcp --services resource,feature`.
+var DefaultOffServices = map[ServiceName]bool{
+	ServiceFeature: true,
+}
+
 // AllServices is the ordered list of every available service.
 var AllServices = []ServiceName{
 	ServicePerson,
@@ -85,6 +97,9 @@ func resolveEnabled(services []string) map[ServiceName]bool {
 	enabled := make(map[ServiceName]bool, len(AllServices))
 	if len(services) == 0 {
 		for _, s := range AllServices {
+			if DefaultOffServices[s] {
+				continue
+			}
 			enabled[s] = true
 		}
 		return enabled

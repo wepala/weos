@@ -201,6 +201,21 @@ type FeaturesConfig struct {
 	// single-process by construction and needs no broadcast.
 	NotifyChannel string
 
+	// PrimaryAccountID names the account whose owners and admins may change
+	// INSTANCE-wide feature state.
+	//
+	// It exists because "owner or admin" alone is not a meaningful bar on a
+	// multi-user instance: registration mints every new user as owner of their
+	// own personal account, so without this anyone who signs up could turn a
+	// feature off for everybody.
+	//
+	// Unset is safe rather than permissive. With exactly one account — the
+	// mini-me shape — that account is the instance and no configuration is
+	// needed. With more than one and nothing named, instance-scope changes are
+	// refused over HTTP and the operator is told to set this; the command line
+	// still works, because whoever has the box already has the database.
+	PrimaryAccountID string
+
 	// Declared holds features declared by configuration, alongside those
 	// declared in code and by presets.
 	//
@@ -663,6 +678,9 @@ func (c *Config) LoadFromEnvironment() {
 	}
 	if v := os.Getenv("FEATURE_NOTIFY_CHANNEL"); v != "" {
 		c.Features.NotifyChannel = v
+	}
+	if v := os.Getenv("FEATURE_PRIMARY_ACCOUNT_ID"); v != "" {
+		c.Features.PrimaryAccountID = v
 	}
 	if v := os.Getenv("FEATURES"); v != "" {
 		c.Features.Declared, c.Features.DeclarationError = parseFeatureDeclarations(v)

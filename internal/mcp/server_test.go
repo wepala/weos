@@ -4,16 +4,28 @@ import (
 	"testing"
 )
 
-func TestResolveEnabled_EmptyReturnsAll(t *testing.T) {
+// TestResolveEnabled_EmptyReturnsAllButOptIn: naming no services enables every
+// group except those that must be asked for by name. The exception exists
+// because some tools change instance-wide state and the stdio transport is
+// trusted without a permission check.
+func TestResolveEnabled_EmptyReturnsAllButOptIn(t *testing.T) {
 	for _, input := range [][]string{nil, {}} {
 		enabled := resolveEnabled(input)
+		want := 0
 		for _, s := range AllServices {
+			if DefaultOffServices[s] {
+				if enabled[s] {
+					t.Errorf("service %q is opt-in but was enabled for empty input", s)
+				}
+				continue
+			}
+			want++
 			if !enabled[s] {
 				t.Errorf("expected service %q to be enabled for empty input", s)
 			}
 		}
-		if len(enabled) != len(AllServices) {
-			t.Errorf("expected %d enabled services, got %d", len(AllServices), len(enabled))
+		if len(enabled) != want {
+			t.Errorf("expected %d enabled services, got %d", want, len(enabled))
 		}
 	}
 }
@@ -94,4 +106,24 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestFeatureToolsAreNotEnabledByDefault: the feature tools change
+// instance-wide state and `weos mcp` over stdio is trusted without a
+// permission check, so an LLM pointed at the graph must not find the
+// switchboard in reach unless the operator named it.
+func TestFeatureToolsAreNotEnabledByDefault(t *testing.T) {
+	if resolveEnabled(nil)[ServiceFeature] {
+		t.Fatal("the feature service is enabled when no services are named")
+	}
+	if !resolveEnabled(nil)[ServiceResource] {
+		t.Fatal("naming no services should still enable the ordinary groups")
+	}
+	if !resolveEnabled([]string{"feature"})[ServiceFeature] {
+		t.Fatal("naming the feature service did not enable it")
+	}
+	// It is still a valid name, so --services feature must not be rejected.
+	if err := ValidateServiceNames([]string{"feature"}); err != nil {
+		t.Fatalf("ValidateServiceNames rejected a real service: %v", err)
+	}
 }

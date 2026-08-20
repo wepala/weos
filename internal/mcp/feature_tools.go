@@ -37,9 +37,14 @@ type FeatureListOutput struct {
 	Features []entities.FeatureStatus `json:"features"`
 }
 
+// FeatureSetInput carries Enabled as a pointer so an omitted field is
+// distinguishable from false. An LLM that leaves the argument out would
+// otherwise silently DISABLE the feature it was asked to enable — the worst
+// possible reading of an ambiguous call, and one nothing downstream could
+// detect.
 type FeatureSetInput struct {
 	Key     string `json:"key" jsonschema:"the feature key to change"`
-	Enabled bool   `json:"enabled" jsonschema:"true to turn the feature on, false to turn it off"`
+	Enabled *bool  `json:"enabled" jsonschema:"required: true to turn the feature on, false to turn it off"`
 	Scope   string `json:"scope,omitempty" jsonschema:"instance (default) or account"`
 }
 
@@ -90,12 +95,16 @@ func registerFeatureTools(server *mcp.Server, admin *application.FeatureAdminSer
 	}, func(
 		ctx context.Context, _ *mcp.CallToolRequest, input FeatureSetInput,
 	) (*mcp.CallToolResult, FeatureChangeOutput, error) {
+		if input.Enabled == nil {
+			return nil, FeatureChangeOutput{}, fmt.Errorf(
+				"enabled is required: say true or false rather than leaving it out")
+		}
 		var err error
 		switch scopeOrInstance(input.Scope) {
 		case featureScopeAccount:
-			err = admin.SetAccount(ctx, input.Key, input.Enabled, entities.FeatureChangeSourceMCP)
+			err = admin.SetAccount(ctx, input.Key, *input.Enabled, entities.FeatureChangeSourceMCP)
 		case featureScopeInstance:
-			err = admin.SetInstance(ctx, input.Key, input.Enabled, entities.FeatureChangeSourceMCP)
+			err = admin.SetInstance(ctx, input.Key, *input.Enabled, entities.FeatureChangeSourceMCP)
 		default:
 			err = fmt.Errorf("unknown scope %q: use %q or %q",
 				input.Scope, featureScopeInstance, featureScopeAccount)

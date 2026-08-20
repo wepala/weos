@@ -100,10 +100,20 @@ func NewFeatureRegistry(
 			return nil, err
 		}
 	}
-	// Configuration is registered after code, and a clash is still an error
-	// rather than an override: two declarations of one key means two things
-	// believe they own it, and picking one silently gates the wrong thing.
+	// Configuration is registered after code, and a clash with either code or
+	// a preset is an error rather than an override: two declarations of one
+	// key means two things believe they own it, and picking one silently gates
+	// the wrong thing. Register alone only sees code declarations, so the
+	// preset half is checked here — without it, configuration could quietly
+	// rewrite a preset feature's default and nothing would say so.
 	for _, m := range cfg.Features.Declared {
+		if presets != nil {
+			if existing, clash := presets.Features()[m.Key]; clash {
+				return nil, fmt.Errorf(
+					"FEATURES: feature %q is already declared by a preset (as %q); keys must be unique",
+					m.Key, existing.DisplayName)
+			}
+		}
 		if err := r.Register(m); err != nil {
 			return nil, fmt.Errorf("FEATURES: %w", err)
 		}
