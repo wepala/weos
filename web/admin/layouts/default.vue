@@ -30,7 +30,7 @@
         <a-menu-item key="dashboard">
           <NuxtLink to="/">Dashboard</NuxtLink>
         </a-menu-item>
-        <a-menu-item key="agent">
+        <a-menu-item v-if="showAgent" key="agent">
           <NuxtLink to="/agent">Agent</NuxtLink>
         </a-menu-item>
         <SidebarMenuItem v-for="item in menuStructure" :key="item.key" :item="item" />
@@ -67,7 +67,7 @@
         <a-menu-item key="dashboard">
           <NuxtLink to="/">Dashboard</NuxtLink>
         </a-menu-item>
-        <a-menu-item key="agent">
+        <a-menu-item v-if="showAgent" key="agent">
           <NuxtLink to="/agent">Agent</NuxtLink>
         </a-menu-item>
         <SidebarMenuItem v-for="item in menuStructure" :key="item.key" :item="item" />
@@ -161,6 +161,16 @@ function updateIsMobile() {
 const route = useRoute()
 const { resourceTypes, fetchResourceTypes } = useResourceTypeStore()
 const { loadSettings, isVisible, getParent, getChildren, getAncestors } = useSidebarSettings()
+// The set is fetched once in app.vue, which is mounted for every page
+// including the sign-in one. This layout only reads it, and asks for it again
+// when the caller changes.
+const { refresh: refreshFeatures, isEnabled } = useFeatures()
+
+// Gated entries are hidden, never disabled: an entry a person cannot use is
+// an entry that leads to a refusal. Hiding is presentation only — the routes
+// behind it are gated on the server (api/middleware/require_feature.go), so a
+// typed address is refused whatever the sidebar drew.
+const showAgent = computed(() => isEnabled(FEATURE_AGENT_CHAT))
 
 // Re-fetch resource types and sidebar settings when user role changes
 // (e.g., impersonation start/stop).
@@ -172,6 +182,16 @@ watch(() => user.value?.role, async (newRole, oldRole) => {
     } catch (err) {
       console.error('[default] failed to refresh after role change:', err)
     }
+  }
+})
+
+// Starting or stopping impersonation changes who the caller is, so the set is
+// read again for the person the answer is now about. Watching the agent id
+// rather than the role catches an impersonation between two people who happen
+// to share one.
+watch(() => user.value?.id, async (next, previous) => {
+  if (next !== previous && previous !== undefined) {
+    await refreshFeatures()
   }
 })
 

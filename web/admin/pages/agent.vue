@@ -22,10 +22,26 @@
       <a-button @click="newConversation">New conversation</a-button>
     </div>
 
+    <!--
+      Two different explanations, deliberately. "Not enabled for you" is a
+      capability an operator can switch on; "not configured" is an instance
+      with no model key. One message for both would send a person to fix the
+      wrong thing — so the gated case is checked first and reads on its own.
+    -->
     <a-alert
-      v-if="unavailable"
+      v-if="notEnabled"
       type="info"
       show-icon
+      data-testid="agent-not-enabled"
+      message="The assistant is not available to you"
+      description="This capability is not enabled for you on this instance. Ask an operator to turn it on."
+    />
+
+    <a-alert
+      v-else-if="unavailable"
+      type="info"
+      show-icon
+      data-testid="agent-not-configured"
       message="The in-app agent is not configured"
       description="Set the Gemini API key on this instance to enable it."
     />
@@ -85,6 +101,24 @@ interface PendingConfirmation {
 }
 
 const { sendMessage, confirm, history } = useAgentApi()
+const { ensureLoaded: ensureFeatures, isEnabled } = useFeatures()
+
+// Reaching this address directly is not authorization — the server refuses the
+// agent routes when the feature is off (api/middleware/require_feature.go).
+// This is what the person reads instead of a broken page, and it is the reason
+// the page must not be sent to sign-in: a refusal is not a session problem.
+const notEnabled = ref(false)
+
+function isNotEnabled(err: unknown): boolean {
+  const body = (err as any)?.data?.error ?? (err as any)?.message ?? ''
+  return typeof body === 'string' && body.includes('capability is not enabled')
+}
+
+function markNotEnabled(err: unknown): boolean {
+  if (!isNotEnabled(err)) return false
+  notEnabled.value = true
+  return true
+}
 
 const conversationId = ref('')
 const messages = ref<ChatMessage[]>([])
@@ -99,6 +133,14 @@ const storageKey = 'weos-agent-conversation'
 onMounted(async () => {
   conversationId.value = localStorage.getItem(storageKey) || newId()
   localStorage.setItem(storageKey, conversationId.value)
+  // Reaching this address directly still gets an explanation rather than a
+  // broken page: the set says whether the capability is theirs, and the server
+  // refuses the routes either way.
+  await ensureFeatures()
+  if (!isEnabled(FEATURE_AGENT_CHAT)) {
+    notEnabled.value = true
+    return
+  }
   await loadHistory()
 })
 
@@ -116,6 +158,16 @@ async function loadHistory() {
     }))
     scrollDown()
   } catch (err: any) {
+    // A refused history load is NOT taken as proof the capability is gone.
+    // The set is what decides whether this page draws, and it was consulted
+    // on mount; blanking the page here would replace a working conversation
+    // with an explanation because one background read failed. The person is
+    // told when they act — see send() — which is also the moment the answer
+    // actually matters.
+    if (isNotEnabled(err)) {
+      console.warn('[agent] history was refused as a capability; the set still says it is available')
+      return
+    }
     if (err?.status === 503 || err?.response?.status === 503) {
       unavailable.value = true
     }
@@ -145,6 +197,11 @@ function handleEvent(agentReply: ChatMessage) {
         schemaVersion: 1,
         widgets: [{ type: 'markdown', markdown: `⚠️ ${e.error}` }],
       }
+      if (e.error.includes('capability is not enabled')) {
+        notEnabled.value = true
+        messages.value = []
+        return
+      }
       if (e.error.includes('not configured')) unavailable.value = true
     }
   }
@@ -162,6 +219,14 @@ async function send() {
   try {
     await sendMessage(conversationId.value, message, handleEvent(agentReply))
   } catch (err: any) {
+    if (markNotEnabled(err)) {
+      // The refusal replaces the conversation rather than joining it: there is
+      // no reply to show, and leaving a half-turn in the thread would read as
+      // the assistant having answered.
+      messages.value = []
+      busy.value = false
+      return
+    }
     agentReply.widgets = {
       schemaVersion: 1,
       widgets: [{ type: 'markdown', markdown: `⚠️ ${err?.message ?? 'request failed'}` }],

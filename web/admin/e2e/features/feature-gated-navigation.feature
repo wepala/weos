@@ -53,13 +53,22 @@ Feature: The admin shows only what the person signed in actually has
 
   # --- The set is read once and shared ---
 
+  # Navigating here means clicking, not reloading. A full page load is a fresh
+  # app and legitimately reads the set again; what this pins is that moving
+  # around the admin costs nothing. The steps this scenario used to borrow from
+  # the other suites all do a hard goto, so it could not have measured that.
+  #
+  # The pages are the admin's own sidebar entries. Persons is not one of them —
+  # it comes from a resource type, so it is present only when the instance has
+  # that type — and a scenario about navigation must click something that is
+  # always there.
   Scenario: The admin reads the feature set once and reuses it across pages
     Given the feature set is scripted with "agent-chat" on
     When the user opens the dashboard
-    And the user opens the persons page
-    And the user opens the users page
-    And the user opens the settings page
-    And the user opens the agent page
+    And the user clicks through to the users page
+    And the user clicks through to the settings page
+    And the user clicks through to the agent page
+    And the user clicks through to the dashboard page
     Then the admin asked for the feature set once
     And the request for the feature set went to "/api/features"
 
