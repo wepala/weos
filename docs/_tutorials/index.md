@@ -17,3 +17,4 @@ Each tutorial tells you what you'll learn, what you need before you start, and e
 | [Auth: Roles and Access]({% link _tutorials/auth-roles-and-access.md %}) | Create roles, assign users, control what each role can access |
 | [Customizing the UI]({% link _tutorials/customizing-the-ui.md %}) | Work with templates, manage the sidebar menu, organize content |
 | [Connecting MCP to an LLM]({% link _tutorials/connecting-mcp-to-llm.md %}) | Wire the MCP server to Claude Desktop or another LLM client |
+| [Gating Your First Feature]({% link _tutorials/gating-your-first-feature.md %}) | Watch a capability disappear, be refused, and come back as you change one feature |
