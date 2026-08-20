@@ -126,7 +126,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// replicas.
 		fx.Provide(fx.Annotate(
 			NewFeatureRegistry,
-			fx.ParamTags(``, ``, `group:"feature_declarations"`),
+			fx.ParamTags(``, ``, ``, `group:"feature_declarations"`),
 		)),
 		fx.Provide(gorm.ProvideFeatureSettingsRepository),
 		fx.Provide(gorm.ProvideFeatureGrantRepository),

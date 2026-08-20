@@ -1,10 +1,12 @@
 package application
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/internal/config"
 )
 
 func testFeature(key, display string) entities.FeatureMeta {
@@ -14,7 +16,7 @@ func testFeature(key, display string) entities.FeatureMeta {
 func newTestFeatureRegistry(t *testing.T, declared ...entities.FeatureMeta) (*FeatureRegistry, *PresetRegistry) {
 	t.Helper()
 	presets := NewPresetRegistry()
-	r, err := NewFeatureRegistry(presets, nil, declared)
+	r, err := NewFeatureRegistry(config.Default(), presets, nil, declared)
 	if err != nil {
 		t.Fatalf("NewFeatureRegistry: %v", err)
 	}
@@ -50,7 +52,8 @@ func TestFeatureRegistryCodeDeclarations(t *testing.T) {
 
 func TestFeatureRegistryRejectsInvalidDeclaration(t *testing.T) {
 	presets := NewPresetRegistry()
-	_, err := NewFeatureRegistry(presets, nil, []entities.FeatureMeta{{Key: "Not A Key", DisplayName: "X"}})
+	_, err := NewFeatureRegistry(config.Default(), presets, nil,
+		[]entities.FeatureMeta{{Key: "Not A Key", DisplayName: "X"}})
 	if err == nil {
 		t.Fatal("NewFeatureRegistry accepted an invalid key, want a boot failure")
 	}
@@ -232,5 +235,63 @@ func TestMismatchedPresetKeyWouldStrandResolution(t *testing.T) {
 	}})
 	if _, ok := r.Lookup("invoice-export"); !ok {
 		t.Fatal("a well-formed preset declaration was not found")
+	}
+}
+
+// TestFeatureRegistryReadsConfigDeclarations covers the third declaration
+// source. It exists because declarations are never persisted, so a running
+// server and a `weos feature` invocation — separate processes — can only agree
+// about which features exist by both reading the same environment.
+func TestFeatureRegistryReadsConfigDeclarations(t *testing.T) {
+	cfg := config.Default()
+	cfg.Features.Declared = []entities.FeatureMeta{
+		{Key: "ledger-export", DisplayName: "Ledger export", Default: false, Manageable: true},
+	}
+	r, err := NewFeatureRegistry(cfg, NewPresetRegistry(), nil, nil)
+	if err != nil {
+		t.Fatalf("NewFeatureRegistry: %v", err)
+	}
+	m, ok := r.Lookup("ledger-export")
+	if !ok {
+		t.Fatal("a configured declaration was not registered")
+	}
+	if !m.Manageable || m.Default {
+		t.Fatalf("the configured declaration lost its fields: %+v", m)
+	}
+}
+
+func TestFeatureRegistryRefusesMalformedConfigDeclarations(t *testing.T) {
+	cfg := config.Default()
+	cfg.Features.Declared = []entities.FeatureMeta{{Key: "Not A Key", DisplayName: "X"}}
+	if _, err := NewFeatureRegistry(cfg, NewPresetRegistry(), nil, nil); err == nil {
+		t.Fatal("an invalid configured declaration was accepted, want a boot failure")
+	}
+}
+
+// TestFeatureRegistryRefusesAConfigKeyCodeAlreadyOwns keeps configuration from
+// silently redefining something the binary declares — two owners of one key
+// means one of them is gating the wrong thing.
+func TestFeatureRegistryRefusesAConfigKeyCodeAlreadyOwns(t *testing.T) {
+	cfg := config.Default()
+	cfg.Features.Declared = []entities.FeatureMeta{{Key: "ledger-export", DisplayName: "From config"}}
+	_, err := NewFeatureRegistry(cfg, NewPresetRegistry(), nil,
+		[]entities.FeatureMeta{{Key: "ledger-export", DisplayName: "From code"}})
+	if err == nil {
+		t.Fatal("configuration silently redeclared a key code already owns")
+	}
+	if !strings.Contains(err.Error(), "FEATURES") {
+		t.Fatalf("the error does not say the clash came from configuration: %v", err)
+	}
+}
+
+// TestFeatureRegistryRefusesToBootOnAMalformedFeaturesValue: a malformed
+// FEATURES value must stop the boot rather than declare nothing. Declaring
+// nothing looks exactly like a working instance with every feature off, which
+// is the hardest failure to notice and the hardest to explain.
+func TestFeatureRegistryRefusesToBootOnAMalformedFeaturesValue(t *testing.T) {
+	cfg := config.Default()
+	cfg.Features.DeclarationError = fmt.Errorf("FEATURES must be a JSON array")
+	if _, err := NewFeatureRegistry(cfg, NewPresetRegistry(), nil, nil); err == nil {
+		t.Fatal("a malformed FEATURES value was ignored, want a boot failure")
 	}
 }

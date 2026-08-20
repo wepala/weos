@@ -23,6 +23,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/internal/config"
 )
 
 // FeatureDeclarations is an fx value group of feature declarations contributed
@@ -69,15 +70,26 @@ type FeatureRegistry struct {
 	logger  entities.Logger
 }
 
-// NewFeatureRegistry builds the registry from the code-declared group. An
-// invalid declaration fails the boot rather than being skipped: a malformed
-// key is a programming error, and resolving against a registry that silently
-// dropped it would gate nothing while looking like it gated something.
+// NewFeatureRegistry builds the registry from the code-declared group and
+// from configuration. An invalid declaration fails the boot rather than being
+// skipped: a malformed key is a programming error, and resolving against a
+// registry that silently dropped it would gate nothing while looking like it
+// gated something.
+//
+// Configuration is a third source alongside code and presets, and it exists
+// because declarations are deliberately never persisted. Two processes — a
+// running server and a `weos feature` invocation — can only agree about which
+// features exist by both reading the same declarations, and the environment is
+// the only channel they share that does not store anything.
 func NewFeatureRegistry(
+	cfg config.Config,
 	presets *PresetRegistry,
 	logger entities.Logger,
 	declared []entities.FeatureMeta,
 ) (*FeatureRegistry, error) {
+	if cfg.Features.DeclarationError != nil {
+		return nil, cfg.Features.DeclarationError
+	}
 	r := &FeatureRegistry{
 		code:    make(map[string]entities.FeatureMeta, len(declared)),
 		presets: presets,
@@ -86,6 +98,14 @@ func NewFeatureRegistry(
 	for _, m := range declared {
 		if err := r.Register(m); err != nil {
 			return nil, err
+		}
+	}
+	// Configuration is registered after code, and a clash is still an error
+	// rather than an override: two declarations of one key means two things
+	// believe they own it, and picking one silently gates the wrong thing.
+	for _, m := range cfg.Features.Declared {
+		if err := r.Register(m); err != nil {
+			return nil, fmt.Errorf("FEATURES: %w", err)
 		}
 	}
 	return r, nil

@@ -1,4 +1,4 @@
-@wip @epic-480 @story-482
+@epic-480 @story-482
 Feature: An operator turns a feature on or off for the whole instance
   As an operator running a WeOS instance
   I want to see and change what is on, from a shell, from the admin UI, or from an agent
