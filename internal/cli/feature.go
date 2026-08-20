@@ -40,7 +40,17 @@ individual grant reaches past an explicit off.
 
 Reset is not the same as disable. Disabling turns a feature off for everyone;
 resetting removes the instance setting so the feature returns to the default it
-was declared with, which an account or a grant can still turn on.`,
+was declared with, which an account or a grant can still turn on.
+
+This command sees only the features its OWN environment declares — from the
+binary, from installed presets, and from FEATURES. Run it with the same
+environment as the server, or the two will disagree about which features exist:
+a key the server declares and your shell does not is refused here, and a key
+your shell declares and the server does not is written and then ignored.
+
+Account overrides and individual grants are not visible from the command line,
+which has no signed-in caller to resolve them for. Use the API or the admin UI
+to see those.`,
 	SilenceUsage: true,
 }
 
