@@ -57,7 +57,17 @@ type featureCacheKey struct {
 }
 
 type resolvedFeatureSet struct {
-	values     map[string]bool
+	values map[string]bool
+	// statuses is the same answer with the deciding layer kept.
+	//
+	// #481 left this out on purpose: it grows every entry to serve a listing
+	// an operator hit occasionally, while the hot path never read it. #486
+	// changed that premise — the admin asks for the whole set on every page
+	// load, per signed-in person — so the listing became a hot path too, and
+	// an uncached Explain meant a database read per page view. Storing it
+	// costs a few hundred bytes per (agent, account); not storing it cost a
+	// query. The contract's cost scenario is what caught the difference.
+	statuses   []entities.FeatureStatus
 	resolvedAt time.Time
 	// staleAt is the earliest instant at which this set stops being true on
 	// its own — the nearest validity-window boundary among the grants that fed
@@ -216,10 +226,11 @@ func (r *FeatureResolver) refresh(ctx context.Context, key featureCacheKey) (map
 	startedAt := r.generation
 	r.mu.RUnlock()
 
-	values, staleAt, err := r.resolve(ctx, key)
+	statuses, staleAt, err := r.resolveDetailed(ctx, key)
 	if err != nil {
 		return r.onResolveError(ctx, key, err)
 	}
+	values := valuesFrom(statuses)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -231,8 +242,20 @@ func (r *FeatureResolver) refresh(ctx context.Context, key featureCacheKey) (map
 		// timestamp.
 		return copyFeatureValues(values), nil
 	}
-	r.sets[key] = resolvedFeatureSet{values: values, resolvedAt: r.clock(), staleAt: staleAt}
+	r.sets[key] = resolvedFeatureSet{
+		values: values, statuses: statuses, resolvedAt: r.clock(), staleAt: staleAt,
+	}
 	return copyFeatureValues(values), nil
+}
+
+// valuesFrom drops the layer information for the value map, so the two views
+// of one answer are built from the same read and cannot disagree.
+func valuesFrom(statuses []entities.FeatureStatus) map[string]bool {
+	values := make(map[string]bool, len(statuses))
+	for _, s := range statuses {
+		values[s.Key] = s.Enabled
+	}
+	return values
 }
 
 // onResolveError decides what a caller is told when the store cannot be read.
@@ -315,38 +338,58 @@ func (r *FeatureResolver) cached(key featureCacheKey) (map[string]bool, bool) {
 	return copyFeatureValues(set.values), true
 }
 
-// resolve reads every layer and folds them into a plain value map for the
-// cache. It is Explain's answer with the layer information dropped, so the two
-// cannot disagree about what a feature resolves to.
-func (r *FeatureResolver) resolve(
-	ctx context.Context, key featureCacheKey,
-) (map[string]bool, time.Time, error) {
-	statuses, staleAt, err := r.resolveDetailed(ctx, key)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	values := make(map[string]bool, len(statuses))
-	for _, s := range statuses {
-		values[s.Key] = s.Enabled
-	}
-	return values, staleAt, nil
-}
-
 // Explain resolves every declared feature for the caller on ctx and reports
 // which layer decided each one.
 //
-// Deliberately uncached, and it does not populate the cache. The cached set
-// holds values only — adding the deciding layer to it would grow every entry
-// to serve a listing that an operator hits occasionally and a hot path never
-// does. Listings are rare; evaluations are not.
+// Served from the same cached set every evaluation uses. It was uncached until
+// #486, on the reasoning that a listing is something an operator hits
+// occasionally — which stopped being true when the admin started asking for
+// the whole set on every page load. An uncached Explain then meant a database
+// read per page view, per signed-in person.
 func (r *FeatureResolver) Explain(ctx context.Context) ([]entities.FeatureStatus, error) {
-	identity := auth.AgentFromCtx(ctx)
-	key := featureCacheKey{}
-	if identity != nil {
-		key = featureCacheKey{AgentID: identity.AgentID, AccountID: identity.ActiveAccountID}
+	key := cacheKeyFor(ctx)
+	if statuses, ok := r.cachedStatuses(key); ok {
+		return statuses, nil
 	}
+	if _, err := r.refresh(ctx, key); err != nil {
+		return nil, err
+	}
+	if statuses, ok := r.cachedStatuses(key); ok {
+		return statuses, nil
+	}
+	// The refresh raced an invalidation and stored nothing. Read the layers
+	// once more rather than answering from a set that is no longer there.
 	statuses, _, err := r.resolveDetailed(ctx, key)
 	return statuses, err
+}
+
+// cachedStatuses serves the detailed view under the same freshness rules as
+// the value view, so a listing can never be older than an evaluation.
+func (r *FeatureResolver) cachedStatuses(key featureCacheKey) ([]entities.FeatureStatus, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	set, ok := r.sets[key]
+	if !ok || len(set.statuses) == 0 {
+		return nil, false
+	}
+	now := r.clock()
+	if !set.staleAt.IsZero() && !now.Before(set.staleAt) && !set.retryAfter.After(now) {
+		return nil, false
+	}
+	if now.Sub(set.resolvedAt) >= r.maxAge && !set.retryAfter.After(now) {
+		return nil, false
+	}
+	return append([]entities.FeatureStatus(nil), set.statuses...), true
+}
+
+// cacheKeyFor is the caller's cache key. The zero key is the anonymous caller,
+// whose set is resolved from the instance layer alone.
+func cacheKeyFor(ctx context.Context) featureCacheKey {
+	identity := auth.AgentFromCtx(ctx)
+	if identity == nil {
+		return featureCacheKey{}
+	}
+	return featureCacheKey{AgentID: identity.AgentID, AccountID: identity.ActiveAccountID}
 }
 
 // resolveDetailed reads every layer and folds them through

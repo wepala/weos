@@ -94,7 +94,48 @@ func NewFeatureAdminService(
 // the same as being able to change them, and an operator who cannot read the
 // list cannot use the commands that change it.
 func (s *FeatureAdminService) Listing(ctx context.Context) ([]entities.FeatureStatus, error) {
-	return s.resolver.Explain(ctx)
+	statuses, err := s.resolver.Explain(ctx)
+	if err == nil {
+		return statuses, nil
+	}
+	// A store that cannot be read makes every gate answer off (#481). The
+	// listing now says the same thing instead of failing, so the two agree
+	// during an outage rather than leaving a browser to invent a policy — and
+	// the only two policies it can invent are "show everything", which is
+	// wrong, and "show nothing", which is this answer with nothing to read.
+	//
+	// The message is the half that makes it honest. All-off is not the same
+	// fact as the store being unreadable, and a caller can only tell a
+	// genuinely all-off instance from a broken one by reading it.
+	if s.logger != nil {
+		s.logger.Error(ctx, "failed to resolve the feature listing; answering every feature off",
+			"error", err)
+	}
+	entities.AddMessage(ctx, entities.Message{
+		Type: "warning",
+		Text: "Feature state could not be read, so every feature is reported off.",
+	})
+	return s.allOff(), nil
+}
+
+// allOff is every declared feature, reported off, with the layer named as the
+// error it came from so a reader is never told a stored value decided this.
+func (s *FeatureAdminService) allOff() []entities.FeatureStatus {
+	declared := s.features.List()
+	out := make([]entities.FeatureStatus, 0, len(declared))
+	for _, meta := range declared {
+		out = append(out, entities.FeatureStatus{
+			Key:         meta.Key,
+			DisplayName: meta.DisplayName,
+			Description: meta.Description,
+			Enabled:     false,
+			Source:      entities.FeatureLayerError.String(),
+			Default:     meta.Default,
+			Manageable:  meta.Manageable,
+			Grantable:   meta.Grantable,
+		})
+	}
+	return out
 }
 
 // SetInstance turns a feature on or off for the whole instance.

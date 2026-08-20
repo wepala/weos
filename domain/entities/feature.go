@@ -88,6 +88,11 @@ const (
 	FeatureLayerAccount
 	// FeatureLayerGrant means a grant turned it on.
 	FeatureLayerGrant
+	// FeatureLayerError means no layer decided: the stored state could not be
+	// read, so the value is the fail-closed answer rather than anything
+	// anybody configured. It exists so a listing can never tell a reader that
+	// a stored value produced an answer an outage produced.
+	FeatureLayerError
 )
 
 // String renders the layer for operator-facing output.
@@ -99,6 +104,8 @@ func (l FeatureLayer) String() string {
 		return "account"
 	case FeatureLayerGrant:
 		return "grant"
+	case FeatureLayerError:
+		return "error"
 	default:
 		return "default"
 	}

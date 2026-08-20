@@ -42,5 +42,30 @@ func CoreFeatureDeclarations() []entities.FeatureMeta {
 			Manageable:  true,
 			Grantable:   true,
 		},
+		{
+			// Gates the in-app agent's REST surface — the three
+			// /api/agent/conversations routes — and the admin's Agent
+			// sidebar entry (#486).
+			//
+			// Declared ON, for the same reason as episodic-recall: the chat
+			// ships today and an upgrade that introduced the gate dark would
+			// take a working page away from every instance.
+			//
+			// It composes with #485 rather than overlapping it. Off means
+			// there is no assistant at all. On means there is one, whose skill
+			// graph #485 filters for whoever is talking to it.
+			Key:         FeatureAgentChat,
+			DisplayName: "Assistant",
+			Description: "Let people chat with the instance's in-app assistant.",
+			Default:     true,
+			Manageable:  true,
+			Grantable:   true,
+		},
 	}
 }
+
+// FeatureAgentChat gates the in-app assistant. Named rather than spelled at
+// each call site, because it is read in three places — the REST routes, the
+// admin's sidebar, and the declaration above — and a typo in any of them is
+// registry drift that leaves the capability open.
+const FeatureAgentChat = "agent-chat"

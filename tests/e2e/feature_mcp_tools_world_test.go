@@ -237,17 +237,27 @@ type loggerSpy struct {
 
 func (l *loggerSpy) Debug(ctx context.Context, msg string, f ...any) { l.inner.Debug(ctx, msg, f...) }
 func (l *loggerSpy) Info(ctx context.Context, msg string, f ...any)  { l.inner.Info(ctx, msg, f...) }
-func (l *loggerSpy) Error(ctx context.Context, msg string, f ...any) { l.inner.Error(ctx, msg, f...) }
+
+// Error is recorded alongside Warn. An operator looking for why something is
+// off does not filter by level, and #486 logs the unreadable store at error.
+func (l *loggerSpy) Error(ctx context.Context, msg string, fields ...any) {
+	l.record(msg, fields)
+	l.inner.Error(ctx, msg, fields...)
+}
 
 func (l *loggerSpy) Warn(ctx context.Context, msg string, fields ...any) {
+	l.record(msg, fields)
+	l.inner.Warn(ctx, msg, fields...)
+}
+
+func (l *loggerSpy) record(msg string, fields []any) {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	line := msg
 	for _, f := range fields {
 		line += fmt.Sprintf(" %v", f)
 	}
 	l.warns = append(l.warns, line)
-	l.mu.Unlock()
-	l.inner.Warn(ctx, msg, fields...)
 }
 
 func (l *loggerSpy) matching(substrings ...string) []string {

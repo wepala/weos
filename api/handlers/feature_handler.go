@@ -70,6 +70,8 @@ type setFeatureRequest struct {
 func (h *FeatureHandler) List(c echo.Context) error {
 	statuses, err := h.admin.Listing(c.Request().Context())
 	if err != nil {
+		// The service answers all-off rather than failing when the store
+		// cannot be read, so an error here is something else entirely.
 		h.logger.Error(c.Request().Context(), "failed to list features", "error", err)
 		return respondError(c, http.StatusInternalServerError, "failed to list features")
 	}

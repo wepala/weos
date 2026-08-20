@@ -442,7 +442,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Listing is readable by any authenticated caller — the admin UI needs it
 	// to decide what to render. Changing state is gated inside the service,
 	// which the CLI and the MCP tools share, so the rule lives in one place.
-	protected.GET("/features", featureHandler.List)
+	// GET /features is registered below on its own group: it must answer a
+	// caller with no session (#487), which the protected group cannot do.
 	protected.PUT("/features/:key/instance", featureHandler.SetInstance)
 	protected.DELETE("/features/:key/instance", featureHandler.ResetInstance)
 	protected.PUT("/features/:key/account", featureHandler.SetAccount)
@@ -481,6 +482,36 @@ func runServe(cmd *cobra.Command, args []string) error {
 		acceptGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
 	}
 	acceptGroup.POST("/invites/accept", inviteHandler.Accept)
+
+	// The feature listing (#486/#487). It answers a caller with no session —
+	// the admin needs the instance view to draw a sign-in page — so it cannot
+	// live on the protected group.
+	//
+	// Two things about this group are load-bearing.
+	//
+	// It keeps Impersonation. The protected group applies it, and a listing
+	// that lost it would answer with the real admin's features while every
+	// other call on the page answered with the impersonated user's — a sidebar
+	// drawn for one person over another person's data, which is worse than
+	// either alone. Impersonation passes through untouched when there is no
+	// identity, so it costs the anonymous case nothing.
+	//
+	// It is registered BEFORE mcpGroup, deliberately. Echo's Group.Use
+	// registers a not-found catch-all at the group prefix, so the LAST
+	// empty-prefix group under /api owns what an unmatched /api path answers —
+	// see the note at mcpGroup. Putting this group after it would silently
+	// move that ownership and change the answer for every unmounted path,
+	// including /api/auth/register when registration is off, whose parity
+	// password_registration_flag.feature pins in a test that builds its own
+	// echo instance and would therefore not notice.
+	featuresGroup := api.Group("")
+	if appCfg.OAuthEnabled() {
+		featuresGroup.Use(echo.WrapMiddleware(apimw.OptionalAuth(sessionManager, authService)))
+		featuresGroup.Use(apimw.Impersonation(sessionStore, accountRepo, logger))
+	} else {
+		featuresGroup.Use(apimw.SoftAuth(credentialRepo, agentRepo, accountRepo, logger))
+	}
+	featuresGroup.GET("/features", featureHandler.List)
 
 	protected.POST("/admin/impersonate", impersonationHandler.Start)
 	protected.POST("/admin/stop-impersonation", impersonationHandler.Stop)
@@ -542,9 +573,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// The in-app agent is independent of the MCP transport flag: with MCP
 	// disabled it still chats, just tool-less (the orchestrator degrades).
 	agentHandler := handlers.NewAgentHandler(orchestrator, logger)
-	mcpGroup.POST("/agent/conversations/:conversationID/messages", agentHandler.SendMessage)
-	mcpGroup.POST("/agent/conversations/:conversationID/confirmations/:callID", agentHandler.Confirm)
-	mcpGroup.GET("/agent/conversations/:conversationID", agentHandler.History)
+	// The in-app agent's REST surface is gated on "agent-chat" (#486). It is
+	// the one sidebar entry that is a capability rather than an administrative
+	// screen — Users and Settings are gated by role, and a role is not a flag.
+	// Declared ON, so no instance loses a working page by upgrading.
+	//
+	// This composes with #485 rather than overlapping it: off means there is
+	// no assistant at all, on means there is one whose skill graph #485
+	// filters for the caller.
+	agentGate := apimw.RequireFeature(application.ToolFeatureGate(featureClient), application.FeatureAgentChat)
+	mcpGroup.POST("/agent/conversations/:conversationID/messages", agentHandler.SendMessage, agentGate)
+	mcpGroup.POST("/agent/conversations/:conversationID/confirmations/:callID", agentHandler.Confirm, agentGate)
+	mcpGroup.GET("/agent/conversations/:conversationID", agentHandler.History, agentGate)
 
 	if serveViper.GetBool("enabled") {
 		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
