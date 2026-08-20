@@ -17,3 +17,4 @@ Explanation pages are **understanding-oriented** — they answer "why" and "how 
 | [MCP Protocol]({% link _explanation/mcp-protocol.md %}) | How the Model Context Protocol makes WeOS LLM-agnostic |
 | [Architecture]({% link _explanation/architecture.md %}) | Clean Architecture layers, dependency injection, and the request lifecycle |
 | [Behaviors]({% link _explanation/behaviors.md %}) | The Type Object pattern for attaching domain logic to resource types |
+| [Feature Flags]({% link _explanation/feature-flags.md %}) | Why a capability resolves through four layers, and why hiding is never the control |

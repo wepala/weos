@@ -30,15 +30,29 @@ import (
 // every downstream configurer applied — the complete tool surface both
 // transports and the in-app agent toolset share. kgService may be nil — if
 // so the knowledge-graph tools are not registered (and not advertised).
+//
+// featureGate is required, and a nil one is an error rather than "nothing is
+// gated". This constructor builds the surface real callers reach, so a wiring
+// slip here would leave every gated tool open on every transport while every
+// test still passed — the way the feature provider itself once shipped inert
+// (#481). A build that genuinely wants no gating says so with a gate that
+// always answers true; the low-level NewMCPServer still accepts nil.
 func NewConfiguredServer(
 	resourceTypeService application.ResourceTypeService,
 	resourceService application.ResourceService,
 	kgService application.KnowledgeGraphService,
 	lexicalSearch application.LexicalSearch,
 	episodicRecall application.EpisodicRecall,
+	featureAdmin *application.FeatureAdminService,
+	featureGate FeatureGate,
 	logger *slog.Logger,
 ) (*gomcp.Server, error) {
-	server, err := NewMCPServer(resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall, nil)
+	if featureGate == nil {
+		return nil, fmt.Errorf("featureGate must not be nil; gated tools would be open on every transport")
+	}
+	server, gates, err := newServerWithGates(
+		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
+		featureAdmin, featureGate, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP server: %w", err)
 	}
@@ -48,6 +62,7 @@ func NewConfiguredServer(
 		ResourceService:     resourceService,
 		ResourceTypeService: resourceTypeService,
 		Logger:              logger,
+		Gates:               gates,
 	})
 	return server, nil
 }
@@ -71,10 +86,13 @@ func NewHTTPHandler(
 	kgService application.KnowledgeGraphService,
 	lexicalSearch application.LexicalSearch,
 	episodicRecall application.EpisodicRecall,
+	featureAdmin *application.FeatureAdminService,
+	featureGate FeatureGate,
 	logger *slog.Logger,
 ) (http.Handler, error) {
 	server, err := NewConfiguredServer(
-		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall, logger)
+		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
+		featureAdmin, featureGate, logger)
 	if err != nil {
 		return nil, err
 	}

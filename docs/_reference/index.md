@@ -18,3 +18,4 @@ Reference pages are **information-oriented** — precise, complete, and structur
 | [Template Attributes]({% link _reference/data-weos-attributes.md %}) | `data-weos-*` HTML attribute reference |
 | [Environment Variables]({% link _reference/environment-variables.md %}) | All environment variables with formats and defaults |
 | [Events]({% link _reference/events.md %}) | Domain event types and their payloads |
+| [Feature Flags]({% link _reference/feature-flags.md %}) | Precedence, declarations, config, CLI, API, MCP tools and Go API |

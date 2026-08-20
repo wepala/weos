@@ -327,3 +327,25 @@ func TestExtractPageSlug(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractResourceTypeSlugExcludesNonResourceURNs: a URN that is not a
+// resource must not read as one. An operator's feature-change audit event
+// otherwise appears in episodic recall as a resource of a type nothing
+// declares, and becomes addressable by that type in event-log filters.
+func TestExtractResourceTypeSlugExcludesNonResourceURNs(t *testing.T) {
+	for _, urn := range []string{
+		"urn:feature-change:3I9witSomeKsuidValue",
+		"urn:person:3I9witSomeKsuidValue",
+		"urn:org:acme",
+		"urn:type:product",
+		"urn:theme:default",
+	} {
+		if got := ExtractResourceTypeSlug(urn); got != "" {
+			t.Errorf("ExtractResourceTypeSlug(%q) = %q, want empty — it is not a resource", urn, got)
+		}
+	}
+	// A real resource URN still resolves.
+	if got := ExtractResourceTypeSlug("urn:product:3I9witSomeKsuidValue"); got != "product" {
+		t.Errorf("ExtractResourceTypeSlug of a resource URN = %q, want %q", got, "product")
+	}
+}

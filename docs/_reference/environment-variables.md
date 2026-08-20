@@ -65,6 +65,17 @@ Set `SESSION_SECRET` to a real value before enabling either one — with the def
 | `GEMINI_API_KEY` | string | | Google Gemini API key |
 | `GEMINI_MODEL` | string | `gemini-2.0-flash` | Gemini model identifier |
 
+## Feature Flags
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `FEATURES` | JSON | | Feature declarations, as a JSON array of `{key, displayName, description, default, manageable, grantable}`. A malformed value stops the boot rather than declaring nothing |
+| `FEATURE_CACHE_MAX_AGE_SECONDS` | int | `900` | How long a caller's resolved feature set may be served before it is resolved again |
+| `FEATURE_PRIMARY_ACCOUNT_ID` | string | | The account whose owners and admins may change instance-level settings. Needed on instances with more than one account |
+| `FEATURE_NOTIFY_CHANNEL` | string | `weos_feature_cache` | Postgres `LISTEN/NOTIFY` channel used to invalidate feature caches across replicas |
+
+See the [Feature Flags reference]({% link _reference/feature-flags.md %}).
+
 ## Analytics (Optional)
 
 | Variable | Type | Default | Description |

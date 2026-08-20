@@ -16,10 +16,14 @@
 package config
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // OAuthConfig holds configuration for OAuth authentication.
@@ -172,6 +176,62 @@ type Config struct {
 	// runs peripheral event handlers (knowledge-graph sync, denormalization)
 	// off checkpointed feeds, isolated from the synchronous write path.
 	Worker WorkerConfig
+
+	// Features tunes feature-flag resolution (epic #480).
+	Features FeaturesConfig
+}
+
+// FeaturesConfig tunes the feature-flag resolver. Feature flags themselves are
+// declared in code or by a preset and stored in the database — nothing here
+// turns a feature on or off.
+type FeaturesConfig struct {
+	// CacheMaxAge bounds how long a resolved feature set may be served from
+	// memory before it is re-resolved, whether or not an invalidation arrived.
+	//
+	// On a single-process instance invalidation is exact, so this only matters
+	// as a backstop and the default is generous. Under Postgres replicas it is
+	// load-bearing: cross-replica invalidation rides LISTEN/NOTIFY, which is
+	// not durable — a replica whose LISTEN connection drops misses those
+	// messages entirely — so this is what stops a missed notification becoming
+	// permanent staleness. Shorten it when running replicas.
+	CacheMaxAge time.Duration
+
+	// NotifyChannel is the Postgres NOTIFY channel used to broadcast cache
+	// invalidations between replicas. Ignored on SQLite, which is
+	// single-process by construction and needs no broadcast.
+	NotifyChannel string
+
+	// PrimaryAccountID names the account whose owners and admins may change
+	// INSTANCE-wide feature state.
+	//
+	// It exists because "owner or admin" alone is not a meaningful bar on a
+	// multi-user instance: registration mints every new user as owner of their
+	// own personal account, so without this anyone who signs up could turn a
+	// feature off for everybody.
+	//
+	// Unset is safe rather than permissive. With exactly one account — the
+	// mini-me shape — that account is the instance and no configuration is
+	// needed. With more than one and nothing named, instance-scope changes are
+	// refused over HTTP and the operator is told to set this; the command line
+	// still works, because whoever has the box already has the database.
+	PrimaryAccountID string
+
+	// Declared holds features declared by configuration, alongside those
+	// declared in code and by presets.
+	//
+	// This is not persistence, and it does not weaken the rule that the
+	// registry is rebuilt from scratch on every boot: these are re-read from
+	// the environment each start, exactly as a code declaration is re-read
+	// from the binary. What it adds is a way to declare a feature without
+	// recompiling — which is what lets `weos feature` act on the same features
+	// a running server knows about, since the two are separate processes that
+	// can only agree by both reading the same declarations.
+	Declared []entities.FeatureMeta
+
+	// DeclarationError records a malformed FEATURES value so the boot can
+	// refuse rather than silently gating nothing. Kept on the config because
+	// LoadFromEnvironment has no way to return an error.
+	DeclarationError error
 }
 
 // WorkerConfig tunes the background subscriber runtime (epic #365). Subscribers
@@ -432,6 +492,10 @@ func Default() Config {
 			MaxRetryBackoff: 5 * time.Second,
 			LagLogInterval:  30 * time.Second,
 		},
+		Features: FeaturesConfig{
+			CacheMaxAge:   15 * time.Minute,
+			NotifyChannel: "weos_feature_cache",
+		},
 	}
 }
 
@@ -607,6 +671,21 @@ func (c *Config) LoadFromEnvironment() {
 			c.Oxigraph.Enabled = b
 		}
 	}
+	if v := os.Getenv("FEATURE_CACHE_MAX_AGE_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Features.CacheMaxAge = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("FEATURE_NOTIFY_CHANNEL"); v != "" {
+		c.Features.NotifyChannel = v
+	}
+	if v := os.Getenv("FEATURE_PRIMARY_ACCOUNT_ID"); v != "" {
+		c.Features.PrimaryAccountID = v
+	}
+	if v := os.Getenv("FEATURES"); v != "" {
+		c.Features.Declared, c.Features.DeclarationError = parseFeatureDeclarations(v)
+	}
+
 	if v := os.Getenv("OXIGRAPH_USERNAME"); v != "" {
 		c.Oxigraph.Username = v
 	}
@@ -664,4 +743,27 @@ func (c *Config) loadWorkerFromEnvironment() {
 			c.Worker.LagLogInterval = time.Duration(n) * time.Second
 		}
 	}
+}
+
+// parseFeatureDeclarations reads the FEATURES environment variable: a JSON
+// array of declarations, matching the shape a code declaration has.
+//
+//	FEATURES='[{"key":"ledger-export","displayName":"Ledger export","default":false,"manageable":true}]'
+//
+// A malformed value is an error rather than an empty list. Silently declaring
+// nothing would leave every call site answering its own default, which looks
+// exactly like a working instance with every feature off — the failure mode
+// hardest to notice and hardest to explain.
+func parseFeatureDeclarations(raw string) ([]entities.FeatureMeta, error) {
+	var declared []entities.FeatureMeta
+	if err := json.Unmarshal([]byte(raw), &declared); err != nil {
+		return nil, fmt.Errorf(
+			"FEATURES must be a JSON array of feature declarations: %w", err)
+	}
+	for i, m := range declared {
+		if err := m.Validate(); err != nil {
+			return nil, fmt.Errorf("FEATURES entry %d: %w", i, err)
+		}
+	}
+	return declared, nil
 }

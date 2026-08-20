@@ -100,6 +100,19 @@ func NewResource(typeSlug string) string {
 	return "urn:" + typeSlug + ":" + ksuid.New().String()
 }
 
+// NewFeatureChange generates a URN for one recorded feature-flag change.
+// Format: "urn:feature-change:<ksuid>"
+//
+// Every change is its own aggregate rather than all changes to a key sharing
+// one. That is forced by the event store: pericarp's events table carries a
+// unique index on (aggregate_id, sequence_no), and a change built from a fresh
+// BaseEntity always writes sequence 1 — so a stable "urn:feature:<key>" would
+// collide the second time anyone flipped the same key, which is precisely when
+// an audit trail starts to matter.
+func NewFeatureChange() string {
+	return "urn:feature-change:" + ksuid.New().String()
+}
+
 // ExtractThemeSlug returns the theme slug from a theme or template URN.
 // Theme URN (urn:theme:<slug>) → parts[2]
 // Template URN (urn:theme:<ts>:template:<ksuid>:<tps>) → parts[2]
@@ -209,9 +222,14 @@ func ExtractResourceTypeSlug(id string) string {
 	}
 	parts := strings.Split(id, ":")
 	if len(parts) == 3 && parts[0] == "urn" {
-		// Exclude known 3-part prefixes (person, org, theme, type)
+		// Exclude known 3-part prefixes that are NOT resource types.
+		//
+		// feature-change is here because an operator's audit event
+		// (urn:feature-change:<ksuid>) otherwise reads as a resource of type
+		// "feature-change" — a type nothing declares — and surfaces in
+		// episodic recall as if it were content the agent could reason about.
 		switch parts[1] {
-		case "person", "org", "theme", "type":
+		case "person", "org", "theme", "type", "feature-change":
 			return ""
 		}
 		return parts[1]

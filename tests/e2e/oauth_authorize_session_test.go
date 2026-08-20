@@ -313,7 +313,8 @@ func (w *oauthWorld) boot(opts bootOpts) error {
 		// The MCP surface a connector uses afterwards, behind the same bearer
 		// auth serve.go puts in front of it.
 		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
-			resourceTypeService, w.resourceService, kgService, lexicalSearch, episodicRecall, slog.Default())
+			resourceTypeService, w.resourceService, kgService, lexicalSearch, episodicRecall,
+			nil, ungatedForOAuthSuite, slog.Default())
 		if mcpErr != nil {
 			return fmt.Errorf("failed to create the MCP server: %w", mcpErr)
 		}
@@ -936,3 +937,9 @@ func (w *oauthWorld) lastTaskOwner(name string) (string, error) {
 	}
 	return "", nil
 }
+
+// ungatedForOAuthSuite says out loud that this suite is about bearer auth, not
+// about feature gating: every gated tool is available so the scenarios exercise
+// the auth path alone. Stated rather than left as a nil gate, which
+// NewConfiguredServer refuses.
+func ungatedForOAuthSuite(context.Context, string) bool { return true }

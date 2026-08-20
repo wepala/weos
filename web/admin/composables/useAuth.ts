@@ -19,7 +19,15 @@ export function useAuth() {
   async function fetchUser() {
     try {
       user.value = await request<AuthUser>('/api/auth/me')
-    } catch (err) {
+    } catch (err: any) {
+      // A 401 here is the expected answer for somebody who is not signed in,
+      // not a fault. Logging it at error level put a red line in the console
+      // of every visitor who reached the sign-in page.
+      const status = err?.status ?? err?.response?.status
+      if (status === 401) {
+        user.value = null
+        return
+      }
       console.error('[useAuth] fetchUser failed:', err)
       user.value = null
     } finally {

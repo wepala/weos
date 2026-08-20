@@ -1,6 +1,0 @@
-This file keeps web/dist present in the module zip: web/embed.go's
-`//go:embed all:dist` needs at least one committed file, or every
-library consumer of this module (a thin-wrap binary importing
-weos/v3/web for SetStaticFS) fails to compile against a tagged
-version. CI's real SPA build overlays this directory; the placeholder
-is never served.

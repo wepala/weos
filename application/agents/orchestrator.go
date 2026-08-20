@@ -96,6 +96,7 @@ type Orchestrator struct {
 
 	mu           sync.RWMutex
 	skills       SkillSource
+	skillGate    SkillGate
 	toolsets     ToolsetFactory
 	defaultTools []string
 	recorder     EpisodeRecorder
@@ -385,6 +386,21 @@ func (o *Orchestrator) runTurn(
 	var out strings.Builder
 	for event, err := range r.Run(ctx, userID, conversationID, content, agent.RunConfig{}) {
 		if err != nil {
+			// A transfer to an agent that is not in this turn's graph is a
+			// refusal, not a fault (#485). The model can name a skill the
+			// caller's features do not reach — it invented the name, or a
+			// client carried it over from a conversation where the caller did
+			// have it — and the answer must be a reply the user can read, not
+			// a broken turn. Failing here would turn every gated skill into a
+			// way to break somebody's chat by mentioning it.
+			if unreachableSkill(err) {
+				o.logger.Info(ctx, "the model named a skill this caller cannot reach",
+					"conversation", conversationID, "error", err.Error())
+				out.Reset()
+				out.WriteString(skillOutOfReachReply)
+				emit(entities.AgentEvent{Type: entities.AgentEventText, Text: skillOutOfReachReply})
+				break
+			}
 			return fmt.Errorf("run agent: %w", err)
 		}
 		o.emitConfirmationRequests(ctx, event, emit)
@@ -476,26 +492,16 @@ func (o *Orchestrator) rootFor(ctx context.Context, skill string) (agent.Agent, 
 // instead of relying on coordinator routing.
 func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.Agent, error) {
 	o.mu.RLock()
-	skills := o.skills
 	toolsets := o.toolsets
 	o.mu.RUnlock()
 
-	if skills == nil {
-		return nil, fmt.Errorf("unknown skill %q: no skills are loaded", name)
-	}
-	defs, err := skills(ctx)
+	// The gate, not merely the graph. A caller naming a skill directly skips
+	// the coordinator entirely, so this door has to ask the same question the
+	// graph asked — and answer "you may not have this" differently from "no
+	// such skill".
+	def, err := o.findSkill(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("load skills: %w", err)
-	}
-	var def *entities.SkillDefinition
-	for i := range defs {
-		if defs[i].Name == name {
-			def = &defs[i]
-			break
-		}
-	}
-	if def == nil {
-		return nil, fmt.Errorf("unknown skill %q", name)
+		return nil, err
 	}
 
 	var ts tool.Toolset
@@ -504,7 +510,7 @@ func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.A
 			return nil, fmt.Errorf("open toolset: %w", err)
 		}
 	}
-	root, err := BuildSkillRootAgent(*def, o.model, ts)
+	root, err := BuildSkillRootAgent(def, o.model, ts)
 	if err != nil {
 		return nil, fmt.Errorf("build skill root %q: %w", name, err)
 	}
@@ -520,22 +526,20 @@ func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.A
 // immediately; construction is cheap (no network).
 func (o *Orchestrator) buildRoot(ctx context.Context) (agent.Agent, error) {
 	o.mu.RLock()
-	skills := o.skills
 	toolsets := o.toolsets
 	defaultTools := o.defaultTools
 	o.mu.RUnlock()
 
-	var defs []entities.SkillDefinition
-	if skills != nil {
-		var err error
-		if defs, err = skills(ctx); err != nil {
-			return nil, fmt.Errorf("load skills: %w", err)
-		}
+	// Only the skills this caller's features reach become sub-agents, so
+	// transfer_to_agent cannot name the rest — the coordinator is never told
+	// they exist.
+	defs, err := o.allowedSkills(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	var ts tool.Toolset
 	if toolsets != nil {
-		var err error
 		if ts, err = toolsets(ctx); err != nil {
 			return nil, fmt.Errorf("open toolset: %w", err)
 		}
@@ -580,6 +584,23 @@ func (o *Orchestrator) buildRoot(ctx context.Context) (agent.Agent, error) {
 		return nil, fmt.Errorf("build coordinator: %w", err)
 	}
 	return root, nil
+}
+
+// skillOutOfReachReply is what a caller is told when the model tried to hand
+// the turn to a skill their features do not reach. It names no skill on
+// purpose: the caller cannot use it, and naming it would advertise a
+// capability they do not have and cannot ask for by name.
+const skillOutOfReachReply = "I cannot help with that here."
+
+// unreachableSkill reports whether the runner failed because the model
+// transferred to an agent this turn's graph does not contain.
+//
+// Matched on the ADK runner's message because the error carries no type to
+// test. Kept narrow — a different runner failure must still surface as a
+// failure, since swallowing those would hide real faults behind a polite
+// sentence. Verified against google.golang.org/adk/v2 v2.0.0.
+func unreachableSkill(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "failed to find agent")
 }
 
 // ensureSession makes the (userID, conversationID) session exist. Get-then-

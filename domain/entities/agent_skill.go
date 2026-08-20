@@ -60,6 +60,20 @@ type SkillDefinition struct {
 	Widgets []string
 	// Model optionally overrides the instance's default model ID.
 	Model string
+	// GatedBy names the feature that controls this skill (#485). Empty means
+	// ungated, which is every skill that shipped before gates existed: an
+	// ungated skill is offered and invocable exactly as it always was, with no
+	// lookup and no new failure mode.
+	//
+	// When set, the skill is a routing target only for a caller whose features
+	// reach it, and naming it directly is refused for anybody else. The key is
+	// NOT validated against the registry here. A skill naming a feature nobody
+	// declared keeps its place and the instance logs the drift once — the same
+	// rule #484 applies to tools, kept deliberately identical because both
+	// surfaces ask one gate function with one default. See
+	// tests/e2e/features/feature_flag_agent_skills.feature for the reasoning
+	// and for the counter-argument it was chosen over.
+	GatedBy string
 }
 
 // Validate reports why the definition cannot be loaded. knownTools guards

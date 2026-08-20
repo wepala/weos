@@ -50,6 +50,16 @@
 const { notifications, removeNotification } = useNotifications()
 const { refusal } = useSessionRefusal()
 const { user } = useAuth()
+
+// The feature set is read here, once per app boot, rather than in the default
+// layout. The sign-in page does not use that layout, and a signed-out visitor
+// still has an answer — the instance view — which is what the admin needs to
+// draw for them. Reading it in one place also makes "once and shared" true by
+// construction: navigating never mounts this again.
+const { ensureLoaded: ensureFeatures } = useFeatures()
+onMounted(() => {
+  ensureFeatures()
+})
 </script>
 
 <style scoped>

@@ -18,12 +18,14 @@ package logging
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/internal/config"
 
 	"go.uber.org/fx"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // ZapLogger is a zap-based implementation of entities.Logger.
@@ -101,17 +103,28 @@ func ProvideZapLogger(params struct {
 	var logger *zap.Logger
 	var err error
 
-	logLevel := params.Config.LogLevel
+	// Normalised before use. Comparing the raw string would leave
+	// LOG_LEVEL=ERROR or Warn falling through to info — the exact bug this
+	// mapping exists to remove, one keystroke away.
+	logLevel := strings.ToLower(strings.TrimSpace(params.Config.LogLevel))
 	if logLevel == "" {
 		logLevel = "info"
 	}
 
-	switch logLevel {
-	case "debug":
-		logger, err = zap.NewDevelopment()
-	default:
-		logger, err = zap.NewProduction()
+	// The level is applied to the config, not just used to pick between two
+	// presets. It used to switch "debug" to the development preset and send
+	// everything else to zap.NewProduction(), which logs at info and above —
+	// so LOG_LEVEL=warn and LOG_LEVEL=error were accepted and then ignored,
+	// despite both being documented. A one-shot CLI command asking for quiet
+	// got a wall of info lines instead.
+	var zapCfg zap.Config
+	if logLevel == "debug" {
+		zapCfg = zap.NewDevelopmentConfig()
+	} else {
+		zapCfg = zap.NewProductionConfig()
 	}
+	zapCfg.Level = zap.NewAtomicLevelAt(zapLevelFor(logLevel))
+	logger, err = zapCfg.Build()
 
 	if err != nil {
 		return ZapLoggerResult{}, fmt.Errorf("failed to create zap logger: %w", err)
@@ -119,6 +132,27 @@ func ProvideZapLogger(params struct {
 	return ZapLoggerResult{
 		ZapLogger: logger,
 	}, nil
+}
+
+// zapLevelFor maps a configured level name onto a zap level. An unrecognized
+// name falls back to info rather than failing the boot: a typo in an
+// environment variable should not stop a server starting, and info is the
+// level an operator who typed something unexpected most likely wanted.
+func zapLevelFor(level string) zapcore.Level {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return zapcore.DebugLevel
+	case "warn", "warning":
+		return zapcore.WarnLevel
+	case "error":
+		return zapcore.ErrorLevel
+	case "fatal":
+		return zapcore.FatalLevel
+	case "panic":
+		return zapcore.PanicLevel
+	default:
+		return zapcore.InfoLevel
+	}
 }
 
 // LoggerResult holds the logger result.

@@ -134,17 +134,8 @@ func runAccountCreate(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Refuse to guess which store to write to. config.Default() carries a
-	// "weos.db" fallback, which for a server means "start somewhere"; for this
-	// command it would mean minting the instance's only account into whatever
-	// directory the process happened to start in, reporting success, and
-	// exiting 0 — leaving a deployment that looks provisioned and has no
-	// account. An entrypoint's DSN is never implicit, so neither is this.
-	if os.Getenv("DATABASE_DSN") == "" && databaseDSN == "" {
-		return errors.New(
-			"no database specified: set DATABASE_DSN or pass --database-dsn " +
-				"(this command will not fall back to the built-in default, so an account " +
-				"is never created in a store nobody asked for)")
+	if err := requireExplicitDSN("account create"); err != nil {
+		return err
 	}
 
 	appCfg := GetConfig().Config

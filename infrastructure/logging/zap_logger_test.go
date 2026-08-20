@@ -75,3 +75,24 @@ func TestZapLogger_KvFieldsParsed(t *testing.T) {
 		t.Errorf("elapsed_ms field = %v, want 42", got)
 	}
 }
+
+// TestZapLevelForIsCaseInsensitive: comparing the raw string would leave
+// LOG_LEVEL=ERROR falling through to info, which is the bug this mapping
+// exists to remove.
+func TestZapLevelForIsCaseInsensitive(t *testing.T) {
+	cases := map[string]zapcore.Level{
+		"debug": zapcore.DebugLevel, "DEBUG": zapcore.DebugLevel, " Debug ": zapcore.DebugLevel,
+		"warn": zapcore.WarnLevel, "WARN": zapcore.WarnLevel, "Warning": zapcore.WarnLevel,
+		"error": zapcore.ErrorLevel, "ERROR": zapcore.ErrorLevel, "Error": zapcore.ErrorLevel,
+		"fatal": zapcore.FatalLevel, "panic": zapcore.PanicLevel,
+		"info": zapcore.InfoLevel, "": zapcore.InfoLevel,
+		// An unrecognized value falls back to info rather than failing the
+		// boot: a typo in an environment variable must not stop a server.
+		"chatty": zapcore.InfoLevel,
+	}
+	for in, want := range cases {
+		if got := zapLevelFor(in); got != want {
+			t.Errorf("zapLevelFor(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

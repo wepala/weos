@@ -3,6 +3,8 @@ package application
 import (
 	"context"
 
+	"github.com/open-feature/go-sdk/openfeature"
+
 	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -117,6 +119,32 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		fx.Provide(ProvidePresetHTTPHandlers),
 		fx.Provide(gorm.ProvideBehaviorSettingsRepository),
 
+		// Feature flags (epic #480). The resolver owns the per-caller cache
+		// and IS the in-process invalidator — on SQLite that is the complete
+		// implementation, not a fallback, because SQLite is single-process by
+		// construction. ProvideFeatureCacheInvalidator wraps it with a
+		// Postgres broadcast only when the deployment can actually have
+		// replicas.
+		fx.Provide(fx.Annotate(
+			NewFeatureRegistry,
+			fx.ParamTags(``, ``, ``, `group:"feature_declarations"`),
+		)),
+		fx.Provide(AsFeatureDeclarations(CoreFeatureDeclarations)),
+		fx.Provide(gorm.ProvideFeatureSettingsRepository),
+		fx.Provide(gorm.ProvideFeatureGrantRepository),
+		fx.Provide(gorm.ProvideAccountMemberQuery),
+		fx.Provide(NewFeatureResolver),
+		fx.Provide(ProvideFeatureCacheInvalidator),
+		fx.Provide(NewFeatureProvider),
+		fx.Provide(RegisterFeatureProvider),
+		// fx builds only what something depends on. Without this Invoke the
+		// provider is never constructed and never registered, so the OpenFeature
+		// domain falls through to the SDK's no-op provider and every evaluation
+		// silently returns the caller's default.
+		fx.Invoke(func(*openfeature.Client) {}),
+		fx.Provide(NewFeatureService),
+		fx.Provide(NewFeatureAdminService),
+
 		// Email sender
 		fx.Provide(email.ProvideEmailSender),
 
@@ -199,8 +227,16 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// command once the MCP server exists.
 		fx.Provide(infraagents.ProvideOrchestrator),
 		fx.Provide(func(o *appagents.Orchestrator) ConversationalAgent { return o }),
-		fx.Invoke(func(o *appagents.Orchestrator, r *SkillRegistry, rs ResourceService) {
+		fx.Invoke(func(
+			o *appagents.Orchestrator, r *SkillRegistry, rs ResourceService,
+			client *openfeature.Client, features *FeatureRegistry, logger entities.Logger,
+		) {
 			o.SetSkillSource(r.Skills)
+			// A gated skill is not offered to the coordinator and cannot be
+			// named directly (#485). Wired here rather than left to a caller
+			// for the reason #481 learned the hard way: a gate nothing depends
+			// on is a gate that never runs.
+			o.SetSkillGate(SkillFeatureGate(client, features, logger))
 			// Completed turns become note resources — the episodic memory
 			// that #386 consolidation distills facts from.
 			o.SetEpisodeRecorder(RecordAgentTurn(rs))
