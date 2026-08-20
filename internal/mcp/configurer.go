@@ -48,6 +48,14 @@ type ConfigurerDeps struct {
 	// passes this, so the gate is written at the tool's own call site exactly
 	// as it is for a built-in tool. A tool added with plain mcp.AddTool is
 	// ungated and behaves as it always did. Never nil on either transport.
+	//
+	// This package is internal, so an out-of-tree binary reaches both the type
+	// and the helper through pkg/cli (MCPFeatureGates and AddGatedTool) rather
+	// than importing them here.
+	//
+	// The gate key must also be declared, or it is registry drift: the tool
+	// stays available and the instance logs it once. See
+	// application.AsFeatureDeclarations.
 	Gates *FeatureGates
 }
 

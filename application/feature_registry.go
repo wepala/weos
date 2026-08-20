@@ -16,6 +16,7 @@
 package application
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -114,11 +115,59 @@ func NewFeatureRegistry(
 					m.Key, existing.DisplayName)
 			}
 		}
+		if agrees, err := r.reconcileWithCode(m); err != nil {
+			return nil, err
+		} else if agrees {
+			continue
+		}
 		if err := r.Register(m); err != nil {
 			return nil, fmt.Errorf("FEATURES: %w", err)
 		}
 	}
 	return r, nil
+}
+
+// reconcileWithCode decides what a FEATURES entry means when code declares the
+// same key. The first result reports that the entry is redundant and should be
+// skipped.
+//
+// Core did not declare any feature until it shipped a call site that reads one,
+// so an operator who wanted a switch early could only get it by naming the key
+// in FEATURES. When core later declares that key itself, a plain duplicate-key
+// error stops the whole application at upgrade — not one feature, the instance:
+// serve, mcp and the CLI all refuse to start. That is a bad trade for a
+// disagreement that does not exist.
+//
+// So an entry that agrees with the code declaration about what the feature DOES
+// is a no-op with a warning naming the remedy. An entry that disagrees is still
+// an error, because that is the case where picking one would gate the wrong
+// thing — and the message names both sources and what to do about it.
+//
+// Only the behavior-deciding fields are compared. A description is prose an
+// operator reads; code's wins and the difference is worth a line, not a
+// failure to boot.
+func (r *FeatureRegistry) reconcileWithCode(m entities.FeatureMeta) (bool, error) {
+	r.mu.RLock()
+	code, declared := r.code[m.Key]
+	r.mu.RUnlock()
+	if !declared {
+		return false, nil
+	}
+	if code.Default != m.Default || code.Manageable != m.Manageable || code.Grantable != m.Grantable {
+		return false, fmt.Errorf(
+			"FEATURES declares feature %q as (default=%v manageable=%v grantable=%v), but this build "+
+				"declares it in code as (default=%v manageable=%v grantable=%v); "+
+				"remove %q from FEATURES to use the built-in declaration, or correct the entry to match it",
+			m.Key, m.Default, m.Manageable, m.Grantable,
+			code.Default, code.Manageable, code.Grantable, m.Key)
+	}
+	if r.logger != nil {
+		r.logger.Warn(context.Background(),
+			"FEATURES redeclares a feature this build already declares in code; the entry has no effect "+
+				"and can be removed",
+			"feature", m.Key)
+	}
+	return true, nil
 }
 
 // Register adds a code-declared feature. Duplicate keys are an error rather
@@ -169,6 +218,16 @@ func (r *FeatureRegistry) All() []entities.FeatureMeta {
 	}
 	r.mu.RLock()
 	for key, m := range r.code {
+		if existing, shadowed := merged[key]; shadowed && r.logger != nil && existing != m {
+			// Code wins, deliberately — a binary that declares a key a preset
+			// also uses is overriding it on purpose, and cannot edit the
+			// preset to say so. But an override nobody announced changes a
+			// feature's default, or whether it can be granted, with nothing to
+			// read afterwards.
+			r.logger.Warn(context.Background(),
+				"a code declaration overrides a preset's feature of the same key",
+				"feature", key, "preset_default", existing.Default, "code_default", m.Default)
+		}
 		merged[key] = m
 	}
 	r.mu.RUnlock()

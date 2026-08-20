@@ -287,9 +287,20 @@ func Run(enabledServices []string) error {
 	// override and no personal grant can apply — gating on this transport is
 	// instance-wide and cannot be anything else until the local transport
 	// carries an identity.
+	//
+	// The gate is required here for the same reason NewConfiguredServer
+	// requires one: newServerWithGates reads a nil gate as "nothing is gated",
+	// so a build that ever yields a nil client would silently un-gate every
+	// tool on the surface mini-me actually uses, while `weos serve` refused to
+	// start. Checked rather than trusted, because the two paths must fail the
+	// same way.
+	gate := application.ToolFeatureGate(featureClient)
+	if gate == nil {
+		return fmt.Errorf("the feature gate is not wired; gated tools would be open on this transport")
+	}
 	server, gates, err := newServerWithGates(
 		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
-		featureAdmin, application.ToolFeatureGate(featureClient), enabledServices)
+		featureAdmin, gate, enabledServices)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}

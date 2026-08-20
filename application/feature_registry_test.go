@@ -268,19 +268,59 @@ func TestFeatureRegistryRefusesMalformedConfigDeclarations(t *testing.T) {
 	}
 }
 
-// TestFeatureRegistryRefusesAConfigKeyCodeAlreadyOwns keeps configuration from
-// silently redefining something the binary declares — two owners of one key
-// means one of them is gating the wrong thing.
-func TestFeatureRegistryRefusesAConfigKeyCodeAlreadyOwns(t *testing.T) {
+// TestFeatureRegistryRefusesAConfigKeyThatDisagreesWithCode keeps
+// configuration from silently redefining something the binary declares — two
+// owners that disagree means one of them is gating the wrong thing.
+func TestFeatureRegistryRefusesAConfigKeyThatDisagreesWithCode(t *testing.T) {
 	cfg := config.Default()
-	cfg.Features.Declared = []entities.FeatureMeta{{Key: "ledger-export", DisplayName: "From config"}}
+	cfg.Features.Declared = []entities.FeatureMeta{
+		{Key: "ledger-export", DisplayName: "From config", Default: true},
+	}
 	_, err := NewFeatureRegistry(cfg, NewPresetRegistry(), nil,
-		[]entities.FeatureMeta{{Key: "ledger-export", DisplayName: "From code"}})
+		[]entities.FeatureMeta{{Key: "ledger-export", DisplayName: "From code", Default: false}})
 	if err == nil {
-		t.Fatal("configuration silently redeclared a key code already owns")
+		t.Fatal("configuration silently redeclared a key code already owns, with a different default")
 	}
 	if !strings.Contains(err.Error(), "FEATURES") {
 		t.Fatalf("the error does not say the clash came from configuration: %v", err)
+	}
+	// A person has to be able to act on it without reading the source.
+	if !strings.Contains(err.Error(), "remove") {
+		t.Fatalf("the error does not say what to do about it: %v", err)
+	}
+}
+
+// TestFeatureRegistryAcceptsAConfigKeyThatAgreesWithCode is the upgrade path.
+//
+// Core declared no features until it shipped a call site that read one, so an
+// operator who wanted a switch early could only get it by naming the key in
+// FEATURES. When core later declares that same key, a plain duplicate-key error
+// would stop the whole application — serve, mcp and the CLI — over a
+// disagreement that does not exist. An entry that agrees about what the feature
+// DOES is redundant, not wrong.
+func TestFeatureRegistryAcceptsAConfigKeyThatAgreesWithCode(t *testing.T) {
+	cfg := config.Default()
+	cfg.Features.Declared = []entities.FeatureMeta{{
+		Key: "episodic-recall", DisplayName: "Episodic recall",
+		Description: "an operator's own wording",
+		Default:     true, Manageable: true, Grantable: true,
+	}}
+	code := []entities.FeatureMeta{{
+		Key: "episodic-recall", DisplayName: "Episodic recall",
+		Description: "the built-in wording",
+		Default:     true, Manageable: true, Grantable: true,
+	}}
+	r, err := NewFeatureRegistry(cfg, NewPresetRegistry(), nil, code)
+	if err != nil {
+		t.Fatalf("a redundant FEATURES entry stopped the boot: %v", err)
+	}
+	got, ok := r.Lookup("episodic-recall")
+	if !ok {
+		t.Fatal("the feature is not declared at all")
+	}
+	// Code owns the key, so its wording is what an operator is shown.
+	if got.Description != "the built-in wording" {
+		t.Fatalf("configuration overwrote the code declaration: %+v", got)
 	}
 }
 

@@ -131,6 +131,22 @@ func (g *FeatureGates) empty() bool {
 	return len(g.byTool) == 0
 }
 
+// snapshot copies the index once, for a caller that is about to consult it for
+// every tool on a page. A listing of forty tools should take one lock, not
+// forty.
+func (g *FeatureGates) snapshot() map[string]string {
+	if g == nil {
+		return nil
+	}
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make(map[string]string, len(g.byTool))
+	for tool, key := range g.byTool {
+		out[tool] = key
+	}
+	return out
+}
+
 // AddGatedTool declares a tool and the feature that gates it in one statement.
 // It is mcp.AddTool with the gate written beside the name and the annotations,
 // which is the only place the two stay together.
@@ -206,9 +222,10 @@ func filterListing(
 	if !ok || listing == nil {
 		return res, err
 	}
+	gated := gates.snapshot()
 	kept := make([]*mcp.Tool, 0, len(listing.Tools))
 	for _, t := range listing.Tools {
-		if key, gated := gates.Of(t.Name); gated && !gate(ctx, key) {
+		if key, ok := gated[t.Name]; ok && !gate(ctx, key) {
 			continue
 		}
 		kept = append(kept, t)

@@ -69,3 +69,30 @@ type MCPConfigurerDeps = mcpserver.ConfigurerDeps
 func RegisterMCPConfigurer(c func(server *mcp.Server, deps MCPConfigurerDeps)) {
 	mcpserver.RegisterMCPConfigurer(c)
 }
+
+// MCPFeatureGates re-exports the server's feature-gate index, which a
+// configurer receives as MCPConfigurerDeps.Gates.
+type MCPFeatureGates = mcpserver.FeatureGates
+
+// AddGatedTool adds a custom MCP tool and the feature that gates it, in one
+// statement. It is the downstream equivalent of what a built-in tool does at
+// its own call site: when the feature is off for the caller the tool is absent
+// from their listing and a call to it is refused, and when it is on nothing
+// about the tool differs from an ungated one.
+//
+// Re-exported because the gate index and the helper both live in an internal
+// package, so an out-of-tree binary can receive deps.Gates but cannot name the
+// type or call the helper. Without this the seam looks open and is not.
+//
+//	cli.RegisterMCPConfigurer(func(s *mcp.Server, deps cli.MCPConfigurerDeps) {
+//	    cli.AddGatedTool(s, deps.Gates, "invoice-export", &mcp.Tool{…}, handler)
+//	})
+//
+// The feature key must also be declared, or it is registry drift: the tool
+// stays available and the instance logs it once. Declare it with
+// application.AsFeatureDeclarations.
+func AddGatedTool[In, Out any](
+	server *mcp.Server, gates *MCPFeatureGates, featureKey string, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out],
+) {
+	mcpserver.AddGatedTool(server, gates, featureKey, t, h)
+}

@@ -49,7 +49,26 @@ func ToolFeatureGate(client *openfeature.Client) func(context.Context, string) b
 		if featureKey == "" {
 			return true
 		}
-		return client.Boolean(ctx, FeatureFlagPrefix+featureKey, true, openfeature.EvaluationContext{})
+		details, err := client.BooleanValueDetails(
+			ctx, FeatureFlagPrefix+featureKey, true, openfeature.EvaluationContext{})
+		if err != nil {
+			// Closed. This is the one path the provider cannot answer for
+			// itself: the client short-circuits BEFORE calling the provider
+			// when the domain's provider is NOT_READY or FATAL, and returns
+			// the caller's default — which is `true` here. Client.Boolean
+			// discards that error, so using it would open every gate exactly
+			// when the flag source is unavailable.
+			//
+			// SetNamedProviderAndWait makes that unreachable today. It becomes
+			// reachable the moment anyone switches to the async setter, gives
+			// the provider a state handler, or re-registers on the domain at
+			// runtime — and nothing would fail to say so. Failing closed here
+			// stops the guarantee depending on a client internal.
+			return false
+		}
+		// ERROR already carries false from the provider; DEFAULT carries the
+		// caller's `true`, which is the undeclared-key case.
+		return details.Value
 	}
 }
 
