@@ -135,6 +135,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var orchestrator *appagents.Orchestrator
 	var skillRegistry *application.SkillRegistry
 	var featureInvalidator repositories.FeatureCacheInvalidator
+	var featureAdmin *application.FeatureAdminService
 
 	registry := presets.NewDefaultRegistry()
 
@@ -145,6 +146,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&orchestrator),
 		fx.Populate(&skillRegistry),
 		fx.Populate(&featureInvalidator),
+		fx.Populate(&featureAdmin),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
@@ -429,6 +431,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Features:       featureInvalidator,
 		Logger:         logger,
 	})
+	featureHandler := handlers.NewFeatureHandler(handlers.FeatureHandlerConfig{
+		Admin:  featureAdmin,
+		Logger: logger,
+	})
+	// Listing is readable by any authenticated caller — the admin UI needs it
+	// to decide what to render. Changing state is gated inside the service,
+	// which the CLI and the MCP tools share, so the rule lives in one place.
+	protected.GET("/features", featureHandler.List)
+	protected.PUT("/features/:key/instance", featureHandler.SetInstance)
+	protected.DELETE("/features/:key/instance", featureHandler.ResetInstance)
+	protected.PUT("/features/:key/account", featureHandler.SetAccount)
+	protected.DELETE("/features/:key/account", featureHandler.ResetAccount)
+
 	protected.GET("/users", userHandler.List)
 	protected.GET("/users/:id", userHandler.Get)
 	protected.PUT("/users/:id", userHandler.Update)
@@ -523,7 +538,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	if serveViper.GetBool("enabled") {
 		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
-			resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall, slog.Default(),
+			resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
+			featureAdmin, slog.Default(),
 		)
 		if mcpErr != nil {
 			return fmt.Errorf("failed to create MCP server: %w", mcpErr)

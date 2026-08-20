@@ -185,7 +185,7 @@ func (w *kgWorld) startApp(cfg config.Config, capture bool) error {
 	w.manager = manager
 	w.rts = rts
 
-	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, episodic, nil)
+	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, episodic, nil, nil)
 	if err != nil {
 		return fmt.Errorf("build MCP server: %w", err)
 	}

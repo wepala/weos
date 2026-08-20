@@ -54,7 +54,7 @@ func fullServer(t *testing.T) *gomcp.Server {
 	t.Helper()
 	server, err := NewMCPServer(
 		&stubResourceTypeService{}, &stubResourceService{}, &stubKGService{active: true}, stubLexicalSearch{},
-		nil, nil,
+		nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("NewMCPServer: %v", err)

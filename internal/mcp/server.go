@@ -35,6 +35,7 @@ const (
 	ServiceResource       ServiceName = "resource"
 	ServiceKnowledgeGraph ServiceName = "knowledge-graph"
 	ServiceMemory         ServiceName = "memory"
+	ServiceFeature        ServiceName = "feature"
 )
 
 // AllServices is the ordered list of every available service.
@@ -45,6 +46,7 @@ var AllServices = []ServiceName{
 	ServiceResource,
 	ServiceKnowledgeGraph,
 	ServiceMemory,
+	ServiceFeature,
 }
 
 // ValidServiceNames returns the service names as strings (useful for help text).
@@ -107,6 +109,7 @@ func NewMCPServer(
 	kgService application.KnowledgeGraphService,
 	lexicalSearch application.LexicalSearch,
 	episodicRecall application.EpisodicRecall,
+	featureAdmin *application.FeatureAdminService,
 	enabledServices []string,
 ) (*mcp.Server, error) {
 	if isNilInterface(resourceTypeService) {
@@ -145,6 +148,9 @@ func NewMCPServer(
 	if enabled[ServiceKnowledgeGraph] && !isNilInterface(kgService) {
 		registerKnowledgeGraphTools(server, kgService)
 	}
+	if enabled[ServiceFeature] && featureAdmin != nil {
+		registerFeatureTools(server, featureAdmin)
+	}
 	if enabled[ServiceMemory] {
 		// The playbook and recall services are thin stateless wrappers over
 		// services this constructor already receives, so they are built here
@@ -182,6 +188,7 @@ func Run(enabledServices []string) error {
 	var kgService application.KnowledgeGraphService
 	var lexicalSearch application.LexicalSearch
 	var episodicRecall application.EpisodicRecall
+	var featureAdmin *application.FeatureAdminService
 
 	app := fx.New(
 		fx.NopLogger,
@@ -191,6 +198,7 @@ func Run(enabledServices []string) error {
 		fx.Populate(&kgService),
 		fx.Populate(&lexicalSearch),
 		fx.Populate(&episodicRecall),
+		fx.Populate(&featureAdmin),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -208,7 +216,8 @@ func Run(enabledServices []string) error {
 	}()
 
 	server, err := NewMCPServer(
-		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall, enabledServices)
+		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
+		featureAdmin, enabledServices)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}

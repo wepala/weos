@@ -313,7 +313,8 @@ func (w *oauthWorld) boot(opts bootOpts) error {
 		// The MCP surface a connector uses afterwards, behind the same bearer
 		// auth serve.go puts in front of it.
 		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
-			resourceTypeService, w.resourceService, kgService, lexicalSearch, episodicRecall, slog.Default())
+			resourceTypeService, w.resourceService, kgService, lexicalSearch, episodicRecall,
+			nil, slog.Default())
 		if mcpErr != nil {
 			return fmt.Errorf("failed to create the MCP server: %w", mcpErr)
 		}

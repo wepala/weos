@@ -60,10 +60,25 @@ func TestValidServiceNames_ReturnsAll(t *testing.T) {
 		"person": true, "organization": true,
 		"resource-type": true, "resource": true,
 		"knowledge-graph": true, "memory": true,
+		"feature": true,
 	}
 	for _, n := range names {
 		if !expected[n] {
 			t.Errorf("unexpected service name: %s", n)
+		}
+	}
+	// Both directions: a service dropped from AllServices should fail here too,
+	// not just an unexpected one added.
+	for name := range expected {
+		found := false
+		for _, n := range names {
+			if n == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("service name missing from AllServices: %s", name)
 		}
 	}
 }
