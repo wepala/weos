@@ -68,6 +68,17 @@ type FeatureChanged struct {
 	SubjectType  string
 	SubjectID    string
 	SubjectEmail string
+
+	// ValidFrom and ValidThrough record the window a grant was made with.
+	//
+	// On the event rather than only on the row, because the row is the wrong
+	// place to answer "why did access end". A window closing writes nothing —
+	// that is the whole design — and a re-grant overwrites the row's terms in
+	// place, so neither store would remember the original. Events are
+	// immutable and additive, which means this is cheap now and impossible to
+	// backfill once real events exist.
+	ValidFrom    *time.Time
+	ValidThrough *time.Time
 }
 
 func (e FeatureChanged) EventType() string { return "Feature.Changed" }

@@ -315,6 +315,18 @@ func runFeatureGrant(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		cmd.Printf("Granted %q to %s in account %s.\n", key, grantSubjectWord(), account)
+		// Echo what was actually stored. A grant dated to the wrong year is
+		// accepted and simply never applies, and a success line alone would
+		// let an operator walk away from a typo. Printing the window and its
+		// status catches it at the keyboard.
+		if views, err := admin.GrantsOn(ctx, key, account); err == nil {
+			for _, v := range views {
+				if v.Email == grantEmail || (grantRole != "" && v.Role == grantRole) {
+					cmd.Printf("  window: %s   status: %s\n", windowWord(v), v.Status)
+					break
+				}
+			}
+		}
 		printCacheAgeNotice(cmd)
 		return nil
 	})

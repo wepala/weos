@@ -237,6 +237,16 @@ func (r *FeatureResolver) refresh(ctx context.Context, key featureCacheKey) (map
 
 // onResolveError decides what a caller is told when the store cannot be read.
 //
+// KNOWN AND ACCEPTED: this makes a validity window fail OPEN during an outage.
+// The previous set is served while the store is unreadable, and that set still
+// contains a grant whose window has since closed — so access that was supposed
+// to end at an instant continues until the store answers again. Windows are
+// precisely the case where the availability trade points the other way, and it
+// is taken anyway because the alternative strips every capability from
+// everyone mid-turn on any database blip. The fix, when it is worth the memory,
+// is to keep the grant records on the cache entry so expiry can be re-folded
+// without reading anything.
+//
 // A failure is never cached as an answer. But if this caller already has a
 // resolved set, serving it beats answering off for everything: a database blip
 // would otherwise strip every capability from every user mid-turn — including
@@ -367,14 +377,22 @@ func (r *FeatureResolver) resolveDetailed(
 		if err != nil {
 			return nil, time.Time{}, fmt.Errorf("failed to resolve features: %w", err)
 		}
-		records, err := r.grants.GrantsFor(ctx, key.AccountID, key.AgentID, roleID)
-		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("failed to resolve features: %w", err)
+		// No membership, no grants. Membership is checked when a grant is
+		// made, but nothing removes the row when somebody leaves an account —
+		// so without this a removed member with a live session would keep
+		// every feature granted to them, and the row would silently come back
+		// to life if they were ever re-added. An empty role means pericarp has
+		// no membership record for them here.
+		if roleID != "" {
+			records, err := r.grants.GrantsFor(ctx, key.AccountID, key.AgentID, roleID)
+			if err != nil {
+				return nil, time.Time{}, fmt.Errorf("failed to resolve features: %w", err)
+			}
+			// One read yields both what the caller holds now and when that
+			// stops being true. Folding here rather than filtering in SQL is
+			// what makes the boundary available without a second query.
+			granted, staleAt = entities.FoldGrants(records, r.clock())
 		}
-		// One read yields both what the caller holds now and when that stops
-		// being true. Folding here rather than filtering in SQL is what makes
-		// the boundary available without a second query.
-		granted, staleAt = entities.FoldGrants(records, r.clock())
 	}
 
 	declared := r.registry.All()

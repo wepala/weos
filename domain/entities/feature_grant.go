@@ -22,6 +22,11 @@ const (
 	GrantActive  = "active"
 	GrantPending = "pending"
 	GrantExpired = "expired"
+	// GrantOrphaned means the row exists but reaches nobody: its subject is no
+	// longer a member of the account. Distinct from expired, because an
+	// operator's next move differs — an expired grant ran its course, an
+	// orphaned one is left-over access that should be cleaned up.
+	GrantOrphaned = "orphaned"
 )
 
 // FeatureGrantRecord is one stored grant, as resolution and listings read it.

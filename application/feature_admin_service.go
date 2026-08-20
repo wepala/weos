@@ -18,7 +18,7 @@ package application
 import (
 	"context"
 	"fmt"
-
+	"strings"
 	"time"
 
 	"github.com/akeemphilbert/pericarp/pkg/auth"
@@ -407,8 +407,15 @@ func (s *FeatureAdminService) Grant(ctx context.Context, req GrantRequest) error
 	if err != nil {
 		return err
 	}
-	s.recordGrant(ctx, req.Key, accountID, entities.FeatureChangeStateGranted,
-		req.Source, subjectType, subjectID, subjectEmail)
+	s.recordEvent(ctx, entities.FeatureChanged{
+		Key: req.Key, Scope: "account", ScopeID: accountID,
+		State: entities.FeatureChangeStateGranted, Source: req.Source,
+		SubjectType: subjectType, SubjectID: subjectID, SubjectEmail: subjectEmail,
+		// The window goes on the event, not only on the row. A window closing
+		// writes nothing and a re-grant overwrites the row in place, so without
+		// this nothing could ever answer "why did access end".
+		ValidFrom: req.ValidFrom, ValidThrough: req.ValidThrough,
+	})
 	return nil
 }
 
@@ -486,6 +493,13 @@ func (s *FeatureAdminService) GrantsHeldBy(ctx context.Context, email string) ([
 
 // viewsOf renders records for an operator. markDirectFor, when set, tags each
 // row as held directly or through a role.
+// viewsOf renders records for an operator.
+//
+// A grant whose subject is no longer a member is reported as orphaned rather
+// than active. Membership is checked when a grant is made and nothing removes
+// the row when somebody leaves, so an admin reading "active" for an ex-member
+// would be reading a right that reaches nobody — and would have no reason to
+// clean it up before the person was re-added.
 func (s *FeatureAdminService) viewsOf(
 	ctx context.Context, records []entities.FeatureGrantRecord, markDirectFor string,
 ) []GrantView {
@@ -507,6 +521,14 @@ func (s *FeatureAdminService) viewsOf(
 			// Resolved at read time rather than stored: an address can change
 			// and a grant should not follow it, so the row holds the agent id.
 			v.Email = s.emailFor(ctx, r.SubjectID)
+			if v.Email == "" {
+				// Nothing resolves the address any more. Showing the agent id
+				// beats showing a blank row an operator cannot act on.
+				v.Email = r.SubjectID
+			}
+			if role, err := s.accounts.FindMemberRole(ctx, r.AccountID, r.SubjectID); err == nil && role == "" {
+				v.Status = entities.GrantOrphaned
+			}
 		}
 		if markDirectFor != "" {
 			if r.SubjectType == repositories.FeatureSubjectRole {
@@ -563,9 +585,13 @@ func (s *FeatureAdminService) DefaultGrantAccount(ctx context.Context) (string, 
 func (s *FeatureAdminService) grantAccount(ctx context.Context, named string, write bool) (string, error) {
 	if isLocalTransport(ctx) {
 		if named == "" {
+			what := "a grant"
+			if !write {
+				what = "reading grants"
+			}
 			return "", fmt.Errorf(
-				"a grant needs an account and this transport has no signed-in caller; "+
-					"make it from the command line with --account <id>: %w", ErrValidation)
+				"%s needs an account and this transport has no signed-in caller; "+
+					"name one from the command line with --account <id>: %w", what, ErrValidation)
 		}
 		account, err := s.accounts.FindByID(ctx, named)
 		if err != nil || account == nil {
@@ -641,6 +667,10 @@ func (s *FeatureAdminService) resolveSubject(
 // agentForEmail finds who an address belongs to. An address nobody signed up
 // with is a 404 rather than a grant stored against nothing.
 func (s *FeatureAdminService) agentForEmail(ctx context.Context, email string) (string, string, error) {
+	if strings.TrimSpace(email) == "" {
+		// Asking about nobody is a malformed request, not a missing person.
+		return "", "", fmt.Errorf("name the person by their email address: %w", ErrValidation)
+	}
 	if s.creds == nil {
 		return "", "", fmt.Errorf("cannot look up %q: %w", email, repositories.ErrNotFound)
 	}

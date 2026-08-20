@@ -201,14 +201,29 @@ func (f *fakeGrants) readCount() int {
 type fakeAccounts struct {
 	authrepos.AccountRepository
 	roles map[string]string // "accountID|agentID" -> roleID
-	err   error
+	// nonMembers names people deliberately NOT in an account, for the tests
+	// that care about somebody who was removed.
+	nonMembers map[string]bool
+	err        error
 }
 
+// FindMemberRole answers "member" for anyone without an explicit mapping.
+//
+// That is the faithful default: a grant can only be made to a member of the
+// account, so a test subject who holds a grant is a member by construction.
+// Returning "" for them would model somebody who had been removed — a real
+// case, but one the tests that want it should ask for deliberately.
 func (f fakeAccounts) FindMemberRole(_ context.Context, accountID, agentID string) (string, error) {
 	if f.err != nil {
 		return "", f.err
 	}
-	return f.roles[accountID+"|"+agentID], nil
+	if role, ok := f.roles[accountID+"|"+agentID]; ok {
+		return role, nil
+	}
+	if f.nonMembers[accountID+"|"+agentID] {
+		return "", nil
+	}
+	return "member", nil
 }
 
 // --- helpers -----------------------------------------------------------
@@ -811,5 +826,33 @@ func TestBoundaryDoesNotDefeatTheFailureBackoff(t *testing.T) {
 	}
 	if after, _ := settings.reads(); after-before > 1 {
 		t.Fatalf("a down store was retried %d times past a boundary, want at most 1", after-before)
+	}
+}
+
+// TestAGrantDoesNotOutliveMembership is the regression test for a hole the
+// premortem found: membership is checked when a grant is MADE, and nothing
+// removes the row when somebody leaves an account. Without a gate at
+// resolution, a removed member with a live session keeps every feature granted
+// to them — and the row silently comes back to life if they are re-added
+// months later.
+func TestAGrantDoesNotOutliveMembership(t *testing.T) {
+	registry, _ := newTestFeatureRegistry(t, featLedger)
+	grants := newFakeGrants()
+	accounts := &fakeAccounts{
+		roles:      map[string]string{},
+		nonMembers: map[string]bool{"acct-harbor|agent-gone": true},
+	}
+	r := NewFeatureResolver(config.Default(), registry, &fakeSettings{}, grants, accounts, nil)
+
+	grants.grantNow(repositories.FeatureSubjectAgent, "agent-gone", "acct-harbor", "ledger-export")
+	grants.grantNow(repositories.FeatureSubjectAgent, "agent-still-here", "acct-harbor", "ledger-export")
+
+	gone := mustResolve(t, r, ctxAs("agent-gone", "acct-harbor"))
+	if gone["ledger-export"] {
+		t.Fatal("somebody who is no longer a member kept a grant made while they were one")
+	}
+	still := mustResolve(t, r, ctxAs("agent-still-here", "acct-harbor"))
+	if !still["ledger-export"] {
+		t.Fatal("the membership gate took the grant from a member who still belongs")
 	}
 }
