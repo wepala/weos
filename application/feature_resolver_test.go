@@ -687,3 +687,129 @@ func (f *fakeGrants) holds(subjectType, subjectID, accountID, key string) bool {
 	}
 	return false
 }
+
+// --- window boundaries ------------------------------------------------
+
+// grantWindow adds a grant with a window to the fake.
+func (f *fakeGrants) grantWindow(agentID, accountID, key string, from, through *time.Time) {
+	_ = f.Grant(context.Background(), entities.FeatureGrantRecord{
+		SubjectType: repositories.FeatureSubjectAgent, SubjectID: agentID,
+		AccountID: accountID, FeatureKey: key,
+		ValidFrom: from, ValidThrough: through,
+	})
+}
+
+func windowResolver(t *testing.T, maxAge time.Duration) (*FeatureResolver, *fakeGrants, *time.Time) {
+	t.Helper()
+	registry, _ := newTestFeatureRegistry(t, featLedger)
+	grants := newFakeGrants()
+	cfg := config.Default()
+	cfg.Features.CacheMaxAge = maxAge
+	r := NewFeatureResolver(cfg, registry, &fakeSettings{}, grants,
+		&fakeAccounts{roles: map[string]string{}}, nil)
+	now := time.Now()
+	clock := &now
+	r.now = func() time.Time { return *clock }
+	return r, grants, clock
+}
+
+// TestGrantExpiresAtItsBoundaryNotAtTheCacheAge is the crux of #483. A grant
+// with two seconds left must expire in two seconds even though the cache is
+// good for ten minutes — and nothing invalidates, nothing restarts.
+func TestGrantExpiresAtItsBoundaryNotAtTheCacheAge(t *testing.T) {
+	r, grants, clock := windowResolver(t, 10*time.Minute)
+	ctx := ctxAs("agent-ops", "acct-harbor")
+
+	through := clock.Add(2 * time.Second)
+	grants.grantWindow("agent-ops", "acct-harbor", "ledger-export", nil, &through)
+
+	if set := mustResolve(t, r, ctx); !set["ledger-export"] {
+		t.Fatal("a live grant did not resolve on")
+	}
+	// Straight away: still on, still cached.
+	if set := mustResolve(t, r, ctx); !set["ledger-export"] {
+		t.Fatal("the grant expired before its window closed")
+	}
+
+	*clock = clock.Add(3 * time.Second)
+	if set := mustResolve(t, r, ctx); set["ledger-export"] {
+		t.Fatal("the grant survived its own window — the cached set ignored the boundary")
+	}
+	// And the maximum cache age never came into it.
+	if time.Until(*clock) > 10*time.Minute {
+		t.Fatal("the test advanced past the maximum cache age; it proves nothing")
+	}
+}
+
+// TestGrantStartsAtItsBoundaryWithNothingWritten: a grant dated forward begins
+// on its own, in a session that was already open when it was made.
+func TestGrantStartsAtItsBoundaryWithNothingWritten(t *testing.T) {
+	r, grants, clock := windowResolver(t, 10*time.Minute)
+	ctx := ctxAs("agent-ops", "acct-harbor")
+
+	from := clock.Add(2 * time.Second)
+	grants.grantWindow("agent-ops", "acct-harbor", "ledger-export", &from, nil)
+
+	if set := mustResolve(t, r, ctx); set["ledger-export"] {
+		t.Fatal("a grant that has not started was already held")
+	}
+	*clock = clock.Add(3 * time.Second)
+	if set := mustResolve(t, r, ctx); !set["ledger-export"] {
+		t.Fatal("the grant did not begin at its own boundary")
+	}
+}
+
+// TestNoWindowMeansNoExtraResolves keeps the cache doing its job: a grant with
+// no window must not make every evaluation re-read.
+func TestNoWindowMeansNoExtraResolves(t *testing.T) {
+	r, grants, clock := windowResolver(t, 10*time.Minute)
+	ctx := ctxAs("agent-ops", "acct-harbor")
+	grants.grantNow(repositories.FeatureSubjectAgent, "agent-ops", "acct-harbor", "ledger-export")
+
+	_ = mustResolve(t, r, ctx)
+	before := grants.readCount()
+	*clock = clock.Add(time.Minute)
+	for i := 0; i < 20; i++ {
+		_ = mustResolve(t, r, ctx)
+	}
+	if grants.readCount() != before {
+		t.Fatalf("a windowless grant caused %d extra reads, want 0",
+			grants.readCount()-before)
+	}
+}
+
+// TestBoundaryDoesNotDefeatTheFailureBackoff: while the store is down, serving
+// the last known set beats re-reading a database that cannot answer, even past
+// a boundary.
+func TestBoundaryDoesNotDefeatTheFailureBackoff(t *testing.T) {
+	registry, _ := newTestFeatureRegistry(t, featLedger)
+	settings := &fakeSettings{}
+	grants := newFakeGrants()
+	cfg := config.Default()
+	cfg.Features.CacheMaxAge = 10 * time.Minute
+	r := NewFeatureResolver(cfg, registry, settings, grants,
+		&fakeAccounts{roles: map[string]string{}}, nil)
+	now := time.Now()
+	r.now = func() time.Time { return now }
+	ctx := ctxAs("agent-ops", "acct-harbor")
+
+	through := now.Add(2 * time.Second)
+	grants.grantWindow("agent-ops", "acct-harbor", "ledger-export", nil, &through)
+	_ = mustResolve(t, r, ctx)
+
+	settings.err = errors.New("database is unreachable")
+	r.expire(featureCacheKey{AgentID: "agent-ops", AccountID: "acct-harbor"})
+	if _, err := r.ResolvedSet(ctx); err != nil {
+		t.Fatalf("a failing refresh did not serve the last known set: %v", err)
+	}
+
+	before, _ := settings.reads()
+	for i := 0; i < 10; i++ {
+		if _, err := r.ResolvedSet(ctx); err != nil {
+			t.Fatalf("evaluation %d errored instead of serving the last known set: %v", i, err)
+		}
+	}
+	if after, _ := settings.reads(); after-before > 1 {
+		t.Fatalf("a down store was retried %d times past a boundary, want at most 1", after-before)
+	}
+}
