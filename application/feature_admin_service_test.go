@@ -282,3 +282,251 @@ func TestConfiguredPrimaryAccountMustExist(t *testing.T) {
 		t.Fatalf("the error blames the caller rather than the configuration: %v", err)
 	}
 }
+
+// adminCreds resolves addresses to agents for the grant tests.
+type adminCreds struct {
+	authrepos.CredentialRepository
+	byEmail map[string]string // email -> agentID
+}
+
+func (c adminCreds) FindByEmail(_ context.Context, email string) ([]*authentities.Credential, error) {
+	agentID, ok := c.byEmail[email]
+	if !ok {
+		return nil, nil
+	}
+	cred := new(authentities.Credential)
+	cred, err := cred.With("cred-"+agentID, agentID, "password", email, email, email)
+	if err != nil {
+		return nil, err
+	}
+	return []*authentities.Credential{cred}, nil
+}
+
+func (c adminCreds) FindByAgent(_ context.Context, agentID string) ([]*authentities.Credential, error) {
+	for email, id := range c.byEmail {
+		if id == agentID {
+			cred := new(authentities.Credential)
+			cred, err := cred.With("cred-"+agentID, agentID, "password", email, email, email)
+			if err != nil {
+				return nil, err
+			}
+			return []*authentities.Credential{cred}, nil
+		}
+	}
+	return nil, nil
+}
+
+func grantTestService(t *testing.T) (*FeatureAdminService, *fakeGrants) {
+	t.Helper()
+	registry, _ := newTestFeatureRegistry(t, featEpisodic, featLedger, featAudit)
+	settings := &fakeSettings{}
+	grants := newFakeGrants()
+	svc := NewFeatureService(registry, settings, grants, fakeMembers{}, newRecordingInvalidator(), nil)
+	resolver := NewFeatureResolver(config.Default(), registry, settings, grants,
+		&fakeAccounts{roles: map[string]string{}}, nil)
+	accounts := adminAccounts{
+		accounts: []string{"acct-only"},
+		roles: map[string]string{
+			"acct-only|agent-ops":     authentities.RoleOwner,
+			"acct-only|agent-counsel": authentities.RoleMember,
+		},
+	}
+	creds := adminCreds{byEmail: map[string]string{
+		"ops@harborlegal.example":     "agent-ops",
+		"counsel@harborlegal.example": "agent-counsel",
+		"stranger@elsewhere.example":  "agent-stranger",
+	}}
+	admin := NewFeatureAdminService(config.Default(), svc, resolver, accounts, creds, nil, nil, nil)
+	return admin, grants
+}
+
+// TestGrantRefusesInTheRightOrder is the point of ordering the checks: the
+// first thing wrong is the first thing said. Granting a mistyped feature to a
+// stranger must report the feature, not the stranger — otherwise an operator
+// fixes the wrong end of their command.
+func TestGrantRefusesInTheRightOrder(t *testing.T) {
+	admin, grants := grantTestService(t)
+	ctx := ctxAsAgent("agent-ops", "acct-only")
+
+	cases := []struct {
+		name string
+		req  GrantRequest
+		want string
+	}{
+		{
+			"an unknown feature is reported before an unknown person",
+			GrantRequest{Key: "shipping-labels", Email: "nobody@nowhere.example"},
+			"no feature named",
+		},
+		{
+			"a non-grantable feature is reported before an unknown person",
+			GrantRequest{Key: "audit-trail", Email: "nobody@nowhere.example"},
+			"cannot be granted",
+		},
+		{
+			"an address nobody signed up with",
+			GrantRequest{Key: "ledger-export", Email: "nobody@nowhere.example"},
+			"nobody signed up with",
+		},
+		{
+			"somebody who is not a member of this account",
+			GrantRequest{Key: "ledger-export", Email: "stranger@elsewhere.example"},
+			"not a member of this account",
+		},
+		{
+			"a role that does not exist",
+			GrantRequest{Key: "ledger-export", Role: "wizard"},
+			"no role",
+		},
+		{
+			"naming both a person and a role",
+			GrantRequest{Key: "ledger-export", Email: "counsel@harborlegal.example", Role: "admin"},
+			"exactly one",
+		},
+		{
+			"naming neither",
+			GrantRequest{Key: "ledger-export"},
+			"exactly one",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := admin.Grant(ctx, tc.req)
+			if err == nil {
+				t.Fatal("the grant was accepted, want a refusal")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want it to contain %q", err.Error(), tc.want)
+			}
+		})
+	}
+	if len(grants.rows) != 0 {
+		t.Fatalf("a refused grant was stored anyway: %v", grants.rows)
+	}
+}
+
+// TestGrantAndRevokeRoundTrip covers the ordinary path, and that a revocation
+// matching nothing is not an error.
+func TestGrantAndRevokeRoundTrip(t *testing.T) {
+	admin, grants := grantTestService(t)
+	ctx := ctxAsAgent("agent-ops", "acct-only")
+
+	if err := admin.Grant(ctx, GrantRequest{
+		Key: "ledger-export", Email: "counsel@harborlegal.example", Source: "api",
+	}); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	if !grants.holds("agent", "agent-counsel", "acct-only", "ledger-export") {
+		t.Fatal("the grant was not stored")
+	}
+
+	views, err := admin.GrantsOn(ctx, "ledger-export", "")
+	if err != nil {
+		t.Fatalf("GrantsOn: %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("GrantsOn returned %d grants, want 1", len(views))
+	}
+	if views[0].Email != "counsel@harborlegal.example" {
+		t.Fatalf("the listing names %q, want the address it was granted to", views[0].Email)
+	}
+	if views[0].Status != entities.GrantActive {
+		t.Fatalf("status = %q, want active", views[0].Status)
+	}
+
+	if err := admin.RevokeGrant(ctx, RevokeRequest{
+		Key: "ledger-export", Email: "counsel@harborlegal.example",
+	}); err != nil {
+		t.Fatalf("RevokeGrant: %v", err)
+	}
+	if grants.holds("agent", "agent-counsel", "acct-only", "ledger-export") {
+		t.Fatal("the grant survived the revoke")
+	}
+	// Taking back what nobody holds satisfies the caller already.
+	if err := admin.RevokeGrant(ctx, RevokeRequest{
+		Key: "ledger-export", Email: "counsel@harborlegal.example",
+	}); err != nil {
+		t.Fatalf("revoking a grant nobody holds = %v, want nil", err)
+	}
+}
+
+// TestGrantRefusesAWindowThatEndsBeforeItBegins.
+func TestGrantRefusesAWindowThatEndsBeforeItBegins(t *testing.T) {
+	admin, grants := grantTestService(t)
+	ctx := ctxAsAgent("agent-ops", "acct-only")
+	from := time.Now().Add(time.Hour)
+	through := time.Now().Add(-time.Hour)
+
+	err := admin.Grant(ctx, GrantRequest{
+		Key: "ledger-export", Email: "counsel@harborlegal.example",
+		ValidFrom: &from, ValidThrough: &through,
+	})
+	if err == nil {
+		t.Fatal("a window that ends before it begins was accepted")
+	}
+	if !strings.Contains(err.Error(), "ends before it begins") {
+		t.Fatalf("error = %q, want it to say the window is impossible", err.Error())
+	}
+	if len(grants.rows) != 0 {
+		t.Fatal("an impossible window was stored")
+	}
+}
+
+// TestLocalTransportIsRefusedAGrantAndToldWhere: stdio is trusted for
+// instance-wide state, but an account-scoped grant has no account to land in
+// when nobody is signed in, and guessing one would be a multi-tenant hole.
+func TestLocalTransportIsRefusedAGrantAndToldWhere(t *testing.T) {
+	admin, _ := grantTestService(t)
+	ctx := WithLocalTransport(context.Background())
+
+	err := admin.Grant(ctx, GrantRequest{Key: "ledger-export", Email: "counsel@harborlegal.example"})
+	if err == nil {
+		t.Fatal("a grant with no account was accepted on the local transport")
+	}
+	if !strings.Contains(err.Error(), "--account") {
+		t.Fatalf("the refusal does not say where to make one: %v", err)
+	}
+
+	// Named explicitly, it lands.
+	if err := admin.Grant(WithLocalTransport(context.Background()), GrantRequest{
+		Key: "ledger-export", Email: "counsel@harborlegal.example",
+		AccountID: "acct-only", Source: "cli",
+	}); err != nil {
+		t.Fatalf("a grant naming its account was refused: %v", err)
+	}
+}
+
+// TestAnAdminCannotGrantIntoAnAccountTheyNamed: over HTTP the account comes
+// off the session, so naming another one changes nothing.
+func TestAnAdminCannotGrantIntoAnAccountTheyNamed(t *testing.T) {
+	admin, grants := grantTestService(t)
+	ctx := ctxAsAgent("agent-ops", "acct-only")
+
+	if err := admin.Grant(ctx, GrantRequest{
+		Key: "ledger-export", Email: "counsel@harborlegal.example",
+		AccountID: "acct-somebody-elses",
+	}); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	if !grants.holds("agent", "agent-counsel", "acct-only", "ledger-export") {
+		t.Fatal("the grant did not land in the caller's own account")
+	}
+	if grants.holds("agent", "agent-counsel", "acct-somebody-elses", "ledger-export") {
+		t.Fatal("naming another account put the grant there")
+	}
+}
+
+// TestAnOrdinaryMemberMayReadGrantsButNotMakeOne.
+func TestAnOrdinaryMemberMayReadGrantsButNotMakeOne(t *testing.T) {
+	admin, _ := grantTestService(t)
+	ctx := ctxAsAgent("agent-counsel", "acct-only")
+
+	if _, err := admin.GrantsOn(ctx, "ledger-export", ""); err != nil {
+		t.Fatalf("a member was refused the grant listing: %v", err)
+	}
+	err := admin.Grant(ctx, GrantRequest{Key: "ledger-export", Email: "counsel@harborlegal.example"})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("an ordinary member made a grant: %v", err)
+	}
+}

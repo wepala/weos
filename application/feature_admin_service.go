@@ -19,6 +19,8 @@ import (
 	"context"
 	"fmt"
 
+	"time"
+
 	"github.com/akeemphilbert/pericarp/pkg/auth"
 	authentities "github.com/akeemphilbert/pericarp/pkg/auth/domain/entities"
 	authrepos "github.com/akeemphilbert/pericarp/pkg/auth/domain/repositories"
@@ -26,6 +28,7 @@ import (
 	esdomain "github.com/akeemphilbert/pericarp/pkg/eventsourcing/domain"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 	"github.com/wepala/weos/v3/pkg/identity"
 )
@@ -270,28 +273,29 @@ func (s *FeatureAdminService) requireAccountAdmin(ctx context.Context) (string, 
 // surfaced as a message instead, which is the honest account: the change
 // happened, the record of it did not.
 func (s *FeatureAdminService) record(ctx context.Context, key, scope, scopeID, state, src string) {
-	if s.eventStore == nil || s.dispatcher == nil {
-		// Nothing to record into. Guarded rather than left to fail inside the
-		// unit of work, which panics on a nil store — and a panic here would
-		// take down a request whose actual work already succeeded, which is
-		// the opposite of this method's whole failure policy.
-		if s.logger != nil {
-			s.logger.Error(ctx, "the feature change was applied but there is nowhere to record it",
-				"feature", key, "scope", scope, "state", state)
-		}
-		return
-	}
-	event := entities.FeatureChanged{
+	s.recordEvent(ctx, entities.FeatureChanged{
 		Key:     key,
 		Scope:   scope,
 		ScopeID: scopeID,
 		State:   state,
 		Source:  src,
+	})
+}
+
+// recordEvent stamps the actor and appends one change to the event log.
+func (s *FeatureAdminService) recordEvent(ctx context.Context, event entities.FeatureChanged) {
+	if s.eventStore == nil || s.dispatcher == nil {
+		if s.logger != nil {
+			s.logger.Error(ctx, "the feature change was applied but there is nowhere to record it",
+				"feature", event.Key, "scope", event.Scope, "state", event.State)
+		}
+		return
 	}
 	if identityCtx := auth.AgentFromCtx(ctx); identityCtx != nil {
 		event.ActorID = identityCtx.AgentID
 		event.ActorEmail = s.emailFor(ctx, identityCtx.AgentID)
 	}
+	key := event.Key
 
 	change, err := new(entities.FeatureChange).With(identity.NewFeatureChange(), event)
 	if err == nil {
@@ -303,7 +307,7 @@ func (s *FeatureAdminService) record(ctx context.Context, key, scope, scopeID, s
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Error(ctx, "the feature change was applied but not recorded",
-				"feature", key, "scope", scope, "state", state, "error", err)
+				"feature", key, "scope", event.Scope, "state", event.State, "error", err)
 		}
 		entities.AddMessage(ctx, entities.Message{
 			Type: "warning",
@@ -325,4 +329,314 @@ func (s *FeatureAdminService) emailFor(ctx context.Context, agentID string) stri
 		return ""
 	}
 	return creds[0].Email()
+}
+
+// GrantRequest names a grant to make. Exactly one of Email or Role identifies
+// the subject.
+//
+// AccountID is honored ONLY on the local transport. Over HTTP and MCP the
+// account comes off the session, and the request shapes there do not expose
+// the field at all — so an admin naming somebody else's account in a body has
+// nothing to bind to, rather than being refused after the fact.
+type GrantRequest struct {
+	Key   string
+	Email string
+	Role  string
+
+	ValidFrom    *time.Time
+	ValidThrough *time.Time
+
+	AccountID string
+	Source    string
+}
+
+// RevokeRequest names a grant to take back.
+type RevokeRequest struct {
+	Key       string
+	Email     string
+	Role      string
+	AccountID string
+	Source    string
+}
+
+// GrantView is one grant as an operator reads it.
+type GrantView struct {
+	FeatureKey   string     `json:"featureKey"`
+	SubjectType  string     `json:"subjectType"`
+	Email        string     `json:"email,omitempty"`
+	Role         string     `json:"role,omitempty"`
+	ValidFrom    *time.Time `json:"validFrom,omitempty"`
+	ValidThrough *time.Time `json:"validThrough,omitempty"`
+	// Status is active, pending or expired. An expired grant is still a row —
+	// revocation deletes, a closed window does not — so a listing has to be
+	// able to say which it is looking at.
+	Status    string    `json:"status"`
+	GrantedBy string    `json:"grantedBy,omitempty"`
+	GrantedAt time.Time `json:"grantedAt"`
+	// Via is "direct" or "role:<r>", set only when listing what one person
+	// holds, where the difference is the whole question.
+	Via string `json:"via,omitempty"`
+}
+
+// Grant gives a feature to one person or to a role.
+func (s *FeatureAdminService) Grant(ctx context.Context, req GrantRequest) error {
+	accountID, err := s.grantAccount(ctx, req.AccountID, true)
+	if err != nil {
+		return err
+	}
+	subjectType, subjectID, subjectEmail, err := s.resolveSubject(ctx, accountID, req.Key, req.Email, req.Role)
+	if err != nil {
+		return err
+	}
+
+	terms := GrantTerms{
+		ValidFrom:    req.ValidFrom,
+		ValidThrough: req.ValidThrough,
+		Source:       req.Source,
+	}
+	if identityCtx := auth.AgentFromCtx(ctx); identityCtx != nil {
+		terms.GrantedByID = identityCtx.AgentID
+		terms.GrantedByEmail = s.emailFor(ctx, identityCtx.AgentID)
+	}
+
+	if subjectType == repositories.FeatureSubjectRole {
+		err = s.features.GrantToRole(ctx, accountID, subjectID, req.Key, terms)
+	} else {
+		err = s.features.GrantToAgent(ctx, accountID, subjectID, req.Key, terms)
+	}
+	if err != nil {
+		return err
+	}
+	s.recordGrant(ctx, req.Key, accountID, entities.FeatureChangeStateGranted,
+		req.Source, subjectType, subjectID, subjectEmail)
+	return nil
+}
+
+// RevokeGrant takes a grant back.
+//
+// A revocation that matched nothing succeeds and records nothing. The caller's
+// intent is already satisfied, and an audit log stays readable by containing
+// only things that happened.
+func (s *FeatureAdminService) RevokeGrant(ctx context.Context, req RevokeRequest) error {
+	accountID, err := s.grantAccount(ctx, req.AccountID, true)
+	if err != nil {
+		return err
+	}
+	subjectType, subjectID, subjectEmail, err := s.resolveSubject(ctx, accountID, req.Key, req.Email, req.Role)
+	if err != nil {
+		return err
+	}
+
+	var removed bool
+	if subjectType == repositories.FeatureSubjectRole {
+		removed, err = s.features.RevokeFromRole(ctx, accountID, subjectID, req.Key)
+	} else {
+		removed, err = s.features.RevokeFromAgent(ctx, accountID, subjectID, req.Key)
+	}
+	if err != nil {
+		return err
+	}
+	if removed {
+		s.recordGrant(ctx, req.Key, accountID, entities.FeatureChangeStateRevoked,
+			req.Source, subjectType, subjectID, subjectEmail)
+	}
+	return nil
+}
+
+// GrantsOn lists every grant on one feature in an account.
+//
+// Readable by any member of the account, like the feature listing itself:
+// seeing who holds something is not the same as being able to change it.
+func (s *FeatureAdminService) GrantsOn(ctx context.Context, key, accountID string) ([]GrantView, error) {
+	resolved, err := s.grantAccount(ctx, accountID, false)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.features.Declared(key); err != nil {
+		return nil, err
+	}
+	records, err := s.features.GrantsOnFeature(ctx, resolved, key)
+	if err != nil {
+		return nil, err
+	}
+	return s.viewsOf(ctx, records, ""), nil
+}
+
+// GrantsHeldBy lists everything one person holds in the caller's account,
+// whether they hold it themselves or through their role.
+func (s *FeatureAdminService) GrantsHeldBy(ctx context.Context, email string) ([]GrantView, error) {
+	accountID, err := s.grantAccount(ctx, "", false)
+	if err != nil {
+		return nil, err
+	}
+	agentID, _, err := s.agentForEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	roleID, err := s.accounts.FindMemberRole(ctx, accountID, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the member's role: %w", err)
+	}
+	records, err := s.features.GrantsFor(ctx, accountID, agentID, roleID)
+	if err != nil {
+		return nil, err
+	}
+	return s.viewsOf(ctx, records, agentID), nil
+}
+
+// viewsOf renders records for an operator. markDirectFor, when set, tags each
+// row as held directly or through a role.
+func (s *FeatureAdminService) viewsOf(
+	ctx context.Context, records []entities.FeatureGrantRecord, markDirectFor string,
+) []GrantView {
+	now := time.Now()
+	out := make([]GrantView, 0, len(records))
+	for _, r := range records {
+		v := GrantView{
+			FeatureKey:   r.FeatureKey,
+			SubjectType:  r.SubjectType,
+			ValidFrom:    r.ValidFrom,
+			ValidThrough: r.ValidThrough,
+			Status:       r.WindowState(now),
+			GrantedBy:    r.GrantedByEmail,
+			GrantedAt:    r.CreatedAt,
+		}
+		if r.SubjectType == repositories.FeatureSubjectRole {
+			v.Role = r.SubjectID
+		} else {
+			// Resolved at read time rather than stored: an address can change
+			// and a grant should not follow it, so the row holds the agent id.
+			v.Email = s.emailFor(ctx, r.SubjectID)
+		}
+		if markDirectFor != "" {
+			if r.SubjectType == repositories.FeatureSubjectRole {
+				v.Via = "role:" + r.SubjectID
+			} else {
+				v.Via = "direct"
+			}
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// grantAccount decides which account a grant acts in.
+//
+// The local transport is the operator's, so it may name an account — the
+// command line resolved the id already and whoever runs it holds the database.
+// With no account named there, the caller is refused and told where to go: an
+// account-scoped grant has no account to land in when nobody is signed in, and
+// guessing one would be the multi-tenant hole this arrangement exists to avoid.
+//
+// Everywhere else the account comes off the session and any named one is
+// ignored, so an admin cannot reach into an account by naming it.
+func (s *FeatureAdminService) grantAccount(ctx context.Context, named string, write bool) (string, error) {
+	if isLocalTransport(ctx) {
+		if named == "" {
+			return "", fmt.Errorf(
+				"a grant needs an account and this transport has no signed-in caller; "+
+					"make it from the command line with --account <id>: %w", ErrValidation)
+		}
+		account, err := s.accounts.FindByID(ctx, named)
+		if err != nil || account == nil {
+			return "", fmt.Errorf("no account %q exists: %w", named, ErrValidation)
+		}
+		return named, nil
+	}
+	if write {
+		return s.requireAccountAdmin(ctx)
+	}
+	identityCtx := auth.AgentFromCtx(ctx)
+	if identityCtx == nil || identityCtx.ActiveAccountID == "" {
+		return "", fmt.Errorf("reading grants requires a session in an account: %w", ErrForbidden)
+	}
+	role, err := s.accounts.FindMemberRole(ctx, identityCtx.ActiveAccountID, identityCtx.AgentID)
+	if err != nil {
+		return "", fmt.Errorf("failed to read the caller's role: %w", err)
+	}
+	if role == "" {
+		return "", fmt.Errorf("only a member of the account may read its grants: %w", ErrForbidden)
+	}
+	return identityCtx.ActiveAccountID, nil
+}
+
+// resolveSubject turns an email or a role into a stored subject, refusing in a
+// deliberate order: the feature first, then eligibility, then the person.
+//
+// The order is the point. Granting a mistyped feature to a stranger should
+// report the feature, not the stranger — the first thing wrong is the first
+// thing said.
+func (s *FeatureAdminService) resolveSubject(
+	ctx context.Context, accountID, key, email, role string,
+) (subjectType, subjectID, subjectEmail string, err error) {
+	meta, err := s.features.Declared(key)
+	if err != nil {
+		return "", "", "", err
+	}
+	if !meta.Grantable {
+		return "", "", "", fmt.Errorf("feature %q cannot be granted: %w", key, ErrValidation)
+	}
+	if (email == "") == (role == "") {
+		return "", "", "", fmt.Errorf(
+			"name exactly one of a person or a role to grant to: %w", ErrValidation)
+	}
+
+	if role != "" {
+		switch role {
+		case authentities.RoleOwner, authentities.RoleAdmin, authentities.RoleMember:
+			return repositories.FeatureSubjectRole, role, "", nil
+		default:
+			return "", "", "", fmt.Errorf(
+				"no role %q exists; the roles are %q, %q and %q: %w",
+				role, authentities.RoleOwner, authentities.RoleAdmin,
+				authentities.RoleMember, ErrValidation)
+		}
+	}
+
+	agentID, resolvedEmail, err := s.agentForEmail(ctx, email)
+	if err != nil {
+		return "", "", "", err
+	}
+	memberRole, err := s.accounts.FindMemberRole(ctx, accountID, agentID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to read the member's role: %w", err)
+	}
+	if memberRole == "" {
+		return "", "", "", fmt.Errorf(
+			"%q is not a member of this account: %w", email, ErrValidation)
+	}
+	return repositories.FeatureSubjectAgent, agentID, resolvedEmail, nil
+}
+
+// agentForEmail finds who an address belongs to. An address nobody signed up
+// with is a 404 rather than a grant stored against nothing.
+func (s *FeatureAdminService) agentForEmail(ctx context.Context, email string) (string, string, error) {
+	if s.creds == nil {
+		return "", "", fmt.Errorf("cannot look up %q: %w", email, repositories.ErrNotFound)
+	}
+	creds, err := s.creds.FindByEmail(ctx, email)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to look up %q: %w", email, err)
+	}
+	if len(creds) == 0 {
+		return "", "", fmt.Errorf("nobody signed up with %q: %w", email, repositories.ErrNotFound)
+	}
+	return creds[0].AgentID(), email, nil
+}
+
+// recordGrant appends a grant or revocation to the same log that carries
+// override changes, so "who took that away, and when" has one answer.
+func (s *FeatureAdminService) recordGrant(
+	ctx context.Context, key, accountID, state, src, subjectType, subjectID, subjectEmail string,
+) {
+	s.recordEvent(ctx, entities.FeatureChanged{
+		Key:          key,
+		Scope:        "account",
+		ScopeID:      accountID,
+		State:        state,
+		Source:       src,
+		SubjectType:  subjectType,
+		SubjectID:    subjectID,
+		SubjectEmail: subjectEmail,
+	})
 }
