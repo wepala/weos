@@ -18,6 +18,7 @@ package application
 import (
 	"context"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	"github.com/open-feature/go-sdk/openfeature"
 )
 
@@ -50,4 +51,16 @@ func ToolFeatureGate(client *openfeature.Client) func(context.Context, string) b
 		}
 		return client.Boolean(ctx, FeatureFlagPrefix+featureKey, true, openfeature.EvaluationContext{})
 	}
+}
+
+// HasCallerIdentity reports whether ctx carries an authenticated caller.
+//
+// It is the exact condition under which resolution reaches the account layer
+// and the caller's grants at all: with no identity, ResolvedSet stops at the
+// instance layer. A refusal uses it to be truthful about whose answer it is —
+// telling a local stdio user that a capability is "not enabled for you" would
+// send them looking for a grant that cannot apply on a transport with no
+// caller.
+func HasCallerIdentity(ctx context.Context) bool {
+	return auth.AgentFromCtx(ctx) != nil
 }

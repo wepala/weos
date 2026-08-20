@@ -859,30 +859,14 @@ func (w *toolsWorld) callFromAgentToolset(p *featurePerson, name string) error {
 		if !ok {
 			return fmt.Errorf("%q is not callable from the agent's toolset", name)
 		}
-		out, runErr := runner.Run(&agentContext{ctx: ctx}, map[string]any{})
-		if runErr != nil {
-			return runErr
-		}
-		if refusedText(out) != "" {
-			return fmt.Errorf("the agent's call to %q was refused: %s", name, refusedText(out))
-		}
-		return nil
+		// A refusal arrives as an error, not as output: ADK's mcpTool.Run
+		// checks IsError before it looks at structured content, so the
+		// refusal text comes back in the error and never reaches output
+		// validation. Returning it is enough to fail a "succeeds" step.
+		_, runErr := runner.Run(&agentContext{ctx: ctx}, map[string]any{})
+		return runErr
 	}
 	return fmt.Errorf("the agent's toolset does not hold %q", name)
-}
-
-// refusedText pulls a gate refusal out of an ADK tool result. The MCP client
-// inside the toolset turns an IsError result into content the agent can read,
-// so a refused call must not be mistaken for a successful one.
-func refusedText(out map[string]any) string {
-	raw, err := json.Marshal(out)
-	if err != nil {
-		return ""
-	}
-	if strings.Contains(string(raw), refusalMarker) {
-		return string(raw)
-	}
-	return ""
 }
 
 func contains(names []string, want string) bool {

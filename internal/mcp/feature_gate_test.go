@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/akeemphilbert/pericarp/pkg/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wepala/weos/v3/application"
@@ -108,7 +109,7 @@ func TestGateHidesAndRefusesOnlyTheGatedTool(t *testing.T) {
 		t.Fatalf("the refusal carried a partial result: %v", res.StructuredContent)
 	}
 	text := textFromResult(res)
-	if !strings.Contains(text, "gated_tool") || !strings.Contains(text, "not enabled for you") {
+	if !strings.Contains(text, "gated_tool") || !strings.Contains(text, "not enabled") {
 		t.Fatalf("the refusal does not say what happened: %q", text)
 	}
 
@@ -202,8 +203,14 @@ func TestEpisodicRecallCarriesItsGate(t *testing.T) {
 	if has(names, "episodic_recall") {
 		t.Fatal("episodic_recall was offered while its feature was off")
 	}
-	if !has(names, "episodic_event_get") {
-		t.Fatalf("an ungated companion tool went missing: %v", names)
+	// The whole group goes, not only the entry point: a model holds event URNs
+	// from earlier turns, and episodic_similar ranks a thousand events from any
+	// seed, so leaving either open would re-open broad recall.
+	if has(names, "episodic_similar") || has(names, "episodic_event_get") {
+		t.Fatalf("a companion episodic tool stayed open while the feature was off: %v", names)
+	}
+	if !has(names, "resource_get") {
+		t.Fatalf("an ungated tool went missing: %v", names)
 	}
 	if asked["episodic-recall"] == 0 {
 		t.Fatalf("the gate was never asked about episodic-recall; it was asked about %v", asked)
@@ -249,4 +256,37 @@ func (stubEpisodicRecall) Similar(
 
 func (stubEpisodicRecall) EventByURN(context.Context, string) (*application.FetchedEvent, error) {
 	return &application.FetchedEvent{}, nil
+}
+
+// TestRefusalSaysWhoseAnswerItIs pins the wording split. With a caller the
+// refusal is about them and an admin can change it; with none — the local
+// stdio transport — resolution never reached an account or a grant, so
+// wording it "for you" would send the reader after a grant that cannot apply.
+func TestRefusalSaysWhoseAnswerItIs(t *testing.T) {
+	server, _, _ := gatedTestServer(t, func(context.Context, string) bool { return false })
+
+	withCaller := auth.ContextWithAgent(context.Background(),
+		&auth.Identity{AgentID: "agent-ops", ActiveAccountID: "acct-harbor"})
+	cs := connectForGate(t, withCaller, server)
+	res, err := cs.CallTool(withCaller, &mcp.CallToolParams{Name: "gated_tool"})
+	if err != nil {
+		t.Fatalf("unexpected protocol error: %v", err)
+	}
+	if text := textFromResult(res); !strings.Contains(text, "not enabled for you") {
+		t.Fatalf("a refusal to a known caller does not say it is about them: %q", text)
+	}
+
+	anonymous := context.Background()
+	cs2 := connectForGate(t, anonymous, server)
+	res2, err := cs2.CallTool(anonymous, &mcp.CallToolParams{Name: "gated_tool"})
+	if err != nil {
+		t.Fatalf("unexpected protocol error: %v", err)
+	}
+	text := textFromResult(res2)
+	if strings.Contains(text, "for you") {
+		t.Fatalf("a refusal on a transport with no caller blames the caller: %q", text)
+	}
+	if !strings.Contains(text, "on this server") {
+		t.Fatalf("a refusal with no caller does not say the answer is instance-wide: %q", text)
+	}
 }

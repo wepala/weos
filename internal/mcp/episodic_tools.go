@@ -64,16 +64,20 @@ type EpisodicEventGetInput struct {
 
 // registerEpisodicTools registers the episodic-memory tool group.
 func registerEpisodicTools(server *mcp.Server, gates *FeatureGates, episodic application.EpisodicRecall) {
-	// episodic_recall is gated on the "episodic-recall" feature, declared
-	// beside its name and annotations because that is the only place the two
-	// stay together. When the feature is off for the caller the tool is
-	// absent from their listing and a call to it is refused; when it is on,
-	// nothing about the tool differs from before it had a gate.
+	// All three tools are gated on the "episodic-recall" feature, declared
+	// beside each tool's name and annotations because that is the only place
+	// the two stay together. When the feature is off for the caller each tool
+	// is absent from their listing and a call to it is refused; when it is on,
+	// nothing about them differs from before they had a gate.
 	//
-	// Its two companions are deliberately ungated. The feature names the
-	// capability an operator thinks about — recalling past events during a
-	// conversation — and that capability is reached through this tool. The
-	// others drill into an event whose URN a caller already holds.
+	// The whole group, not just the entry point. It is tempting to gate only
+	// episodic_recall on the grounds that the other two need an event URN the
+	// caller already holds — but a model holds URNs from earlier turns, and
+	// episodic_similar ranks the most recent thousand events from any seed, so
+	// one retained URN re-opens broad recall. An operator who turns off a
+	// feature called "Episodic recall" means the assistant stops recalling
+	// past events, and a gate that left two doors open would be read as a
+	// privacy defect rather than a boundary.
 	AddGatedTool(server, gates, "episodic-recall", &mcp.Tool{
 		Name: "episodic_recall",
 		Description: "Recall what happened from the event log: a time-ordered, paginated slice of " +
@@ -103,7 +107,7 @@ func registerEpisodicTools(server *mcp.Server, gates *FeatureGates, episodic app
 			HasMore: res.HasMore,
 		}, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{
+	AddGatedTool(server, gates, "episodic-recall", &mcp.Tool{
 		Name: "episodic_similar",
 		Description: "Find events structurally similar to a seed event, ranked by a fixed, " +
 			"deterministic score: +100 per shared referenced resource (dominant), +10 same " +
@@ -122,7 +126,7 @@ func registerEpisodicTools(server *mcp.Server, gates *FeatureGates, episodic app
 		}
 		return nil, EpisodicSimilarOutput{Results: res.Events}, nil
 	})
-	mcp.AddTool(server, &mcp.Tool{
+	AddGatedTool(server, gates, "episodic-recall", &mcp.Tool{
 		Name: "episodic_event_get",
 		Description: "Fetch one event's full stored payload by its URN. Recall results stay " +
 			"compact by default — use this to drill into a single event an episodic tool " +

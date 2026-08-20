@@ -21,6 +21,8 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/wepala/weos/v3/application"
 )
 
 // Gating an MCP tool on a feature (epic #480, story #484).
@@ -40,13 +42,21 @@ import (
 // resolved when it arrives.
 //
 // Deliberately NOT implemented here: a `tools/list_changed` notification. The
-// protocol has one and the SDK can send it, and it cannot be the mechanism.
+// protocol has one and the SDK can send it, and it cannot be THE mechanism.
 // Grant expiry is lazy by design (#483) — a window that closes fires nothing,
 // because a row that has run out is simply not counted at the next
-// resolution — so at the moment the resolved tool list changes there is no
-// event to hang a notification on, and there would not be one without a
-// scheduler the epic does not want. A notification may be added later for the
-// changes an implementation can see; nothing may be built on top of it.
+// resolution — so for that case there is no event to hang a notification on,
+// and there would not be one without a scheduler the epic does not want.
+//
+// Worth knowing before anyone revisits this: expiry is the ONLY unobservable
+// case. An operator's flip, an account override and a grant being made or
+// revoked are all writes that already invalidate caches, so a courtesy
+// notification could hang on them, and it would cover the direction the
+// refusal cannot help with — a capability being turned ON, where a client
+// holding a stale list never re-lists and the model cannot call what it
+// cannot see. Such a notification stays a courtesy: it must never become the
+// thing anything relies on, because the expiry case would silently not have
+// it.
 
 // SDK method names. The Go SDK keeps its own copies unexported, so they are
 // restated here rather than reached for.
@@ -232,7 +242,23 @@ func refuseGatedCall(
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(
-			"%s is not available: the %q capability is not enabled for you.",
-			call.Params.Name, key)}},
+			"%s is not available: the %q capability is not enabled %s.",
+			call.Params.Name, key, refusalScope(ctx))}},
 	}
+}
+
+// refusalScope says whose answer the refusal is, because the two cases send a
+// reader somewhere different.
+//
+// With a caller, the answer came from their account and their grants, so "for
+// you" is exact and an admin can change it for them. With no caller —  the
+// local stdio transport, or an anonymous request — resolution stopped at the
+// instance layer, and no account override or personal grant could have
+// reached it. Saying "for you" there would send a mini-me user looking for a
+// grant that cannot apply on the transport they are using.
+func refusalScope(ctx context.Context) string {
+	if application.HasCallerIdentity(ctx) {
+		return "for you"
+	}
+	return "on this server"
 }
