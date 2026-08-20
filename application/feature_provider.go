@@ -96,7 +96,7 @@ func (p *FeatureProvider) Hooks() []openfeature.Hook {
 // identity already travels on ctx, placed there by the auth middleware for the
 // whole request pipeline. Accepting it from both would create two sources of
 // truth that can disagree — and the one on ctx is the one the rest of the
-// system authorises against.
+// system authorizes against.
 func (p *FeatureProvider) BooleanEvaluation(
 	ctx context.Context, flag string, defaultValue bool, _ openfeature.FlattenedContext,
 ) openfeature.BoolResolutionDetail {

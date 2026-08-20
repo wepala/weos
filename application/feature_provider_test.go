@@ -92,9 +92,9 @@ func TestProviderUndeclaredKeyReturnsCallerDefaultAndLogsOnce(t *testing.T) {
 			t.Fatalf("reason = %q, want %q", got.Reason, openfeature.DefaultReason)
 		}
 	}
-	// And the caller's default is honoured whichever way it points.
+	// And the caller's default is honored whichever way it points.
 	if got := p.BooleanEvaluation(ctx, FeatureFlagPrefix+"shipping-labels", true, nil); !got.Value {
-		t.Fatal("an undeclared key did not honour a true default")
+		t.Fatal("an undeclared key did not honor a true default")
 	}
 
 	logs := logger.matching("shipping-labels")

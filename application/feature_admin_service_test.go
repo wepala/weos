@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,23 @@ type adminAccounts struct {
 	roles    map[string]string
 	accounts []string
 	err      error
+}
+
+func (a adminAccounts) FindByID(_ context.Context, id string) (*authentities.Account, error) {
+	if a.err != nil {
+		return nil, a.err
+	}
+	for _, known := range a.accounts {
+		if known == id {
+			acct := new(authentities.Account)
+			if err := acct.Restore(id, id+" Account",
+				authentities.AccountTypePersonal, true, time.Unix(0, 0)); err != nil {
+				return nil, err
+			}
+			return acct, nil
+		}
+	}
+	return nil, nil
 }
 
 func (a adminAccounts) FindMemberRole(_ context.Context, accountID, agentID string) (string, error) {
@@ -188,5 +206,79 @@ func TestAnonymousCallerIsRefused(t *testing.T) {
 	if err := svc.SetInstance(ctxAsAgent("agent-ops", ""), "episodic-recall", false,
 		entities.FeatureChangeSourceAPI); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("a session naming no account was not refused: %v", err)
+	}
+}
+
+// TestAccountScopeRefusesAnOrdinaryMember covers the guard on the account
+// scope, which the acceptance contract does not reach — no scenario has an
+// ordinary member attempt an account-scope change.
+func TestAccountScopeRefusesAnOrdinaryMember(t *testing.T) {
+	accounts := adminAccounts{
+		accounts: []string{"acct-only"},
+		roles:    map[string]string{"acct-only|agent-clerk": "member"},
+	}
+	svc := testAdminService(t, config.Default(), accounts)
+
+	err := svc.SetAccount(ctxAsAgent("agent-clerk", "acct-only"),
+		"ledger-export", true, entities.FeatureChangeSourceAPI)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("an ordinary member set an account override: %v", err)
+	}
+	err = svc.ResetAccount(ctxAsAgent("agent-clerk", "acct-only"),
+		"ledger-export", entities.FeatureChangeSourceAPI)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("an ordinary member reset an account override: %v", err)
+	}
+}
+
+// TestResetAccountClearsTheOverride covers the one method with no coverage on
+// any surface — three entry points reach it and no scenario exercises any.
+func TestResetAccountClearsTheOverride(t *testing.T) {
+	accounts := adminAccounts{
+		accounts: []string{"acct-only"},
+		roles:    map[string]string{"acct-only|agent-ops": authentities.RoleOwner},
+	}
+	registry, _ := newTestFeatureRegistry(t, featEpisodic, featLedger)
+	settings := &fakeSettings{}
+	svc := NewFeatureService(registry, settings, newFakeGrants(), fakeMembers{},
+		newRecordingInvalidator(), nil)
+	resolver := NewFeatureResolver(config.Default(), registry, settings, newFakeGrants(),
+		&fakeAccounts{roles: map[string]string{}}, nil)
+	admin := NewFeatureAdminService(config.Default(), svc, resolver, accounts, nil, nil, nil, nil)
+
+	ctx := ctxAsAgent("agent-ops", "acct-only")
+	if err := admin.SetAccount(ctx, "ledger-export", true, entities.FeatureChangeSourceAPI); err != nil {
+		t.Fatalf("SetAccount: %v", err)
+	}
+	if !settings.account["acct-only"]["ledger-export"] {
+		t.Fatal("the override was not stored")
+	}
+	if err := admin.ResetAccount(ctx, "ledger-export", entities.FeatureChangeSourceAPI); err != nil {
+		t.Fatalf("ResetAccount: %v", err)
+	}
+	if _, present := settings.account["acct-only"]["ledger-export"]; present {
+		t.Fatal("reset left the override behind; unset and off must not be confusable")
+	}
+}
+
+// TestConfiguredPrimaryAccountMustExist: a typo would otherwise tell every
+// operator they lack a role, blaming the caller for a mistake in an
+// environment variable.
+func TestConfiguredPrimaryAccountMustExist(t *testing.T) {
+	cfg := config.Default()
+	cfg.Features.PrimaryAccountID = "acct-typo"
+	accounts := adminAccounts{
+		accounts: []string{"acct-real"},
+		roles:    map[string]string{"acct-real|agent-ops": authentities.RoleOwner},
+	}
+	svc := testAdminService(t, cfg, accounts)
+
+	err := svc.SetInstance(ctxAsAgent("agent-ops", "acct-real"),
+		"episodic-recall", false, entities.FeatureChangeSourceAPI)
+	if err == nil {
+		t.Fatal("a configured account that does not exist was accepted")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("the error blames the caller rather than the configuration: %v", err)
 	}
 }

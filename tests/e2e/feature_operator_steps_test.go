@@ -159,6 +159,14 @@ func (w *operatorWorld) stepAccountOwner(name, email, password string) error {
 		return fmt.Errorf("%q has no account to name %q", email, name)
 	}
 	w.accounts[name] = p.accountID
+	if w.primaryAccountID == "" {
+		// The first account staged is this instance's own. Recorded and the
+		// instance restarted so the guard reads it — otherwise every later
+		// registration makes the instance ambiguous, and a member is refused
+		// for that rather than for their role.
+		w.primaryAccountID = p.accountID
+		return w.reboot()
+	}
 	return nil
 }
 

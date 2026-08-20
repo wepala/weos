@@ -222,9 +222,14 @@ func ExtractResourceTypeSlug(id string) string {
 	}
 	parts := strings.Split(id, ":")
 	if len(parts) == 3 && parts[0] == "urn" {
-		// Exclude known 3-part prefixes (person, org, theme, type)
+		// Exclude known 3-part prefixes that are NOT resource types.
+		//
+		// feature-change is here because an operator's audit event
+		// (urn:feature-change:<ksuid>) otherwise reads as a resource of type
+		// "feature-change" — a type nothing declares — and surfaces in
+		// episodic recall as if it were content the agent could reason about.
 		switch parts[1] {
-		case "person", "org", "theme", "type":
+		case "person", "org", "theme", "type", "feature-change":
 			return ""
 		}
 		return parts[1]

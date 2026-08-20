@@ -10,10 +10,10 @@ import (
 // trusted without a permission check.
 func TestResolveEnabled_EmptyReturnsAllButOptIn(t *testing.T) {
 	for _, input := range [][]string{nil, {}} {
-		enabled := resolveEnabled(input)
+		enabled := resolveEnabledFor(input, true)
 		want := 0
 		for _, s := range AllServices {
-			if DefaultOffServices[s] {
+			if StdioOptInServices[s] {
 				if enabled[s] {
 					t.Errorf("service %q is opt-in but was enabled for empty input", s)
 				}
@@ -113,11 +113,15 @@ func searchString(s, substr string) bool {
 // permission check, so an LLM pointed at the graph must not find the
 // switchboard in reach unless the operator named it.
 func TestFeatureToolsAreNotEnabledByDefault(t *testing.T) {
-	if resolveEnabled(nil)[ServiceFeature] {
-		t.Fatal("the feature service is enabled when no services are named")
+	if resolveEnabledFor(nil, true)[ServiceFeature] {
+		t.Fatal("the feature service is enabled on stdio when no services are named")
 	}
-	if !resolveEnabled(nil)[ServiceResource] {
+	if !resolveEnabledFor(nil, true)[ServiceResource] {
 		t.Fatal("naming no services should still enable the ordinary groups")
+	}
+	// HTTP is permission-checked like the API, so it keeps the tools.
+	if !resolveEnabled(nil)[ServiceFeature] {
+		t.Fatal("the feature service is off on the HTTP surface, where it is permission-checked")
 	}
 	if !resolveEnabled([]string{"feature"})[ServiceFeature] {
 		t.Fatal("naming the feature service did not enable it")

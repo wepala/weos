@@ -32,12 +32,14 @@ var mcpCmd = &cobra.Command{
 	Short: "Start the MCP server",
 	Long: fmt.Sprintf(`Start the WeOS MCP (Model Context Protocol) server for LLM-driven edits.
 
-By default all tool groups are registered. Use --services to expose only a subset.
+By default every tool group is registered except those that must be asked for by
+name over this transport — currently "feature", which changes instance-wide state
+and is left out because stdio callers are trusted without a permission check. Use --services to expose only a subset.
 
 Available services: %s
 
 Examples:
-  weos mcp                                   # all services (default)
+  weos mcp                                   # every group except the opt-in ones (default)
   weos mcp --services website,page           # only website and page tools
   weos mcp --services website --services page # same, repeated flag syntax
   MCP_SERVICES=organization weos mcp         # env var override`,

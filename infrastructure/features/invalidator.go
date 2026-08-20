@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package features holds the deployment-specific half of feature-cache
-// invalidation. The behaviour in front of the interface never varies; only the
+// invalidation. The behavior in front of the interface never varies; only the
 // machinery behind it does, and it lives here so swapping the transport later
 // touches this package and nothing else.
 package features
@@ -79,7 +79,7 @@ func NewNotifyInvalidator(
 const DefaultNotifyChannel = "weos_feature_cache"
 
 // Listen drops the local cache whenever another replica broadcasts, and blocks
-// until ctx is cancelled. Callers run it in a goroutine started from an fx
+// until ctx is canceled. Callers run it in a goroutine started from an fx
 // OnStart hook and cancel it on OnStop.
 func (n *NotifyInvalidator) Listen(ctx context.Context, dsn string) error {
 	return n.listen(ctx, dsn)
@@ -126,7 +126,7 @@ func (n *NotifyInvalidator) log(ctx context.Context, msg string, kv ...any) {
 }
 
 // listen drops the local cache whenever another replica broadcasts. Runs until
-// ctx is cancelled; the fx OnStop hook cancels it.
+// ctx is canceled; the fx OnStop hook cancels it.
 func (n *NotifyInvalidator) listen(ctx context.Context, dsn string) error {
 	listener, err := subscriptions.NewPostgresListener(dsn,
 		subscriptions.WithListenerChannel(n.channel))

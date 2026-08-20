@@ -84,6 +84,12 @@ type operatorWorld struct {
 
 	maxCacheAge time.Duration
 	declared    []entities.FeatureMeta
+	// primaryAccountID names the account whose owners and admins may change
+	// instance state. Set once the first account is staged, so the member
+	// scenarios reach the ROLE check rather than being refused earlier for an
+	// ambiguous instance — which would let the role check be deleted entirely
+	// with the suite still green.
+	primaryAccountID string
 
 	accounts map[string]string
 	people   map[string]*featurePerson
@@ -194,6 +200,7 @@ func (w *operatorWorld) boot() error {
 	// processes can only agree about which features exist by reading the same
 	// declarations, and nothing is persisted for them to share.
 	cfg.Features.Declared = append([]entities.FeatureMeta(nil), w.declared...)
+	cfg.Features.PrimaryAccountID = w.primaryAccountID
 
 	app := fx.New(
 		fx.NopLogger,
@@ -519,21 +526,6 @@ func findStatus(statuses []entities.FeatureStatus, key string) (entities.Feature
 	return entities.FeatureStatus{}, false
 }
 
-// sourcePhrase maps the contract's wording onto the layer names the resolver
-// reports.
-func sourcePhrase(phrase string) string {
-	switch {
-	case strings.Contains(phrase, "instance"):
-		return "instance"
-	case strings.Contains(phrase, "account"):
-		return "account"
-	case strings.Contains(phrase, "grant"):
-		return "grant"
-	default:
-		return "default"
-	}
-}
-
 // --- helpers the steps use ------------------------------------------------
 
 // resolverEnabled asks the resolver the way a call site would.
@@ -562,9 +554,10 @@ func (w *operatorWorld) lastFeatureChange() (entities.FeatureChanged, error) {
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return entities.FeatureChanged{}, fmt.Errorf("could not read the recorded change: %w", err)
 	}
-	if event.Timestamp.IsZero() {
-		event.Timestamp = last.CreatedAt
-	}
+	// Deliberately NOT backfilled from the row's CreatedAt. Filling the
+	// timestamp in here would mean the "the record carries the time" step
+	// checked a value the harness had just supplied, and it would pass with
+	// the payload's own timestamp removed entirely.
 	return event, nil
 }
 

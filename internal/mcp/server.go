@@ -38,15 +38,19 @@ const (
 	ServiceFeature        ServiceName = "feature"
 )
 
-// DefaultOffServices are real services that are NOT enabled when a caller
-// names none.
+// StdioOptInServices are services that `weos mcp` does NOT enable unless the
+// operator names them.
 //
-// The feature tools change instance-wide state, and `weos mcp` over stdio is
+// The feature tools change instance-wide state, and the stdio transport is
 // trusted without a permission check — so leaving them on by default would put
 // the instance switchboard in reach of any local MCP client, including an LLM
 // pointed at the graph for something else entirely. Naming the group turns
 // them on: `weos mcp --services resource,feature`.
-var DefaultOffServices = map[ServiceName]bool{
+//
+// This applies to STDIO only. The HTTP MCP surface is permission-checked
+// exactly like the REST API, so there is nothing to protect it from there and
+// the admin UI and in-app agent keep the tools.
+var StdioOptInServices = map[ServiceName]bool{
 	ServiceFeature: true,
 }
 
@@ -94,10 +98,16 @@ func ValidateServiceNames(names []string) error {
 
 // resolveEnabled returns a set of enabled services. If the input is nil or empty, all services are enabled.
 func resolveEnabled(services []string) map[ServiceName]bool {
+	return resolveEnabledFor(services, false)
+}
+
+// resolveEnabledFor resolves the enabled set. stdio marks the trusted local
+// transport, where some groups must be asked for by name.
+func resolveEnabledFor(services []string, stdio bool) map[ServiceName]bool {
 	enabled := make(map[ServiceName]bool, len(AllServices))
 	if len(services) == 0 {
 		for _, s := range AllServices {
-			if DefaultOffServices[s] {
+			if stdio && StdioOptInServices[s] {
 				continue
 			}
 			enabled[s] = true
@@ -230,6 +240,16 @@ func Run(enabledServices []string) error {
 		}
 	}()
 
+	// The stdio path opts out of the trusted-transport groups unless the
+	// operator named them; see StdioOptInServices.
+	if len(enabledServices) == 0 {
+		for _, s := range AllServices {
+			if StdioOptInServices[s] {
+				continue
+			}
+			enabledServices = append(enabledServices, string(s))
+		}
+	}
 	server, err := NewMCPServer(
 		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
 		featureAdmin, enabledServices)

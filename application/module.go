@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+
 	"github.com/open-feature/go-sdk/openfeature"
 
 	appagents "github.com/wepala/weos/v3/application/agents"

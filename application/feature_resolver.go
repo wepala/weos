@@ -93,7 +93,7 @@ type FeatureResolver struct {
 	// that a change reaches sessions already open. The window is widest
 	// exactly when the instance is busy.
 	generation uint64
-	// now is injectable so the max-age behaviour can be tested without
+	// now is injectable so the max-age behavior can be tested without
 	// sleeping. Production leaves it nil and uses time.Now.
 	now func() time.Time
 }
@@ -172,7 +172,7 @@ func (r *FeatureResolver) Enabled(ctx context.Context, key string) (bool, bool, 
 //
 // The whole set is resolved at once rather than one key at a time. An agent
 // turn evaluates many keys, and resolving per key would multiply the database
-// reads by the number of features rather than amortising them to one.
+// reads by the number of features rather than amortizing them to one.
 func (r *FeatureResolver) ResolvedSet(ctx context.Context) (map[string]bool, error) {
 	identity := auth.AgentFromCtx(ctx)
 	key := featureCacheKey{}

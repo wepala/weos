@@ -97,9 +97,14 @@ func runFeatureList(cmd *cobra.Command, _ []string) error {
 			return nil
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "KEY\tNAME\tSTATE\tSOURCE")
+		if _, err := fmt.Fprintln(w, "KEY\tNAME\tSTATE\tSOURCE"); err != nil {
+			return err
+		}
 		for _, s := range statuses {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Key, s.DisplayName, stateWord(s.Enabled), sourceWord(s.Source))
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				s.Key, s.DisplayName, stateWord(s.Enabled), sourceWord(s.Source)); err != nil {
+				return err
+			}
 		}
 		return w.Flush()
 	})
@@ -139,12 +144,15 @@ func runFeatureReset(cmd *cobra.Command, args []string) error {
 // sets reach their maximum age. Saying so here is the difference between a
 // documented delay and an operator concluding the command did not work.
 func printCacheAgeNotice(cmd *cobra.Command) {
-	age := GetConfig().Config.Features.CacheMaxAge
+	age := GetConfig().Features.CacheMaxAge
 	if age <= 0 {
 		age = 15 * time.Minute
 	}
-	cmd.Printf("A running instance may take up to %s to pick this up "+
-		"(set FEATURE_CACHE_MAX_AGE_SECONDS to change that).\n", age)
+	// Named as this command's own setting, not the server's. They are separate
+	// processes reading separate environments, and stating a number this
+	// process cannot know would be worse than saying nothing.
+	cmd.Printf("A running instance picks this up when its cached feature sets expire "+
+		"(FEATURE_CACHE_MAX_AGE_SECONDS; %s here, but the server's own setting is what applies).\n", age)
 }
 
 func stateWord(enabled bool) string {

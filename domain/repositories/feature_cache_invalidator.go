@@ -23,7 +23,7 @@ import "context"
 // There is one rule and it has no exceptions: a change to the instance, to an
 // account, or to a grant reaches sessions that are already open. What varies
 // between deployments is only the machinery behind this interface, never the
-// behaviour in front of it — tie the two together and a bug that only appears
+// behavior in front of it — tie the two together and a bug that only appears
 // under replicas never shows up on the single-process instance it was
 // developed on.
 //

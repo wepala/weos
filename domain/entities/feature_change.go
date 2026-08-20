@@ -47,7 +47,7 @@ const (
 // request context carries only an agent id — a KSUID — and a log of KSUIDs
 // answers "who" in a way nobody can use without a second lookup they will not
 // bother to do. Over the command line both actor fields are empty and Source
-// carries "cli", which is the honest record: the operating system authorised
+// carries "cli", which is the honest record: the operating system authorized
 // that change, not WeOS.
 type FeatureChanged struct {
 	Key        string

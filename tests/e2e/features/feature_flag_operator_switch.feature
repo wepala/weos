@@ -119,6 +119,7 @@ Feature: An operator turns a feature on or off for the whole instance
     When the operator runs "weos feature reset <key>"
     Then the command exits successfully
     And the listing reports "<key>" as <state>, from the declared default
+    And no instance-level setting is stored for "<key>"
 
     Examples:
       | command | key             | state |

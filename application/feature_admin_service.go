@@ -173,10 +173,11 @@ func (s *FeatureAdminService) requireOperator(ctx context.Context) error {
 	}
 	identityCtx := auth.AgentFromCtx(ctx)
 	if identityCtx == nil || identityCtx.ActiveAccountID == "" {
-		// A session that names no account has no role to check. Refused
-		// explicitly rather than left to the lookup, which returns an empty
-		// role for an empty account and would reach the same answer less
-		// obviously.
+		// The role is read in the INSTANCE's account, not this one, so a
+		// session naming no account could in principle still be checked. It is
+		// refused anyway: a session that has not settled on an account has not
+		// finished authenticating, and instance-wide state is the last thing
+		// that should be reachable from a half-formed one.
 		return fmt.Errorf("changing instance feature state requires a signed-in operator: %w", ErrForbidden)
 	}
 	primary, err := s.instanceAccount(ctx)
@@ -208,8 +209,22 @@ func (s *FeatureAdminService) requireOperator(ctx context.Context) error {
 // the caller's would hand it to everyone.
 func (s *FeatureAdminService) instanceAccount(ctx context.Context) (string, error) {
 	if s.primaryAccountID != "" {
+		// Checked, not trusted. A typo makes FindMemberRole return an empty
+		// role for everyone, so every operator would be told they lack the
+		// role — a message that blames the caller for a mistake in an
+		// environment variable, and one nobody would think to doubt.
+		account, err := s.accounts.FindByID(ctx, s.primaryAccountID)
+		if err != nil || account == nil {
+			return "", fmt.Errorf(
+				"FEATURE_PRIMARY_ACCOUNT_ID names account %q, which does not exist: %w",
+				s.primaryAccountID, ErrForbidden)
+		}
 		return s.primaryAccountID, nil
 	}
+	// Deactivated accounts still count here — FindAll does not filter on
+	// Active — so an instance that retired an old account reads as ambiguous
+	// and is refused rather than guessed at. Naming the account explicitly is
+	// the way out, and the message says so.
 	page, err := s.accounts.FindAll(ctx, "", 2)
 	if err != nil {
 		return "", fmt.Errorf("failed to read the instance's accounts: %w", err)
