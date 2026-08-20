@@ -17,12 +17,11 @@ package mcp
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // Gating an MCP tool on a feature (epic #480, story #484).
@@ -258,24 +257,8 @@ func refuseGatedCall(
 	}
 	return &mcp.CallToolResult{
 		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(
-			"%s is not available: the %q capability is not enabled %s.",
-			call.Params.Name, key, refusalScope(ctx))}},
+		Content: []mcp.Content{&mcp.TextContent{
+			Text: entities.GateRefusal(ctx, call.Params.Name, key),
+		}},
 	}
-}
-
-// refusalScope says whose answer the refusal is, because the two cases send a
-// reader somewhere different.
-//
-// With a caller, the answer came from their account and their grants, so "for
-// you" is exact and an admin can change it for them. With no caller —  the
-// local stdio transport, or an anonymous request — resolution stopped at the
-// instance layer, and no account override or personal grant could have
-// reached it. Saying "for you" there would send a mini-me user looking for a
-// grant that cannot apply on the transport they are using.
-func refusalScope(ctx context.Context) string {
-	if application.HasCallerIdentity(ctx) {
-		return "for you"
-	}
-	return "on this server"
 }

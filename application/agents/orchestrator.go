@@ -96,6 +96,7 @@ type Orchestrator struct {
 
 	mu           sync.RWMutex
 	skills       SkillSource
+	skillGate    SkillGate
 	toolsets     ToolsetFactory
 	defaultTools []string
 	recorder     EpisodeRecorder
@@ -476,26 +477,16 @@ func (o *Orchestrator) rootFor(ctx context.Context, skill string) (agent.Agent, 
 // instead of relying on coordinator routing.
 func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.Agent, error) {
 	o.mu.RLock()
-	skills := o.skills
 	toolsets := o.toolsets
 	o.mu.RUnlock()
 
-	if skills == nil {
-		return nil, fmt.Errorf("unknown skill %q: no skills are loaded", name)
-	}
-	defs, err := skills(ctx)
+	// The gate, not merely the graph. A caller naming a skill directly skips
+	// the coordinator entirely, so this door has to ask the same question the
+	// graph asked — and answer "you may not have this" differently from "no
+	// such skill".
+	def, err := o.findSkill(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("load skills: %w", err)
-	}
-	var def *entities.SkillDefinition
-	for i := range defs {
-		if defs[i].Name == name {
-			def = &defs[i]
-			break
-		}
-	}
-	if def == nil {
-		return nil, fmt.Errorf("unknown skill %q", name)
+		return nil, err
 	}
 
 	var ts tool.Toolset
@@ -504,7 +495,7 @@ func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.A
 			return nil, fmt.Errorf("open toolset: %w", err)
 		}
 	}
-	root, err := BuildSkillRootAgent(*def, o.model, ts)
+	root, err := BuildSkillRootAgent(def, o.model, ts)
 	if err != nil {
 		return nil, fmt.Errorf("build skill root %q: %w", name, err)
 	}
@@ -520,22 +511,20 @@ func (o *Orchestrator) buildSkillRoot(ctx context.Context, name string) (agent.A
 // immediately; construction is cheap (no network).
 func (o *Orchestrator) buildRoot(ctx context.Context) (agent.Agent, error) {
 	o.mu.RLock()
-	skills := o.skills
 	toolsets := o.toolsets
 	defaultTools := o.defaultTools
 	o.mu.RUnlock()
 
-	var defs []entities.SkillDefinition
-	if skills != nil {
-		var err error
-		if defs, err = skills(ctx); err != nil {
-			return nil, fmt.Errorf("load skills: %w", err)
-		}
+	// Only the skills this caller's features reach become sub-agents, so
+	// transfer_to_agent cannot name the rest — the coordinator is never told
+	// they exist.
+	defs, err := o.allowedSkills(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	var ts tool.Toolset
 	if toolsets != nil {
-		var err error
 		if ts, err = toolsets(ctx); err != nil {
 			return nil, fmt.Errorf("open toolset: %w", err)
 		}

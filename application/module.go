@@ -227,8 +227,16 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 		// command once the MCP server exists.
 		fx.Provide(infraagents.ProvideOrchestrator),
 		fx.Provide(func(o *appagents.Orchestrator) ConversationalAgent { return o }),
-		fx.Invoke(func(o *appagents.Orchestrator, r *SkillRegistry, rs ResourceService) {
+		fx.Invoke(func(
+			o *appagents.Orchestrator, r *SkillRegistry, rs ResourceService,
+			client *openfeature.Client, features *FeatureRegistry, logger entities.Logger,
+		) {
 			o.SetSkillSource(r.Skills)
+			// A gated skill is not offered to the coordinator and cannot be
+			// named directly (#485). Wired here rather than left to a caller
+			// for the reason #481 learned the hard way: a gate nothing depends
+			// on is a gate that never runs.
+			o.SetSkillGate(SkillFeatureGate(client, features, logger))
 			// Completed turns become note resources — the episodic memory
 			// that #386 consolidation distills facts from.
 			o.SetEpisodeRecorder(RecordAgentTurn(rs))

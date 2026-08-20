@@ -173,6 +173,7 @@ func ParseSkillDefinition(id string, data json.RawMessage) (entities.SkillDefini
 		Mode          string   `json:"mode"`
 		Widgets       []string `json:"widgets"`
 		Model         string   `json:"model"`
+		GatedBy       string   `json:"gatedBy"`
 	}
 	if err := json.Unmarshal(ExtractEntityNode(data), &raw); err != nil {
 		return entities.SkillDefinition{}, fmt.Errorf("parse agent-skill data: %w", err)
@@ -193,6 +194,7 @@ func ParseSkillDefinition(id string, data json.RawMessage) (entities.SkillDefini
 		Mode:          raw.Mode,
 		Widgets:       raw.Widgets,
 		Model:         raw.Model,
+		GatedBy:       raw.GatedBy,
 	}, nil
 }
 

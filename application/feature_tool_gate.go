@@ -18,8 +18,9 @@ package application
 import (
 	"context"
 
-	"github.com/akeemphilbert/pericarp/pkg/auth"
 	"github.com/open-feature/go-sdk/openfeature"
+
+	"github.com/wepala/weos/v3/domain/entities"
 )
 
 // ToolFeatureGate answers whether a gated capability is available to the
@@ -74,12 +75,9 @@ func ToolFeatureGate(client *openfeature.Client) func(context.Context, string) b
 
 // HasCallerIdentity reports whether ctx carries an authenticated caller.
 //
-// It is the exact condition under which resolution reaches the account layer
-// and the caller's grants at all: with no identity, ResolvedSet stops at the
-// instance layer. A refusal uses it to be truthful about whose answer it is —
-// telling a local stdio user that a capability is "not enabled for you" would
-// send them looking for a grant that cannot apply on a transport with no
-// caller.
+// Kept as the application-layer name for entities.HasCallerIdentity, which is
+// where every gating surface reads it from. One definition, because it decides
+// how a refusal is worded and a second copy would drift.
 func HasCallerIdentity(ctx context.Context) bool {
-	return auth.AgentFromCtx(ctx) != nil
+	return entities.HasCallerIdentity(ctx)
 }
