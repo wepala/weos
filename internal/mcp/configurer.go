@@ -43,6 +43,12 @@ type ConfigurerDeps struct {
 	ResourceService     application.ResourceService
 	ResourceTypeService application.ResourceTypeService
 	Logger              *slog.Logger
+	// Gates is the server's feature-gate index (#484). A configurer that
+	// wants its tool gated on a feature registers it with AddGatedTool and
+	// passes this, so the gate is written at the tool's own call site exactly
+	// as it is for a built-in tool. A tool added with plain mcp.AddTool is
+	// ungated and behaves as it always did. Never nil on either transport.
+	Gates *FeatureGates
 }
 
 // MCPConfigurer registers additional tools on the server after the

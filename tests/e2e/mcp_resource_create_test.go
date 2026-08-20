@@ -140,7 +140,7 @@ func (w *mcpWorld) aCleanKnowledgeGraph(_ context.Context) error {
 	w.eventStore = eventStore
 	w.manager = manager
 
-	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, episodic, nil, nil)
+	server, err := mcpserver.NewMCPServer(rts, rs, kg, nil, episodic, nil, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build MCP server: %w", err)
 	}

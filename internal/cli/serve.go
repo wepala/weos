@@ -28,8 +28,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/open-feature/go-sdk/openfeature"
 	"github.com/wepala/weos/v3/api/handlers"
 	apimw "github.com/wepala/weos/v3/api/middleware"
+
 	"github.com/wepala/weos/v3/application"
 	appagents "github.com/wepala/weos/v3/application/agents"
 	"github.com/wepala/weos/v3/application/presets"
@@ -136,6 +138,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var skillRegistry *application.SkillRegistry
 	var featureInvalidator repositories.FeatureCacheInvalidator
 	var featureAdmin *application.FeatureAdminService
+	var featureClient *openfeature.Client
 
 	registry := presets.NewDefaultRegistry()
 
@@ -147,6 +150,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fx.Populate(&skillRegistry),
 		fx.Populate(&featureInvalidator),
 		fx.Populate(&featureAdmin),
+		fx.Populate(&featureClient),
 		fx.Populate(&resourceTypeService),
 		fx.Populate(&resourceService),
 		fx.Populate(&kgService),
@@ -545,7 +549,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if serveViper.GetBool("enabled") {
 		mcpSrv, mcpErr := mcpserver.NewConfiguredServer(
 			resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
-			featureAdmin, slog.Default(),
+			featureAdmin, application.ToolFeatureGate(featureClient), slog.Default(),
 		)
 		if mcpErr != nil {
 			return fmt.Errorf("failed to create MCP server: %w", mcpErr)

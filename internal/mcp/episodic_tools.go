@@ -63,8 +63,18 @@ type EpisodicEventGetInput struct {
 }
 
 // registerEpisodicTools registers the episodic-memory tool group.
-func registerEpisodicTools(server *mcp.Server, episodic application.EpisodicRecall) {
-	mcp.AddTool(server, &mcp.Tool{
+func registerEpisodicTools(server *mcp.Server, gates *FeatureGates, episodic application.EpisodicRecall) {
+	// episodic_recall is gated on the "episodic-recall" feature, declared
+	// beside its name and annotations because that is the only place the two
+	// stay together. When the feature is off for the caller the tool is
+	// absent from their listing and a call to it is refused; when it is on,
+	// nothing about the tool differs from before it had a gate.
+	//
+	// Its two companions are deliberately ungated. The feature names the
+	// capability an operator thinks about — recalling past events during a
+	// conversation — and that capability is reached through this tool. The
+	// others drill into an event whose URN a caller already holds.
+	AddGatedTool(server, gates, "episodic-recall", &mcp.Tool{
 		Name: "episodic_recall",
 		Description: "Recall what happened from the event log: a time-ordered, paginated slice of " +
 			"events, filterable by time window (absolute or relative), anchor resource URNs " +

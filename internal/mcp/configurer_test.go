@@ -70,7 +70,7 @@ func TestNewHTTPHandlerAppliesConfigurers(t *testing.T) {
 	called := 0
 	RegisterMCPConfigurer(func(_ *mcp.Server, _ ConfigurerDeps) { called++ })
 
-	if _, err := NewHTTPHandler(&stubResourceTypeService{}, &stubResourceService{}, nil, nil, nil, nil, slog.Default()); err != nil {
+	if _, err := NewHTTPHandler(&stubResourceTypeService{}, &stubResourceService{}, nil, nil, nil, nil, ungated, slog.Default()); err != nil {
 		t.Fatalf("NewHTTPHandler: %v", err)
 	}
 	if called != 1 {

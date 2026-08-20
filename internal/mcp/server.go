@@ -17,6 +17,7 @@ import (
 	"github.com/wepala/weos/v3/internal/config"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/open-feature/go-sdk/openfeature"
 	"go.uber.org/fx"
 )
 
@@ -135,17 +136,39 @@ func NewMCPServer(
 	lexicalSearch application.LexicalSearch,
 	episodicRecall application.EpisodicRecall,
 	featureAdmin *application.FeatureAdminService,
+	featureGate FeatureGate,
 	enabledServices []string,
 ) (*mcp.Server, error) {
+	server, _, err := newServerWithGates(
+		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
+		featureAdmin, featureGate, enabledServices)
+	return server, err
+}
+
+// newServerWithGates is NewMCPServer plus the gate index it built. The index
+// is what a downstream configurer needs to gate a tool of its own, and the
+// two transports pass it on through ConfigurerDeps. It is not returned from
+// NewMCPServer because every caller would have to accept a value only this
+// package's two transports use.
+func newServerWithGates(
+	resourceTypeService application.ResourceTypeService,
+	resourceService application.ResourceService,
+	kgService application.KnowledgeGraphService,
+	lexicalSearch application.LexicalSearch,
+	episodicRecall application.EpisodicRecall,
+	featureAdmin *application.FeatureAdminService,
+	featureGate FeatureGate,
+	enabledServices []string,
+) (*mcp.Server, *FeatureGates, error) {
 	if isNilInterface(resourceTypeService) {
-		return nil, fmt.Errorf("resourceTypeService must not be nil")
+		return nil, nil, fmt.Errorf("resourceTypeService must not be nil")
 	}
 	if isNilInterface(resourceService) {
-		return nil, fmt.Errorf("resourceService must not be nil")
+		return nil, nil, fmt.Errorf("resourceService must not be nil")
 	}
 	if len(enabledServices) > 0 {
 		if err := ValidateServiceNames(enabledServices); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -154,6 +177,13 @@ func NewMCPServer(
 		Title:   "WeOS MCP Server",
 		Version: "0.1.0",
 	}, nil)
+
+	// The gate index is built here and shared with every registrar and with
+	// the downstream configurers, so a tool added anywhere can declare its
+	// feature at its own AddTool call site. The middleware reads the index at
+	// request time, so a configurer that runs after this still gates.
+	gates := NewFeatureGates()
+	server.AddReceivingMiddleware(featureGateMiddleware(gates, featureGate))
 
 	enabled := resolveEnabled(enabledServices)
 
@@ -196,11 +226,11 @@ func NewMCPServer(
 		// Episodic recall needs the event-log repository and IS threaded in;
 		// when nil (tests, minimal wiring) episodic_recall is not registered.
 		if !isNilInterface(episodicRecall) {
-			registerEpisodicTools(server, episodicRecall)
+			registerEpisodicTools(server, gates, episodicRecall)
 		}
 	}
 
-	return server, nil
+	return server, gates, nil
 }
 
 // Run starts the MCP server on stdio, registering only the tool groups listed in enabledServices.
@@ -214,6 +244,7 @@ func Run(enabledServices []string) error {
 	var lexicalSearch application.LexicalSearch
 	var episodicRecall application.EpisodicRecall
 	var featureAdmin *application.FeatureAdminService
+	var featureClient *openfeature.Client
 
 	app := fx.New(
 		fx.NopLogger,
@@ -224,6 +255,7 @@ func Run(enabledServices []string) error {
 		fx.Populate(&lexicalSearch),
 		fx.Populate(&episodicRecall),
 		fx.Populate(&featureAdmin),
+		fx.Populate(&featureClient),
 	)
 
 	startCtx, startCancel := context.WithTimeout(context.Background(), fx.DefaultTimeout)
@@ -250,9 +282,14 @@ func Run(enabledServices []string) error {
 			enabledServices = append(enabledServices, string(s))
 		}
 	}
-	server, err := NewMCPServer(
+	// On stdio the gate reaches the instance layer and stops. There is no
+	// session, no bearer token and no active account here, so no account
+	// override and no personal grant can apply — gating on this transport is
+	// instance-wide and cannot be anything else until the local transport
+	// carries an identity.
+	server, gates, err := newServerWithGates(
 		resourceTypeService, resourceService, kgService, lexicalSearch, episodicRecall,
-		featureAdmin, enabledServices)
+		featureAdmin, application.ToolFeatureGate(featureClient), enabledServices)
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
 	}
@@ -265,6 +302,7 @@ func Run(enabledServices []string) error {
 		ResourceService:     resourceService,
 		ResourceTypeService: resourceTypeService,
 		Logger:              slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Gates:               gates,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

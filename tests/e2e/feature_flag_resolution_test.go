@@ -481,8 +481,14 @@ func (w *featureWorld) declareFeatures(table *godog.Table) error {
 			Manageable:  cell(4) == "yes",
 			Grantable:   cell(5) == "yes",
 		}
-		if err := w.registry.Register(meta); err != nil {
-			return fmt.Errorf("could not declare %q: %w", meta.Key, err)
+		core, err := coreAlreadyDeclares(meta)
+		if err != nil {
+			return err
+		}
+		if !core {
+			if err := w.registry.Register(meta); err != nil {
+				return fmt.Errorf("could not declare %q: %w", meta.Key, err)
+			}
 		}
 		w.declared = append(w.declared, meta)
 	}

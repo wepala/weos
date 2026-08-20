@@ -129,6 +129,7 @@ func Module(cfg config.Config, registry *PresetRegistry) fx.Option {
 			NewFeatureRegistry,
 			fx.ParamTags(``, ``, ``, `group:"feature_declarations"`),
 		)),
+		fx.Provide(AsFeatureDeclarations(CoreFeatureDeclarations)),
 		fx.Provide(gorm.ProvideFeatureSettingsRepository),
 		fx.Provide(gorm.ProvideFeatureGrantRepository),
 		fx.Provide(gorm.ProvideAccountMemberQuery),

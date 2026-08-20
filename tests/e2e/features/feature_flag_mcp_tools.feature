@@ -1,4 +1,4 @@
-@wip @epic-480 @story-484
+@epic-480 @story-484
 Feature: A disabled MCP tool never reaches the LLM
   As someone whose LLM talks to a WeOS instance over MCP
   I want the tools for a capability I do not have to be absent from the list, and refused

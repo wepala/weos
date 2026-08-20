@@ -81,6 +81,15 @@ func AgentToolsetFactory(server *mcp.Server, cfg AgentToolsetConfig) func(contex
 // serverTools lists the server's registered tools over a short-lived
 // in-memory session.
 func serverTools(ctx context.Context, server *mcp.Server) ([]*mcp.Tool, error) {
+	// An inventory of the build's tools, not a caller's permissions. Its three
+	// consumers — skill-allowlist validation, the read-only classification
+	// behind call confirmation, and the coordinator's default tool names — run
+	// once at boot with no caller, and each result is later intersected with
+	// the per-turn gated toolset. Resolving them against the anonymous caller
+	// would freeze a feature's boot-time value into lists that outlive it, so
+	// a tool turned on afterwards would stay missing until a restart. See
+	// WithToolInventory: it is honored on the listing only, never on a call.
+	ctx = WithToolInventory(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

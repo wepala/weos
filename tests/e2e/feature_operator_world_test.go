@@ -199,7 +199,9 @@ func (w *operatorWorld) boot() error {
 	// CLI subprocess sees exactly the features this instance does. Two
 	// processes can only agree about which features exist by reading the same
 	// declarations, and nothing is persisted for them to share.
-	cfg.Features.Declared = append([]entities.FeatureMeta(nil), w.declared...)
+	// A key core declares in code is left out of FEATURES: declaring it twice
+	// is an error by design. See coreAlreadyDeclares.
+	cfg.Features.Declared = declarationsBeyondCore(w.declared)
 	cfg.Features.PrimaryAccountID = w.primaryAccountID
 
 	app := fx.New(
@@ -418,7 +420,10 @@ func (w *operatorWorld) runCLI(command string) error {
 		dsn = "DATABASE_DSN="
 	}
 	env := append(os.Environ(), dsn, "LOG_LEVEL=error")
-	if declared, err := json.Marshal(w.declared); err == nil && len(w.declared) > 0 {
+	// The CLI reads its declarations from the same env channel the server
+	// does, minus whatever core declares in code. See coreAlreadyDeclares.
+	beyondCore := declarationsBeyondCore(w.declared)
+	if declared, err := json.Marshal(beyondCore); err == nil && len(beyondCore) > 0 {
 		env = append(env, "FEATURES="+string(declared))
 	}
 	cmd.Env = env
@@ -448,7 +453,7 @@ func (w *operatorWorld) runCLI(command string) error {
 func (w *operatorWorld) callMCP(
 	p *featurePerson, local bool, tool string, args map[string]any,
 ) error {
-	server, err := mcpserver.NewMCPServer(w.rts, w.resources, nil, nil, nil, w.admin, []string{"feature"})
+	server, err := mcpserver.NewMCPServer(w.rts, w.resources, nil, nil, nil, w.admin, nil, []string{"feature"})
 	if err != nil {
 		return fmt.Errorf("could not build the MCP server: %w", err)
 	}
