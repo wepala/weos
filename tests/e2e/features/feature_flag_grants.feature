@@ -1,4 +1,4 @@
-@wip @epic-480 @story-483
+@epic-480 @story-483
 Feature: An admin grants a feature to specific users or roles
   As an admin on a shared instance
   I want to give one person, or everyone holding a role, a capability the rest of the
