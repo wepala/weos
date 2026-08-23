@@ -1,0 +1,130 @@
+@issue-510
+Feature: A built-in preset's new reference property reaches an already-provisioned database
+  As an operator upgrading WeOS across a preset that gained a reference property
+  I want the stored @context of a built-in type to gain the entry the new build declares
+  So that writes to the new reference are stored and readable instead of silently dropped
+
+  Background:
+    Given a built-in preset "catalog" declaring a "vendor" type with the properties:
+      | property | type   |
+      | name     | string |
+    And the "catalog" preset also declares a "widget" type with the properties:
+      | property | type      | references |
+      | name     | string    |            |
+      | maker    | reference | vendor     |
+    And a clean WeOS database provisioned by that build
+    And a "vendor" named "Acme" exists
+
+  @wip
+  Scenario: A reference property added to a built-in preset round-trips after restart
+    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    And the twin restarts against the same database
+    When I create a "widget" named "Bolt cutter" with "supplier" referring to the "vendor" "Acme"
+    Then reading the "widget" "Bolt cutter" back over the API returns "supplier" as the "vendor" "Acme"
+
+  @wip
+  Scenario: A new reference property gains both a projection column and a context entry
+    When the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    And the twin restarts against the same database
+    Then the "widget" projection table has a "supplier" column
+    And the stored "widget" context has an entry for "supplier"
+
+  @wip
+  Scenario: A reference whose context entry was already stored keeps round-tripping on the same write
+    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    And the twin restarts against the same database
+    When I create a "widget" named "Bolt cutter" with these references:
+      | property | vendor |
+      | maker    | Acme   |
+      | supplier | Acme   |
+    Then reading the "widget" "Bolt cutter" back over the API returns "maker" as the "vendor" "Acme"
+    And reading the "widget" "Bolt cutter" back over the API returns "supplier" as the "vendor" "Acme"
+
+  @wip
+  Scenario: A literal property added to a preset round-trips and gains no context entry
+    Given the "catalog" preset adds a "sku" string property to "widget"
+    And the twin restarts against the same database
+    When I create a "widget" named "Bolt cutter" with "sku" set to "BC-100"
+    Then reading the "widget" "Bolt cutter" back over the API returns "sku" as "BC-100"
+    And the stored "widget" context has no entry for "sku"
+
+  @wip
+  Scenario: A context entry the operator changed is held at its stored definition
+    Given the operator maps "maker" to "https://example.org/vocab/madeBy" in the stored "widget" context
+    And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    When the twin restarts against the same database
+    Then the stored "widget" context still maps "maker" to "https://example.org/vocab/madeBy"
+    And the boot reconcile reports "maker" held at its stored definition for "widget"
+    And the stored "widget" context has an entry for "supplier"
+
+  @wip
+  Scenario: A held context entry still round-trips at the operator's definition
+    Given the operator maps "maker" to "https://example.org/vocab/madeBy" in the stored "widget" context
+    And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    And the twin restarts against the same database
+    When I create a "widget" named "Bolt cutter" with these references:
+      | property | vendor |
+      | maker    | Acme   |
+      | supplier | Acme   |
+    Then reading the "widget" "Bolt cutter" back over the API returns "maker" as the "vendor" "Acme"
+    And reading the "widget" "Bolt cutter" back over the API returns "supplier" as the "vendor" "Acme"
+
+  @wip
+  Scenario: An operator's own context entry the preset does not declare survives the merge
+    Given the operator maps "warranty" to "https://example.org/vocab/warranty" in the stored "widget" context
+    And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    When the twin restarts against the same database
+    Then the stored "widget" context still maps "warranty" to "https://example.org/vocab/warranty"
+    And the stored "widget" context has an entry for "supplier"
+
+  @wip
+  Scenario: A type with no stored context adopts the entries the preset declares
+    Given the operator clears the stored "widget" context
+    And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    When the twin restarts against the same database
+    Then the stored "widget" context has an entry for "supplier"
+    And the stored "widget" context has an entry for "maker"
+
+  @wip
+  Scenario: The context merge happens once and then settles
+    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    When the twin restarts against the same database
+    And the twin restarts against the same database again
+    Then exactly one resource type update is recorded for "widget"
+
+  @wip
+  Scenario: Restarting with an unchanged preset leaves an already-complete context alone
+    When the twin restarts against the same database
+    Then no resource type update is recorded for "widget"
+    And the stored "widget" context has an entry for "maker"
+
+  @wip
+  Scenario: Reporting a type as updated means its reference properties have a stored context entry
+    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    When the twin restarts against the same database
+    Then the boot reconcile reports "widget" as updated
+    And every reference property the "catalog" preset declares for "widget" has a stored context entry
+
+  @wip
+  Scenario: A reference property the preset's own context never declares is not reported as updated
+    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
+    When the twin restarts against the same database
+    Then the boot reconcile does not report "widget" as updated
+    And the boot reconcile names "supplier" as a property whose writes are still dropped
+
+  @wip
+  Scenario: A reference written before the context entry existed reads back empty but survives in the canonical record
+    Given a "widget" named "Bolt cutter" is created with an undeclared "supplier" referring to the "vendor" "Acme"
+    When the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    And the twin restarts against the same database
+    Then reading the "widget" "Bolt cutter" back over the API returns no value for "supplier"
+    And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "supplier" edge to the "vendor" "Acme"
+
+  @wip
+  Scenario: Reprojecting after the context entry lands populates the reference column
+    Given a "widget" named "Bolt cutter" is created with an undeclared "supplier" referring to the "vendor" "Acme"
+    And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    And the twin restarts against the same database
+    And reading the "widget" "Bolt cutter" back over the API returns no value for "supplier"
+    When the operator reprojects the event feed
+    Then reading the "widget" "Bolt cutter" back over the API returns "supplier" as the "vendor" "Acme"
