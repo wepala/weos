@@ -209,14 +209,21 @@ func SimplifyJSONLD(data, ldContext json.RawMessage) (json.RawMessage, error) {
 					if key == "@id" {
 						continue
 					}
-					// Unwrap {"@id": "..."} values.
-					if ref, ok := val.(map[string]any); ok {
-						if id, ok := ref["@id"].(string); ok {
-							if propName, ok := reverseMap[key]; ok {
-								result[propName] = id
-							}
-						}
+					propName, known := reverseMap[key]
+					if !known {
+						continue
 					}
+					// A declared list keeps its shape, so a property the schema
+					// says is a list never reads back as a bare string.
+					ids, isList := jsonld.EdgeIDs(val)
+					if len(ids) == 0 {
+						continue
+					}
+					if isList {
+						result[propName] = ids
+						continue
+					}
+					result[propName] = ids[0]
 				}
 			}
 		}

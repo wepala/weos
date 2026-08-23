@@ -910,15 +910,6 @@ func extractEdgeColumns(edges map[string]any, ldContext json.RawMessage, row map
 		if key == "@id" {
 			continue
 		}
-		ref, ok := val.(map[string]any)
-		if !ok {
-			continue
-		}
-		objectID, ok := ref["@id"].(string)
-		if !ok || objectID == "" {
-			continue
-		}
-
 		// Reverse-lookup: predicate IRI → property name → snake_case column.
 		propName, ok := reverseMap[key]
 		if !ok {
@@ -928,6 +919,22 @@ func extractEdgeColumns(edges map[string]any, ldContext json.RawMessage, row map
 		if standardColumnNames[colName] {
 			continue
 		}
-		row[colName] = objectID
+		ids, isList := jsonld.EdgeIDs(val)
+		if len(ids) == 0 {
+			continue
+		}
+		if !isList {
+			row[colName] = ids[0]
+			continue
+		}
+		// A list reference cannot fit a scalar FK column, so it is stored as a
+		// JSON array in the same TEXT column and decoded on read. Leaving it
+		// NULL — what happened before issue #513 — made the projection disagree
+		// with the canonical record about whether the value existed at all.
+		encoded, err := json.Marshal(ids)
+		if err != nil {
+			continue
+		}
+		row[colName] = string(encoded)
 	}
 }

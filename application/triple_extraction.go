@@ -806,27 +806,6 @@ func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []str
 // string) into the list of @id strings it contains. Centralized so EdgeValue,
 // EdgeValues, and FlattenGraph all interpret the edges node identically.
 func collectEdgeIDs(edgeVal any) []string {
-	switch v := edgeVal.(type) {
-	case map[string]any:
-		if id, ok := v["@id"].(string); ok && id != "" {
-			return []string{id}
-		}
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, item := range v {
-			ref, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			if id, ok := ref["@id"].(string); ok && id != "" {
-				out = append(out, id)
-			}
-		}
-		return out
-	case string:
-		if v != "" {
-			return []string{v}
-		}
-	}
-	return nil
+	ids, _ := jsonld.EdgeIDs(edgeVal)
+	return ids
 }

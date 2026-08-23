@@ -185,7 +185,7 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 		w.thePresetDeclaresContextEntryFor)
 	sc.Step(`^the "catalog" preset adds a "([^"]*)" reference property to "widget" targeting "([^"]*)" `+
 		`without a context entry$`, w.thePresetAddsReferenceWithoutContextEntry)
-	sc.Step(`^the "catalog" preset adds a "([^"]*)" (\w+) property to "widget"$`, w.thePresetAddsLiteral)
+	sc.Step(`^the "catalog" preset adds a "([^"]*)" (\w+) property to "(widget|vendor)"$`, w.thePresetAddsLiteral)
 
 	sc.Step(`^the operator maps "([^"]*)" to "([^"]*)" in the stored "widget" context$`, w.theOperatorMapsTerm)
 	sc.Step(`^the operator clears the stored "widget" context$`, w.theOperatorClearsContext)
@@ -363,8 +363,21 @@ func (w *contextWorld) thePresetDeclaresContextEntryFor(name string) error {
 	return fmt.Errorf("widget declares no property named %q", name)
 }
 
-func (w *contextWorld) thePresetAddsLiteral(name, jsonTyp string) error {
-	return w.addWidgetProperty(contextProperty{name: name, jsonTyp: jsonTyp})
+// thePresetAddsLiteral names its type, so a scenario can change the OTHER type
+// in the same boot — which is how a negative assertion about one type gets a
+// positive control from a healthy one beside it.
+func (w *contextWorld) thePresetAddsLiteral(name, jsonTyp, slug string) error {
+	p := contextProperty{name: name, jsonTyp: jsonTyp}
+	if slug == "vendor" {
+		for _, existing := range w.vendorProps {
+			if existing.name == p.name {
+				return fmt.Errorf("property %q is already declared on vendor", p.name)
+			}
+		}
+		w.vendorProps = append(w.vendorProps, p)
+		return nil
+	}
+	return w.addWidgetProperty(p)
 }
 
 // presetType renders one type's schema and context from its property list. A

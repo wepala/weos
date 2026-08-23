@@ -232,6 +232,30 @@ func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[strin
 	}
 }
 
+// firstReferenceID returns the single ID a FK column holds, or the first of the
+// list when the column holds a JSON array (issue #513). A value that is not an
+// array is returned unchanged, so a scalar reference takes the same path it
+// always did.
+//
+// The first entry is used rather than a joined string because the display
+// column is a VARCHAR(512) read by clients as one label; concatenating an
+// unbounded list would truncate unpredictably.
+func firstReferenceID(fkVal string) string {
+	if !strings.HasPrefix(strings.TrimSpace(fkVal), "[") {
+		return fkVal
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(fkVal), &ids); err != nil {
+		return fkVal
+	}
+	for _, id := range ids {
+		if id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
 // populateDisplayColumns looks up display values for every outgoing reference
 // on the target type and injects them into the row before INSERT/UPDATE. Called
 // from all three projection write paths (saveToProjection, updateProjectionBySlug,
@@ -310,6 +334,15 @@ func (r *ResourceRepository) populateDisplayColumns(
 				"valueType", fmt.Sprintf("%T", rawFK))
 			continue
 		}
+		if fkVal == "" {
+			row[ref.DisplayColumn] = nil
+			continue
+		}
+		// A list reference stores its targets as a JSON array in the same
+		// column (issue #513). The display column is a single VARCHAR, so it
+		// carries the FIRST target — looking the raw array up as an ID would
+		// find nothing and persist a NULL display over a populated reference.
+		fkVal = firstReferenceID(fkVal)
 		if fkVal == "" {
 			row[ref.DisplayColumn] = nil
 			continue

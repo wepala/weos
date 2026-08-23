@@ -94,11 +94,25 @@ Feature: A built-in preset's new reference property reaches an already-provision
     Then the boot reconcile reports "widget" as updated
     And every reference property the "catalog" preset declares for "widget" has a stored context entry
 
+  # "vendor" changes in the same boot purely as a positive control: it proves the
+  # boot really does report an updated type on this run, so the negative
+  # assertion above it cannot rot into a permanent pass if the log line is
+  # renamed (issue #513, P2-4).
   Scenario: A reference property the preset's own context never declares is not reported as updated
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
+    And the "catalog" preset adds a "code" string property to "vendor"
     When the twin restarts against the same database
     Then the boot reconcile does not report "widget" as updated
     And the boot reconcile names "supplier" as a property whose writes are still dropped
+    And the boot reconcile reports "vendor" as updated
+
+  @issue-513 @wip
+  Scenario: A reference the preset never maps is still named as dropped on a later boot with nothing to merge
+    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
+    And the twin restarts against the same database
+    And the boot reconcile names "supplier" as a property whose writes are still dropped
+    When the twin restarts against the same database again
+    Then the boot reconcile names "supplier" as a property whose writes are still dropped
 
   # The two scenarios below write their pre-fix row through a schema that ALREADY
   # marks "supplier" a reference, so the value lands as a real EDGE keyed by the
