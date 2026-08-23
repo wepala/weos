@@ -78,6 +78,12 @@ type contextReconciliation struct {
 	// Conflicts names terms present in BOTH whose definitions differ. They are
 	// left at their stored definition and reported for an operator to resolve.
 	Conflicts []string
+	// Moves names terms absent from the stored context whose ADDITION would
+	// change how a predicate that already has data resolves. They are held for
+	// the same reason a Conflict is, and are reported separately because the
+	// operator's fix differs: a Conflict needs a decision about which IRI is
+	// right, a Move needs a data migration before the new IRI can be adopted.
+	Moves []movedPredicate
 	// Context is the merged result. Nil unless Changed.
 	Context json.RawMessage
 	// Changed reports whether the stored context needs rewriting at all. False
@@ -95,7 +101,7 @@ type contextReconciliation struct {
 // a remote IRI string — is an error rather than something to merge blind. No
 // preset or stored context in this tree uses those forms; reporting the type as
 // Failed is honest, where guessing at a merge would not be.
-func reconcileAdditiveContext(stored, preset json.RawMessage) (contextReconciliation, error) {
+func reconcileAdditiveContext(stored, preset, storedSchema json.RawMessage) (contextReconciliation, error) {
 	var out contextReconciliation
 
 	// Nothing declared in code means nothing to add. Never treat an empty
@@ -128,6 +134,13 @@ func reconcileAdditiveContext(stored, preset json.RawMessage) (contextReconcilia
 	for _, term := range sortedKeys(presetTerms) {
 		existing, inStored := storedTerms[term]
 		if !inStored {
+			// Additive by absence is not the same as safe. Adding a term can
+			// repoint a predicate that already has edges keyed by the IRI it
+			// resolved to before — see movesLivePredicate.
+			if moved, ok := movesLivePredicate(term, presetTerms[term], stored, storedSchema); ok {
+				out.Moves = append(out.Moves, moved)
+				continue
+			}
 			merged[term] = presetTerms[term]
 			out.Added = append(out.Added, term)
 			continue
@@ -193,4 +206,126 @@ func referencePropertiesWithoutContextEntry(schema, ldContext json.RawMessage) [
 	}
 	sort.Strings(dropped)
 	return dropped
+}
+
+// movedPredicate records a term held because adding it would repoint a
+// predicate that already has data written under the IRI it resolves to today.
+type movedPredicate struct {
+	// Term is the context key the preset declares and the stored context lacks.
+	Term string
+	// StoredIRI is what the affected predicate resolves to right now — the IRI
+	// existing edges are keyed by.
+	StoredIRI string
+	// PresetIRI is what it would resolve to if the term were merged.
+	PresetIRI string
+	// Property names the thing whose resolution moves. Usually Term itself; for
+	// a prefix it is the stored term that expands through that prefix.
+	Property string
+}
+
+// movesLivePredicate reports whether merging one new term would change how a
+// predicate that ALREADY HAS DATA resolves (issue #513).
+//
+// The merge rules make a term the stored context lacks look purely additive.
+// It is not. Three ways an addition repoints something live:
+//
+//   - A reference property the STORED schema already declares, with no term
+//     yet, is written under the `@vocab`-derived IRI. Giving it a term that
+//     names a different IRI leaves every existing edge keyed by an IRI nothing
+//     reverse-maps — unreadable, and reprojection cannot recover it because the
+//     reprojector resolves through the new term too.
+//   - A PREFIX changes the expansion of every stored term written against it.
+//     `"maker":"cat:madeBy"` with no `cat` resolves through `@vocab`; adding
+//     `cat` moves it.
+//   - `@type` (or a prefix `@type` uses) moves the type's RDF class, so
+//     resources written before the boot and after it land in different classes.
+//
+// The check keys off the STORED schema deliberately. Against the MERGED schema
+// it would also fire on the case issue #510 exists to fix — a preset adding a
+// reference property and its term in the same build — holding the term and
+// re-breaking that repair. A property the stored schema does not yet declare
+// has no data under any IRI, so nothing can be orphaned.
+func movesLivePredicate(term string, definition, stored, storedSchema json.RawMessage) (movedPredicate, bool) {
+	if len(stored) == 0 {
+		return movedPredicate{}, false
+	}
+	storedTerms, err := splitContext(stored)
+	if err != nil {
+		return movedPredicate{}, false
+	}
+	// A stored context that defines nothing — including one an operator
+	// cleared — has no resolution for anything to move away from, so the
+	// preset's terms are adopted wholesale, as they are for an absent context.
+	if len(storedTerms) == 0 {
+		return movedPredicate{}, false
+	}
+	candidate := make(map[string]json.RawMessage, len(storedTerms)+1)
+	for k, v := range storedTerms {
+		candidate[k] = v
+	}
+	candidate[term] = definition
+	candidateRaw, err := json.Marshal(candidate)
+	if err != nil {
+		return movedPredicate{}, false
+	}
+
+	for _, property := range livePredicates(stored, storedSchema) {
+		before := resolveIn(stored, property)
+		after := resolveIn(candidateRaw, property)
+		if before != after {
+			return movedPredicate{
+				Term: term, StoredIRI: before, PresetIRI: after, Property: property,
+			}, true
+		}
+	}
+	return movedPredicate{}, false
+}
+
+// livePredicates names everything whose resolution must not move: every term
+// the stored context already defines, every reference property the stored
+// schema declares, and the type's own `@type`.
+func livePredicates(stored, storedSchema json.RawMessage) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+
+	if terms, err := splitContext(stored); err == nil {
+		for name := range terms {
+			// A prefix definition is not itself a predicate; it matters only
+			// through the terms that expand against it, which are added here
+			// in their own right.
+			add(name)
+		}
+	}
+	for _, ref := range ExtractReferenceProperties(storedSchema, stored) {
+		add(ref.PropertyName)
+	}
+	add("@type")
+	sort.Strings(out)
+	return out
+}
+
+// resolveIn returns the IRI a property resolves to under one context — the
+// same resolution the write path performs, so a change here is a change to
+// where an edge is keyed.
+func resolveIn(ldContext json.RawMessage, property string) string {
+	vocab, terms := jsonld.ParseContext(ldContext)
+	if property == "@type" {
+		var raw map[string]any
+		if json.Unmarshal(ldContext, &raw) != nil {
+			return ""
+		}
+		typeVal, _ := raw["@type"].(string)
+		if typeVal == "" {
+			return ""
+		}
+		return jsonld.ExpandIRI(typeVal, vocab, raw)
+	}
+	return jsonld.ResolvePredicateIRI(property, vocab, terms)
 }

@@ -407,11 +407,22 @@ func (s *resourceTypeService) reconcileOneType(
 	// #510). Merging only the schema is what left a reference property with a
 	// column, a declaration, and nowhere for its predicate to resolve — so its
 	// writes went on being dropped while the reconcile reported success.
-	contextRec, err := reconcileAdditiveContext(existing.Context(), pt.Context)
+	contextRec, err := reconcileAdditiveContext(existing.Context(), pt.Context, existing.Schema())
 	if err != nil {
-		s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
-			fmt.Errorf("failed to reconcile context: %w", err))
-		return
+		// A context this reconcile cannot parse must not take the schema merge
+		// down with it (issue #513). JSON-LD permits an array and a remote-IRI
+		// string, nothing validates the shape on the write path, and blocking
+		// here left the type's new property without its projection column —
+		// reintroducing, for that type, the silent drop #379 closed. Report it
+		// and carry on with the stored context untouched.
+		s.logger.Error(ctx, "cannot reconcile this type's @context; merging its schema only",
+			"preset", presetName, "slug", pt.Slug, "error", err)
+		if result.RefusedContext == nil {
+			result.RefusedContext = make(map[string][]string)
+		}
+		result.RefusedContext[pt.Slug] = append(result.RefusedContext[pt.Slug],
+			fmt.Sprintf("<unparseable stored @context: %v>", err))
+		contextRec = contextReconciliation{}
 	}
 	s.recordHeldDefinitions(ctx, result, presetName, pt.Slug, schemaRec, contextRec)
 
@@ -475,10 +486,18 @@ func (s *resourceTypeService) recordHeldDefinitions(
 		s.logger.Warn(ctx,
 			"preset context terms diverge; holding them at their stored definition",
 			"preset", presetName, "slug", slug, "heldContextTerms", contextRec.Conflicts)
-		if result.RefusedContext == nil {
-			result.RefusedContext = make(map[string][]string)
-		}
-		result.RefusedContext[slug] = contextRec.Conflicts
+		s.addRefusedContext(result, slug, contextRec.Conflicts...)
+	}
+	for _, moved := range contextRec.Moves {
+		// Not a divergence — the stored context never had this term. Merging it
+		// would repoint a predicate that already has edges, so it is held and
+		// both IRIs are named: the operator needs a data migration, not a
+		// choice between definitions.
+		s.logger.Warn(ctx,
+			"preset context term would repoint a predicate that already has data; holding it",
+			"preset", presetName, "slug", slug, "term", moved.Term, "property", moved.Property,
+			"storedIRI", moved.StoredIRI, "presetIRI", moved.PresetIRI)
+		s.addRefusedContext(result, slug, moved.Term)
 	}
 }
 
@@ -823,4 +842,18 @@ func dedup(slugs []string) []string {
 		}
 	}
 	return out
+}
+
+// addRefusedContext records held context terms without clobbering terms already
+// recorded for the same slug — divergences and repointings both land here.
+func (s *resourceTypeService) addRefusedContext(
+	result *ReconcilePresetResult, slug string, terms ...string,
+) {
+	if len(terms) == 0 {
+		return
+	}
+	if result.RefusedContext == nil {
+		result.RefusedContext = make(map[string][]string)
+	}
+	result.RefusedContext[slug] = append(result.RefusedContext[slug], terms...)
 }

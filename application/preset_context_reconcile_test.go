@@ -52,7 +52,7 @@ func TestReconcileAdditiveContext_AddsMissingTerm(t *testing.T) {
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
 		`"maker":"https://schema.org/manufacturer","supplier":"https://schema.org/seller"}`)
 
-	rec, err := reconcileAdditiveContext(stored, preset)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestReconcileAdditiveContext_PreservesOperatorTerm(t *testing.T) {
 	stored := json.RawMessage(`{"@vocab":"https://schema.org/","warranty":"https://example.org/vocab/warranty"}`)
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/","supplier":"https://schema.org/seller"}`)
 
-	rec, err := reconcileAdditiveContext(stored, preset)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestReconcileAdditiveContext_HoldsDivergingTerm(t *testing.T) {
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
 		`"maker":"https://schema.org/manufacturer","supplier":"https://schema.org/seller"}`)
 
-	rec, err := reconcileAdditiveContext(stored, preset)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestReconcileAdditiveContext_ConflictAloneIsNotAChange(t *testing.T) {
 	stored := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"https://example.org/vocab/madeBy"}`)
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"https://schema.org/manufacturer"}`)
 
-	rec, err := reconcileAdditiveContext(stored, preset)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestReconcileAdditiveContext_HoldsDivergingKeyword(t *testing.T) {
 	stored := json.RawMessage(`{"@vocab":"https://example.org/vocab/"}`)
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/","supplier":"https://schema.org/seller"}`)
 
-	rec, err := reconcileAdditiveContext(stored, preset)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestReconcileAdditiveContext_EmptyStoredAdoptsPreset(t *testing.T) {
 		"empty":  json.RawMessage(``),
 	} {
 		t.Run(name, func(t *testing.T) {
-			rec, err := reconcileAdditiveContext(stored, preset)
+			rec, err := reconcileAdditiveContext(stored, preset, nil)
 			if err != nil {
 				t.Fatalf("reconcileAdditiveContext: %v", err)
 			}
@@ -187,7 +187,7 @@ func TestReconcileAdditiveContext_EmptyStoredAdoptsPreset(t *testing.T) {
 func TestReconcileAdditiveContext_EmptyPresetIsNeverAnInstructionToClear(t *testing.T) {
 	stored := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"https://schema.org/manufacturer"}`)
 
-	rec, err := reconcileAdditiveContext(stored, nil)
+	rec, err := reconcileAdditiveContext(stored, nil, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -202,14 +202,14 @@ func TestReconcileAdditiveContext_Idempotent(t *testing.T) {
 	stored := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/","supplier":"https://schema.org/seller"}`)
 
-	first, err := reconcileAdditiveContext(stored, preset)
+	first, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
 	if !first.Changed {
 		t.Fatal("expected the first merge to change something")
 	}
-	second, err := reconcileAdditiveContext(first.Context, preset)
+	second, err := reconcileAdditiveContext(first.Context, preset, nil)
 	if err != nil {
 		t.Fatalf("second reconcile: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestReconcileAdditiveContext_ObjectTermsCompareByValue(t *testing.T) {
 	stored := json.RawMessage(`{"supplier":{"@type":"@id","@id":"https://schema.org/seller"}}`)
 	preset := json.RawMessage(`{"supplier":{"@id":"https://schema.org/seller","@type":"@id"}}`)
 
-	rec, err := reconcileAdditiveContext(stored, preset)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -241,12 +241,12 @@ func TestReconcileAdditiveContext_ObjectTermsCompareByValue(t *testing.T) {
 func TestReconcileAdditiveContext_NonObjectIsAnError(t *testing.T) {
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
 
-	if _, err := reconcileAdditiveContext(json.RawMessage(`["https://schema.org/"]`), preset); err == nil {
+	if _, err := reconcileAdditiveContext(json.RawMessage(`["https://schema.org/"]`), preset, nil); err == nil {
 		t.Error("expected an error for a stored context that is not an object")
 	} else if !strings.Contains(err.Error(), "stored context") {
 		t.Errorf("error should name the stored side, got %v", err)
 	}
-	if _, err := reconcileAdditiveContext(preset, json.RawMessage(`"https://schema.org/"`)); err == nil {
+	if _, err := reconcileAdditiveContext(preset, json.RawMessage(`"https://schema.org/"`), nil); err == nil {
 		t.Error("expected an error for a preset context that is not an object")
 	}
 }
@@ -298,7 +298,7 @@ func TestReconcileAdditiveContext_PrefixFormTerms(t *testing.T) {
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
 		`"fo":"http://purl.org/foodontology#","ingredient":"fo:hasIngredient"}`)
 
-	rec, err := reconcileAdditiveContext(stored, preset)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestReconcileAdditiveContext_HeldPrefixRebindsItsTerms(t *testing.T) {
 	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
 		`"fo":"http://purl.org/foodontology#","ingredient":"fo:hasIngredient"}`)
 
-	rec, err := reconcileAdditiveContext(stored, preset)
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
 	if err != nil {
 		t.Fatalf("reconcileAdditiveContext: %v", err)
 	}
@@ -340,5 +340,141 @@ func TestReconcileAdditiveContext_HeldPrefixRebindsItsTerms(t *testing.T) {
 		"ingredient":{"type":"string","x-resource-type":"ingredient"}}}`)
 	if dropped := referencePropertiesWithoutContextEntry(schema, rec.Context); len(dropped) != 0 {
 		t.Errorf("a term against a held prefix must still resolve, got %v", dropped)
+	}
+}
+
+// TestReconcileAdditiveContext_HoldsATermThatMovesALivePredicate is issue
+// #513's core guard: the stored schema already declares the reference, so data
+// has been written under the `@vocab`-derived IRI. A term naming anything else
+// is held rather than merged, because merging would leave those edges keyed by
+// an IRI nothing reverse-maps and reprojection could not recover them.
+func TestReconcileAdditiveContext_HoldsATermThatMovesALivePredicate(t *testing.T) {
+	storedSchema := json.RawMessage(`{"type":"object","properties":{
+		"supplier":{"type":"string","x-resource-type":"vendor"}}}`)
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
+		`"supplier":"https://example.org/catalog#supplier"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, storedSchema)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if len(rec.Moves) != 1 || rec.Moves[0].Term != "supplier" {
+		t.Fatalf("Moves = %+v, want a single hold on supplier", rec.Moves)
+	}
+	if got := rec.Moves[0].StoredIRI; got != "https://schema.org/supplier" {
+		t.Errorf("StoredIRI = %q, want the vocab-derived IRI the data uses", got)
+	}
+	if rec.Changed {
+		t.Error("a held term must not rewrite the stored context")
+	}
+}
+
+// TestReconcileAdditiveContext_AdoptsAVocabConsistentTerm is the other half:
+// when the term names exactly what the property already resolves to, nothing
+// moves, so the term merges and the reference becomes readable. This is the
+// case issue #510's repair depends on, and every in-tree preset that ships a
+// bare schema.org IRI under an @vocab of schema.org takes it.
+func TestReconcileAdditiveContext_AdoptsAVocabConsistentTerm(t *testing.T) {
+	storedSchema := json.RawMessage(`{"type":"object","properties":{
+		"supplier":{"type":"string","x-resource-type":"vendor"}}}`)
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","supplier":"https://schema.org/supplier"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, storedSchema)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if len(rec.Moves) != 0 {
+		t.Fatalf("Moves = %+v, want none — the IRI is what the data already uses", rec.Moves)
+	}
+	if !sameStrings(rec.Added, []string{"supplier"}) {
+		t.Errorf("Added = %v, want [supplier]", rec.Added)
+	}
+}
+
+// TestReconcileAdditiveContext_GuardKeysOffTheStoredSchema pins the boundary
+// that keeps issue #510's repair working. A preset adding a reference property
+// AND its term in the same build has no data under any IRI for that property,
+// so there is nothing to orphan and the term must merge — even though its IRI
+// differs from the vocab-derived one. Keying the guard off the MERGED schema
+// would hold it and re-break #510.
+func TestReconcileAdditiveContext_GuardKeysOffTheStoredSchema(t *testing.T) {
+	// The stored schema does NOT declare `supplier` yet.
+	storedSchema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
+		`"supplier":"https://example.org/catalog#supplier"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, storedSchema)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if len(rec.Moves) != 0 {
+		t.Fatalf("Moves = %+v, want none — the property has no stored data to orphan", rec.Moves)
+	}
+	if !sameStrings(rec.Added, []string{"supplier"}) {
+		t.Errorf("Added = %v, want [supplier]", rec.Added)
+	}
+}
+
+// TestReconcileAdditiveContext_HoldsAPrefixThatRepointsAStoredTerm covers the
+// indirect move: the prefix itself is new, but a term already stored expands
+// through it, so adding it repoints that term's predicate.
+func TestReconcileAdditiveContext_HoldsAPrefixThatRepointsAStoredTerm(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"cat:madeBy"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","cat":"https://example.org/catalog#"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if len(rec.Moves) != 1 || rec.Moves[0].Term != "cat" {
+		t.Fatalf("Moves = %+v, want a single hold on the cat prefix", rec.Moves)
+	}
+	if rec.Moves[0].Property != "maker" {
+		t.Errorf("Property = %q, want the stored term whose resolution moves", rec.Moves[0].Property)
+	}
+}
+
+// TestReconcileAdditiveContext_HoldsATypeThatMovesTheClass: `@type` decides the
+// type's RDF class, so adopting a new one splits resources written before the
+// boot from those written after across two classes.
+func TestReconcileAdditiveContext_HoldsATypeThatMovesTheClass(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Widget"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Product"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	// @type is present on both sides here, so it is an ordinary conflict; the
+	// move guard covers the case where the stored context declares none.
+	if len(rec.Conflicts) != 1 || rec.Conflicts[0] != "@type" {
+		t.Fatalf("Conflicts = %v, want [@type]", rec.Conflicts)
+	}
+	if rec.Changed {
+		t.Error("holding @type must not rewrite the stored context")
+	}
+}
+
+// TestReconcileAdditiveContext_ClearedContextAdoptsWholesale: an operator who
+// empties the context leaves nothing for anything to move away from, so the
+// preset's terms are adopted as they are for an absent context.
+func TestReconcileAdditiveContext_ClearedContextAdoptsWholesale(t *testing.T) {
+	storedSchema := json.RawMessage(`{"type":"object","properties":{
+		"supplier":{"type":"string","x-resource-type":"vendor"}}}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
+		`"supplier":"https://example.org/catalog#supplier"}`)
+
+	rec, err := reconcileAdditiveContext(json.RawMessage(`{}`), preset, storedSchema)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if len(rec.Moves) != 0 {
+		t.Fatalf("Moves = %+v, want none for a cleared context", rec.Moves)
+	}
+	if !rec.Changed {
+		t.Error("a cleared context must adopt the preset's terms")
 	}
 }

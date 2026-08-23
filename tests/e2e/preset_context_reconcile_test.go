@@ -415,7 +415,13 @@ func presetType(
 			continue
 		}
 		terms[p.name] = json.RawMessage(
-			fmt.Sprintf("{\"@id\":\"https://weos.org/vocab/catalog#%s\",\"@type\":\"@id\"}", p.name))
+			// Vocab-consistent on purpose: a well-formed preset names the IRI
+			// its own @vocab already implies, which is what the real presets do
+			// (schema.org/suitableForDiet under @vocab schema.org/). The old
+			// harness used an unrelated catalog# IRI, which silently made every
+			// added term a predicate MOVE — the very case issue #513 guards,
+			// hidden inside scenarios meant to test the plain repair.
+			fmt.Sprintf("{\"@id\":\"https://schema.org/%s\",\"@type\":\"@id\"}", p.name))
 	}
 	for term, value := range extras {
 		encoded, err := json.Marshal(value)
