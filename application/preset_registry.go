@@ -129,8 +129,13 @@ type InstallPresetResult struct {
 //     still land; what needs an operator is the divergence itself, not data
 //     loss.
 type ReconcilePresetResult struct {
-	// Updated lists types whose stored schema was rewritten AND whose new
-	// columns were confirmed present afterwards.
+	// Updated lists types whose stored schema, `@context`, or both were
+	// rewritten AND whose writes were confirmed able to land afterwards: every
+	// added property has its projection column, and every reference property
+	// has a `@context` term its predicate resolves back through. A type
+	// failing either check is reported under Failed instead — a column that
+	// cannot be written to and a reference that cannot be read back are the
+	// same silent drop, and neither is a completed reconcile.
 	Updated []string `json:"updated,omitempty"`
 	// Unchanged lists types already in sync — the steady-state boot.
 	Unchanged []string `json:"unchanged,omitempty"`

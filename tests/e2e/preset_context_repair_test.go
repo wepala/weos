@@ -215,8 +215,12 @@ func ageStoredContexts(t *testing.T, rts application.ResourceTypeService) int {
 			continue
 		}
 		terms := map[string]any{}
+		// Skipping a type whose context will not decode would under-reproduce
+		// the broken state, and the test would then pass on a database that was
+		// never fully aged — the silent-skip failure this whole change exists to
+		// end. Fail instead, so the setup is provably complete.
 		if err := json.Unmarshal(rt.Context(), &terms); err != nil {
-			continue
+			t.Fatalf("stored context for %q is not a JSON object, so it cannot be aged: %v", rt.Slug(), err)
 		}
 		removed := false
 		for _, ref := range refs {
