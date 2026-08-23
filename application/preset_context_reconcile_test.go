@@ -287,3 +287,58 @@ func TestReferencePropertiesWithoutContextEntry(t *testing.T) {
 		}
 	})
 }
+
+// TestReconcileAdditiveContext_PrefixFormTerms covers the shape real presets
+// actually use: a term whose IRI is written against a prefix defined elsewhere
+// in the same context (`"recipeIngredient":"fo:hasIngredient"`). Both the
+// prefix and the term are ordinary keys here, so both merge — and the
+// detection must expand the prefix before deciding the reference is covered.
+func TestReconcileAdditiveContext_PrefixFormTerms(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
+		`"fo":"http://purl.org/foodontology#","ingredient":"fo:hasIngredient"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if !sameStrings(rec.Added, []string{"fo", "ingredient"}) {
+		t.Fatalf("Added = %v, want [fo ingredient] — the prefix must merge alongside the term", rec.Added)
+	}
+
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"ingredient":{"type":"string","x-resource-type":"ingredient"}}}`)
+	if dropped := referencePropertiesWithoutContextEntry(schema, rec.Context); len(dropped) != 0 {
+		t.Errorf("a prefix-form term must count as covered, got %v", dropped)
+	}
+}
+
+// TestReconcileAdditiveContext_HeldPrefixRebindsItsTerms pins a consequence of
+// holding: when an operator repointed a PREFIX, a term the preset adds against
+// that prefix resolves into the operator's namespace, not the preset's. The
+// reference still round-trips — write and read expand through the same stored
+// context — so this is documented behavior rather than a defect, but it is the
+// one case where an added term does not mean what the preset author wrote.
+func TestReconcileAdditiveContext_HeldPrefixRebindsItsTerms(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","fo":"https://example.org/food#"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
+		`"fo":"http://purl.org/foodontology#","ingredient":"fo:hasIngredient"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if !sameStrings(rec.Conflicts, []string{"fo"}) {
+		t.Errorf("Conflicts = %v, want [fo]", rec.Conflicts)
+	}
+	terms := contextTerms(t, rec.Context)
+	if terms["fo"] != "https://example.org/food#" {
+		t.Errorf("the operator's prefix was overwritten: %v", terms)
+	}
+	// The term still resolves, against the operator's prefix — so writes land.
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"ingredient":{"type":"string","x-resource-type":"ingredient"}}}`)
+	if dropped := referencePropertiesWithoutContextEntry(schema, rec.Context); len(dropped) != 0 {
+		t.Errorf("a term against a held prefix must still resolve, got %v", dropped)
+	}
+}
