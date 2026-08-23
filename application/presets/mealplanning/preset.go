@@ -213,6 +213,7 @@ func ingredientType() application.PresetResourceType {
 	"@type":"fo:Food",
 	"fo":"http://purl.org/foodontology#",
 	"skos":"http://www.w3.org/2004/02/skos/core#",
+	"suitableForDiet":"https://schema.org/suitableForDiet",
 	"mp":"https://weos.org/vocab/meal-planning#",
 	"alternateNames":"skos:altLabel",
 	"shoppingCategory":"fo:ShoppingCategory",
@@ -327,7 +328,8 @@ func mealPlanType() application.PresetResourceType {
 		Name:        "Meal Plan",
 		Slug:        "meal-plan",
 		Description: "A weekly or custom-period meal plan",
-		Context:     schemaTypeContext("MealPlan", ""),
+		Context: schemaTypeContext("MealPlan",
+			`"suitableForDiet":"https://schema.org/suitableForDiet"`),
 		Schema: json.RawMessage(`{
 	"type":"object",
 	"properties":{

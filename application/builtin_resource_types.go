@@ -123,6 +123,14 @@ func reconcilePresetSchemas(
 			"resource type properties held at their stored definition: preset diverges non-additively",
 			"preset", presetName, "slug", slug, "heldProperties", held)
 	}
+	for slug, held := range reconciled.RefusedContext {
+		// A context term the operator repointed. Held rather than overwritten,
+		// because existing edges are already keyed by the stored IRI and
+		// repointing it would orphan them (issue #510).
+		logger.Warn(ctx,
+			"resource type context terms held at their stored definition: preset declares a different IRI",
+			"preset", presetName, "slug", slug, "heldContextTerms", held)
+	}
 	for slug, reason := range reconciled.Failed {
 		logger.Error(ctx,
 			"resource type NOT reconciled: writes to its new properties will be dropped",
