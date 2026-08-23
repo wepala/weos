@@ -289,6 +289,7 @@ func holdMovingTerms(
 		}
 		held = append(held, moved...)
 	}
+	held = append(held, dropDanglingPrefixTerms(merged, storedTerms, added)...)
 	sort.Slice(held, func(i, j int) bool { return held[i].Term < held[j].Term })
 	return held
 }
@@ -312,7 +313,22 @@ func movedBy(
 		if before == after {
 			continue
 		}
-		for _, term := range blameFor(property, merged, storedTerms) {
+		blame := blameFor(property, merged, storedTerms)
+		if len(blame) == 0 {
+			// A move nobody can be blamed for must never be discarded — that is
+			// the silent orphaning this guard exists to prevent, reached through
+			// the guard's own bookkeeping. Hold every added term instead: the
+			// merge is refused for this type and reported, which is
+			// conservative and reversible, where letting it through is not.
+			for term := range merged {
+				if _, isStored := storedTerms[term]; isStored {
+					continue
+				}
+				blame = append(blame, term)
+			}
+			sort.Strings(blame)
+		}
+		for _, term := range blame {
 			if seen[term] {
 				continue
 			}
@@ -455,4 +471,41 @@ func resolveIn(ldContext json.RawMessage, property string) string {
 		return jsonld.ExpandIRI(typeVal, vocab, raw)
 	}
 	return jsonld.ResolvePredicateIRI(property, vocab, terms)
+}
+
+// dropDanglingPrefixTerms removes added terms that expand through a prefix the
+// merged context does not define, and reports them.
+//
+// Holding a prefix does not automatically hold the terms written against it.
+// Left merged, `"recipeIngredient":"fo:hasIngredient"` without a defined `fo`
+// resolves through `@vocab` to `https://schema.org/fo:hasIngredient` — an IRI
+// nobody meant, which reads and writes then agree on. Nothing is dropped, so
+// the reconcile calls the type Updated, while the triple store and every `kg_*`
+// tool carry a fabricated predicate. Better to keep the property untermed and
+// say so than to invent a namespace for it.
+func dropDanglingPrefixTerms(
+	merged, storedTerms map[string]json.RawMessage, added *[]string,
+) []movedPredicate {
+	var dropped []movedPredicate
+	for _, term := range append([]string(nil), *added...) {
+		prefix := prefixOf(merged[term])
+		if prefix == "" {
+			continue
+		}
+		if _, defined := merged[prefix]; defined {
+			continue
+		}
+		if _, defined := storedTerms[prefix]; defined {
+			continue
+		}
+		dropped = append(dropped, movedPredicate{
+			Term:      term,
+			Property:  term,
+			StoredIRI: "",
+			PresetIRI: fmt.Sprintf("<undefined prefix %q>", prefix),
+		})
+		delete(merged, term)
+		*added = removeString(*added, term)
+	}
+	return dropped
 }

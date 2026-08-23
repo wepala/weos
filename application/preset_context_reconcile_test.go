@@ -556,3 +556,34 @@ func TestReconcileAdditiveContext_AddingVocabMovesEveryUntermedReference(t *test
 		t.Error("holding @vocab must leave the stored context alone")
 	}
 }
+
+// TestReconcileAdditiveContext_DropsATermWhoseHeldPrefixIsGone: holding a
+// prefix must also drop the terms written against it. Left merged, such a term
+// resolves through `@vocab` to a fabricated IRI that reads and writes then
+// agree on — so nothing is dropped, the type is reported Updated, and the
+// triple store carries a predicate nobody meant.
+func TestReconcileAdditiveContext_DropsATermWhoseHeldPrefixIsGone(t *testing.T) {
+	// `hasIngredient` is stored against an UNDEFINED `fo`, so it currently
+	// resolves through @vocab. Defining `fo` would move it, so `fo` is held —
+	// and `recipeIngredient`, written against that same `fo`, must not survive.
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","hasIngredient":"fo:hasIngredient"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
+		`"fo":"http://purl.org/foodontology#","recipeIngredient":"fo:hasIngredient2"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, nil)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if rec.Context != nil {
+		if terms := contextTerms(t, rec.Context); terms["recipeIngredient"] != "" {
+			t.Errorf("recipeIngredient survived with no `fo` to expand through — it resolves to "+
+				"https://schema.org/fo:hasIngredient2, an IRI nobody declared (context: %v)", terms)
+		}
+	}
+	for _, m := range rec.Moves {
+		if m.Term == "recipeIngredient" {
+			return
+		}
+	}
+	t.Errorf("recipeIngredient was not reported; Moves = %+v", rec.Moves)
+}

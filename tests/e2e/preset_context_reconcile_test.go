@@ -927,12 +927,14 @@ func asIDList(value any) ([]string, error) {
 		}
 		return out, nil
 	case string:
+		// Deliberately NOT decoding a JSON-array string here. The projection
+		// stores a list reference that way, but the read path decodes it before
+		// the value reaches a client; accepting the encoded form would let the
+		// suite pass while the API served a string where the schema promises a
+		// list (issue #513).
 		if strings.HasPrefix(strings.TrimSpace(v), "[") {
-			var decoded []string
-			if err := json.Unmarshal([]byte(v), &decoded); err != nil {
-				return nil, fmt.Errorf("not a JSON array of strings: %w", err)
-			}
-			return decoded, nil
+			return nil, fmt.Errorf(
+				"value is still the encoded column %q — the read path did not decode it to a list", v)
 		}
 		return []string{v}, nil
 	default:

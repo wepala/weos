@@ -1162,7 +1162,33 @@ func (r *ResourceRepository) FindFlatByID(
 	for k, v := range row {
 		camelRow[utils.SnakeToCamel(k)] = v
 	}
+	r.decodeListReferences(typeSlug, camelRow)
 	return camelRow, nil
+}
+
+// decodeListReferences turns a list-valued reference back into a []string on
+// the way out.
+//
+// A list reference is STORED as a JSON array in its single TEXT column (issue
+// #513). This is the flat read every non-JSON-LD API response goes through, so
+// without decoding here the column would reach clients as the literal string
+// `["urn:a","urn:b"]` — which is not what the schema says the property is, and
+// breaks any client that iterates it. Only declared reference columns are
+// considered, so a literal property whose text happens to look like a JSON
+// array is left exactly as the operator wrote it.
+func (r *ResourceRepository) decodeListReferences(typeSlug string, camelRow map[string]any) {
+	for _, ref := range r.projMgr.ForwardReferences(typeSlug) {
+		key := utils.SnakeToCamel(ref.FKColumn)
+		raw, ok := camelRow[key].(string)
+		if !ok || !strings.HasPrefix(strings.TrimSpace(raw), "[") {
+			continue
+		}
+		var ids []string
+		if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+			continue
+		}
+		camelRow[key] = ids
+	}
 }
 
 // findAllFlatFromProjection queries the projection table directly and returns flat rows
@@ -1232,6 +1258,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 		for k, v := range row {
 			camelRow[utils.SnakeToCamel(k)] = v
 		}
+		r.decodeListReferences(typeSlug, camelRow)
 		result = append(result, camelRow)
 		sortVal := row[colName]
 		if sortVal == nil {
