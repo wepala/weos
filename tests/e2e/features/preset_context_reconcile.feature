@@ -100,17 +100,36 @@ Feature: A built-in preset's new reference property reaches an already-provision
     Then the boot reconcile does not report "widget" as updated
     And the boot reconcile names "supplier" as a property whose writes are still dropped
 
+  # The two scenarios below write their pre-fix row through a schema that ALREADY
+  # marks "supplier" a reference, so the value lands as a real EDGE keyed by the
+  # @vocab-derived IRI. Written against a schema that does not declare it yet, it
+  # lands in the entity node as a literal and the column refills through
+  # extractNodeColumns — which is how both scenarios used to pass with the whole
+  # context merge deleted (issue #513, P2-1).
+  @issue-513 @wip
   Scenario: A reference written before the context entry existed reads back empty but survives in the canonical record
-    Given a "widget" named "Bolt cutter" is created with an undeclared "supplier" referring to the "vendor" "Acme"
-    When the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
+    And the twin restarts against the same database
+    And I create a "widget" named "Bolt cutter" with "supplier" referring to the "vendor" "Acme"
+    When the "catalog" preset declares a context entry for "supplier" on "widget"
     And the twin restarts against the same database
     Then reading the "widget" "Bolt cutter" back over the API returns no value for "supplier"
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "supplier" edge to the "vendor" "Acme"
 
+  @issue-513 @wip
   Scenario: Reprojecting after the context entry lands populates the reference column
-    Given a "widget" named "Bolt cutter" is created with an undeclared "supplier" referring to the "vendor" "Acme"
-    And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
+    And the twin restarts against the same database
+    And I create a "widget" named "Bolt cutter" with "supplier" referring to the "vendor" "Acme"
+    And the "catalog" preset declares a context entry for "supplier" on "widget"
     And the twin restarts against the same database
     And reading the "widget" "Bolt cutter" back over the API returns no value for "supplier"
     When the operator reprojects the event feed
     Then reading the "widget" "Bolt cutter" back over the API returns "supplier" as the "vendor" "Acme"
+
+  @issue-513 @wip
+  Scenario: A context entry the operator deleted is restored without rewriting the stored schema
+    Given the operator deletes "maker" from the stored "widget" context
+    When the twin restarts against the same database
+    Then the stored "widget" context has an entry for "maker"
+    And the stored "widget" schema is byte-identical to the one stored before the restart
