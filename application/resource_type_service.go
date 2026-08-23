@@ -2,9 +2,11 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/wepala/weos/v3/domain/entities"
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -395,54 +397,129 @@ func (s *resourceTypeService) reconcileOneType(
 	ctx context.Context, result *ReconcilePresetResult,
 	presetName string, pt PresetResourceType, existing *entities.ResourceType,
 ) {
-	rec, err := reconcileAdditiveSchema(existing.Schema(), pt.Schema)
+	schemaRec, err := reconcileAdditiveSchema(existing.Schema(), pt.Schema)
 	if err != nil {
 		s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
 			fmt.Errorf("failed to reconcile schema: %w", err))
 		return
 	}
-	if len(rec.Conflicts) > 0 {
-		// Held, not applied — and the rest of the merge still proceeds, so one
-		// changed property definition can't block every additive property beside
-		// it. Report which properties are stuck at their stored definition.
-		s.logger.Warn(ctx,
-			"preset property definitions diverge non-additively; holding them at their stored definition",
-			"preset", presetName, "slug", pt.Slug, "heldProperties", rec.Conflicts)
-		if result.Refused == nil {
-			result.Refused = make(map[string][]string)
-		}
-		result.Refused[pt.Slug] = rec.Conflicts
+	// The context is merged by the same additive rules as the schema (issue
+	// #510). Merging only the schema is what left a reference property with a
+	// column, a declaration, and nowhere for its predicate to resolve — so its
+	// writes went on being dropped while the reconcile reported success.
+	contextRec, err := reconcileAdditiveContext(existing.Context(), pt.Context)
+	if err != nil {
+		s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
+			fmt.Errorf("failed to reconcile context: %w", err))
+		return
 	}
-	if !rec.Changed {
+	s.recordHeldDefinitions(ctx, result, presetName, pt.Slug, schemaRec, contextRec)
+
+	if !schemaRec.Changed && !contextRec.Changed {
 		result.Unchanged = append(result.Unchanged, pt.Slug)
 		return
 	}
+
+	// Each side falls back to what is stored when its own merge is a no-op, so
+	// a context-only change never rewrites the schema and vice versa.
+	schema := existing.Schema()
+	if schemaRec.Changed {
+		schema = schemaRec.Schema
+	}
+	ldContext := existing.Context()
+	if contextRec.Changed {
+		ldContext = contextRec.Context
+	}
+
 	if _, err := s.Update(ctx, UpdateResourceTypeCommand{
 		ID:          existing.GetID(),
 		Name:        existing.Name(),
 		Slug:        existing.Slug(),
 		Description: existing.Description(),
 		Status:      existing.Status(),
-		Context:     existing.Context(),
-		Schema:      rec.Schema,
+		Context:     ldContext,
+		Schema:      schema,
 	}); err != nil {
 		s.recordReconcileFailure(ctx, result, presetName, pt.Slug, err)
 		return
 	}
-	// A successful Update is NOT evidence the column exists. The column is added
-	// by the ResourceType.Updated handler, and SimpleUnitOfWork.Commit discards
-	// dispatch errors as non-fatal (eventual-consistency model), so EnsureTable
-	// can fail while Update still returns nil. Reporting "reconciled" on that
-	// basis would announce success over exactly the silent drop this change
-	// exists to end, so confirm the columns actually landed.
-	if missing := s.missingColumns(pt.Slug, rec.Added); len(missing) > 0 {
-		s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
-			fmt.Errorf("stored schema updated but projection columns are still missing: %v", missing))
+	if !s.confirmWritesLand(ctx, result, presetName, pt, schema, ldContext, schemaRec.Added) {
 		return
 	}
-	s.logger.Info(ctx, "reconciled preset schema into existing resource type",
-		"preset", presetName, "slug", pt.Slug, "addedProperties", rec.Added)
+	s.logger.Info(ctx, "reconciled preset schema and context into existing resource type",
+		"preset", presetName, "slug", pt.Slug,
+		"addedProperties", schemaRec.Added, "addedContextTerms", contextRec.Added)
 	result.Updated = append(result.Updated, pt.Slug)
+}
+
+// recordHeldDefinitions logs and records every definition held at its stored
+// form, keeping schema properties and context terms in separate categories:
+// they read the same on a boot line but need different operator fixes.
+func (s *resourceTypeService) recordHeldDefinitions(
+	ctx context.Context, result *ReconcilePresetResult, presetName, slug string,
+	schemaRec schemaReconciliation, contextRec contextReconciliation,
+) {
+	if len(schemaRec.Conflicts) > 0 {
+		// Held, not applied — and the rest of the merge still proceeds, so one
+		// changed property definition can't block every additive property beside
+		// it. Report which properties are stuck at their stored definition.
+		s.logger.Warn(ctx,
+			"preset property definitions diverge non-additively; holding them at their stored definition",
+			"preset", presetName, "slug", slug, "heldProperties", schemaRec.Conflicts)
+		if result.Refused == nil {
+			result.Refused = make(map[string][]string)
+		}
+		result.Refused[slug] = schemaRec.Conflicts
+	}
+	if len(contextRec.Conflicts) > 0 {
+		s.logger.Warn(ctx,
+			"preset context terms diverge; holding them at their stored definition",
+			"preset", presetName, "slug", slug, "heldContextTerms", contextRec.Conflicts)
+		if result.RefusedContext == nil {
+			result.RefusedContext = make(map[string][]string)
+		}
+		result.RefusedContext[slug] = contextRec.Conflicts
+	}
+}
+
+// confirmWritesLand verifies, after a successful Update, that writes to the
+// reconciled type's properties can actually land. It reports whether the type
+// may be counted as Updated.
+//
+// A successful Update is NOT evidence of either half. The column is added by
+// the ResourceType.Updated handler, and SimpleUnitOfWork.Commit discards
+// dispatch errors as non-fatal (eventual-consistency model), so EnsureTable can
+// fail while Update still returns nil. A reference property needs a second
+// thing the Update cannot vouch for: an explicit context term to key its edge
+// by. Reporting "reconciled" without checking both would announce success over
+// exactly the silent drop this exists to end.
+//
+// Both halves are reported together rather than short-circuiting, because
+// Failed carries one reason per slug and an operator fixing a type wants to see
+// everything wrong with it at once.
+func (s *resourceTypeService) confirmWritesLand(
+	ctx context.Context, result *ReconcilePresetResult,
+	presetName string, pt PresetResourceType,
+	schema, ldContext json.RawMessage, addedProperties []string,
+) bool {
+	var reasons []string
+	if missing := s.missingColumns(pt.Slug, addedProperties); len(missing) > 0 {
+		reasons = append(reasons,
+			fmt.Sprintf("stored schema updated but projection columns are still missing: %v", missing))
+	}
+	// A reference the preset's own context never declares cannot be fixed by an
+	// additive merge — nothing exists to merge in. That is a preset packaging
+	// mistake, and naming it is the only way an operator learns those writes are
+	// being dropped.
+	if dropped := referencePropertiesWithoutContextEntry(schema, ldContext); len(dropped) > 0 {
+		reasons = append(reasons,
+			fmt.Sprintf("reference properties have no @context entry, so their writes are dropped: %v", dropped))
+	}
+	if len(reasons) == 0 {
+		return true
+	}
+	s.recordReconcileFailure(ctx, result, presetName, pt.Slug, errors.New(strings.Join(reasons, "; ")))
+	return false
 }
 
 // columnlessProperties are schema property names that deliberately yield no
@@ -489,7 +566,11 @@ func (s *resourceTypeService) missingColumns(slug string, properties []string) [
 func (s *resourceTypeService) recordReconcileFailure(
 	ctx context.Context, result *ReconcilePresetResult, presetName, slug string, err error,
 ) {
-	s.logger.Error(ctx, "failed to reconcile preset schema into resource type",
+	// Deliberately not "schema": this records every way a reconcile can fail —
+	// an unparseable schema OR context, a failed Update, a projection column
+	// that never appeared, and a reference property left with no context term.
+	// Naming only the schema would send an operator to the wrong half.
+	s.logger.Error(ctx, "failed to reconcile preset into resource type",
 		"preset", presetName, "slug", slug, "error", err)
 	if result.Failed == nil {
 		result.Failed = make(map[string]string)

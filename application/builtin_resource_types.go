@@ -89,9 +89,9 @@ func ensureBuiltInResourceTypes(params struct {
 	return nil
 }
 
-// reconcilePresetSchemas merges a preset's additive schema changes into the
-// types already stored in this database and reports every outcome that means
-// data is still being dropped (issue #379).
+// reconcilePresetSchemas merges a preset's additive schema AND `@context`
+// changes into the types already stored in this database, and reports every
+// outcome that means data is still being dropped (issues #379 and #510).
 //
 // A reconcile failure is logged, not fatal. That is a deliberate asymmetry with
 // the terminal LinkActivator reconcile above, which does fail startup: link
@@ -105,14 +105,14 @@ func reconcilePresetSchemas(
 ) {
 	reconciled, err := svc.ReconcilePresetSchemas(ctx, presetName)
 	if err != nil {
-		logger.Error(ctx, "failed to reconcile preset schema",
+		logger.Error(ctx, "failed to reconcile preset",
 			"preset", presetName, "error", err)
 	}
 	if reconciled == nil {
 		return
 	}
 	for _, slug := range reconciled.Updated {
-		logger.Info(ctx, "reconciled resource type schema from preset",
+		logger.Info(ctx, "reconciled resource type schema and context from preset",
 			"preset", presetName, "slug", slug)
 	}
 	for slug, held := range reconciled.Refused {
@@ -123,9 +123,20 @@ func reconcilePresetSchemas(
 			"resource type properties held at their stored definition: preset diverges non-additively",
 			"preset", presetName, "slug", slug, "heldProperties", held)
 	}
+	for slug, held := range reconciled.RefusedContext {
+		// A context term the operator repointed. Held rather than overwritten,
+		// because existing edges are already keyed by the stored IRI and
+		// repointing it would orphan them (issue #510).
+		logger.Warn(ctx,
+			"resource type context terms held at their stored definition: preset declares a different IRI",
+			"preset", presetName, "slug", slug, "heldContextTerms", held)
+	}
 	for slug, reason := range reconciled.Failed {
+		// The reason names what actually failed: a projection column that never
+		// appeared, a reference property with no `@context` term to resolve
+		// through, or both. Either way writes to those properties are dropped.
 		logger.Error(ctx,
-			"resource type NOT reconciled: writes to its new properties will be dropped",
+			"resource type NOT reconciled: writes to some of its properties will be dropped",
 			"preset", presetName, "slug", slug, "reason", reason)
 	}
 	for _, slug := range reconciled.NoSchema {

@@ -82,7 +82,14 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        # tests/e2e takes ~504s under -race on a developer machine and more on
+        # a runner, against `go test`'s 600s default per-package timeout. The
+        # package was being killed mid-run and reported as a failure, which is
+        # why the gate has been red on v3 since 2026-08-20 regardless of the
+        # change under test. Raised with headroom rather than set just above
+        # the current figure, so the gate does not go red again on the next
+        # scenario added.
+        run: go test -v -race -timeout 20m -coverprofile=coverage.out ./...
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4

@@ -124,12 +124,18 @@ type InstallPresetResult struct {
 //
 //   - Failed and NoSchema mean writes to at least one property ARE still being
 //     dropped. Both are urgent.
-//   - Refused means a property definition diverged and is being held safely at
-//     its stored form. The column already exists and writes to it still land;
-//     what needs an operator is the divergence itself, not data loss.
+//   - Refused and RefusedContext mean a definition diverged and is being held
+//     safely at its stored form. The column already exists and writes to it
+//     still land; what needs an operator is the divergence itself, not data
+//     loss.
 type ReconcilePresetResult struct {
-	// Updated lists types whose stored schema was rewritten AND whose new
-	// columns were confirmed present afterwards.
+	// Updated lists types whose stored schema, `@context`, or both were
+	// rewritten AND whose writes were confirmed able to land afterwards: every
+	// added property has its projection column, and every reference property
+	// has a `@context` term its predicate resolves back through. A type
+	// failing either check is reported under Failed instead — a column that
+	// cannot be written to and a reference that cannot be read back are the
+	// same silent drop, and neither is a completed reconcile.
 	Updated []string `json:"updated,omitempty"`
 	// Unchanged lists types already in sync — the steady-state boot.
 	Unchanged []string `json:"unchanged,omitempty"`
@@ -139,6 +145,16 @@ type ReconcilePresetResult struct {
 	// per-property, not per-type), so a slug can appear here and in Updated at
 	// the same time. Held properties need an operator decision.
 	Refused map[string][]string `json:"refused,omitempty"`
+	// RefusedContext maps a slug to the `@context` terms whose definitions
+	// diverged from the preset's and were therefore HELD at their stored
+	// definition (issue #510). Reported apart from Refused because the two
+	// need different operator fixes: a held schema property is a shape
+	// disagreement about a column, while a held context term is a
+	// disagreement about which predicate a reference is keyed by — and
+	// repointing that one orphans edges already written under the stored IRI.
+	// As with Refused, holding is per-term and the type's additive terms
+	// still landed, so a slug can appear here and in Updated at once.
+	RefusedContext map[string][]string `json:"refusedContext,omitempty"`
 	// Failed maps a slug to why its reconcile could not be completed. A type
 	// here is NOT reconciled: either the update errored, or it reported success
 	// while the projection column did not actually appear.
