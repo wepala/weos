@@ -661,9 +661,17 @@ func (w *contextWorld) canonicalStillCarriesEdge(name, property, vendorName stri
 			return nil
 		}
 	}
-	// The edge is keyed by its predicate IRI, so a missing context term hides it
-	// from EdgeValues too. Fall back to the raw payload before declaring loss.
-	if strings.Contains(string(res.Data()), want) {
+	// A value written BEFORE the schema declared the property was never a
+	// reference at write time, so it landed in the entity node as a plain
+	// value rather than the edges node — EdgeValues cannot see it. Look it up
+	// by name instead. Deliberately NOT a substring search over the payload:
+	// that would pass on the URN appearing under any other key, which is the
+	// exact loss this step exists to catch.
+	var data map[string]any
+	if err := json.Unmarshal(res.Data(), &data); err != nil {
+		return fmt.Errorf("canonical data for %q is not a JSON object: %w", name, err)
+	}
+	if got, ok := jsonLDField(data, property); ok && fmt.Sprintf("%v", got) == want {
 		return nil
 	}
 	return fmt.Errorf("canonical record for %q lost its %q edge to %s (payload: %s)",
