@@ -105,7 +105,7 @@ func reconcilePresetSchemas(
 ) {
 	reconciled, err := svc.ReconcilePresetSchemas(ctx, presetName)
 	if err != nil {
-		logger.Error(ctx, "failed to reconcile preset schema",
+		logger.Error(ctx, "failed to reconcile preset",
 			"preset", presetName, "error", err)
 	}
 	if reconciled == nil {

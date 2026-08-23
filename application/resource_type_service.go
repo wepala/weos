@@ -566,7 +566,11 @@ func (s *resourceTypeService) missingColumns(slug string, properties []string) [
 func (s *resourceTypeService) recordReconcileFailure(
 	ctx context.Context, result *ReconcilePresetResult, presetName, slug string, err error,
 ) {
-	s.logger.Error(ctx, "failed to reconcile preset schema into resource type",
+	// Deliberately not "schema": this records every way a reconcile can fail —
+	// an unparseable schema OR context, a failed Update, a projection column
+	// that never appeared, and a reference property left with no context term.
+	// Naming only the schema would send an operator to the wrong half.
+	s.logger.Error(ctx, "failed to reconcile preset into resource type",
 		"preset", presetName, "slug", slug, "error", err)
 	if result.Failed == nil {
 		result.Failed = make(map[string]string)
