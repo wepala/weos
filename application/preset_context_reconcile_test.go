@@ -478,3 +478,81 @@ func TestReconcileAdditiveContext_ClearedContextAdoptsWholesale(t *testing.T) {
 		t.Error("a cleared context must adopt the preset's terms")
 	}
 }
+
+// TestReconcileAdditiveContext_PrefixAndTermAddedTogether is the false positive
+// the first version of this guard had. A preset that adds a PREFIX and a term
+// using it in the same build resolves that term only once both are present.
+// Judging the term against the stored context alone reads its IRI with the
+// prefix unexpanded — `http://ex.org/ex:maker` instead of `http://ex.org/maker`
+// — and holds a term that moves nothing.
+func TestReconcileAdditiveContext_PrefixAndTermAddedTogether(t *testing.T) {
+	storedSchema := json.RawMessage(`{"type":"object","properties":{
+		"maker":{"type":"string","x-resource-type":"vendor"}}}`)
+	stored := json.RawMessage(`{"@vocab":"http://ex.org/","@type":"Thing"}`)
+	// `ex` expands to the same namespace as @vocab, so `ex:maker` and the
+	// vocab-derived `maker` are the same IRI: nothing moves.
+	preset := json.RawMessage(`{"@vocab":"http://ex.org/","@type":"Thing",` +
+		`"ex":"http://ex.org/","maker":"ex:maker"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, storedSchema)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if len(rec.Moves) != 0 {
+		t.Fatalf("Moves = %+v, want none — maker resolves to the same IRI either way", rec.Moves)
+	}
+	if !sameStrings(rec.Added, []string{"ex", "maker"}) {
+		t.Errorf("Added = %v, want [ex maker]", rec.Added)
+	}
+}
+
+// TestReconcileAdditiveContext_PrefixedTermThatDoesMove is the other side of
+// that case: once the prefix resolves, the term still names a different
+// namespace from the one the data uses, so it is held — and the reported IRI is
+// the resolved one, not a half-expanded string.
+func TestReconcileAdditiveContext_PrefixedTermThatDoesMove(t *testing.T) {
+	storedSchema := json.RawMessage(`{"type":"object","properties":{
+		"recipeIngredient":{"type":"string","x-resource-type":"ingredient"}}}`)
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
+		`"fo":"http://purl.org/foodontology#","recipeIngredient":"fo:hasIngredient"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, storedSchema)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if len(rec.Moves) != 1 {
+		t.Fatalf("Moves = %+v, want the recipeIngredient term held", rec.Moves)
+	}
+	got := rec.Moves[0]
+	if got.StoredIRI != "https://schema.org/recipeIngredient" {
+		t.Errorf("StoredIRI = %q, want the vocab-derived IRI the data uses", got.StoredIRI)
+	}
+	if got.PresetIRI != "http://purl.org/foodontology#hasIngredient" {
+		t.Errorf("PresetIRI = %q, want the fully expanded IRI — a half-expanded "+
+			"`fo:hasIngredient` would tell an operator nothing actionable", got.PresetIRI)
+	}
+}
+
+// TestReconcileAdditiveContext_AddingVocabMovesEveryUntermedReference: a stored
+// context with no `@vocab` resolves an untermed reference to its bare name, so
+// adding one moves every such reference at once. Nothing names `@vocab` in
+// those definitions, so without an explicit fallback the move is detected, no
+// term is blamed, nothing is held, and it is allowed through.
+func TestReconcileAdditiveContext_AddingVocabMovesEveryUntermedReference(t *testing.T) {
+	storedSchema := json.RawMessage(`{"type":"object","properties":{
+		"maker":{"type":"string","x-resource-type":"vendor"}}}`)
+	stored := json.RawMessage(`{"@type":"Widget"}`)
+	preset := json.RawMessage(`{"@type":"Widget","@vocab":"https://schema.org/"}`)
+
+	rec, err := reconcileAdditiveContext(stored, preset, storedSchema)
+	if err != nil {
+		t.Fatalf("reconcileAdditiveContext: %v", err)
+	}
+	if len(rec.Moves) != 1 || rec.Moves[0].Term != "@vocab" {
+		t.Fatalf("Moves = %+v, want @vocab held", rec.Moves)
+	}
+	if rec.Changed {
+		t.Error("holding @vocab must leave the stored context alone")
+	}
+}

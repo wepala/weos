@@ -404,8 +404,14 @@ func (pm *projectionManager) UpdateColumnByFK(
 		return nil
 	}
 	tableName := pm.TableName(typeSlug)
+	// A list reference stores its targets as a JSON array in the FK column
+	// (issue #513), so plain equality never matches one and the denormalized
+	// display value would go stale the moment the target was renamed — worse
+	// than the empty column this replaced, because a stale name still reads as
+	// current. The LIKE arm matches an array whose FIRST element is this
+	// target, which is exactly the one the display column carries.
 	return pm.writeDB(ctx).Table(tableName).
-		Where(fkColumn+" = ?", fkValue).
+		Where(fkColumn+" = ? OR "+fkColumn+" LIKE ?", fkValue, `["`+fkValue+`"%`).
 		Update(targetColumn, targetValue).Error
 }
 

@@ -18,6 +18,7 @@ package gorm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1252,5 +1253,70 @@ func TestEnsureTable_FailedBackfillLeavesHasProjectionTableRetrying(t *testing.T
 	}
 	if !pm.HasProjectionTable("recipe") {
 		t.Fatal("HasProjectionTable should retry EnsureTable and succeed once the failure cleared")
+	}
+}
+
+// TestUpdateColumnByFK_ListReference pins the display-propagation half of issue
+// #513. A list-valued reference stores its targets as a JSON array in the FK
+// column, so matching that column against a bare URN never finds the row: the
+// denormalized display value would keep the target's OLD name after a rename,
+// which reads as current and is worse than the empty column it replaced.
+//
+// The display column carries the FIRST target, so only that target's rename
+// should move it — a later element must not overwrite the label.
+func TestUpdateColumnByFK_ListReference(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},
+		"maker":{"type":"string","x-resource-type":"vendor"},
+		"suppliers":{"type":"array","x-resource-type":"vendor","items":{"type":"string"}}}}`)
+	if err := pm.EnsureTable(context.Background(), "widget", schema, nil); err != nil {
+		t.Fatalf("EnsureTable: %v", err)
+	}
+
+	const first, second = "urn:vendor:aaa", "urn:vendor:bbb"
+	rows := []map[string]any{
+		{"id": "urn:widget:scalar", "type_slug": "widget", "maker": first, "maker_display": "Acme"},
+		{"id": "urn:widget:list", "type_slug": "widget", "suppliers": `["` + first + `","` + second + `"]`,
+			"suppliers_display": "Acme"},
+		{"id": "urn:widget:list-second", "type_slug": "widget", "suppliers": `["` + second + `","` + first + `"]`,
+			"suppliers_display": "Globex"},
+	}
+	for _, row := range rows {
+		if err := db.Table("widgets").Create(row).Error; err != nil {
+			t.Fatalf("seed %v: %v", row["id"], err)
+		}
+	}
+
+	ctx := context.Background()
+	if err := pm.UpdateColumnByFK(ctx, "widget", "maker", first, "maker_display", "Acme Industrial"); err != nil {
+		t.Fatalf("UpdateColumnByFK (scalar): %v", err)
+	}
+	if err := pm.UpdateColumnByFK(
+		ctx, "widget", "suppliers", first, "suppliers_display", "Acme Industrial"); err != nil {
+		t.Fatalf("UpdateColumnByFK (list): %v", err)
+	}
+
+	for _, tc := range []struct{ id, column, want string }{
+		{"urn:widget:scalar", "maker_display", "Acme Industrial"},
+		{"urn:widget:list", "suppliers_display", "Acme Industrial"},
+		// The renamed target is the SECOND element here, so the label — which
+		// shows the first — must be left alone.
+		{"urn:widget:list-second", "suppliers_display", "Globex"},
+	} {
+		var got []map[string]any
+		if err := db.Table("widgets").Select(tc.column).
+			Where("id = ?", tc.id).Find(&got).Error; err != nil {
+			t.Fatalf("read %s for %s: %v", tc.column, tc.id, err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("expected one row for %s, got %d", tc.id, len(got))
+		}
+		if v := fmt.Sprintf("%v", got[0][tc.column]); v != tc.want {
+			t.Errorf("%s for %s is %q, want %q", tc.column, tc.id, v, tc.want)
+		}
 	}
 }

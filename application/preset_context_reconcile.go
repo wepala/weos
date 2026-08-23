@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/wepala/weos/v3/pkg/jsonld"
 )
@@ -144,13 +145,6 @@ func reconcileAdditiveContext(stored, preset, storedSchema json.RawMessage) (con
 	for _, term := range sortedKeys(presetTerms) {
 		existing, inStored := storedTerms[term]
 		if !inStored {
-			// Additive by absence is not the same as safe. Adding a term can
-			// repoint a predicate that already has edges keyed by the IRI it
-			// resolved to before — see movesLivePredicate.
-			if moved, ok := movesLivePredicate(term, presetTerms[term], stored, storedSchema); ok {
-				out.Moves = append(out.Moves, moved)
-				continue
-			}
 			merged[term] = presetTerms[term]
 			out.Added = append(out.Added, term)
 			continue
@@ -161,6 +155,14 @@ func reconcileAdditiveContext(stored, preset, storedSchema json.RawMessage) (con
 			out.Conflicts = append(out.Conflicts, term)
 		}
 	}
+
+	// Additive by absence is not the same as safe: see holdMovingTerms. This
+	// runs on the WHOLE merged context rather than term by term, because a
+	// preset that adds a prefix and a term using it in the same build resolves
+	// that term only once both are present — judging the term against the
+	// stored context alone reads its IRI with the prefix unexpanded and holds
+	// a term that never moved anything.
+	out.Moves = holdMovingTerms(stored, storedSchema, merged, &out.Added)
 
 	if len(out.Added) == 0 {
 		return out, nil
@@ -233,8 +235,9 @@ type movedPredicate struct {
 	Property string
 }
 
-// movesLivePredicate reports whether merging one new term would change how a
-// predicate that ALREADY HAS DATA resolves (issue #513).
+// holdMovingTerms removes, from an already-merged context, every added term
+// whose presence changes how a predicate that ALREADY HAS DATA resolves, and
+// reports what it removed (issue #513).
 //
 // The merge rules make a term the stored context lacks look purely additive.
 // It is not. Three ways an addition repoints something live:
@@ -255,40 +258,154 @@ type movedPredicate struct {
 // reference property and its term in the same build — holding the term and
 // re-breaking that repair. A property the stored schema does not yet declare
 // has no data under any IRI, so nothing can be orphaned.
-func movesLivePredicate(term string, definition, stored, storedSchema json.RawMessage) (movedPredicate, bool) {
+//
+// Removing a term can itself change what other terms resolve to, so the pass
+// repeats until nothing more moves. It is bounded by the number of added terms:
+// each round removes at least one, or stops.
+func holdMovingTerms(
+	stored, storedSchema json.RawMessage, merged map[string]json.RawMessage, added *[]string,
+) []movedPredicate {
 	if len(stored) == 0 {
-		return movedPredicate{}, false
+		return nil
 	}
 	storedTerms, err := splitContext(stored)
-	if err != nil {
-		return movedPredicate{}, false
-	}
-	// A stored context that defines nothing — including one an operator
-	// cleared — has no resolution for anything to move away from, so the
-	// preset's terms are adopted wholesale, as they are for an absent context.
-	if len(storedTerms) == 0 {
-		return movedPredicate{}, false
-	}
-	candidate := make(map[string]json.RawMessage, len(storedTerms)+1)
-	for k, v := range storedTerms {
-		candidate[k] = v
-	}
-	candidate[term] = definition
-	candidateRaw, err := json.Marshal(candidate)
-	if err != nil {
-		return movedPredicate{}, false
+	if err != nil || len(storedTerms) == 0 {
+		// A stored context that defines nothing — including one an operator
+		// cleared — has no resolution for anything to move away from, so the
+		// preset's terms are adopted wholesale, as for an absent context.
+		return nil
 	}
 
-	for _, property := range livePredicates(stored, storedSchema) {
+	predicates := livePredicates(stored, storedSchema)
+	var held []movedPredicate
+	for round := 0; round <= len(*added); round++ {
+		culprits, moved := movedBy(stored, merged, storedTerms, predicates)
+		if len(culprits) == 0 {
+			break
+		}
+		for _, term := range culprits {
+			delete(merged, term)
+			*added = removeString(*added, term)
+		}
+		held = append(held, moved...)
+	}
+	sort.Slice(held, func(i, j int) bool { return held[i].Term < held[j].Term })
+	return held
+}
+
+// movedBy compares every live predicate's resolution under the stored context
+// with its resolution under the candidate, and blames the added terms
+// responsible for each difference.
+func movedBy(
+	stored json.RawMessage, merged, storedTerms map[string]json.RawMessage, predicates []string,
+) ([]string, []movedPredicate) {
+	candidateRaw, err := json.Marshal(merged)
+	if err != nil {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	var culprits []string
+	var moved []movedPredicate
+	for _, property := range predicates {
 		before := resolveIn(stored, property)
 		after := resolveIn(candidateRaw, property)
-		if before != after {
-			return movedPredicate{
+		if before == after {
+			continue
+		}
+		for _, term := range blameFor(property, merged, storedTerms) {
+			if seen[term] {
+				continue
+			}
+			seen[term] = true
+			culprits = append(culprits, term)
+			moved = append(moved, movedPredicate{
 				Term: term, StoredIRI: before, PresetIRI: after, Property: property,
-			}, true
+			})
 		}
 	}
-	return movedPredicate{}, false
+	return culprits, moved
+}
+
+// blameFor names the added terms responsible for one predicate's resolution
+// changing: the term for the property itself, and any prefix its definition
+// expands through.
+func blameFor(property string, merged, storedTerms map[string]json.RawMessage) []string {
+	// Blame the property's own term first and stop there. Holding the term is
+	// enough to leave the predicate where it was, and a prefix held alongside
+	// it would be collateral: nothing else may need it moved, and future terms
+	// legitimately expand through it.
+	if _, isStored := storedTerms[property]; !isStored {
+		if _, added := merged[property]; added {
+			return []string{property}
+		}
+	}
+	var blame []string
+	// Otherwise the move came from a prefix the definition expands through,
+	// which repoints the property without being named by it.
+	for _, def := range []json.RawMessage{storedTerms[property], merged[property]} {
+		prefix := prefixOf(def)
+		if prefix == "" {
+			continue
+		}
+		if _, isStored := storedTerms[prefix]; isStored {
+			continue
+		}
+		if _, added := merged[prefix]; added {
+			blame = append(blame, prefix)
+		}
+	}
+	if len(blame) > 0 {
+		return blame
+	}
+	// Nothing named it, so the mover is the global fallback: a stored context
+	// with no `@vocab` resolves an untermed reference to its bare name, and
+	// adding one moves every such reference at once. Without this the move is
+	// detected, nobody is blamed, no term is removed, and it is allowed
+	// through — the silent drop this guard exists to prevent.
+	if _, isStored := storedTerms[vocabKeyword]; !isStored {
+		if _, added := merged[vocabKeyword]; added {
+			return []string{vocabKeyword}
+		}
+	}
+	return nil
+}
+
+const vocabKeyword = "@vocab"
+
+// prefixOf returns the prefix a compact term definition expands through, or ""
+// when the definition is absent, absolute, or has no prefix.
+func prefixOf(def json.RawMessage) string {
+	if len(def) == 0 {
+		return ""
+	}
+	var iri string
+	if json.Unmarshal(def, &iri) != nil {
+		var obj struct {
+			ID string `json:"@id"`
+		}
+		if json.Unmarshal(def, &obj) != nil {
+			return ""
+		}
+		iri = obj.ID
+	}
+	if iri == "" || strings.HasPrefix(iri, "http://") || strings.HasPrefix(iri, "https://") {
+		return ""
+	}
+	before, _, found := strings.Cut(iri, ":")
+	if !found {
+		return ""
+	}
+	return before
+}
+
+func removeString(list []string, want string) []string {
+	out := list[:0]
+	for _, s := range list {
+		if s != want {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // livePredicates names everything whose resolution must not move: every term
