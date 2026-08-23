@@ -446,7 +446,7 @@ func (s *resourceTypeService) reconcileOneType(
 	if !s.confirmWritesLand(ctx, result, presetName, pt, schema, ldContext, schemaRec.Added) {
 		return
 	}
-	s.logger.Info(ctx, "reconciled preset schema into existing resource type",
+	s.logger.Info(ctx, "reconciled preset schema and context into existing resource type",
 		"preset", presetName, "slug", pt.Slug,
 		"addedProperties", schemaRec.Added, "addedContextTerms", contextRec.Added)
 	result.Updated = append(result.Updated, pt.Slug)

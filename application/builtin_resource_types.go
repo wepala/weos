@@ -89,9 +89,9 @@ func ensureBuiltInResourceTypes(params struct {
 	return nil
 }
 
-// reconcilePresetSchemas merges a preset's additive schema changes into the
-// types already stored in this database and reports every outcome that means
-// data is still being dropped (issue #379).
+// reconcilePresetSchemas merges a preset's additive schema AND `@context`
+// changes into the types already stored in this database, and reports every
+// outcome that means data is still being dropped (issues #379 and #510).
 //
 // A reconcile failure is logged, not fatal. That is a deliberate asymmetry with
 // the terminal LinkActivator reconcile above, which does fail startup: link
@@ -112,7 +112,7 @@ func reconcilePresetSchemas(
 		return
 	}
 	for _, slug := range reconciled.Updated {
-		logger.Info(ctx, "reconciled resource type schema from preset",
+		logger.Info(ctx, "reconciled resource type schema and context from preset",
 			"preset", presetName, "slug", slug)
 	}
 	for slug, held := range reconciled.Refused {
@@ -132,8 +132,11 @@ func reconcilePresetSchemas(
 			"preset", presetName, "slug", slug, "heldContextTerms", held)
 	}
 	for slug, reason := range reconciled.Failed {
+		// The reason names what actually failed: a projection column that never
+		// appeared, a reference property with no `@context` term to resolve
+		// through, or both. Either way writes to those properties are dropped.
 		logger.Error(ctx,
-			"resource type NOT reconciled: writes to its new properties will be dropped",
+			"resource type NOT reconciled: writes to some of its properties will be dropped",
 			"preset", presetName, "slug", slug, "reason", reason)
 	}
 	for _, slug := range reconciled.NoSchema {

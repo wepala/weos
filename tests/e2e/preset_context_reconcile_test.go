@@ -325,7 +325,10 @@ func (c *capturingLogger) Debug(ctx context.Context, msg string, fields ...inter
 }
 
 func (c *capturingLogger) Info(ctx context.Context, msg string, fields ...interface{}) {
-	if strings.Contains(msg, "reconciled resource type schema from preset") {
+	// Matched on a stable prefix rather than the whole message: the wording
+	// names which halves were reconciled and has already changed once, and a
+	// test that silently stops matching would report every type as un-updated.
+	if strings.Contains(msg, "reconciled resource type") {
 		if slug, ok := fieldValue(fields, "slug"); ok {
 			c.log.mu.Lock()
 			c.log.updated[slug] = true
