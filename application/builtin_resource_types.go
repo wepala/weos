@@ -124,9 +124,11 @@ func reconcilePresetSchemas(
 			"preset", presetName, "slug", slug, "heldProperties", held)
 	}
 	for slug, held := range reconciled.RefusedContext {
-		// A context term the operator repointed. Held rather than overwritten,
+		// A term whose stored IRI differs from the one the preset now declares —
+		// an operator edit, or a preset that repointed its own term between
+		// builds, which is the commoner cause. Held rather than overwritten,
 		// because existing edges are already keyed by the stored IRI and
-		// repointing it would orphan them (issue #510).
+		// repointing it would orphan them (issues #510, #513).
 		logger.Warn(ctx,
 			"resource type context terms held at their stored definition: preset declares a different IRI",
 			"preset", presetName, "slug", slug, "heldContextTerms", held)

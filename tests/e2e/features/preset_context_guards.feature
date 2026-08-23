@@ -15,7 +15,6 @@ Feature: A boot reconcile never moves or blocks a predicate that already has dat
     And a clean WeOS database provisioned by that build
     And a "vendor" named "Acme" exists
 
-  @wip
   Scenario: A term naming a different IRI than the data already uses is held and reported
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
@@ -24,7 +23,6 @@ Feature: A boot reconcile never moves or blocks a predicate that already has dat
     And the twin restarts against the same database
     Then the boot reconcile reports the "supplier" context term as held for "widget"
 
-  @wip
   Scenario: A reference written before its term existed still resolves after a differently-named term merges
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
@@ -33,7 +31,6 @@ Feature: A boot reconcile never moves or blocks a predicate that already has dat
     And the twin restarts against the same database
     Then the JSON-LD representation of the "widget" "Bolt cutter" still carries a "supplier" edge to the "vendor" "Acme"
 
-  @wip
   Scenario: A prefix the preset adds does not repoint a compact term the stored context already resolved
     Given the operator maps "maker" to "cat:madeBy" in the stored "widget" context
     And I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
@@ -41,7 +38,6 @@ Feature: A boot reconcile never moves or blocks a predicate that already has dat
     And the twin restarts against the same database
     Then the JSON-LD representation of the "widget" "Bolt cutter" still carries a "maker" edge to the "vendor" "Acme"
 
-  @wip
   Scenario: A term that moves the type's RDF class is held so its resources stay in one class
     Given a "widget" named "Bolt cutter" exists
     When the "catalog" preset declares "@type" as "Product" in the "widget" context
@@ -50,14 +46,13 @@ Feature: A boot reconcile never moves or blocks a predicate that already has dat
     Then the "widget" resources "Bolt cutter" and "Hex key" carry the same RDF type
     And the boot reconcile reports the "@type" context term as held for "widget"
 
-  @wip
   Scenario Outline: A stored context that is not a JSON object still lets the schema merge through
     Given the operator stores the raw context <context> for "widget"
     And the "catalog" preset adds a "sku" string property to "widget"
     And the twin restarts against the same database
     When I create a "widget" named "Bolt cutter" with "sku" set to "BC-100"
     Then the "widget" projection table has a "sku" column
-    And reading the "widget" "Bolt cutter" back over the API returns "sku" as "BC-100"
+    And reading the "widget" "Bolt cutter" back through the projection returns "sku" as "BC-100"
 
     Examples:
       | context                 |

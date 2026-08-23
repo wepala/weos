@@ -201,12 +201,12 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I create a "widget" named "([^"]*)" with these references:$`, w.iCreateWidgetWithReferences)
 	sc.Step(`^I create a "widget" named "([^"]*)" with "([^"]*)" set to "([^"]*)"$`, w.iCreateWidgetWithLiteral)
 
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns "([^"]*)" as the "vendor" "([^"]*)"$`,
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns "([^"]*)" as the "vendor" "([^"]*)"$`,
 		w.readingReturnsReference)
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns "([^"]*)" as the vendors "([^"]*)"$`,
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns "([^"]*)" as the vendors "([^"]*)"$`,
 		w.readingReturnsReferenceList)
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns "([^"]*)" as "([^"]*)"$`, w.readingReturnsLiteral)
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns no value for "([^"]*)"$`, w.readingReturnsNoValue)
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns "([^"]*)" as "([^"]*)"$`, w.readingReturnsLiteral)
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns no value for "([^"]*)"$`, w.readingReturnsNoValue)
 	sc.Step(`^the JSON-LD representation of the "widget" "([^"]*)" still carries a "([^"]*)" edge `+
 		`to the "vendor" "([^"]*)"$`, w.canonicalStillCarriesEdge)
 	sc.Step(`^the JSON-LD representation of the "widget" "([^"]*)" carries "([^"]*)" edges `+

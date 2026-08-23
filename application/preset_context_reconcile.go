@@ -31,19 +31,29 @@ import (
 // property reached an existing database, but left the stored `@context`
 // untouched. A REFERENCE property — one the schema marks with
 // `x-resource-type` — is stored as a JSON-LD edge keyed by its predicate IRI,
-// and FlattenGraph maps that IRI back to a property name through
-// jsonld.BuildReverseMap, which only ever sees EXPLICIT context entries
-// (ParseContext skips every `@`-prefixed keyword, so `@vocab` never appears in
-// it). An edge whose IRI has no reverse entry is skipped outright. So the
-// column arrived, the schema declared the property, and every write to it was
-// still dropped — with the API answering 201 the whole time.
+// and the readers map that IRI back to a property name through
+// jsonld.BuildReverseMap: entities.SimplifyJSONLD for the API response and
+// extractEdgeColumns for the projection's FK column. That map only ever sees
+// EXPLICIT context entries (ParseContext skips every `@`-prefixed keyword, so
+// `@vocab` never appears in it), and an edge whose IRI has no reverse entry is
+// skipped by both.
+//
+// The write itself is NOT lost: BuildResourceGraph resolves the predicate
+// through the `@vocab` fallback, so the edge is persisted. What is lost is
+// every way of reading it back — invisible to the API, absent from the
+// projection column — with a 201 returned the whole time. And because the
+// merge only changes how LATER reads resolve, edges already stored under the
+// `@vocab`-derived IRI stay unreachable until the operator reprojects, which
+// is why that step exists in the acceptance suite.
 //
 // Literal properties are unaffected: they live in the graph's entity node,
-// which FlattenGraph copies verbatim without consulting the context at all.
+// which the readers copy verbatim without consulting the context at all.
 // That asymmetry is why only references need this.
 //
-// The merge rules mirror reconcileAdditiveSchema's exactly, for the same
-// reasons stated there:
+// The merge rules mirror reconcileAdditiveSchema's PROPERTY rules, for the same
+// reasons stated there — deliberately unlike its top-level keyword handling,
+// where the preset wins; here `@vocab`, `@type` and prefixes are all held at
+// their stored definition:
 //
 //   - An entry the preset declares and the stored context lacks is MERGED IN.
 //     This is the whole point: it is what makes the reverse map resolve the new
@@ -181,7 +191,7 @@ func splitContext(raw json.RawMessage) (map[string]json.RawMessage, error) {
 
 // referencePropertiesWithoutContextEntry returns the reference properties the
 // schema declares that the context gives no explicit term for — exactly the
-// set whose writes FlattenGraph will drop.
+// set whose writes both readers will drop.
 //
 // The check mirrors what the read path actually does rather than restating it:
 // a reference survives only if BuildReverseMap can map its predicate IRI back

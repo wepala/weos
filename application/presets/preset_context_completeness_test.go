@@ -31,8 +31,9 @@ import (
 // to a property name through jsonld.BuildReverseMap — which is built ONLY from
 // explicit context terms, because ParseContext skips every `@`-prefixed
 // keyword. A reference resolving through `@vocab` therefore has no reverse
-// entry, FlattenGraph skips its edge, and every write to it is dropped while
-// the API still answers 201.
+// entry, both readers skip its edge — entities.SimplifyJSONLD for the API
+// response and extractEdgeColumns for the projection column — so the write is
+// persisted and unreadable, while the API still answers 201.
 //
 // The boot reconcile now reports this condition, but reporting is a backstop.
 // A preset shipped with the gap drops writes on every install of a FRESH
@@ -45,7 +46,14 @@ func TestEveryReferencePropertyHasAContextEntry(t *testing.T) {
 
 	for _, preset := range registry.List() {
 		for _, pt := range preset.Types {
+			// A type with no schema declares no references, so it has nothing
+			// for this guard to check — but it is NOT benign: every data field
+			// it is written with is dropped, which the reconcile reports under
+			// NoSchema. Assert it rather than skipping past it silently.
 			if len(pt.Schema) == 0 {
+				t.Errorf("preset %q type %q declares no JSON Schema, so its projection has only "+
+					"base columns and every data field written to it is dropped",
+					preset.Name, pt.Slug)
 				continue
 			}
 			dropped := referencesWithoutContextEntry(t, pt)

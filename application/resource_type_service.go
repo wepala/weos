@@ -339,13 +339,16 @@ func (s *resourceTypeService) InstallPreset(
 // third, narrower behavior instead.
 //
 // Only the schema is touched, and only additively (see reconcileAdditiveSchema
-// for the merge rules). Name, Description, Context and Status are read back
-// from the stored type and passed through unchanged. The explicit
+// for the merge rules). Schema and `@context` are BOTH merged, and only
+// additively (reconcileAdditiveSchema and reconcileAdditiveContext); each side
+// falls back to the stored value when its own merge is a no-op, so a
+// context-only change never rewrites the schema. Name, Description and Status
+// are read back from the stored type and passed through unchanged. The explicit
 // `resource-type preset install --update` path keeps its full-overwrite
 // semantics — there an operator asked for it.
 //
-// A type whose preset schema diverged non-additively is logged and recorded in
-// Refused, never rewritten; a type with no delta emits no event, which is what
+// A type whose preset schema or context diverged non-additively is logged and
+// recorded in Refused or RefusedContext, never rewritten; a type with no delta emits no event, which is what
 // keeps repeated restarts from appending a ResourceTypeUpdated per type per
 // boot.
 //
@@ -427,6 +430,22 @@ func (s *resourceTypeService) reconcileOneType(
 	s.recordHeldDefinitions(ctx, result, presetName, pt.Slug, schemaRec, contextRec)
 
 	if !schemaRec.Changed && !contextRec.Changed {
+		// Nothing to merge is not the same as nothing wrong. A reference with
+		// no covering context term keeps dropping its writes on every boot, and
+		// this is the branch a steady-state boot takes — so checking only after
+		// an Update meant the alarm sounded once, on whichever boot happened to
+		// change something, and then went quiet forever over ongoing loss.
+		//
+		// This is where it differs from missingColumns, which is checked only
+		// after an Update: a missing column is transient and the next Update
+		// retries it, whereas an uncovered reference is permanent and
+		// guarantees there will be no next Update.
+		if dropped := referencePropertiesWithoutContextEntry(
+			existing.Schema(), existing.Context()); len(dropped) > 0 {
+			s.recordReconcileFailure(ctx, result, presetName, pt.Slug, fmt.Errorf(
+				"reference properties have no @context entry, so their writes are dropped: %v", dropped))
+			return
+		}
 		result.Unchanged = append(result.Unchanged, pt.Slug)
 		return
 	}
