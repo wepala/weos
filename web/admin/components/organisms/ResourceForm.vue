@@ -68,6 +68,7 @@
         v-else-if="field.inputType === 'resource-select'"
         v-model:value="form[field.key]"
         :type-slug="field.resourceType!"
+        :multiple="field.multiple"
       />
       <a-textarea
         v-else-if="field.inputType === 'textarea'"

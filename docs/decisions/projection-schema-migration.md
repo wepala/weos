@@ -153,6 +153,8 @@ The filter case deserves emphasis: dropping a filter does not narrow results, it
 
 1. **Refuse the whole type on any conflict.** Simpler to reason about and never produces a mixed schema, but it made one cosmetic property edit block every additive property in the same type — defeating the ticket's purpose on exactly the kind of upgrade that motivated it. Rejected in favour of per-property holds.
 2. **Flip `ensureBuiltInResourceTypes` to `InstallPreset(..., true)`.** The smallest possible diff, and rejected: it makes preset code authoritative for `Name`, `Description`, `Context` and `Schema` on every boot, silently discarding operator customisation. Trading a silent-data-loss bug for a different silent-data-loss bug is not a fix.
+
+   Amended by #510: the `@context` *is* now merged at boot, but additively and never authoritatively — see the section below. The objection this entry records still stands against wholesale overwriting.
 3. **A config flag selecting overwrite / merge / off.** Rejected for v1 as surface area without a decision: the merge behaviour is what a correct default looks like, and the explicit `--update` path already exists for operators who want overwrite.
 4. **GORM `AutoMigrate`.** Rejected — see above.
 5. **Backfill automatically after adding a column.** Rejected: a full replay on boot is expensive and unpredictable. Reproject stays an explicit operator action.
@@ -162,3 +164,20 @@ The filter case deserves emphasis: dropping a filter does not narrow results, it
 
 - [Projections]({% link _explanation/projections.md %}) — how projection tables are derived from resource type schemas.
 - [Cross-Preset Link Definitions]({% link decisions/cross-preset-link-definitions.md %}) — the other mechanism that adds columns to a projection table via `addMissingColumns`.
+
+
+## Amendment: the `@context` is merged too (#510, #513)
+
+The decision above merged only the JSON Schema and passed the stored `@context` through untouched. That left a gap this ADR did not anticipate.
+
+A **reference** property — one the schema marks `x-resource-type` — is stored as a JSON-LD edge keyed by its predicate IRI, and the readers map that IRI back to a property name through an `@context` term. `ParseContext` skips every `@`-prefixed keyword, so `@vocab` never appears in the reverse map: a reference with no explicit term resolves *forward* through `@vocab` on write, and resolves to nothing on read. The projection column arrived, the schema declared the property, the reconcile reported the type updated — and the value was unreadable, with a `201` returned. Literals are unaffected; they sit in the graph's entity node, which the readers copy without consulting the context.
+
+The `@context` is therefore merged by the same additive rules as the schema, with one addition of its own.
+
+**Merge rules.** A term the preset declares and the stored context lacks is merged in. A term only the operator declared is preserved. A term in both whose definitions differ is **held** at the stored definition and reported. Keywords — `@vocab`, `@type`, prefix definitions — are held rather than following the preset, deliberately unlike the schema merge's top-level keywords: repointing `@vocab` would move the predicate of every property that resolves through it at once.
+
+**The additional rule (#513): an addition is not automatically safe.** Merging a term that the stored context lacks can still repoint a predicate that already has data under it — a term for a reference the *stored schema* already declares, whose edges sit at the `@vocab`-derived IRI; a prefix that changes what a stored compact term expands to; or an `@type` that moves the type's RDF class. Each is held and reported with both IRIs named, because adopting it would leave existing edges keyed by an IRI nothing reverse-maps, and reprojection cannot recover them.
+
+That check keys off the **stored** schema, not the merged one. Against the merged schema it would also fire on the case #510 exists to fix — a preset adding a reference property and its term in the same build — and re-break the repair. A property the stored schema does not declare yet has no data under any IRI, so nothing can be orphaned.
+
+**What this does not do.** It never overwrites operator customisation, which is the property this ADR exists to protect: everything contested is held, never applied. It does not rewrite stored rows — a merged term makes *later* reads resolve, so pre-existing edges need an explicit reproject. And it cannot close a gap on the preset's own side: a preset declaring a reference its own context never maps is reported `Failed` on every boot, because no additive merge has anything to add.

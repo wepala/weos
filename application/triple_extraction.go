@@ -185,34 +185,17 @@ func extractTriplesFromEdgesNode(
 		if !predicateSet[key] {
 			continue
 		}
-		// Predicate value is either a single {"@id": "..."} ref or an array
-		// of such refs (multi-valued reference property). Each non-empty @id
-		// becomes a triple.
-		switch v := val.(type) {
-		case map[string]any:
-			if objectID, ok := v["@id"].(string); ok && objectID != "" {
-				triples = append(triples, repositories.Triple{
-					Subject:   subjectID,
-					Predicate: key,
-					Object:    objectID,
-				})
-			}
-		case []any:
-			for _, item := range v {
-				ref, ok := item.(map[string]any)
-				if !ok {
-					continue
-				}
-				objectID, ok := ref["@id"].(string)
-				if !ok || objectID == "" {
-					continue
-				}
-				triples = append(triples, repositories.Triple{
-					Subject:   subjectID,
-					Predicate: key,
-					Object:    objectID,
-				})
-			}
+		// Predicate value is either a single {"@id": "..."} ref or an array of
+		// such refs (multi-valued reference property). jsonld.EdgeIDs is the
+		// one place that knows both shapes; open-coding it here is what let the
+		// readers drift apart in the first place (issue #513).
+		ids, _ := jsonld.EdgeIDs(val)
+		for _, objectID := range ids {
+			triples = append(triples, repositories.Triple{
+				Subject:   subjectID,
+				Predicate: key,
+				Object:    objectID,
+			})
 		}
 	}
 	return triples
@@ -797,6 +780,18 @@ func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []str
 
 	edgeVal, exists := edgesNode[predicateIRI]
 	if !exists {
+		// An edge written before this property's term was adopted is keyed by
+		// the IRI it resolved to then, which the context records as an alias
+		// (issue #513). Events are immutable, so that key is what a reproject
+		// reproduces — resolving only the current IRI would report the edge
+		// missing on exactly the data adoption exists to keep readable.
+		for _, alias := range jsonld.TermAliases(ldContext)[propertyName] {
+			if edgeVal, exists = edgesNode[alias]; exists {
+				break
+			}
+		}
+	}
+	if !exists {
 		return nil
 	}
 	return collectEdgeIDs(edgeVal)
@@ -806,27 +801,6 @@ func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []str
 // string) into the list of @id strings it contains. Centralized so EdgeValue,
 // EdgeValues, and FlattenGraph all interpret the edges node identically.
 func collectEdgeIDs(edgeVal any) []string {
-	switch v := edgeVal.(type) {
-	case map[string]any:
-		if id, ok := v["@id"].(string); ok && id != "" {
-			return []string{id}
-		}
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, item := range v {
-			ref, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			if id, ok := ref["@id"].(string); ok && id != "" {
-				out = append(out, id)
-			}
-		}
-		return out
-	case string:
-		if v != "" {
-			return []string{v}
-		}
-	}
-	return nil
+	ids, _ := jsonld.EdgeIDs(edgeVal)
+	return ids
 }

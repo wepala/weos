@@ -118,11 +118,11 @@ func initProjectionMigrationScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a "widget" named "([^"]*)" is created with an undeclared "([^"]*)" of "([^"]*)"$`,
 		w.aWidgetIsCreatedWithUndeclared)
 
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns "([^"]*)" as "([^"]*)"$`,
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns "([^"]*)" as "([^"]*)"$`,
 		w.readingReturnsValue)
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns no value for "([^"]*)"$`,
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns no value for "([^"]*)"$`,
 		w.readingReturnsNoValue)
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API succeeds$`, w.readingSucceeds)
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection succeeds$`, w.readingSucceeds)
 	sc.Step(`^it returns no value for "([^"]*)"$`, w.itReturnsNoValueForLastRead)
 	sc.Step(`^the JSON-LD representation of the "widget" "([^"]*)" still carries "([^"]*)" as "([^"]*)"$`,
 		w.canonicalStillCarries)

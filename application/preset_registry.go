@@ -113,8 +113,8 @@ type InstallPresetResult struct {
 	Warnings  []string       `json:"warnings,omitempty"`
 }
 
-// ReconcilePresetResult reports the outcome of an additive schema reconcile
-// (issue #379) across one preset's types. Types the preset declares but that
+// ReconcilePresetResult reports the outcome of an additive schema and
+// `@context` reconcile (issues #379 and #510) across one preset's types. Types the preset declares but that
 // aren't installed are absent entirely; creating them is InstallPreset's job,
 // not this one's.
 //
@@ -124,20 +124,26 @@ type InstallPresetResult struct {
 //
 //   - Failed and NoSchema mean writes to at least one property ARE still being
 //     dropped. Both are urgent.
-//   - Refused and RefusedContext mean a definition diverged and is being held
-//     safely at its stored form. The column already exists and writes to it
-//     still land; what needs an operator is the divergence itself, not data
-//     loss.
+//   - Refused and RefusedContext mean a definition is being held at its stored
+//     form. Reads and writes still resolve through it, so nothing is being
+//     lost; what needs an operator is the divergence itself. For a context term
+//     that would have REPOINTED a predicate, holding is what prevents the loss
+//     — adopting it would orphan every edge already written (issue #513).
 type ReconcilePresetResult struct {
 	// Updated lists types whose stored schema, `@context`, or both were
-	// rewritten AND whose writes were confirmed able to land afterwards: every
-	// added property has its projection column, and every reference property
-	// has a `@context` term its predicate resolves back through. A type
-	// failing either check is reported under Failed instead — a column that
-	// cannot be written to and a reference that cannot be read back are the
-	// same silent drop, and neither is a completed reconcile.
+	// rewritten AND which then passed confirmWritesLand: every added property
+	// has its projection column, and every reference property has a `@context`
+	// term its predicate resolves back through. A type failing either check is
+	// reported under Failed instead — a column that cannot be written to and a
+	// reference that cannot be read back are the same silent drop, and neither
+	// is a completed reconcile.
 	Updated []string `json:"updated,omitempty"`
-	// Unchanged lists types already in sync — the steady-state boot.
+	// Unchanged lists types already in sync — the steady-state boot. A type
+	// whose ONLY delta was held back appears here too, alongside its entry in
+	// Refused or RefusedContext: nothing was written, but something still needs
+	// an operator. Note this branch is not a free pass — a type whose
+	// references have no covering term is reported Failed from here as well,
+	// every boot, because that condition is permanent (issue #513).
 	Unchanged []string `json:"unchanged,omitempty"`
 	// Refused maps a slug to the properties whose definitions diverged
 	// non-additively and were therefore HELD at their stored definition. The
@@ -155,9 +161,22 @@ type ReconcilePresetResult struct {
 	// As with Refused, holding is per-term and the type's additive terms
 	// still landed, so a slug can appear here and in Updated at once.
 	RefusedContext map[string][]string `json:"refusedContext,omitempty"`
-	// Failed maps a slug to why its reconcile could not be completed. A type
-	// here is NOT reconciled: either the update errored, or it reported success
-	// while the projection column did not actually appear.
+	// Repointed maps a slug to the terms held because ADOPTING them would move
+	// a predicate that already has data (issue #513). Separate from
+	// RefusedContext because the cause and the fix both differ: nothing
+	// diverged, the stored context simply never had the term, and the way
+	// forward is `resource-type adopt-term`, which records the old IRI so
+	// existing edges keep resolving.
+	Repointed map[string][]string `json:"repointed,omitempty"`
+	// UnparseableContext maps a slug to why its stored `@context` could not be
+	// read. Its schema is still merged; only the context half is skipped.
+	UnparseableContext map[string]string `json:"unparseableContext,omitempty"`
+	// Failed maps a slug to why writes to it may still be dropped. Three
+	// causes, which differ in kind: the update errored; it succeeded while the
+	// projection column did not actually appear; or the type declares a
+	// reference property with no explicit `@context` entry — a packaging gap an
+	// additive merge cannot close, reported on every boot for as long as it
+	// lasts.
 	Failed map[string]string `json:"failed,omitempty"`
 	// NoSchema lists preset types that declare no JSON Schema at all. Their
 	// projection tables carry only base columns, so every data field is dropped

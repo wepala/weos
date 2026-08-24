@@ -404,8 +404,19 @@ func (pm *projectionManager) UpdateColumnByFK(
 		return nil
 	}
 	tableName := pm.TableName(typeSlug)
+	// A list reference stores its targets as a JSON array in the FK column
+	// (issue #513), so plain equality never matches one and the denormalized
+	// display value would go stale the moment the target was renamed — worse
+	// than the empty column this replaced, because a stale name still reads as
+	// current. The LIKE arm matches an array whose FIRST element is this
+	// target, which is exactly the one the display column carries.
+	// The pattern includes the CLOSING quote, so the quote is the token
+	// boundary and one ID cannot match inside a longer one that starts with it.
+	// Wildcards in the value itself are escaped: unescaped, a `%` would update
+	// every row in the table.
+	pattern := `["` + escapeLikeLiteral(fkValue) + `"%`
 	return pm.writeDB(ctx).Table(tableName).
-		Where(fkColumn+" = ?", fkValue).
+		Where(fkColumn+" = ? OR "+fkColumn+" LIKE ? ESCAPE '\\'", fkValue, pattern).
 		Update(targetColumn, targetValue).Error
 }
 
@@ -910,15 +921,6 @@ func extractEdgeColumns(edges map[string]any, ldContext json.RawMessage, row map
 		if key == "@id" {
 			continue
 		}
-		ref, ok := val.(map[string]any)
-		if !ok {
-			continue
-		}
-		objectID, ok := ref["@id"].(string)
-		if !ok || objectID == "" {
-			continue
-		}
-
 		// Reverse-lookup: predicate IRI → property name → snake_case column.
 		propName, ok := reverseMap[key]
 		if !ok {
@@ -928,6 +930,22 @@ func extractEdgeColumns(edges map[string]any, ldContext json.RawMessage, row map
 		if standardColumnNames[colName] {
 			continue
 		}
-		row[colName] = objectID
+		ids, isList := jsonld.EdgeIDs(val)
+		if len(ids) == 0 {
+			continue
+		}
+		if !isList {
+			row[colName] = ids[0]
+			continue
+		}
+		// A list reference cannot fit a scalar FK column, so it is stored as a
+		// JSON array in the same TEXT column and decoded on read. Leaving it
+		// NULL — what happened before issue #513 — made the projection disagree
+		// with the canonical record about whether the value existed at all.
+		encoded, err := json.Marshal(ids)
+		if err != nil {
+			continue
+		}
+		row[colName] = string(encoded)
 	}
 }

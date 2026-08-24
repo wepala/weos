@@ -23,6 +23,8 @@ export interface FieldDescriptor {
   format?: string
   options?: string[]
   resourceType?: string
+  /** True when the property is a LIST of references (schema `type: "array"`). */
+  multiple?: boolean
   order?: number
   group?: string
 }
@@ -153,6 +155,7 @@ export function useSchemaUtils() {
           format: prop.format,
           options: prop.enum,
           resourceType: prop['x-resource-type'],
+          multiple: prop.type === 'array',
           order: prop['x-order'] as number | undefined,
           group: prop['x-group'] as string | undefined,
         }

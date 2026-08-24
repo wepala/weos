@@ -232,6 +232,30 @@ func (r *ResourceRepository) dropMissingColumns(targetSlug string, row map[strin
 	}
 }
 
+// firstReferenceID returns the single ID a FK column holds, or the first of the
+// list when the column holds a JSON array (issue #513). A value that is not an
+// array is returned unchanged, so a scalar reference takes the same path it
+// always did.
+//
+// The first entry is used rather than a joined string because the display
+// column is a VARCHAR(512) read by clients as one label; concatenating an
+// unbounded list would truncate unpredictably.
+func firstReferenceID(fkVal string) string {
+	if !strings.HasPrefix(strings.TrimSpace(fkVal), "[") {
+		return fkVal
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(fkVal), &ids); err != nil {
+		return fkVal
+	}
+	for _, id := range ids {
+		if id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
 // populateDisplayColumns looks up display values for every outgoing reference
 // on the target type and injects them into the row before INSERT/UPDATE. Called
 // from all three projection write paths (saveToProjection, updateProjectionBySlug,
@@ -310,6 +334,15 @@ func (r *ResourceRepository) populateDisplayColumns(
 				"valueType", fmt.Sprintf("%T", rawFK))
 			continue
 		}
+		if fkVal == "" {
+			row[ref.DisplayColumn] = nil
+			continue
+		}
+		// A list reference stores its targets as a JSON array in the same
+		// column (issue #513). The display column is a single VARCHAR, so it
+		// carries the FIRST target — looking the raw array up as an ID would
+		// find nothing and persist a NULL display over a populated reference.
+		fkVal = firstReferenceID(fkVal)
 		if fkVal == "" {
 			row[ref.DisplayColumn] = nil
 			continue
@@ -967,6 +1000,60 @@ func (r *ResourceRepository) findAllByFieldFromGeneric(
 	return result, nil
 }
 
+// referenceFilterClause builds the WHERE fragment for one filter.
+//
+// An `eq` on a REFERENCE column also matches a JSON array containing the
+// value, because a list-valued reference is stored that way (issue #513).
+// Without it the admin's own reference filter returns nothing for a row that
+// visibly shows the value — the column holds `["urn:a"]` and the filter asks
+// for `urn:a`.
+//
+// The containment arms are inert on a scalar reference column, which never
+// contains a bracket, so no schema lookup is needed to tell the two apart.
+// Only `eq` is expanded: negation over a list has no single obvious meaning
+// (does `ne` exclude a row that references the value alongside others?), so it
+// keeps its exact-match behavior rather than guessing.
+//
+// Caveat worth knowing: SQLite's LIKE is case-insensitive for ASCII while `=`
+// is not, so two IDs differing only in case could cross-match here. Resource
+// IDs are KSUIDs, where that is possible but vanishingly unlikely, and the
+// failure mode is an extra row in a filtered list rather than lost data.
+func (r *ResourceRepository) referenceFilterClause(
+	typeSlug, qualifier, column, sqlOp string, value any,
+) (string, []any) {
+	col := qualifier + column
+	if sqlOp != "=" {
+		return col + " " + sqlOp + " ?", []any{value}
+	}
+	str, ok := value.(string)
+	if !ok || !r.isReferenceColumn(typeSlug, column) {
+		return col + " " + sqlOp + " ?", []any{value}
+	}
+	// `["v"…` catches the first element (and a single-element list); `…,"v"…`
+	// catches every later one.
+	quoted := escapeLikeLiteral(`"` + str + `"`)
+	return "(" + col + " = ? OR " + col + " LIKE ? ESCAPE '\\' OR " + col + " LIKE ? ESCAPE '\\')",
+		[]any{value, "[" + quoted + "%", "%," + quoted + "%"}
+}
+
+// isReferenceColumn reports whether a column holds resource references, which
+// is what makes a JSON-array value possible in it.
+func (r *ResourceRepository) isReferenceColumn(typeSlug, column string) bool {
+	for _, ref := range r.projMgr.ForwardReferences(typeSlug) {
+		if ref.FKColumn == column {
+			return true
+		}
+	}
+	return false
+}
+
+// escapeLikeLiteral neutralizes LIKE wildcards so a value containing `%` or `_`
+// matches literally.
+func escapeLikeLiteral(s string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return replacer.Replace(s)
+}
+
 var operatorMap = map[string]string{
 	"eq": "=", "ne": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
 }
@@ -1023,7 +1110,8 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 				continue
 			}
 		}
-		query = query.Where(tbl+"."+fc+" "+sqlOp+" ?", f.Value)
+		clause, args := r.referenceFilterClause(typeSlug, tbl+".", fc, sqlOp, f.Value)
+		query = query.Where(clause, args...)
 	}
 
 	if cursor != "" {
@@ -1129,7 +1217,33 @@ func (r *ResourceRepository) FindFlatByID(
 	for k, v := range row {
 		camelRow[utils.SnakeToCamel(k)] = v
 	}
+	r.decodeListReferences(typeSlug, camelRow)
 	return camelRow, nil
+}
+
+// decodeListReferences turns a list-valued reference back into a []string on
+// the way out.
+//
+// A list reference is STORED as a JSON array in its single TEXT column (issue
+// #513). This is the flat read every non-JSON-LD API response goes through, so
+// without decoding here the column would reach clients as the literal string
+// `["urn:a","urn:b"]` — which is not what the schema says the property is, and
+// breaks any client that iterates it. Only declared reference columns are
+// considered, so a literal property whose text happens to look like a JSON
+// array is left exactly as the operator wrote it.
+func (r *ResourceRepository) decodeListReferences(typeSlug string, camelRow map[string]any) {
+	for _, ref := range r.projMgr.ForwardReferences(typeSlug) {
+		key := utils.SnakeToCamel(ref.FKColumn)
+		raw, ok := camelRow[key].(string)
+		if !ok || !strings.HasPrefix(strings.TrimSpace(raw), "[") {
+			continue
+		}
+		var ids []string
+		if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+			continue
+		}
+		camelRow[key] = ids
+	}
 }
 
 // findAllFlatFromProjection queries the projection table directly and returns flat rows
@@ -1165,7 +1279,8 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 				continue
 			}
 		}
-		query = query.Where(fc+" "+sqlOp+" ?", f.Value)
+		clause, args := r.referenceFilterClause(typeSlug, "", fc, sqlOp, f.Value)
+		query = query.Where(clause, args...)
 	}
 
 	if cursor != "" {
@@ -1199,6 +1314,7 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 		for k, v := range row {
 			camelRow[utils.SnakeToCamel(k)] = v
 		}
+		r.decodeListReferences(typeSlug, camelRow)
 		result = append(result, camelRow)
 		sortVal := row[colName]
 		if sortVal == nil {

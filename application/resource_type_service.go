@@ -105,6 +105,8 @@ type ResourceTypeService interface {
 	ListPresets() []PresetDefinition
 	InstallPreset(ctx context.Context, presetName string, update bool) (*InstallPresetResult, error)
 	ReconcilePresetSchemas(ctx context.Context, presetName string) (*ReconcilePresetResult, error)
+	HeldContextTerms(ctx context.Context, presetName, typeSlug string) ([]HeldTerm, error)
+	AdoptContextTerms(ctx context.Context, presetName, typeSlug string, terms []string) ([]string, error)
 	ListBehaviors(ctx context.Context, typeSlug string) ([]BehaviorInfo, error)
 	SetBehaviors(ctx context.Context, typeSlug string, slugs []string) error
 }
@@ -339,13 +341,16 @@ func (s *resourceTypeService) InstallPreset(
 // third, narrower behavior instead.
 //
 // Only the schema is touched, and only additively (see reconcileAdditiveSchema
-// for the merge rules). Name, Description, Context and Status are read back
-// from the stored type and passed through unchanged. The explicit
+// for the merge rules). Schema and `@context` are BOTH merged, and only
+// additively (reconcileAdditiveSchema and reconcileAdditiveContext); each side
+// falls back to the stored value when its own merge is a no-op, so a
+// context-only change never rewrites the schema. Name, Description and Status
+// are read back from the stored type and passed through unchanged. The explicit
 // `resource-type preset install --update` path keeps its full-overwrite
 // semantics — there an operator asked for it.
 //
-// A type whose preset schema diverged non-additively is logged and recorded in
-// Refused, never rewritten; a type with no delta emits no event, which is what
+// A type whose preset schema or context diverged non-additively is logged and
+// recorded in Refused or RefusedContext, never rewritten; a type with no delta emits no event, which is what
 // keeps repeated restarts from appending a ResourceTypeUpdated per type per
 // boot.
 //
@@ -407,15 +412,44 @@ func (s *resourceTypeService) reconcileOneType(
 	// #510). Merging only the schema is what left a reference property with a
 	// column, a declaration, and nowhere for its predicate to resolve — so its
 	// writes went on being dropped while the reconcile reported success.
-	contextRec, err := reconcileAdditiveContext(existing.Context(), pt.Context)
+	contextRec, err := reconcileAdditiveContext(existing.Context(), pt.Context, existing.Schema())
 	if err != nil {
-		s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
-			fmt.Errorf("failed to reconcile context: %w", err))
-		return
+		// A context this reconcile cannot parse must not take the schema merge
+		// down with it (issue #513). JSON-LD permits an array and a remote-IRI
+		// string, nothing validates the shape on the write path, and blocking
+		// here left the type's new property without its projection column —
+		// reintroducing, for that type, the silent drop #379 closed. Report it
+		// and carry on with the stored context untouched.
+		s.logger.Error(ctx, "cannot reconcile this type's @context; merging its schema only",
+			"preset", presetName, "slug", pt.Slug, "error", err)
+		if result.RefusedContext == nil {
+			result.RefusedContext = make(map[string][]string)
+		}
+		if result.UnparseableContext == nil {
+			result.UnparseableContext = make(map[string]string)
+		}
+		result.UnparseableContext[pt.Slug] = err.Error()
+		contextRec = contextReconciliation{}
 	}
 	s.recordHeldDefinitions(ctx, result, presetName, pt.Slug, schemaRec, contextRec)
 
 	if !schemaRec.Changed && !contextRec.Changed {
+		// Nothing to merge is not the same as nothing wrong. A reference with
+		// no covering context term keeps dropping its writes on every boot, and
+		// this is the branch a steady-state boot takes — so checking only after
+		// an Update meant the alarm sounded once, on whichever boot happened to
+		// change something, and then went quiet forever over ongoing loss.
+		//
+		// This is where it differs from missingColumns, which is checked only
+		// after an Update: a missing column is transient and the next Update
+		// retries it, whereas an uncovered reference is permanent and
+		// guarantees there will be no next Update.
+		if dropped := referencePropertiesWithoutContextEntry(
+			existing.Schema(), existing.Context()); len(dropped) > 0 {
+			s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
+				uncoveredReferencesError(dropped, pt.Schema))
+			return
+		}
 		result.Unchanged = append(result.Unchanged, pt.Slug)
 		return
 	}
@@ -475,10 +509,21 @@ func (s *resourceTypeService) recordHeldDefinitions(
 		s.logger.Warn(ctx,
 			"preset context terms diverge; holding them at their stored definition",
 			"preset", presetName, "slug", slug, "heldContextTerms", contextRec.Conflicts)
-		if result.RefusedContext == nil {
-			result.RefusedContext = make(map[string][]string)
+		s.addRefusedContext(result, slug, contextRec.Conflicts...)
+	}
+	for _, moved := range contextRec.Moves {
+		// Not a divergence — the stored context never had this term. Merging it
+		// would repoint a predicate that already has edges, so it is held and
+		// both IRIs are named: the operator needs a data migration, not a
+		// choice between definitions.
+		s.logger.Warn(ctx,
+			"preset context term would repoint a predicate that already has data; holding it",
+			"preset", presetName, "slug", slug, "term", moved.Term, "property", moved.Property,
+			"storedIRI", moved.StoredIRI, "presetIRI", moved.PresetIRI)
+		if result.Repointed == nil {
+			result.Repointed = make(map[string][]string)
 		}
-		result.RefusedContext[slug] = contextRec.Conflicts
+		result.Repointed[slug] = append(result.Repointed[slug], moved.Term)
 	}
 }
 
@@ -512,8 +557,7 @@ func (s *resourceTypeService) confirmWritesLand(
 	// mistake, and naming it is the only way an operator learns those writes are
 	// being dropped.
 	if dropped := referencePropertiesWithoutContextEntry(schema, ldContext); len(dropped) > 0 {
-		reasons = append(reasons,
-			fmt.Sprintf("reference properties have no @context entry, so their writes are dropped: %v", dropped))
+		reasons = append(reasons, uncoveredReferencesError(dropped, pt.Schema).Error())
 	}
 	if len(reasons) == 0 {
 		return true
@@ -823,4 +867,228 @@ func dedup(slugs []string) []string {
 		}
 	}
 	return out
+}
+
+// addRefusedContext records held context terms without clobbering terms already
+// recorded for the same slug — divergences and repointings both land here.
+func (s *resourceTypeService) addRefusedContext(
+	result *ReconcilePresetResult, slug string, terms ...string,
+) {
+	if len(terms) == 0 {
+		return
+	}
+	if result.RefusedContext == nil {
+		result.RefusedContext = make(map[string][]string)
+	}
+	result.RefusedContext[slug] = append(result.RefusedContext[slug], terms...)
+}
+
+// HeldTerm describes one `@context` term the boot reconcile refuses to adopt
+// because adopting it would repoint a predicate that already has data.
+type HeldTerm struct {
+	// Term is the context key the preset declares and the boot will not apply.
+	Term string `json:"term"`
+	// Property names what would move — usually Term itself, or the stored term
+	// that expands through a held prefix.
+	Property string `json:"property"`
+	// StoredIRI is the IRI existing edges are keyed by.
+	StoredIRI string `json:"storedIri"`
+	// PresetIRI is what the preset wants the property to resolve to.
+	PresetIRI string `json:"presetIri"`
+}
+
+// HeldContextTerms reports what the boot is refusing to adopt for one type, so
+// an operator can see the decision before making it.
+func (s *resourceTypeService) HeldContextTerms(
+	ctx context.Context, presetName, typeSlug string,
+) ([]HeldTerm, error) {
+	pt, existing, err := s.presetTypeAndStored(ctx, presetName, typeSlug)
+	if err != nil {
+		return nil, err
+	}
+	rec, err := reconcileAdditiveContext(existing.Context(), pt.Context, existing.Schema())
+	if err != nil {
+		return nil, fmt.Errorf("failed to reconcile context for %q: %w", typeSlug, err)
+	}
+	held := make([]HeldTerm, 0, len(rec.Moves))
+	for _, moved := range rec.Moves {
+		held = append(held, HeldTerm{
+			Term: moved.Term, Property: moved.Property,
+			StoredIRI: moved.StoredIRI, PresetIRI: moved.PresetIRI,
+		})
+	}
+	return held, nil
+}
+
+// AdoptContextTerms takes the preset's definition for HELD terms, recording the
+// IRI each affected property resolves to today so existing edges keep
+// resolving. An empty terms list adopts every held term for the type.
+//
+// A named term the boot never held is REFUSED. Recording an alias for an IRI no
+// data was ever written under widens the reverse map for nothing, and a
+// mistyped term name would otherwise report success while changing nothing the
+// operator meant.
+//
+// Projection columns are NOT repopulated here: the alias makes existing edges
+// resolvable, and a reproject is what rewrites the rows.
+func (s *resourceTypeService) AdoptContextTerms(
+	ctx context.Context, presetName, typeSlug string, terms []string,
+) ([]string, error) {
+	pt, existing, err := s.presetTypeAndStored(ctx, presetName, typeSlug)
+	if err != nil {
+		return nil, err
+	}
+	rec, err := reconcileAdditiveContext(existing.Context(), pt.Context, existing.Schema())
+	if err != nil {
+		return nil, fmt.Errorf("failed to reconcile context for %q: %w", typeSlug, err)
+	}
+	byTerm := make(map[string]movedPredicate, len(rec.Moves))
+	for _, moved := range rec.Moves {
+		byTerm[moved.Term] = moved
+	}
+
+	selected, err := selectTermsToAdopt(rec.Moves, byTerm, terms, existing.Context(), pt.Context, typeSlug)
+	if err != nil || len(selected) == 0 {
+		return nil, err
+	}
+
+	adoptedContext, adopted, err := adoptTerms(existing.Context(), pt.Context, selected)
+	if err != nil {
+		return nil, err
+	}
+	if len(adopted) == 0 {
+		return nil, nil // already adopted; running this twice changes nothing
+	}
+	if _, err := s.Update(ctx, UpdateResourceTypeCommand{
+		ID:          existing.GetID(),
+		Name:        existing.Name(),
+		Slug:        existing.Slug(),
+		Description: existing.Description(),
+		Status:      existing.Status(),
+		Context:     adoptedContext,
+		Schema:      existing.Schema(),
+	}); err != nil {
+		return nil, fmt.Errorf("failed to store the adopted context for %q: %w", typeSlug, err)
+	}
+	s.logger.Info(ctx, "adopted preset context terms; previous IRIs recorded as aliases",
+		"preset", presetName, "slug", typeSlug, "adopted", adopted)
+	return adopted, nil
+}
+
+// selectTermsToAdopt turns the caller's request into the held moves to apply.
+//
+// An empty request means every held term EXCEPT `@type`. An alias makes an old
+// edge IRI resolve; it cannot do the same for a type's RDF class, which is not
+// a predicate. Adopting `@type` would leave resources written before the boot
+// in one class and those after it in another, with nothing able to reconcile
+// them — so a sweep never takes it, and an operator who wants it must say so.
+//
+// A named term that is not held is REFUSED, unless the stored context already
+// matches the preset — that is the second run of the same command, which must
+// change nothing rather than fail.
+func selectTermsToAdopt(
+	moves []movedPredicate, byTerm map[string]movedPredicate,
+	requested []string, stored, preset json.RawMessage, typeSlug string,
+) ([]movedPredicate, error) {
+	if len(requested) == 0 {
+		selected := make([]movedPredicate, 0, len(moves))
+		for _, moved := range moves {
+			if moved.Term == "@type" || moved.Property == "@type" {
+				continue
+			}
+			selected = append(selected, moved)
+		}
+		return selected, nil
+	}
+
+	storedTerms, sErr := splitContext(stored)
+	presetTerms, pErr := splitContext(preset)
+	selected := make([]movedPredicate, 0, len(requested))
+	for _, term := range requested {
+		moved, isHeld := byTerm[term]
+		if isHeld {
+			selected = append(selected, moved)
+			continue
+		}
+		// Already adopted on an earlier run, or never held at all? The stored
+		// context matches the preset either way, so matching alone cannot tell
+		// them apart. The adopted-terms record can, and it names the TERM —
+		// unlike the aliases, which a prefix records against the properties it
+		// moves rather than against itself.
+		alreadyAdopted := false
+		for _, done := range jsonld.AdoptedTerms(stored) {
+			if done == term {
+				alreadyAdopted = true
+				break
+			}
+		}
+		if alreadyAdopted && sErr == nil && pErr == nil &&
+			jsonEquivalent(storedTerms[term], presetTerms[term]) && len(presetTerms[term]) > 0 {
+			continue
+		}
+		return nil, fmt.Errorf(
+			"the boot is not holding a %q term for %q, so there is nothing to adopt", term, typeSlug)
+	}
+	return selected, nil
+}
+
+// presetTypeAndStored resolves a preset's declaration of a type alongside what
+// is stored for it, which both adoption paths need. The preset is named because
+// the IRI being adopted comes from ITS declaration.
+func (s *resourceTypeService) presetTypeAndStored(
+	ctx context.Context, presetName, typeSlug string,
+) (PresetResourceType, *entities.ResourceType, error) {
+	preset, ok := s.registry.Get(presetName)
+	if !ok {
+		return PresetResourceType{}, nil, fmt.Errorf("unknown preset %q", presetName)
+	}
+	for _, pt := range preset.Types {
+		if pt.Slug != typeSlug {
+			continue
+		}
+		existing, err := s.GetBySlug(ctx, typeSlug)
+		if err != nil {
+			return PresetResourceType{}, nil, fmt.Errorf(
+				"failed to load resource type %q: %w", typeSlug, err)
+		}
+		return pt, existing, nil
+	}
+	return PresetResourceType{}, nil, fmt.Errorf("preset %q declares no %q type", presetName, typeSlug)
+}
+
+// uncoveredReferencesError phrases the dropped-writes report so it names the
+// right party.
+//
+// The check walks the STORED schema, which includes reference properties an
+// operator added through the API — the resource-type write path stores a schema
+// and context verbatim and derives no term, so such a property is uncovered by
+// construction. Calling that "a preset packaging mistake" sends the operator to
+// look at a preset they never touched.
+func uncoveredReferencesError(dropped []string, presetSchema json.RawMessage) error {
+	presetDeclares := map[string]bool{}
+	for _, ref := range ExtractReferenceProperties(presetSchema, nil) {
+		presetDeclares[ref.PropertyName] = true
+	}
+	var fromPreset, fromOperator []string
+	for _, name := range dropped {
+		if presetDeclares[name] {
+			fromPreset = append(fromPreset, name)
+			continue
+		}
+		fromOperator = append(fromOperator, name)
+	}
+	switch {
+	case len(fromPreset) > 0 && len(fromOperator) > 0:
+		return fmt.Errorf(
+			"reference properties have no @context entry, so their writes are dropped — "+
+				"declared by the preset: %v; added through the API: %v", fromPreset, fromOperator)
+	case len(fromOperator) > 0:
+		return fmt.Errorf(
+			"reference properties added through the API have no @context entry, so their writes "+
+				"are dropped: %v — add a term mapping each to its predicate IRI", fromOperator)
+	default:
+		return fmt.Errorf(
+			"reference properties the preset declares have no @context entry in the preset, so "+
+				"their writes are dropped: %v", fromPreset)
+	}
 }

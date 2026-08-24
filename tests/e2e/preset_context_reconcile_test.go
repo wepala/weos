@@ -41,9 +41,10 @@ import (
 // an older build with its `@context` entry, not just its projection column.
 //
 // Issue #379's reconcile gave the column. Without the context entry the edge
-// has no reverse mapping, FlattenGraph skips it, and the write is dropped while
-// the API answers 201 — which is why this suite asserts round-trips, not just
-// stored shape.
+// has no reverse mapping, so SimplifyJSONLD (the API read path) and
+// extractEdgeColumns (the projection FK column) both skip it and the write is
+// dropped while the API answers 201 — which is why this suite asserts
+// round-trips, not just stored shape.
 func TestPresetContextReconcile(t *testing.T) {
 	tags := "~@wip"
 	if override := os.Getenv("GODOG_TAGS"); override != "" {
@@ -62,6 +63,49 @@ func TestPresetContextReconcile(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("preset_context_reconcile acceptance scenarios failed")
+	}
+}
+
+// TestReferencePropertyRoundTrip is the acceptance suite for issue #513's P0-1:
+// a schema may mark an ARRAY property `x-resource-type`, the write path stores
+// it as an array of {"@id":…} refs, and both read paths unwrap a single map
+// only. A type can therefore hold its context term, satisfy the packaging guard
+// and be reported reconciled while that reference never reads back.
+//
+// It shares its step world with TestPresetContextReconcile: the shapes are the
+// same, only the cardinality differs.
+func TestReferencePropertyRoundTrip(t *testing.T) {
+	runContextFeature(t, "reference-property-round-trip", "features/reference_property_round_trip.feature")
+}
+
+// TestPresetContextGuards is the acceptance suite for issue #513's remaining
+// P0s: the boot's additive `@context` merge must never move a predicate that
+// already has data behind it (P0-2, P0-3, P0-5), and a stored context it cannot
+// merge must not take the SCHEMA merge down with it (P0-4).
+func TestPresetContextGuards(t *testing.T) {
+	runContextFeature(t, "preset-context-guards", "features/preset_context_guards.feature")
+}
+
+// runContextFeature runs one feature file against the shared context step world.
+func runContextFeature(t *testing.T, name, path string) {
+	t.Helper()
+	tags := "~@wip"
+	if override := os.Getenv("GODOG_TAGS"); override != "" {
+		tags = override
+	}
+	suite := godog.TestSuite{
+		Name:                name,
+		ScenarioInitializer: initPresetContextScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{path},
+			Tags:     tags,
+			Strict:   true,
+			TestingT: t,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatalf("%s acceptance scenarios failed", name)
 	}
 }
 
@@ -84,27 +128,51 @@ type contextWorld struct {
 	vendorProps []contextProperty
 	widgetProps []contextProperty
 
+	// widgetContextExtras are `@context` entries the next build declares that
+	// no property implies — a prefix definition, an `@type`, or a term named
+	// at an explicit IRI. Issue #513's guards are all about entries of this
+	// shape, because they change how OTHER terms resolve.
+	widgetContextExtras map[string]string
+
+	// schemaBeforeRestart is the stored "widget" schema as it was immediately
+	// before the most recent restart, so a scenario can assert a context-only
+	// reconcile left it untouched.
+	schemaBeforeRestart json.RawMessage
+
 	// bootReport captures what the LAST boot's reconcile reported, read back
 	// from the log lines reconcilePresetSchemas emits — the operator-facing
 	// surface, since ReconcilePresetResult never leaves the boot hook.
 	bootReport *reconcileLog
 
 	createdIDs map[string]string
+
+	// adoptErr and adoptAttempted record the outcome of an adopt-term command a
+	// scenario expects to be REFUSED, so the refusal itself can be asserted.
+	adoptErr       error
+	adoptAttempted bool
+
+	// contextBeforeSecondAdoption is the stored "widget" context as it was
+	// immediately before a repeated adoption, so idempotence is asserted against
+	// what was actually there rather than against a rebuilt expectation.
+	contextBeforeSecondAdoption json.RawMessage
 }
 
 // contextProperty is one schema property. references is empty for a literal and
 // names the target type slug for a reference. noContextEntry reproduces a
 // preset packaging bug: a reference the preset's OWN context never declares, so
-// there is nothing for an additive merge to add.
+// there is nothing for an additive merge to add. list marks a reference the
+// schema declares as an ARRAY of URNs — the shape the mealplanning preset uses
+// for suitableForDiet and recipeIngredient (issue #513).
 type contextProperty struct {
 	name           string
 	jsonTyp        string
 	references     string
 	noContextEntry bool
+	list           bool
 }
 
 func initPresetContextScenario(sc *godog.ScenarioContext) {
-	w := &contextWorld{createdIDs: map[string]string{}}
+	w := &contextWorld{createdIDs: map[string]string{}, widgetContextExtras: map[string]string{}}
 
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		w.teardown()
@@ -115,15 +183,24 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the "catalog" preset also declares a "widget" type with the properties:$`, w.aWidgetTypeDeclaring)
 	sc.Step(`^a clean WeOS database provisioned by that build$`, w.aCleanDatabase)
 	sc.Step(`^a "vendor" named "([^"]*)" exists$`, w.aVendorExists)
+	sc.Step(`^a "widget" named "([^"]*)" exists$`, w.aWidgetExists)
 
 	sc.Step(`^the "catalog" preset adds a "([^"]*)" reference property to "widget" targeting "([^"]*)"$`,
 		w.thePresetAddsReference)
+	sc.Step(`^the "catalog" preset adds a "([^"]*)" reference list property to "widget" targeting "([^"]*)"$`,
+		w.thePresetAddsReferenceList)
+	sc.Step(`^the "catalog" preset declares "([^"]*)" as "([^"]*)" in the "widget" context$`,
+		w.thePresetDeclaresContextTerm)
+	sc.Step(`^the "catalog" preset declares a context entry for "([^"]*)" on "widget"$`,
+		w.thePresetDeclaresContextEntryFor)
 	sc.Step(`^the "catalog" preset adds a "([^"]*)" reference property to "widget" targeting "([^"]*)" `+
 		`without a context entry$`, w.thePresetAddsReferenceWithoutContextEntry)
-	sc.Step(`^the "catalog" preset adds a "([^"]*)" (\w+) property to "widget"$`, w.thePresetAddsLiteral)
+	sc.Step(`^the "catalog" preset adds a "([^"]*)" (\w+) property to "(widget|vendor)"$`, w.thePresetAddsLiteral)
 
 	sc.Step(`^the operator maps "([^"]*)" to "([^"]*)" in the stored "widget" context$`, w.theOperatorMapsTerm)
 	sc.Step(`^the operator clears the stored "widget" context$`, w.theOperatorClearsContext)
+	sc.Step(`^the operator deletes "([^"]*)" from the stored "widget" context$`, w.theOperatorDeletesTerm)
+	sc.Step(`^the operator stores the raw context (.+) for "widget"$`, w.theOperatorStoresRawContext)
 
 	sc.Step(`^the twin restarts against the same database$`, w.theTwinRestarts)
 	sc.Step(`^the twin restarts against the same database again$`, w.theTwinRestarts)
@@ -133,15 +210,18 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 		w.iCreateWidgetWithReference)
 	sc.Step(`^I create a "widget" named "([^"]*)" with these references:$`, w.iCreateWidgetWithReferences)
 	sc.Step(`^I create a "widget" named "([^"]*)" with "([^"]*)" set to "([^"]*)"$`, w.iCreateWidgetWithLiteral)
-	sc.Step(`^a "widget" named "([^"]*)" is created with an undeclared "([^"]*)" referring to the "vendor" "([^"]*)"$`,
-		w.aWidgetCreatedWithUndeclaredReference)
 
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns "([^"]*)" as the "vendor" "([^"]*)"$`,
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns "([^"]*)" as the "vendor" "([^"]*)"$`,
 		w.readingReturnsReference)
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns "([^"]*)" as "([^"]*)"$`, w.readingReturnsLiteral)
-	sc.Step(`^reading the "widget" "([^"]*)" back over the API returns no value for "([^"]*)"$`, w.readingReturnsNoValue)
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns "([^"]*)" as the vendors "([^"]*)"$`,
+		w.readingReturnsReferenceList)
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns "([^"]*)" as "([^"]*)"$`, w.readingReturnsLiteral)
+	sc.Step(`^reading the "widget" "([^"]*)" back through the projection returns no value for "([^"]*)"$`, w.readingReturnsNoValue)
 	sc.Step(`^the JSON-LD representation of the "widget" "([^"]*)" still carries a "([^"]*)" edge `+
 		`to the "vendor" "([^"]*)"$`, w.canonicalStillCarriesEdge)
+	sc.Step(`^the JSON-LD representation of the "widget" "([^"]*)" carries "([^"]*)" edges `+
+		`to the vendors "([^"]*)"$`, w.canonicalCarriesEdgeList)
+	sc.Step(`^the "widget" resources "([^"]*)" and "([^"]*)" carry the same RDF type$`, w.widgetsShareAnRDFType)
 
 	sc.Step(`^the "widget" projection table has a "([^"]*)" column$`, w.theProjectionTableHasColumn)
 	sc.Step(`^the stored "widget" context has an entry for "([^"]*)"$`, w.theStoredContextHasEntry)
@@ -149,14 +229,22 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stored "widget" context still maps "([^"]*)" to "([^"]*)"$`, w.theStoredContextStillMaps)
 	sc.Step(`^every reference property the "catalog" preset declares for "widget" has a stored context entry$`,
 		w.everyReferenceHasAStoredEntry)
+	sc.Step(`^the stored "widget" schema is byte-identical to the one stored before the restart$`,
+		w.theStoredSchemaSurvivedTheRestart)
 
 	sc.Step(`^no resource type update is recorded for "([^"]*)"$`, w.noUpdateRecorded)
 	sc.Step(`^exactly one resource type update is recorded for "([^"]*)"$`, w.exactlyOneUpdateRecorded)
 
 	sc.Step(`^the boot reconcile reports "([^"]*)" held at its stored definition for "([^"]*)"$`, w.bootReportsHeld)
+	sc.Step(`^the boot reconcile reports the "([^"]*)" context term as held for "([^"]*)"$`,
+		w.bootReportsContextTermHeld)
 	sc.Step(`^the boot reconcile reports "([^"]*)" as updated$`, w.bootReportsUpdated)
 	sc.Step(`^the boot reconcile does not report "([^"]*)" as updated$`, w.bootDoesNotReportUpdated)
 	sc.Step(`^the boot reconcile names "([^"]*)" as a property whose writes are still dropped$`, w.bootNamesDropped)
+
+	// The adopt-term migration extends this world rather than forking it: the
+	// situation it starts from is the one the guard scenarios leave behind.
+	w.registerAdoptionSteps(sc)
 }
 
 // --- preset shaping ---
@@ -181,6 +269,12 @@ func (w *contextWorld) aWidgetTypeDeclaring(table *godog.Table) error {
 
 // readPropertyTable reads a | property | type | references | table. The
 // references column is optional so the same reader serves a literal-only type.
+//
+// The `type` column carries the table's vocabulary rather than a raw JSON type:
+// "reference" is a single URN and "reference list" is an ARRAY of URNs. Issue
+// #513 needed the second word — a schema can mark an array property
+// `x-resource-type`, and until this table could say so no scenario could reach
+// the shape that never reads back.
 func readPropertyTable(table *godog.Table) ([]contextProperty, error) {
 	if len(table.Rows) == 0 {
 		return nil, fmt.Errorf("property table has no header row")
@@ -212,9 +306,16 @@ func readPropertyTable(table *godog.Table) ([]contextProperty, error) {
 			return nil, fmt.Errorf("a property row declares no name")
 		}
 		// "reference" is the table's word for a resource reference; the stored
-		// JSON type of a reference is a string holding the target's URN.
+		// JSON type of a reference is a string holding the target's URN, and of
+		// a reference list an array of them.
 		if p.references != "" {
-			p.jsonTyp = "string"
+			switch p.jsonTyp {
+			case "reference list":
+				p.list = true
+				p.jsonTyp = "array"
+			default:
+				p.jsonTyp = "string"
+			}
 		}
 		props = append(props, p)
 	}
@@ -235,6 +336,21 @@ func (w *contextWorld) thePresetAddsReference(name, target string) error {
 	return w.addWidgetProperty(contextProperty{name: name, jsonTyp: "string", references: target})
 }
 
+// thePresetAddsReferenceList adds a reference the schema declares as an array of
+// URNs — the mealplanning preset's shape for suitableForDiet (issue #513).
+func (w *contextWorld) thePresetAddsReferenceList(name, target string) error {
+	return w.addWidgetProperty(contextProperty{name: name, jsonTyp: "array", references: target, list: true})
+}
+
+// thePresetDeclaresContextTerm declares a raw `@context` entry on the next
+// build's "widget" type: a prefix definition, an `@type`, or a term named at an
+// explicit IRI. It overrides whatever presetType would generate for that key,
+// which is how a scenario says "the next build names a DIFFERENT IRI".
+func (w *contextWorld) thePresetDeclaresContextTerm(term, value string) error {
+	w.widgetContextExtras[term] = value
+	return nil
+}
+
 // thePresetAddsReferenceWithoutContextEntry reproduces a preset packaging bug:
 // the schema marks the property as a reference but the preset's own context
 // never declares a term for it, so an additive merge has nothing to add and the
@@ -244,36 +360,99 @@ func (w *contextWorld) thePresetAddsReferenceWithoutContextEntry(name, target st
 		contextProperty{name: name, jsonTyp: "string", references: target, noContextEntry: true})
 }
 
-func (w *contextWorld) thePresetAddsLiteral(name, jsonTyp string) error {
-	return w.addWidgetProperty(contextProperty{name: name, jsonTyp: jsonTyp})
+// thePresetDeclaresContextEntryFor is the later build that fixes a packaging
+// bug: the reference property was already declared, and now the preset's own
+// context declares a term for it too.
+func (w *contextWorld) thePresetDeclaresContextEntryFor(name string) error {
+	for i := range w.widgetProps {
+		if w.widgetProps[i].name != name {
+			continue
+		}
+		if w.widgetProps[i].references == "" {
+			return fmt.Errorf("%q is not a reference property, so no context entry applies", name)
+		}
+		w.widgetProps[i].noContextEntry = false
+		return nil
+	}
+	return fmt.Errorf("widget declares no property named %q", name)
+}
+
+// thePresetAddsLiteral names its type, so a scenario can change the OTHER type
+// in the same boot — which is how a negative assertion about one type gets a
+// positive control from a healthy one beside it.
+func (w *contextWorld) thePresetAddsLiteral(name, jsonTyp, slug string) error {
+	p := contextProperty{name: name, jsonTyp: jsonTyp}
+	if slug == "vendor" {
+		for _, existing := range w.vendorProps {
+			if existing.name == p.name {
+				return fmt.Errorf("property %q is already declared on vendor", p.name)
+			}
+		}
+		w.vendorProps = append(w.vendorProps, p)
+		return nil
+	}
+	return w.addWidgetProperty(p)
 }
 
 // presetType renders one type's schema and context from its property list. A
 // reference contributes an x-resource-type marker to the schema AND a term to
 // the context — declaring one without the other is exactly the defect, so the
 // two are built side by side here where the asymmetry is visible.
-func presetType(name, slug string, props []contextProperty) application.PresetResourceType {
+//
+// extras are raw `@context` entries no property implies — a prefix, an `@type`,
+// or a term the scenario wants named at a specific IRI. They are applied LAST
+// so a scenario can override the term this generator would derive, which is how
+// "the next build names a different IRI" is expressed.
+func presetType(
+	name, slug string, props []contextProperty, extras map[string]string,
+) application.PresetResourceType {
 	schemaProps := make([]string, 0, len(props))
-	terms := []string{`"@vocab":"https://schema.org/"`}
+	terms := map[string]json.RawMessage{"@vocab": json.RawMessage(`"https://schema.org/"`)}
 	for _, p := range props {
 		if p.references == "" {
 			schemaProps = append(schemaProps, fmt.Sprintf("%q:{\"type\":%q}", p.name, p.jsonTyp))
 			continue
 		}
-		schemaProps = append(schemaProps,
-			fmt.Sprintf("%q:{\"type\":\"string\",\"x-resource-type\":%q,\"x-display-property\":\"name\"}",
-				p.name, p.references))
+		// An array reference declares x-resource-type on the array itself, as
+		// the mealplanning preset does; a single reference declares it on the
+		// string. Both are the same reference to every path downstream.
+		if p.list {
+			schemaProps = append(schemaProps, fmt.Sprintf(
+				"%q:{\"type\":\"array\",\"items\":{\"type\":\"string\"},"+
+					"\"x-resource-type\":%q,\"x-display-property\":\"name\"}", p.name, p.references))
+		} else {
+			schemaProps = append(schemaProps,
+				fmt.Sprintf("%q:{\"type\":\"string\",\"x-resource-type\":%q,\"x-display-property\":\"name\"}",
+					p.name, p.references))
+		}
 		if p.noContextEntry {
 			continue
 		}
-		terms = append(terms,
-			fmt.Sprintf("%q:{\"@id\":\"https://weos.org/vocab/catalog#%s\",\"@type\":\"@id\"}", p.name, p.name))
+		terms[p.name] = json.RawMessage(
+			// Vocab-consistent on purpose: a well-formed preset names the IRI
+			// its own @vocab already implies, which is what the real presets do
+			// (schema.org/suitableForDiet under @vocab schema.org/). The old
+			// harness used an unrelated catalog# IRI, which silently made every
+			// added term a predicate MOVE — the very case issue #513 guards,
+			// hidden inside scenarios meant to test the plain repair.
+			fmt.Sprintf("{\"@id\":\"https://schema.org/%s\",\"@type\":\"@id\"}", p.name))
+	}
+	for term, value := range extras {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		terms[term] = encoded
+	}
+	encodedContext, err := json.Marshal(terms)
+	if err != nil {
+		encodedContext = json.RawMessage(`{"@vocab":"https://schema.org/"}`)
 	}
 	return application.PresetResourceType{
 		Name:        name,
 		Slug:        slug,
 		Description: "issue #510 acceptance type",
-		Context:     json.RawMessage("{" + strings.Join(terms, ",") + "}"),
+		Context:     encodedContext,
 		Schema: json.RawMessage(fmt.Sprintf(`{"type":"object","properties":{%s}}`,
 			strings.Join(schemaProps, ","))),
 	}
@@ -290,8 +469,8 @@ func (w *contextWorld) catalogRegistry() *application.PresetRegistry {
 		Description: "issue #510 acceptance preset",
 		AutoInstall: true,
 		Types: []application.PresetResourceType{
-			presetType("Vendor", "vendor", w.vendorProps),
-			presetType("Widget", "widget", w.widgetProps),
+			presetType("Vendor", "vendor", w.vendorProps, nil),
+			presetType("Widget", "widget", w.widgetProps, w.widgetContextExtras),
 		},
 	})
 	return registry
@@ -304,14 +483,24 @@ func (w *contextWorld) catalogRegistry() *application.PresetRegistry {
 // honest surface: ReconcilePresetResult itself never leaves the boot hook.
 type reconcileLog struct {
 	mu sync.Mutex
-	// updated, held and dropped are keyed by slug.
+	// updated, heldSchema, heldContext and dropped are keyed by slug.
 	updated map[string]bool
-	held    map[string][]string
-	dropped map[string]string
+	// heldSchema and heldContext are kept apart on purpose: both are reported
+	// on a line reading "held at their stored definition", and a merged capture
+	// would let a term reported as a SCHEMA conflict satisfy an assertion about
+	// a CONTEXT term (issue #513, P2-4).
+	heldSchema  map[string][]string
+	heldContext map[string][]string
+	dropped     map[string]string
 }
 
 func newReconcileLog() *reconcileLog {
-	return &reconcileLog{updated: map[string]bool{}, held: map[string][]string{}, dropped: map[string]string{}}
+	return &reconcileLog{
+		updated:     map[string]bool{},
+		heldSchema:  map[string][]string{},
+		heldContext: map[string][]string{},
+		dropped:     map[string]string{},
+	}
 }
 
 // capturingLogger records the reconcile lines and discards everything else.
@@ -341,10 +530,13 @@ func (c *capturingLogger) Info(ctx context.Context, msg string, fields ...interf
 func (c *capturingLogger) Warn(ctx context.Context, msg string, fields ...interface{}) {
 	if strings.Contains(msg, "held at their stored definition") {
 		if slug, ok := fieldValue(fields, "slug"); ok {
-			terms, _ := fieldValue(fields, "heldContextTerms")
-			props, _ := fieldValue(fields, "heldProperties")
 			c.log.mu.Lock()
-			c.log.held[slug] = append(c.log.held[slug], terms, props)
+			if terms, has := fieldValue(fields, "heldContextTerms"); has {
+				c.log.heldContext[slug] = append(c.log.heldContext[slug], terms)
+			}
+			if props, has := fieldValue(fields, "heldProperties"); has {
+				c.log.heldSchema[slug] = append(c.log.heldSchema[slug], props)
+			}
 			c.log.mu.Unlock()
 		}
 	}
@@ -437,6 +629,13 @@ func (w *contextWorld) stop() {
 }
 
 func (w *contextWorld) theTwinRestarts() error {
+	// Snapshot the stored schema before the process goes away, so a scenario
+	// about a CONTEXT-only reconcile can prove the schema half was left alone.
+	if w.rts != nil {
+		if rt, err := w.rts.GetBySlug(context.Background(), "widget"); err == nil {
+			w.schemaBeforeRestart = rt.Schema()
+		}
+	}
 	w.stop()
 	return w.boot()
 }
@@ -511,6 +710,46 @@ func (w *contextWorld) theOperatorClearsContext() error {
 	return w.writeStoredContext("widget", map[string]any{})
 }
 
+func (w *contextWorld) theOperatorDeletesTerm(term string) error {
+	terms, err := w.storedContextOf("widget")
+	if err != nil {
+		return err
+	}
+	if _, ok := terms[term]; !ok {
+		return fmt.Errorf("stored widget context has no %q entry to delete (terms: %s)", term, sortedTermNames(terms))
+	}
+	delete(terms, term)
+	return w.writeStoredContext("widget", terms)
+}
+
+// theOperatorStoresRawContext writes a stored `@context` verbatim, including
+// the forms an object-shaped merge cannot handle: JSON-LD permits an array of
+// contexts and a bare remote-IRI string, and the API write path validates
+// neither, so an operator can and does store them (issue #513).
+func (w *contextWorld) theOperatorStoresRawContext(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if !json.Valid([]byte(raw)) {
+		return fmt.Errorf("the scenario's raw context %q is not valid JSON", raw)
+	}
+	rt, err := w.rts.GetBySlug(context.Background(), "widget")
+	if err != nil {
+		return fmt.Errorf("failed to load the widget type: %w", err)
+	}
+	_, err = w.rts.Update(context.Background(), application.UpdateResourceTypeCommand{
+		ID:          rt.GetID(),
+		Name:        rt.Name(),
+		Slug:        rt.Slug(),
+		Description: rt.Description(),
+		Status:      rt.Status(),
+		Context:     json.RawMessage(raw),
+		Schema:      rt.Schema(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to store the raw context for widget: %w", err)
+	}
+	return nil
+}
+
 // --- writes ---
 
 func (w *contextWorld) createResource(slug, name string, data map[string]any) error {
@@ -542,12 +781,49 @@ func (w *contextWorld) vendorID(name string) (string, error) {
 	return id, nil
 }
 
+func (w *contextWorld) aWidgetExists(name string) error {
+	return w.createResource("widget", name, map[string]any{})
+}
+
+// widgetPropertyIsList reports whether the next build declares this widget
+// property as an ARRAY of references, which decides the JSON shape a scenario's
+// value has to be written in.
+func (w *contextWorld) widgetPropertyIsList(property string) bool {
+	for _, p := range w.widgetProps {
+		if p.name == property {
+			return p.list
+		}
+	}
+	return false
+}
+
+// referenceValue turns a scenario's vendor cell — one name, or several
+// separated by commas — into the JSON value for that property: a bare URN for a
+// single reference, an array of URNs for a reference list.
+func (w *contextWorld) referenceValue(property, cell string) (any, error) {
+	var ids []string
+	for _, vendorName := range strings.Split(cell, ",") {
+		id, err := w.vendorID(strings.TrimSpace(vendorName))
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if w.widgetPropertyIsList(property) {
+		return ids, nil
+	}
+	if len(ids) != 1 {
+		return nil, fmt.Errorf("%q is a single reference but the scenario names %d vendors", property, len(ids))
+	}
+	return ids[0], nil
+}
+
 func (w *contextWorld) iCreateWidgetWithReference(name, property, vendorName string) error {
-	id, err := w.vendorID(vendorName)
+	value, err := w.referenceValue(property, vendorName)
 	if err != nil {
 		return err
 	}
-	return w.createResource("widget", name, map[string]any{property: id})
+	return w.createResource("widget", name, map[string]any{property: value})
 }
 
 func (w *contextWorld) iCreateWidgetWithReferences(name string, table *godog.Table) error {
@@ -560,24 +836,17 @@ func (w *contextWorld) iCreateWidgetWithReferences(name string, table *godog.Tab
 			return fmt.Errorf("expected 2 columns per reference row, got %d", len(row.Cells))
 		}
 		property := strings.TrimSpace(row.Cells[0].Value)
-		id, err := w.vendorID(strings.TrimSpace(row.Cells[1].Value))
+		value, err := w.referenceValue(property, row.Cells[1].Value)
 		if err != nil {
 			return err
 		}
-		data[property] = id
+		data[property] = value
 	}
 	return w.createResource("widget", name, data)
 }
 
 func (w *contextWorld) iCreateWidgetWithLiteral(name, property, value string) error {
 	return w.createResource("widget", name, map[string]any{property: value})
-}
-
-// aWidgetCreatedWithUndeclaredReference writes a reference the CURRENT schema
-// does not declare — the state the bug leaves behind: the value reaches the
-// canonical record with nowhere in the projection to land.
-func (w *contextWorld) aWidgetCreatedWithUndeclaredReference(name, property, vendorName string) error {
-	return w.iCreateWidgetWithReference(name, property, vendorName)
 }
 
 // --- reads and assertions ---
@@ -616,6 +885,77 @@ func (w *contextWorld) readingReturnsReference(name, property, vendorName string
 	return nil
 }
 
+// readingReturnsReferenceList asserts an ARRAY reference reads back with every
+// URN it was written with, in order. The stored encoding is the reader's
+// business — a JSON array in a TEXT column and a decoded slice both count — so
+// the assertion is on the values, not the shape they arrive in.
+func (w *contextWorld) readingReturnsReferenceList(name, property, vendorNames string) error {
+	want, err := w.vendorIDs(vendorNames)
+	if err != nil {
+		return err
+	}
+	row, err := w.flatRead(name)
+	if err != nil {
+		return err
+	}
+	got, ok := row[property]
+	if !ok || got == nil {
+		return fmt.Errorf("read of %q carries no %q value — the array reference was dropped (keys: %s)",
+			name, property, mapKeys(row))
+	}
+	ids, err := asIDList(got)
+	if err != nil {
+		return fmt.Errorf("read of %q returned %s = %v, which is not a list of references: %w",
+			name, property, got, err)
+	}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		return fmt.Errorf("read of %q returned %s = %v, want the vendors %q (%v)",
+			name, property, ids, vendorNames, want)
+	}
+	return nil
+}
+
+// vendorIDs resolves a comma-separated list of vendor names to their URNs.
+func (w *contextWorld) vendorIDs(names string) ([]string, error) {
+	var ids []string
+	for _, vendorName := range strings.Split(names, ",") {
+		id, err := w.vendorID(strings.TrimSpace(vendorName))
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// asIDList normalizes the shapes a list-valued reference can come back as: a
+// JSON array in a TEXT column, a decoded slice, or a lone URN.
+func asIDList(value any) ([]string, error) {
+	switch v := value.(type) {
+	case []string:
+		return v, nil
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			out = append(out, fmt.Sprintf("%v", item))
+		}
+		return out, nil
+	case string:
+		// Deliberately NOT decoding a JSON-array string here. The projection
+		// stores a list reference that way, but the read path decodes it before
+		// the value reaches a client; accepting the encoded form would let the
+		// suite pass while the API served a string where the schema promises a
+		// list (issue #513).
+		if strings.HasPrefix(strings.TrimSpace(v), "[") {
+			return nil, fmt.Errorf(
+				"value is still the encoded column %q — the read path did not decode it to a list", v)
+		}
+		return []string{v}, nil
+	default:
+		return nil, fmt.Errorf("unsupported value type %T", value)
+	}
+}
+
 func (w *contextWorld) readingReturnsLiteral(name, property, want string) error {
 	row, err := w.flatRead(name)
 	if err != nil {
@@ -639,11 +979,23 @@ func (w *contextWorld) readingReturnsNoValue(name, property string) error {
 	return assertEmpty(row, property)
 }
 
-// canonicalStillCarriesEdge reads the canonical JSON-LD blob rather than the
-// projection, proving the event store never lost the reference even while the
-// context entry was missing.
+// canonicalStillCarriesEdge reads the canonical JSON-LD record rather than the
+// projection, proving the reference survives as an EDGE that still resolves
+// through the type's current context.
+//
+// Resolution is the whole point of the assertion, so it goes through
+// EdgeValues and nothing else: the edge is keyed by the predicate IRI that was
+// current when it was written, and a merge that repoints that property's term
+// leaves the bytes in place while making them unreadable. A lookup by property
+// name would pass on exactly that loss (issue #513, P2-1).
 func (w *contextWorld) canonicalStillCarriesEdge(name, property, vendorName string) error {
-	want, err := w.vendorID(vendorName)
+	return w.canonicalCarriesEdgeList(name, property, vendorName)
+}
+
+// canonicalCarriesEdgeList is the list-valued form: every named vendor, in
+// order. A single reference is the one-element case, so both steps share it.
+func (w *contextWorld) canonicalCarriesEdgeList(name, property, vendorNames string) error {
+	want, err := w.vendorIDs(vendorNames)
 	if err != nil {
 		return err
 	}
@@ -659,26 +1011,55 @@ func (w *contextWorld) canonicalStillCarriesEdge(name, property, vendorName stri
 	if err != nil {
 		return fmt.Errorf("failed to load the widget type: %w", err)
 	}
-	for _, got := range application.EdgeValues(res.Data(), rt.Context(), property) {
-		if got == want {
-			return nil
-		}
+	got := application.EdgeValues(res.Data(), rt.Context(), property)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		return fmt.Errorf(
+			"canonical record for %q resolves %q to %v, want the vendors %q (%v) — payload: %s",
+			name, property, got, vendorNames, want, res.Data())
 	}
-	// A value written BEFORE the schema declared the property was never a
-	// reference at write time, so it landed in the entity node as a plain
-	// value rather than the edges node — EdgeValues cannot see it. Look it up
-	// by name instead. Deliberately NOT a substring search over the payload:
-	// that would pass on the URN appearing under any other key, which is the
-	// exact loss this step exists to catch.
+	return nil
+}
+
+// widgetsShareAnRDFType compares the rdf:type two resources carry in their
+// canonical records. A boot that moves the type's class IRI — by merging an
+// `@type` or a prefix an `@type` compacts through — splits a type's resources
+// across two classes, and every class-scoped query then answers with half the
+// data (issue #513, P0-5).
+func (w *contextWorld) widgetsShareAnRDFType(first, second string) error {
+	firstType, err := w.widgetRDFType(first)
+	if err != nil {
+		return err
+	}
+	secondType, err := w.widgetRDFType(second)
+	if err != nil {
+		return err
+	}
+	if firstType != secondType {
+		return fmt.Errorf(
+			"widget %q carries rdf:type %q and widget %q carries %q — the boot moved the type's class, "+
+				"so class-scoped queries can no longer see both", first, firstType, second, secondType)
+	}
+	return nil
+}
+
+func (w *contextWorld) widgetRDFType(name string) (string, error) {
+	id, ok := w.createdIDs["widget/"+name]
+	if !ok {
+		return "", fmt.Errorf("no widget named %q was created in this scenario", name)
+	}
+	res, err := w.rs.GetByID(context.Background(), id)
+	if err != nil {
+		return "", fmt.Errorf("failed to read widget %q by id: %w", name, err)
+	}
 	var data map[string]any
 	if err := json.Unmarshal(res.Data(), &data); err != nil {
-		return fmt.Errorf("canonical data for %q is not a JSON object: %w", name, err)
+		return "", fmt.Errorf("canonical data for %q is not a JSON object: %w", name, err)
 	}
-	if got, ok := jsonLDField(data, property); ok && fmt.Sprintf("%v", got) == want {
-		return nil
+	got, ok := jsonLDField(data, "@type")
+	if !ok {
+		return "", fmt.Errorf("canonical record for %q carries no @type (payload: %s)", name, res.Data())
 	}
-	return fmt.Errorf("canonical record for %q lost its %q edge to %s (payload: %s)",
-		name, property, want, res.Data())
+	return fmt.Sprintf("%v", got), nil
 }
 
 func (w *contextWorld) theProjectionTableHasColumn(column string) error {
@@ -747,6 +1128,25 @@ func (w *contextWorld) everyReferenceHasAStoredEntry() error {
 	return nil
 }
 
+// theStoredSchemaSurvivedTheRestart asserts a boot that only had a context to
+// merge left the stored schema byte-for-byte alone. The two halves fall back to
+// the stored value independently, and nothing else in the suite would notice
+// the two being crossed.
+func (w *contextWorld) theStoredSchemaSurvivedTheRestart() error {
+	if len(w.schemaBeforeRestart) == 0 {
+		return fmt.Errorf("no stored schema was captured before a restart in this scenario")
+	}
+	rt, err := w.rts.GetBySlug(context.Background(), "widget")
+	if err != nil {
+		return fmt.Errorf("failed to load the widget type: %w", err)
+	}
+	if string(rt.Schema()) != string(w.schemaBeforeRestart) {
+		return fmt.Errorf("the stored widget schema changed across a context-only reconcile:\nbefore: %s\nafter:  %s",
+			w.schemaBeforeRestart, rt.Schema())
+	}
+	return nil
+}
+
 func sortedTermNames(terms map[string]any) string {
 	names := make([]string, 0, len(terms))
 	for k := range terms {
@@ -798,6 +1198,8 @@ func (w *contextWorld) report() (*reconcileLog, error) {
 	return w.bootReport, nil
 }
 
+// bootReportsHeld accepts either category: the scenarios using it only care
+// that the operator was told this definition stayed at its stored form.
 func (w *contextWorld) bootReportsHeld(term, slug string) error {
 	r, err := w.report()
 	if err != nil {
@@ -805,12 +1207,33 @@ func (w *contextWorld) bootReportsHeld(term, slug string) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, line := range r.held[slug] {
+	for _, line := range append(append([]string{}, r.heldContext[slug]...), r.heldSchema[slug]...) {
 		if strings.Contains(line, term) {
 			return nil
 		}
 	}
-	return fmt.Errorf("boot reconcile did not report %q held for %q (held lines: %v)", term, slug, r.held[slug])
+	return fmt.Errorf("boot reconcile did not report %q held for %q (context: %v, schema: %v)",
+		term, slug, r.heldContext[slug], r.heldSchema[slug])
+}
+
+// bootReportsContextTermHeld is the narrower assertion: the term was held as a
+// CONTEXT term. A schema conflict reported for the same name does not satisfy
+// it — the two need different operator fixes.
+func (w *contextWorld) bootReportsContextTermHeld(term, slug string) error {
+	r, err := w.report()
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, line := range r.heldContext[slug] {
+		if strings.Contains(line, term) {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"boot reconcile did not report the %q context term as held for %q, so the preset's IRI was adopted "+
+			"over the one existing edges use (held context terms: %v)", term, slug, r.heldContext[slug])
 }
 
 func (w *contextWorld) bootReportsUpdated(slug string) error {

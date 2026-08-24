@@ -20,7 +20,7 @@ Feature: A built-in preset's schema change reaches an already-provisioned databa
     Given the "catalog" preset adds a "sku" string property to "widget"
     And the twin restarts against the same database
     When I create a "widget" named "Bolt cutter" with "sku" set to "BC-100"
-    Then reading the "widget" "Bolt cutter" back over the API returns "sku" as "BC-100"
+    Then reading the "widget" "Bolt cutter" back through the projection returns "sku" as "BC-100"
 
   Scenario: Restarting with an unchanged preset records no resource type update
     When the twin restarts against the same database
@@ -37,7 +37,7 @@ Feature: A built-in preset's schema change reaches an already-provisioned databa
     Given a "widget" named "Hex key" exists
     When the "catalog" preset adds a "sku" string property to "widget"
     And the twin restarts against the same database
-    Then reading the "widget" "Hex key" back over the API succeeds
+    Then reading the "widget" "Hex key" back through the projection succeeds
     And it returns no value for "sku"
 
   Scenario: Fixture data is not re-seeded when a preset's schema changes
@@ -62,6 +62,6 @@ Feature: A built-in preset's schema change reaches an already-provisioned databa
     Given a "widget" named "Bolt cutter" is created with an undeclared "sku" of "BC-100"
     And the "catalog" preset adds a "sku" string property to "widget"
     And the twin restarts against the same database
-    And reading the "widget" "Bolt cutter" back over the API returns no value for "sku"
+    And reading the "widget" "Bolt cutter" back through the projection returns no value for "sku"
     When the operator reprojects the event feed
-    Then reading the "widget" "Bolt cutter" back over the API returns "sku" as "BC-100"
+    Then reading the "widget" "Bolt cutter" back through the projection returns "sku" as "BC-100"
