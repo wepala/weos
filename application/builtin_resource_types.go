@@ -17,6 +17,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/wepala/weos/v3/domain/entities"
@@ -35,6 +36,7 @@ func ensureBuiltInResourceTypes(params struct {
 	TypeSvc       ResourceTypeService
 	Logger        entities.Logger
 	LinkActivator *LinkActivator `optional:"true"`
+	Links         *LinkRegistry  `optional:"true"`
 }) error {
 	ctx := context.Background()
 	for _, preset := range params.Registry.List() {
@@ -68,6 +70,14 @@ func ensureBuiltInResourceTypes(params struct {
 				"slug", slug, "count", count)
 		}
 	}
+	// Ambiguity is checked AFTER both the reconcile and the installs above, so a
+	// preset that ships ambiguous is caught on the boot that installs it rather
+	// than the one after. It runs every boot, not only when something changed:
+	// a type becomes ambiguous when a later build adds a property onto an
+	// existing predicate, and by then data already exists under the property
+	// that loses (issue #515).
+	reportAmbiguousReferences(ctx, params.TypeSvc, params.Logger, params.Links)
+
 	// InstallPreset already reconciles after each install, but presets install
 	// one at a time in the loop above — if preset B depends on preset A's
 	// types, the activation during A's install won't know B exists yet. A
@@ -160,5 +170,81 @@ func reconcilePresetSchemas(
 		logger.Warn(ctx,
 			"preset type declares no JSON Schema: its projection has only base columns",
 			"preset", presetName, "slug", slug)
+	}
+}
+
+// listAllTypesLimit is a ceiling for the boot sweep. A deployment with more
+// installed types than this has other problems; a page size stops a runaway
+// query from stalling startup.
+const listAllTypesLimit = 1000
+
+// reportAmbiguousReferences names every INSTALLED type whose reference
+// properties no reader can tell apart, and what to do about it.
+//
+// It enumerates installed types rather than preset declarations: a type
+// created through the API or MCP belongs to no preset, and one whose preset is
+// no longer registered would drop out of a preset-driven sweep while its data
+// stays. Both are exactly the populations that carry a hand-authored shape.
+//
+// Reported, not fatal, matching how a per-type reconcile failure is handled: a
+// bad shape on one type is contained to that type, and refusing to boot the
+// whole service over it would take a running system down to fix a subset of
+// writes. The message carries both remedies because which one is meant depends
+// on intent — see ambiguousReferenceShape.
+func reportAmbiguousReferences(
+	ctx context.Context, svc ResourceTypeService, logger entities.Logger, links *LinkRegistry,
+) {
+	if links == nil {
+		links = NewLinkRegistry()
+	}
+	page, err := svc.List(ctx, "", listAllTypesLimit)
+	if err != nil {
+		// Saying nothing would make a transient fault look like a clean boot.
+		logger.Warn(ctx, "could not list resource types to check their reference shapes", "error", err)
+		return
+	}
+	for _, existing := range page.Data {
+		ReportAmbiguousReferenceShape(ctx, logger, existing.Slug(),
+			existing.Schema(), existing.Context(), links.BySource(existing.Slug()))
+	}
+}
+
+// ReportAmbiguousReferenceShape names every pair of reference properties on one
+// type that no reader can tell apart, and what to do about it.
+//
+// Exported and called from the resource-type write path as well as from boot,
+// because a type created through the API or MCP belongs to no preset and the
+// boot sweep never sees it — which is precisely the population that hand-authors
+// several ID fields onto one relation. An operator learns when they define the
+// shape rather than from a boot log they may never read.
+//
+// Reported, not fatal, matching how a per-type reconcile failure is handled: a
+// bad shape on one type is contained to that type. Warn rather than Error
+// because it repeats on every boot with no way to acknowledge it, and an
+// operator who cannot change a shipped preset would otherwise have an alert
+// firing forever over a line they cannot act on.
+func ReportAmbiguousReferenceShape(
+	ctx context.Context, logger entities.Logger, slug string,
+	schema, ldContext json.RawMessage, links []PresetLinkDefinition,
+) {
+	refs := ExtractReferencePropertiesWithLinks(schema, ldContext, links)
+	groups := ambiguousReferenceShape(refs)
+	if len(groups) == 0 {
+		return
+	}
+	for _, names := range groups {
+		predicate, target := "", ""
+		for _, ref := range refs {
+			if ref.PropertyName == names[0] {
+				predicate, target = ref.PredicateIRI, ref.TargetType
+				break
+			}
+		}
+		logger.Warn(ctx,
+			"ambiguous reference shape: these properties resolve to one predicate and one "+
+				"target type, so no reader can tell them apart and one stands in for the other. "+
+				"Give the relationships different predicates if they differ, or collapse them "+
+				"into a single array property if they are one relationship with several targets",
+			"slug", slug, "properties", names, "predicate", predicate, "targetType", target)
 	}
 }

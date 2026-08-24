@@ -120,30 +120,32 @@ Feature: A built-in preset's new reference property reaches an already-provision
     When the twin restarts against the same database again
     Then the boot reconcile names "supplier" as a property whose writes are still dropped
 
-  # The two scenarios below write their pre-fix row through a schema that ALREADY
-  # marks "supplier" a reference, so the value lands as a real EDGE keyed by the
-  # @vocab-derived IRI. Written against a schema that does not declare it yet, it
-  # lands in the entity node as a literal and the column refills through
-  # extractNodeColumns — which is how both scenarios used to pass with the whole
-  # context merge deleted (issue #513, P2-1).
-  @issue-513
-  Scenario: A reference written before the context entry existed reads back empty but survives in the canonical record
+  # CHANGED BY #515. Both scenarios below used to assert that a reference
+  # written before its context entry landed reads back EMPTY, and that a
+  # reproject was needed to recover it. That was true while edges were keyed by
+  # predicate IRI: with no term, the key was @vocab-derived and nothing mapped
+  # it back. Edges are now keyed by the property name, so there is nothing to
+  # resolve and the value reads back immediately — the term is no longer what
+  # makes a reference readable. The scenarios now assert that, because
+  # asserting the old drop would be asserting the defect.
+  @issue-513 @issue-515
+  Scenario: A reference written before the context entry existed reads back anyway
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
     And I create a "widget" named "Bolt cutter" with "supplier" referring to the "vendor" "Acme"
     When the "catalog" preset declares a context entry for "supplier" on "widget"
     And the twin restarts against the same database
-    Then reading the "widget" "Bolt cutter" back through the projection returns no value for "supplier"
+    Then reading the "widget" "Bolt cutter" back through the projection returns "supplier" as the "vendor" "Acme"
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "supplier" edge to the "vendor" "Acme"
 
-  @issue-513
-  Scenario: Reprojecting after the context entry lands populates the reference column
+  @issue-513 @issue-515
+  Scenario: Reprojecting a record whose term landed later changes nothing
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
     And I create a "widget" named "Bolt cutter" with "supplier" referring to the "vendor" "Acme"
     And the "catalog" preset declares a context entry for "supplier" on "widget"
     And the twin restarts against the same database
-    And reading the "widget" "Bolt cutter" back through the projection returns no value for "supplier"
+    And reading the "widget" "Bolt cutter" back through the projection returns "supplier" as the "vendor" "Acme"
     When the operator reprojects the event feed
     Then reading the "widget" "Bolt cutter" back through the projection returns "supplier" as the "vendor" "Acme"
 

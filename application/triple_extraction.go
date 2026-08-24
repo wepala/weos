@@ -3,6 +3,7 @@ package application
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -171,10 +172,13 @@ func extractTriplesFromEdgesNode(
 		return nil
 	}
 
-	// Build predicate IRI lookup from reference property definitions.
-	predicateSet := make(map[string]bool, len(refProps))
+	// An edges node is keyed by property name after issue #515 and by predicate
+	// IRI before it, and both are stored. Accept either: the triple always
+	// carries the PREDICATE, whichever key the document used to hold the edge.
+	predicateOf := make(map[string]string, len(refProps)*2)
 	for _, rp := range refProps {
-		predicateSet[rp.PredicateIRI] = true
+		predicateOf[rp.PropertyName] = rp.PredicateIRI
+		predicateOf[rp.PredicateIRI] = rp.PredicateIRI
 	}
 
 	var triples []repositories.Triple
@@ -182,7 +186,8 @@ func extractTriplesFromEdgesNode(
 		if key == "@id" {
 			continue
 		}
-		if !predicateSet[key] {
+		predicate, known := predicateOf[key]
+		if !known {
 			continue
 		}
 		// Predicate value is either a single {"@id": "..."} ref or an array of
@@ -193,7 +198,7 @@ func extractTriplesFromEdgesNode(
 		for _, objectID := range ids {
 			triples = append(triples, repositories.Triple{
 				Subject:   subjectID,
-				Predicate: key,
+				Predicate: predicate,
 				Object:    objectID,
 			})
 		}
@@ -290,6 +295,103 @@ func collectReferenceTriples(
 // Returns an error if the edges node contains a value of an unexpected
 // shape (not nil, not a map with @id, not a slice of such maps), since
 // silently overwriting would destroy data that the caller cannot see.
+
+// edgeKeyIn picks the key an edges node uses for a predicate, and reports
+// whether several properties claim it.
+//
+// The document decides, and it decides from the keys it ALREADY HOLDS rather
+// than from its context's term list. Every stored key resolves to a predicate
+// the same way the write path resolved it: an absolute key is its own
+// predicate, a compact key resolves through its term or through `@vocab`. So
+// the question "which key holds this predicate" has an exact answer, and it
+// covers all three shapes at once — a legacy expanded key, a compact key with
+// an explicit term, and a compact key with no term at all.
+//
+// Guessing from the context instead got both ends wrong. Resolving a term first
+// missed that a legacy record stores the predicate itself, and falling back to
+// the predicate missed that a TERM-LESS property is stored under its property
+// name — the #510 shape, and the common one. Either way the write landed in a
+// second key beside the first, so the same statement was recorded twice and a
+// delete removed only one of them.
+//
+// Only when no stored key carries the predicate does the different question
+// arise — where should a NEW edge go — and there the context is the right
+// place to look.
+func edgeKeyIn(edgesNode, doc map[string]any, predicate string) (string, bool) {
+	vocab, terms := documentContext(doc)
+	var holding []string
+	for key := range edgesNode {
+		if key == "@id" {
+			continue
+		}
+		if predicateOfKey(key, vocab, terms) == predicate {
+			holding = append(holding, key)
+		}
+	}
+	if len(holding) > 0 {
+		// Several stored keys carrying one predicate means several properties
+		// share it, and a triple cannot say which of them it belongs to. Sorted
+		// so the answer does not change between runs.
+		sort.Strings(holding)
+		return holding[0], len(holding) > 1
+	}
+
+	names := propertiesForPredicate(doc, predicate)
+	switch {
+	case len(names) > 0:
+		return names[0], len(names) > 1
+	case vocab != "" && strings.HasPrefix(predicate, vocab):
+		// No term names it, so the write path resolved it through `@vocab` —
+		// the property name is exactly what @vocab was prepended to.
+		return strings.TrimPrefix(predicate, vocab), false
+	default:
+		return predicate, false
+	}
+}
+
+// predicateOfKey resolves one stored edge key to the predicate it carries,
+// mirroring how the write path resolved it in the first place.
+func predicateOfKey(key, vocab string, terms map[string]string) string {
+	if jsonld.IsIRIKey(key) {
+		return key
+	}
+	return jsonld.ResolvePredicateIRI(key, vocab, terms)
+}
+
+// documentContext parses a document's own `@context`, tolerating the bare
+// string form that buildStorableContext still produces when only `@vocab`
+// survives. Unmarshalled as a map that form yields nothing, which left every
+// vocab-only record blind by construction.
+func documentContext(doc map[string]any) (string, map[string]string) {
+	rawCtx, ok := doc["@context"]
+	if !ok {
+		return "", nil
+	}
+	if vocab, isString := rawCtx.(string); isString {
+		return vocab, nil
+	}
+	encoded, err := json.Marshal(rawCtx)
+	if err != nil {
+		return "", nil
+	}
+	return jsonld.ParseContext(encoded)
+}
+
+// propertiesForPredicate lists the properties a document's own `@context` maps
+// to one predicate, in a stable order. Used only to place a NEW edge, when no
+// stored key already carries the predicate.
+func propertiesForPredicate(doc map[string]any, predicate string) []string {
+	_, forward := documentContext(doc)
+	var names []string
+	for name, iri := range forward {
+		if iri == predicate {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 func AddEdgeToGraph(
 	data json.RawMessage, predicate, objectID, subjectID string,
 ) (json.RawMessage, error) {
@@ -299,6 +401,25 @@ func AddEdgeToGraph(
 	}
 
 	graphArr, hasGraph := doc["@graph"].([]any)
+	var existingEdges map[string]any
+	if hasGraph && len(graphArr) > 1 {
+		existingEdges, _ = graphArr[1].(map[string]any)
+	}
+
+	// One property claiming the predicate is the ordinary case: the edge belongs
+	// to it, and deduping happens within that key as it always did. The same
+	// object CAN legitimately be referenced by two different properties, so
+	// deduping across them here would drop the second reference.
+	edgeKey, shared := edgeKeyIn(existingEdges, doc, predicate)
+	if shared && edgesHaveObject(doc, predicate, objectID) {
+		// Several properties share this predicate, so a triple alone cannot say
+		// which one it belongs to. If the object is already recorded the
+		// statement is present — filing it again under whichever property sorts
+		// first would attach it to the wrong one. This is the replay case:
+		// Create emits the resource graph and its triples together.
+		return data, nil
+	}
+
 	if !hasGraph || len(graphArr) == 0 {
 		// No @graph — wrap existing data as entity node + new edges node.
 		entityNode := make(map[string]any)
@@ -306,8 +427,8 @@ func AddEdgeToGraph(
 			entityNode[k] = v
 		}
 		edgesNode := map[string]any{
-			"@id":     subjectID,
-			predicate: map[string]any{"@id": objectID},
+			"@id":   subjectID,
+			edgeKey: map[string]any{"@id": objectID},
 		}
 		doc = map[string]any{"@graph": []any{entityNode, edgesNode}}
 		if ctx, ok := entityNode["@context"]; ok {
@@ -320,8 +441,8 @@ func AddEdgeToGraph(
 	if len(graphArr) < 2 {
 		// Only entity node — add edges node.
 		edgesNode := map[string]any{
-			"@id":     subjectID,
-			predicate: map[string]any{"@id": objectID},
+			"@id":   subjectID,
+			edgeKey: map[string]any{"@id": objectID},
 		}
 		graphArr = append(graphArr, edgesNode)
 	} else {
@@ -338,29 +459,29 @@ func AddEdgeToGraph(
 			)
 		}
 		newRef := map[string]any{"@id": objectID}
-		switch existing := edgesNode[predicate].(type) {
+		switch existing := edgesNode[edgeKey].(type) {
 		case nil:
-			edgesNode[predicate] = newRef
+			edgesNode[edgeKey] = newRef
 		case map[string]any:
 			id, ok := existing["@id"].(string)
 			if !ok || id == "" {
-				return nil, fmt.Errorf("edge at predicate %q has malformed @id; refusing to overwrite", predicate)
+				return nil, fmt.Errorf("edge at %q has malformed @id; refusing to overwrite", edgeKey)
 			}
 			if id == objectID {
 				break // already present — no-op
 			}
-			edgesNode[predicate] = []any{existing, newRef}
+			edgesNode[edgeKey] = []any{existing, newRef}
 		case []any:
 			found, err := containsEdgeRef(existing, objectID)
 			if err != nil {
-				return nil, fmt.Errorf("edge array at predicate %q: %w", predicate, err)
+				return nil, fmt.Errorf("edge array at %q: %w", edgeKey, err)
 			}
 			if found {
 				break // already present — no-op
 			}
-			edgesNode[predicate] = append(existing, newRef)
+			edgesNode[edgeKey] = append(existing, newRef)
 		default:
-			return nil, fmt.Errorf("edge at predicate %q has unexpected type %T; refusing to overwrite", predicate, existing)
+			return nil, fmt.Errorf("edge at %q has unexpected type %T; refusing to overwrite", edgeKey, existing)
 		}
 		graphArr[1] = edgesNode
 	}
@@ -410,8 +531,14 @@ func RemoveEdgeFromGraph(
 	if !ok {
 		return data, nil
 	}
+	// Among the keys carrying this predicate, the one to clear is the one
+	// actually holding this object. Picking by predicate alone lands on
+	// whichever key sorts first, which in the accepted shared-predicate shape
+	// belongs to another property — so the delete either removed a surviving
+	// edge or, once guarded, removed nothing at all.
+	edgeKey := edgeKeyHolding(edgesNode, doc, predicate, objectID)
 
-	existing, exists := edgesNode[predicate]
+	existing, exists := edgesNode[edgeKey]
 	if !exists {
 		return data, nil
 	}
@@ -432,12 +559,21 @@ func RemoveEdgeFromGraph(
 			filtered = append(filtered, item)
 		}
 		if len(filtered) == 0 {
-			delete(edgesNode, predicate)
+			delete(edgesNode, edgeKey)
 		} else {
-			edgesNode[predicate] = filtered
+			edgesNode[edgeKey] = filtered
 		}
 	} else {
-		delete(edgesNode, predicate)
+		// Only when this really is the ref being removed. In the accepted
+		// shared-predicate shape the key chosen for a predicate can belong to
+		// another property, and deleting it unchecked removed a surviving
+		// edge that nothing asked about.
+		if ref, isRef := existing.(map[string]any); isRef {
+			if id, _ := ref["@id"].(string); id != objectID {
+				return data, nil
+			}
+		}
+		delete(edgesNode, edgeKey)
 	}
 
 	// If only @id remains, remove the edges node entirely.
@@ -461,20 +597,37 @@ func RemoveEdgeFromGraph(
 func buildStorableContext(ldContext json.RawMessage) any {
 	var ctx map[string]any
 	if json.Unmarshal(ldContext, &ctx) != nil {
-		return nil
+		// A bare remote-IRI string, or an array — both legal JSON-LD, and
+		// InlineVocabContext exists because the string form occurs here.
+		// Dropping it left a compact edge with nothing to expand through, so
+		// the graph store saw a bare property name and produced no statement.
+		var passthrough any
+		if json.Unmarshal(ldContext, &passthrough) != nil {
+			return nil
+		}
+		return passthrough
 	}
 
 	clean := make(map[string]any)
 	for key, val := range ctx {
-		// Keep only JSON-LD keywords (@vocab) and namespace prefix strings (e.g., "foaf": "http://...").
-		if strings.HasPrefix(key, "@") && key != "@type" {
-			clean[key] = val
+		// Term mappings are kept now, not only namespace prefixes (issue #515):
+		// the edges node is keyed by property name, so the mapping is what
+		// carries the predicate, and dropping it would leave a document that no
+		// longer expands to the graph it represents.
+		//
+		// But ONLY genuine term definitions. A resource type's @context also
+		// carries control entries that WeOS reads and JSON-LD does not accept —
+		// `weos:abstract: true`, `weos:valueObject: true`, the slug in
+		// `rdfs:subClassOf`, and the `weos:termAliases` / `weos:adoptedTerms`
+		// that adopt-term writes (issue #513). Copying those into a resource's
+		// own document makes the whole document unparseable, and the graph
+		// store rejects it outright — so the resource never reaches the
+		// knowledge graph, while its API read and projection look healthy and
+		// report nothing.
+		if !isTermDefinition(key, val) {
 			continue
 		}
-		// Keep namespace prefix definitions (string values that are URIs).
-		if s, ok := val.(string); ok && (strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")) {
-			clean[key] = val
-		}
+		clean[key] = val
 	}
 
 	// If only @vocab remains, simplify to just the vocab string.
@@ -523,12 +676,11 @@ func FlattenGraph(graphData, ldContext json.RawMessage) json.RawMessage {
 	// stays symmetric with the input shape that BuildResourceGraph accepted.
 	if len(graphArr) > 1 {
 		if edgesNode, ok := graphArr[1].(map[string]any); ok {
-			reverseMap := jsonld.BuildReverseMap(ldContext)
 			for key, val := range edgesNode {
 				if key == "@id" {
 					continue
 				}
-				propName, ok := reverseMap[key]
+				propName, ok := jsonld.EdgeProperty(key, ldContext)
 				if !ok {
 					continue
 				}
@@ -582,9 +734,6 @@ func BuildResourceGraph(
 		refPropNames[rp.PropertyName] = true
 	}
 
-	// Parse context to resolve predicate IRIs for edges and extract @type.
-	vocab, contextMap := jsonld.ParseContext(ldContext)
-
 	// Use @type from context if available (schema type name), otherwise fall back to display name.
 	schemaType := typeName
 	var rawCtx map[string]any
@@ -614,11 +763,20 @@ func BuildResourceGraph(
 			// (schemas can declare x-resource-type on array properties, e.g.
 			// the mealplanning preset). Non-string / non-array-of-strings
 			// values are skipped — they aren't valid references.
-			predicateIRI := jsonld.ResolvePredicateIRI(key, vocab, contextMap)
+			// Keyed by the PROPERTY NAME, not the predicate IRI (issue #515).
+			// Expanded form made the key the predicate, which meant every read
+			// had to invert the @context to get the property name back — and
+			// that inversion fails whenever a property has no term, or two
+			// properties share a predicate, or a term is later repointed. Those
+			// are #510, #513 and #515's own collision, one cause each time. The
+			// property name is unique by construction, so keying by it removes
+			// the inversion rather than guarding it. The stored @context keeps
+			// the mapping, so the document still expands to the same graph and
+			// yields the same triples.
 			switch v := val.(type) {
 			case string:
 				if v != "" {
-					edgesNode[predicateIRI] = map[string]any{"@id": v}
+					edgesNode[key] = map[string]any{"@id": v}
 					hasEdges = true
 				}
 			case []any:
@@ -629,7 +787,7 @@ func BuildResourceGraph(
 					}
 				}
 				if len(refs) > 0 {
-					edgesNode[predicateIRI] = refs
+					edgesNode[key] = refs
 					hasEdges = true
 				}
 			}
@@ -774,11 +932,14 @@ func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []str
 		return nil
 	}
 
-	// Resolve the property name to its predicate IRI using the resource type's context.
-	vocab, contextMap := jsonld.ParseContext(ldContext)
-	predicateIRI := jsonld.ResolvePredicateIRI(propertyName, vocab, contextMap)
-
-	edgeVal, exists := edgesNode[predicateIRI]
+	// A record written after issue #515 keys its edges by property name, so
+	// look there first — no resolution needed, which is the point of the shape.
+	edgeVal, exists := edgesNode[propertyName]
+	if !exists {
+		// Older records are keyed by the predicate IRI.
+		vocab, contextMap := jsonld.ParseContext(ldContext)
+		edgeVal, exists = edgesNode[jsonld.ResolvePredicateIRI(propertyName, vocab, contextMap)]
+	}
 	if !exists {
 		// An edge written before this property's term was adopted is keyed by
 		// the IRI it resolved to then, which the context records as an alias
@@ -803,4 +964,102 @@ func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []str
 func collectEdgeIDs(edgeVal any) []string {
 	ids, _ := jsonld.EdgeIDs(edgeVal)
 	return ids
+}
+
+// edgesHaveObject reports whether a document's edges node already records this
+// object under any property.
+//
+// Deliberately across ALL properties rather than one key: the caller has a
+// predicate, not a property, and cannot tell which property a shared predicate
+// belongs to without the schema. "Already stated" is the question that can be
+// answered from the document alone, and it is the one that matters.
+func edgesHaveObject(doc map[string]any, predicate, objectID string) bool {
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok || len(graphArr) < 2 {
+		return false
+	}
+	edgesNode, ok := graphArr[1].(map[string]any)
+	if !ok {
+		return false
+	}
+	vocab, terms := documentContext(doc)
+	for key, val := range edgesNode {
+		if key == "@id" {
+			continue
+		}
+		// Only keys carrying THIS predicate count. An unrelated property that
+		// happens to point at the same object says nothing about whether this
+		// statement is present, and treating it as a duplicate silently
+		// dropped the edge being added.
+		if predicateOfKey(key, vocab, terms) != predicate {
+			continue
+		}
+		ids, _ := jsonld.EdgeIDs(val)
+		for _, id := range ids {
+			if id == objectID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isTermDefinition reports whether one @context entry is something JSON-LD will
+// accept, which is narrower than "something WeOS put there".
+//
+// A keyword other than `@type` is kept — `@type` at the top level is a keyword
+// redefinition and the parser refuses the document over it, while the entity
+// node already carries the resource's own type. A string value is a term only
+// when it is an IRI, absolute or compact; `rdfs:subClassOf: "economic-event"`
+// names a WeOS type slug, not a predicate. An object value is a term only when
+// it defines `@id`; `weos:termAliases` is a map of historical IRIs, not a term.
+// Anything else — a bool like `weos:abstract`, an array like
+// `weos:adoptedTerms` — is control data and is dropped.
+func isTermDefinition(key string, val any) bool {
+	if strings.HasPrefix(key, "@") {
+		return key != "@type"
+	}
+	// By NAME first. A key WeOS reads as control is never a term definition,
+	// whatever its value looks like — `"rdfs:subClassOf":"schema:Thing"` is a
+	// perfectly ordinary way to write a parent type and would otherwise pass
+	// the value-shape test below and poison the document.
+	if jsonld.ControlKeywords[key] {
+		return false
+	}
+	switch v := val.(type) {
+	case string:
+		// An IRI, absolute ("https://…") or compact ("fo:hasIngredient").
+		return strings.Contains(v, ":")
+	case map[string]any:
+		_, defined := v["@id"]
+		return defined
+	}
+	return false
+}
+
+// edgeKeyHolding names the edges-node key that carries this predicate AND
+// records this object, falling back to the predicate's usual key when no key
+// holds it — so a delete for an object that is not there stays a no-op rather
+// than clearing something else.
+func edgeKeyHolding(edgesNode, doc map[string]any, predicate, objectID string) string {
+	vocab, terms := documentContext(doc)
+	var candidates []string
+	for key, val := range edgesNode {
+		if key == "@id" || predicateOfKey(key, vocab, terms) != predicate {
+			continue
+		}
+		candidates = append(candidates, key)
+		ids, _ := jsonld.EdgeIDs(val)
+		for _, id := range ids {
+			if id == objectID {
+				return key
+			}
+		}
+	}
+	if len(candidates) > 0 {
+		sort.Strings(candidates)
+		return candidates[0]
+	}
+	key, _ := edgeKeyIn(edgesNode, doc, predicate)
+	return key
 }

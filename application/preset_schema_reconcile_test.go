@@ -907,6 +907,7 @@ func TestEnsureBuiltInResourceTypes_ReconcilesNonAutoInstallPresets(t *testing.T
 		TypeSvc       ResourceTypeService
 		Logger        entities.Logger
 		LinkActivator *LinkActivator `optional:"true"`
+		Links         *LinkRegistry  `optional:"true"`
 	}{
 		Registry: v2,
 		TypeSvc:  reconcileTestService(t, repo, rSvc, v2),

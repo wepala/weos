@@ -155,10 +155,10 @@ func TestAddEdgeToGraph_Idempotent(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	ref, ok := edges["https://schema.org/participant"].(map[string]any)
+	ref, ok := edges["studentId"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected single {@id} ref after idempotent re-add, got %T: %v",
-			edges["https://schema.org/participant"], edges["https://schema.org/participant"])
+			edges["studentId"], edges["studentId"])
 	}
 	if ref["@id"] != "stu-1" {
 		t.Errorf("expected @id=stu-1, got %v", ref["@id"])
@@ -201,9 +201,9 @@ func TestAddEdgeToGraph_MultiValued(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	arr, ok := edges["https://schema.org/participant"].([]any)
+	arr, ok := edges["studentId"].([]any)
 	if !ok {
-		t.Fatalf("expected array for multi-valued predicate, got %T", edges["https://schema.org/participant"])
+		t.Fatalf("expected array for the multi-valued property, got %T", edges["studentId"])
 	}
 	if len(arr) != 2 {
 		t.Errorf("expected 2 entries, got %d", len(arr))
@@ -251,9 +251,9 @@ func TestAddEdgeToGraph_Idempotent_ArrayBranch(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	arr, ok := edges["https://schema.org/participant"].([]any)
+	arr, ok := edges["studentId"].([]any)
 	if !ok {
-		t.Fatalf("expected array, got %T", edges["https://schema.org/participant"])
+		t.Fatalf("expected array, got %T", edges["studentId"])
 	}
 	if len(arr) != 3 {
 		t.Errorf("array length after idempotent replay = %d, want 3", len(arr))
@@ -329,9 +329,9 @@ func TestBuildResourceGraph_ArrayRef(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	arr, ok := edges["https://schema.org/participant"].([]any)
+	arr, ok := edges["studentId"].([]any)
 	if !ok {
-		t.Fatalf("expected array of refs, got %T", edges["https://schema.org/participant"])
+		t.Fatalf("expected array of refs, got %T", edges["studentId"])
 	}
 	if len(arr) != 3 {
 		t.Fatalf("expected 3 refs, got %d", len(arr))
@@ -384,10 +384,10 @@ func TestRemoveEdgeFromGraph_PreservesArrayShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	arr, ok := edges["https://schema.org/participant"].([]any)
+	arr, ok := edges["studentId"].([]any)
 	if !ok {
 		t.Fatalf("predicate value is %T after removal, want []any (shape must not flip to scalar)",
-			edges["https://schema.org/participant"])
+			edges["studentId"])
 	}
 	if len(arr) != 1 {
 		t.Fatalf("array len = %d, want 1", len(arr))
@@ -658,5 +658,443 @@ func TestExtractReferenceProperties_StillWorksWithoutLinks(t *testing.T) {
 	defs := ExtractReferenceProperties(schema, nil)
 	if len(defs) != 1 || defs[0].TargetType != "project" {
 		t.Errorf("back-compat broken: %+v", defs)
+	}
+}
+
+// TestAddEdgeToGraph_SameObjectUnderTwoProperties: one resource can reference
+// the same target through two different relationships. Deduping across
+// properties would drop the second — a vendor recorded as `maker` would block
+// the same vendor arriving as `partner` (issue #515).
+func TestAddEdgeToGraph_SameObjectUnderTwoProperties(t *testing.T) {
+	t.Parallel()
+
+	doc := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/",
+	    "maker":{"@id":"https://schema.org/maker","@type":"@id"},
+	    "partner":{"@id":"https://schema.org/partner","@type":"@id"}},
+	  "@graph":[
+	    {"@id":"urn:widget:1","@type":"Widget","name":"Bolt cutter"},
+	    {"@id":"urn:widget:1","maker":{"@id":"urn:vendor:acme"}}
+	  ]}`)
+
+	out, err := AddEdgeToGraph(doc, "https://schema.org/partner", "urn:vendor:acme", "urn:widget:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, out)
+	for _, property := range []string{"maker", "partner"} {
+		ref, ok := edges[property].(map[string]any)
+		if !ok {
+			t.Fatalf("%s is %T, want a ref — the same object under two properties must keep both",
+				property, edges[property])
+		}
+		if id, _ := ref["@id"].(string); id != "urn:vendor:acme" {
+			t.Errorf("%s = %q, want urn:vendor:acme", property, id)
+		}
+	}
+}
+
+// TestAddEdgeToGraph_SharedPredicateReplayDoesNotDuplicate: when several
+// properties DO share a predicate, a triple cannot say which one it belongs to.
+// Create emits the resource graph and its triples together, so on replay the
+// edge is already in place and re-filing it under whichever property sorts
+// first would attach it to the wrong one.
+func TestAddEdgeToGraph_SharedPredicateReplayDoesNotDuplicate(t *testing.T) {
+	t.Parallel()
+
+	const shared = "https://api.example.org/associated"
+	doc := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/",
+	    "strandId":{"@id":"` + shared + `","@type":"@id"},
+	    "fileId":{"@id":"` + shared + `","@type":"@id"}},
+	  "@graph":[
+	    {"@id":"urn:question:1","@type":"Question"},
+	    {"@id":"urn:question:1","strandId":{"@id":"urn:strand:B"},"fileId":{"@id":"urn:file:D"}}
+	  ]}`)
+
+	for _, object := range []string{"urn:strand:B", "urn:file:D"} {
+		out, err := AddEdgeToGraph(doc, shared, object, "urn:question:1")
+		if err != nil {
+			t.Fatalf("AddEdgeToGraph(%s): %v", object, err)
+		}
+		edges := edgesNodeOf(t, out)
+		for property, want := range map[string]string{"strandId": "urn:strand:B", "fileId": "urn:file:D"} {
+			ref, ok := edges[property].(map[string]any)
+			if !ok {
+				t.Fatalf("replaying %s turned %s into %T, want the single ref it started as",
+					object, property, edges[property])
+			}
+			if id, _ := ref["@id"].(string); id != want {
+				t.Errorf("replaying %s moved %s to %q, want %q", object, property, id, want)
+			}
+		}
+	}
+}
+
+func edgesNodeOf(t *testing.T, graph json.RawMessage) map[string]any {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(graph, &doc); err != nil {
+		t.Fatalf("unmarshal graph: %v", err)
+	}
+	arr, ok := doc["@graph"].([]any)
+	if !ok || len(arr) < 2 {
+		t.Fatalf("expected @graph with an edges node, got %v", doc["@graph"])
+	}
+	edges, ok := arr[1].(map[string]any)
+	if !ok {
+		t.Fatalf("edges node is %T, want map", arr[1])
+	}
+	return edges
+}
+
+// TestLegacyExpandedRecordStillMutatesAndReads: a record written before issue
+// #515 keys its edges by predicate IRI, and its stored context was stripped of
+// term mappings, so nothing maps the predicate to a property. Every path must
+// fall back to the predicate key rather than start a second, compact edge
+// beside the one already there — that would leave the same relationship
+// recorded twice under two keys.
+func TestLegacyExpandedRecordStillMutatesAndReads(t *testing.T) {
+	t.Parallel()
+
+	legacy := json.RawMessage(`{
+	  "@context":"https://schema.org/",
+	  "@graph":[
+	    {"@id":"urn:widget:1","@type":"Widget","name":"Bolt cutter"},
+	    {"@id":"urn:widget:1","https://schema.org/maker":{"@id":"urn:vendor:acme"}}
+	  ]}`)
+	// The TYPE's context still carries the mapping even though the record's
+	// stored copy does not; readers are given the type's context.
+	typeContext := json.RawMessage(
+		`{"@vocab":"https://schema.org/","maker":{"@id":"https://schema.org/maker","@type":"@id"}}`)
+
+	added, err := AddEdgeToGraph(legacy, "https://schema.org/maker", "urn:vendor:globex", "urn:widget:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, added)
+	if _, wrong := edges["maker"]; wrong {
+		t.Error("a compact edge was started beside the expanded one; the relationship is now recorded twice")
+	}
+	arr, ok := edges["https://schema.org/maker"].([]any)
+	if !ok || len(arr) != 2 {
+		t.Fatalf("expanded edge is %T with %d refs, want an array of 2",
+			edges["https://schema.org/maker"], len(arr))
+	}
+
+	removed, err := RemoveEdgeFromGraph(added, "https://schema.org/maker", "urn:vendor:globex")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+	if got := EdgeValues(removed, typeContext, "maker"); !sameStringSlice(got, []string{"urn:vendor:acme"}) {
+		t.Errorf("after removal EdgeValues = %v, want [urn:vendor:acme]", got)
+	}
+
+	var flat map[string]any
+	if err := json.Unmarshal(FlattenGraph(legacy, typeContext), &flat); err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if flat["maker"] != "urn:vendor:acme" {
+		t.Errorf("flattened legacy record has maker = %v, want urn:vendor:acme", flat["maker"])
+	}
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestLegacyRecordKeepsOneEdgeKey guards the premise this whole change rests
+// on. buildStorableContext ALWAYS kept string-form terms, and real presets
+// declare reference terms that way (`"recipe":"https://schema.org/isPartOf"`),
+// so an old record's stored context does resolve its predicates — to a property
+// name its edges are NOT stored under.
+//
+// Resolving from the context alone therefore wrote a SECOND key beside the
+// first. Both resolved to the same property on read, so the value returned
+// flipped between them at random, and a delete matched neither.
+func TestLegacyRecordKeepsOneEdgeKey(t *testing.T) {
+	t.Parallel()
+
+	legacy := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/","recipe":"https://schema.org/isPartOf"},
+	  "@graph":[
+	    {"@id":"urn:meal:1","@type":"Meal"},
+	    {"@id":"urn:meal:1","https://schema.org/isPartOf":{"@id":"urn:recipe:A"}}
+	  ]}`)
+	typeContext := json.RawMessage(`{"@vocab":"https://schema.org/","recipe":"https://schema.org/isPartOf"}`)
+
+	added, err := AddEdgeToGraph(legacy, "https://schema.org/isPartOf", "urn:recipe:B", "urn:meal:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, added)
+	if _, split := edges["recipe"]; split {
+		t.Fatalf("the edge was split across two keys: %v", edges)
+	}
+	if arr, ok := edges["https://schema.org/isPartOf"].([]any); !ok || len(arr) != 2 {
+		t.Fatalf("expected both refs under the one key the record already used, got %v",
+			edges["https://schema.org/isPartOf"])
+	}
+
+	// Reading the same bytes must give the same answer every time.
+	first := string(FlattenGraph(added, typeContext))
+	for i := 0; i < 8; i++ {
+		if got := string(FlattenGraph(added, typeContext)); got != first {
+			t.Fatalf("read %d gave %s, first read gave %s — the value is nondeterministic", i, got, first)
+		}
+	}
+
+	removed, err := RemoveEdgeFromGraph(legacy, "https://schema.org/isPartOf", "urn:recipe:A")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+	if string(removed) == string(legacy) {
+		t.Error("removing an edge from a legacy record was a silent no-op — " +
+			"the triple goes but the canonical record keeps it forever")
+	}
+}
+
+// TestExtractTriplesFromData_CompactEdges: the edges node is keyed by property
+// name now, and this reader filtered on predicate IRIs, so it saw nothing at
+// all in a compact document. No caller in core reaches it today, which is what
+// makes it a trap rather than an outage — it is exported and documented.
+func TestExtractTriplesFromData_CompactEdges(t *testing.T) {
+	t.Parallel()
+
+	ctx := json.RawMessage(`{"@vocab":"https://schema.org/","recipe":"https://schema.org/isPartOf"}`)
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"recipe":{"type":"string","x-resource-type":"recipe"}}}`)
+	refProps := ExtractReferenceProperties(schema, ctx)
+
+	compact, err := BuildResourceGraph(
+		json.RawMessage(`{"recipe":"urn:recipe:A"}`), refProps, "urn:meal:1", "Meal", ctx)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+	triples := ExtractTriplesFromData(refProps, compact, "urn:meal:1")
+	if len(triples) != 1 {
+		t.Fatalf("got %d triples from a compact document, want 1", len(triples))
+	}
+	// The triple carries the PREDICATE whichever key held the edge.
+	if triples[0].Predicate != "https://schema.org/isPartOf" {
+		t.Errorf("predicate = %q, want the IRI — a triple never carries a property name",
+			triples[0].Predicate)
+	}
+}
+
+// TestBuildStorableContext_KeywordsAndCollapse: `@type` at the top level of a
+// @context is a keyword redefinition and invalid JSON-LD 1.1, and a
+// vocab-only context must still reduce to the bare string it always did.
+func TestBuildStorableContext_KeywordsAndCollapse(t *testing.T) {
+	t.Parallel()
+
+	stored := buildStorableContext(json.RawMessage(
+		`{"@vocab":"https://schema.org/","@type":"Meal","recipe":"https://schema.org/isPartOf"}`))
+	terms, ok := stored.(map[string]any)
+	if !ok {
+		t.Fatalf("stored context is %T, want an object", stored)
+	}
+	if _, kept := terms["@type"]; kept {
+		t.Error("@type was stored inside the @context; that is a keyword redefinition, " +
+			"and the entity node already carries the resource's own @type")
+	}
+	if terms["recipe"] != "https://schema.org/isPartOf" {
+		t.Errorf("the term mapping was dropped: %v", terms)
+	}
+
+	if got := buildStorableContext(json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Meal"}`)); got != "https://schema.org/" {
+		t.Errorf("a vocab-only context stored as %#v, want the bare string it reduced to before", got)
+	}
+}
+
+// TestTermlessReferenceKeepsOneEdgeKey covers the shape issue #510 is about and
+// the one most types have: a reference property with NO explicit `@context`
+// term, resolving through `@vocab`.
+//
+// BuildResourceGraph stores it under the property name. A triple carries the
+// `@vocab`-derived predicate. If the two are resolved by different rules the
+// write lands in a second key beside the first, so the same statement is
+// recorded twice and a delete removes only one of them — the reference stays
+// on the resource after the user clears it.
+//
+// The stored context here is the bare string form, which is what
+// buildStorableContext produces whenever only `@vocab` survives. Parsed as a
+// map it yields nothing, so this case is blind unless that form is handled.
+func TestTermlessReferenceKeepsOneEdgeKey(t *testing.T) {
+	t.Parallel()
+
+	typeContext := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Meal"}`)
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},
+		"recipeId":{"type":"string","x-resource-type":"recipe"}}}`)
+	refProps := ExtractReferenceProperties(schema, typeContext)
+
+	stored, err := BuildResourceGraph(
+		json.RawMessage(`{"name":"Dinner","recipeId":"urn:recipe:A"}`),
+		refProps, "urn:meal:1", "Meal", typeContext)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+
+	// Create emits the resource graph AND its triples, so this arrives with the
+	// edge already in place.
+	replayed, err := AddEdgeToGraph(stored, "https://schema.org/recipeId", "urn:recipe:A", "urn:meal:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, replayed)
+	if _, split := edges["https://schema.org/recipeId"]; split {
+		t.Fatalf("the replayed triple started a second key beside the stored one: %v", edges)
+	}
+	if triples := ExtractTriplesFromData(refProps, replayed, "urn:meal:1"); len(triples) != 1 {
+		t.Errorf("got %d triples, want 1 — a duplicated key states the same fact twice", len(triples))
+	}
+
+	removed, err := RemoveEdgeFromGraph(replayed, "https://schema.org/recipeId", "urn:recipe:A")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+	var flat map[string]any
+	if err := json.Unmarshal(FlattenGraph(removed, typeContext), &flat); err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if _, survived := flat["recipeId"]; survived {
+		t.Errorf("the reference survived its delete: %v", flat)
+	}
+}
+
+// TestCompactIRIPredicateStillReadsBack: a predicate resolves to a COMPACT IRI
+// when its prefix is undefined and no `@vocab` absorbs it — `foaf:knows` stays
+// `foaf:knows`. A legacy record keys its edge by exactly that.
+//
+// Classifying keys by an http/https/urn whitelist read it as a property name,
+// so the API served a field literally called `foaf:knows` while `knows` came
+// back empty, and the projection snake-cased the same junk into a column that
+// does not exist. JSON-LD's own rule — a term never contains a colon — is exact
+// for every scheme.
+func TestCompactIRIPredicateStillReadsBack(t *testing.T) {
+	t.Parallel()
+
+	typeContext := json.RawMessage(`{"@type":"Person","knows":"foaf:knows"}`)
+	legacy := json.RawMessage(`{
+	  "@context":{"@type":"Person","knows":"foaf:knows"},
+	  "@graph":[
+	    {"@id":"urn:person:1","@type":"Person","name":"A"},
+	    {"@id":"urn:person:1","foaf:knows":{"@id":"urn:person:2"}}
+	  ]}`)
+
+	var flat map[string]any
+	if err := json.Unmarshal(FlattenGraph(legacy, typeContext), &flat); err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if _, junk := flat["foaf:knows"]; junk {
+		t.Errorf("the predicate was served as a property name: %v", flat)
+	}
+	if flat["knows"] != "urn:person:2" {
+		t.Errorf("knows = %v, want urn:person:2", flat["knows"])
+	}
+}
+
+// TestSharedPredicateDeleteTargetsTheHoldingKey: two properties may share a
+// predicate with different target types — the accepted shape. A delete names
+// the predicate and the object, so it must clear the key that actually holds
+// that object. Choosing by predicate alone lands on whichever key sorts first
+// and removed a surviving edge nothing asked about.
+func TestSharedPredicateDeleteTargetsTheHoldingKey(t *testing.T) {
+	t.Parallel()
+
+	doc := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/",
+	    "maker":{"@id":"https://schema.org/assoc","@type":"@id"},
+	    "partner":{"@id":"https://schema.org/assoc","@type":"@id"}},
+	  "@graph":[{"@id":"urn:w:1","@type":"W"},
+	    {"@id":"urn:w:1","maker":{"@id":"urn:vendor:acme"},"partner":{"@id":"urn:widget:x"}}]}`)
+
+	out, err := RemoveEdgeFromGraph(doc, "https://schema.org/assoc", "urn:widget:x")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, out)
+	if _, gone := edges["maker"]; !gone {
+		t.Error("maker was deleted; nothing asked about it")
+	}
+	if _, survived := edges["partner"]; survived {
+		t.Error("partner survived its own delete")
+	}
+}
+
+// TestSharedPredicateAddIgnoresUnrelatedProperties: the shared-predicate dedupe
+// asks whether this statement is already present. A property on a DIFFERENT
+// predicate pointing at the same object says nothing about that, and treating
+// it as a duplicate silently dropped the edge being added.
+func TestSharedPredicateAddIgnoresUnrelatedProperties(t *testing.T) {
+	t.Parallel()
+
+	doc := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/",
+	    "maker":{"@id":"https://schema.org/mk","@type":"@id"},
+	    "a":{"@id":"https://schema.org/assoc","@type":"@id"},
+	    "b":{"@id":"https://schema.org/assoc","@type":"@id"}},
+	  "@graph":[{"@id":"urn:w:1","@type":"W"},
+	    {"@id":"urn:w:1","maker":{"@id":"urn:vendor:acme"}}]}`)
+
+	out, err := AddEdgeToGraph(doc, "https://schema.org/assoc", "urn:vendor:acme", "urn:w:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, out)
+	if _, added := edges["a"]; !added {
+		t.Errorf("the edge was not added: %v", edges)
+	}
+	if _, kept := edges["maker"]; !kept {
+		t.Error("the unrelated property was disturbed")
+	}
+}
+
+// TestLegacyTermlessReferenceReadsBack is the population issue #510 is ABOUT:
+// an existing record whose reference never had a `@context` term, so its edge
+// is keyed by the `@vocab`-derived IRI and the reverse map has no entry for it.
+//
+// Those records were unreadable before this change and would have stayed
+// unreadable after it — the no-migration guarantee covering every legacy shape
+// EXCEPT the broken one. Deriving the property from `@vocab` closes it without
+// touching stored data.
+func TestLegacyTermlessReferenceReadsBack(t *testing.T) {
+	t.Parallel()
+
+	legacy := json.RawMessage(`{
+	  "@context":"https://schema.org/",
+	  "@graph":[{"@id":"urn:w:1","@type":"W","name":"N"},
+	    {"@id":"urn:w:1","https://schema.org/supplier":{"@id":"urn:vendor:acme"}}]}`)
+
+	var flat map[string]any
+	if err := json.Unmarshal(FlattenGraph(legacy, json.RawMessage(`{"@vocab":"https://schema.org/"}`)), &flat); err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if flat["supplier"] != "urn:vendor:acme" {
+		t.Errorf("supplier = %v, want urn:vendor:acme — the records #510 reported stay dark otherwise", flat["supplier"])
+	}
+}
+
+// TestBuildStorableContext_NonObjectContextSurvives: a bare remote-IRI string
+// is a legal @context, and InlineVocabContext exists because that form occurs
+// here. Dropping it left a compact edge with no context to expand through, so
+// the graph store saw a bare property name and produced no statement at all.
+func TestBuildStorableContext_NonObjectContextSurvives(t *testing.T) {
+	t.Parallel()
+
+	if got := buildStorableContext(json.RawMessage(`"https://schema.org/"`)); got != "https://schema.org/" {
+		t.Errorf("a bare-string context stored as %#v, want it kept", got)
+	}
+	if got := buildStorableContext(json.RawMessage(`["https://schema.org/"]`)); got == nil {
+		t.Error("an array context was dropped; it is legal JSON-LD and the edge needs it")
 	}
 }
