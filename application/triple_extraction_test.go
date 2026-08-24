@@ -1002,3 +1002,99 @@ func TestCompactIRIPredicateStillReadsBack(t *testing.T) {
 		t.Errorf("knows = %v, want urn:person:2", flat["knows"])
 	}
 }
+
+// TestSharedPredicateDeleteTargetsTheHoldingKey: two properties may share a
+// predicate with different target types — the accepted shape. A delete names
+// the predicate and the object, so it must clear the key that actually holds
+// that object. Choosing by predicate alone lands on whichever key sorts first
+// and removed a surviving edge nothing asked about.
+func TestSharedPredicateDeleteTargetsTheHoldingKey(t *testing.T) {
+	t.Parallel()
+
+	doc := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/",
+	    "maker":{"@id":"https://schema.org/assoc","@type":"@id"},
+	    "partner":{"@id":"https://schema.org/assoc","@type":"@id"}},
+	  "@graph":[{"@id":"urn:w:1","@type":"W"},
+	    {"@id":"urn:w:1","maker":{"@id":"urn:vendor:acme"},"partner":{"@id":"urn:widget:x"}}]}`)
+
+	out, err := RemoveEdgeFromGraph(doc, "https://schema.org/assoc", "urn:widget:x")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, out)
+	if _, gone := edges["maker"]; !gone {
+		t.Error("maker was deleted; nothing asked about it")
+	}
+	if _, survived := edges["partner"]; survived {
+		t.Error("partner survived its own delete")
+	}
+}
+
+// TestSharedPredicateAddIgnoresUnrelatedProperties: the shared-predicate dedupe
+// asks whether this statement is already present. A property on a DIFFERENT
+// predicate pointing at the same object says nothing about that, and treating
+// it as a duplicate silently dropped the edge being added.
+func TestSharedPredicateAddIgnoresUnrelatedProperties(t *testing.T) {
+	t.Parallel()
+
+	doc := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/",
+	    "maker":{"@id":"https://schema.org/mk","@type":"@id"},
+	    "a":{"@id":"https://schema.org/assoc","@type":"@id"},
+	    "b":{"@id":"https://schema.org/assoc","@type":"@id"}},
+	  "@graph":[{"@id":"urn:w:1","@type":"W"},
+	    {"@id":"urn:w:1","maker":{"@id":"urn:vendor:acme"}}]}`)
+
+	out, err := AddEdgeToGraph(doc, "https://schema.org/assoc", "urn:vendor:acme", "urn:w:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, out)
+	if _, added := edges["a"]; !added {
+		t.Errorf("the edge was not added: %v", edges)
+	}
+	if _, kept := edges["maker"]; !kept {
+		t.Error("the unrelated property was disturbed")
+	}
+}
+
+// TestLegacyTermlessReferenceReadsBack is the population issue #510 is ABOUT:
+// an existing record whose reference never had a `@context` term, so its edge
+// is keyed by the `@vocab`-derived IRI and the reverse map has no entry for it.
+//
+// Those records were unreadable before this change and would have stayed
+// unreadable after it — the no-migration guarantee covering every legacy shape
+// EXCEPT the broken one. Deriving the property from `@vocab` closes it without
+// touching stored data.
+func TestLegacyTermlessReferenceReadsBack(t *testing.T) {
+	t.Parallel()
+
+	legacy := json.RawMessage(`{
+	  "@context":"https://schema.org/",
+	  "@graph":[{"@id":"urn:w:1","@type":"W","name":"N"},
+	    {"@id":"urn:w:1","https://schema.org/supplier":{"@id":"urn:vendor:acme"}}]}`)
+
+	var flat map[string]any
+	if err := json.Unmarshal(FlattenGraph(legacy, json.RawMessage(`{"@vocab":"https://schema.org/"}`)), &flat); err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if flat["supplier"] != "urn:vendor:acme" {
+		t.Errorf("supplier = %v, want urn:vendor:acme — the records #510 reported stay dark otherwise", flat["supplier"])
+	}
+}
+
+// TestBuildStorableContext_NonObjectContextSurvives: a bare remote-IRI string
+// is a legal @context, and InlineVocabContext exists because that form occurs
+// here. Dropping it left a compact edge with no context to expand through, so
+// the graph store saw a bare property name and produced no statement at all.
+func TestBuildStorableContext_NonObjectContextSurvives(t *testing.T) {
+	t.Parallel()
+
+	if got := buildStorableContext(json.RawMessage(`"https://schema.org/"`)); got != "https://schema.org/" {
+		t.Errorf("a bare-string context stored as %#v, want it kept", got)
+	}
+	if got := buildStorableContext(json.RawMessage(`["https://schema.org/"]`)); got == nil {
+		t.Error("an array context was dropped; it is legal JSON-LD and the edge needs it")
+	}
+}

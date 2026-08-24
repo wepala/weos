@@ -636,10 +636,10 @@ func appendMissing(list []string, iri string) []string {
 // because reconcileAdditiveContext holds a diverging term at its stored
 // definition. Reading the preset would therefore report a shape that was never
 // installed, and miss the one that was.
-func ambiguousReferenceShape(schema, ldContext json.RawMessage) [][]string {
+func ambiguousReferenceShape(refs []ReferencePropertyDef) [][]string {
 	type shape struct{ predicate, target string }
 	byShape := map[shape][]string{}
-	for _, ref := range ExtractReferenceProperties(schema, ldContext) {
+	for _, ref := range refs {
 		key := shape{predicate: ref.PredicateIRI, target: ref.TargetType}
 		byShape[key] = append(byShape[key], ref.PropertyName)
 	}

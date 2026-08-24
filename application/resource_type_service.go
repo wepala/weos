@@ -124,6 +124,7 @@ type resourceTypeService struct {
 	behaviorSettings repositories.BehaviorSettingsRepository
 	accountRepo      authrepos.AccountRepository
 	linkActivator    *LinkActivator
+	linkRegistry     *LinkRegistry
 }
 
 func ProvideResourceTypeService(params struct {
@@ -140,6 +141,7 @@ func ProvideResourceTypeService(params struct {
 	BehaviorSettings repositories.BehaviorSettingsRepository
 	AccountRepo      authrepos.AccountRepository
 	LinkActivator    *LinkActivator `optional:"true"`
+	LinkRegistry     *LinkRegistry  `optional:"true"`
 }) ResourceTypeService {
 	return &resourceTypeService{
 		repo:             params.Repo,
@@ -154,6 +156,7 @@ func ProvideResourceTypeService(params struct {
 		behaviorSettings: params.BehaviorSettings,
 		accountRepo:      params.AccountRepo,
 		linkActivator:    params.LinkActivator,
+		linkRegistry:     params.LinkRegistry,
 	}
 }
 
@@ -173,7 +176,7 @@ func (s *resourceTypeService) Create(
 	// it — and hand-authoring several ID fields onto one relation is exactly
 	// how the shape gets built (issue #515). Report it now, while the operator
 	// is looking at what they just defined.
-	ReportAmbiguousReferenceShape(ctx, s.logger, cmd.Slug, cmd.Schema, cmd.Context)
+	ReportAmbiguousReferenceShape(ctx, s.logger, cmd.Slug, cmd.Schema, cmd.Context, s.linksFor(cmd.Slug))
 
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
 	if err := uow.Track(entity); err != nil {
@@ -222,7 +225,7 @@ func (s *resourceTypeService) Update(
 	}
 	// An edit can introduce the shape just as a create can — repointing one
 	// property's term onto another's predicate is enough.
-	ReportAmbiguousReferenceShape(ctx, s.logger, cmd.Slug, cmd.Schema, cmd.Context)
+	ReportAmbiguousReferenceShape(ctx, s.logger, cmd.Slug, cmd.Schema, cmd.Context, s.linksFor(cmd.Slug))
 
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
 	if err := uow.Track(entity); err != nil {
@@ -1099,4 +1102,16 @@ func uncoveredReferencesError(dropped []string, presetSchema json.RawMessage) er
 			"reference properties the preset declares have no @context entry in the preset, so "+
 				"their writes are dropped: %v", fromPreset)
 	}
+}
+
+// linksFor returns the links declared against a type, so the ambiguity check
+// sees the same reference set the WRITE path does. A link-declared reference
+// is stored and read exactly like a schema-declared one, so two of them — or
+// one of each — sharing a predicate and a target type are just as
+// indistinguishable, and a schema-only check would never say so.
+func (s *resourceTypeService) linksFor(slug string) []PresetLinkDefinition {
+	if s.linkRegistry == nil {
+		return nil
+	}
+	return s.linkRegistry.BySource(slug)
 }

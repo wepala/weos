@@ -411,7 +411,7 @@ func AddEdgeToGraph(
 	// object CAN legitimately be referenced by two different properties, so
 	// deduping across them here would drop the second reference.
 	edgeKey, shared := edgeKeyIn(existingEdges, doc, predicate)
-	if shared && edgesHaveObject(doc, objectID) {
+	if shared && edgesHaveObject(doc, predicate, objectID) {
 		// Several properties share this predicate, so a triple alone cannot say
 		// which one it belongs to. If the object is already recorded the
 		// statement is present — filing it again under whichever property sorts
@@ -531,7 +531,12 @@ func RemoveEdgeFromGraph(
 	if !ok {
 		return data, nil
 	}
-	edgeKey, _ := edgeKeyIn(edgesNode, doc, predicate)
+	// Among the keys carrying this predicate, the one to clear is the one
+	// actually holding this object. Picking by predicate alone lands on
+	// whichever key sorts first, which in the accepted shared-predicate shape
+	// belongs to another property — so the delete either removed a surviving
+	// edge or, once guarded, removed nothing at all.
+	edgeKey := edgeKeyHolding(edgesNode, doc, predicate, objectID)
 
 	existing, exists := edgesNode[edgeKey]
 	if !exists {
@@ -559,6 +564,15 @@ func RemoveEdgeFromGraph(
 			edgesNode[edgeKey] = filtered
 		}
 	} else {
+		// Only when this really is the ref being removed. In the accepted
+		// shared-predicate shape the key chosen for a predicate can belong to
+		// another property, and deleting it unchecked removed a surviving
+		// edge that nothing asked about.
+		if ref, isRef := existing.(map[string]any); isRef {
+			if id, _ := ref["@id"].(string); id != objectID {
+				return data, nil
+			}
+		}
 		delete(edgesNode, edgeKey)
 	}
 
@@ -583,7 +597,15 @@ func RemoveEdgeFromGraph(
 func buildStorableContext(ldContext json.RawMessage) any {
 	var ctx map[string]any
 	if json.Unmarshal(ldContext, &ctx) != nil {
-		return nil
+		// A bare remote-IRI string, or an array — both legal JSON-LD, and
+		// InlineVocabContext exists because the string form occurs here.
+		// Dropping it left a compact edge with nothing to expand through, so
+		// the graph store saw a bare property name and produced no statement.
+		var passthrough any
+		if json.Unmarshal(ldContext, &passthrough) != nil {
+			return nil
+		}
+		return passthrough
 	}
 
 	clean := make(map[string]any)
@@ -951,7 +973,7 @@ func collectEdgeIDs(edgeVal any) []string {
 // predicate, not a property, and cannot tell which property a shared predicate
 // belongs to without the schema. "Already stated" is the question that can be
 // answered from the document alone, and it is the one that matters.
-func edgesHaveObject(doc map[string]any, objectID string) bool {
+func edgesHaveObject(doc map[string]any, predicate, objectID string) bool {
 	graphArr, ok := doc["@graph"].([]any)
 	if !ok || len(graphArr) < 2 {
 		return false
@@ -960,8 +982,16 @@ func edgesHaveObject(doc map[string]any, objectID string) bool {
 	if !ok {
 		return false
 	}
+	vocab, terms := documentContext(doc)
 	for key, val := range edgesNode {
 		if key == "@id" {
+			continue
+		}
+		// Only keys carrying THIS predicate count. An unrelated property that
+		// happens to point at the same object says nothing about whether this
+		// statement is present, and treating it as a duplicate silently
+		// dropped the edge being added.
+		if predicateOfKey(key, vocab, terms) != predicate {
 			continue
 		}
 		ids, _ := jsonld.EdgeIDs(val)
@@ -1005,4 +1035,31 @@ func isTermDefinition(key string, val any) bool {
 		return defined
 	}
 	return false
+}
+
+// edgeKeyHolding names the edges-node key that carries this predicate AND
+// records this object, falling back to the predicate's usual key when no key
+// holds it — so a delete for an object that is not there stays a no-op rather
+// than clearing something else.
+func edgeKeyHolding(edgesNode, doc map[string]any, predicate, objectID string) string {
+	vocab, terms := documentContext(doc)
+	var candidates []string
+	for key, val := range edgesNode {
+		if key == "@id" || predicateOfKey(key, vocab, terms) != predicate {
+			continue
+		}
+		candidates = append(candidates, key)
+		ids, _ := jsonld.EdgeIDs(val)
+		for _, id := range ids {
+			if id == objectID {
+				return key
+			}
+		}
+	}
+	if len(candidates) > 0 {
+		sort.Strings(candidates)
+		return candidates[0]
+	}
+	key, _ := edgeKeyIn(edgesNode, doc, predicate)
+	return key
 }

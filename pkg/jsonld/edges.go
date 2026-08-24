@@ -87,8 +87,20 @@ func EdgeProperty(key string, ldContext json.RawMessage) (string, bool) {
 		return key, true
 	}
 	// Expanded: invert the context, exactly as before the change.
-	name, ok := BuildReverseMap(ldContext)[key]
-	return name, ok
+	if name, ok := BuildReverseMap(ldContext)[key]; ok {
+		return name, true
+	}
+	// No term names it, so the write path resolved it through `@vocab` and the
+	// property name is what @vocab was prepended to. This is the shape issue
+	// #510 reported — a reference with no term — and without this the records
+	// that ticket is ABOUT stay unreadable, which is the one population the
+	// no-migration guarantee most needs to cover.
+	if vocab, _ := ParseContext(ldContext); vocab != "" && strings.HasPrefix(key, vocab) {
+		if name := strings.TrimPrefix(key, vocab); name != "" && !IsIRIKey(name) {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // IsIRIKey reports whether an edges-node key is an IRI rather than a property

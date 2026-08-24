@@ -18,11 +18,9 @@ package application
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/wepala/weos/v3/domain/entities"
-	"github.com/wepala/weos/v3/domain/repositories"
 
 	"go.uber.org/fx"
 )
@@ -38,6 +36,7 @@ func ensureBuiltInResourceTypes(params struct {
 	TypeSvc       ResourceTypeService
 	Logger        entities.Logger
 	LinkActivator *LinkActivator `optional:"true"`
+	Links         *LinkRegistry  `optional:"true"`
 }) error {
 	ctx := context.Background()
 	for _, preset := range params.Registry.List() {
@@ -77,9 +76,7 @@ func ensureBuiltInResourceTypes(params struct {
 	// a type becomes ambiguous when a later build adds a property onto an
 	// existing predicate, and by then data already exists under the property
 	// that loses (issue #515).
-	for _, preset := range params.Registry.List() {
-		reportAmbiguousReferences(ctx, params.TypeSvc, params.Logger, preset)
-	}
+	reportAmbiguousReferences(ctx, params.TypeSvc, params.Logger, params.Links)
 
 	// InstallPreset already reconciles after each install, but presets install
 	// one at a time in the loop above — if preset B depends on preset A's
@@ -176,8 +173,18 @@ func reconcilePresetSchemas(
 	}
 }
 
-// reportAmbiguousReferences names every installed type whose reference
+// listAllTypesLimit is a ceiling for the boot sweep. A deployment with more
+// installed types than this has other problems; a page size stops a runaway
+// query from stalling startup.
+const listAllTypesLimit = 1000
+
+// reportAmbiguousReferences names every INSTALLED type whose reference
 // properties no reader can tell apart, and what to do about it.
+//
+// It enumerates installed types rather than preset declarations: a type
+// created through the API or MCP belongs to no preset, and one whose preset is
+// no longer registered would drop out of a preset-driven sweep while its data
+// stays. Both are exactly the populations that carry a hand-authored shape.
 //
 // Reported, not fatal, matching how a per-type reconcile failure is handled: a
 // bad shape on one type is contained to that type, and refusing to boot the
@@ -185,21 +192,20 @@ func reconcilePresetSchemas(
 // writes. The message carries both remedies because which one is meant depends
 // on intent — see ambiguousReferenceShape.
 func reportAmbiguousReferences(
-	ctx context.Context, svc ResourceTypeService, logger entities.Logger, preset PresetDefinition,
+	ctx context.Context, svc ResourceTypeService, logger entities.Logger, links *LinkRegistry,
 ) {
-	for _, pt := range preset.Types {
-		existing, err := svc.GetBySlug(ctx, pt.Slug)
-		if err != nil {
-			if !errors.Is(err, repositories.ErrNotFound) {
-				// Not installed is the ordinary case and stays quiet. Anything
-				// else disables the check for this type, and saying nothing
-				// would make a transient fault look like a clean boot.
-				logger.Warn(ctx, "could not check reference shapes for this type",
-					"preset", preset.Name, "slug", pt.Slug, "error", err)
-			}
-			continue
-		}
-		ReportAmbiguousReferenceShape(ctx, logger, pt.Slug, existing.Schema(), existing.Context())
+	if links == nil {
+		links = NewLinkRegistry()
+	}
+	page, err := svc.List(ctx, "", listAllTypesLimit)
+	if err != nil {
+		// Saying nothing would make a transient fault look like a clean boot.
+		logger.Warn(ctx, "could not list resource types to check their reference shapes", "error", err)
+		return
+	}
+	for _, existing := range page.Data {
+		ReportAmbiguousReferenceShape(ctx, logger, existing.Slug(),
+			existing.Schema(), existing.Context(), links.BySource(existing.Slug()))
 	}
 }
 
@@ -218,13 +224,14 @@ func reportAmbiguousReferences(
 // operator who cannot change a shipped preset would otherwise have an alert
 // firing forever over a line they cannot act on.
 func ReportAmbiguousReferenceShape(
-	ctx context.Context, logger entities.Logger, slug string, schema, ldContext json.RawMessage,
+	ctx context.Context, logger entities.Logger, slug string,
+	schema, ldContext json.RawMessage, links []PresetLinkDefinition,
 ) {
-	groups := ambiguousReferenceShape(schema, ldContext)
+	refs := ExtractReferencePropertiesWithLinks(schema, ldContext, links)
+	groups := ambiguousReferenceShape(refs)
 	if len(groups) == 0 {
 		return
 	}
-	refs := ExtractReferenceProperties(schema, ldContext)
 	for _, names := range groups {
 		predicate, target := "", ""
 		for _, ref := range refs {
