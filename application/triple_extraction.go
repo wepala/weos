@@ -172,10 +172,13 @@ func extractTriplesFromEdgesNode(
 		return nil
 	}
 
-	// Build predicate IRI lookup from reference property definitions.
-	predicateSet := make(map[string]bool, len(refProps))
+	// An edges node is keyed by property name after issue #515 and by predicate
+	// IRI before it, and both are stored. Accept either: the triple always
+	// carries the PREDICATE, whichever key the document used to hold the edge.
+	predicateOf := make(map[string]string, len(refProps)*2)
 	for _, rp := range refProps {
-		predicateSet[rp.PredicateIRI] = true
+		predicateOf[rp.PropertyName] = rp.PredicateIRI
+		predicateOf[rp.PredicateIRI] = rp.PredicateIRI
 	}
 
 	var triples []repositories.Triple
@@ -183,7 +186,8 @@ func extractTriplesFromEdgesNode(
 		if key == "@id" {
 			continue
 		}
-		if !predicateSet[key] {
+		predicate, known := predicateOf[key]
+		if !known {
 			continue
 		}
 		// Predicate value is either a single {"@id": "..."} ref or an array of
@@ -194,7 +198,7 @@ func extractTriplesFromEdgesNode(
 		for _, objectID := range ids {
 			triples = append(triples, repositories.Triple{
 				Subject:   subjectID,
-				Predicate: key,
+				Predicate: predicate,
 				Object:    objectID,
 			})
 		}
@@ -292,6 +296,33 @@ func collectReferenceTriples(
 // shape (not nil, not a map with @id, not a slice of such maps), since
 // silently overwriting would destroy data that the caller cannot see.
 
+// edgeKeyIn picks the key an edges node uses for a predicate, and reports
+// whether several properties claim it.
+//
+// The document decides, not the context. A record written before issue #515
+// keys its edges by predicate IRI — and its stored context DOES carry the term
+// mapping, because buildStorableContext always kept string-form terms and real
+// presets declare them that way (`"recipe":"https://schema.org/isPartOf"`).
+// Resolving from the context alone therefore returned a property name for a
+// record whose edge is stored under the predicate, and the write landed in a
+// SECOND key beside the first. Both keys then resolved to the same property, so
+// reads picked between them at random and a delete silently matched neither.
+//
+// Asking the edges node first settles it: if an edge is already stored under
+// the predicate, that IS this document's key for it.
+func edgeKeyIn(edgesNode, doc map[string]any, predicate string) (string, bool) {
+	if edgesNode != nil {
+		if _, held := edgesNode[predicate]; held {
+			return predicate, false
+		}
+	}
+	names := propertiesForPredicate(doc, predicate)
+	if len(names) == 0 {
+		return predicate, false
+	}
+	return names[0], len(names) > 1
+}
+
 // propertiesForPredicate lists the properties a document's own `@context` maps
 // to one predicate, in a stable order.
 //
@@ -332,24 +363,26 @@ func AddEdgeToGraph(
 		return nil, fmt.Errorf("invalid JSON data: %w", err)
 	}
 
+	graphArr, hasGraph := doc["@graph"].([]any)
+	var existingEdges map[string]any
+	if hasGraph && len(graphArr) > 1 {
+		existingEdges, _ = graphArr[1].(map[string]any)
+	}
+
 	// One property claiming the predicate is the ordinary case: the edge belongs
 	// to it, and deduping happens within that key as it always did. The same
 	// object CAN legitimately be referenced by two different properties, so
 	// deduping across them here would drop the second reference.
-	edgeKey := predicate
-	if names := propertiesForPredicate(doc, predicate); len(names) > 0 {
-		edgeKey = names[0]
-		if len(names) > 1 && edgesHaveObject(doc, objectID) {
-			// Several properties share this predicate, so a triple alone cannot
-			// say which one it belongs to. If the object is already recorded the
-			// statement is present — filing it again under whichever property
-			// sorts first would attach it to the wrong one. This is the replay
-			// case: Create emits the resource graph and its triples together.
-			return data, nil
-		}
+	edgeKey, shared := edgeKeyIn(existingEdges, doc, predicate)
+	if shared && edgesHaveObject(doc, objectID) {
+		// Several properties share this predicate, so a triple alone cannot say
+		// which one it belongs to. If the object is already recorded the
+		// statement is present — filing it again under whichever property sorts
+		// first would attach it to the wrong one. This is the replay case:
+		// Create emits the resource graph and its triples together.
+		return data, nil
 	}
 
-	graphArr, hasGraph := doc["@graph"].([]any)
 	if !hasGraph || len(graphArr) == 0 {
 		// No @graph — wrap existing data as entity node + new edges node.
 		entityNode := make(map[string]any)
@@ -452,11 +485,6 @@ func RemoveEdgeFromGraph(
 		return nil, fmt.Errorf("invalid JSON data: %w", err)
 	}
 
-	edgeKey := predicate
-	if names := propertiesForPredicate(doc, predicate); len(names) > 0 {
-		edgeKey = names[0]
-	}
-
 	graphArr, ok := doc["@graph"].([]any)
 	if !ok || len(graphArr) < 2 {
 		return data, nil // no edges node — nothing to remove
@@ -466,6 +494,7 @@ func RemoveEdgeFromGraph(
 	if !ok {
 		return data, nil
 	}
+	edgeKey, _ := edgeKeyIn(edgesNode, doc, predicate)
 
 	existing, exists := edgesNode[edgeKey]
 	if !exists {
@@ -522,13 +551,15 @@ func buildStorableContext(ldContext json.RawMessage) any {
 
 	clean := make(map[string]any)
 	for key, val := range ctx {
-		// Keep only JSON-LD keywords (@vocab) and namespace prefix strings (e.g., "foaf": "http://...").
-		if strings.HasPrefix(key, "@") && key != "@type" {
-			clean[key] = val
+		// `@type` at the top level of a @context is a keyword redefinition and
+		// is not valid JSON-LD 1.1. It was excluded before issue #515 and stays
+		// excluded: it is not a term mapping, and the entity node already
+		// carries the resource's own @type.
+		if key == "@type" {
 			continue
 		}
-		// Keep every term mapping, not only namespace prefixes (issue #515).
-		// The edges node is now keyed by property name, so the term mapping is
+		// Every OTHER term is kept, not only namespace prefixes (issue #515).
+		// The edges node is keyed by property name now, so the term mapping is
 		// what carries the predicate — dropping it would leave a document that
 		// no longer expands to the graph it represents. It was redundant only
 		// while the edges node already held full predicate IRIs.

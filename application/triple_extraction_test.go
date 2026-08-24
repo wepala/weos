@@ -810,3 +810,107 @@ func sameStringSlice(a, b []string) bool {
 	}
 	return true
 }
+
+// TestLegacyRecordKeepsOneEdgeKey guards the premise this whole change rests
+// on. buildStorableContext ALWAYS kept string-form terms, and real presets
+// declare reference terms that way (`"recipe":"https://schema.org/isPartOf"`),
+// so an old record's stored context does resolve its predicates — to a property
+// name its edges are NOT stored under.
+//
+// Resolving from the context alone therefore wrote a SECOND key beside the
+// first. Both resolved to the same property on read, so the value returned
+// flipped between them at random, and a delete matched neither.
+func TestLegacyRecordKeepsOneEdgeKey(t *testing.T) {
+	t.Parallel()
+
+	legacy := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/","recipe":"https://schema.org/isPartOf"},
+	  "@graph":[
+	    {"@id":"urn:meal:1","@type":"Meal"},
+	    {"@id":"urn:meal:1","https://schema.org/isPartOf":{"@id":"urn:recipe:A"}}
+	  ]}`)
+	typeContext := json.RawMessage(`{"@vocab":"https://schema.org/","recipe":"https://schema.org/isPartOf"}`)
+
+	added, err := AddEdgeToGraph(legacy, "https://schema.org/isPartOf", "urn:recipe:B", "urn:meal:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, added)
+	if _, split := edges["recipe"]; split {
+		t.Fatalf("the edge was split across two keys: %v", edges)
+	}
+	if arr, ok := edges["https://schema.org/isPartOf"].([]any); !ok || len(arr) != 2 {
+		t.Fatalf("expected both refs under the one key the record already used, got %v",
+			edges["https://schema.org/isPartOf"])
+	}
+
+	// Reading the same bytes must give the same answer every time.
+	first := string(FlattenGraph(added, typeContext))
+	for i := 0; i < 8; i++ {
+		if got := string(FlattenGraph(added, typeContext)); got != first {
+			t.Fatalf("read %d gave %s, first read gave %s — the value is nondeterministic", i, got, first)
+		}
+	}
+
+	removed, err := RemoveEdgeFromGraph(legacy, "https://schema.org/isPartOf", "urn:recipe:A")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+	if string(removed) == string(legacy) {
+		t.Error("removing an edge from a legacy record was a silent no-op — " +
+			"the triple goes but the canonical record keeps it forever")
+	}
+}
+
+// TestExtractTriplesFromData_CompactEdges: the edges node is keyed by property
+// name now, and this reader filtered on predicate IRIs, so it saw nothing at
+// all in a compact document. No caller in core reaches it today, which is what
+// makes it a trap rather than an outage — it is exported and documented.
+func TestExtractTriplesFromData_CompactEdges(t *testing.T) {
+	t.Parallel()
+
+	ctx := json.RawMessage(`{"@vocab":"https://schema.org/","recipe":"https://schema.org/isPartOf"}`)
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"recipe":{"type":"string","x-resource-type":"recipe"}}}`)
+	refProps := ExtractReferenceProperties(schema, ctx)
+
+	compact, err := BuildResourceGraph(
+		json.RawMessage(`{"recipe":"urn:recipe:A"}`), refProps, "urn:meal:1", "Meal", ctx)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+	triples := ExtractTriplesFromData(refProps, compact, "urn:meal:1")
+	if len(triples) != 1 {
+		t.Fatalf("got %d triples from a compact document, want 1", len(triples))
+	}
+	// The triple carries the PREDICATE whichever key held the edge.
+	if triples[0].Predicate != "https://schema.org/isPartOf" {
+		t.Errorf("predicate = %q, want the IRI — a triple never carries a property name",
+			triples[0].Predicate)
+	}
+}
+
+// TestBuildStorableContext_KeywordsAndCollapse: `@type` at the top level of a
+// @context is a keyword redefinition and invalid JSON-LD 1.1, and a
+// vocab-only context must still reduce to the bare string it always did.
+func TestBuildStorableContext_KeywordsAndCollapse(t *testing.T) {
+	t.Parallel()
+
+	stored := buildStorableContext(json.RawMessage(
+		`{"@vocab":"https://schema.org/","@type":"Meal","recipe":"https://schema.org/isPartOf"}`))
+	terms, ok := stored.(map[string]any)
+	if !ok {
+		t.Fatalf("stored context is %T, want an object", stored)
+	}
+	if _, kept := terms["@type"]; kept {
+		t.Error("@type was stored inside the @context; that is a keyword redefinition, " +
+			"and the entity node already carries the resource's own @type")
+	}
+	if terms["recipe"] != "https://schema.org/isPartOf" {
+		t.Errorf("the term mapping was dropped: %v", terms)
+	}
+
+	if got := buildStorableContext(json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Meal"}`)); got != "https://schema.org/" {
+		t.Errorf("a vocab-only context stored as %#v, want the bare string it reduced to before", got)
+	}
+}
