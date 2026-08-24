@@ -660,3 +660,90 @@ func TestExtractReferenceProperties_StillWorksWithoutLinks(t *testing.T) {
 		t.Errorf("back-compat broken: %+v", defs)
 	}
 }
+
+// TestAddEdgeToGraph_SameObjectUnderTwoProperties: one resource can reference
+// the same target through two different relationships. Deduping across
+// properties would drop the second — a vendor recorded as `maker` would block
+// the same vendor arriving as `partner` (issue #515).
+func TestAddEdgeToGraph_SameObjectUnderTwoProperties(t *testing.T) {
+	t.Parallel()
+
+	doc := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/",
+	    "maker":{"@id":"https://schema.org/maker","@type":"@id"},
+	    "partner":{"@id":"https://schema.org/partner","@type":"@id"}},
+	  "@graph":[
+	    {"@id":"urn:widget:1","@type":"Widget","name":"Bolt cutter"},
+	    {"@id":"urn:widget:1","maker":{"@id":"urn:vendor:acme"}}
+	  ]}`)
+
+	out, err := AddEdgeToGraph(doc, "https://schema.org/partner", "urn:vendor:acme", "urn:widget:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, out)
+	for _, property := range []string{"maker", "partner"} {
+		ref, ok := edges[property].(map[string]any)
+		if !ok {
+			t.Fatalf("%s is %T, want a ref — the same object under two properties must keep both",
+				property, edges[property])
+		}
+		if id, _ := ref["@id"].(string); id != "urn:vendor:acme" {
+			t.Errorf("%s = %q, want urn:vendor:acme", property, id)
+		}
+	}
+}
+
+// TestAddEdgeToGraph_SharedPredicateReplayDoesNotDuplicate: when several
+// properties DO share a predicate, a triple cannot say which one it belongs to.
+// Create emits the resource graph and its triples together, so on replay the
+// edge is already in place and re-filing it under whichever property sorts
+// first would attach it to the wrong one.
+func TestAddEdgeToGraph_SharedPredicateReplayDoesNotDuplicate(t *testing.T) {
+	t.Parallel()
+
+	const shared = "https://api.example.org/associated"
+	doc := json.RawMessage(`{
+	  "@context":{"@vocab":"https://schema.org/",
+	    "strandId":{"@id":"` + shared + `","@type":"@id"},
+	    "fileId":{"@id":"` + shared + `","@type":"@id"}},
+	  "@graph":[
+	    {"@id":"urn:question:1","@type":"Question"},
+	    {"@id":"urn:question:1","strandId":{"@id":"urn:strand:B"},"fileId":{"@id":"urn:file:D"}}
+	  ]}`)
+
+	for _, object := range []string{"urn:strand:B", "urn:file:D"} {
+		out, err := AddEdgeToGraph(doc, shared, object, "urn:question:1")
+		if err != nil {
+			t.Fatalf("AddEdgeToGraph(%s): %v", object, err)
+		}
+		edges := edgesNodeOf(t, out)
+		for property, want := range map[string]string{"strandId": "urn:strand:B", "fileId": "urn:file:D"} {
+			ref, ok := edges[property].(map[string]any)
+			if !ok {
+				t.Fatalf("replaying %s turned %s into %T, want the single ref it started as",
+					object, property, edges[property])
+			}
+			if id, _ := ref["@id"].(string); id != want {
+				t.Errorf("replaying %s moved %s to %q, want %q", object, property, id, want)
+			}
+		}
+	}
+}
+
+func edgesNodeOf(t *testing.T, graph json.RawMessage) map[string]any {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(graph, &doc); err != nil {
+		t.Fatalf("unmarshal graph: %v", err)
+	}
+	arr, ok := doc["@graph"].([]any)
+	if !ok || len(arr) < 2 {
+		t.Fatalf("expected @graph with an edges node, got %v", doc["@graph"])
+	}
+	edges, ok := arr[1].(map[string]any)
+	if !ok {
+		t.Fatalf("edges node is %T, want map", arr[1])
+	}
+	return edges
+}

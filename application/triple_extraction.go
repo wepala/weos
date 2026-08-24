@@ -3,6 +3,7 @@ package application
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/wepala/weos/v3/domain/repositories"
@@ -291,30 +292,36 @@ func collectReferenceTriples(
 // shape (not nil, not a map with @id, not a slice of such maps), since
 // silently overwriting would destroy data that the caller cannot see.
 
-// edgeKeyFor decides which key in a document's edges node a predicate refers to.
+// propertiesForPredicate lists the properties a document's own `@context` maps
+// to one predicate, in a stable order.
 //
-// Edges are stored keyed by property name (issue #515), but the events that
-// drive AddEdgeToGraph and RemoveEdgeFromGraph carry a PREDICATE — a triple has
-// no notion of the property that produced it. The document carries its own
-// `@context`, so it can answer the question itself without the caller holding
-// the resource type.
+// Edges are stored keyed by property name (issue #515), but the events driving
+// AddEdgeToGraph and RemoveEdgeFromGraph carry a PREDICATE — a triple has no
+// notion of the property that produced it. The document carries its context, so
+// it can answer this without the caller holding the resource type.
 //
-// The predicate is returned unchanged when nothing maps it. That keeps records
-// written before #515 — whose edges ARE keyed by predicate, and whose stored
-// context was stripped of term mappings — behaving exactly as they did.
-func edgeKeyFor(doc map[string]any, predicate string) string {
+// Empty means nothing maps it: either a record written before #515, whose edges
+// ARE keyed by predicate and whose stored context was stripped of term
+// mappings, or a property resolving through `@vocab`. Callers fall back to the
+// predicate itself, which is exactly what those records use.
+func propertiesForPredicate(doc map[string]any, predicate string) []string {
 	rawCtx, ok := doc["@context"]
 	if !ok {
-		return predicate
+		return nil
 	}
 	encoded, err := json.Marshal(rawCtx)
 	if err != nil {
-		return predicate
+		return nil
 	}
-	if name, found := jsonld.BuildReverseMap(encoded)[predicate]; found {
-		return name
+	_, forward := jsonld.ParseContext(encoded)
+	var names []string
+	for name, iri := range forward {
+		if iri == predicate {
+			names = append(names, name)
+		}
 	}
-	return predicate
+	sort.Strings(names)
+	return names
 }
 
 func AddEdgeToGraph(
@@ -325,16 +332,21 @@ func AddEdgeToGraph(
 		return nil, fmt.Errorf("invalid JSON data: %w", err)
 	}
 
-	edgeKey := edgeKeyFor(doc, predicate)
-
-	// A triple names a predicate, and a predicate may belong to several
-	// properties (issue #515). If this object is already recorded under ANY of
-	// them the statement is present, so adding it again under whichever
-	// property the reverse map happens to pick would file it against the wrong
-	// one. This is the replay case: Create emits the resource graph AND its
-	// triples, so every triple arrives once with its edge already in place.
-	if edgesHaveObject(doc, objectID) {
-		return data, nil
+	// One property claiming the predicate is the ordinary case: the edge belongs
+	// to it, and deduping happens within that key as it always did. The same
+	// object CAN legitimately be referenced by two different properties, so
+	// deduping across them here would drop the second reference.
+	edgeKey := predicate
+	if names := propertiesForPredicate(doc, predicate); len(names) > 0 {
+		edgeKey = names[0]
+		if len(names) > 1 && edgesHaveObject(doc, objectID) {
+			// Several properties share this predicate, so a triple alone cannot
+			// say which one it belongs to. If the object is already recorded the
+			// statement is present — filing it again under whichever property
+			// sorts first would attach it to the wrong one. This is the replay
+			// case: Create emits the resource graph and its triples together.
+			return data, nil
+		}
 	}
 
 	graphArr, hasGraph := doc["@graph"].([]any)
@@ -440,7 +452,10 @@ func RemoveEdgeFromGraph(
 		return nil, fmt.Errorf("invalid JSON data: %w", err)
 	}
 
-	edgeKey := edgeKeyFor(doc, predicate)
+	edgeKey := predicate
+	if names := propertiesForPredicate(doc, predicate); len(names) > 0 {
+		edgeKey = names[0]
+	}
 
 	graphArr, ok := doc["@graph"].([]any)
 	if !ok || len(graphArr) < 2 {
