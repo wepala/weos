@@ -1320,3 +1320,51 @@ func TestUpdateColumnByFK_ListReference(t *testing.T) {
 		}
 	}
 }
+
+// TestReferenceFilter_ListColumn pins the filtering half of issue #513. The
+// admin builds an `eq` filter for every reference property, arrays included, so
+// a row that visibly shows a value must be findable by filtering on it — plain
+// equality never matches a JSON array.
+func TestReferenceFilter_ListColumn(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},
+		"suppliers":{"type":"array","x-resource-type":"vendor","items":{"type":"string"}}}}`)
+	if err := pm.EnsureTable(context.Background(), "widget", schema, nil); err != nil {
+		t.Fatalf("EnsureTable: %v", err)
+	}
+	repo := &ResourceRepository{db: db, projMgr: pm, logger: &testLogger{}}
+
+	const acme, globex = "urn:vendor:acme", "urn:vendor:globex"
+	for _, row := range []map[string]any{
+		{"id": "urn:widget:first", "type_slug": "widget", "suppliers": `["` + acme + `","` + globex + `"]`},
+		{"id": "urn:widget:later", "type_slug": "widget", "suppliers": `["` + globex + `","` + acme + `"]`},
+		{"id": "urn:widget:other", "type_slug": "widget", "suppliers": `["` + globex + `"]`},
+	} {
+		if err := db.Table("widgets").Create(row).Error; err != nil {
+			t.Fatalf("seed %v: %v", row["id"], err)
+		}
+	}
+
+	clause, args := repo.referenceFilterClause("widget", "", "suppliers", "=", acme)
+	var got []map[string]any
+	if err := db.Table("widgets").Select("id").Where(clause, args...).Find(&got).Error; err != nil {
+		t.Fatalf("filter query: %v", err)
+	}
+	found := map[string]bool{}
+	for _, row := range got {
+		found[fmt.Sprintf("%v", row["id"])] = true
+	}
+	// Acme is the first element of one row and a later element of another; both
+	// must match, and the row that does not reference it must not.
+	for _, id := range []string{"urn:widget:first", "urn:widget:later"} {
+		if !found[id] {
+			t.Errorf("%s references %s but the filter did not find it", id, acme)
+		}
+	}
+	if found["urn:widget:other"] {
+		t.Errorf("urn:widget:other does not reference %s but the filter matched it", acme)
+	}
+}

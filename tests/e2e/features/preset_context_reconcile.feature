@@ -70,12 +70,18 @@ Feature: A built-in preset's new reference property reaches an already-provision
     Then the stored "widget" context still maps "warranty" to "https://example.org/vocab/warranty"
     And the stored "widget" context has an entry for "supplier"
 
-  Scenario: A type with no stored context adopts the entries the preset declares
+  # Changed by #513. A cleared context still resolves every reference — to its
+  # bare property name, since there is no @vocab to prefix it — so edges exist
+  # under those names and re-adopting the preset's terms would orphan them. The
+  # boot reports instead of silently papering over the operator's act. A
+  # property the preset adds in the SAME boot is exempt: it has no data under
+  # any IRI yet, so its term merges freely.
+  Scenario: A cleared context is held and reported rather than silently re-adopted
     Given the operator clears the stored "widget" context
     And the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
     When the twin restarts against the same database
-    Then the stored "widget" context has an entry for "supplier"
-    And the stored "widget" context has an entry for "maker"
+    Then the stored "widget" context has no entry for "maker"
+    And the boot reconcile reports the "maker" context term as held for "widget"
 
   Scenario: The context merge happens once and then settles
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"

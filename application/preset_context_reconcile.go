@@ -269,12 +269,16 @@ func holdMovingTerms(
 		return nil
 	}
 	storedTerms, err := splitContext(stored)
-	if err != nil || len(storedTerms) == 0 {
-		// A stored context that defines nothing — including one an operator
-		// cleared — has no resolution for anything to move away from, so the
-		// preset's terms are adopted wholesale, as for an absent context.
+	if err != nil {
 		return nil
 	}
+	// An EMPTY stored context is not a blank cheque. `{}` and `null` still
+	// resolve a reference — to its bare property name, because there is no
+	// `@vocab` to prefix it — so edges exist under those names and adopting the
+	// preset's terms orphans them exactly as any other repointing would.
+	// Clearing a context is a destructive operator act; the reconcile reports
+	// it rather than silently papering over it. `preset install --update`
+	// remains the explicit way to re-adopt.
 
 	predicates := livePredicates(stored, storedSchema)
 	var held []movedPredicate

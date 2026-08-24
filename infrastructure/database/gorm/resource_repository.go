@@ -1000,6 +1000,60 @@ func (r *ResourceRepository) findAllByFieldFromGeneric(
 	return result, nil
 }
 
+// referenceFilterClause builds the WHERE fragment for one filter.
+//
+// An `eq` on a REFERENCE column also matches a JSON array containing the
+// value, because a list-valued reference is stored that way (issue #513).
+// Without it the admin's own reference filter returns nothing for a row that
+// visibly shows the value — the column holds `["urn:a"]` and the filter asks
+// for `urn:a`.
+//
+// The containment arms are inert on a scalar reference column, which never
+// contains a bracket, so no schema lookup is needed to tell the two apart.
+// Only `eq` is expanded: negation over a list has no single obvious meaning
+// (does `ne` exclude a row that references the value alongside others?), so it
+// keeps its exact-match behaviour rather than guessing.
+//
+// Caveat worth knowing: SQLite's LIKE is case-insensitive for ASCII while `=`
+// is not, so two IDs differing only in case could cross-match here. Resource
+// IDs are KSUIDs, where that is possible but vanishingly unlikely, and the
+// failure mode is an extra row in a filtered list rather than lost data.
+func (r *ResourceRepository) referenceFilterClause(
+	typeSlug, qualifier, column, sqlOp string, value any,
+) (string, []any) {
+	col := qualifier + column
+	if sqlOp != "=" {
+		return col + " " + sqlOp + " ?", []any{value}
+	}
+	str, ok := value.(string)
+	if !ok || !r.isReferenceColumn(typeSlug, column) {
+		return col + " " + sqlOp + " ?", []any{value}
+	}
+	// `["v"…` catches the first element (and a single-element list); `…,"v"…`
+	// catches every later one.
+	quoted := escapeLikeLiteral(`"` + str + `"`)
+	return "(" + col + " = ? OR " + col + " LIKE ? ESCAPE '\\' OR " + col + " LIKE ? ESCAPE '\\')",
+		[]any{value, "[" + quoted + "%", "%," + quoted + "%"}
+}
+
+// isReferenceColumn reports whether a column holds resource references, which
+// is what makes a JSON-array value possible in it.
+func (r *ResourceRepository) isReferenceColumn(typeSlug, column string) bool {
+	for _, ref := range r.projMgr.ForwardReferences(typeSlug) {
+		if ref.FKColumn == column {
+			return true
+		}
+	}
+	return false
+}
+
+// escapeLikeLiteral neutralises LIKE wildcards so a value containing `%` or `_`
+// matches literally.
+func escapeLikeLiteral(s string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return replacer.Replace(s)
+}
+
 var operatorMap = map[string]string{
 	"eq": "=", "ne": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=",
 }
@@ -1056,7 +1110,8 @@ func (r *ResourceRepository) findAllFromProjectionWithFilters(
 				continue
 			}
 		}
-		query = query.Where(tbl+"."+fc+" "+sqlOp+" ?", f.Value)
+		clause, args := r.referenceFilterClause(typeSlug, tbl+".", fc, sqlOp, f.Value)
+		query = query.Where(clause, args...)
 	}
 
 	if cursor != "" {
@@ -1224,7 +1279,8 @@ func (r *ResourceRepository) findAllFlatFromProjection(
 				continue
 			}
 		}
-		query = query.Where(fc+" "+sqlOp+" ?", f.Value)
+		clause, args := r.referenceFilterClause(typeSlug, "", fc, sqlOp, f.Value)
+		query = query.Where(clause, args...)
 	}
 
 	if cursor != "" {

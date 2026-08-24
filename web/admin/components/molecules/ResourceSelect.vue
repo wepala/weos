@@ -16,8 +16,14 @@
 -->
 
 <template>
+  <!--
+    `multiple` follows the schema: a property declared `type: "array"` with
+    x-resource-type holds a LIST of references, and a single-select silently
+    collapsed it to one entry on every save (issue #513).
+  -->
   <a-select
-    :value="value || undefined"
+    :value="multiple ? (Array.isArray(value) ? value : []) : (value || undefined)"
+    :mode="multiple ? 'multiple' : undefined"
     show-search
     allow-clear
     :placeholder="`Select ${typeSlug}`"
@@ -25,19 +31,30 @@
     :options="options"
     :filter-option="filterOption"
     style="width: 100%"
-    @update:value="$emit('update:value', $event ?? '')"
+    @update:value="$emit('update:value', normalize($event))"
   />
 </template>
 
 <script setup lang="ts">
 const props = defineProps<{
   typeSlug: string
-  value?: string
+  value?: string | string[]
+  multiple?: boolean
 }>()
 
 defineEmits<{
-  'update:value': [value: string]
+  'update:value': [value: string | string[]]
 }>()
+
+// A multi-select must emit an array even when nothing is chosen, or a cleared
+// field would submit `""` where the schema requires a list and the write would
+// be rejected.
+function normalize(next: unknown): string | string[] {
+  if (props.multiple) {
+    return Array.isArray(next) ? (next as string[]) : []
+  }
+  return (next as string) ?? ''
+}
 
 const items = ref<any[]>([])
 const loading = ref(false)

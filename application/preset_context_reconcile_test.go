@@ -458,24 +458,33 @@ func TestReconcileAdditiveContext_HoldsATypeThatMovesTheClass(t *testing.T) {
 	}
 }
 
-// TestReconcileAdditiveContext_ClearedContextAdoptsWholesale: an operator who
-// empties the context leaves nothing for anything to move away from, so the
-// preset's terms are adopted as they are for an absent context.
-func TestReconcileAdditiveContext_ClearedContextAdoptsWholesale(t *testing.T) {
+// TestReconcileAdditiveContext_ClearedContextIsHeldNotReadopted: an operator
+// who empties a type's context leaves its references resolving to their bare
+// property names — `maker`, not `https://schema.org/maker` — because there is
+// no `@vocab` to prefix them. Edges exist under those names, so adopting the
+// preset's terms orphans them like any other repointing. The merge is held and
+// reported; `preset install --update` remains the explicit way to re-adopt.
+func TestReconcileAdditiveContext_ClearedContextIsHeldNotReadopted(t *testing.T) {
 	storedSchema := json.RawMessage(`{"type":"object","properties":{
-		"supplier":{"type":"string","x-resource-type":"vendor"}}}`)
-	preset := json.RawMessage(`{"@vocab":"https://schema.org/",` +
-		`"supplier":"https://example.org/catalog#supplier"}`)
+		"maker":{"type":"string","x-resource-type":"vendor"}}}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"https://schema.org/maker"}`)
 
-	rec, err := reconcileAdditiveContext(json.RawMessage(`{}`), preset, storedSchema)
-	if err != nil {
-		t.Fatalf("reconcileAdditiveContext: %v", err)
-	}
-	if len(rec.Moves) != 0 {
-		t.Fatalf("Moves = %+v, want none for a cleared context", rec.Moves)
-	}
-	if !rec.Changed {
-		t.Error("a cleared context must adopt the preset's terms")
+	for name, stored := range map[string]json.RawMessage{
+		"empty object": json.RawMessage(`{}`),
+		"json null":    json.RawMessage(`null`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec, err := reconcileAdditiveContext(stored, preset, storedSchema)
+			if err != nil {
+				t.Fatalf("reconcileAdditiveContext: %v", err)
+			}
+			if len(rec.Moves) == 0 {
+				t.Fatalf("expected the merge to be held and reported, got Added=%v", rec.Added)
+			}
+			if rec.Changed {
+				t.Error("a cleared context must not be silently re-adopted")
+			}
+		})
 	}
 }
 
