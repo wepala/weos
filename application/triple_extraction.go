@@ -551,18 +551,23 @@ func buildStorableContext(ldContext json.RawMessage) any {
 
 	clean := make(map[string]any)
 	for key, val := range ctx {
-		// `@type` at the top level of a @context is a keyword redefinition and
-		// is not valid JSON-LD 1.1. It was excluded before issue #515 and stays
-		// excluded: it is not a term mapping, and the entity node already
-		// carries the resource's own @type.
-		if key == "@type" {
+		// Term mappings are kept now, not only namespace prefixes (issue #515):
+		// the edges node is keyed by property name, so the mapping is what
+		// carries the predicate, and dropping it would leave a document that no
+		// longer expands to the graph it represents.
+		//
+		// But ONLY genuine term definitions. A resource type's @context also
+		// carries control entries that WeOS reads and JSON-LD does not accept —
+		// `weos:abstract: true`, `weos:valueObject: true`, the slug in
+		// `rdfs:subClassOf`, and the `weos:termAliases` / `weos:adoptedTerms`
+		// that adopt-term writes (issue #513). Copying those into a resource's
+		// own document makes the whole document unparseable, and the graph
+		// store rejects it outright — so the resource never reaches the
+		// knowledge graph, while its API read and projection look healthy and
+		// report nothing.
+		if !isTermDefinition(key, val) {
 			continue
 		}
-		// Every OTHER term is kept, not only namespace prefixes (issue #515).
-		// The edges node is keyed by property name now, so the term mapping is
-		// what carries the predicate — dropping it would leave a document that
-		// no longer expands to the graph it represents. It was redundant only
-		// while the edges node already held full predicate IRIs.
 		clean[key] = val
 	}
 
@@ -928,6 +933,32 @@ func edgesHaveObject(doc map[string]any, objectID string) bool {
 				return true
 			}
 		}
+	}
+	return false
+}
+
+// isTermDefinition reports whether one @context entry is something JSON-LD will
+// accept, which is narrower than "something WeOS put there".
+//
+// A keyword other than `@type` is kept — `@type` at the top level is a keyword
+// redefinition and the parser refuses the document over it, while the entity
+// node already carries the resource's own type. A string value is a term only
+// when it is an IRI, absolute or compact; `rdfs:subClassOf: "economic-event"`
+// names a WeOS type slug, not a predicate. An object value is a term only when
+// it defines `@id`; `weos:termAliases` is a map of historical IRIs, not a term.
+// Anything else — a bool like `weos:abstract`, an array like
+// `weos:adoptedTerms` — is control data and is dropped.
+func isTermDefinition(key string, val any) bool {
+	if strings.HasPrefix(key, "@") {
+		return key != "@type"
+	}
+	switch v := val.(type) {
+	case string:
+		// An IRI, absolute ("https://…") or compact ("fo:hasIngredient").
+		return strings.Contains(v, ":")
+	case map[string]any:
+		_, defined := v["@id"]
+		return defined
 	}
 	return false
 }

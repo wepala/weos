@@ -23,6 +23,7 @@ import (
 
 	"encoding/json"
 
+	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/infrastructure/graph/oxigraph"
 	"github.com/wepala/weos/v3/pkg/jsonld"
 )
@@ -101,6 +102,71 @@ func TestContextCarryingAtTypeIsRejected(t *testing.T) {
 		t.Error("the store accepted @type inside a @context; if that ever becomes valid, " +
 			"buildStorableContext's exclusion can be revisited — until then it is load-bearing")
 	}
+}
+
+// TestRealTypeContextsStillLoad covers the shapes a resource type's @context
+// actually carries beyond term mappings. WeOS reads them; JSON-LD does not
+// accept them, and the store rejects the WHOLE document over any one of them —
+// so the resource never reaches the knowledge graph while its API read and its
+// projection stay healthy and report nothing.
+//
+// buildStorableContext must therefore copy term definitions only. These are the
+// entries that broke it: `weos:abstract` and `weos:valueObject` (bools),
+// `weos:adoptedTerms` (array) and `weos:termAliases` (object without `@id`)
+// written by #513's adopt-term, and `rdfs:subClassOf`, whose value is a WeOS
+// type slug rather than an IRI. `rdfs:subClassOf` is declared by commerce
+// (Product, Offer, Order, Invoice, Refund, Expense…), finexity and
+// mini-me-weos, so this is every resource of those types.
+func TestRealTypeContextsStillLoad(t *testing.T) {
+	for name, typeContext := range map[string]string{
+		"abstract":     `"weos:abstract":true`,
+		"valueObject":  `"weos:valueObject":true`,
+		"adoptedTerms": `"weos:adoptedTerms":["recipe"]`,
+		"termAliases":  `"weos:termAliases":{"recipe":["https://schema.org/isPartOf"]}`,
+		"subClassOf":   `"rdfs:subClassOf":"economic-event"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			full := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Meal",` +
+				`"recipe":{"@id":"https://schema.org/isPartOf","@type":"@id"},` + typeContext + `}`)
+			doc := buildDocumentWith(t, full)
+
+			store, err := oxigraph.NewEmbeddedStore(t.TempDir(), shapeTestLogger{})
+			if err != nil {
+				t.Fatalf("open store: %v", err)
+			}
+			if err := store.LoadOntology(
+				context.Background(), "application/ld+json", jsonld.InlineVocabContext(doc)); err != nil {
+				t.Fatalf("the store rejected a resource of a type declaring %s, so it never "+
+					"reaches the knowledge graph at all: %v", name, err)
+			}
+			res, qErr := store.Query(context.Background(),
+				`SELECT ?o WHERE { <urn:meal:1> <https://schema.org/isPartOf> ?o }`)
+			if qErr != nil {
+				t.Fatalf("query: %v", qErr)
+			}
+			if len(res.Bindings) != 1 {
+				t.Errorf("the reference produced %d statements, want 1", len(res.Bindings))
+			}
+		})
+	}
+}
+
+// buildDocumentWith runs a resource through the real write path so the stored
+// @context is whatever buildStorableContext decided to keep.
+func buildDocumentWith(t *testing.T, typeContext json.RawMessage) json.RawMessage {
+	t.Helper()
+
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},
+		"recipe":{"type":"string","x-resource-type":"recipe"}}}`)
+	refProps := application.ExtractReferenceProperties(schema, typeContext)
+	doc, err := application.BuildResourceGraph(
+		json.RawMessage(`{"name":"Dinner","recipe":"urn:recipe:A"}`),
+		refProps, "urn:meal:1", "Meal", typeContext)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+	return doc
 }
 
 // loadAndDescribe loads one document into a fresh store and returns its
