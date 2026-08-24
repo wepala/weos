@@ -23,7 +23,10 @@ import (
 
 	"encoding/json"
 
+	"io"
+
 	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/infrastructure/graph/oxigraph"
 	"github.com/wepala/weos/v3/pkg/jsonld"
 )
@@ -34,6 +37,28 @@ func (shapeTestLogger) Debug(context.Context, string, ...interface{}) {}
 func (shapeTestLogger) Info(context.Context, string, ...interface{})  {}
 func (shapeTestLogger) Warn(context.Context, string, ...interface{})  {}
 func (shapeTestLogger) Error(context.Context, string, ...interface{}) {}
+
+// newStore opens an embedded store in a temp directory and closes it when the
+// test ends.
+//
+// Closing is not optional: the store holds its directory open, so t.TempDir's
+// cleanup fails with "directory not empty" and marks the test failed even
+// though every assertion passed. Registered AFTER t.TempDir so it runs first —
+// cleanups run last-in-first-out.
+func newStore(t *testing.T) repositories.KnowledgeGraphStore {
+	t.Helper()
+
+	store, err := oxigraph.NewEmbeddedStore(t.TempDir(), shapeTestLogger{})
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		if closer, ok := store.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	})
+	return store
+}
 
 // TestStoredShapesProduceTheSameTriples is the guarantee that issue #515 did
 // not move the ontology.
@@ -89,10 +114,7 @@ func TestStoredShapesProduceTheSameTriples(t *testing.T) {
 // look perfectly healthy. That asymmetry is what makes it dangerous: nothing
 // else fails, the data is simply absent from every SPARQL answer.
 func TestContextCarryingAtTypeIsRejected(t *testing.T) {
-	store, err := oxigraph.NewEmbeddedStore(t.TempDir(), shapeTestLogger{})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	store := newStore(t)
 	doc := json.RawMessage(`{
 	  "@context":{"@vocab":"https://schema.org/","@type":"Meal"},
 	  "@graph":[{"@id":"urn:meal:1","@type":"Meal","name":"Dinner"}]}`)
@@ -136,10 +158,7 @@ func TestRealTypeContextsStillLoad(t *testing.T) {
 				`"recipe":{"@id":"https://schema.org/isPartOf","@type":"@id"},` + typeContext + `}`)
 			doc := buildDocumentWith(t, full)
 
-			store, err := oxigraph.NewEmbeddedStore(t.TempDir(), shapeTestLogger{})
-			if err != nil {
-				t.Fatalf("open store: %v", err)
-			}
+			store := newStore(t)
 			if err := store.LoadOntology(
 				context.Background(), "application/ld+json", jsonld.InlineVocabContext(doc)); err != nil {
 				t.Fatalf("the store rejected a resource of a type declaring %s, so it never "+
@@ -180,10 +199,7 @@ func buildDocumentWith(t *testing.T, typeContext json.RawMessage) json.RawMessag
 func loadAndDescribe(t *testing.T, doc json.RawMessage) map[string]bool {
 	t.Helper()
 
-	store, err := oxigraph.NewEmbeddedStore(t.TempDir(), shapeTestLogger{})
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
+	store := newStore(t)
 	if err := store.LoadOntology(
 		context.Background(), "application/ld+json", jsonld.InlineVocabContext(doc)); err != nil {
 		t.Fatalf("load: %v", err)
