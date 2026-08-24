@@ -32,6 +32,7 @@ import (
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 	"github.com/wepala/weos/v3/internal/config"
 	"github.com/wepala/weos/v3/pkg/jsonld"
 )
@@ -123,6 +124,13 @@ type contextWorld struct {
 	rs  application.ResourceService
 	db  *gorm.DB
 
+	// resRepo and tripleRepo are the two surfaces issue #515 asserts against
+	// that no service exposes: UpdateData rewrites a resource's canonical
+	// record to the pre-#515 expanded shape (and re-runs the projection over
+	// it), and the triple repository proves the ontology did not move.
+	resRepo    repositories.ResourceRepository
+	tripleRepo repositories.TripleRepository
+
 	// vendorProps and widgetProps are the two types' schema properties in
 	// declaration order, as the preset would declare them on the next boot.
 	vendorProps []contextProperty
@@ -145,6 +153,12 @@ type contextWorld struct {
 	bootReport *reconcileLog
 
 	createdIDs map[string]string
+
+	// bootErr is the LAST boot's start error, kept rather than propagated so a
+	// scenario can assert a boot was refused. Whether a refusal fails startup or
+	// only reports is the implementer's call (issue #515); the assertions accept
+	// either, so this is set on every boot and read only by those steps.
+	bootErr error
 
 	// adoptErr and adoptAttempted record the outcome of an adopt-term command a
 	// scenario expects to be REFUSED, so the refusal itself can be asserted.
@@ -245,6 +259,10 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	// The adopt-term migration extends this world rather than forking it: the
 	// situation it starts from is the one the guard scenarios leave behind.
 	w.registerAdoptionSteps(sc)
+
+	// Issue #515's compact-edge contract extends the same world: the shapes it
+	// reads are the ones every scenario above writes.
+	w.registerCompactEdgeSteps(sc)
 }
 
 // --- preset shaping ---
@@ -492,6 +510,11 @@ type reconcileLog struct {
 	heldSchema  map[string][]string
 	heldContext map[string][]string
 	dropped     map[string]string
+	// lines is every warn/error line the boot emitted, rendered whole. Issue
+	// #515's refusal has no bucket of its own here on purpose: the suite must
+	// not dictate WHICH report channel carries it, only that an operator sees
+	// it, so the assertions search the raw text.
+	lines []string
 }
 
 func newReconcileLog() *reconcileLog {
@@ -501,6 +524,13 @@ func newReconcileLog() *reconcileLog {
 		heldContext: map[string][]string{},
 		dropped:     map[string]string{},
 	}
+}
+
+// record appends one rendered log line for the raw-text assertions.
+func (l *reconcileLog) record(msg string, fields []interface{}) {
+	l.mu.Lock()
+	l.lines = append(l.lines, fmt.Sprintf("%s %v", msg, fields))
+	l.mu.Unlock()
 }
 
 // capturingLogger records the reconcile lines and discards everything else.
@@ -528,6 +558,7 @@ func (c *capturingLogger) Info(ctx context.Context, msg string, fields ...interf
 }
 
 func (c *capturingLogger) Warn(ctx context.Context, msg string, fields ...interface{}) {
+	c.log.record(msg, fields)
 	if strings.Contains(msg, "held at their stored definition") {
 		if slug, ok := fieldValue(fields, "slug"); ok {
 			c.log.mu.Lock()
@@ -544,6 +575,7 @@ func (c *capturingLogger) Warn(ctx context.Context, msg string, fields ...interf
 }
 
 func (c *capturingLogger) Error(ctx context.Context, msg string, fields ...interface{}) {
+	c.log.record(msg, fields)
 	if strings.Contains(msg, "resource type NOT reconciled") {
 		if slug, ok := fieldValue(fields, "slug"); ok {
 			reason, _ := fieldValue(fields, "reason")
@@ -594,6 +626,8 @@ func (w *contextWorld) boot() error {
 	var rts application.ResourceTypeService
 	var rs application.ResourceService
 	var db *gorm.DB
+	var resRepo repositories.ResourceRepository
+	var tripleRepo repositories.TripleRepository
 
 	app := fx.New(
 		fx.NopLogger,
@@ -603,15 +637,20 @@ func (w *contextWorld) boot() error {
 		fx.Decorate(func(inner entities.Logger) entities.Logger {
 			return &capturingLogger{inner: inner, log: captured}
 		}),
-		fx.Populate(&rts, &rs, &db),
+		fx.Populate(&rts, &rs, &db, &resRepo, &tripleRepo),
 	)
 	startCtx, startCancel := context.WithTimeout(ctx, fx.DefaultTimeout)
 	defer startCancel()
+	// The report is attached BEFORE the start so a boot that refuses to come up
+	// still leaves its operator-facing lines readable (issue #515).
+	w.bootReport = captured
+	w.bootErr = nil
 	if err := app.Start(startCtx); err != nil {
-		return fmt.Errorf("failed to start app: %w", err)
+		w.bootErr = fmt.Errorf("failed to start app: %w", err)
+		return w.bootErr
 	}
 	w.app, w.rts, w.rs, w.db = app, rts, rs, db
-	w.bootReport = captured
+	w.resRepo, w.tripleRepo = resRepo, tripleRepo
 	return nil
 }
 
