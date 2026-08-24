@@ -60,6 +60,8 @@ func TestReferenceShapeAmbiguity(t *testing.T) {
 // read the same record back through the API path and the triple store.
 func (w *contextWorld) registerCompactEdgeSteps(sc *godog.ScenarioContext) {
 	sc.Step(`^the twin starts against a clean database$`, w.theTwinStartsAgainstACleanDatabase)
+	sc.Step(`^the twin restarts against the same database and reports what it finds$`,
+		w.theTwinRestartsAndReports)
 
 	sc.Step(`^a "widget" named "([^"]*)" stored in the old expanded edges form with "([^"]*)" `+
 		`referring to the vendors "([^"]*)"$`, w.aWidgetStoredExpanded)
@@ -111,6 +113,20 @@ func (w *contextWorld) theTwinStartsAgainstACleanDatabase() error {
 	}
 	w.tmpDir = dir
 	w.dsn = filepath.Join(dir, "test.db")
+	_ = w.boot() // recorded on w.bootErr; the refusal steps read it.
+	return nil
+}
+
+// theTwinRestartsAndReports is theTwinRestarts' tolerant twin, for the same
+// reason: a boot that refuses a shape found during RECONCILE may or may not
+// come up, and the refusal assertions accept either.
+func (w *contextWorld) theTwinRestartsAndReports() error {
+	if w.rts != nil {
+		if rt, err := w.rts.GetBySlug(context.Background(), "widget"); err == nil {
+			w.schemaBeforeRestart = rt.Schema()
+		}
+	}
+	w.stop()
 	_ = w.boot() // recorded on w.bootErr; the refusal steps read it.
 	return nil
 }

@@ -15,6 +15,11 @@
 
 package jsonld
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 // EdgeIDs unwraps a JSON-LD edge value into the resource IDs it carries and
 // reports whether it was written as a list.
 //
@@ -58,4 +63,38 @@ func EdgeIDs(val any) (ids []string, isList bool) {
 		}
 	}
 	return nil, false
+}
+
+// EdgeProperty resolves one key from a stored edges node to the property name
+// it belongs to, and reports whether it could.
+//
+// A resource stores its edges keyed by PROPERTY NAME (issue #515). Records
+// written before that change are keyed by PREDICATE IRI, and both forms have
+// to keep reading: there is no migration, so the two coexist indefinitely and
+// every reader meets both.
+//
+// The two are told apart by shape rather than by a flag. An absolute IRI is
+// never a valid JSON-LD term name, and a term name is never absolute, so the
+// key itself says which form it is. A compact key needs no resolution at all —
+// it IS the property name — which is the whole point of the change: the
+// inversion that kept losing data is simply not performed for new records.
+func EdgeProperty(key string, ldContext json.RawMessage) (string, bool) {
+	if key == "" || key == "@id" {
+		return "", false
+	}
+	if !isAbsoluteIRI(key) {
+		// Compact: the key is the property name.
+		return key, true
+	}
+	// Expanded: invert the context, exactly as before the change.
+	name, ok := BuildReverseMap(ldContext)[key]
+	return name, ok
+}
+
+// isAbsoluteIRI reports whether a key is a full IRI rather than a term name.
+// JSON-LD forbids a term containing a colon from being interpreted as a term,
+// so the scheme prefix is a reliable discriminator for the two stored forms.
+func isAbsoluteIRI(key string) bool {
+	return strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") ||
+		strings.HasPrefix(key, "urn:")
 }

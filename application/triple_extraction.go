@@ -290,6 +290,33 @@ func collectReferenceTriples(
 // Returns an error if the edges node contains a value of an unexpected
 // shape (not nil, not a map with @id, not a slice of such maps), since
 // silently overwriting would destroy data that the caller cannot see.
+
+// edgeKeyFor decides which key in a document's edges node a predicate refers to.
+//
+// Edges are stored keyed by property name (issue #515), but the events that
+// drive AddEdgeToGraph and RemoveEdgeFromGraph carry a PREDICATE — a triple has
+// no notion of the property that produced it. The document carries its own
+// `@context`, so it can answer the question itself without the caller holding
+// the resource type.
+//
+// The predicate is returned unchanged when nothing maps it. That keeps records
+// written before #515 — whose edges ARE keyed by predicate, and whose stored
+// context was stripped of term mappings — behaving exactly as they did.
+func edgeKeyFor(doc map[string]any, predicate string) string {
+	rawCtx, ok := doc["@context"]
+	if !ok {
+		return predicate
+	}
+	encoded, err := json.Marshal(rawCtx)
+	if err != nil {
+		return predicate
+	}
+	if name, found := jsonld.BuildReverseMap(encoded)[predicate]; found {
+		return name
+	}
+	return predicate
+}
+
 func AddEdgeToGraph(
 	data json.RawMessage, predicate, objectID, subjectID string,
 ) (json.RawMessage, error) {
@@ -297,6 +324,8 @@ func AddEdgeToGraph(
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("invalid JSON data: %w", err)
 	}
+
+	edgeKey := edgeKeyFor(doc, predicate)
 
 	graphArr, hasGraph := doc["@graph"].([]any)
 	if !hasGraph || len(graphArr) == 0 {
@@ -306,8 +335,8 @@ func AddEdgeToGraph(
 			entityNode[k] = v
 		}
 		edgesNode := map[string]any{
-			"@id":     subjectID,
-			predicate: map[string]any{"@id": objectID},
+			"@id":   subjectID,
+			edgeKey: map[string]any{"@id": objectID},
 		}
 		doc = map[string]any{"@graph": []any{entityNode, edgesNode}}
 		if ctx, ok := entityNode["@context"]; ok {
@@ -320,8 +349,8 @@ func AddEdgeToGraph(
 	if len(graphArr) < 2 {
 		// Only entity node — add edges node.
 		edgesNode := map[string]any{
-			"@id":     subjectID,
-			predicate: map[string]any{"@id": objectID},
+			"@id":   subjectID,
+			edgeKey: map[string]any{"@id": objectID},
 		}
 		graphArr = append(graphArr, edgesNode)
 	} else {
@@ -338,29 +367,29 @@ func AddEdgeToGraph(
 			)
 		}
 		newRef := map[string]any{"@id": objectID}
-		switch existing := edgesNode[predicate].(type) {
+		switch existing := edgesNode[edgeKey].(type) {
 		case nil:
-			edgesNode[predicate] = newRef
+			edgesNode[edgeKey] = newRef
 		case map[string]any:
 			id, ok := existing["@id"].(string)
 			if !ok || id == "" {
-				return nil, fmt.Errorf("edge at predicate %q has malformed @id; refusing to overwrite", predicate)
+				return nil, fmt.Errorf("edge at %q has malformed @id; refusing to overwrite", edgeKey)
 			}
 			if id == objectID {
 				break // already present — no-op
 			}
-			edgesNode[predicate] = []any{existing, newRef}
+			edgesNode[edgeKey] = []any{existing, newRef}
 		case []any:
 			found, err := containsEdgeRef(existing, objectID)
 			if err != nil {
-				return nil, fmt.Errorf("edge array at predicate %q: %w", predicate, err)
+				return nil, fmt.Errorf("edge array at %q: %w", edgeKey, err)
 			}
 			if found {
 				break // already present — no-op
 			}
-			edgesNode[predicate] = append(existing, newRef)
+			edgesNode[edgeKey] = append(existing, newRef)
 		default:
-			return nil, fmt.Errorf("edge at predicate %q has unexpected type %T; refusing to overwrite", predicate, existing)
+			return nil, fmt.Errorf("edge at %q has unexpected type %T; refusing to overwrite", edgeKey, existing)
 		}
 		graphArr[1] = edgesNode
 	}
@@ -401,6 +430,8 @@ func RemoveEdgeFromGraph(
 		return nil, fmt.Errorf("invalid JSON data: %w", err)
 	}
 
+	edgeKey := edgeKeyFor(doc, predicate)
+
 	graphArr, ok := doc["@graph"].([]any)
 	if !ok || len(graphArr) < 2 {
 		return data, nil // no edges node — nothing to remove
@@ -411,7 +442,7 @@ func RemoveEdgeFromGraph(
 		return data, nil
 	}
 
-	existing, exists := edgesNode[predicate]
+	existing, exists := edgesNode[edgeKey]
 	if !exists {
 		return data, nil
 	}
@@ -432,12 +463,12 @@ func RemoveEdgeFromGraph(
 			filtered = append(filtered, item)
 		}
 		if len(filtered) == 0 {
-			delete(edgesNode, predicate)
+			delete(edgesNode, edgeKey)
 		} else {
-			edgesNode[predicate] = filtered
+			edgesNode[edgeKey] = filtered
 		}
 	} else {
-		delete(edgesNode, predicate)
+		delete(edgesNode, edgeKey)
 	}
 
 	// If only @id remains, remove the edges node entirely.
@@ -471,10 +502,12 @@ func buildStorableContext(ldContext json.RawMessage) any {
 			clean[key] = val
 			continue
 		}
-		// Keep namespace prefix definitions (string values that are URIs).
-		if s, ok := val.(string); ok && (strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")) {
-			clean[key] = val
-		}
+		// Keep every term mapping, not only namespace prefixes (issue #515).
+		// The edges node is now keyed by property name, so the term mapping is
+		// what carries the predicate — dropping it would leave a document that
+		// no longer expands to the graph it represents. It was redundant only
+		// while the edges node already held full predicate IRIs.
+		clean[key] = val
 	}
 
 	// If only @vocab remains, simplify to just the vocab string.
@@ -523,12 +556,11 @@ func FlattenGraph(graphData, ldContext json.RawMessage) json.RawMessage {
 	// stays symmetric with the input shape that BuildResourceGraph accepted.
 	if len(graphArr) > 1 {
 		if edgesNode, ok := graphArr[1].(map[string]any); ok {
-			reverseMap := jsonld.BuildReverseMap(ldContext)
 			for key, val := range edgesNode {
 				if key == "@id" {
 					continue
 				}
-				propName, ok := reverseMap[key]
+				propName, ok := jsonld.EdgeProperty(key, ldContext)
 				if !ok {
 					continue
 				}
@@ -582,9 +614,6 @@ func BuildResourceGraph(
 		refPropNames[rp.PropertyName] = true
 	}
 
-	// Parse context to resolve predicate IRIs for edges and extract @type.
-	vocab, contextMap := jsonld.ParseContext(ldContext)
-
 	// Use @type from context if available (schema type name), otherwise fall back to display name.
 	schemaType := typeName
 	var rawCtx map[string]any
@@ -614,11 +643,20 @@ func BuildResourceGraph(
 			// (schemas can declare x-resource-type on array properties, e.g.
 			// the mealplanning preset). Non-string / non-array-of-strings
 			// values are skipped — they aren't valid references.
-			predicateIRI := jsonld.ResolvePredicateIRI(key, vocab, contextMap)
+			// Keyed by the PROPERTY NAME, not the predicate IRI (issue #515).
+			// Expanded form made the key the predicate, which meant every read
+			// had to invert the @context to get the property name back — and
+			// that inversion fails whenever a property has no term, or two
+			// properties share a predicate, or a term is later repointed. Those
+			// are #510, #513 and #515's own collision, one cause each time. The
+			// property name is unique by construction, so keying by it removes
+			// the inversion rather than guarding it. The stored @context keeps
+			// the mapping, so the document still expands to the same graph and
+			// yields the same triples.
 			switch v := val.(type) {
 			case string:
 				if v != "" {
-					edgesNode[predicateIRI] = map[string]any{"@id": v}
+					edgesNode[key] = map[string]any{"@id": v}
 					hasEdges = true
 				}
 			case []any:
@@ -629,7 +667,7 @@ func BuildResourceGraph(
 					}
 				}
 				if len(refs) > 0 {
-					edgesNode[predicateIRI] = refs
+					edgesNode[key] = refs
 					hasEdges = true
 				}
 			}
@@ -774,11 +812,14 @@ func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []str
 		return nil
 	}
 
-	// Resolve the property name to its predicate IRI using the resource type's context.
-	vocab, contextMap := jsonld.ParseContext(ldContext)
-	predicateIRI := jsonld.ResolvePredicateIRI(propertyName, vocab, contextMap)
-
-	edgeVal, exists := edgesNode[predicateIRI]
+	// A record written after issue #515 keys its edges by property name, so
+	// look there first — no resolution needed, which is the point of the shape.
+	edgeVal, exists := edgesNode[propertyName]
+	if !exists {
+		// Older records are keyed by the predicate IRI.
+		vocab, contextMap := jsonld.ParseContext(ldContext)
+		edgeVal, exists = edgesNode[jsonld.ResolvePredicateIRI(propertyName, vocab, contextMap)]
+	}
 	if !exists {
 		// An edge written before this property's term was adopted is keyed by
 		// the IRI it resolved to then, which the context records as an alias

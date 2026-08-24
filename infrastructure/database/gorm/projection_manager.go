@@ -915,14 +915,13 @@ func extractNodeColumns(m map[string]any, row map[string]any) {
 // Uses the @context to reverse-map predicate IRIs back to property names,
 // then converts property names to snake_case column names.
 func extractEdgeColumns(edges map[string]any, ldContext json.RawMessage, row map[string]any) {
-	reverseMap := jsonld.BuildReverseMap(ldContext)
-
 	for key, val := range edges {
 		if key == "@id" {
 			continue
 		}
-		// Reverse-lookup: predicate IRI → property name → snake_case column.
-		propName, ok := reverseMap[key]
+		// Records written before issue #515 key their edges by predicate IRI;
+		// newer ones key them by property name. Both forms are stored.
+		propName, ok := jsonld.EdgeProperty(key, ldContext)
 		if !ok {
 			continue
 		}

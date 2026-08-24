@@ -87,3 +87,16 @@ Feature: A preset whose reference shape no reader can disambiguate is refused at
       | supplier | vendor | Acme   |
     And reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
     And reading the "widget" "Bolt cutter" back through the projection returns "supplier" as the "vendor" "Acme"
+
+  @wip
+  Scenario: A type that becomes ambiguous across builds is refused on the next boot
+    Given the twin starts against a clean database
+    And a "vendor" named "Acme" exists
+    And I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
+    When the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
+    And the "catalog" preset declares "supplier" as "https://schema.org/maker" in the "widget" context
+    And the twin restarts against the same database and reports what it finds
+    Then the stored "widget" context still maps "supplier" to "https://schema.org/maker"
+    And the boot refuses "widget", naming "maker" and "supplier" on "https://schema.org/maker"
+    And the refusal tells the operator to give the relationships different predicates
+    And the refusal tells the operator to collapse them into a single array property

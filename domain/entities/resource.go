@@ -203,13 +203,14 @@ func SimplifyJSONLD(data, ldContext json.RawMessage) (json.RawMessage, error) {
 		// Merge edge values from edges node.
 		if len(graphArr) > 1 {
 			if edgesNode, ok := graphArr[1].(map[string]any); ok {
-				// Parse @context for reverse IRI→property lookup.
-				reverseMap := jsonld.BuildReverseMap(ldContext)
 				for key, val := range edgesNode {
 					if key == "@id" {
 						continue
 					}
-					propName, known := reverseMap[key]
+					// Records written before issue #515 key their edges by
+					// predicate IRI; newer ones key them by property name.
+					// Both forms are stored, so both must read.
+					propName, known := jsonld.EdgeProperty(key, ldContext)
 					if !known {
 						continue
 					}

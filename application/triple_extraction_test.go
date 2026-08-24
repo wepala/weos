@@ -155,10 +155,10 @@ func TestAddEdgeToGraph_Idempotent(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	ref, ok := edges["https://schema.org/participant"].(map[string]any)
+	ref, ok := edges["studentId"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected single {@id} ref after idempotent re-add, got %T: %v",
-			edges["https://schema.org/participant"], edges["https://schema.org/participant"])
+			edges["studentId"], edges["studentId"])
 	}
 	if ref["@id"] != "stu-1" {
 		t.Errorf("expected @id=stu-1, got %v", ref["@id"])
@@ -201,9 +201,9 @@ func TestAddEdgeToGraph_MultiValued(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	arr, ok := edges["https://schema.org/participant"].([]any)
+	arr, ok := edges["studentId"].([]any)
 	if !ok {
-		t.Fatalf("expected array for multi-valued predicate, got %T", edges["https://schema.org/participant"])
+		t.Fatalf("expected array for the multi-valued property, got %T", edges["studentId"])
 	}
 	if len(arr) != 2 {
 		t.Errorf("expected 2 entries, got %d", len(arr))
@@ -251,9 +251,9 @@ func TestAddEdgeToGraph_Idempotent_ArrayBranch(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	arr, ok := edges["https://schema.org/participant"].([]any)
+	arr, ok := edges["studentId"].([]any)
 	if !ok {
-		t.Fatalf("expected array, got %T", edges["https://schema.org/participant"])
+		t.Fatalf("expected array, got %T", edges["studentId"])
 	}
 	if len(arr) != 3 {
 		t.Errorf("array length after idempotent replay = %d, want 3", len(arr))
@@ -329,9 +329,9 @@ func TestBuildResourceGraph_ArrayRef(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	arr, ok := edges["https://schema.org/participant"].([]any)
+	arr, ok := edges["studentId"].([]any)
 	if !ok {
-		t.Fatalf("expected array of refs, got %T", edges["https://schema.org/participant"])
+		t.Fatalf("expected array of refs, got %T", edges["studentId"])
 	}
 	if len(arr) != 3 {
 		t.Fatalf("expected 3 refs, got %d", len(arr))
@@ -384,10 +384,10 @@ func TestRemoveEdgeFromGraph_PreservesArrayShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("edges node is %T, want map", graphArr[1])
 	}
-	arr, ok := edges["https://schema.org/participant"].([]any)
+	arr, ok := edges["studentId"].([]any)
 	if !ok {
 		t.Fatalf("predicate value is %T after removal, want []any (shape must not flip to scalar)",
-			edges["https://schema.org/participant"])
+			edges["studentId"])
 	}
 	if len(arr) != 1 {
 		t.Fatalf("array len = %d, want 1", len(arr))
