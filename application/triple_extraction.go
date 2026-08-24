@@ -327,6 +327,16 @@ func AddEdgeToGraph(
 
 	edgeKey := edgeKeyFor(doc, predicate)
 
+	// A triple names a predicate, and a predicate may belong to several
+	// properties (issue #515). If this object is already recorded under ANY of
+	// them the statement is present, so adding it again under whichever
+	// property the reverse map happens to pick would file it against the wrong
+	// one. This is the replay case: Create emits the resource graph AND its
+	// triples, so every triple arrives once with its edge already in place.
+	if edgesHaveObject(doc, objectID) {
+		return data, nil
+	}
+
 	graphArr, hasGraph := doc["@graph"].([]any)
 	if !hasGraph || len(graphArr) == 0 {
 		// No @graph — wrap existing data as entity node + new edges node.
@@ -844,4 +854,34 @@ func EdgeValues(graphData, ldContext json.RawMessage, propertyName string) []str
 func collectEdgeIDs(edgeVal any) []string {
 	ids, _ := jsonld.EdgeIDs(edgeVal)
 	return ids
+}
+
+// edgesHaveObject reports whether a document's edges node already records this
+// object under any property.
+//
+// Deliberately across ALL properties rather than one key: the caller has a
+// predicate, not a property, and cannot tell which property a shared predicate
+// belongs to without the schema. "Already stated" is the question that can be
+// answered from the document alone, and it is the one that matters.
+func edgesHaveObject(doc map[string]any, objectID string) bool {
+	graphArr, ok := doc["@graph"].([]any)
+	if !ok || len(graphArr) < 2 {
+		return false
+	}
+	edgesNode, ok := graphArr[1].(map[string]any)
+	if !ok {
+		return false
+	}
+	for key, val := range edgesNode {
+		if key == "@id" {
+			continue
+		}
+		ids, _ := jsonld.EdgeIDs(val)
+		for _, id := range ids {
+			if id == objectID {
+				return true
+			}
+		}
+	}
+	return false
 }

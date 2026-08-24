@@ -610,3 +610,47 @@ func appendMissing(list []string, iri string) []string {
 	}
 	return append(list, iri)
 }
+
+// ambiguousReferenceShape reports reference properties that no reader can tell
+// apart: two on one type resolving to the same predicate AND pointing at the
+// same target type.
+//
+// Sharing a predicate is legitimate on its own — an atomic relation like
+// `associated` is meant to be reused, and a reader separates the values by the
+// type each one points at. That stops working when two of them point at the
+// same type: the graph genuinely does not distinguish them, and no projection
+// can invent the difference. Storing them anyway means one silently standing in
+// for the other.
+//
+// Two shapes are correct instead, and the report names both because which one
+// is meant depends on intent, not on anything visible here:
+//
+//   - Two DIFFERENT relationships want different predicates. A primary author
+//     and a reviewer are not the same relation to a question.
+//   - One relationship with several targets wants a single ARRAY property, not
+//     two scalar ones — that is a one-to-many, and saying so makes it one.
+//
+// The check reads the STORED schema and context, not the preset's declaration.
+// A preset can only make a type ambiguous by ADDING a property whose term names
+// an existing property's predicate: an existing term cannot be repointed,
+// because reconcileAdditiveContext holds a diverging term at its stored
+// definition. Reading the preset would therefore report a shape that was never
+// installed, and miss the one that was.
+func ambiguousReferenceShape(schema, ldContext json.RawMessage) [][]string {
+	type shape struct{ predicate, target string }
+	byShape := map[shape][]string{}
+	for _, ref := range ExtractReferenceProperties(schema, ldContext) {
+		key := shape{predicate: ref.PredicateIRI, target: ref.TargetType}
+		byShape[key] = append(byShape[key], ref.PropertyName)
+	}
+	var ambiguous [][]string
+	for _, names := range byShape {
+		if len(names) < 2 {
+			continue
+		}
+		sort.Strings(names)
+		ambiguous = append(ambiguous, names)
+	}
+	sort.Slice(ambiguous, func(i, j int) bool { return ambiguous[i][0] < ambiguous[j][0] })
+	return ambiguous
+}

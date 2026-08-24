@@ -32,7 +32,6 @@ Feature: A preset whose reference shape no reader can disambiguate is refused at
       | name     | string    |            |
       | maker    | reference | vendor     |
 
-  @wip
   Scenario: Two reference properties sharing a predicate and a target type are refused, with both remedies named
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
     And the "catalog" preset declares "maker" as "https://schema.org/associated" in the "widget" context
@@ -42,7 +41,6 @@ Feature: A preset whose reference shape no reader can disambiguate is refused at
     And the refusal tells the operator to give the relationships different predicates
     And the refusal tells the operator to collapse them into a single array property
 
-  @wip
   Scenario: Two reference properties sharing a predicate but not a target type are accepted
     Given the "catalog" preset adds a "partner" reference property to "widget" targeting "widget"
     And the "catalog" preset declares "maker" as "https://schema.org/associated" in the "widget" context
@@ -50,7 +48,6 @@ Feature: A preset whose reference shape no reader can disambiguate is refused at
     When the twin starts against a clean database
     Then the boot refuses nothing
 
-  @wip
   Scenario: Two reference properties sharing a predicate but not a target type each read back under their own name
     Given the "catalog" preset adds a "partner" reference property to "widget" targeting "widget"
     And the "catalog" preset declares "maker" as "https://schema.org/associated" in the "widget" context
@@ -67,7 +64,6 @@ Feature: A preset whose reference shape no reader can disambiguate is refused at
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "maker" edge to the "vendor" "Acme"
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "partner" edge to the "widget" "Hex key"
 
-  @wip
   Scenario: A single array property on a predicate is the correct shape and is accepted
     Given the "catalog" preset adds a "suppliers" reference list property to "widget" targeting "vendor"
     And the "catalog" preset declares "maker" as "https://example.org/catalog#madeBy" in the "widget" context
@@ -75,7 +71,6 @@ Feature: A preset whose reference shape no reader can disambiguate is refused at
     When the twin starts against a clean database
     Then the boot refuses nothing
 
-  @wip
   Scenario: Two reference properties targeting one type on different predicates are accepted
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor"
     When the twin starts against a clean database
@@ -88,7 +83,6 @@ Feature: A preset whose reference shape no reader can disambiguate is refused at
     And reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
     And reading the "widget" "Bolt cutter" back through the projection returns "supplier" as the "vendor" "Acme"
 
-  @wip
   Scenario: A type that becomes ambiguous across builds is refused on the next boot
     Given the twin starts against a clean database
     And a "vendor" named "Acme" exists

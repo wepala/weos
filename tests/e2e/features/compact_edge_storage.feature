@@ -32,7 +32,6 @@ Feature: A resource's edges are stored under their property names, and both shap
     And a clean WeOS database provisioned by that build
     And a "vendor" named "Acme" exists
 
-  @wip
   Scenario: A new write keys its edge by the property name and keeps the mapping in its own context
     When I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
     Then the stored canonical record for the "widget" "Bolt cutter" keys its "maker" edge by the property name
@@ -42,7 +41,6 @@ Feature: A resource's edges are stored under their property names, and both shap
     And the API read of the "widget" "Bolt cutter" returns "maker" as the "vendor" "Acme"
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "maker" edge to the "vendor" "Acme"
 
-  @wip
   Scenario: A document stored in the old expanded form keeps reading beside a new compact write
     Given a "widget" named "Bolt cutter" stored in the old expanded edges form with "maker" referring to the vendors "Acme"
     When I create a "widget" named "Hex key" with "maker" referring to the "vendor" "Acme"
@@ -55,7 +53,6 @@ Feature: A resource's edges are stored under their property names, and both shap
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "maker" edge to the "vendor" "Acme"
     And the JSON-LD representation of the "widget" "Hex key" still carries a "maker" edge to the "vendor" "Acme"
 
-  @wip
   Scenario: A list reference stored in the old expanded form still reads back as a list beside a compact one
     Given a "vendor" named "Globex" exists
     And a "widget" named "Bolt cutter" stored in the old expanded edges form with "suppliers" referring to the vendors "Acme, Globex"
@@ -70,7 +67,6 @@ Feature: A resource's edges are stored under their property names, and both shap
     And the JSON-LD representation of the "widget" "Bolt cutter" carries "suppliers" edges to the vendors "Acme, Globex"
     And the JSON-LD representation of the "widget" "Hex key" carries "suppliers" edges to the vendors "Acme, Globex"
 
-  @wip
   Scenario: A reference property the preset never named in its context round-trips
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
@@ -79,7 +75,6 @@ Feature: A resource's edges are stored under their property names, and both shap
     And the API read of the "widget" "Bolt cutter" returns "supplier" as the "vendor" "Acme"
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "supplier" edge to the "vendor" "Acme"
 
-  @wip
   Scenario: Repointing a term after the write orphans nothing
     Given I create a "widget" named "Bolt cutter" with "maker" referring to the "vendor" "Acme"
     When the operator maps "maker" to "https://example.org/catalog#madeBy" in the stored "widget" context
@@ -89,7 +84,6 @@ Feature: A resource's edges are stored under their property names, and both shap
     Then reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
     And the JSON-LD representation of the "widget" "Bolt cutter" still carries a "maker" edge to the "vendor" "Acme"
 
-  @wip
   Scenario: A compact record replays through a reproject with every edge intact
     Given a "vendor" named "Globex" exists
     When I create a "widget" named "Bolt cutter" with these references:
@@ -101,7 +95,6 @@ Feature: A resource's edges are stored under their property names, and both shap
     And reading the "widget" "Bolt cutter" back through the projection returns "maker" as the "vendor" "Acme"
     And reading the "widget" "Bolt cutter" back through the projection returns "suppliers" as the vendors "Acme, Globex"
 
-  @wip
   Scenario: A stored compact record expands to the graph the expanded form stored
     Given the "catalog" preset adds a "courier" reference property to "widget" targeting "vendor"
     And the "catalog" preset declares "courier" as "https://example.org/catalog#courier" in the "widget" context
@@ -112,21 +105,18 @@ Feature: A resource's edges are stored under their property names, and both shap
     And the stored canonical record for the "widget" "Hex key" keys its "courier" edge by the property name
     And expanding the stored record for the "widget" "Hex key" through its own context yields the edges the stored record for the "widget" "Bolt cutter" already holds
 
-  @wip
   Scenario: Both shapes put the same predicate and the same object in the triple store
     Given a "widget" named "Bolt cutter" stored in the old expanded edges form with "maker" referring to the vendors "Acme"
     When I create a "widget" named "Hex key" with "maker" referring to the "vendor" "Acme"
     Then the triple store holds "https://schema.org/maker" from the "widget" "Bolt cutter" to the "vendor" "Acme"
     And the triple store holds "https://schema.org/maker" from the "widget" "Hex key" to the "vendor" "Acme"
 
-  @wip
   Scenario: A property with no context term still resolves its predicate through @vocab in the triple store
     Given the "catalog" preset adds a "supplier" reference property to "widget" targeting "vendor" without a context entry
     And the twin restarts against the same database
     When I create a "widget" named "Bolt cutter" with "supplier" referring to the "vendor" "Acme"
     Then the triple store holds "https://schema.org/supplier" from the "widget" "Bolt cutter" to the "vendor" "Acme"
 
-  @wip
   Scenario: A term declared away from @vocab keeps its predicate in the triple store
     Given the "catalog" preset adds a "courier" reference property to "widget" targeting "vendor"
     And the "catalog" preset declares "courier" as "https://example.org/catalog#courier" in the "widget" context

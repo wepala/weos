@@ -68,6 +68,16 @@ func ensureBuiltInResourceTypes(params struct {
 				"slug", slug, "count", count)
 		}
 	}
+	// Ambiguity is checked AFTER both the reconcile and the installs above, so a
+	// preset that ships ambiguous is caught on the boot that installs it rather
+	// than the one after. It runs every boot, not only when something changed:
+	// a type becomes ambiguous when a later build adds a property onto an
+	// existing predicate, and by then data already exists under the property
+	// that loses (issue #515).
+	for _, preset := range params.Registry.List() {
+		reportAmbiguousReferences(ctx, params.TypeSvc, params.Logger, preset)
+	}
+
 	// InstallPreset already reconciles after each install, but presets install
 	// one at a time in the loop above — if preset B depends on preset A's
 	// types, the activation during A's install won't know B exists yet. A
@@ -160,5 +170,41 @@ func reconcilePresetSchemas(
 		logger.Warn(ctx,
 			"preset type declares no JSON Schema: its projection has only base columns",
 			"preset", presetName, "slug", slug)
+	}
+}
+
+// reportAmbiguousReferences names every installed type whose reference
+// properties no reader can tell apart, and what to do about it.
+//
+// Reported, not fatal, matching how a per-type reconcile failure is handled: a
+// bad shape on one type is contained to that type, and refusing to boot the
+// whole service over it would take a running system down to fix a subset of
+// writes. The message carries both remedies because which one is meant depends
+// on intent — see ambiguousReferenceShape.
+func reportAmbiguousReferences(
+	ctx context.Context, svc ResourceTypeService, logger entities.Logger, preset PresetDefinition,
+) {
+	for _, pt := range preset.Types {
+		existing, err := svc.GetBySlug(ctx, pt.Slug)
+		if err != nil {
+			continue // not installed here; nothing stored to be ambiguous
+		}
+		for _, names := range ambiguousReferenceShape(existing.Schema(), existing.Context()) {
+			refs := ExtractReferenceProperties(existing.Schema(), existing.Context())
+			predicate, target := "", ""
+			for _, ref := range refs {
+				if ref.PropertyName == names[0] {
+					predicate, target = ref.PredicateIRI, ref.TargetType
+					break
+				}
+			}
+			logger.Error(ctx,
+				"ambiguous reference shape: these properties resolve to one predicate and one "+
+					"target type, so no reader can tell them apart and one stands in for the other. "+
+					"Give the relationships different predicates if they differ, or collapse them "+
+					"into a single array property if they are one relationship with several targets",
+				"preset", preset.Name, "slug", pt.Slug, "properties", names,
+				"predicate", predicate, "targetType", target)
+		}
 	}
 }
