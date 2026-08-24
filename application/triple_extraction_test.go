@@ -970,3 +970,35 @@ func TestTermlessReferenceKeepsOneEdgeKey(t *testing.T) {
 		t.Errorf("the reference survived its delete: %v", flat)
 	}
 }
+
+// TestCompactIRIPredicateStillReadsBack: a predicate resolves to a COMPACT IRI
+// when its prefix is undefined and no `@vocab` absorbs it — `foaf:knows` stays
+// `foaf:knows`. A legacy record keys its edge by exactly that.
+//
+// Classifying keys by an http/https/urn whitelist read it as a property name,
+// so the API served a field literally called `foaf:knows` while `knows` came
+// back empty, and the projection snake-cased the same junk into a column that
+// does not exist. JSON-LD's own rule — a term never contains a colon — is exact
+// for every scheme.
+func TestCompactIRIPredicateStillReadsBack(t *testing.T) {
+	t.Parallel()
+
+	typeContext := json.RawMessage(`{"@type":"Person","knows":"foaf:knows"}`)
+	legacy := json.RawMessage(`{
+	  "@context":{"@type":"Person","knows":"foaf:knows"},
+	  "@graph":[
+	    {"@id":"urn:person:1","@type":"Person","name":"A"},
+	    {"@id":"urn:person:1","foaf:knows":{"@id":"urn:person:2"}}
+	  ]}`)
+
+	var flat map[string]any
+	if err := json.Unmarshal(FlattenGraph(legacy, typeContext), &flat); err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if _, junk := flat["foaf:knows"]; junk {
+		t.Errorf("the predicate was served as a property name: %v", flat)
+	}
+	if flat["knows"] != "urn:person:2" {
+		t.Errorf("knows = %v, want urn:person:2", flat["knows"])
+	}
+}

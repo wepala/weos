@@ -169,6 +169,11 @@ func (s *resourceTypeService) Create(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource type: %w", err)
 	}
+	// A type created here belongs to no preset, so the boot sweep never sees
+	// it — and hand-authoring several ID fields onto one relation is exactly
+	// how the shape gets built (issue #515). Report it now, while the operator
+	// is looking at what they just defined.
+	ReportAmbiguousReferenceShape(ctx, s.logger, cmd.Slug, cmd.Schema, cmd.Context)
 
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
 	if err := uow.Track(entity); err != nil {
@@ -215,6 +220,9 @@ func (s *resourceTypeService) Update(
 	); err != nil {
 		return nil, fmt.Errorf("failed to update resource type: %w", err)
 	}
+	// An edit can introduce the shape just as a create can — repointing one
+	// property's term onto another's predicate is enough.
+	ReportAmbiguousReferenceShape(ctx, s.logger, cmd.Slug, cmd.Schema, cmd.Context)
 
 	uow := esapp.NewSimpleUnitOfWork(s.eventStore, s.dispatcher)
 	if err := uow.Track(entity); err != nil {

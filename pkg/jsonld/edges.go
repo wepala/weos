@@ -82,7 +82,7 @@ func EdgeProperty(key string, ldContext json.RawMessage) (string, bool) {
 	if key == "" || key == "@id" {
 		return "", false
 	}
-	if !IsAbsoluteIRI(key) {
+	if !IsIRIKey(key) {
 		// Compact: the key is the property name.
 		return key, true
 	}
@@ -91,10 +91,18 @@ func EdgeProperty(key string, ldContext json.RawMessage) (string, bool) {
 	return name, ok
 }
 
-// IsAbsoluteIRI reports whether a key is a full IRI rather than a term name.
-// JSON-LD forbids a term containing a colon from being interpreted as a term,
-// so the scheme prefix is a reliable discriminator for the two stored forms.
-func IsAbsoluteIRI(key string) bool {
-	return strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") ||
-		strings.HasPrefix(key, "urn:")
+// IsIRIKey reports whether an edges-node key is an IRI rather than a property
+// name.
+//
+// JSON-LD states the rule exactly: a term MUST NOT contain a colon. So a colon
+// is the discriminator, and it is exact for every scheme — a whitelist of
+// http/https/urn missed a COMPACT IRI like `foaf:knows`, which is what a
+// predicate resolves to when its prefix is undefined and no `@vocab` absorbs
+// it. Such a key was read as a property name, so the API served a field called
+// `foaf:knows` and the real one came back empty.
+//
+// Property names in this system are schema property names, which never contain
+// a colon.
+func IsIRIKey(key string) bool {
+	return strings.Contains(key, ":")
 }

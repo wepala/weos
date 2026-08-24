@@ -352,7 +352,7 @@ func edgeKeyIn(edgesNode, doc map[string]any, predicate string) (string, bool) {
 // predicateOfKey resolves one stored edge key to the predicate it carries,
 // mirroring how the write path resolved it in the first place.
 func predicateOfKey(key, vocab string, terms map[string]string) string {
-	if jsonld.IsAbsoluteIRI(key) {
+	if jsonld.IsIRIKey(key) {
 		return key
 	}
 	return jsonld.ResolvePredicateIRI(key, vocab, terms)

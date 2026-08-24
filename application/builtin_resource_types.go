@@ -17,9 +17,12 @@ package application
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/domain/repositories"
 
 	"go.uber.org/fx"
 )
@@ -187,24 +190,54 @@ func reportAmbiguousReferences(
 	for _, pt := range preset.Types {
 		existing, err := svc.GetBySlug(ctx, pt.Slug)
 		if err != nil {
-			continue // not installed here; nothing stored to be ambiguous
-		}
-		for _, names := range ambiguousReferenceShape(existing.Schema(), existing.Context()) {
-			refs := ExtractReferenceProperties(existing.Schema(), existing.Context())
-			predicate, target := "", ""
-			for _, ref := range refs {
-				if ref.PropertyName == names[0] {
-					predicate, target = ref.PredicateIRI, ref.TargetType
-					break
-				}
+			if !errors.Is(err, repositories.ErrNotFound) {
+				// Not installed is the ordinary case and stays quiet. Anything
+				// else disables the check for this type, and saying nothing
+				// would make a transient fault look like a clean boot.
+				logger.Warn(ctx, "could not check reference shapes for this type",
+					"preset", preset.Name, "slug", pt.Slug, "error", err)
 			}
-			logger.Error(ctx,
-				"ambiguous reference shape: these properties resolve to one predicate and one "+
-					"target type, so no reader can tell them apart and one stands in for the other. "+
-					"Give the relationships different predicates if they differ, or collapse them "+
-					"into a single array property if they are one relationship with several targets",
-				"preset", preset.Name, "slug", pt.Slug, "properties", names,
-				"predicate", predicate, "targetType", target)
+			continue
 		}
+		ReportAmbiguousReferenceShape(ctx, logger, pt.Slug, existing.Schema(), existing.Context())
+	}
+}
+
+// ReportAmbiguousReferenceShape names every pair of reference properties on one
+// type that no reader can tell apart, and what to do about it.
+//
+// Exported and called from the resource-type write path as well as from boot,
+// because a type created through the API or MCP belongs to no preset and the
+// boot sweep never sees it — which is precisely the population that hand-authors
+// several ID fields onto one relation. An operator learns when they define the
+// shape rather than from a boot log they may never read.
+//
+// Reported, not fatal, matching how a per-type reconcile failure is handled: a
+// bad shape on one type is contained to that type. Warn rather than Error
+// because it repeats on every boot with no way to acknowledge it, and an
+// operator who cannot change a shipped preset would otherwise have an alert
+// firing forever over a line they cannot act on.
+func ReportAmbiguousReferenceShape(
+	ctx context.Context, logger entities.Logger, slug string, schema, ldContext json.RawMessage,
+) {
+	groups := ambiguousReferenceShape(schema, ldContext)
+	if len(groups) == 0 {
+		return
+	}
+	refs := ExtractReferenceProperties(schema, ldContext)
+	for _, names := range groups {
+		predicate, target := "", ""
+		for _, ref := range refs {
+			if ref.PropertyName == names[0] {
+				predicate, target = ref.PredicateIRI, ref.TargetType
+				break
+			}
+		}
+		logger.Warn(ctx,
+			"ambiguous reference shape: these properties resolve to one predicate and one "+
+				"target type, so no reader can tell them apart and one stands in for the other. "+
+				"Give the relationships different predicates if they differ, or collapse them "+
+				"into a single array property if they are one relationship with several targets",
+			"slug", slug, "properties", names, "predicate", predicate, "targetType", target)
 	}
 }
