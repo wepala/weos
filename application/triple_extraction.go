@@ -299,52 +299,89 @@ func collectReferenceTriples(
 // edgeKeyIn picks the key an edges node uses for a predicate, and reports
 // whether several properties claim it.
 //
-// The document decides, not the context. A record written before issue #515
-// keys its edges by predicate IRI — and its stored context DOES carry the term
-// mapping, because buildStorableContext always kept string-form terms and real
-// presets declare them that way (`"recipe":"https://schema.org/isPartOf"`).
-// Resolving from the context alone therefore returned a property name for a
-// record whose edge is stored under the predicate, and the write landed in a
-// SECOND key beside the first. Both keys then resolved to the same property, so
-// reads picked between them at random and a delete silently matched neither.
+// The document decides, and it decides from the keys it ALREADY HOLDS rather
+// than from its context's term list. Every stored key resolves to a predicate
+// the same way the write path resolved it: an absolute key is its own
+// predicate, a compact key resolves through its term or through `@vocab`. So
+// the question "which key holds this predicate" has an exact answer, and it
+// covers all three shapes at once — a legacy expanded key, a compact key with
+// an explicit term, and a compact key with no term at all.
 //
-// Asking the edges node first settles it: if an edge is already stored under
-// the predicate, that IS this document's key for it.
+// Guessing from the context instead got both ends wrong. Resolving a term first
+// missed that a legacy record stores the predicate itself, and falling back to
+// the predicate missed that a TERM-LESS property is stored under its property
+// name — the #510 shape, and the common one. Either way the write landed in a
+// second key beside the first, so the same statement was recorded twice and a
+// delete removed only one of them.
+//
+// Only when no stored key carries the predicate does the different question
+// arise — where should a NEW edge go — and there the context is the right
+// place to look.
 func edgeKeyIn(edgesNode, doc map[string]any, predicate string) (string, bool) {
-	if edgesNode != nil {
-		if _, held := edgesNode[predicate]; held {
-			return predicate, false
+	vocab, terms := documentContext(doc)
+	var holding []string
+	for key := range edgesNode {
+		if key == "@id" {
+			continue
+		}
+		if predicateOfKey(key, vocab, terms) == predicate {
+			holding = append(holding, key)
 		}
 	}
+	if len(holding) > 0 {
+		// Several stored keys carrying one predicate means several properties
+		// share it, and a triple cannot say which of them it belongs to. Sorted
+		// so the answer does not change between runs.
+		sort.Strings(holding)
+		return holding[0], len(holding) > 1
+	}
+
 	names := propertiesForPredicate(doc, predicate)
-	if len(names) == 0 {
+	switch {
+	case len(names) > 0:
+		return names[0], len(names) > 1
+	case vocab != "" && strings.HasPrefix(predicate, vocab):
+		// No term names it, so the write path resolved it through `@vocab` —
+		// the property name is exactly what @vocab was prepended to.
+		return strings.TrimPrefix(predicate, vocab), false
+	default:
 		return predicate, false
 	}
-	return names[0], len(names) > 1
 }
 
-// propertiesForPredicate lists the properties a document's own `@context` maps
-// to one predicate, in a stable order.
-//
-// Edges are stored keyed by property name (issue #515), but the events driving
-// AddEdgeToGraph and RemoveEdgeFromGraph carry a PREDICATE — a triple has no
-// notion of the property that produced it. The document carries its context, so
-// it can answer this without the caller holding the resource type.
-//
-// Empty means nothing maps it: either a record written before #515, whose edges
-// ARE keyed by predicate and whose stored context was stripped of term
-// mappings, or a property resolving through `@vocab`. Callers fall back to the
-// predicate itself, which is exactly what those records use.
-func propertiesForPredicate(doc map[string]any, predicate string) []string {
+// predicateOfKey resolves one stored edge key to the predicate it carries,
+// mirroring how the write path resolved it in the first place.
+func predicateOfKey(key, vocab string, terms map[string]string) string {
+	if jsonld.IsAbsoluteIRI(key) {
+		return key
+	}
+	return jsonld.ResolvePredicateIRI(key, vocab, terms)
+}
+
+// documentContext parses a document's own `@context`, tolerating the bare
+// string form that buildStorableContext still produces when only `@vocab`
+// survives. Unmarshalled as a map that form yields nothing, which left every
+// vocab-only record blind by construction.
+func documentContext(doc map[string]any) (string, map[string]string) {
 	rawCtx, ok := doc["@context"]
 	if !ok {
-		return nil
+		return "", nil
+	}
+	if vocab, isString := rawCtx.(string); isString {
+		return vocab, nil
 	}
 	encoded, err := json.Marshal(rawCtx)
 	if err != nil {
-		return nil
+		return "", nil
 	}
-	_, forward := jsonld.ParseContext(encoded)
+	return jsonld.ParseContext(encoded)
+}
+
+// propertiesForPredicate lists the properties a document's own `@context` maps
+// to one predicate, in a stable order. Used only to place a NEW edge, when no
+// stored key already carries the predicate.
+func propertiesForPredicate(doc map[string]any, predicate string) []string {
+	_, forward := documentContext(doc)
 	var names []string
 	for name, iri := range forward {
 		if iri == predicate {

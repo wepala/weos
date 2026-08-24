@@ -914,3 +914,59 @@ func TestBuildStorableContext_KeywordsAndCollapse(t *testing.T) {
 		t.Errorf("a vocab-only context stored as %#v, want the bare string it reduced to before", got)
 	}
 }
+
+// TestTermlessReferenceKeepsOneEdgeKey covers the shape issue #510 is about and
+// the one most types have: a reference property with NO explicit `@context`
+// term, resolving through `@vocab`.
+//
+// BuildResourceGraph stores it under the property name. A triple carries the
+// `@vocab`-derived predicate. If the two are resolved by different rules the
+// write lands in a second key beside the first, so the same statement is
+// recorded twice and a delete removes only one of them — the reference stays
+// on the resource after the user clears it.
+//
+// The stored context here is the bare string form, which is what
+// buildStorableContext produces whenever only `@vocab` survives. Parsed as a
+// map it yields nothing, so this case is blind unless that form is handled.
+func TestTermlessReferenceKeepsOneEdgeKey(t *testing.T) {
+	t.Parallel()
+
+	typeContext := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Meal"}`)
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},
+		"recipeId":{"type":"string","x-resource-type":"recipe"}}}`)
+	refProps := ExtractReferenceProperties(schema, typeContext)
+
+	stored, err := BuildResourceGraph(
+		json.RawMessage(`{"name":"Dinner","recipeId":"urn:recipe:A"}`),
+		refProps, "urn:meal:1", "Meal", typeContext)
+	if err != nil {
+		t.Fatalf("BuildResourceGraph: %v", err)
+	}
+
+	// Create emits the resource graph AND its triples, so this arrives with the
+	// edge already in place.
+	replayed, err := AddEdgeToGraph(stored, "https://schema.org/recipeId", "urn:recipe:A", "urn:meal:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, replayed)
+	if _, split := edges["https://schema.org/recipeId"]; split {
+		t.Fatalf("the replayed triple started a second key beside the stored one: %v", edges)
+	}
+	if triples := ExtractTriplesFromData(refProps, replayed, "urn:meal:1"); len(triples) != 1 {
+		t.Errorf("got %d triples, want 1 — a duplicated key states the same fact twice", len(triples))
+	}
+
+	removed, err := RemoveEdgeFromGraph(replayed, "https://schema.org/recipeId", "urn:recipe:A")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+	var flat map[string]any
+	if err := json.Unmarshal(FlattenGraph(removed, typeContext), &flat); err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if _, survived := flat["recipeId"]; survived {
+		t.Errorf("the reference survived its delete: %v", flat)
+	}
+}

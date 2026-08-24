@@ -82,7 +82,7 @@ func EdgeProperty(key string, ldContext json.RawMessage) (string, bool) {
 	if key == "" || key == "@id" {
 		return "", false
 	}
-	if !isAbsoluteIRI(key) {
+	if !IsAbsoluteIRI(key) {
 		// Compact: the key is the property name.
 		return key, true
 	}
@@ -91,10 +91,10 @@ func EdgeProperty(key string, ldContext json.RawMessage) (string, bool) {
 	return name, ok
 }
 
-// isAbsoluteIRI reports whether a key is a full IRI rather than a term name.
+// IsAbsoluteIRI reports whether a key is a full IRI rather than a term name.
 // JSON-LD forbids a term containing a colon from being interpreted as a term,
 // so the scheme prefix is a reliable discriminator for the two stored forms.
-func isAbsoluteIRI(key string) bool {
+func IsAbsoluteIRI(key string) bool {
 	return strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") ||
 		strings.HasPrefix(key, "urn:")
 }
