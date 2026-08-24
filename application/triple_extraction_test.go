@@ -747,3 +747,66 @@ func edgesNodeOf(t *testing.T, graph json.RawMessage) map[string]any {
 	}
 	return edges
 }
+
+// TestLegacyExpandedRecordStillMutatesAndReads: a record written before issue
+// #515 keys its edges by predicate IRI, and its stored context was stripped of
+// term mappings, so nothing maps the predicate to a property. Every path must
+// fall back to the predicate key rather than start a second, compact edge
+// beside the one already there — that would leave the same relationship
+// recorded twice under two keys.
+func TestLegacyExpandedRecordStillMutatesAndReads(t *testing.T) {
+	t.Parallel()
+
+	legacy := json.RawMessage(`{
+	  "@context":"https://schema.org/",
+	  "@graph":[
+	    {"@id":"urn:widget:1","@type":"Widget","name":"Bolt cutter"},
+	    {"@id":"urn:widget:1","https://schema.org/maker":{"@id":"urn:vendor:acme"}}
+	  ]}`)
+	// The TYPE's context still carries the mapping even though the record's
+	// stored copy does not; readers are given the type's context.
+	typeContext := json.RawMessage(
+		`{"@vocab":"https://schema.org/","maker":{"@id":"https://schema.org/maker","@type":"@id"}}`)
+
+	added, err := AddEdgeToGraph(legacy, "https://schema.org/maker", "urn:vendor:globex", "urn:widget:1")
+	if err != nil {
+		t.Fatalf("AddEdgeToGraph: %v", err)
+	}
+	edges := edgesNodeOf(t, added)
+	if _, wrong := edges["maker"]; wrong {
+		t.Error("a compact edge was started beside the expanded one; the relationship is now recorded twice")
+	}
+	arr, ok := edges["https://schema.org/maker"].([]any)
+	if !ok || len(arr) != 2 {
+		t.Fatalf("expanded edge is %T with %d refs, want an array of 2",
+			edges["https://schema.org/maker"], len(arr))
+	}
+
+	removed, err := RemoveEdgeFromGraph(added, "https://schema.org/maker", "urn:vendor:globex")
+	if err != nil {
+		t.Fatalf("RemoveEdgeFromGraph: %v", err)
+	}
+	if got := EdgeValues(removed, typeContext, "maker"); !sameStringSlice(got, []string{"urn:vendor:acme"}) {
+		t.Errorf("after removal EdgeValues = %v, want [urn:vendor:acme]", got)
+	}
+
+	var flat map[string]any
+	if err := json.Unmarshal(FlattenGraph(legacy, typeContext), &flat); err != nil {
+		t.Fatalf("flatten: %v", err)
+	}
+	if flat["maker"] != "urn:vendor:acme" {
+		t.Errorf("flattened legacy record has maker = %v, want urn:vendor:acme", flat["maker"])
+	}
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
