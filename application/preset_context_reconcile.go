@@ -272,7 +272,7 @@ func holdMovingTerms(
 	if err != nil {
 		return nil
 	}
-	// An EMPTY stored context is not a blank cheque. `{}` and `null` still
+	// An EMPTY stored context is not a blank check. `{}` and `null` still
 	// resolve a reference — to its bare property name, because there is no
 	// `@vocab` to prefix it — so edges exist under those names and adopting the
 	// preset's terms orphans them exactly as any other repointing would.
@@ -512,4 +512,86 @@ func dropDanglingPrefixTerms(
 		*added = removeString(*added, term)
 	}
 	return dropped
+}
+
+// adoptTerms rewrites a stored context to take the preset's definition for the
+// named terms, recording the IRI each property currently resolves to as an
+// alias (issue #513).
+//
+// This is the sanctioned way out of a held term. The guard refuses at boot to
+// adopt a term that would repoint a predicate with data under it, and that is
+// correct — but on its own it leaves the property unreadable with no way
+// forward. Adoption is safe only because the old IRI is recorded first: events
+// are immutable and carry the write-time key, so a reproject reproduces it, and
+// without the alias every existing edge would be orphaned permanently.
+//
+// Returns the merged context and the terms actually adopted. A term already
+// matching the preset's definition is skipped rather than re-recorded, which is
+// what makes running this twice a no-op.
+func adoptTerms(
+	stored, preset json.RawMessage, held []movedPredicate,
+) (json.RawMessage, []string, error) {
+	storedTerms, err := splitContext(stored)
+	if err != nil {
+		return nil, nil, fmt.Errorf("stored context: %w", err)
+	}
+	presetTerms, err := splitContext(preset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("preset context: %w", err)
+	}
+
+	aliases := jsonld.TermAliases(stored)
+	if aliases == nil {
+		aliases = map[string][]string{}
+	}
+	merged := make(map[string]json.RawMessage, len(storedTerms)+len(held))
+	for term, def := range storedTerms {
+		merged[term] = def
+	}
+
+	var adopted []string
+	for _, move := range held {
+		presetDef, declared := presetTerms[move.Term]
+		if !declared {
+			return nil, nil, fmt.Errorf("the preset declares no %q term to adopt", move.Term)
+		}
+		if jsonEquivalent(storedTerms[move.Term], presetDef) {
+			continue // already adopted; recording a second alias would be wrong
+		}
+		// The alias belongs to the PROPERTY whose resolution moves, which is not
+		// always the term being adopted: adopting a prefix moves every stored
+		// term written against it, and it is those properties whose edges carry
+		// the old IRI.
+		if move.Property != "" && move.StoredIRI != "" {
+			aliases[move.Property] = appendMissing(aliases[move.Property], move.StoredIRI)
+		}
+		merged[move.Term] = presetDef
+		adopted = append(adopted, move.Term)
+	}
+	if len(adopted) == 0 {
+		return nil, nil, nil
+	}
+
+	encodedAliases, err := json.Marshal(aliases)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to encode term aliases: %w", err)
+	}
+	merged[jsonld.TermAliasesKeyword] = encodedAliases
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to encode the adopted context: %w", err)
+	}
+	sort.Strings(adopted)
+	return encoded, adopted, nil
+}
+
+// appendMissing adds an IRI to a property's alias list unless it is already
+// there, so repeated adoption cannot grow the list without bound.
+func appendMissing(list []string, iri string) []string {
+	for _, existing := range list {
+		if existing == iri {
+			return list
+		}
+	}
+	return append(list, iri)
 }

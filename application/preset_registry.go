@@ -161,6 +161,16 @@ type ReconcilePresetResult struct {
 	// As with Refused, holding is per-term and the type's additive terms
 	// still landed, so a slug can appear here and in Updated at once.
 	RefusedContext map[string][]string `json:"refusedContext,omitempty"`
+	// Repointed maps a slug to the terms held because ADOPTING them would move
+	// a predicate that already has data (issue #513). Separate from
+	// RefusedContext because the cause and the fix both differ: nothing
+	// diverged, the stored context simply never had the term, and the way
+	// forward is `resource-type adopt-term`, which records the old IRI so
+	// existing edges keep resolving.
+	Repointed map[string][]string `json:"repointed,omitempty"`
+	// UnparseableContext maps a slug to why its stored `@context` could not be
+	// read. Its schema is still merged; only the context half is skipped.
+	UnparseableContext map[string]string `json:"unparseableContext,omitempty"`
 	// Failed maps a slug to why writes to it may still be dropped. Three
 	// causes, which differ in kind: the update errored; it succeeded while the
 	// projection column did not actually appear; or the type declares a

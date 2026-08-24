@@ -67,6 +67,18 @@ func BuildReverseMap(ldContext json.RawMessage) map[string]string {
 	for propName, iri := range forward {
 		result[iri] = propName
 	}
+	// Historical IRIs resolve too, so edges written before a term was adopted
+	// stay readable (issue #513). An alias NEVER shadows a live term: the
+	// current mapping is authoritative, and only an IRI nothing else claims is
+	// added.
+	for propName, iris := range TermAliases(ldContext) {
+		for _, iri := range iris {
+			if _, taken := result[iri]; taken {
+				continue
+			}
+			result[iri] = propName
+		}
+	}
 	return result
 }
 
@@ -177,6 +189,58 @@ func InlineVocabContext(data json.RawMessage) json.RawMessage {
 	out, err := json.Marshal(doc)
 	if err != nil {
 		return data
+	}
+	return out
+}
+
+// TermAliasesKeyword names the `@context` entry that records IRIs a property's
+// edges were written under BEFORE its current term was adopted (issue #513).
+//
+// It lives inside the context so it travels with the resource type and survives
+// a reproject. It is deliberately not an `@`-keyword: ParseContext ignores it
+// anyway, because its value is an object with no `@id`, so it never becomes a
+// predicate of its own.
+const TermAliasesKeyword = "weos:termAliases"
+
+// TermAliases returns the recorded historical IRIs for each property, keyed by
+// property name.
+//
+// These exist because events are immutable. An edge is stored keyed by the IRI
+// its property resolved to at write time, and `ResourceCreated` carries that
+// graph, so a reproject reproduces the original key no matter what is done to
+// the stored data. Adopting a term that names a different IRI would therefore
+// orphan every existing edge permanently. Recording the old IRI instead lets
+// both resolve, which is what makes adoption safe and reversible.
+func TermAliases(ldContext json.RawMessage) map[string][]string {
+	if len(ldContext) == 0 {
+		return nil
+	}
+	var ctx map[string]any
+	if json.Unmarshal(ldContext, &ctx) != nil {
+		return nil
+	}
+	raw, ok := ctx[TermAliasesKeyword].(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string][]string, len(raw))
+	for property, val := range raw {
+		switch v := val.(type) {
+		case string:
+			if v != "" {
+				out[property] = []string{v}
+			}
+		case []any:
+			var iris []string
+			for _, item := range v {
+				if iri, ok := item.(string); ok && iri != "" {
+					iris = append(iris, iri)
+				}
+			}
+			if len(iris) > 0 {
+				out[property] = iris
+			}
+		}
 	}
 	return out
 }

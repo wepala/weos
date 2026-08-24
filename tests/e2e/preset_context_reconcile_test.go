@@ -145,6 +145,16 @@ type contextWorld struct {
 	bootReport *reconcileLog
 
 	createdIDs map[string]string
+
+	// adoptErr and adoptAttempted record the outcome of an adopt-term command a
+	// scenario expects to be REFUSED, so the refusal itself can be asserted.
+	adoptErr       error
+	adoptAttempted bool
+
+	// contextBeforeSecondAdoption is the stored "widget" context as it was
+	// immediately before a repeated adoption, so idempotence is asserted against
+	// what was actually there rather than against a rebuilt expectation.
+	contextBeforeSecondAdoption json.RawMessage
 }
 
 // contextProperty is one schema property. references is empty for a literal and
@@ -231,6 +241,10 @@ func initPresetContextScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the boot reconcile reports "([^"]*)" as updated$`, w.bootReportsUpdated)
 	sc.Step(`^the boot reconcile does not report "([^"]*)" as updated$`, w.bootDoesNotReportUpdated)
 	sc.Step(`^the boot reconcile names "([^"]*)" as a property whose writes are still dropped$`, w.bootNamesDropped)
+
+	// The adopt-term migration extends this world rather than forking it: the
+	// situation it starts from is the one the guard scenarios leave behind.
+	w.registerAdoptionSteps(sc)
 }
 
 // --- preset shaping ---

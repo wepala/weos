@@ -64,6 +64,18 @@ func (s *stubResourceTypeService) ReconcilePresetSchemas(
 	return nil, nil
 }
 
+func (s *stubResourceTypeService) HeldContextTerms(
+	_ context.Context, _, _ string,
+) ([]application.HeldTerm, error) {
+	return nil, nil
+}
+
+func (s *stubResourceTypeService) AdoptContextTerms(
+	_ context.Context, _, _ string, _ []string,
+) ([]string, error) {
+	return nil, nil
+}
+
 func (s *stubResourceTypeService) ListBehaviors(
 	_ context.Context, _ string,
 ) ([]application.BehaviorInfo, error) {

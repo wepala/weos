@@ -133,6 +133,21 @@ func reconcilePresetSchemas(
 			"resource type context terms held at their stored definition: preset declares a different IRI",
 			"preset", presetName, "slug", slug, "heldContextTerms", held)
 	}
+	for slug, terms := range reconciled.Repointed {
+		// Phrased as held at their stored definition like the divergence case,
+		// because that is what an operator sees happen — but the reason and the
+		// remedy differ, so the remedy is named here.
+		logger.Warn(ctx,
+			"resource type context terms held at their stored definition: adopting them would "+
+				"repoint a predicate that already has data",
+			"preset", presetName, "slug", slug, "heldContextTerms", terms,
+			"remedy", "weos resource-type adopt-term "+presetName+" "+slug+" --all")
+	}
+	for slug, reason := range reconciled.UnparseableContext {
+		logger.Error(ctx,
+			"resource type @context could not be read; merged its schema only",
+			"preset", presetName, "slug", slug, "reason", reason)
+	}
 	for slug, reason := range reconciled.Failed {
 		// The reason names what actually failed: a projection column that never
 		// appeared, a reference property with no `@context` term to resolve

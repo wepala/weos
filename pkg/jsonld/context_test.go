@@ -182,3 +182,43 @@ func TestInlineVocabContext(t *testing.T) {
 		t.Error("document without @context should be unchanged")
 	}
 }
+
+// TestBuildReverseMap_TermAliases: an edge written before its term was adopted
+// is keyed by the IRI the property resolved to back then. Events are immutable
+// and carry that key, so a reproject reproduces it — the alias is what keeps it
+// readable after adoption (issue #513).
+func TestBuildReverseMap_TermAliases(t *testing.T) {
+	ctx := json.RawMessage(`{
+		"@vocab":"https://schema.org/",
+		"fo":"http://purl.org/foodontology#",
+		"recipeIngredient":"fo:hasIngredient",
+		"weos:termAliases":{"recipeIngredient":["https://schema.org/recipeIngredient"]}}`)
+
+	reverse := jsonld.BuildReverseMap(ctx)
+	for iri, want := range map[string]string{
+		"http://purl.org/foodontology#hasIngredient": "recipeIngredient",
+		"https://schema.org/recipeIngredient":        "recipeIngredient",
+	} {
+		if got := reverse[iri]; got != want {
+			t.Errorf("reverse[%q] = %q, want %q", iri, got, want)
+		}
+	}
+	// The alias key itself must not become a predicate.
+	if _, forward := jsonld.ParseContext(ctx); forward[jsonld.TermAliasesKeyword] != "" {
+		t.Errorf("%s leaked into the forward map as a term", jsonld.TermAliasesKeyword)
+	}
+}
+
+// TestBuildReverseMap_AliasNeverShadowsALiveTerm: a stale alias must not
+// capture an IRI another property currently claims, or reads for the live
+// property would resolve to the wrong name.
+func TestBuildReverseMap_AliasNeverShadowsALiveTerm(t *testing.T) {
+	ctx := json.RawMessage(`{
+		"@vocab":"https://schema.org/",
+		"maker":"https://schema.org/manufacturer",
+		"weos:termAliases":{"supplier":["https://schema.org/manufacturer"]}}`)
+
+	if got := jsonld.BuildReverseMap(ctx)["https://schema.org/manufacturer"]; got != "maker" {
+		t.Errorf("reverse IRI = %q, want maker — the live term must win over an alias", got)
+	}
+}

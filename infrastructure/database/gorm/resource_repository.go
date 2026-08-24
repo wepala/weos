@@ -1012,7 +1012,7 @@ func (r *ResourceRepository) findAllByFieldFromGeneric(
 // contains a bracket, so no schema lookup is needed to tell the two apart.
 // Only `eq` is expanded: negation over a list has no single obvious meaning
 // (does `ne` exclude a row that references the value alongside others?), so it
-// keeps its exact-match behaviour rather than guessing.
+// keeps its exact-match behavior rather than guessing.
 //
 // Caveat worth knowing: SQLite's LIKE is case-insensitive for ASCII while `=`
 // is not, so two IDs differing only in case could cross-match here. Resource
@@ -1047,7 +1047,7 @@ func (r *ResourceRepository) isReferenceColumn(typeSlug, column string) bool {
 	return false
 }
 
-// escapeLikeLiteral neutralises LIKE wildcards so a value containing `%` or `_`
+// escapeLikeLiteral neutralizes LIKE wildcards so a value containing `%` or `_`
 // matches literally.
 func escapeLikeLiteral(s string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
