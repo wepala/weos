@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 // contextTerms decodes a merged context so assertions can talk about terms
@@ -595,4 +597,44 @@ func TestReconcileAdditiveContext_DropsATermWhoseHeldPrefixIsGone(t *testing.T) 
 		}
 	}
 	t.Errorf("recipeIngredient was not reported; Moves = %+v", rec.Moves)
+}
+
+// TestAdoptTerms_ReadoptingAPrefixIsANoOp is Copilot's finding on #514.
+// Adopting a prefix records its aliases against the properties it MOVES, not
+// against the prefix, so an idempotence check that looks the term up in the
+// alias map reports a second run of the same command as a term that was never
+// held — and errors instead of doing nothing.
+func TestAdoptTerms_ReadoptingAPrefixIsANoOp(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"cat:madeBy"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","cat":"https://example.org/catalog#"}`)
+	held := []movedPredicate{{
+		Term: "cat", Property: "maker",
+		StoredIRI: "https://schema.org/cat:madeBy",
+		PresetIRI: "https://example.org/catalog#madeBy",
+	}}
+
+	adoptedContext, adopted, err := adoptTerms(stored, preset, held)
+	if err != nil {
+		t.Fatalf("adoptTerms: %v", err)
+	}
+	if !sameStrings(adopted, []string{"cat"}) {
+		t.Fatalf("adopted = %v, want [cat]", adopted)
+	}
+	// The alias lands on the property, which is why the term must be recorded
+	// separately for the re-run to be recognizable.
+	if got := jsonld.TermAliases(adoptedContext)["maker"]; len(got) != 1 {
+		t.Errorf("aliases for maker = %v, want the pre-adoption IRI", got)
+	}
+	if got := jsonld.TermAliases(adoptedContext)["cat"]; len(got) != 0 {
+		t.Errorf("aliases for cat = %v, want none — a prefix is not a predicate", got)
+	}
+	var found bool
+	for _, term := range jsonld.AdoptedTerms(adoptedContext) {
+		if term == "cat" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the adopted prefix was not recorded, so re-running the command would be refused")
+	}
 }

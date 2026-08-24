@@ -202,6 +202,35 @@ func InlineVocabContext(data json.RawMessage) json.RawMessage {
 // predicate of its own.
 const TermAliasesKeyword = "weos:termAliases"
 
+// AdoptedTermsKeyword names the `@context` entry listing terms an operator has
+// adopted. It exists because the alias itself cannot answer "was this adopted?"
+// for a PREFIX: adopting one records aliases against the properties it moves,
+// not against the prefix, so looking the term up in the alias map reports a
+// re-run of the same command as a term that was never held.
+const AdoptedTermsKeyword = "weos:adoptedTerms"
+
+// AdoptedTerms returns the terms already adopted for a resource type.
+func AdoptedTerms(ldContext json.RawMessage) []string {
+	if len(ldContext) == 0 {
+		return nil
+	}
+	var ctx map[string]any
+	if json.Unmarshal(ldContext, &ctx) != nil {
+		return nil
+	}
+	raw, ok := ctx[AdoptedTermsKeyword].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if term, ok := item.(string); ok && term != "" {
+			out = append(out, term)
+		}
+	}
+	return out
+}
+
 // TermAliases returns the recorded historical IRIs for each property, keyed by
 // property name.
 //

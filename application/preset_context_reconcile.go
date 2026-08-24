@@ -577,6 +577,21 @@ func adoptTerms(
 		return nil, nil, fmt.Errorf("failed to encode term aliases: %w", err)
 	}
 	merged[jsonld.TermAliasesKeyword] = encodedAliases
+
+	// Record WHICH terms were adopted, separately from the aliases. Adopting a
+	// prefix records aliases against the properties it moves, so the alias map
+	// alone cannot tell a re-run of the same command from a term that was never
+	// held.
+	adoptedAll := jsonld.AdoptedTerms(stored)
+	for _, term := range adopted {
+		adoptedAll = appendMissing(adoptedAll, term)
+	}
+	sort.Strings(adoptedAll)
+	encodedAdopted, err := json.Marshal(adoptedAll)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to encode adopted terms: %w", err)
+	}
+	merged[jsonld.AdoptedTermsKeyword] = encodedAdopted
 	encoded, err := json.Marshal(merged)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encode the adopted context: %w", err)

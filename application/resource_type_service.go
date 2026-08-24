@@ -1012,8 +1012,16 @@ func selectTermsToAdopt(
 		}
 		// Already adopted on an earlier run, or never held at all? The stored
 		// context matches the preset either way, so matching alone cannot tell
-		// them apart. A recorded alias can: adoption is what writes one.
-		alreadyAdopted := len(jsonld.TermAliases(stored)[term]) > 0
+		// them apart. The adopted-terms record can, and it names the TERM —
+		// unlike the aliases, which a prefix records against the properties it
+		// moves rather than against itself.
+		alreadyAdopted := false
+		for _, done := range jsonld.AdoptedTerms(stored) {
+			if done == term {
+				alreadyAdopted = true
+				break
+			}
+		}
 		if alreadyAdopted && sErr == nil && pErr == nil &&
 			jsonEquivalent(storedTerms[term], presetTerms[term]) && len(presetTerms[term]) > 0 {
 			continue
