@@ -410,8 +410,13 @@ func (pm *projectionManager) UpdateColumnByFK(
 	// than the empty column this replaced, because a stale name still reads as
 	// current. The LIKE arm matches an array whose FIRST element is this
 	// target, which is exactly the one the display column carries.
+	// The pattern includes the CLOSING quote, so the quote is the token
+	// boundary and one ID cannot match inside a longer one that starts with it.
+	// Wildcards in the value itself are escaped: unescaped, a `%` would update
+	// every row in the table.
+	pattern := `["` + escapeLikeLiteral(fkValue) + `"%`
 	return pm.writeDB(ctx).Table(tableName).
-		Where(fkColumn+" = ? OR "+fkColumn+" LIKE ?", fkValue, `["`+fkValue+`"%`).
+		Where(fkColumn+" = ? OR "+fkColumn+" LIKE ? ESCAPE '\\'", fkValue, pattern).
 		Update(targetColumn, targetValue).Error
 }
 

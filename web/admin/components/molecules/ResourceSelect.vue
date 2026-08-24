@@ -22,7 +22,7 @@
     collapsed it to one entry on every save (issue #513).
   -->
   <a-select
-    :value="multiple ? (Array.isArray(value) ? value : []) : (value || undefined)"
+    :value="multiple ? asList(value) : (value || undefined)"
     :mode="multiple ? 'multiple' : undefined"
     show-search
     allow-clear
@@ -49,6 +49,14 @@ defineEmits<{
 // A multi-select must emit an array even when nothing is chosen, or a cleared
 // field would submit `""` where the schema requires a list and the write would
 // be rejected.
+// A row written before list references were stored as arrays still holds a
+// scalar. Coercing that to [] would render the field empty and wipe the
+// reference on the next save, so a scalar becomes a one-element list instead.
+function asList(current: string | string[] | undefined): string[] {
+  if (Array.isArray(current)) return current
+  return current ? [current] : []
+}
+
 function normalize(next: unknown): string | string[] {
   if (props.multiple) {
     return Array.isArray(next) ? (next as string[]) : []

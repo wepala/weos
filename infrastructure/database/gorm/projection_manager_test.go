@@ -1368,3 +1368,92 @@ func TestReferenceFilter_ListColumn(t *testing.T) {
 		t.Errorf("urn:widget:other does not reference %s but the filter matched it", acme)
 	}
 }
+
+// TestListReferenceMatching_PrefixCollision checks the claim that the LIKE
+// patterns can match an ID which merely starts with the one being looked for.
+// They cannot: every pattern includes the CLOSING quote, so the quote is the
+// token delimiter and `urn:vendor:a` cannot match inside `urn:vendor:aa`.
+func TestListReferenceMatching_PrefixCollision(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},
+		"suppliers":{"type":"array","x-resource-type":"vendor","items":{"type":"string"}}}}`)
+	if err := pm.EnsureTable(context.Background(), "widget", schema, nil); err != nil {
+		t.Fatalf("EnsureTable: %v", err)
+	}
+	repo := &ResourceRepository{db: db, projMgr: pm, logger: &testLogger{}}
+
+	// The short ID is a strict prefix of the long one, in both positions.
+	const short, long = "urn:vendor:a", "urn:vendor:aa"
+	for _, row := range []map[string]any{
+		{"id": "urn:widget:long-first", "type_slug": "widget", "suppliers": `["` + long + `"]`},
+		{"id": "urn:widget:long-later", "type_slug": "widget", "suppliers": `["urn:vendor:z","` + long + `"]`},
+		{"id": "urn:widget:short", "type_slug": "widget", "suppliers": `["` + short + `"]`},
+	} {
+		if err := db.Table("widgets").Create(row).Error; err != nil {
+			t.Fatalf("seed %v: %v", row["id"], err)
+		}
+	}
+
+	clause, args := repo.referenceFilterClause("widget", "", "suppliers", "=", short)
+	var got []map[string]any
+	if err := db.Table("widgets").Select("id").Where(clause, args...).Find(&got).Error; err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	if len(got) != 1 || fmt.Sprintf("%v", got[0]["id"]) != "urn:widget:short" {
+		t.Errorf("filtering for %q matched %v, want only the row that references it exactly", short, got)
+	}
+
+	// The same boundary applies to display propagation.
+	if err := pm.UpdateColumnByFK(
+		context.Background(), "widget", "suppliers", short, "suppliers_display", "SHORT"); err != nil {
+		t.Fatalf("UpdateColumnByFK: %v", err)
+	}
+	for _, id := range []string{"urn:widget:long-first", "urn:widget:long-later"} {
+		var rows []map[string]any
+		if err := db.Table("widgets").Select("suppliers_display").
+			Where("id = ?", id).Find(&rows).Error; err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		if v := rows[0]["suppliers_display"]; v != nil {
+			t.Errorf("%s references %q, not %q, but its display was set to %v", id, long, short, v)
+		}
+	}
+}
+
+// TestUpdateColumnByFK_EscapesWildcards: an ID containing a LIKE wildcard must
+// match literally. Resource IDs are KSUIDs today, but the clause is a general
+// contract and an unescaped `%` would update every row in the table.
+func TestUpdateColumnByFK_EscapesWildcards(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	pm := &projectionManager{db: db, logger: &testLogger{}}
+	schema := json.RawMessage(`{"type":"object","properties":{
+		"name":{"type":"string"},
+		"suppliers":{"type":"array","x-resource-type":"vendor","items":{"type":"string"}}}}`)
+	if err := pm.EnsureTable(context.Background(), "widget", schema, nil); err != nil {
+		t.Fatalf("EnsureTable: %v", err)
+	}
+	for _, row := range []map[string]any{
+		{"id": "urn:widget:real", "type_slug": "widget", "suppliers": `["urn:vendor:%"]`},
+		{"id": "urn:widget:other", "type_slug": "widget", "suppliers": `["urn:vendor:zzz"]`},
+	} {
+		if err := db.Table("widgets").Create(row).Error; err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	if err := pm.UpdateColumnByFK(
+		context.Background(), "widget", "suppliers", "urn:vendor:%", "suppliers_display", "LITERAL"); err != nil {
+		t.Fatalf("UpdateColumnByFK: %v", err)
+	}
+	var rows []map[string]any
+	if err := db.Table("widgets").Select("suppliers_display").
+		Where("id = ?", "urn:widget:other").Find(&rows).Error; err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if v := rows[0]["suppliers_display"]; v != nil {
+		t.Errorf("an unescaped wildcard updated an unrelated row (display = %v)", v)
+	}
+}
