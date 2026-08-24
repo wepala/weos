@@ -193,6 +193,24 @@ func InlineVocabContext(data json.RawMessage) json.RawMessage {
 	return out
 }
 
+// ControlKeywords are the `@context` entries WeOS reads as control data rather
+// than as term definitions.
+//
+// They are excluded from a resource's stored context BY NAME, not by the shape
+// of their value. `rdfs:subClassOf` names a type — a slug today, but
+// `"schema:Thing"` or `"urn:type:agreement"` is how someone who knows RDF would
+// naturally write it, and a value-shape test cannot tell that from a term
+// mapping. Copied into a resource document, any of them makes the whole
+// document unparseable and the graph store rejects it, so the resource never
+// reaches the knowledge graph while its API read stays healthy.
+var ControlKeywords = map[string]bool{
+	"rdfs:subClassOf":   true,
+	"weos:valueObject":  true,
+	"weos:abstract":     true,
+	TermAliasesKeyword:  true,
+	AdoptedTermsKeyword: true,
+}
+
 // TermAliasesKeyword names the `@context` entry that records IRIs a property's
 // edges were written under BEFORE its current term was adopted (issue #513).
 //

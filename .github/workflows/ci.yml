@@ -53,6 +53,45 @@ jobs:
       - name: Build
         run: go build -o bin/weos ./cmd/weos
 
+  # The default `go test ./...` carries no build tags, so nothing in it ever
+  # loads the embedded graph store. That matters more than it sounds: a stored
+  # document can be rejected by the JSON-LD parser while its API read and its
+  # projection stay perfectly correct, so the only symptom is data missing from
+  # SPARQL and the kg_* tools. Issue #515 shipped exactly that defect past a
+  # fully green gate, and it was caught by hand.
+  graph-embedded:
+    runs-on: ubuntu-latest
+    needs: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download admin SPA
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-dist
+          path: web/dist
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Run embedded graph store tests
+        # Fetches the vendored liboxigraph_ffi for this platform, then runs the
+        # store-level suites that prove a stored document still yields the
+        # triples it is supposed to.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: make test-graph-embedded
+
   test:
     runs-on: ubuntu-latest
     needs: frontend

@@ -989,6 +989,13 @@ func isTermDefinition(key string, val any) bool {
 	if strings.HasPrefix(key, "@") {
 		return key != "@type"
 	}
+	// By NAME first. A key WeOS reads as control is never a term definition,
+	// whatever its value looks like — `"rdfs:subClassOf":"schema:Thing"` is a
+	// perfectly ordinary way to write a parent type and would otherwise pass
+	// the value-shape test below and poison the document.
+	if jsonld.ControlKeywords[key] {
+		return false
+	}
 	switch v := val.(type) {
 	case string:
 		// An IRI, absolute ("https://…") or compact ("fo:hasIngredient").

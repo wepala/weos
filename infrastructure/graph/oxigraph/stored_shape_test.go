@@ -124,6 +124,12 @@ func TestRealTypeContextsStillLoad(t *testing.T) {
 		"adoptedTerms": `"weos:adoptedTerms":["recipe"]`,
 		"termAliases":  `"weos:termAliases":{"recipe":["https://schema.org/isPartOf"]}`,
 		"subClassOf":   `"rdfs:subClassOf":"economic-event"`,
+		// The same control keys written the way someone who knows RDF would:
+		// with a colon in the value. A value-shape test passes these straight
+		// through, and the store rejects the document exactly as before.
+		"subClassOfCompactIRI": `"rdfs:subClassOf":"schema:Thing"`,
+		"subClassOfURN":        `"rdfs:subClassOf":"urn:type:agreement"`,
+		"abstractString":       `"weos:abstract":"urn:flag:true"`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			full := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"Meal",` +
