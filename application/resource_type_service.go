@@ -446,8 +446,8 @@ func (s *resourceTypeService) reconcileOneType(
 		// guarantees there will be no next Update.
 		if dropped := referencePropertiesWithoutContextEntry(
 			existing.Schema(), existing.Context()); len(dropped) > 0 {
-			s.recordReconcileFailure(ctx, result, presetName, pt.Slug, fmt.Errorf(
-				"reference properties have no @context entry, so their writes are dropped: %v", dropped))
+			s.recordReconcileFailure(ctx, result, presetName, pt.Slug,
+				uncoveredReferencesError(dropped, pt.Schema))
 			return
 		}
 		result.Unchanged = append(result.Unchanged, pt.Slug)
@@ -557,8 +557,7 @@ func (s *resourceTypeService) confirmWritesLand(
 	// mistake, and naming it is the only way an operator learns those writes are
 	// being dropped.
 	if dropped := referencePropertiesWithoutContextEntry(schema, ldContext); len(dropped) > 0 {
-		reasons = append(reasons,
-			fmt.Sprintf("reference properties have no @context entry, so their writes are dropped: %v", dropped))
+		reasons = append(reasons, uncoveredReferencesError(dropped, pt.Schema).Error())
 	}
 	if len(reasons) == 0 {
 		return true
@@ -1047,4 +1046,41 @@ func (s *resourceTypeService) presetTypeAndStored(
 		return pt, existing, nil
 	}
 	return PresetResourceType{}, nil, fmt.Errorf("preset %q declares no %q type", presetName, typeSlug)
+}
+
+// uncoveredReferencesError phrases the dropped-writes report so it names the
+// right party.
+//
+// The check walks the STORED schema, which includes reference properties an
+// operator added through the API — the resource-type write path stores a schema
+// and context verbatim and derives no term, so such a property is uncovered by
+// construction. Calling that "a preset packaging mistake" sends the operator to
+// look at a preset they never touched.
+func uncoveredReferencesError(dropped []string, presetSchema json.RawMessage) error {
+	presetDeclares := map[string]bool{}
+	for _, ref := range ExtractReferenceProperties(presetSchema, nil) {
+		presetDeclares[ref.PropertyName] = true
+	}
+	var fromPreset, fromOperator []string
+	for _, name := range dropped {
+		if presetDeclares[name] {
+			fromPreset = append(fromPreset, name)
+			continue
+		}
+		fromOperator = append(fromOperator, name)
+	}
+	switch {
+	case len(fromPreset) > 0 && len(fromOperator) > 0:
+		return fmt.Errorf(
+			"reference properties have no @context entry, so their writes are dropped — "+
+				"declared by the preset: %v; added through the API: %v", fromPreset, fromOperator)
+	case len(fromOperator) > 0:
+		return fmt.Errorf(
+			"reference properties added through the API have no @context entry, so their writes "+
+				"are dropped: %v — add a term mapping each to its predicate IRI", fromOperator)
+	default:
+		return fmt.Errorf(
+			"reference properties the preset declares have no @context entry in the preset, so "+
+				"their writes are dropped: %v", fromPreset)
+	}
 }
