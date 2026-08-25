@@ -102,84 +102,21 @@ func projectResourceTypeOntology(
 		logger.Warn(ctx, "kg failed to clear prior resource type ontology",
 			"slug", slug, "class", classIRI, "error", err)
 	}
-	// A type that has just DECLARED a class (issue #521) advertised the name
-	// fallback until now; clear that subject too, or the old class lingers
-	// beside the new one until the graph is rebuilt from scratch.
-	if previous := resourceTypeClassIRI(name, slug, contextWithoutType(rawContext)); previous != classIRI {
-		if err := store.RemoveSubject(ctx, previous); err != nil {
-			logger.Warn(ctx, "kg failed to clear the previous resource type class",
-				"slug", slug, "class", previous, "error", err)
-		}
-	}
-	// The explicit class triples are written FIRST, so a context the store
-	// cannot parse (a JSON-LD 1.1 key the document filter does not know, an
-	// array-form context) costs the prefixes and never the class.
-	if err := emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger); err != nil {
-		return err
-	}
-	if err := store.LoadOntology(ctx, "application/ld+json", ontologyDocument(rawContext)); err != nil {
-		return fmt.Errorf("kg: load resource type ontology for %s: %w", slug, err)
-	}
-	return nil
-}
-
-// ontologyDocument is the type's context as a JSON-LD document the graph
-// store can take without side effects: a context-only document,
-// `{"@context": …}`, with the WeOS control entries (`weos:termAliases`,
-// `weos:adoptedTerms`, `weos:abstract`, `rdfs:subClassOf`…) AND `@type`
-// removed.
-//
-// Loading the raw context as a document was doing two things wrong. A bare
-// `"@type":"foaf:Person"` beside its prefix definition — not inside an
-// @context — minted a fresh blank node typed with the literal `foaf:Person`
-// on every boot, so the graph filled with anonymous nodes under an
-// unexpanded IRI. And an array or boolean under a term key is not a valid
-// term definition; nor is `@type` inside an @context (a keyword
-// redefinition, which this store refuses outright — see
-// infrastructure/graph/oxigraph/stored_shape_test.go). Either could have a
-// type whose context carried it lose its class. The class triples the graph
-// needs come from emitExplicitOntologyTriples, which reads the raw context;
-// this document contributes prefixes and nothing else.
-func ontologyDocument(rawContext json.RawMessage) json.RawMessage {
-	ctx := contextWithoutControlKeys(contextWithoutType(rawContext))
-	out, err := json.Marshal(map[string]any{"@context": json.RawMessage(ctx)})
-	if err != nil {
-		return rawContext
-	}
-	return out
-}
-
-// contextWithoutControlKeys drops the WeOS control entries from a context.
-func contextWithoutControlKeys(rawContext json.RawMessage) json.RawMessage {
-	var ctx map[string]any
-	if json.Unmarshal(rawContext, &ctx) != nil {
-		return rawContext
-	}
-	for key := range ctx {
-		if jsonld.ControlKeywords[key] {
-			delete(ctx, key)
-		}
-	}
-	out, err := json.Marshal(ctx)
-	if err != nil {
-		return rawContext
-	}
-	return out
-}
-
-// contextWithoutType is the context as it stood before a class was declared
-// on it, so the class the name fallback advertised can be found and cleared.
-func contextWithoutType(rawContext json.RawMessage) json.RawMessage {
-	var ctx map[string]any
-	if json.Unmarshal(rawContext, &ctx) != nil {
-		return rawContext
-	}
-	delete(ctx, "@type")
-	out, err := json.Marshal(ctx)
-	if err != nil {
-		return rawContext
-	}
-	return out
+	// Only the explicit triples are written. The type's context used to be
+	// loaded as a JSON-LD document as well, and that did two things wrong: a
+	// bare `"@type":"foaf:Person"` beside its prefix definition minted a
+	// fresh blank node typed with the literal `foaf:Person` on every boot,
+	// and any WeOS control entry (`weos:adoptedTerms` is an array, `@type`
+	// inside a context is a keyword redefinition) made a strict parser
+	// refuse the whole document — so a type whose terms had ever been
+	// adopted lost its class (issue #521). A context-only document yields no
+	// triples at all, so there is nothing that load could contribute.
+	//
+	// A type that just DECLARED a class advertised the name fallback until
+	// now; that subject is cleared by the documented `worker checkpoint
+	// reset oxigraph --truncate`, not here — another type may legitimately
+	// advertise the same IRI, and RemoveSubject would take its triples too.
+	return emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger)
 }
 
 // resourceTypeClassIRI returns the RDF class IRI that resources of this type

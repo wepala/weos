@@ -244,7 +244,7 @@ func TestOxigraphHandler_RemovesSubjectOnResourceDeleted(t *testing.T) {
 	}
 }
 
-func TestOxigraphHandler_LoadsOntologyOnTypeCreated(t *testing.T) {
+func TestOxigraphHandler_WritesExplicitClassTriplesOnTypeCreated(t *testing.T) {
 	t.Parallel()
 	store := &fakeKGStore{active: true}
 	rt := makeRT("product", `{"@vocab":"https://schema.org/"}`)
@@ -254,8 +254,12 @@ func TestOxigraphHandler_LoadsOntologyOnTypeCreated(t *testing.T) {
 	if err := h(context.Background(), env); err != nil {
 		t.Fatalf("ResourceType.Created: %v", err)
 	}
-	if len(store.loadedFormats) != 1 || store.loadedFormats[0] != "application/ld+json" {
-		t.Errorf("loaded formats = %v, want [application/ld+json]", store.loadedFormats)
+	// The type's context is NOT loaded as a JSON-LD document any more: a
+	// bare context minted a blank node per boot, and a WeOS control entry
+	// in it could make the store refuse the whole thing (issue #521). The
+	// explicit triples are what advertise the class.
+	if len(store.loadedFormats) != 0 {
+		t.Errorf("a resource type must not be loaded as a document, loaded formats = %v", store.loadedFormats)
 	}
 	// The class is declared under the IRI resources are typed with (the slug
 	// expanded against @vocab), not urn:type:product.

@@ -27,7 +27,7 @@ The Person type auto-computes `name` from `givenName` + `familyName`.
 The classes were declared in issue #521; before that a person carried `https://schema.org/Person`
 (the type name through `@vocab`). An instance upgraded across that change holds the new `@type`
 until the operator adopts it and re-stamps existing records — see
-[Normalize Stored Edge Keys](../_howto/normalize-edge-keys.md#example-person-and-organization-gained-a-class).
+[Normalize Stored Edge Keys]({% link _howto/normalize-edge-keys.md %}#example-person-and-organization-gained-a-class).
 Queries and MCP habits that filtered on `schema:Person` must move to `foaf:Person`. The graph is
 deliberately mixed: the class comes from FOAF / W3C ORG while every predicate (`givenName`,
 `name`, `email`…) stays on schema.org through `@vocab` — `?p a foaf:Person ; schema:name ?n`, not

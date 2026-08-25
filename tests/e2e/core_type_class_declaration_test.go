@@ -211,6 +211,9 @@ func (w *classWorld) lastResourceTypeNeedsNoFallback() error {
 		return err
 	}
 	graph, _ := doc["@graph"].([]any)
+	if len(graph) == 0 {
+		return fmt.Errorf("the %s resource has no @graph", w.lastSlug)
+	}
 	entity, _ := graph[0].(map[string]any)
 	typ, _ := entity["@type"].(string)
 	prefix, _, hasPrefix := strings.Cut(typ, ":")

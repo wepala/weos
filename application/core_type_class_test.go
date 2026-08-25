@@ -17,7 +17,6 @@ package application
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/wepala/weos/v3/pkg/jsonld"
@@ -44,37 +43,6 @@ func TestResourceTypeClassIRI_CoreTypes(t *testing.T) {
 		if got := resourceTypeClassIRI(c.name, c.slug, json.RawMessage(c.ctx)); got != c.want {
 			t.Errorf("%s: class IRI = %s, want %s", name, got, c.want)
 		}
-	}
-}
-
-func TestOntologyDocument_IsAContextOnlyDocumentWithoutControlKeys(t *testing.T) {
-	raw := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"foaf:Person","foaf":"http://xmlns.com/foaf/0.1/",
-	  "weos:adoptedTerms":["@type"],"weos:termAliases":{"x":["y"]},"weos:abstract":false,"rdfs:subClassOf":"thing"}`)
-	got := string(ontologyDocument(raw))
-	var doc map[string]any
-	if err := json.Unmarshal([]byte(got), &doc); err != nil || len(doc) != 1 || doc["@context"] == nil {
-		t.Fatalf("ontology document must be {\"@context\": …} and nothing else: %s", got)
-	}
-	for _, gone := range []string{"weos:adoptedTerms", "weos:termAliases", "weos:abstract", "rdfs:subClassOf"} {
-		if strings.Contains(got, gone) {
-			t.Errorf("ontology document still carries %s: %s", gone, got)
-		}
-	}
-	// @type inside an @context is a keyword redefinition the store refuses;
-	// the class reaches the graph through the explicit triples instead.
-	if strings.Contains(got, `"@type"`) {
-		t.Errorf("ontology document carries @type inside its @context: %s", got)
-	}
-	for _, kept := range []string{`"foaf":"http://xmlns.com/foaf/0.1/"`, `"@vocab"`} {
-		if !strings.Contains(got, kept) {
-			t.Errorf("ontology document lost %s: %s", kept, got)
-		}
-	}
-	if bare := string(ontologyDocument(json.RawMessage(`"https://schema.org/"`))); bare != `{"@context":"https://schema.org/"}` {
-		t.Errorf("a bare-string context must still be wrapped: %s", bare)
-	}
-	if prev := resourceTypeClassIRI("Person", "person", contextWithoutType(raw)); prev != "https://schema.org/Person" {
-		t.Errorf("the previous class (name through @vocab) = %s", prev)
 	}
 }
 
