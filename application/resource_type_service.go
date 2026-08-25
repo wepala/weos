@@ -1141,15 +1141,17 @@ func selectTermsToAdopt(
 				blocked[m.Term] = true
 			}
 		}
-		// A term written against a prefix the sweep leaves held cannot be
-		// taken either: merged without its prefix it would resolve through
-		// @vocab to an IRI nobody meant. It waits for the prefix.
+		// A term written against a prefix the sweep leaves held — or one the
+		// preset never declares — cannot be taken either: merged without its
+		// prefix it would resolve through @vocab to an IRI nobody meant. It
+		// waits, and the terms beside it are still adopted.
 		for changed := true; changed && pErr == nil; {
 			changed = false
 			for _, m := range held {
 				prefix := prefixOf(presetTerms[m.Term])
 				_, stored := storedTerms[prefix]
-				if !blocked[m.Term] && prefix != "" && blocked[prefix] && !stored {
+				_, declared := presetTerms[prefix]
+				if !blocked[m.Term] && prefix != "" && !stored && (blocked[prefix] || !declared) {
 					blocked[m.Term] = true
 					changed = true
 				}

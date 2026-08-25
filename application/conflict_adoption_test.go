@@ -271,3 +271,20 @@ func TestSelectTermsToAdopt_ATermBehindAHeldPrefixWaits(t *testing.T) {
 		t.Fatal("adopting supplier without its prefix must be refused")
 	}
 }
+
+// A term whose prefix the preset never declares is left by the sweep, and
+// the terms beside it are still adopted — one bad definition never aborts
+// the whole sweep.
+func TestSelectTermsToAdopt_AnUndeclaredPrefixHoldsOnlyItsOwnTerm(t *testing.T) {
+	stored := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"https://schema.org/maker","supplier":"https://schema.org/supplier"}`)
+	preset := json.RawMessage(`{"@vocab":"https://schema.org/","maker":"cat:madeBy","supplier":"https://example.org/catalog#suppliedBy"}`)
+	held := []movedPredicate{
+		{Term: "maker", Property: "maker", StoredIRI: "https://schema.org/maker", PresetIRI: "https://schema.org/cat:madeBy"},
+		{Term: "supplier", Property: "supplier", StoredIRI: "https://schema.org/supplier",
+			PresetIRI: "https://example.org/catalog#suppliedBy"},
+	}
+	selected, stillHeld, err := selectTermsToAdopt(held, nil, stored, preset, "widget")
+	if err != nil || len(selected) != 1 || selected[0].Term != "supplier" || len(stillHeld) != 1 || stillHeld[0] != "maker" {
+		t.Fatalf("selected = %+v, stillHeld = %v, err = %v", selected, stillHeld, err)
+	}
+}

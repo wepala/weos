@@ -835,6 +835,11 @@ func rawTermValue(raw json.RawMessage) string {
 // isNamespaceDefinition reports whether a raw context value is a namespace
 // IRI — a prefix definition, ending in "#" or "/" — rather than a term. The
 // object form, `{"@id": "https://…/"}`, counts the same as the string form.
+//
+// This is a convention, not a proof: a preset MUST end every prefix IRI in
+// "#" or "/" (every in-tree preset does). A prefix written without one is
+// treated as a property term — it is listed as a moved predicate, given an
+// alias of its own, and not borrowed into conflictMoves' baseline.
 func isNamespaceDefinition(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return false

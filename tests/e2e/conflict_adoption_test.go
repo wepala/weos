@@ -227,8 +227,16 @@ func (w *contextWorld) adoptionReportsClassMove(from, to string) error {
 }
 
 func (w *contextWorld) widgetsCarryDifferentRDFTypes(a, b string) error {
-	if err := w.widgetsShareAnRDFType(a, b); err == nil {
-		return fmt.Errorf("widgets %q and %q carry the same RDF type; the adopted class did not reach the new write", a, b)
+	aType, err := w.widgetRDFType(a)
+	if err != nil {
+		return err
+	}
+	bType, err := w.widgetRDFType(b)
+	if err != nil {
+		return err
+	}
+	if aType == bType {
+		return fmt.Errorf("widgets %q and %q both carry %q; the adopted class did not reach the new write", a, b, aType)
 	}
 	return nil
 }
