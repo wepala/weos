@@ -44,10 +44,14 @@ func TestResourceTypeClassIRI_CoreTypes(t *testing.T) {
 	}
 }
 
-func TestOntologyDocument_StripsWhatTheStoreRejects(t *testing.T) {
+func TestOntologyDocument_IsAContextOnlyDocumentWithoutControlKeys(t *testing.T) {
 	raw := json.RawMessage(`{"@vocab":"https://schema.org/","@type":"foaf:Person","foaf":"http://xmlns.com/foaf/0.1/",
 	  "weos:adoptedTerms":["@type"],"weos:termAliases":{"x":["y"]},"weos:abstract":false,"rdfs:subClassOf":"thing"}`)
 	got := string(ontologyDocument(raw))
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(got), &doc); err != nil || len(doc) != 1 || doc["@context"] == nil {
+		t.Fatalf("ontology document must be {\"@context\": …} and nothing else: %s", got)
+	}
 	for _, gone := range []string{"weos:adoptedTerms", "weos:termAliases", "weos:abstract", "rdfs:subClassOf"} {
 		if strings.Contains(got, gone) {
 			t.Errorf("ontology document still carries %s: %s", gone, got)
@@ -58,6 +62,9 @@ func TestOntologyDocument_StripsWhatTheStoreRejects(t *testing.T) {
 			t.Errorf("ontology document lost %s: %s", kept, got)
 		}
 	}
+	if prev := resourceTypeClassIRI("Person", "person", contextWithoutType(raw)); prev != "https://schema.org/Person" {
+		t.Errorf("the previous class (name through @vocab) = %s", prev)
+	}
 }
 
 func TestAdoptRemedy_NamesACommandThatAdoptsTheClass(t *testing.T) {
@@ -66,8 +73,11 @@ func TestAdoptRemedy_NamesACommandThatAdoptsTheClass(t *testing.T) {
 		t.Errorf("a held class alone must name --term @type, got %q", got)
 	}
 	if got := AdoptRemedy("core", "person", []string{"maker", "@type"}); !strings.Contains(got, "--all") ||
-		!strings.Contains(got, "--term @type") {
-		t.Errorf("a held class beside other terms needs both commands, got %q", got)
+		!strings.Contains(got, "--term @type") || strings.Contains(got, "(") {
+		t.Errorf("a held class beside other terms needs both commands and stays copy-pasteable, got %q", got)
+	}
+	if AdoptRemedyNote([]string{"@type"}) == "" || AdoptRemedyNote([]string{"maker"}) != "" {
+		t.Error("the note explains a held class and nothing else")
 	}
 	if got := AdoptRemedy("catalog", "widget", []string{"maker"}); got != "weos resource-type adopt-term catalog widget --all" {
 		t.Errorf("plain held terms keep the sweep, got %q", got)

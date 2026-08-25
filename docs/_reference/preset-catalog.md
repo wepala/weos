@@ -19,10 +19,16 @@ weos resource-type preset install <name>
 
 | Type | Slug | @type | Properties |
 |------|------|-------|------------|
-| Person | `person` | foaf:Person / schema:Person | `givenName`\*, `familyName`\*, `name` (computed), `email`, `avatarURL` |
-| Organization | `organization` | org:Organization / schema:Organization | `name`\*, `slug`\*, `description`, `url`, `logoURL` |
+| Person | `person` | `foaf:Person` (`http://xmlns.com/foaf/0.1/Person`) | `givenName`\*, `familyName`\*, `name` (computed), `email`, `avatarURL` |
+| Organization | `organization` | `org:Organization` (`http://www.w3.org/ns/org#Organization`) | `name`\*, `slug`\*, `description`, `url`, `logoURL` |
 
 The Person type auto-computes `name` from `givenName` + `familyName`.
+
+The classes were declared in issue #521; before that a person carried `https://schema.org/Person`
+(the type name through `@vocab`). An instance upgraded across that change holds the new `@type`
+until the operator adopts it and re-stamps existing records — see
+[Normalize Stored Edge Keys](../_howto/normalize-edge-keys.md#example-person-and-organization-gained-a-class).
+Queries and MCP habits that filtered on `schema:Person` must move to `foaf:Person`.
 
 ---
 

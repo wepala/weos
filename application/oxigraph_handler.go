@@ -102,21 +102,46 @@ func projectResourceTypeOntology(
 		logger.Warn(ctx, "kg failed to clear prior resource type ontology",
 			"slug", slug, "class", classIRI, "error", err)
 	}
+	// A type that has just DECLARED a class (issue #521) advertised the name
+	// fallback until now; clear that subject too, or the old class lingers
+	// beside the new one until the graph is rebuilt from scratch.
+	if previous := resourceTypeClassIRI(name, slug, contextWithoutType(rawContext)); previous != classIRI {
+		if err := store.RemoveSubject(ctx, previous); err != nil {
+			logger.Warn(ctx, "kg failed to clear the previous resource type class",
+				"slug", slug, "class", previous, "error", err)
+		}
+	}
 	if err := store.LoadOntology(ctx, "application/ld+json", ontologyDocument(rawContext)); err != nil {
 		return fmt.Errorf("kg: load resource type ontology for %s: %w", slug, err)
 	}
 	return emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger)
 }
 
-// ontologyDocument is the type's context as the graph store can parse it:
-// WeOS control entries (`weos:termAliases`, `weos:adoptedTerms`,
-// `weos:abstract`, `rdfs:subClassOf`…) are read by WeOS and are not JSON-LD
-// term definitions — an array or boolean under a term key makes the whole
-// document invalid, and the store rejected it outright, so a type whose
-// terms had ever been ADOPTED silently lost its class in the graph (issue
-// #521 made adoption routine for the core types). The raw context is still
-// what emitExplicitOntologyTriples reads for the parent class.
+// ontologyDocument is the type's context as a JSON-LD document the graph
+// store can take without side effects: a context-only document, `{"@context":
+// …}`, with WeOS control entries (`weos:termAliases`, `weos:adoptedTerms`,
+// `weos:abstract`, `rdfs:subClassOf`…) removed.
+//
+// Loading the raw context as a document was doing two things wrong. A bare
+// `"@type":"foaf:Person"` beside its prefix definition — not inside an
+// @context — minted a fresh blank node typed with the literal `foaf:Person`
+// on every boot, so the graph filled with anonymous nodes under an
+// unexpanded IRI. And an array or boolean under a term key is not a valid
+// term definition, so a type whose terms had ever been ADOPTED could be
+// refused outright by a strict parser and lose its class. The class triples
+// the graph needs come from emitExplicitOntologyTriples, which reads the raw
+// context; this document contributes prefixes and nothing else.
 func ontologyDocument(rawContext json.RawMessage) json.RawMessage {
+	ctx := contextWithoutControlKeys(rawContext)
+	out, err := json.Marshal(map[string]any{"@context": json.RawMessage(ctx)})
+	if err != nil {
+		return rawContext
+	}
+	return out
+}
+
+// contextWithoutControlKeys drops the WeOS control entries from a context.
+func contextWithoutControlKeys(rawContext json.RawMessage) json.RawMessage {
 	var ctx map[string]any
 	if json.Unmarshal(rawContext, &ctx) != nil {
 		return rawContext
@@ -126,6 +151,21 @@ func ontologyDocument(rawContext json.RawMessage) json.RawMessage {
 			delete(ctx, key)
 		}
 	}
+	out, err := json.Marshal(ctx)
+	if err != nil {
+		return rawContext
+	}
+	return out
+}
+
+// contextWithoutType is the context as it stood before a class was declared
+// on it, so the class the name fallback advertised can be found and cleared.
+func contextWithoutType(rawContext json.RawMessage) json.RawMessage {
+	var ctx map[string]any
+	if json.Unmarshal(rawContext, &ctx) != nil {
+		return rawContext
+	}
+	delete(ctx, "@type")
 	out, err := json.Marshal(ctx)
 	if err != nil {
 		return rawContext

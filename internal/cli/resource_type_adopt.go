@@ -75,6 +75,9 @@ var heldTermsCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(os.Stdout, "    preset wants    %s\n\n", h.PresetIRI)
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "Adopt with:  %s\n", application.AdoptRemedy(args[0], args[1], terms))
+		if note := application.AdoptRemedyNote(terms); note != "" {
+			_, _ = fmt.Fprintf(os.Stdout, "Note:        %s\n", note)
+		}
 		return nil
 	},
 }
@@ -113,8 +116,21 @@ var adoptTermCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if all {
+			// A sweep never takes the class; say so instead of letting the
+			// operator read "up to date" while the boot keeps warning.
+			if still, hErr := deps.ResourceTypeService.HeldContextTerms(cmd.Context(), args[0], args[1]); hErr == nil {
+				for _, h := range still {
+					if h.Term == "@type" {
+						_, _ = fmt.Fprintf(os.Stdout, "@type is still held for %q: a sweep never moves the class. "+
+							"Adopt it with: %s\n", args[1], application.AdoptRemedy(args[0], args[1], []string{"@type"}))
+						break
+					}
+				}
+			}
+		}
 		if len(adopted) == 0 {
-			_, _ = fmt.Fprintf(os.Stdout, "Nothing to adopt for %q — already up to date.\n", args[1])
+			_, _ = fmt.Fprintf(os.Stdout, "Nothing else to adopt for %q.\n", args[1])
 			return nil
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "Adopted for %q: %s\n", args[1], strings.Join(adopted, ", "))

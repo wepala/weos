@@ -151,7 +151,7 @@ func reconcilePresetSchemas(
 			"resource type context terms held at their stored definition: adopting them would "+
 				"repoint a predicate that already has data",
 			"preset", presetName, "slug", slug, "heldContextTerms", terms,
-			"remedy", AdoptRemedy(presetName, slug, terms))
+			"remedy", AdoptRemedy(presetName, slug, terms), "note", AdoptRemedyNote(terms))
 	}
 	for slug, reason := range reconciled.UnparseableContext {
 		logger.Error(ctx,
@@ -250,14 +250,35 @@ func ReportAmbiguousReferenceShape(
 }
 
 // AdoptRemedy is the command an operator runs to adopt the held terms of a
-// type. A sweep (--all) deliberately never takes `@type` — an alias cannot
-// move a class — so a held class is named explicitly, and a type holding
-// both a class and other terms is given both commands. Printing the sweep
-// alone for a held class sent the operator to a command that adopted
-// nothing and left the boot warning forever (issue #521).
+// type, kept copy-pasteable: no prose. A sweep (--all) deliberately never
+// takes `@type` — an alias cannot move a class — so a held class is named
+// explicitly, and a type holding both a class and other terms is given both
+// commands. Printing the sweep alone for a held class sent the operator to
+// a command that adopted nothing and left the boot warning forever
+// (issue #521). AdoptRemedyNote carries the explanation.
 func AdoptRemedy(presetName, slug string, held []string) string {
 	base := "weos resource-type adopt-term " + presetName + " " + slug
-	var classHeld, othersHeld bool
+	classHeld, othersHeld := heldKinds(held)
+	switch {
+	case classHeld && othersHeld:
+		return base + " --all && " + base + " --term @type"
+	case classHeld:
+		return base + " --term @type"
+	default:
+		return base + " --all"
+	}
+}
+
+// AdoptRemedyNote explains the remedy where the held terms include a class.
+func AdoptRemedyNote(held []string) string {
+	if classHeld, _ := heldKinds(held); !classHeld {
+		return ""
+	}
+	return "a sweep never moves the class; after adopting @type, re-stamp existing records with " +
+		"`weos worker normalize-edge-keys --restamp` and reproject"
+}
+
+func heldKinds(held []string) (classHeld, othersHeld bool) {
 	for _, term := range held {
 		if term == "@type" {
 			classHeld = true
@@ -265,12 +286,5 @@ func AdoptRemedy(presetName, slug string, held []string) string {
 			othersHeld = true
 		}
 	}
-	switch {
-	case classHeld && othersHeld:
-		return base + " --all; then " + base + " --term @type (a sweep never moves the class)"
-	case classHeld:
-		return base + " --term @type (a sweep never moves the class; re-stamp and reproject afterwards)"
-	default:
-		return base + " --all"
-	}
+	return classHeld, othersHeld
 }
