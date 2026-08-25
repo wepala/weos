@@ -115,3 +115,23 @@ For a scheduled gate afterwards, `weos worker count-iri-edge-keys --records-only
 only the canonical records, which is the cheap steady-state check. It fails again the
 moment the old shape reappears — a restored backup, an import from an instance that never
 migrated — which nothing else on the instance would report.
+
+## Example: Person and Organization gained a class
+
+Since `v3` the `core` preset declares `foaf:Person` and `org:Organization` as the class of
+its two types (issue #521). Resources written before that carry `https://schema.org/Person`
+(the type name through `@vocab`). On an existing install the boot HOLDS the new `@type` —
+a sweep never adopts a class, so the remedy it prints names the term:
+
+```bash
+weos resource-type adopt-term core person --term @type
+weos resource-type adopt-term core organization --term @type
+weos worker normalize-edge-keys --restamp --type person --type organization        # dry run
+weos worker normalize-edge-keys --restamp --type person --type organization --write
+weos worker reproject
+weos worker checkpoint reset oxigraph --truncate
+```
+
+Until the re-stamp runs, resources written after the adoption carry the new class and older
+ones the old one. Any saved query or MCP habit that filtered on `https://schema.org/Person`
+stops matching once the migration completes.

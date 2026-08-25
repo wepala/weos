@@ -18,9 +18,18 @@ func Register(registry *application.PresetRegistry) {
 		Name:        "core",
 		Description: "Core types: Person and Organization with computed name behaviors",
 		Types: []application.PresetResourceType{
+			// The class is foaf:Person (issue #521, decided 2026-08-25). The
+			// foaf prefix is declared on this context for exactly this: FOAF is
+			// the standard vocabulary for the concept of a person, and the
+			// prefix was decorative until the class used it. schema.org stays
+			// the @vocab for the predicates (givenName, familyName, email…).
+			// Before the declaration a person's entity @type fell back to the
+			// type NAME and expanded to https://schema.org/Person, so an
+			// existing install must adopt the held @type and re-stamp its
+			// records to move — see docs/_howto/normalize-edge-keys.md.
 			application.NewPresetType("Person", "person",
-				"A person (foaf:Person / schema:Person)",
-				`{"@vocab": "https://schema.org/", "foaf": "http://xmlns.com/foaf/0.1/"}`,
+				"A person (foaf:Person)",
+				`{"@vocab": "https://schema.org/", "foaf": "http://xmlns.com/foaf/0.1/", "@type": "foaf:Person"}`,
 				`{
 					"type": "object",
 					"properties": {
@@ -33,9 +42,12 @@ func Register(registry *application.PresetRegistry) {
 					"required": ["givenName", "familyName"]
 				}`,
 			),
+			// The class is org:Organization (issue #521): the W3C Organization
+			// Ontology's class, through the org prefix this context already
+			// declares. Same reasoning and same migration as Person above.
 			application.NewPresetType("Organization", "organization",
-				"An organization (org:Organization / schema:Organization)",
-				`{"@vocab": "https://schema.org/", "org": "http://www.w3.org/ns/org#"}`,
+				"An organization (org:Organization)",
+				`{"@vocab": "https://schema.org/", "org": "http://www.w3.org/ns/org#", "@type": "org:Organization"}`,
 				`{
 					"type": "object",
 					"properties": {

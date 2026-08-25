@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+	"github.com/jinzhu/inflection"
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/application/presets"
@@ -64,15 +65,25 @@ type vocabWorld struct {
 	restampReport *application.NormalizeEdgeKeysReport
 }
 
-func initHouseVocabularyScenario(sc *godog.ScenarioContext) {
-	w := &vocabWorld{
+func newVocabWorld() *vocabWorld {
+	return &vocabWorld{
 		contextWorld:  &contextWorld{createdIDs: map[string]string{}, widgetContextExtras: map[string]string{}},
 		extraLiterals: map[string][]string{},
 	}
+}
+
+func initHouseVocabularyScenario(sc *godog.ScenarioContext) {
+	w := newVocabWorld()
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		w.teardown()
 		return ctx, nil
 	})
+	w.registerVocabSteps(sc)
+}
+
+// registerVocabSteps registers the real-preset world's steps; the #521 suite
+// shares them and adds its own.
+func (w *vocabWorld) registerVocabSteps(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a clean WeOS database$`, w.aCleanDatabaseOnThisBuild)
 	sc.Step(`^a WeOS database provisioned by the build before the vocabulary moved$`, w.aDatabaseFromTheOldBuild)
@@ -118,6 +129,7 @@ func initHouseVocabularyScenario(sc *godog.ScenarioContext) {
 		w.projectionReturnsLiteral)
 	sc.Step(`^the API read of the "([^"]*)" "([^"]*)" returns "([^"]*)" as the "([^"]*)" "([^"]*)"$`,
 		w.apiReturnsReference)
+	sc.Step(`^the API read of the "([^"]*)" "([^"]*)" returns "([^"]*)" as "([^"]*)"$`, w.apiReturnsLiteral)
 	sc.Step(`^the JSON-LD representation of the "([^"]*)" "([^"]*)" still carries an? "([^"]*)" edge `+
 		`to the "([^"]*)" "([^"]*)"$`, w.documentCarriesEdge)
 
@@ -709,7 +721,7 @@ func (w *vocabWorld) storedContextMaps(slug, term, iri string) error {
 }
 
 func (w *vocabWorld) projectionTableHasColumn(slug, column string) error {
-	table := strings.ReplaceAll(slug, "-", "_") + "s"
+	table := inflection.Plural(strings.ReplaceAll(slug, "-", "_")) // as the projection manager names it
 	if !w.db.Migrator().HasColumn(table, utils.CamelToSnake(column)) {
 		return fmt.Errorf("the %q projection table has no %q column", table, column)
 	}
@@ -1076,6 +1088,14 @@ func (w *vocabWorld) apiReturnsReference(slug, name, property, targetSlug, targe
 	if err != nil {
 		return err
 	}
+	return w.apiReturns(slug, name, property, want)
+}
+
+func (w *vocabWorld) apiReturnsLiteral(slug, name, property, want string) error {
+	return w.apiReturns(slug, name, property, want)
+}
+
+func (w *vocabWorld) apiReturns(slug, name, property, want string) error {
 	id, err := w.targetID(slug, name)
 	if err != nil {
 		return err

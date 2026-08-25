@@ -102,10 +102,35 @@ func projectResourceTypeOntology(
 		logger.Warn(ctx, "kg failed to clear prior resource type ontology",
 			"slug", slug, "class", classIRI, "error", err)
 	}
-	if err := store.LoadOntology(ctx, "application/ld+json", rawContext); err != nil {
+	if err := store.LoadOntology(ctx, "application/ld+json", ontologyDocument(rawContext)); err != nil {
 		return fmt.Errorf("kg: load resource type ontology for %s: %w", slug, err)
 	}
 	return emitExplicitOntologyTriples(ctx, name, slug, rawContext, store, logger)
+}
+
+// ontologyDocument is the type's context as the graph store can parse it:
+// WeOS control entries (`weos:termAliases`, `weos:adoptedTerms`,
+// `weos:abstract`, `rdfs:subClassOf`…) are read by WeOS and are not JSON-LD
+// term definitions — an array or boolean under a term key makes the whole
+// document invalid, and the store rejected it outright, so a type whose
+// terms had ever been ADOPTED silently lost its class in the graph (issue
+// #521 made adoption routine for the core types). The raw context is still
+// what emitExplicitOntologyTriples reads for the parent class.
+func ontologyDocument(rawContext json.RawMessage) json.RawMessage {
+	var ctx map[string]any
+	if json.Unmarshal(rawContext, &ctx) != nil {
+		return rawContext
+	}
+	for key := range ctx {
+		if jsonld.ControlKeywords[key] {
+			delete(ctx, key)
+		}
+	}
+	out, err := json.Marshal(ctx)
+	if err != nil {
+		return rawContext
+	}
+	return out
 }
 
 // resourceTypeClassIRI returns the RDF class IRI that resources of this type

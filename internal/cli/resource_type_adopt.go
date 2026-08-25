@@ -20,6 +20,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/wepala/weos/v3/application"
+
 	"github.com/spf13/cobra"
 )
 
@@ -52,14 +54,27 @@ var heldTermsCmd = &cobra.Command{
 			return nil
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "%d held term(s) for %q:\n\n", len(held), args[1])
+		terms := make([]string, 0, len(held))
 		for _, h := range held {
+			terms = append(terms, h.Term)
 			_, _ = fmt.Fprintf(os.Stdout, "  %s\n", h.Term)
+			if h.Term == "@type" {
+				stored := h.StoredIRI
+				if stored == "" {
+					stored = "(no class declared; resources carry the type name through @vocab)"
+				}
+				_, _ = fmt.Fprintf(os.Stdout, "    class today     %s\n", stored)
+				_, _ = fmt.Fprintf(os.Stdout, "    preset declares %s\n", h.PresetIRI)
+				_, _ = fmt.Fprintln(os.Stdout, "    adopting it declares the class for NEW writes; existing "+
+					"records need `weos worker normalize-edge-keys --restamp` and a reproject")
+				_, _ = fmt.Fprintln(os.Stdout)
+				continue
+			}
 			_, _ = fmt.Fprintf(os.Stdout, "    property        %s\n", h.Property)
 			_, _ = fmt.Fprintf(os.Stdout, "    data written as %s\n", h.StoredIRI)
 			_, _ = fmt.Fprintf(os.Stdout, "    preset wants    %s\n\n", h.PresetIRI)
 		}
-		_, _ = fmt.Fprintf(os.Stdout,
-			"Adopt with:  weos resource-type adopt-term %s %s --all\n", args[0], args[1])
+		_, _ = fmt.Fprintf(os.Stdout, "Adopt with:  %s\n", application.AdoptRemedy(args[0], args[1], terms))
 		return nil
 	},
 }
