@@ -13,16 +13,16 @@ import (
 // agentSkillContext types skills in a small agents vocabulary; name and
 // description ride schema.org so generic tooling renders them.
 const agentSkillContext = `{"@vocab":"https://schema.org/",` +
-	`"ag":"https://weos.org/vocab/agents#",` +
+	`"ag":"https://weos.io/vocab/agents#",` +
 	`"@type":"ag:AgentSkill",` +
 	`"schemaVersion":"https://schema.org/version",` +
 	`"name":"https://schema.org/name",` +
 	`"description":"https://schema.org/description",` +
-	`"instructions":"https://weos.org/vocab/agents#instructions",` +
-	`"tools":"https://weos.org/vocab/agents#tools",` +
-	`"mode":"https://weos.org/vocab/agents#mode",` +
-	`"widgets":"https://weos.org/vocab/agents#widgets",` +
-	`"model":"https://weos.org/vocab/agents#model"}`
+	`"instructions":"https://weos.io/vocab/agents#instructions",` +
+	`"tools":"https://weos.io/vocab/agents#tools",` +
+	`"mode":"https://weos.io/vocab/agents#mode",` +
+	`"widgets":"https://weos.io/vocab/agents#widgets",` +
+	`"model":"https://weos.io/vocab/agents#model"}`
 
 // agentSkillSchema is versioned via schemaVersion: v1 describes a single
 // agent (instructions + tool allowlist + mode). Composed multi-step skills

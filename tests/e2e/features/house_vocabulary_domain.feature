@@ -83,19 +83,46 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   #    edge still reads — which is the epic's "normalize before you alias"
   #    claim, proved on the real presets rather than the synthetic ones.
   #
-  # 6. WHAT A REPROJECTION DOES AND DOES NOT MOVE — see OPEN QUESTION 1. The
-  #    projection column and the API read resolve through the TYPE's current
-  #    `@context`, so they follow the new IRI as soon as the stored context
-  #    changes. The knowledge graph and the `triples` table do not: a resource's
-  #    canonical record carries its OWN embedded `@context`, stamped by
-  #    `BuildResourceGraph` at write time, and each edge's predicate was frozen
-  #    into a `Triple.Created` payload at write time too. `worker reproject`
-  #    REPLAYS those events; it never re-derives them. So resources written
-  #    before the move keep `https://weos.org/vocab/meal-planning#FoodItem` as
-  #    their class and `#isInstanceOf` as their predicate, after the adoption
-  #    and after the reprojection. "A reprojection does not move the class of a
-  #    resource written before the move" asserts that split as it actually
-  #    behaves rather than as the story's runbook line describes it.
+  # 6. A REPROJECTION DOES NOT MOVE A PREDICATE OR A CLASS; A RE-STAMP DOES.
+  #    The projection column and the API read resolve through the TYPE's
+  #    current `@context`, so they follow a new IRI as soon as the stored
+  #    context changes. The knowledge graph does not: a resource's canonical
+  #    record carries its OWN embedded `@context`, stamped by
+  #    `BuildResourceGraph` at write time, and `worker reproject` REPLAYS that
+  #    payload rather than re-deriving it. So a resource written before the move
+  #    keeps `https://weos.org/vocab/meal-planning#FoodItem` as its class no
+  #    matter how many times it is reprojected.
+  #
+  #    This story therefore adds `weos worker normalize-edge-keys --restamp`.
+  #    It walks every `Resource.Created` and `Resource.Updated` event and
+  #    rewrites two things, even when the edges are ALREADY keyed by property
+  #    name (which is what the plain normalization stops at):
+  #      - the document's embedded `@context`, to `buildStorableContext` of the
+  #        type's CURRENT stored context — what a fresh write embeds today;
+  #      - the entity node's `@type`, to what `BuildResourceGraph` would write
+  #        now: the context's `"@type"` if it sets one, else the type name.
+  #    Dry run by default, `--write` applies, idempotent, and it reports per
+  #    resource type how many events it re-stamped. The full procedure is
+  #    `--restamp --write`, then `worker reproject`, then
+  #    `worker checkpoint reset oxigraph --truncate`.
+  #
+  #    Note WHICH half does the work for THIS story: the entity `@type` string
+  #    is `"mp:FoodItem"` before and after, so the class moves because the
+  #    embedded PREFIX moves. The `@type` half of the re-stamp is what story
+  #    #521 needs, where a type gains an `@type` it never had.
+  #
+  # 6a. THE KNOWN LIMIT: THE `triples` TABLE IS NOT RE-STAMPED. A re-stamp does
+  #    not touch `Triple.Created` / `Triple.Deleted` events, and those carry the
+  #    predicate IRI resolved at write time (`resource_service.go:300`). A
+  #    reprojection replays them verbatim. So after a re-stamp the KNOWLEDGE
+  #    GRAPH carries the class and predicates the current stored context names,
+  #    while the `triples` read-model table still holds the write-time predicate
+  #    for every old edge. The two surfaces disagree, deliberately and
+  #    permanently, and a scenario below asserts it so nobody reads the silence
+  #    as "everything moved". This is why the scenarios distinguish "the
+  #    knowledge graph" (the store `embedded_knowledge_graph.feature` queries)
+  #    from "the triple store" (the `triples` table `edge_key_normalization.feature`
+  #    asserts against). They are not interchangeable here.
   #
   # 7. PROVISIONING A PRE-MOVE DATABASE. The existing-install scenarios need a
   #    database written by the build BEFORE this story. The shim is to install
@@ -116,28 +143,32 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   #    runs for every REGISTERED preset whether or not it was installed, which
   #    is why the hold is reported without anyone re-running install.
   #
+  # 8a. SIMULATING AN ADOPTED CONTEXT WITHOUT #518. The re-stamp scenarios need
+  #    a stored context that already names weos.io. Adoption cannot produce one
+  #    on this branch (CONTRACT 4), so they use the same lever the #510/#513
+  #    suites use on the synthetic preset — the operator writes the term into
+  #    the stored type context directly ("the operator maps "mp" to "…" in the
+  #    stored "food-item" context"), here parameterised by real type slug. That
+  #    is a test lever, not a supported operator procedure: what a re-stamp does
+  #    is independent of HOW the stored context came to say weos.io, so pinning
+  #    it this way keeps every re-stamp scenario runnable today and unchanged
+  #    when #518 lands.
+  #
   # ---------------------------------------------------------------------------
-  # OPEN QUESTIONS — these need an answer before the story is called done.
+  # SETTLED — recorded here because the scenarios below depend on the answer.
   #
-  # 1. The criterion says the `@type` changes need "a reprojection, since a
-  #    class cannot be aliased". A reprojection does not do it. `worker
-  #    reproject` replays `Resource.Created` and `Triple.Created` payloads
-  #    verbatim, and the class lives in the payload's embedded `@context`
-  #    (CONTRACT 6). Nothing in this epic re-stamps an already-written
-  #    document: `normalize-edge-keys` does rebuild the embedded context from
-  #    the type's current one, but it skips every event whose edges are already
-  #    keyed by property name, so running it after the move is a no-op on a
-  #    normalized instance. Either the runbook line is wrong and the honest
-  #    statement is "historical resources keep the old class in the graph", or
-  #    #520 needs a re-stamp step — plausibly `normalize-edge-keys --restamp`,
-  #    reusing the rewrite it already performs. Story #521 rests on the same
-  #    assumption ("existing resources gain the class on reprojection") and has
-  #    the same problem, so the answer should be settled once for both.
-  #    The last scenario in this file is written to the code's actual
-  #    behaviour and is marked @needs-518 with the class assertions phrased so that whichever answer
-  #    wins, the scenario states the outcome rather than hiding it.
+  # 1. "The `@type` changes need a reprojection" is not true of a reprojection
+  #    alone, which replays payloads rather than re-deriving them. Akeem settled
+  #    this on 2026-08-25: #520 adds `normalize-edge-keys --restamp`, specified
+  #    in CONTRACT 6, and the runbook line becomes "re-stamp, reproject, rebuild
+  #    the graph". Story #521 rests on the same mechanism and inherits it.
+  #    "A reprojection alone leaves the old class; a re-stamp moves it" is the
+  #    scenario that pins both halves of that sequence.
   #
-  # 2. When #518 teaches `AdoptContextTerms` to reach a Conflict, what does it
+  # ---------------------------------------------------------------------------
+  # OPEN QUESTION — this still needs an answer before the story is called done.
+  #
+  # 1. When #518 teaches `AdoptContextTerms` to reach a Conflict, what does it
   #    record an alias against for a PREFIX? The existing Move path records the
   #    old IRI against each PROPERTY the prefix moves, and deliberately never
   #    against `@type`. A changed prefix moves `@type` too — `"mp:FoodItem"` is
@@ -376,6 +407,185 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     Then the stored "food-item" context still maps "mp" to "https://weos.org/vocab/meal-planning#"
 
   # ===========================================================================
+  # THE RE-STAMP — `weos worker normalize-edge-keys --restamp`. Runnable on this
+  # branch: the stored context is moved with the test lever of CONTRACT 8a, not
+  # by adopting, so none of these waits on #518.
+  # ===========================================================================
+
+  # The sequence the runbook line has to state, both halves in one scenario so
+  # neither can be read without the other. A reprojection replays the payload
+  # and the old class survives it; the re-stamp is what rewrites the embedded
+  # context the class resolves through.
+  Scenario: A reprojection alone leaves the old class; a re-stamp moves it
+    Given a WeOS database provisioned by the build before the vocabulary moved
+    And the operator installs the "meal-planning" preset
+    And a "food-item" named "Garlic head" exists
+    And the twin restarts on the build that moved the vocabulary
+    And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
+    And a "food-item" named "Lime wedge" exists
+    When the operator reprojects the event feed
+    And the operator rebuilds the knowledge graph
+    Then the "food-item" "Lime wedge" carries the RDF type "https://weos.io/vocab/meal-planning#FoodItem" in the knowledge graph
+    And the "food-item" "Garlic head" carries the RDF type "https://weos.org/vocab/meal-planning#FoodItem" in the knowledge graph
+    When the operator re-stamps the stored documents and writes
+    And the operator reprojects the event feed
+    And the operator rebuilds the knowledge graph
+    Then the "food-item" "Garlic head" carries the RDF type "https://weos.io/vocab/meal-planning#FoodItem" in the knowledge graph
+    And every "food-item" resource carries the same RDF type in the knowledge graph
+    And no resource carries an RDF type under "https://weos.org/" in the knowledge graph
+
+  # A re-stamp rewrites stored events. The guarantee that makes that acceptable
+  # is that nothing a reader sees moves — the projection and the API were
+  # already resolving through the type's current context, so they were correct
+  # before the re-stamp and must be identical after it.
+  Scenario: A re-stamp moves the class in the graph and changes nothing an API reader sees
+    Given a WeOS database provisioned by the build before the vocabulary moved
+    And the operator installs the "meal-planning" preset
+    And an "ingredient" named "Garlic" exists
+    And a "pantry" named "Kitchen" exists
+    And I create a "food-item" named "Garlic head" with these references:
+      | property   | target slug | target  |
+      | ingredient | ingredient  | Garlic  |
+      | pantry     | pantry      | Kitchen |
+    And the twin restarts on the build that moved the vocabulary
+    And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
+    And the read of every resource with a reference property is captured
+    When the operator re-stamps the stored documents and writes
+    And the operator reprojects the event feed
+    Then the read of every resource with a reference property matches what was captured
+    And the API read of the "food-item" "Garlic head" returns "ingredient" as the "ingredient" "Garlic"
+    And reading the "food-item" "Garlic head" back through the projection returns "pantry" as the "pantry" "Kitchen"
+
+  # The edge half. The stored key is already the property name, so the predicate
+  # the graph sees comes entirely from the document's embedded context — which
+  # is exactly what the re-stamp rewrites.
+  Scenario: A re-stamped edge takes its predicate from the context the type has now
+    Given a WeOS database provisioned by the build before the vocabulary moved
+    And the operator installs the "meal-planning" preset
+    And an "ingredient" named "Garlic" exists
+    And a "pantry" named "Kitchen" exists
+    And I create a "food-item" named "Garlic head" with "ingredient" referring to the "ingredient" "Garlic"
+    And the twin restarts on the build that moved the vocabulary
+    And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
+    When the operator re-stamps the stored documents and writes
+    Then the stored event for the "food-item" "Garlic head" maps "mp" to "https://weos.io/vocab/meal-planning#" in its own context
+    When the operator reprojects the event feed
+    And the operator rebuilds the knowledge graph
+    Then the knowledge graph holds "https://weos.io/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
+    And the knowledge graph holds no edge under "https://weos.org/" from the "food-item" "Garlic head"
+
+  # Memory and agents spell the namespace out in full, so their LITERAL
+  # predicates move with the re-stamp too. This is the only way those terms are
+  # observable at all (CONTRACT 2), and it is the second place a prefix-only
+  # edit would be caught.
+  Scenario Outline: A re-stamped literal predicate follows the current context
+    Given a WeOS database provisioned by the build before the vocabulary moved
+    And the operator installs the "<preset>" preset
+    And I create a "<slug>" named "<name>" with "<property>" set to "<value>"
+    And the twin restarts on the build that moved the vocabulary
+    And the operator maps "<property>" to "<new predicate>" in the stored "<slug>" context
+    When the operator re-stamps the stored documents and writes
+    And the operator reprojects the event feed
+    And the operator rebuilds the knowledge graph
+    Then the knowledge graph holds "<new predicate>" from the "<slug>" "<name>" with the value "<value>"
+    And the knowledge graph holds no statement under "https://weos.org/" about the "<slug>" "<name>"
+
+    Examples:
+      | preset | slug        | name    | property     | value          | new predicate                                 |
+      | memory | playbook    | Reorder | trigger      | pantry is low  | https://weos.io/vocab/memory#triggerCondition |
+      | memory | fact        | Allergy | confidence   | 0.9            | https://weos.io/vocab/memory#confidence       |
+      | agents | agent-skill | Shopper | instructions | Build the list | https://weos.io/vocab/agents#instructions     |
+
+  # Same default as the normalization it extends: an operator inspects before
+  # rewriting stored events, and the report is per resource type so a large
+  # instance can be reasoned about before the write.
+  Scenario: The re-stamp reports per resource type and writes nothing until told to
+    Given a WeOS database provisioned by the build before the vocabulary moved
+    And the operator installs the "meal-planning" preset
+    And a "food-item" named "Garlic head" exists
+    And a "food-item" named "Lime wedge" exists
+    And a "pantry" named "Kitchen" exists
+    And the twin restarts on the build that moved the vocabulary
+    And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
+    When the operator re-stamps the stored documents as a dry run
+    Then the re-stamp reports 2 events to re-stamp for "food-item"
+    And the re-stamp reports nothing to re-stamp for "pantry"
+    And the re-stamp reports itself as a dry run
+    And the stored events are byte-identical to the ones stored before the run
+    When the operator re-stamps the stored documents and writes
+    Then the re-stamp re-stamped 2 events for "food-item"
+    And the stored event for the "food-item" "Garlic head" maps "mp" to "https://weos.io/vocab/meal-planning#" in its own context
+
+  Scenario: A second re-stamp re-stamps nothing
+    Given a WeOS database provisioned by the build before the vocabulary moved
+    And the operator installs the "meal-planning" preset
+    And a "food-item" named "Garlic head" exists
+    And the twin restarts on the build that moved the vocabulary
+    And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
+    And the operator re-stamps the stored documents and writes
+    When the operator re-stamps the stored documents as a dry run
+    Then the re-stamp reports nothing to re-stamp
+    When the operator re-stamps the stored documents and writes
+    Then the re-stamp re-stamped 0 events
+    And the stored events are byte-identical to the ones stored before the second run
+
+  # The no-op case, and the one that decides whether a re-stamp is safe to leave
+  # in a deployment script. Nothing about the stored context changed, so a
+  # re-stamp must be able to say so rather than rewriting every event in the
+  # database to the same bytes.
+  Scenario: A re-stamp on an instance whose context never changed re-stamps nothing
+    Given a clean WeOS database
+    And the operator installs the "meal-planning" preset
+    And an "ingredient" named "Garlic" exists
+    And a "food-item" named "Garlic head" with "ingredient" referring to the "ingredient" "Garlic" exists
+    When the operator re-stamps the stored documents as a dry run
+    Then the re-stamp reports nothing to re-stamp
+    When the operator re-stamps the stored documents and writes
+    Then the re-stamp re-stamped 0 events
+    And the stored events are byte-identical to the ones stored before the run
+    And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
+
+  # The blast radius. A re-stamp rewrites exactly two things (CONTRACT 6): the
+  # document's `@context` and the entity node's `@type`. Every literal beside
+  # them, and every edge key, is left where it was — which is what keeps the
+  # rewrite reviewable and the rollback "restore the backup".
+  Scenario: The re-stamp touches only the document context and the entity @type
+    Given a WeOS database provisioned by the build before the vocabulary moved
+    And the operator installs the "meal-planning" preset
+    And an "ingredient" named "Garlic" exists
+    And a "pantry" named "Kitchen" exists
+    And I create a "food-item" named "Garlic head" with "ingredient" referring to the "ingredient" "Garlic" and "unit" set to "clove"
+    And the twin restarts on the build that moved the vocabulary
+    And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
+    When the operator re-stamps the stored documents and writes
+    Then the entity node of the stored event for the "food-item" "Garlic head" is byte-identical to the one stored before the run apart from its "@type"
+    And the stored event for the "food-item" "Garlic head" keys its "ingredient" edge by the property name
+    And the event feed holds the same events in the same order as before the run
+    And every event keeps its aggregate id, sequence number and event type
+    And no event of a type other than "Resource.Created" or "Resource.Updated" was re-stamped
+    When the operator reprojects the event feed
+    Then reading the "food-item" "Garlic head" back through the projection returns "unit" as "clove"
+    And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
+
+  # CONTRACT 6a, asserted rather than left to be discovered. The `triples` table
+  # is fed by `Triple.Created` payloads, which a re-stamp does not rewrite and a
+  # reprojection replays verbatim. An operator reading only the knowledge graph
+  # would conclude the whole instance moved; it did not.
+  Scenario: The triples table keeps the predicate it recorded at write time
+    Given a WeOS database provisioned by the build before the vocabulary moved
+    And the operator installs the "meal-planning" preset
+    And an "ingredient" named "Garlic" exists
+    And I create a "food-item" named "Garlic head" with "ingredient" referring to the "ingredient" "Garlic"
+    And the twin restarts on the build that moved the vocabulary
+    And the operator maps "mp" to "https://weos.io/vocab/meal-planning#" in the stored "food-item" context
+    When the operator re-stamps the stored documents and writes
+    And the operator reprojects the event feed
+    And the operator rebuilds the knowledge graph
+    Then the knowledge graph holds "https://weos.io/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
+    But the triple store holds "https://weos.org/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
+    And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
+
+  # ===========================================================================
   # AN EXISTING INSTALL — the adoption. Blocked on #518: `HeldContextTerms`
   # reads `rec.Moves`, so a Conflict is invisible to `held-terms` and refused by
   # `adopt-term` (CONTRACT 4). These stay @wip when the rest goes green.
@@ -451,7 +661,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the API read of the "food-item" "Garlic head" returns "ingredient" as the "ingredient" "Garlic"
     And the JSON-LD representation of the "food-item" "Garlic head" still carries an "ingredient" edge to the "ingredient" "Garlic"
 
-  # OPEN QUESTION 2. `@type` is `"mp:FoodItem"` on both sides, so it never
+  # THE OPEN QUESTION. `@type` is `"mp:FoodItem"` on both sides, so it never
   # diverges and is never held — the class moves as a consequence of adopting
   # the prefix, on the one path `selectTermsToAdopt`'s `@type` exclusion cannot
   # see. Whatever #518 decides, the operator must be told: this scenario asserts
@@ -466,25 +676,3 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     When the operator adopts the held "mp" context term for "meal-planning" "food-item"
     Then the adoption reports the "food-item" RDF class moving from "https://weos.org/vocab/meal-planning#FoodItem" to "https://weos.io/vocab/meal-planning#FoodItem"
     And the adoption names the migration that applies it to existing resources
-
-  # OPEN QUESTION 1, written to what the code does. A resource written before
-  # the move carries its class in its own embedded `@context`; `worker
-  # reproject` replays that payload rather than re-deriving it, so the class
-  # does not move — while a resource created after adoption carries the new one.
-  # The two then disagree, which is the state the runbook line exists to warn
-  # about. If the answer to OPEN QUESTION 1 is a re-stamp step, this scenario
-  # gains it and both resources end on weos.io; if the answer is "historical
-  # resources keep the old class", this scenario is already the truth. Either
-  # way it must not silently claim a reprojection fixed something it did not.
-  @needs-518
-  Scenario: A reprojection does not move the class of a resource written before the move
-    Given a WeOS database provisioned by the build before the vocabulary moved
-    And the operator installs the "meal-planning" preset
-    And a "food-item" named "Garlic head" exists
-    And the twin restarts on the build that moved the vocabulary
-    And the operator adopts the held "mp" context term for "meal-planning" "food-item"
-    And a "food-item" named "Lime wedge" exists
-    When the operator reprojects the event feed
-    Then the "food-item" "Lime wedge" carries the RDF type "https://weos.io/vocab/meal-planning#FoodItem"
-    And the "food-item" "Garlic head" carries the RDF type "https://weos.org/vocab/meal-planning#FoodItem"
-    And the two resources of type "food-item" do not carry the same RDF type

@@ -111,7 +111,7 @@ func schemaTypeContext(schemaType, extraTerms string) json.RawMessage {
 // mpContext is the shared builder for both helpers.
 func mpContext(typeIRI, extraTerms string) json.RawMessage {
 	terms := `"@vocab":"https://schema.org/",` +
-		`"mp":"https://weos.org/vocab/meal-planning#",` +
+		`"mp":"https://weos.io/vocab/meal-planning#",` +
 		`"mealType":"mp:mealType",` +
 		`"servings":"mp:servings",` +
 		`"@type":"` + typeIRI + `"`
@@ -130,7 +130,7 @@ func recipeType() application.PresetResourceType {
 		Description: "A food recipe with ingredients, steps, and nutritional information",
 		Context: json.RawMessage(`{
 	"@vocab":"https://schema.org/","@type":"Recipe",
-	"mp":"https://weos.org/vocab/meal-planning#",
+	"mp":"https://weos.io/vocab/meal-planning#",
 	"fo":"http://purl.org/foodontology#",
 	"recipeInstructions":"https://schema.org/recipeInstructions",
 	"recipeIngredient":"fo:hasIngredient",
@@ -187,7 +187,7 @@ func howToStepType() application.PresetResourceType {
 		Description: "A single step in a recipe's instructions",
 		Context: json.RawMessage(`{
 	"@vocab":"https://schema.org/","@type":"HowToStep",
-	"mp":"https://weos.org/vocab/meal-planning#",
+	"mp":"https://weos.io/vocab/meal-planning#",
 	"recipe":"https://schema.org/isPartOf"
 }`),
 		Schema: json.RawMessage(`{
@@ -214,7 +214,7 @@ func ingredientType() application.PresetResourceType {
 	"fo":"http://purl.org/foodontology#",
 	"skos":"http://www.w3.org/2004/02/skos/core#",
 	"suitableForDiet":"https://schema.org/suitableForDiet",
-	"mp":"https://weos.org/vocab/meal-planning#",
+	"mp":"https://weos.io/vocab/meal-planning#",
 	"alternateNames":"skos:altLabel",
 	"shoppingCategory":"fo:ShoppingCategory",
 	"season":"fo:at_its_best",

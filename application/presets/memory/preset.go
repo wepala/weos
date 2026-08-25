@@ -15,11 +15,11 @@ import (
 // projection machinery treats that key as a parent type slug, not an external
 // ontology class.
 const factContext = `{"@vocab":"https://schema.org/",` +
-	`"mem":"https://weos.org/vocab/memory#",` +
+	`"mem":"https://weos.io/vocab/memory#",` +
 	`"@type":"mem:Fact",` +
 	`"statement":"https://schema.org/text",` +
 	`"about":"https://schema.org/about",` +
-	`"confidence":"https://weos.org/vocab/memory#confidence",` +
+	`"confidence":"https://weos.io/vocab/memory#confidence",` +
 	`"attributedTo":"http://www.w3.org/ns/prov#wasAttributedTo",` +
 	`"generatedAtTime":"http://www.w3.org/ns/prov#generatedAtTime",` +
 	`"wasDerivedFrom":"http://www.w3.org/ns/prov#wasDerivedFrom",` +
@@ -44,12 +44,12 @@ const factSchema = `{"type":"object","properties":{` +
 // memory vocabulary; ranking by them is deferred until signal density
 // justifies it (epic #386 boundary).
 const playbookContext = `{"@vocab":"https://schema.org/",` +
-	`"mem":"https://weos.org/vocab/memory#",` +
+	`"mem":"https://weos.io/vocab/memory#",` +
 	`"@type":"mem:Playbook",` +
-	`"trigger":"https://weos.org/vocab/memory#triggerCondition",` +
-	`"steps":"https://weos.org/vocab/memory#steps",` +
-	`"successCount":"https://weos.org/vocab/memory#successCount",` +
-	`"failureCount":"https://weos.org/vocab/memory#failureCount"}`
+	`"trigger":"https://weos.io/vocab/memory#triggerCondition",` +
+	`"steps":"https://weos.io/vocab/memory#steps",` +
+	`"successCount":"https://weos.io/vocab/memory#successCount",` +
+	`"failureCount":"https://weos.io/vocab/memory#failureCount"}`
 
 const playbookSchema = `{"type":"object","properties":{` +
 	`"name":{"type":"string","description":"Short name of the procedure"},` +

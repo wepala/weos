@@ -28,10 +28,16 @@ import (
 // Fact predicate IRIs, matching the memory preset's context (bare full-IRI
 // mappings — see application/presets/memory).
 const (
-	factClassIRI          = "https://weos.org/vocab/memory#Fact"
+	factClassIRI = "https://weos.io/vocab/memory#Fact"
+	// legacyFactClassIRI is the class facts carried before the house
+	// vocabulary moved to weos.io (issue #520). An existing install keeps it
+	// until the held prefix is adopted and its records re-stamped, so recall
+	// accepts both rather than going blind across the upgrade.
+	legacyFactClassIRI    = "https://weos.org/vocab/memory#Fact"
+	legacyFactConfidence  = "https://weos.org/vocab/memory#confidence"
 	factStatementIRI      = "https://schema.org/text"
 	factAboutIRI          = "https://schema.org/about"
-	factConfidenceIRI     = "https://weos.org/vocab/memory#confidence"
+	factConfidenceIRI     = "https://weos.io/vocab/memory#confidence"
 	factGeneratedAtIRI    = "http://www.w3.org/ns/prov#generatedAtTime"
 	factWasRevisionOfIRI  = "http://www.w3.org/ns/prov#wasRevisionOf"
 	factWasDerivedFromIRI = "http://www.w3.org/ns/prov#wasDerivedFrom"
@@ -131,9 +137,10 @@ func buildRecallSPARQL(q RecallQuery, limit int) string {
 		b.WriteString(` (GROUP_CONCAT(DISTINCT ?src; separator=" ") AS ?sources)`)
 	}
 	b.WriteString(" WHERE {\n")
-	fmt.Fprintf(&b, "  ?fact a <%s> ;\n        <%s> ?statement .\n", factClassIRI, factStatementIRI)
+	fmt.Fprintf(&b, "  VALUES ?factClass { <%s> <%s> }\n", factClassIRI, legacyFactClassIRI)
+	fmt.Fprintf(&b, "  ?fact a ?factClass ;\n        <%s> ?statement .\n", factStatementIRI)
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?about }\n", factAboutIRI)
-	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?confidence }\n", factConfidenceIRI)
+	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s>|<%s> ?confidence }\n", factConfidenceIRI, legacyFactConfidence)
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?generatedAt }\n", factGeneratedAtIRI)
 	fmt.Fprintf(&b, "  OPTIONAL { ?fact <%s> ?revisionOf }\n", factWasRevisionOfIRI)
 	if q.IncludeProvenance {

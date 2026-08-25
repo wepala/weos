@@ -90,13 +90,21 @@ func TestPresetContextGuards(t *testing.T) {
 // runContextFeature runs one feature file against the shared context step world.
 func runContextFeature(t *testing.T, name, path string) {
 	t.Helper()
+	runFeatureWith(t, name, path, initPresetContextScenario)
+}
+
+// runFeatureWith runs one feature file with the given scenario initializer,
+// honoring the suite-wide tag convention (@wip excluded unless GODOG_TAGS
+// overrides it).
+func runFeatureWith(t *testing.T, name, path string, init func(*godog.ScenarioContext)) {
+	t.Helper()
 	tags := "~@wip"
 	if override := os.Getenv("GODOG_TAGS"); override != "" {
 		tags = override
 	}
 	suite := godog.TestSuite{
 		Name:                name,
-		ScenarioInitializer: initPresetContextScenario,
+		ScenarioInitializer: init,
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{path},
@@ -138,6 +146,11 @@ type contextWorld struct {
 	eventsBeforeNormalize []storedEvent
 	eventsAfterNormalize  []storedEvent
 	capturedReads         map[string]string
+
+	// registry, when set, is the preset registry the next boot runs on
+	// instead of the synthetic catalog — the real built-in presets (issue
+	// #520), possibly rewritten to look like an older build.
+	registry func() *application.PresetRegistry
 
 	// Issue #519: the count's report and the canonical records on either
 	// side of it.
@@ -645,9 +658,13 @@ func (w *contextWorld) boot() error {
 	var resRepo repositories.ResourceRepository
 	var tripleRepo repositories.TripleRepository
 
+	registry := w.catalogRegistry
+	if w.registry != nil {
+		registry = w.registry
+	}
 	app := fx.New(
 		fx.NopLogger,
-		application.Module(cfg, w.catalogRegistry()),
+		application.Module(cfg, registry()),
 		// Decorating the Logger is what makes the boot reconcile observable
 		// without a production seam existing only for the tests.
 		fx.Decorate(func(inner entities.Logger) entities.Logger {
