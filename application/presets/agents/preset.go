@@ -8,21 +8,22 @@ import (
 	"encoding/json"
 
 	"github.com/wepala/weos/v3/application"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 // agentSkillContext types skills in a small agents vocabulary; name and
 // description ride schema.org so generic tooling renders them.
 const agentSkillContext = `{"@vocab":"https://schema.org/",` +
-	`"ag":"https://weos.io/vocab/agents#",` +
+	`"ag":"` + jsonld.AgentsVocab + `",` +
 	`"@type":"ag:AgentSkill",` +
 	`"schemaVersion":"https://schema.org/version",` +
 	`"name":"https://schema.org/name",` +
 	`"description":"https://schema.org/description",` +
-	`"instructions":"https://weos.io/vocab/agents#instructions",` +
-	`"tools":"https://weos.io/vocab/agents#tools",` +
-	`"mode":"https://weos.io/vocab/agents#mode",` +
-	`"widgets":"https://weos.io/vocab/agents#widgets",` +
-	`"model":"https://weos.io/vocab/agents#model"}`
+	`"instructions":"` + jsonld.AgentsVocab + `instructions",` +
+	`"tools":"` + jsonld.AgentsVocab + `tools",` +
+	`"mode":"` + jsonld.AgentsVocab + `mode",` +
+	`"widgets":"` + jsonld.AgentsVocab + `widgets",` +
+	`"model":"` + jsonld.AgentsVocab + `model"}`
 
 // agentSkillSchema is versioned via schemaVersion: v1 describes a single
 // agent (instructions + tool allowlist + mode). Composed multi-step skills

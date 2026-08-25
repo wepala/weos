@@ -23,12 +23,13 @@ import (
 	"strings"
 
 	"github.com/wepala/weos/v3/domain/repositories"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 // Fact predicate IRIs, matching the memory preset's context (bare full-IRI
 // mappings — see application/presets/memory).
 const (
-	factClassIRI = "https://weos.io/vocab/memory#Fact"
+	factClassIRI = jsonld.MemoryVocab + "Fact"
 	// legacyFactClassIRI is the class facts carried before the house
 	// vocabulary moved to weos.io (issue #520). An existing install keeps it
 	// until the held prefix is adopted and its records re-stamped, so recall
@@ -37,7 +38,7 @@ const (
 	legacyFactConfidence  = "https://weos.org/vocab/memory#confidence"
 	factStatementIRI      = "https://schema.org/text"
 	factAboutIRI          = "https://schema.org/about"
-	factConfidenceIRI     = "https://weos.io/vocab/memory#confidence"
+	factConfidenceIRI     = jsonld.MemoryVocab + "confidence"
 	factGeneratedAtIRI    = "http://www.w3.org/ns/prov#generatedAtTime"
 	factWasRevisionOfIRI  = "http://www.w3.org/ns/prov#wasRevisionOf"
 	factWasDerivedFromIRI = "http://www.w3.org/ns/prov#wasDerivedFrom"

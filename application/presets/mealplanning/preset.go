@@ -20,6 +20,7 @@ import (
 
 	"github.com/wepala/weos/v3/application"
 	"github.com/wepala/weos/v3/domain/entities"
+	"github.com/wepala/weos/v3/pkg/jsonld"
 )
 
 // Register adds the meal-planning preset to the registry.
@@ -111,7 +112,7 @@ func schemaTypeContext(schemaType, extraTerms string) json.RawMessage {
 // mpContext is the shared builder for both helpers.
 func mpContext(typeIRI, extraTerms string) json.RawMessage {
 	terms := `"@vocab":"https://schema.org/",` +
-		`"mp":"https://weos.io/vocab/meal-planning#",` +
+		`"mp":"` + jsonld.MealPlanningVocab + `",` +
 		`"mealType":"mp:mealType",` +
 		`"servings":"mp:servings",` +
 		`"@type":"` + typeIRI + `"`
@@ -130,7 +131,7 @@ func recipeType() application.PresetResourceType {
 		Description: "A food recipe with ingredients, steps, and nutritional information",
 		Context: json.RawMessage(`{
 	"@vocab":"https://schema.org/","@type":"Recipe",
-	"mp":"https://weos.io/vocab/meal-planning#",
+	"mp":"` + jsonld.MealPlanningVocab + `",
 	"fo":"http://purl.org/foodontology#",
 	"recipeInstructions":"https://schema.org/recipeInstructions",
 	"recipeIngredient":"fo:hasIngredient",
@@ -187,7 +188,7 @@ func howToStepType() application.PresetResourceType {
 		Description: "A single step in a recipe's instructions",
 		Context: json.RawMessage(`{
 	"@vocab":"https://schema.org/","@type":"HowToStep",
-	"mp":"https://weos.io/vocab/meal-planning#",
+	"mp":"` + jsonld.MealPlanningVocab + `",
 	"recipe":"https://schema.org/isPartOf"
 }`),
 		Schema: json.RawMessage(`{
@@ -214,7 +215,7 @@ func ingredientType() application.PresetResourceType {
 	"fo":"http://purl.org/foodontology#",
 	"skos":"http://www.w3.org/2004/02/skos/core#",
 	"suitableForDiet":"https://schema.org/suitableForDiet",
-	"mp":"https://weos.io/vocab/meal-planning#",
+	"mp":"` + jsonld.MealPlanningVocab + `",
 	"alternateNames":"skos:altLabel",
 	"shoppingCategory":"fo:ShoppingCategory",
 	"season":"fo:at_its_best",
