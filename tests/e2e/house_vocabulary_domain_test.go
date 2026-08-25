@@ -139,7 +139,8 @@ func initHouseVocabularyScenario(sc *godog.ScenarioContext) {
 		w.storedEventsUnchanged)
 	sc.Step(`^the event feed holds the same events in the same order as before the run$`, w.eventFeedSameOrder)
 	sc.Step(`^every event keeps its aggregate id, sequence number and event type$`, w.eventsKeepIdentity)
-	sc.Step(`^no event of a type other than "([^"]*)" or "([^"]*)" was re-stamped$`, w.onlyTheseEventTypesRewritten)
+	sc.Step(`^no event of a type other than "([^"]*)", "([^"]*)", "([^"]*)" or "([^"]*)" was re-stamped$`,
+		w.onlyTheseFourEventTypesRewritten)
 	sc.Step(`^the entity node of the stored event for the "([^"]*)" "([^"]*)" is byte-identical to the one stored `+
 		`before the run apart from its "@type"$`, w.entityNodeUnchangedApartFromType)
 	sc.Step(`^the stored event for the "([^"]*)" "([^"]*)" maps "([^"]*)" to "([^"]*)" in its own context$`,
@@ -151,6 +152,8 @@ func initHouseVocabularyScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the "([^"]*)" "([^"]*)" carries the RDF type "([^"]*)" in the stored document$`, w.resourceCarriesType)
 	sc.Step(`^every "([^"]*)" resource carries the same RDF type in the stored document$`, w.everyResourceSameType)
 	sc.Step(`^no resource carries an RDF type under "([^"]*)" in the stored document$`, w.noResourceCarriesTypeUnder)
+	sc.Step(`^no "([^"]*)" resource carries an RDF type under "([^"]*)" in the stored document$`,
+		w.noResourceOfTypeCarriesTypeUnder)
 	sc.Step(`^the stored document states "([^"]*)" from the "([^"]*)" "([^"]*)" to the "([^"]*)" "([^"]*)"$`,
 		w.documentStatesEdge)
 	sc.Step(`^the stored document states no edge under "([^"]*)" from the "([^"]*)" "([^"]*)"$`,
@@ -1124,4 +1127,37 @@ func (w *vocabWorld) documentCarriesEdge(slug, name, property, targetSlug, targe
 		}
 	}
 	return fmt.Errorf("the document of %s %q carries no %q edge to %s (edges: %v)", slug, name, property, want, node)
+}
+
+func (w *vocabWorld) noResourceOfTypeCarriesTypeUnder(slug, ns string) error {
+	for key, id := range w.createdIDs {
+		if !strings.HasPrefix(key, slug+"/") {
+			continue
+		}
+		doc, embedded, err := w.document(id)
+		if err != nil {
+			return err
+		}
+		if got := classOf(doc, embedded); strings.HasPrefix(got, ns) {
+			return fmt.Errorf("%s carries the RDF type %s, under %s", key, got, ns)
+		}
+	}
+	return nil
+}
+
+func (w *vocabWorld) onlyTheseFourEventTypesRewritten(a, b, c, d string) error {
+	before, after, err := w.beforeAndAfter()
+	if err != nil {
+		return err
+	}
+	allowed := map[string]bool{a: true, b: true, c: true, d: true}
+	for i := range before {
+		if i >= len(after) || string(before[i].Payload) == string(after[i].Payload) {
+			continue
+		}
+		if t := after[i].EventType; !allowed[t] {
+			return fmt.Errorf("event %s of type %s was re-stamped; only %s, %s, %s and %s may be", after[i].ID, t, a, b, c, d)
+		}
+	}
+	return nil
 }

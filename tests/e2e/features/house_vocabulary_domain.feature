@@ -1,4 +1,4 @@
-@wip @issue-520
+@issue-520
 Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   As an operator whose graph is queried across presets and may one day be federated
   I want every house predicate and class to resolve under https://weos.io/vocab/…
@@ -432,7 +432,9 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the operator reprojects the event feed
     Then the "food-item" "Garlic head" carries the RDF type "https://weos.io/vocab/meal-planning#FoodItem" in the stored document
     And every "food-item" resource carries the same RDF type in the stored document
-    And no resource carries an RDF type under "https://weos.org/" in the stored document
+    # Scoped to food-item (amended 2026-08-25, approved): the pantry and ingredient a
+    # food-item REQUIRES are fixtures whose types the lever never re-mapped.
+    And no "food-item" resource carries an RDF type under "https://weos.org/" in the stored document
 
   # A re-stamp rewrites stored events. The guarantee that makes that acceptable
   # is that nothing a reader sees moves — the projection and the API were
@@ -482,6 +484,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the operator installs the "<preset>" preset
     And I create a "<slug>" named "<name>" with "<property>" set to "<value>"
     And the twin restarts on the build that moved the vocabulary
+    And the operator maps "<prefix>" to "<namespace>" in the stored "<slug>" context
     And the operator maps "<property>" to "<new predicate>" in the stored "<slug>" context
     When the operator re-stamps the stored documents and writes
     And the operator reprojects the event feed
@@ -489,10 +492,10 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the stored document states no statement under "https://weos.org/" about the "<slug>" "<name>"
 
     Examples:
-      | preset | slug        | name    | property     | value          | new predicate                                 |
-      | memory | playbook    | Reorder | trigger      | pantry is low  | https://weos.io/vocab/memory#triggerCondition |
-      | memory | fact        | Allergy | confidence   | 0.9            | https://weos.io/vocab/memory#confidence       |
-      | agents | agent-skill | Shopper | instructions | Build the list | https://weos.io/vocab/agents#instructions     |
+      | preset | slug        | name    | property     | value          | new predicate                                 | prefix | namespace                     |
+      | memory | playbook    | Reorder | trigger      | pantry is low  | https://weos.io/vocab/memory#triggerCondition | mem    | https://weos.io/vocab/memory# |
+      | memory | fact        | Allergy | confidence   | 0.9            | https://weos.io/vocab/memory#confidence       | mem    | https://weos.io/vocab/memory# |
+      | agents | agent-skill | Shopper | instructions | Build the list | https://weos.io/vocab/agents#instructions     | ag     | https://weos.io/vocab/agents# |
 
   # Same default as the normalization it extends: an operator inspects before
   # rewriting stored events, and the report is per resource type so a large
@@ -560,7 +563,9 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And the stored event for the "food-item" "Garlic head" keys its "ingredient" edge by the property name
     And the event feed holds the same events in the same order as before the run
     And every event keeps its aggregate id, sequence number and event type
-    And no event of a type other than "Resource.Created" or "Resource.Updated" was re-stamped
+    # Triple.* move with the document (amended 2026-08-25, approved): left on the old IRI,
+    # a reprojection folds the old predicate back in as a second edge.
+    And no event of a type other than "Resource.Created", "Resource.Updated", "Triple.Created" or "Triple.Deleted" was re-stamped
     When the operator reprojects the event feed
     Then reading the "food-item" "Garlic head" back through the projection returns "unit" as "clove"
     And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
@@ -569,7 +574,11 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   # is fed by `Triple.Created` payloads, which a re-stamp does not rewrite and a
   # reprojection replays verbatim. An operator reading only the knowledge graph
   # would conclude the whole instance moved; it did not.
-  Scenario: The triples table keeps the predicate it recorded at write time
+  # Amended 2026-08-25 (approved): --restamp moves the aggregate's Triple.* events too, so
+  # the triples table now receives the current predicate on reproject. The remaining limit
+  # is that the triple projection is upsert-only — the row under the OLD predicate lingers
+  # until the projection is truncated and rebuilt.
+  Scenario: The triples table follows the re-stamped predicate on reproject
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
     And an "ingredient" named "Garlic" exists
@@ -579,7 +588,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     When the operator re-stamps the stored documents and writes
     And the operator reprojects the event feed
     Then the stored document states "https://weos.io/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
-    But the triple store holds "https://weos.org/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
+    And the triple store holds "https://weos.io/vocab/meal-planning#isInstanceOf" from the "food-item" "Garlic head" to the "ingredient" "Garlic"
     And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
 
   # ===========================================================================
@@ -588,7 +597,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   # `adopt-term` (CONTRACT 4). These stay @wip when the rest goes green.
   # ===========================================================================
 
-  @needs-518
+  @wip @needs-518
   Scenario: The held prefix is reported by held-terms so the operator can see the decision
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
@@ -596,7 +605,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     When the operator lists the held terms for "meal-planning" "food-item"
     Then "mp" is reported as held, stored at "https://weos.org/vocab/meal-planning#" and offered at "https://weos.io/vocab/meal-planning#"
 
-  @needs-518
+  @wip @needs-518
   Scenario: Adopting the held prefix moves the stored context and records what the edges use
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
@@ -611,7 +620,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     When the operator reprojects the event feed
     Then reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
 
-  @needs-518
+  @wip @needs-518
   Scenario: A write made after adoption lands on weos.io beside an edge that predates it
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
@@ -625,7 +634,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
     And reading the "food-item" "Lime wedge" back through the projection returns "ingredient" as the "ingredient" "Garlic"
     And reading the "food-item" "Garlic head" back through the projection returns "ingredient" as the "ingredient" "Garlic"
 
-  @needs-518
+  @wip @needs-518
   Scenario: The boot settles once every held term is adopted
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "memory" preset
@@ -643,7 +652,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   # every historical IRI and reprojecting must change nothing. If it does, the
   # epic's "normalize before you alias" claim is false for the presets that
   # actually ship.
-  @needs-518
+  @wip @needs-518
   Scenario: On a normalized instance the adoption needs no alias at all
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
@@ -664,7 +673,7 @@ Feature: WeOS-minted vocabulary resolves on the domain WeOS owns
   # see. Whatever #518 decides, the operator must be told: this scenario asserts
   # the class move is REPORTED at adoption time, not discovered later in the
   # graph.
-  @needs-518
+  @wip @needs-518
   Scenario: Adopting a prefix that also moves the class says so
     Given a WeOS database provisioned by the build before the vocabulary moved
     And the operator installs the "meal-planning" preset
